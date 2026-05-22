@@ -1,0 +1,33 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+.DS_Store
+
+# Generated CSS bundles (rebuilt on install)
+packages/cli/src/client/overlay-css.gen.ts
+packages/cli/src/client/overlay-css.gen.ts.map
+
+# NOTE: overlay-bundle.gen.ts is intentionally committed.
+# The SaaS web app consumes @vibeflow-tools/shared via git+ssh and needs
+# this file available at the tagged commit without a separate build step.
+
+*.bak
+test-results/
+playwright-report/
+**/tsconfig.tsbuildinfo
+.pnpm-store/
+.env
+.env.local
+secrets
+
+# Mutation testing reports (Stryker)
+packages/cli/reports/
+packages/cli/.stryker-tmp/
+
+# Internal task management (not for public)
+.vibeflow/
+
+# Code intelligence index
+.gitnexus/
+.code-review-graph/

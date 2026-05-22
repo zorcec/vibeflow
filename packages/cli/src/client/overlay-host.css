@@ -1,0 +1,14 @@
+  .vibeflow-overlay-active * {
+    cursor: crosshair !important;
+  }
+  .vibeflow-overlay-active .vibeflow-hover-highlight,
+  .vibeflow-overlay-active [data-vibeflow-id]:hover,
+  .vibeflow-overlay-active [data-testid]:hover {
+    outline: 2px solid #3b82f6 !important;
+    outline-offset: 2px !important;
+  }
+  .vibeflow-annotate-highlight {
+    outline: 2px solid #f59e0b !important;
+    outline-offset: 2px !important;
+    background-color: rgba(245, 158, 11, 0.08) !important;
+  }

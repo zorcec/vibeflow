@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Framework Source Extraction PoC</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 20px; background: #f8fafc; }
+    section { margin: 20px 0; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+    h2 { margin-top: 0; font-size: 16px; color: #334155; }
+    .element { padding: 8px 12px; margin: 4px 0; border-radius: 4px; background: #f1f5f9; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Framework Source Extraction PoC</h1>
+  <p>This page simulates framework internals for testing selector extraction.</p>
+
+  <!-- React ≤17: has _debugSource with file/line/col -->
+  <section id="react-17-section">
+    <h2>React ≤17 (with _debugSource)</h2>
+    <div id="react17-element" class="element">React 17 element with file + line + component</div>
+  </section>
+
+  <!-- React 18+: no _debugSource, only _debugOwner with component name -->
+  <section id="react-18-section">
+    <h2>React 18+ (component name only)</h2>
+    <div id="react18-element" class="element">React 18 element with component only</div>
+  </section>
+
+  <!-- React 19: _debugStack only (no _debugSource, no _debugOwner) -->
+  <section id="react-19-section">
+    <h2>React 19 (_debugStack only)</h2>
+    <div id="react19-element" class="element">React 19 element with _debugStack</div>
+  </section>
+
+  <!-- Vue 3: __vueParentComponent -->
+  <section id="vue3-section">
+    <h2>Vue 3 (__vueParentComponent)</h2>
+    <div id="vue3-element" class="element">Vue 3 element with file + component</div>
+  </section>
+
+  <!-- Vue 2: __vue__ -->
+  <section id="vue2-section">
+    <h2>Vue 2 (__vue__)</h2>
+    <div id="vue2-element" class="element">Vue 2 element with file + component</div>
+  </section>
+
+  <!-- Angular: ng.getComponent() -->
+  <section id="angular-section">
+    <h2>Angular (ng.getComponent)</h2>
+    <div id="angular-element" class="element">Angular element with component</div>
+  </section>
+
+  <!-- Preact: __P.__k -->
+  <section id="preact-section">
+    <h2>Preact (__P.__k)</h2>
+    <div id="preact-element" class="element">Preact element with component</div>
+  </section>
+
+  <!-- Vanilla: no framework, has test-id -->
+  <section id="vanilla-section">
+    <h2>Vanilla (no framework, data-testid)</h2>
+    <div id="vanilla-element" data-testid="submit-button" class="element">Vanilla element with data-testid</div>
+  </section>
+
+  <!-- Vanilla: no framework, no test-id (CSS fallback) -->
+  <section id="fallback-section">
+    <h2>Vanilla (CSS fallback only)</h2>
+    <div class="element fallback-target">Vanilla element — CSS selector only</div>
+  </section>
+
+  <!-- Proto-id: highest priority -->
+  <section id="protoid-section">
+    <h2>Proto-id (highest priority)</h2>
+    <div data-proto-id="hero-banner" class="element">Element with data-proto-id</div>
+  </section>
+
+  <script>
+    // ── Simulate React ≤17 fiber (with _debugSource) ──────────────────────────
+    (function() {
+      const el = document.getElementById('react17-element');
+      el['__reactFiber$abc123'] = {
+        _debugSource: { fileName: '/src/components/Dashboard.tsx', lineNumber: 42, columnNumber: 8 },
+        _debugOwner: { type: { displayName: 'Dashboard' } },
+        return: null,
+      };
+    })();
+
+    // ── Simulate React 18+ fiber (no _debugSource) ────────────────────────────
+    (function() {
+      const el = document.getElementById('react18-element');
+      el['__reactFiber$def456'] = {
+        _debugOwner: { type: { name: 'ProfileCard' } },
+        return: null,
+      };
+    })();
+
+    // ── Simulate React 19 fiber (_debugStack only) ────────────────────────────
+    (function() {
+      const el = document.getElementById('react19-element');
+      const fakeStack = new Error('react-stack-top-frame');
+      fakeStack.stack = [
+        'Error: react-stack-top-frame',
+        '    at jsxDEV (http://localhost:3000/_next/static/chunks/react.js:211:33)',
+        '    at SettingsPanel (http://localhost:3000/_next/static/chunks/app.js:99:5)',
+        '    at renderWithHooks (http://localhost:3000/_next/static/chunks/react-dom.js:999:10)',
+      ].join('\n');
+      el['__reactFiber$ghi789'] = {
+        _debugOwner: null,
+        _debugStack: fakeStack,
+        return: null,
+      };
+    })();
+
+    // ── Simulate Vue 3 ──────────────────────────────────────────────────────
+    (function() {
+      const el = document.getElementById('vue3-element');
+      el.__vueParentComponent = {
+        type: { __file: '/src/components/ProductCard.vue', name: 'ProductCard' },
+      };
+    })();
+
+    // ── Simulate Vue 2 ──────────────────────────────────────────────────────
+    (function() {
+      const el = document.getElementById('vue2-element');
+      el.__vue__ = {
+        $options: { __file: '/src/components/LegacyList.vue', name: 'LegacyList' },
+      };
+    })();
+
+    // ── Simulate Angular ──────────────────────────────────────────────────────
+    (function() {
+      const el = document.getElementById('angular-element');
+      window.ng = {
+        getComponent: function(node) {
+          return node === el ? { constructor: { name: 'HeroComponent' } } : null;
+        },
+      };
+    })();
+
+    // ── Simulate Preact ──────────────────────────────────────────────────────
+    (function() {
+      const el = document.getElementById('preact-element');
+      el.__P = {
+        __k: [{ type: { name: 'CounterWidget' } }],
+      };
+    })();
+
+    // ── Expose verification data for Playwright ─────────────────────────────
+    window.__FRAMEWORK_POC_READY__ = true;
+  </script>
+</body>
+</html>

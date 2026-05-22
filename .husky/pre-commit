@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -e
+
+# ── Secret scan ────────────────────────────────────────────────────────────────
+# Run gitleaks if available; skip gracefully if not installed (exit 127) or
+# if a non-executable Windows binary is found via WSL PATH.
+GITLEAKS_STATUS=0
+gitleaks detect --source . --staged --verbose 2>/dev/null || GITLEAKS_STATUS=$?
+if [ "$GITLEAKS_STATUS" -eq 0 ]; then
+  echo "✓ Secret scan passed."
+elif [ "$GITLEAKS_STATUS" -eq 127 ]; then
+  echo "⚠ gitleaks not installed — secret scan skipped."
+  echo "  Install: https://github.com/gitleaks/gitleaks#installing"
+else
+  echo "✗ Secret scan detected potential secrets! Commit aborted."
+  exit "$GITLEAKS_STATUS"
+fi
+
+# ── Type check ─────────────────────────────────────────────────────────────────
+echo "Running type check..."
+pnpm run check
+
+# ── Build ──────────────────────────────────────────────────────────────────────
+echo "Running build..."
+pnpm run build
+
+# ── Unit tests ─────────────────────────────────────────────────────────────────
+echo "Running unit tests..."
+pnpm run test
+
+echo "✓ All checks passed."

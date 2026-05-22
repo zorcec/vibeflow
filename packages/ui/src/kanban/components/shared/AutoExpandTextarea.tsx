@@ -1,0 +1,1 @@
+export { AutoExpandTextarea } from '../../../AutoExpandTextarea';

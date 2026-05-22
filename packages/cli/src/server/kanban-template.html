@@ -1,0 +1,2397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vibeflow — Kanban</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='none'%3E%3Crect width='18' height='18' rx='4' fill='%232563eb'/%3E%3Crect x='2.5' y='5' width='2' height='8' rx='1' fill='white' opacity='.7'/%3E%3Crect x='6.5' y='2' width='2' height='14' rx='1' fill='white'/%3E%3Crect x='10.5' y='6' width='2' height='6' rx='1' fill='white' opacity='.7'/%3E%3Crect x='14.5' y='4' width='2' height='10' rx='1' fill='white' opacity='.85'/%3E%3C/svg%3E">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } }
+    };
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    /* ── Global minimal scrollbar (all scrollable elements) ── */
+    * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .column-scroll { overflow-y: auto; max-height: calc(100vh - 160px); }
+
+    /* ── Custom horizontal scrollbar for the kanban board ── */
+    #kanban-board { scrollbar-width: none; -ms-overflow-style: none; }
+    #kanban-board::-webkit-scrollbar { display: none; }
+    #kanban-scroll-track {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 6px;
+      background: transparent; z-index: 40; pointer-events: none;
+    }
+    #kanban-scroll-thumb {
+      position: absolute; top: 1px; height: 4px; border-radius: 2px;
+      background: #334155; cursor: pointer; pointer-events: auto;
+      transition: background 0.15s;
+    }
+    #kanban-scroll-thumb:hover, #kanban-scroll-thumb.dragging { background: #475569; }
+
+    .task-card { cursor: grab; height: 108px; display: flex; flex-direction: column; overflow: hidden; }
+    .task-card:active { cursor: grabbing; }
+    .task-card.dragging { opacity: 0.4; }
+
+    .drag-over { outline: 2px dashed #3b82f6; outline-offset: -3px; border-radius: 10px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: center; justify-content: center; }
+    .modal-box { background: #1e293b; border: 1px solid #334155; border-radius: 14px; width: 520px; max-width: 95vw; overflow: hidden; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(96,165,250,0.3); border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    .type-picker { display:flex; align-items:center; gap:6px; }
+    .type-picker-trigger {
+      display:flex; align-items:center; gap:6px;
+      height:30px; padding:0 10px; border-radius:8px;
+      border:1px solid #334155; background:#0f172a; color:#cbd5e1;
+      font-size:12px; font-weight:500; cursor:pointer;
+    }
+    .type-picker-trigger:hover { border-color:#475569; color:#e2e8f0; }
+    .type-picker-options { display:none; align-items:center; gap:4px; }
+    .type-picker-options.open { display:flex; }
+    .type-picker-option {
+      width:28px; height:28px; border-radius:7px;
+      border:1px solid #334155; background:#0f172a; color:#cbd5e1;
+      display:flex; align-items:center; justify-content:center; cursor:pointer;
+      font-size:13px;
+    }
+    .type-picker-option:hover { border-color:#60a5fa; color:#bfdbfe; }
+
+    /* ── Detail panel ── */
+    #detail-panel-container { display:flex; flex:1; overflow:hidden; min-height:0; }
+    #kanban-board { flex:1; overflow-x:auto; overflow-y:hidden; }
+    #detail-panel {
+      width: 420px;
+      flex-shrink: 0;
+      background: #060d1a;
+      border-left: 1px solid #1e293b;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      transform: translateX(420px);
+      transition: transform 0.2s ease-out;
+    }
+    #detail-panel.open { transform: translateX(0); }
+    .dp-header { padding: 14px 16px 10px; border-bottom: 1px solid #1e293b; background: #080f1e; flex-shrink: 0; }
+    .dp-tabs { display:flex; gap:0; border-bottom:1px solid #1e293b; background:#080f1e; flex-shrink:0; }
+    .dp-tab { padding:8px 14px; font-size:12px; font-weight:500; color:#475569; cursor:pointer; border-bottom:2px solid transparent; transition:color .12s,border-color .12s; background:none; border-top:none; border-left:none; border-right:none; }
+    .dp-tab:hover { color:#94a3b8; }
+    .dp-tab.active { color:#93c5fd; border-bottom-color:#3b82f6; }
+    .dp-body { flex:1; overflow:hidden; display:flex; flex-direction:column; gap:12px; min-height:0; }
+    .dp-body > .dp-pane { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; min-height:0; }
+    .dp-body > .dp-pane > .dp-pane-content { flex-shrink:0; display:flex; flex-direction:column; gap:12px; }
+    .dp-footer { padding:10px 16px 12px; border-top:1px solid #1e293b; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:8px; background:#060d1a; }
+    .dp-source-pill {
+      display:inline-flex; align-items:center; gap:3px;
+      padding:2px 7px; border-radius:6px; font-size:10px; font-family:monospace;
+      background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15); color:#60a5fa;
+      text-decoration:none; transition:background .1s,border-color .1s; white-space:nowrap;
+    }
+    .dp-source-pill:hover { background:rgba(59,130,246,0.12); border-color:rgba(59,130,246,0.3); }
+    .dp-status-btn {
+      padding:3px 10px; border-radius:6px; font-size:10px; font-weight:500;
+      border:1px solid #334155; color:#64748b; background:transparent; cursor:pointer;
+      transition:background .12s,border-color .12s,color .12s;
+    }
+    .dp-status-btn:hover { border-color:#475569; color:#94a3b8; }
+    .dp-status-btn.active-backlog { border-color:#475569; background:rgba(100,116,139,0.1); color:#94a3b8; }
+    .dp-status-btn.active-todo { border-color:rgba(245,158,11,0.5); background:rgba(245,158,11,0.1); color:#f59e0b; }
+    .dp-status-btn.active-in-progress { border-color:rgba(59,130,246,0.5); background:rgba(59,130,246,0.1); color:#60a5fa; }
+    .dp-status-btn.active-review { border-color:rgba(168,85,247,0.5); background:rgba(168,85,247,0.1); color:#a855f7; }
+    .dp-status-btn.active-done { border-color:rgba(34,197,94,0.4); background:rgba(34,197,94,0.08); color:#22c55e; }
+    .dp-input {
+      width:100%; padding:7px 10px; border:1px solid #1e3a5f; border-radius:8px;
+      background:#050d1a; color:#e2e8f0; font-size:13px; font-family:inherit;
+      outline:none; transition:border-color .12s,box-shadow .12s; box-sizing:border-box;
+    }
+    .dp-input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.1); }
+    .dp-input::placeholder { color:#334155; }
+    .dp-textarea {
+      width:100%; min-height:100px; padding:8px 10px; border:1px solid #1e3a5f; border-radius:8px;
+      background:#050d1a; color:#e2e8f0; font-size:12px; font-family:monospace;
+      line-height:1.6; resize:vertical; outline:none; box-sizing:border-box;
+      transition:border-color .12s,box-shadow .12s;
+    }
+    .dp-textarea:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.1); }
+    .dp-textarea::placeholder { color:#334155; }
+    .dp-meta-label { font-size:10px; font-weight:600; color:#475569; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 h-screen overflow-hidden flex flex-col" data-spota-cli-kanban="true">
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header class="px-5 py-3 flex items-center gap-3 border-b border-slate-800/60 flex-shrink-0">
+
+  <!-- Project identity -->
+  <div class="flex items-center gap-3 flex-shrink-0">
+    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+      <i data-lucide="layers" class="w-4 h-4 text-white"></i>
+    </div>
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-sm font-semibold text-white leading-tight" id="header-project-name">Proto Board</h1>
+        <!-- Live connection status pill — toggled by WS connect/disconnect -->
+        <div id="header-live-pill" class="hidden items-center gap-1.5 bg-green-950/30 border border-green-900/30 rounded-full px-2 py-0.5">
+          <div class="w-1.5 h-1.5 rounded-full bg-green-400" id="header-live-dot" style="animation:pulse-live 2s ease-in-out infinite;"></div>
+          <span class="text-[10px] font-medium text-green-400">live · :__PORT__</span>
+        </div>
+      </div>
+      <p class="text-[10px] text-slate-500 font-mono mt-0.5" id="task-summary">Loading…</p>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="flex-1 flex justify-center px-4">
+    <div class="relative w-full max-w-sm">
+      <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none"></i>
+      <input id="global-search" type="text" placeholder="Search tasks, files, components…"
+        class="w-full pl-9 pr-8 py-1.5 rounded-lg bg-slate-800 border border-slate-700/60 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+        autocomplete="off" spellcheck="false">
+      <button id="global-search-clear" title="Clear search"
+        class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors hidden">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex items-center gap-2 flex-shrink-0">
+    <!-- Settings -->
+    <button id="btn-settings" title="Settings"
+      class="w-7 h-7 flex items-center justify-center border border-slate-700/60 bg-slate-800 hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 rounded-lg transition-colors">
+      <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+    </button>
+  </div>
+</header>
+<style>
+  @keyframes pulse-live { 0%,100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.4); } 50% { box-shadow: 0 0 0 4px rgba(74,222,128,0); } }
+</style>
+
+<!-- ── Agent Status Bar — hidden until agent reports activity ────────────── -->
+<div id="agent-status-bar" style="display:none;padding:8px 24px;background:rgba(99,102,241,0.06);border-bottom:1px solid rgba(99,102,241,0.18);">
+  <div style="display:flex;align-items:center;gap:8px;max-width:100%;">
+    <div style="width:7px;height:7px;border-radius:50%;background:#818cf8;flex-shrink:0;animation:agent-pulse 1.8s ease-in-out infinite;"></div>
+    <span id="agent-status-message" style="font-size:12px;color:#a5b4fc;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+    <span style="flex:1;"></span>
+    <button id="agent-status-dismiss" title="Dismiss" style="color:#64748b;background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;flex-shrink:0;">✕</button>
+  </div>
+</div>
+<style>
+  @keyframes agent-pulse { 0%,100% { opacity:.5; } 50% { opacity:1; } }
+</style>
+
+<!-- ── Main content: board + detail panel ────────────────────────────────── -->
+<div id="detail-panel-container">
+<!-- ── Kanban board ───────────────────────────────────────────────────────── -->
+<main id="kanban-board" class="px-6 py-5 flex gap-4 overflow-x-auto overflow-y-hidden flex-1">
+  <!-- columns rendered by JS -->
+</main>
+
+<!-- ── Task Detail Panel ─────────────────────────────────────────────────── -->
+<aside id="detail-panel">
+  <!-- Panel header -->
+  <div class="dp-header">
+    <!-- Title row -->
+    <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">
+      <input id="dp-title" class="dp-input" type="text" placeholder="Task title…"
+        style="flex:1;font-size:14px;font-weight:600;padding:4px 8px;border-color:transparent;background:transparent;"
+        onfocus="this.style.borderColor='#3b82f6';this.style.background='#050d1a'"
+        onblur="this.style.borderColor='transparent';this.style.background='transparent'">
+      <button id="dp-close" title="Close panel"
+        style="width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:6px;border:none;background:transparent;color:#475569;cursor:pointer;transition:background .12s,color .12s;"
+        onmouseover="this.style.background='#1e293b';this.style.color='#94a3b8'"
+        onmouseout="this.style.background='transparent';this.style.color='#475569'">
+        <i data-lucide="x" style="width:14px;height:14px;"></i>
+      </button>
+    </div>
+    <!-- Type picker + meta row -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <div id="dp-type-picker" class="type-picker"></div>
+      <div id="dp-meta-row" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;"></div>
+    </div>
+    <!-- Status selector -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <span style="font-size:10px;color:#475569;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;">Status</span>
+      <button class="dp-status-btn" data-status="backlog">backlog</button>
+      <button class="dp-status-btn" data-status="todo">todo</button>
+      <button class="dp-status-btn" data-status="in-progress">in-progress</button>
+      <button class="dp-status-btn" data-status="review">review</button>
+      <button class="dp-status-btn" data-status="done">done</button>
+    </div>
+  </div>
+
+  <!-- Tabs (hidden in add mode) -->
+  <div class="dp-tabs" id="dp-tabs-row">
+    <button class="dp-tab active" id="dp-tab-details">Details</button>
+    <button class="dp-tab" id="dp-tab-comments">Comments <span id="dp-comment-count" style="color:#475569;font-size:10px;"></span></button>
+    <button class="dp-tab" id="dp-tab-files">Files <span id="dp-file-count" style="color:#475569;font-size:10px;"></span></button>
+  </div>
+
+  <!-- Panel body -->
+  <div class="dp-body">
+
+    <!-- ── Details pane ── -->
+    <div class="dp-pane" id="dp-details-pane">
+      <!-- flex-shrink:0 wrapper ensures content overflows the pane (not shrinks), enabling scroll -->
+      <div class="dp-pane-content">
+      <!-- Description tabs: Edit / Preview -->
+      <div>
+        <div class="dp-meta-label">Description</div>
+        <div style="display:flex;gap:0;border-bottom:1px solid #1e293b;margin-bottom:6px;">
+          <button id="dp-desc-tab-edit" style="padding:4px 10px;font-size:11px;font-weight:500;border-bottom:2px solid #3b82f6;color:#60a5fa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Edit</button>
+          <button id="dp-desc-tab-preview" style="padding:4px 10px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Preview</button>
+        </div>
+        <textarea id="dp-desc" class="dp-textarea" placeholder="Description (markdown)…"></textarea>
+        <div id="dp-desc-preview" style="display:none;min-height:80px;background:#050d1a;border:1px solid #1e3a5f;border-radius:8px;padding:10px;font-size:12px;color:#cbd5e1;line-height:1.7;overflow:auto;max-height:220px;"></div>
+      </div>
+
+      <!-- URL -->
+      <div id="dp-url-section" style="display:none;">
+        <div class="dp-meta-label">Page URL</div>
+        <div id="dp-url-value" style="font-family:monospace;font-size:12px;color:#60a5fa;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:6px;padding:6px 10px;word-break:break-all;"></div>
+      </div>
+
+      <!-- Agent / Model assignment -->
+      <div id="dp-agent-section">
+        <div class="dp-meta-label">Agent Assignment</div>
+        <div style="display:flex;gap:8px;">
+          <select id="dp-agent" class="dp-input" style="flex:1;padding:5px 8px;font-size:12px;cursor:pointer;">
+            <option value="">— No agent —</option>
+          </select>
+          <select id="dp-model" class="dp-input" style="flex:1;padding:5px 8px;font-size:12px;cursor:pointer;">
+            <option value="">— Default model —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Priority -->
+      <div>
+        <div class="dp-meta-label">Priority</div>
+        <select id="dp-priority" class="dp-input" style="padding:5px 8px;font-size:12px;cursor:pointer;width:auto;">
+          <option value="">—</option>
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+
+      <!-- Metadata row -->
+      <div id="dp-metadata" style="display:none;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div style="background:#0a0f1e;border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;color:#334155;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.04em;">Created</div>
+          <div id="dp-created" style="font-size:11px;color:#64748b;"></div>
+        </div>
+        <div style="background:#0a0f1e;border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;color:#334155;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.04em;">ID</div>
+          <div id="dp-id" style="font-size:10px;color:#64748b;font-family:monospace;"></div>
+        </div>
+        <div style="background:#0a0f1e;border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;color:#334155;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.04em;">Author</div>
+          <div id="dp-author" style="font-size:11px;color:#64748b;"></div>
+        </div>
+        <div id="dp-rb-section" style="display:none;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:8px 10px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <i data-lucide="clipboard-check" style="width:12px;height:12px;color:#c4b5fd;flex-shrink:0;"></i>
+            <span style="font-size:10px;color:#c4b5fd;font-weight:500;">Report back required</span>
+          </div>
+        </div>
+        <!-- Annotated element text (captured from page when task was created via overlay) -->
+        <div id="dp-annotated-text" style="display:none;grid-column:1/-1;background:#0a0f1e;border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;color:#334155;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Annotated element text</div>
+          <div id="dp-annotated-text-value" style="font-size:11px;color:#64748b;font-style:italic;white-space:pre-wrap;word-break:break-word;"></div>
+        </div>
+      </div>
+      </div><!-- end dp-pane-content -->
+    </div>
+
+    <!-- ── Comments pane ── -->
+    <div class="dp-pane" id="dp-comments-pane" style="display:none;">
+      <div id="dp-comments-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-bottom:8px;min-height:0;"></div>
+      <!-- Comment input -->
+      <div style="border-top:1px solid #1e293b;padding-top:8px;flex-shrink:0;">
+        <div style="display:flex;gap:0;margin-bottom:6px;border-bottom:1px solid #1e293b;">
+          <button id="dp-comment-tab-edit" style="padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Edit</button>
+          <button id="dp-comment-tab-preview" style="padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Preview</button>
+        </div>
+        <div style="position:relative;">
+          <textarea id="dp-comment-input" rows="3" placeholder="Add a comment… (markdown)"
+            style="width:100%;background:#050d1a;border:1px solid #1e3a5f;border-radius:8px;padding:8px 36px 8px 10px;font-size:12px;color:#e2e8f0;resize:none;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color .12s;"
+            onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#1e3a5f'"></textarea>
+          <button id="dp-comment-submit" title="Send (Ctrl+Enter)"
+            style="position:absolute;bottom:8px;right:8px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#7c3aed;border:none;border-radius:6px;cursor:pointer;color:#fff;transition:background .15s;"
+            onmouseover="this.style.background='#6d28d9'" onmouseout="this.style.background='#7c3aed'">
+            <i data-lucide="send-horizontal" style="width:12px;height:12px;pointer-events:none;"></i>
+          </button>
+        </div>
+        <div id="dp-comment-preview" style="display:none;min-height:60px;background:#050d1a;border:1px solid #1e3a5f;border-radius:8px;padding:8px 10px;font-size:12px;color:#cbd5e1;line-height:1.6;overflow:auto;max-height:150px;"></div>
+      </div>
+    </div>
+
+    <!-- ── Files pane ── -->
+    <div class="dp-pane" id="dp-files-pane" style="display:none;">
+      <div id="dp-files-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:0;padding-bottom:8px;"></div>
+      <div style="border-top:1px solid #1e293b;padding-top:8px;flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 10px;background:#0a0f1e;border:1px solid #1e293b;border-radius:8px;color:#94a3b8;font-size:12px;transition:all .15s;"
+          onmouseover="this.style.borderColor='#334155';this.style.color='#e2e8f0'" onmouseout="this.style.borderColor='#1e293b';this.style.color='#94a3b8'">
+          <i data-lucide="upload" style="width:12px;height:12px;"></i>
+          Upload
+          <input id="dp-file-upload" type="file" style="display:none;" multiple>
+        </label>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Panel footer -->
+  <div class="dp-footer">
+    <button id="dp-delete" style="display:none;color:#f87171;background:none;border:1px solid #334155;border-radius:7px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;"
+      onmouseover="this.style.borderColor='#f87171'" onmouseout="this.style.borderColor='#334155'">Delete</button>
+    <div style="flex:1;"></div>
+    <button id="dp-cancel" style="padding:5px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1;font-family:inherit;transition:all .15s;"
+      onmouseover="this.style.borderColor='#475569'" onmouseout="this.style.borderColor='#334155'">Cancel</button>
+    <button id="dp-save" style="padding:5px 18px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #1d4ed8;background:#2563eb;color:#fff;font-family:inherit;transition:background .15s;"
+      onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'">Add Task</button>
+  </div>
+</aside>
+</div><!-- end detail-panel-container -->
+
+<!-- ── Custom horizontal scrollbar track ─────────────────────────────────── -->
+<div id="kanban-scroll-track"><div id="kanban-scroll-thumb"></div></div>
+
+<!-- ── Settings modal ────────────────────────────────────────────────────── -->
+<div id="settings-modal" class="modal-backdrop hidden">
+  <div class="modal-box" style="width:480px;max-width:95vw;">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700/60">
+      <div class="flex items-center gap-2">
+        <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
+        <h2 class="font-semibold text-sm text-white">Settings</h2>
+      </div>
+      <button id="settings-close" class="text-slate-400 hover:text-slate-200 transition-colors">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <div class="px-5 py-5 flex flex-col gap-6">
+      <!-- Board Columns -->
+      <div>
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Board Columns</p>
+        <div id="settings-column-checkboxes" class="flex flex-col gap-2.5"></div>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 px-5 py-3 border-t border-slate-700/60">
+      <button id="settings-cancel" class="border border-slate-700 hover:bg-slate-800 text-slate-300 text-sm px-4 py-2 rounded-lg transition-colors">Cancel</button>
+      <button id="settings-apply" class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Column picker modal ───────────────────────────────────────────────── -->
+<!-- ── Unified task modal — shared for both Add and Edit operations ──────── -->
+<!-- Source: kanban-template.ts → openTaskModal()                             -->
+<!-- Unified modal for add & edit (single source of truth)                    -->
+<div id="task-modal" class="modal-backdrop hidden">
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;box-shadow:0 40px 100px rgba(0,0,0,0.8);width:min(800px,94vw);height:min(540px,88vh);display:flex;flex-direction:column;overflow:hidden;">
+    <!-- Header: title input + compact type picker + status select + close -->
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:18px 22px 12px;border-bottom:1px solid #334155;flex-shrink:0;">
+      <input id="task-modal-title" type="text" placeholder="Task title..."
+        style="flex:1;padding:0;background:transparent;border:none;border-radius:0;color:#f1f5f9;font-size:17px;font-weight:600;font-family:inherit;outline:none;line-height:1.4;">
+      <div id="task-type-picker" class="type-picker"></div>
+      <select id="task-modal-status"
+        style="padding:4px 9px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#cbd5e1;font-size:11px;font-family:inherit;cursor:pointer;outline:none;line-height:1.2;min-height:28px;" onfocus="this.style.borderColor='#60a5fa'" onblur="this.style.borderColor='#334155'">
+        <option value="backlog">Backlog</option>
+        <option value="todo" selected>To Do</option>
+        <option value="in-progress">In Progress</option>
+        <option value="review">In Review</option>
+        <option value="done">Done</option>
+      </select>
+      <button id="task-modal-close" style="color:#475569;background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:2px 4px;flex-shrink:0;" title="Close">✕</button>
+    </div>
+    <!-- Priority / Agent / Model — shown in edit mode, right after title -->
+    <select id="task-modal-type" style="display:none;">
+      <option value="Feature">Feature</option>
+      <option value="Bug">Bug</option>
+      <option value="Enhancement">Enhancement</option>
+      <option value="Research">Research</option>
+      <option value="Task" selected>Task</option>
+    </select>
+    <div id="task-modal-meta" style="display:none;padding:0 22px 10px;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;border-bottom:1px solid #334155;">
+      <div style="display:flex;align-items:center;gap:3px;">
+        <label style="font-size:10px;color:#64748b;user-select:none;">Priority</label>
+        <select id="task-modal-priority" class="meta-select" style="background:#0f172a;border:1px solid #334155;border-radius:6px;color:#cbd5e1;font-size:11px;padding:3px 6px;outline:none;cursor:pointer;min-height:24px;" onfocus="this.style.borderColor='#60a5fa'" onblur="this.style.borderColor='#334155'">
+          <option value="">—</option>
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:3px;">
+        <label style="font-size:10px;color:#64748b;user-select:none;">Agent</label>
+        <select id="task-modal-agent" class="meta-select" style="background:#0f172a;border:1px solid #334155;border-radius:6px;color:#cbd5e1;font-size:11px;padding:3px 6px;outline:none;cursor:pointer;min-width:72px;min-height:24px;" onfocus="this.style.borderColor='#60a5fa'" onblur="this.style.borderColor='#334155'">
+          <option value="">—</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:3px;">
+        <label style="font-size:10px;color:#64748b;user-select:none;">Model</label>
+        <select id="task-modal-model" class="meta-select" style="background:#0f172a;border:1px solid #334155;border-radius:6px;color:#cbd5e1;font-size:11px;padding:3px 6px;outline:none;cursor:pointer;min-width:96px;min-height:24px;" onfocus="this.style.borderColor='#60a5fa'" onblur="this.style.borderColor='#334155'">
+          <option value="">—</option>
+        </select>
+      </div>
+    </div>
+    <!-- Edit / Preview / Comments tabs -->
+    <div style="display:flex;padding:0 22px;border-bottom:1px solid #334155;flex-shrink:0;gap:0;">
+      <div id="task-tab-edit" style="padding:8px 16px;font-size:13px;color:#60a5fa;border-bottom:2px solid #3b82f6;font-weight:500;cursor:pointer;user-select:none;margin-bottom:-1px;">Edit</div>
+      <div id="task-tab-preview" style="padding:8px 16px;font-size:13px;color:#64748b;border-bottom:2px solid transparent;cursor:pointer;user-select:none;margin-bottom:-1px;">Preview</div>
+      <div id="task-tab-comments" style="display:none;padding:8px 16px;font-size:13px;color:#64748b;border-bottom:2px solid transparent;cursor:pointer;user-select:none;margin-bottom:-1px;">Comments <span id="task-modal-comment-badge" style="font-size:10px;color:#64748b;"></span></div>
+      <div id="task-tab-files" style="display:none;padding:8px 16px;font-size:13px;color:#64748b;border-bottom:2px solid transparent;cursor:pointer;user-select:none;margin-bottom:-1px;">Files <span id="task-modal-file-badge" style="font-size:10px;color:#64748b;"></span></div>
+    </div>
+    <!-- Body: editor pane + preview pane + comments pane -->
+    <div style="flex:1;display:flex;flex-direction:column;padding:12px 22px;overflow:hidden;gap:8px;min-height:0;">
+      <div id="task-modal-editor-pane" style="flex:1;display:flex;flex-direction:column;min-height:0;gap:6px;">
+        <textarea id="task-modal-desc" placeholder="Description (markdown supported)..."
+          style="flex:1;width:100%;min-height:0;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:'Menlo','Monaco','Courier New',monospace;line-height:1.6;padding:12px;resize:none;outline:none;box-sizing:border-box;"></textarea>
+        <div id="task-modal-source" style="display:none;font-family:monospace;font-size:9px;color:#334155;line-height:1.4;padding:2px 6px;background:transparent;border:none;border-radius:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex-shrink:0;opacity:0.6;">
+          <span id="task-modal-source-file" style="color:#38bdf8;opacity:0.7;"></span>
+          <span id="task-modal-source-component" style="color:#475569;"></span>
+          <span id="task-modal-source-selector" style="color:#64748b;"></span>
+          <span id="task-modal-source-url" style="color:#475569;"></span>
+        </div>
+      </div>
+      <div id="task-modal-preview-pane" style="display:none;flex:1;overflow:auto;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:16px;color:#e2e8f0;font-size:14px;line-height:1.7;min-height:0;"></div>
+      <!-- Inline comments pane (shown when Comments tab is active) -->
+      <div id="task-modal-comments-pane" style="display:none;flex:1;flex-direction:column;min-height:0;gap:0;overflow:hidden;">
+        <div id="task-modal-comments-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-bottom:8px;min-height:0;"></div>
+        <div style="border-top:1px solid #334155;padding-top:8px;flex-shrink:0;">
+          <div style="position:relative;">
+            <textarea id="task-modal-comment-input" rows="3" placeholder="Leave a comment… (markdown supported)"
+              style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 40px 8px 10px;font-size:12px;color:#e2e8f0;resize:none;outline:none;font-family:inherit;box-sizing:border-box;"></textarea>
+            <button id="task-modal-comment-submit" title="Send (Ctrl+Enter)"
+              style="position:absolute;bottom:8px;right:8px;padding:5px;line-height:0;display:flex;align-items:center;justify-content:center;background:#7c3aed;border:none;border-radius:6px;cursor:pointer;color:#fff;transition:background .15s;"
+              onmouseover="this.style.background='#6d28d9'" onmouseout="this.style.background='#7c3aed'">
+              <i data-lucide="send-horizontal" style="width:13px;height:13px;"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Task modal files pane -->
+      <div id="task-modal-files-pane" style="display:none;flex:1;flex-direction:column;min-height:0;gap:0;overflow:hidden;">
+        <div id="task-modal-files-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:8px;min-height:0;"></div>
+        <div style="border-top:1px solid #334155;padding-top:8px;flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <label class="flex items-center gap-2 cursor-pointer px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-sm text-slate-300 w-fit">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span>Upload file</span>
+            <input id="task-modal-file-upload" type="file" class="hidden" multiple>
+          </label>
+
+        </div>
+      </div>
+      <!-- Report-back notice -->
+      <div id="task-modal-report-back" style="display:none;align-items:center;gap:8px;border-radius:8px;padding:8px 12px;font-size:12px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25);color:#c4b5fd;flex-shrink:0;">
+        <i data-lucide="clipboard-check" style="width:13px;height:13px;flex-shrink:0;"></i>
+        <span><strong>Report back required</strong> — add a comment with your implementation report before marking this task done.</span>
+      </div>
+    </div>
+    <!-- Footer: delete | cancel + save -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 22px 14px;border-top:1px solid #334155;flex-shrink:0;">
+      <div>
+        <button id="task-modal-delete" style="display:none;color:#f87171;background:none;border:1px solid #334155;border-radius:7px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit;">Delete</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="task-modal-cancel" style="padding:7px 18px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#cbd5e1;font-family:inherit;">Cancel</button>
+        <button id="task-modal-save" style="padding:7px 24px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #1d4ed8;background:#2563eb;color:#fff;font-family:inherit;">Add Task</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Comments modal ──────────────────────────────────────────────────────── -->
+<div id="comments-modal" class="modal-backdrop hidden">
+  <div class="modal-box" style="width:600px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700/60 bg-slate-900/60 flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <i data-lucide="message-circle" class="w-4 h-4 text-slate-400"></i>
+        <span class="font-semibold text-sm text-white" id="comments-modal-title">Comments</span>
+      </div>
+      <button id="comments-modal-close" class="text-slate-400 hover:text-slate-200">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <!-- Tabs -->
+    <div class="flex border-b border-slate-700/60 flex-shrink-0">
+      <button id="comments-tab-comments" class="px-5 py-2.5 text-xs font-medium border-b-2 border-violet-500 text-violet-400 transition-colors">Comments</button>
+      <button id="comments-tab-files" class="px-5 py-2.5 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Files <span id="comments-file-count" class="ml-1 text-slate-500"></span></button>
+    </div>
+    <!-- Comments pane -->
+    <div id="comments-pane" class="flex flex-col flex-1 min-h-0">
+      <div id="comments-list" class="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3" style="min-height:0;"></div>
+      <div class="px-5 py-3 border-t border-slate-700/60 flex-shrink-0">
+        <!-- Edit / Preview tabs for comment input -->
+        <div class="flex gap-0 mb-2 border-b border-slate-700/40">
+          <button id="comment-input-tab-edit" style="padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Edit</button>
+          <button id="comment-input-tab-preview" style="padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;">Preview</button>
+        </div>
+        <div id="comment-input-editor" style="position:relative;">
+          <textarea id="comments-input" rows="4" placeholder="Leave a comment… (markdown supported)"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 resize-none focus:outline-none focus:border-violet-500"
+            style="padding-right:44px;padding-bottom:32px;box-sizing:border-box;"></textarea>
+          <label title="Attach file" style="position:absolute;bottom:8px;left:8px;cursor:pointer;color:#475569;transition:color .15s;"
+            onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">
+            <i data-lucide="paperclip" class="w-3.5 h-3.5"></i>
+            <input id="comment-file-input" type="file" class="hidden" multiple>
+          </label>
+          <button id="comments-submit" title="Send (Ctrl+Enter)"
+            class="bg-violet-700 hover:bg-violet-600 text-white rounded-lg transition-colors"
+            style="position:absolute;bottom:16px;right:8px;width:30px;height:30px;padding:0;line-height:0;display:flex;align-items:center;justify-content:center;">
+            <i data-lucide="send-horizontal" class="w-3.5 h-3.5" style="margin:0;pointer-events:none;"></i>
+          </button>
+        </div>
+        <div id="comment-input-preview" style="display:none;min-height:80px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-size:13px;color:#cbd5e1;line-height:1.6;overflow:auto;max-height:200px;"></div>
+      </div>
+    </div>
+    <!-- Files pane -->
+    <div id="files-pane" class="hidden flex flex-col flex-1 min-h-0">
+      <div id="files-list" class="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-2" style="min-height:0;"></div>
+      <div class="px-5 py-3 border-t border-slate-700/60 flex-shrink-0">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <label class="flex items-center gap-2 cursor-pointer px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-sm text-slate-300 w-fit">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span>Upload file</span>
+            <input id="file-upload-input" type="file" class="hidden" multiple>
+          </label>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">.md files render as markdown · images open as preview</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- File preview modal -->
+<div id="file-preview-modal" class="modal-backdrop hidden">
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);width:min(800px,92vw);height:min(85vh,85vh);display:flex;flex-direction:column;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #334155;flex-shrink:0;">
+      <span id="file-preview-name" style="font-size:13px;font-weight:500;color:#e2e8f0;font-family:monospace;"></span>
+      <button id="file-preview-close" style="color:#64748b;background:none;border:none;cursor:pointer;font-size:18px;padding:2px 4px;">✕</button>
+    </div>
+    <div id="file-preview-content" style="flex:1;overflow:auto;padding:16px;"></div>
+  </div>
+</div>
+
+
+<script>
+(function() {
+  const API = 'http://localhost:__PORT__/api/tasks';
+  const WS_URL = 'ws://localhost:__PORT__';
+
+  const COLUMNS = [
+    { id: 'backlog',     label: 'Backlog',     color: '#64748b', accent: 'rgba(100,116,139,0.15)' },
+    { id: 'todo',        label: 'To Do',       color: '#f59e0b', accent: 'rgba(245,158,11,0.1)' },
+    { id: 'in-progress', label: 'In Progress', color: '#3b82f6', accent: 'rgba(59,130,246,0.1)', glow: true },
+    { id: 'review',      label: 'In Review',   color: '#a78bfa', accent: 'rgba(167,139,250,0.1)' },
+    { id: 'done',        label: 'Done',        color: '#34d399', accent: 'rgba(52,211,153,0.08)' },
+  ];
+
+  const TYPE_COLORS = {
+    Feature: { bg: 'rgba(139,92,246,0.12)', text: '#c4b5fd', border: 'rgba(139,92,246,0.25)' },
+    Bug: { bg: 'rgba(239,68,68,0.1)', text: '#fca5a5', border: 'rgba(239,68,68,0.25)' },
+    Enhancement: { bg: 'rgba(245,158,11,0.1)', text: '#fcd34d', border: 'rgba(245,158,11,0.25)' },
+    Research: { bg: 'rgba(34,197,94,0.12)', text: '#86efac', border: 'rgba(34,197,94,0.25)' },
+    Task: { bg: 'rgba(59,130,246,0.1)', text: '#93c5fd', border: 'rgba(59,130,246,0.25)' },
+  };
+
+  const TYPE_ICONS = {
+    Feature: 'sparkles',
+    Bug: 'bug',
+    Enhancement: 'zap',
+    Research: 'flask-conical',
+    Task: 'square-check-big',
+  };
+
+  const PRIORITY_STYLES = {
+    Critical: 'color:#f87171;',
+    High: 'color:#fbbf24;',
+    Medium: 'color:#94a3b8;',
+    Low: 'color:#64748b;',
+  };
+
+  const LS_COLS_KEY = 'proto-kanban-visible-cols';
+
+  let tasks = [];
+  let ws = null;
+  let wsReconnectTimer = null;
+  let searchQuery = '';
+  let gitUserName = 'You';
+
+  // ── Column visibility ─────────────────────────────────────────────────────
+
+  function getVisibleCols() {
+    try {
+      const stored = localStorage.getItem(LS_COLS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return COLUMNS.map(c => c.id);
+  }
+
+  function setVisibleCols(ids) {
+    localStorage.setItem(LS_COLS_KEY, JSON.stringify(ids));
+  }
+
+  // ── Fetch & render ────────────────────────────────────────────────────────
+
+  function fetchTasks() {
+    fetch(API)
+      .then(r => r.json())
+      .then(d => { tasks = d.tasks || []; render(); })
+      .catch(() => {});
+  }
+
+  function matchesSearch(task) {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (task.title || '').toLowerCase().includes(q) ||
+           (task.description || '').toLowerCase().includes(q);
+  }
+
+  function render() {
+    const board = document.getElementById('kanban-board');
+    const visibleCols = getVisibleCols();
+    const filtered = tasks.filter(matchesSearch);
+    const inProgress = filtered.filter(t => t.status === 'in-progress').length;
+    const inReview = filtered.filter(t => t.status === 'review').length;
+    const open = filtered.filter(t => t.status !== 'done').length;
+    document.getElementById('task-summary').textContent = searchQuery
+      ? `${filtered.length} of ${tasks.length} tasks · ${open} open`
+      : `${open} open · ${inProgress} in‑progress · ${inReview} in review`;
+
+    board.innerHTML = '';
+    for (const col of COLUMNS) {
+      if (!visibleCols.includes(col.id)) continue;
+      const colTasks = filtered
+        .filter(t => t.status === col.id)
+        .sort((a, b) => (b.updated || b.created || '').localeCompare(a.updated || a.created || ''));
+      board.appendChild(buildColumn(col, colTasks));
+    }
+
+
+    lucide.createIcons();
+    attachDragListeners();
+  }
+
+  function buildColumn(col, colTasks) {
+    const section = document.createElement('section');
+    section.className = 'flex-1 min-w-64 max-w-96 rounded-xl flex flex-col';
+    section.style.background = '#0f172a';
+    section.style.border = col.glow
+      ? `1px solid ${col.color}33`
+      : '1px solid #1e293b';
+    section.style.minWidth = '19rem';
+    section.style.maxWidth = '27rem';
+
+    const dot = document.createElement('div');
+    dot.className = 'w-2.5 h-2.5 rounded-full flex-shrink-0';
+    dot.style.background = col.color;
+    if (col.glow) dot.style.boxShadow = `0 0 6px ${col.color}cc`;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'text-sm font-semibold';
+    nameEl.style.color = col.glow ? '#e2e8f0' : '#cbd5e1';
+    nameEl.textContent = col.label;
+
+    const badge = document.createElement('span');
+    badge.className = 'text-xs rounded-full px-2 py-0.5 font-medium border';
+    badge.style.cssText = `background:${col.accent};color:${col.color};border-color:${col.color}40;`;
+    badge.textContent = String(colTasks.length);
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'flex items-center gap-2';
+    titleRow.append(dot, nameEl, badge);
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.title = 'Add task to ' + col.label;
+    addBtn.textContent = '+';
+    addBtn.style.cssText = 'background:transparent;border:none;color:#64748b;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;border-radius:4px;transition:color 0.15s;';
+    addBtn.addEventListener('mouseenter', () => { addBtn.style.color = col.color; });
+    addBtn.addEventListener('mouseleave', () => { addBtn.style.color = '#64748b'; });
+    addBtn.addEventListener('click', () => openDetailPanel(null, 'details', col.id));
+
+    const hdr = document.createElement('div');
+    hdr.className = 'px-4 pt-4 pb-3 flex items-center justify-between';
+    hdr.style.borderBottom = col.glow ? `1px solid ${col.color}20` : '1px solid #1e293b';
+    hdr.appendChild(titleRow);
+    hdr.appendChild(addBtn);
+
+    const cards = document.createElement('div');
+    cards.className = 'column-scroll p-3 flex flex-col gap-2';
+    cards.dataset.status = col.id;
+    cards.addEventListener('dragover', onDragOver);
+    cards.addEventListener('dragleave', onDragLeave);
+    cards.addEventListener('drop', onDrop);
+    for (const t of colTasks) cards.appendChild(buildCard(t, col));
+
+    section.append(hdr, cards);
+
+    // Allow drops on the column header (outside the cards scroll area)
+    section.dataset.status = col.id;
+    section.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (!cards.contains(e.target)) section.classList.add('drag-over');
+    });
+    section.addEventListener('dragleave', e => {
+      if (!section.contains(e.relatedTarget)) section.classList.remove('drag-over');
+    });
+    section.addEventListener('drop', e => {
+      e.preventDefault();
+      section.classList.remove('drag-over');
+      cards.classList.remove('drag-over');
+      if (!dragTaskId) return;
+      const t = tasks.find(x => x.id === dragTaskId);
+      if (!t || t.status === col.id) return;
+      patchTask(dragTaskId, { status: col.id });
+      dragTaskId = null;
+    });
+
+    return section;
+  }
+
+  function buildCard(task, col) {
+    const card = document.createElement('article');
+    card.className = 'task-card rounded-lg p-3 transition-all group';
+    card.draggable = true;
+    card.dataset.taskId = task.id;
+
+    const effectiveType = task.type || 'Task';
+    const tc = TYPE_COLORS[effectiveType];
+    const iconName = TYPE_ICONS[effectiveType] || 'square-check-big';
+
+    // Subtle type-based card border tint; Critical/High priority intensifies border
+    const urgencyBorder = task.priority === 'Critical' ? 'rgba(248,113,113,0.3)'
+      : task.priority === 'High' ? 'rgba(251,191,36,0.2)' : null;
+    const cardBorder = urgencyBorder || (tc ? tc.border : '#334155');
+    card.style.cssText = col.glow
+      ? 'background:#0c1a2e;border:1px solid ' + col.color + '33;user-select:none;position:relative;height:108px;flex-shrink:0;'
+      : 'background:#1e293b;border:1px solid ' + cardBorder + ';user-select:none;position:relative;height:108px;flex-shrink:0;';
+
+    // Watermark type icon (top-right, baked into background)
+    const watermark = document.createElement('i');
+    watermark.dataset.lucide = iconName;
+    watermark.style.cssText = 'position:absolute;top:6px;right:6px;width:28px;height:28px;'
+      + 'color:' + (tc ? tc.text : '#93c5fd') + ';opacity:0.07;pointer-events:none;';
+    card.appendChild(watermark);
+
+    // Title row: type badge inline with title (no separate ID badge)
+    const titleRow = document.createElement('div');
+    titleRow.className = 'flex items-center gap-1.5 mb-1';
+
+    if (col.glow) {
+      const sp = document.createElement('span');
+      sp.className = 'spinner';
+      sp.style.cssText = 'flex-shrink:0;';
+      titleRow.appendChild(sp);
+    }
+
+    const title = document.createElement('h3');
+    title.className = 'text-sm font-medium leading-snug';
+    title.style.cssText = `color:${col.glow ? '#bfdbfe' : '#e2e8f0'};flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+    title.textContent = task.title;
+    titleRow.appendChild(title);
+
+    // Minimal priority flag icon in title row
+    if (task.priority && PRIORITY_STYLES[task.priority]) {
+      const priIcon = document.createElement('i');
+      priIcon.dataset.lucide = 'flag';
+      priIcon.style.cssText = 'width:10px;height:10px;flex-shrink:0;' + PRIORITY_STYLES[task.priority];
+      priIcon.title = task.priority;
+      titleRow.appendChild(priIcon);
+    }
+
+    card.appendChild(titleRow);
+
+    const desc = document.createElement('p');
+    desc.className = 'text-xs';
+    desc.style.cssText = 'color:' + (col.glow ? 'rgba(147,197,253,0.6)' : '#64748b') + ';flex:1;min-height:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;';
+    desc.textContent = task.description || '';
+    card.appendChild(desc);
+
+    // Comments icon: shown when count > 0, with "new" dot from localStorage
+    const commentCount = task.commentCount || 0;
+    // Bottom row: keep controls right-aligned for consistent card composition.
+    const bottomRow = document.createElement('div');
+    bottomRow.className = 'flex items-center gap-2';
+    bottomRow.style.cssText = 'flex-shrink:0;margin-top:4px;padding-top:4px;background:transparent;'
+
+    // Report-back checkbox: shown when task.reportBack is true (inline in bottom row)
+    if (task.reportBack) {
+      const rbCheck = document.createElement('input');
+      rbCheck.type = 'checkbox';
+      rbCheck.id = 'rb-' + task.id;
+      rbCheck.style.cssText = 'width:10px;height:10px;cursor:pointer;accent-color:#a78bfa;flex-shrink:0;';
+      rbCheck.title = 'Mark report submitted';
+      const rbStored = localStorage.getItem('proto-rb-' + task.id) === 'done';
+      rbCheck.checked = rbStored;
+      rbCheck.addEventListener('change', (e) => {
+        e.stopPropagation();
+        localStorage.setItem('proto-rb-' + task.id, rbCheck.checked ? 'done' : '');
+      });
+      const rbLabel = document.createElement('label');
+      rbLabel.htmlFor = 'rb-' + task.id;
+      rbLabel.style.cssText = 'font-size:9px;color:#a78bfa;cursor:pointer;user-select:none;';
+      rbLabel.textContent = 'RB';
+      rbLabel.addEventListener('click', (e) => e.stopPropagation());
+      bottomRow.append(rbCheck, rbLabel);
+    }
+
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'flex:1;';
+    bottomRow.appendChild(spacer);
+
+    // Unified icon button factory — same hover/border effect for all card icons.
+    // baseColor: default icon color; hoverColor: color on hover; hasNotif: show notification dot.
+    function makeCardIconBtn(icon, label, baseColor, hoverColor, hasNotif, notifColor) {
+      const btn = document.createElement('button');
+      btn.className = 'flex items-center gap-1 text-xs rounded-md';
+      btn.style.cssText = 'color:' + baseColor + ';padding:2px 4px;border:1px solid transparent;background:transparent;cursor:pointer;transition:color .12s,border-color .12s,background .12s;flex-shrink:0;';
+      const notifDot = hasNotif
+        ? ' <span style="width:4px;height:4px;background:' + (notifColor || baseColor) + ';border-radius:50%;display:inline-block;flex-shrink:0;"></span>'
+        : '';
+      btn.innerHTML = '<i data-lucide="' + icon + '" style="width:11px;height:11px;display:inline-block;flex-shrink:0;"></i>'
+        + (label ? ' <span>' + label + '</span>' : '') + notifDot;
+      btn.addEventListener('mouseenter', () => {
+        btn.style.borderColor = '#334155';
+        btn.style.background = '#1e293b';
+        btn.style.color = hoverColor;
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.borderColor = 'transparent';
+        btn.style.background = 'transparent';
+        btn.style.color = baseColor;
+      });
+      return btn;
+    }
+
+    const hasNew = commentCount > 0 && isNewComments(task.id, commentCount);
+    const commentBaseColor = hasNew ? '#a78bfa' : (commentCount > 0 ? '#94a3b8' : '#475569');
+    const commentHoverColor = hasNew ? '#c4b5fd' : '#e2e8f0';
+    const commentLabel = commentCount > 0 ? String(commentCount) : '';
+    const commentBtn = makeCardIconBtn('message-circle', commentLabel, commentBaseColor, commentHoverColor, hasNew, '#a78bfa');
+    commentBtn.title = commentCount > 0 ? `${commentCount} comment(s)` : 'Add comment';
+    commentBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDetailPanel(task, 'comments');
+    });
+    bottomRow.appendChild(commentBtn);
+
+    const fileCount = task.fileCount || 0;
+    if (fileCount > 0) {
+      const hasNewFiles = isNewFiles && isNewFiles(task.id, fileCount);
+      const fileBaseColor = hasNewFiles ? '#38bdf8' : '#60a5fa';
+      const fileBtn = makeCardIconBtn('paperclip', String(fileCount), fileBaseColor, '#bae6fd', hasNewFiles, '#38bdf8');
+      fileBtn.title = `${fileCount} file(s) attached`;
+      fileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDetailPanel(task, 'files');
+      });
+      bottomRow.appendChild(fileBtn);
+    }
+
+
+    card.addEventListener('click', () => openDetailPanel(task));
+    card.addEventListener('dragstart', onDragStart);
+    return card;
+  }
+
+  // ── Drag-and-drop ─────────────────────────────────────────────────────────
+
+  let dragTaskId = null;
+  let boardScrollTimer = null;
+
+  function attachDragListeners() {}
+
+  function onDragStart(e) {
+    dragTaskId = e.currentTarget.dataset.taskId;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }
+
+  function onDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      e.currentTarget.classList.remove('drag-over');
+    }
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const newStatus = e.currentTarget.dataset.status;
+    if (!dragTaskId || !newStatus) return;
+    const task = tasks.find(t => t.id === dragTaskId);
+    if (!task || task.status === newStatus) return;
+    patchTask(dragTaskId, { status: newStatus });
+    dragTaskId = null;
+  }
+
+  // Auto-scroll the board horizontally when dragging near its left/right edges
+  (function setupBoardAutoScroll() {
+    const board = document.getElementById('kanban-board');
+    const EDGE = 80;
+    const SPEED = 10;
+
+    function stopScroll() {
+      if (boardScrollTimer) { clearInterval(boardScrollTimer); boardScrollTimer = null; }
+    }
+
+    board.addEventListener('dragover', (e) => {
+      const rect = board.getBoundingClientRect();
+      stopScroll();
+      if (e.clientX < rect.left + EDGE) {
+        boardScrollTimer = setInterval(() => { board.scrollLeft -= SPEED; }, 16);
+      } else if (e.clientX > rect.right - EDGE) {
+        boardScrollTimer = setInterval(() => { board.scrollLeft += SPEED; }, 16);
+      }
+    });
+
+    board.addEventListener('dragleave', stopScroll);
+  })();
+
+  document.addEventListener('dragend', () => {
+    if (boardScrollTimer) { clearInterval(boardScrollTimer); boardScrollTimer = null; }
+    dragTaskId = null;
+    document.querySelectorAll('.task-card.dragging').forEach(el => el.classList.remove('dragging'));
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  });
+
+  // ── Task PATCH ────────────────────────────────────────────────────────────
+
+  function patchTask(id, updates) {
+    fetch(API + '/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.success) { const t = tasks.find(x => x.id === id); if (t) Object.assign(t, d.task); render(); } })
+      .catch(() => {});
+  }
+
+  function deleteTask(id) {
+    fetch(API + '/' + id, { method: 'DELETE' })
+      .then(() => { tasks = tasks.filter(t => t.id !== id); render(); })
+      .catch(() => {});
+  }
+
+  // ── Unified task modal (add + edit) ──────────────────────────────────────
+  // Single form reused for both creating and editing tasks (same design).
+
+  let modalMode = 'add'; // 'add' | 'edit'
+  let editingTaskId = null;
+  let addColumnId = null;
+  const TASK_TYPE_CHOICES = [
+    { value: 'Task', icon: '☑', label: 'Task', tooltip: 'A general task or feature to implement.' },
+    { value: 'Bug', icon: '🐞', label: 'Bug', tooltip: 'A defect — annotator collects page errors and console logs to help reproduce it.' },
+    { value: 'Feature', icon: '✨', label: 'Feature', tooltip: 'A new feature or user-facing capability to build.' },
+    { value: 'Enhancement', icon: '⚡', label: 'Enhancement', tooltip: 'An improvement to an existing feature.' },
+    { value: 'Research', icon: '🔬', label: 'Research', tooltip: 'A research task — agent will NOT write code but must attach a findings report.' },
+  ];
+  function createIconTypePicker(rootId, onChange) {
+    let currentTaskType = 'Task';
+    const root = document.getElementById(rootId);
+    if (!root) return { setValue: () => {}, getValue: () => 'Task' };
+    root.innerHTML = '';
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'type-picker-trigger';
+
+    const optionsWrap = document.createElement('div');
+    optionsWrap.className = 'type-picker-options';
+
+    function renderTrigger() {
+      const choice = TASK_TYPE_CHOICES.find((x) => x.value === currentTaskType) || TASK_TYPE_CHOICES[0];
+      trigger.innerHTML = '<span>' + choice.icon + '</span><span>' + choice.label + '</span>';
+      trigger.title = choice.tooltip || choice.label;
+    }
+
+    function renderOptions() {
+      optionsWrap.innerHTML = '';
+      for (const choice of TASK_TYPE_CHOICES) {
+        if (choice.value === currentTaskType) continue;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'type-picker-option';
+        btn.title = choice.tooltip || choice.label;
+        btn.textContent = choice.icon;
+        btn.addEventListener('click', () => {
+          currentTaskType = choice.value;
+          renderTrigger();
+          renderOptions();
+          optionsWrap.classList.remove('open');
+          onChange(choice.value);
+        });
+        optionsWrap.appendChild(btn);
+      }
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      optionsWrap.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!root.contains(e.target)) optionsWrap.classList.remove('open');
+    });
+
+    root.append(trigger, optionsWrap);
+    renderTrigger();
+    renderOptions();
+
+    return {
+      setValue(value) {
+        currentTaskType = TASK_TYPE_CHOICES.some((x) => x.value === value) ? value : 'Task';
+        renderTrigger();
+        renderOptions();
+        onChange(currentTaskType);
+      },
+      getValue() {
+        return currentTaskType;
+      },
+    };
+  }
+
+  const taskTypePicker = createIconTypePicker('task-type-picker', (value) => {
+    const hiddenType = document.getElementById('task-modal-type');
+    if (hiddenType) hiddenType.value = value;
+  });
+
+  const dpTypePicker = createIconTypePicker('dp-type-picker', () => {});
+
+  // ── Detail Panel ──────────────────────────────────────────────────────────
+
+  let dpTaskId = null;
+  let dpAddColumnId = null;
+
+  function openDetailPanel(task, tab, columnId) {
+    const isAdd = !task;
+    dpTaskId = isAdd ? null : task.id;
+    dpAddColumnId = isAdd ? (columnId || 'todo') : null;
+
+    document.getElementById('dp-title').value = isAdd ? '' : (task.title || '');
+    dpTypePicker.setValue(isAdd ? 'Task' : (task.type || 'Task'));
+
+    const status = isAdd ? (columnId || 'todo') : (task.status || 'todo');
+    updateDpStatusButtons(status);
+
+    renderDpMetaRow(isAdd ? null : task);
+
+    // Description
+    document.getElementById('dp-desc').value = isAdd ? '' : (task.description || '');
+    document.getElementById('dp-desc').style.display = '';
+    document.getElementById('dp-desc-preview').style.display = 'none';
+    document.getElementById('dp-desc-tab-edit').style.borderBottomColor = '#3b82f6';
+    document.getElementById('dp-desc-tab-edit').style.color = '#60a5fa';
+    document.getElementById('dp-desc-tab-preview').style.borderBottomColor = 'transparent';
+    document.getElementById('dp-desc-tab-preview').style.color = '#64748b';
+
+    // URL
+    const urlSection = document.getElementById('dp-url-section');
+    if (!isAdd && task.url) {
+      const safeUrl = task.url.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      document.getElementById('dp-url-value').innerHTML = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${safeUrl}</a>`;
+      urlSection.style.display = '';
+    } else {
+      urlSection.style.display = 'none';
+    }
+
+    // Agent / Model selectors
+    const agentSel = document.getElementById('dp-agent');
+    const modelSel = document.getElementById('dp-model');
+    if (agentSel) {
+      for (const opt of agentSel.options) opt.selected = opt.value === (isAdd ? '' : (task.agent || ''));
+    }
+    if (modelSel) {
+      for (const opt of modelSel.options) opt.selected = opt.value === (isAdd ? '' : (task.model || ''));
+    }
+
+    // Priority
+    document.getElementById('dp-priority').value = isAdd ? '' : (task.priority || '');
+
+    // Metadata
+    const metaEl = document.getElementById('dp-metadata');
+    metaEl.style.display = isAdd ? 'none' : '';
+    if (!isAdd) {
+      document.getElementById('dp-id').textContent = task.id || '';
+      document.getElementById('dp-created').textContent = task.createdAt ? new Date(task.createdAt).toLocaleString() : '';
+      document.getElementById('dp-author').textContent = task.authorName || task.author || '';
+      const rbSection = document.getElementById('dp-rb-section');
+      if (rbSection) rbSection.style.display = task.reportBack ? '' : 'none';
+      // Annotated element text — captured via overlay click-to-annotate
+      const annotatedSection = document.getElementById('dp-annotated-text');
+      if (annotatedSection) {
+        if (task.annotatedElementText) {
+          document.getElementById('dp-annotated-text-value').textContent = task.annotatedElementText;
+          annotatedSection.style.display = '';
+        } else {
+          annotatedSection.style.display = 'none';
+        }
+      }
+    }
+
+    // Footer / tabs
+    document.getElementById('dp-save').textContent = isAdd ? 'Add Task' : 'Save';
+    document.getElementById('dp-delete').style.display = isAdd ? 'none' : '';
+    const tabsRow = document.getElementById('dp-tabs-row');
+    tabsRow.style.display = isAdd ? 'none' : '';
+
+    switchDpTab(isAdd ? 'details' : (tab || 'details'));
+
+    // Badge counts for existing tasks
+    if (!isAdd) {
+      loadDpBadge(task.id, 'comments');
+      loadDpBadge(task.id, 'files');
+    }
+
+    document.getElementById('detail-panel').classList.add('open');
+    lucide.createIcons();
+    setTimeout(() => document.getElementById('dp-title').focus(), 50);
+  }
+
+  function closeDetailPanel() {
+    document.getElementById('detail-panel').classList.remove('open');
+    dpTaskId = null;
+    dpAddColumnId = null;
+    document.getElementById('dp-comment-input').value = '';
+  }
+
+  function updateDpStatusButtons(status) {
+    document.querySelectorAll('.dp-status-btn').forEach(btn => {
+      const s = btn.dataset.status;
+      btn.className = 'dp-status-btn' + (s === status ? ' active-' + s : '');
+    });
+  }
+
+  function switchDpTab(tab) {
+    const panes = { details: 'dp-details-pane', comments: 'dp-comments-pane', files: 'dp-files-pane' };
+    const tabBtns = { details: 'dp-tab-details', comments: 'dp-tab-comments', files: 'dp-tab-files' };
+    for (const [key, paneId] of Object.entries(panes)) {
+      document.getElementById(paneId).style.display = key === tab ? '' : 'none';
+    }
+    for (const [key, btnId] of Object.entries(tabBtns)) {
+      const el = document.getElementById(btnId);
+      if (key === tab) el.classList.add('active'); else el.classList.remove('active');
+    }
+    if (dpTaskId) {
+      if (tab === 'comments') loadDpComments(dpTaskId);
+      else if (tab === 'files') loadDpFiles(dpTaskId);
+    }
+  }
+
+  function loadDpBadge(taskId, type) {
+    const url = type === 'comments'
+      ? `http://localhost:__PORT__/api/tasks/${taskId}/comments`
+      : `http://localhost:__PORT__/api/tasks/${taskId}/files`;
+    const countId = type === 'comments' ? 'dp-comment-count' : 'dp-file-count';
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        const items = type === 'comments' ? (data.comments || []) : (data.files || []);
+        const el = document.getElementById(countId);
+        if (el) el.textContent = items.length > 0 ? `(${items.length})` : '';
+        if (type === 'comments') markCommentsSeen(taskId, items.length);
+      })
+      .catch(() => {});
+  }
+
+  function loadDpComments(taskId) {
+    const list = document.getElementById('dp-comments-list');
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments`)
+      .then(r => r.json())
+      .then(data => {
+        const comments = data.comments || [];
+        markCommentsSeen(taskId, comments.length);
+        const countEl = document.getElementById('dp-comment-count');
+        if (countEl) countEl.textContent = comments.length > 0 ? `(${comments.length})` : '';
+        list.innerHTML = '';
+        if (comments.length === 0) {
+          list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">No comments yet.</p>';
+          return;
+        }
+        for (const c of comments) {
+          const el = document.createElement('div');
+          el.className = 'flex flex-col gap-1 group/comment';
+          const isAgent = c.author === 'agent';
+          const canEdit = !!c.id && !isAgent;
+          el.innerHTML = `
+            <div class="flex items-center gap-1.5 text-xs mb-0.5 justify-between">
+              <div class="flex items-center gap-1.5">
+                <span style="color:${isAgent ? '#a78bfa' : '#60a5fa'};">${isAgent ? '🤖 Agent' : '👤 ' + (c.authorName || gitUserName)}</span>
+                <span style="color:#475569;">${new Date(c.createdAt).toLocaleString()}${c.updatedAt ? ' · edited' : ''}</span>
+              </div>
+              ${canEdit ? `<div class="flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
+                <button data-comment-id="${c.id}" data-comment-text="${c.text.replace(/"/g, '&quot;')}" class="dp-btn-edit-comment p-1 rounded hover:bg-slate-700 transition-colors" title="Edit"><i data-lucide="pencil" class="w-3 h-3 text-slate-400"></i></button>
+                <button data-comment-id="${c.id}" class="dp-btn-delete-comment p-1 rounded hover:bg-red-900/40 transition-colors" title="Delete"><i data-lucide="trash-2" class="w-3 h-3 text-slate-400 hover:text-red-400"></i></button>
+              </div>` : ''}
+            </div>
+            <div class="comment-body" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;font-size:12px;color:#cbd5e1;line-height:1.6;">${renderMarkdown(c.text)}</div>
+          `;
+          list.appendChild(el);
+        }
+        list.querySelectorAll('.dp-btn-edit-comment').forEach(btn => {
+          btn.addEventListener('click', () => {
+            startEditComment(taskId, btn.dataset.commentId, btn.dataset.commentText, btn.closest('.flex.flex-col'));
+          });
+        });
+        list.querySelectorAll('.dp-btn-delete-comment').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (confirm('Delete this comment?')) {
+              deleteCommentById(taskId, btn.dataset.commentId);
+              setTimeout(() => loadDpComments(taskId), 300);
+            }
+          });
+        });
+        lucide.createIcons({ nodes: [...list.querySelectorAll('[data-lucide]')] });
+        scrollToBottom(list);
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#ef4444;font-size:12px;text-align:center;padding:8px 0;">Failed to load.</p>';
+      });
+  }
+
+  function loadDpFiles(taskId) {
+    const list = document.getElementById('dp-files-list');
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files`)
+      .then(r => r.json())
+      .then(data => {
+        const files = data.files || [];
+        const countEl = document.getElementById('dp-file-count');
+        if (countEl) countEl.textContent = files.length > 0 ? `(${files.length})` : '';
+        renderFilesInList(list, files, taskId, (id) => { loadDpFiles(id); loadDpBadge(id, 'files'); render(); });
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#f87171;font-size:12px;text-align:center;padding:12px 0;">Failed to load files.</p>';
+      });
+  }
+
+  function renderDpMetaRow(task) {
+    const row = document.getElementById('dp-meta-row');
+    row.innerHTML = '';
+    if (!task) return;
+    if (task.component) {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:100px;font-size:10px;color:#a5b4fc;font-family:monospace;';
+      chip.textContent = '⬡ ' + task.component;
+      row.appendChild(chip);
+    }
+    const hasSource = task.file || (task.selector && task.selector !== '/') || task.cssSelector;
+    if (hasSource) {
+      let fileLine = task.file || '';
+      if (task.line != null) fileLine += ':' + task.line;
+      if (task.col != null) fileLine += ':' + task.col;
+      const selectorText = task.cssSelector || ((task.selector && task.selector !== '/') ? task.selector : '');
+      const sourceText = fileLine || selectorText;
+      if (sourceText) {
+        const pill = document.createElement('span');
+        pill.className = 'dp-source-pill';
+        pill.title = [fileLine, selectorText].filter(Boolean).join(' · ');
+        pill.textContent = sourceText.length > 40 ? '…' + sourceText.slice(-40) : sourceText;
+        row.appendChild(pill);
+      }
+    }
+    if (task.reportBack) {
+      const rb = document.createElement('span');
+      rb.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:100px;font-size:10px;color:#c4b5fd;';
+      rb.textContent = '↩ report back';
+      row.appendChild(rb);
+    }
+  }
+
+  // ── Detail Panel event listeners ────────────────────────────────────────
+
+  document.getElementById('dp-close').addEventListener('click', closeDetailPanel);
+  document.getElementById('dp-cancel').addEventListener('click', closeDetailPanel);
+
+  document.querySelectorAll('.dp-status-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const status = btn.dataset.status;
+      updateDpStatusButtons(status);
+      if (dpTaskId) patchTask(dpTaskId, { status });
+    });
+  });
+
+  document.getElementById('dp-tab-details').addEventListener('click', () => switchDpTab('details'));
+  document.getElementById('dp-tab-comments').addEventListener('click', () => switchDpTab('comments'));
+  document.getElementById('dp-tab-files').addEventListener('click', () => switchDpTab('files'));
+
+  // Desc edit/preview tabs
+  // Guard against Grammarly: when a correction is applied, Grammarly fires a
+  // synthetic (untrusted) click on the Preview button. Real user clicks are trusted.
+  document.getElementById('dp-desc-tab-edit').addEventListener('click', () => {
+    document.getElementById('dp-desc').style.display = '';
+    document.getElementById('dp-desc-preview').style.display = 'none';
+    document.getElementById('dp-desc-tab-edit').style.borderBottomColor = '#3b82f6';
+    document.getElementById('dp-desc-tab-edit').style.color = '#60a5fa';
+    document.getElementById('dp-desc-tab-preview').style.borderBottomColor = 'transparent';
+    document.getElementById('dp-desc-tab-preview').style.color = '#64748b';
+  });
+  document.getElementById('dp-desc-tab-preview').addEventListener('click', (event) => {
+    if (!event.isTrusted) return; // Grammarly fires untrusted synthetic clicks
+    const md = document.getElementById('dp-desc').value;
+    document.getElementById('dp-desc-preview').innerHTML = renderMarkdown(md) || '<span style="color:#475569;font-size:12px;">Nothing to preview.</span>';
+    document.getElementById('dp-desc').style.display = 'none';
+    document.getElementById('dp-desc-preview').style.display = 'block';
+    document.getElementById('dp-desc-tab-edit').style.borderBottomColor = 'transparent';
+    document.getElementById('dp-desc-tab-edit').style.color = '#64748b';
+    document.getElementById('dp-desc-tab-preview').style.borderBottomColor = '#3b82f6';
+    document.getElementById('dp-desc-tab-preview').style.color = '#60a5fa';
+  });
+
+  // Comment edit/preview tabs
+  document.getElementById('dp-comment-tab-edit').addEventListener('click', () => {
+    document.getElementById('dp-comment-input').parentElement.style.display = '';
+    document.getElementById('dp-comment-preview').style.display = 'none';
+    document.getElementById('dp-comment-tab-edit').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+    document.getElementById('dp-comment-tab-preview').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+  });
+  document.getElementById('dp-comment-tab-preview').addEventListener('click', () => {
+    const md = document.getElementById('dp-comment-input').value;
+    document.getElementById('dp-comment-preview').innerHTML = renderMarkdown(md) || '<span style="color:#475569;font-size:12px;">Nothing to preview.</span>';
+    document.getElementById('dp-comment-input').parentElement.style.display = 'none';
+    document.getElementById('dp-comment-preview').style.display = 'block';
+    document.getElementById('dp-comment-tab-edit').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+    document.getElementById('dp-comment-tab-preview').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+  });
+
+  // Comment submit
+  document.getElementById('dp-comment-submit').addEventListener('click', () => {
+    if (!dpTaskId) return;
+    const input = document.getElementById('dp-comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const btn = document.getElementById('dp-comment-submit');
+    btn.disabled = true;
+    fetch(`http://localhost:__PORT__/api/tasks/${dpTaskId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'user', text }),
+    })
+      .then(() => {
+        input.value = '';
+        // Reset to edit tab
+        document.getElementById('dp-comment-input').parentElement.style.display = '';
+        document.getElementById('dp-comment-preview').style.display = 'none';
+        document.getElementById('dp-comment-tab-edit').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+        document.getElementById('dp-comment-tab-preview').style.cssText = 'padding:3px 10px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+        loadDpComments(dpTaskId);
+        loadDpBadge(dpTaskId, 'comments');
+      })
+      .catch(() => {})
+      .finally(() => { btn.disabled = false; });
+  });
+  document.getElementById('dp-comment-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      document.getElementById('dp-comment-submit').click();
+    }
+  });
+
+  // File upload
+  document.getElementById('dp-file-upload').addEventListener('change', async e => {
+    if (!dpTaskId) return;
+    const taskId = dpTaskId;
+    for (const file of e.target.files) {
+      const buf = await file.arrayBuffer();
+      await fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files/${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buf,
+      });
+    }
+    e.target.value = '';
+    loadDpFiles(taskId);
+    loadDpBadge(taskId, 'files');
+    render();
+  });
+
+
+  // Delete task
+  document.getElementById('dp-delete').addEventListener('click', () => {
+    if (!dpTaskId || !confirm('Delete this task?')) return;
+    deleteTask(dpTaskId);
+    closeDetailPanel();
+  });
+
+  // Save task
+  document.getElementById('dp-save').addEventListener('click', async () => {
+    const title = document.getElementById('dp-title').value.trim();
+    if (!title) { document.getElementById('dp-title').focus(); return; }
+    const desc = document.getElementById('dp-desc').value.trim();
+    const activeStatusBtn = document.querySelector('.dp-status-btn[class*="active-"]');
+    const status = activeStatusBtn ? activeStatusBtn.dataset.status : (dpAddColumnId || 'todo');
+    const type = dpTypePicker.getValue();
+    const priority = document.getElementById('dp-priority').value || undefined;
+    const agent = document.getElementById('dp-agent').value || undefined;
+    const model = document.getElementById('dp-model').value || undefined;
+
+    if (!dpTaskId) {
+      await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description: desc || title, selector: '/', status: dpAddColumnId || 'todo', type, priority, agent, model }),
+      });
+      closeDetailPanel();
+      render();
+    } else {
+      patchTask(dpTaskId, { title, description: desc, status, type, priority, agent, model });
+      closeDetailPanel();
+    }
+  });
+
+  document.getElementById('dp-title').addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDetailPanel();
+    if (e.key === 'Enter' && !dpTaskId) document.getElementById('dp-save').click();
+  });
+
+  function scrollToBottom(el) {
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  function sendPendingTaskModalComment(taskId) {
+    const input = document.getElementById('task-modal-comment-input');
+    const text = input ? input.value.trim() : '';
+    if (!text || !taskId) return Promise.resolve();
+    const btn = document.getElementById('task-modal-comment-submit');
+    if (btn) btn.disabled = true;
+    return fetch('http://localhost:__PORT__/api/tasks/' + taskId + '/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'user', text }),
+    })
+      .then(() => {
+        if (input) input.value = '';
+        loadModalComments(taskId);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (btn) btn.disabled = false;
+      });
+  }
+
+  function renderMarkdown(md) {
+    if (!md) return '<span style="color:#475569;font-style:italic;">No description yet</span>';
+    const escaped = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escaped
+      .replace(/^### (.+)$/gm, '<h3 style="font-weight:700;margin:0.8em 0 0.3em;font-size:1.05em;color:#cbd5e1;">$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2 style="font-weight:700;margin:0.8em 0 0.3em;font-size:1.2em;color:#f1f5f9;">$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1 style="font-weight:700;margin:0.8em 0 0.3em;font-size:1.4em;color:#f1f5f9;">$1</h1>')
+      .replace(/[*][*](.+?)[*][*]/g, '<strong style="font-weight:700;color:#f1f5f9;">$1</strong>')
+      .replace(/__(.+?)__/g, '<strong style="font-weight:700;color:#f1f5f9;">$1</strong>')
+      .replace(/[*](.+?)[*]/g, '<em style="font-style:italic;color:#94a3b8;">$1</em>')
+      .replace(/_([^_]+?)_/g, '<em style="font-style:italic;color:#94a3b8;">$1</em>')
+      .replace(/`(.+?)`/g, '<code style="font-family:Menlo,monospace;font-size:12px;background:#1e293b;padding:1px 5px;border-radius:3px;color:#7dd3fc;">$1</code>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:underline;">$1</a>')
+      .replace(/(^|[\s(>])((https?:\/\/)[^\s<>"']+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:underline;word-break:break-all;">$2</a>')
+      .replace(/^[-*] (.+)$/gm, '<li style="margin:0.2em 0;">$1</li>')
+      .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #334155;margin:0.8em 0;">')
+      .replace(/(<li[^>]*>[\s\S]*?<\/li>\n?)+/g, m => `<ul style="padding-left:20px;margin:0.4em 0;">${m}</ul>`)
+      .replace(/^(?!<[a-z]|$).+$/gm, line => `<p style="margin:0.5em 0;">${line}</p>`);
+  }
+
+  function switchModalTab(tab) {
+    const isEdit = tab === 'edit';
+    const isPreview = tab === 'preview';
+    const isComments = tab === 'comments';
+    const isFiles = tab === 'files';
+    const editorPane = document.getElementById('task-modal-editor-pane');
+    const previewPane = document.getElementById('task-modal-preview-pane');
+    const commentsPane = document.getElementById('task-modal-comments-pane');
+    const filesPane = document.getElementById('task-modal-files-pane');
+    const metaSection = document.getElementById('task-modal-meta');
+    const tabEdit = document.getElementById('task-tab-edit');
+    const tabPreview = document.getElementById('task-tab-preview');
+    const tabComments = document.getElementById('task-tab-comments');
+    const tabFiles = document.getElementById('task-tab-files');
+    editorPane.style.display = isEdit ? 'flex' : 'none';
+    previewPane.style.display = isPreview ? 'block' : 'none';
+    commentsPane.style.display = isComments ? 'flex' : 'none';
+    if (filesPane) filesPane.style.display = isFiles ? 'flex' : 'none';
+    if (metaSection) metaSection.style.display = (isEdit && modalMode === 'edit') ? 'flex' : 'none';
+    tabEdit.style.color = isEdit ? '#60a5fa' : '#64748b';
+    tabEdit.style.borderBottomColor = isEdit ? '#3b82f6' : 'transparent';
+    tabEdit.style.fontWeight = isEdit ? '500' : '400';
+    tabPreview.style.color = isPreview ? '#60a5fa' : '#64748b';
+    tabPreview.style.borderBottomColor = isPreview ? '#3b82f6' : 'transparent';
+    tabPreview.style.fontWeight = isPreview ? '500' : '400';
+    if (tabComments) {
+      tabComments.style.color = isComments ? '#a78bfa' : '#64748b';
+      tabComments.style.borderBottomColor = isComments ? '#8b5cf6' : 'transparent';
+      tabComments.style.fontWeight = isComments ? '500' : '400';
+    }
+    if (tabFiles) {
+      tabFiles.style.color = isFiles ? '#a78bfa' : '#64748b';
+      tabFiles.style.borderBottomColor = isFiles ? '#8b5cf6' : 'transparent';
+      tabFiles.style.fontWeight = isFiles ? '500' : '400';
+    }
+    if (isPreview) previewPane.innerHTML = renderMarkdown(document.getElementById('task-modal-desc').value);
+    if (isComments && editingTaskId) loadModalComments(editingTaskId);
+    if (isFiles && editingTaskId) loadModalFiles(editingTaskId);
+  }
+
+  function loadModalComments(taskId) {
+    const list = document.getElementById('task-modal-comments-list');
+    if (!list) return;
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:12px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments`)
+      .then(r => r.json())
+      .then(data => {
+        const comments = data.comments || [];
+        const badge = document.getElementById('task-modal-comment-badge');
+        if (badge) badge.textContent = comments.length > 0 ? `(${comments.length})` : '';
+        list.innerHTML = '';
+        if (comments.length === 0) {
+          list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:12px 0;">No comments yet. Add the first!</p>';
+          scrollToBottom(list);
+          return;
+        }
+        for (const c of comments) {
+          const el = document.createElement('div');
+          el.className = 'flex flex-col gap-1 group/comment';
+          const isAgentComment = c.author === 'agent';
+          const canEdit = !!c.id && !isAgentComment;
+          el.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:2px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:11px;color:${isAgentComment?'#a78bfa':'#60a5fa'};">${isAgentComment?'🤖 Agent':'👤 ' + (c.authorName || 'user')}</span>
+                <span style="font-size:10px;color:#475569;">${new Date(c.createdAt).toLocaleString()}${c.updatedAt?' · edited':''}</span>
+              </div>
+              ${canEdit ? `<div style="display:flex;gap:2px;opacity:0;" class="comment-actions">
+                <button data-cid="${c.id}" data-ctext="${c.text.replace(/"/g,'&quot;')}" class="btn-mc-edit" style="background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:4px;color:#64748b;" title="Edit"><i data-lucide="pencil" style="width:11px;height:11px;"></i></button>
+                <button data-cid="${c.id}" class="btn-mc-delete" style="background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:4px;color:#64748b;" title="Delete"><i data-lucide="trash-2" style="width:11px;height:11px;"></i></button>
+              </div>` : ''}
+            </div>
+            <div class="mc-body" style="background:#0f172a;border:1px solid #1e293b;border-radius:6px;padding:8px 10px;font-size:12px;color:#cbd5e1;line-height:1.5;">${renderMarkdown(c.text)}</div>
+          `;
+          el.addEventListener('mouseenter', () => { const a = el.querySelector('.comment-actions'); if (a) a.style.opacity = '1'; });
+          el.addEventListener('mouseleave', () => { const a = el.querySelector('.comment-actions'); if (a) a.style.opacity = '0'; });
+          list.appendChild(el);
+        }
+        list.querySelectorAll('.btn-mc-edit').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.cid;
+            const text = btn.dataset.ctext;
+            startEditModalComment(taskId, id, text, btn.closest('.flex.flex-col'));
+          });
+        });
+        list.querySelectorAll('.btn-mc-delete').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (confirm('Delete this comment?')) {
+              fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments/${btn.dataset.cid}`, { method: 'DELETE' })
+                .then(() => loadModalComments(taskId))
+                .catch(() => {});
+            }
+          });
+        });
+        lucide.createIcons({ nodes: [...list.querySelectorAll('[data-lucide]')] });
+        scrollToBottom(list);
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#ef4444;font-size:12px;text-align:center;padding:8px 0;">Failed to load.</p>';
+      });
+  }
+
+  function startEditModalComment(taskId, commentId, currentText, rowEl) {
+    const body = rowEl.querySelector('.mc-body');
+    if (!body || rowEl.querySelector('.mc-edit-form')) return;
+    body.style.display = 'none';
+    const form = document.createElement('div');
+    form.className = 'mc-edit-form';
+    form.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    form.innerHTML = `
+      <textarea style="width:100%;background:#0f172a;border:1px solid #475569;border-radius:6px;padding:8px 10px;font-size:12px;color:#e2e8f0;resize:none;outline:none;font-family:inherit;box-sizing:border-box;" rows="3">${currentText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;">
+        <button class="btn-mc-cancel-edit" style="padding:4px 10px;background:#334155;border:none;border-radius:5px;font-size:11px;color:#cbd5e1;cursor:pointer;">Cancel</button>
+        <button class="btn-mc-save-edit" style="padding:4px 10px;background:#2563eb;border:none;border-radius:5px;font-size:11px;color:#fff;cursor:pointer;">Save</button>
+      </div>
+    `;
+    rowEl.appendChild(form);
+    const textarea = form.querySelector('textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    form.querySelector('.btn-mc-cancel-edit').addEventListener('click', () => { form.remove(); body.style.display = ''; });
+    form.querySelector('.btn-mc-save-edit').addEventListener('click', () => {
+      const newText = textarea.value.trim();
+      if (!newText) return;
+      fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments/${commentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newText }),
+      })
+        .then(() => loadModalComments(taskId))
+        .catch(() => { form.remove(); body.style.display = ''; });
+    });
+  }
+
+  // Task modal tab listeners — guard task-tab-preview against Grammarly correction clicks
+  document.getElementById('task-tab-edit').addEventListener('click', () => switchModalTab('edit'));
+  document.getElementById('task-tab-preview').addEventListener('click', (event) => {
+    if (!event.isTrusted) return; // Grammarly fires untrusted synthetic clicks
+    switchModalTab('preview');
+  });
+  document.getElementById('task-tab-comments').addEventListener('click', () => switchModalTab('comments'));
+  document.getElementById('task-tab-files').addEventListener('click', () => switchModalTab('files'));
+
+  // ── Task modal file upload handling ──
+  document.getElementById('task-modal-file-upload').addEventListener('change', async (e) => {
+    if (!editingTaskId) return;
+    const files = e.target.files;
+    for (const file of files) {
+      const buf = await file.arrayBuffer();
+      await fetch(`http://localhost:__PORT__/api/tasks/${editingTaskId}/files?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buf,
+      });
+    }
+    e.target.value = '';
+    loadModalFiles(editingTaskId);
+    loadModalFilesBadge(editingTaskId);
+  });
+
+
+  function renderFilesInList(listEl, files, taskId, onDelete) {
+    listEl.innerHTML = '';
+    if (files.length === 0) {
+      listEl.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">No files attached yet.</p>';
+      return;
+    }
+    for (const f of files) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;';
+      const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name);
+      const isMd = /\.md$/i.test(f.name);
+      const icon = f.linkedPath ? '🔗' : (isImg ? '🖼️' : isMd ? '📄' : '📎');
+      const size = !f.size ? '' : f.size < 1024 ? f.size + ' B' : f.size < 1048576 ? (f.size/1024).toFixed(1) + ' KB' : (f.size/1048576).toFixed(1) + ' MB';
+      const mainRow = document.createElement('div');
+      mainRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+      mainRow.innerHTML = `<span style="font-size:14px;">${icon}</span><button style="flex:1;text-align:left;background:none;border:none;cursor:pointer;color:#93c5fd;font-size:12px;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" data-url="${f.url}" data-name="${f.name}" class="file-preview-btn">${f.name}</button><span style="color:#475569;font-size:11px;flex-shrink:0;">${size}</span><button style="color:#475569;background:none;border:none;cursor:pointer;font-size:14px;flex-shrink:0;" data-name="${f.name}" class="file-delete-btn" title="Delete">✕</button>`;
+      row.appendChild(mainRow);
+      if (f.linkedPath) {
+        const pathEl = document.createElement('div');
+        pathEl.style.cssText = 'font-size:10px;color:#334155;font-family:monospace;padding-left:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        pathEl.title = f.linkedPath;
+        pathEl.textContent = f.linkedPath;
+        row.appendChild(pathEl);
+      }
+      listEl.appendChild(row);
+    }
+    listEl.querySelectorAll('.file-preview-btn').forEach(btn => {
+      btn.addEventListener('click', () => openFilePreview(btn.dataset.name, `http://localhost:__PORT__${btn.dataset.url}`));
+    });
+    listEl.querySelectorAll('.file-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!confirm(`Delete "${btn.dataset.name}"?`)) return;
+        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files/${encodeURIComponent(btn.dataset.name)}`, { method: 'DELETE' })
+          .then(() => onDelete(taskId))
+          .catch(() => {});
+      });
+    });
+  }
+
+  function loadModalFiles(taskId) {
+    const list = document.getElementById('task-modal-files-list');
+    if (!list) return;
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:12px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files`)
+      .then(r => r.json())
+      .then(data => {
+        const files = data.files || [];
+        const badge = document.getElementById('task-modal-file-badge');
+        if (badge) badge.textContent = files.length > 0 ? `(${files.length})` : '';
+        renderFilesInList(list, files, taskId, (id) => { loadModalFiles(id); loadModalFilesBadge(id); });
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#f87171;font-size:12px;text-align:center;padding:12px 0;">Failed to load files.</p>';
+      });
+  }
+
+  function loadModalFilesBadge(taskId) {
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files`)
+      .then(r => r.json())
+      .then(data => {
+        const badge = document.getElementById('task-modal-file-badge');
+        if (badge) badge.textContent = (data.files || []).length > 0 ? `(${(data.files || []).length})` : '';
+      })
+      .catch(() => {});
+  }
+
+  document.getElementById('task-modal-comment-submit').addEventListener('click', () => {
+    const input = document.getElementById('task-modal-comment-input');
+    const text = input.value.trim();
+    if (!text || !editingTaskId) return;
+    const btn = document.getElementById('task-modal-comment-submit');
+    btn.disabled = true;
+    fetch(`http://localhost:__PORT__/api/tasks/${editingTaskId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'user', text }),
+    })
+      .then(() => { input.value = ''; loadModalComments(editingTaskId); })
+      .catch(() => {})
+      .finally(() => { btn.disabled = false; });
+  });
+
+  document.getElementById('task-modal-comment-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      document.getElementById('task-modal-comment-submit').click();
+    }
+  });
+
+  function openTaskModal(task, columnId) {
+    const isAdd = !task;
+    modalMode = isAdd ? 'add' : 'edit';
+    editingTaskId = isAdd ? null : task.id;
+    addColumnId = isAdd ? columnId : null;
+
+    switchModalTab('edit');
+    document.getElementById('task-modal-status').value = isAdd ? columnId : (task.status || 'todo');
+    document.getElementById('task-modal-meta').style.display = isAdd ? 'none' : 'flex';
+    taskTypePicker.setValue(isAdd ? 'Task' : (task.type || 'Task'));
+    document.getElementById('task-modal-priority').value = isAdd ? '' : (task.priority || '');
+    document.getElementById('task-modal-title').value = isAdd ? '' : (task.title || '');
+    document.getElementById('task-modal-desc').value = isAdd ? '' : (task.description || '');
+    document.getElementById('task-modal-save').textContent = isAdd ? 'Add Task' : 'Save';
+    document.getElementById('task-modal-delete').style.display = isAdd ? 'none' : '';
+
+    // Source location (file / selector / url) — only for existing tasks
+    const srcSection = document.getElementById('task-modal-source');
+    const rbNotice = document.getElementById('task-modal-report-back');
+    if (isAdd) {
+      srcSection.style.display = 'none';
+      rbNotice.style.display = 'none';
+    } else {
+      const srcFile = document.getElementById('task-modal-source-file');
+      const srcComp = document.getElementById('task-modal-source-component');
+      const srcSelector = document.getElementById('task-modal-source-selector');
+      const srcUrl = document.getElementById('task-modal-source-url');
+      if (task.file || task.component || (task.selector && task.selector !== '/') || task.cssSelector || task.url) {
+        let fileLine = task.file || '';
+        if (task.line != null) fileLine += ':' + task.line;
+        if (task.col != null) fileLine += ':' + task.col;
+        srcFile.innerHTML = fileLine
+          ? `<a href="vscode://file${task.file || ''}${task.line != null ? ':' + task.line : ''}" target="_blank" title="Open in editor" style="color:#38bdf8;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${fileLine}</a>${task.component ? ' · ' : ''}`
+          : '';
+        srcComp.textContent = task.component ? '⬡ ' + task.component : '';
+        const selectorText = (task.cssSelector || (task.selector && task.selector !== '/'))
+          ? (task.cssSelector || task.selector) : '';
+        srcSelector.textContent = selectorText ? (fileLine || task.component ? ' · ' : '') + selectorText : '';
+        srcUrl.textContent = task.url ? (selectorText || fileLine || task.component ? ' · ' : '') + task.url : '';
+        srcSection.style.display = '';
+      } else {
+        srcSection.style.display = 'none';
+      }
+      rbNotice.style.display = task.reportBack ? 'flex' : 'none';
+    }
+
+    // Set agent / model selectors
+    const agentSel = document.getElementById('task-modal-agent');
+    const modelSel = document.getElementById('task-modal-model');
+    if (agentSel) {
+      for (const opt of agentSel.options) { opt.selected = opt.value === (isAdd ? '' : (task.agent || '')); }
+    }
+    if (modelSel) {
+      for (const opt of modelSel.options) { opt.selected = opt.value === (isAdd ? '' : (task.model || '')); }
+    }
+
+    document.getElementById('task-modal').classList.remove('hidden');
+
+    // Comments/Files tabs — only for existing tasks
+    const tabComments = document.getElementById('task-tab-comments');
+    if (tabComments) tabComments.style.display = isAdd ? 'none' : '';
+    const tabFiles = document.getElementById('task-tab-files');
+    if (tabFiles) tabFiles.style.display = isAdd ? 'none' : '';
+
+    if (!isAdd) {
+      fetch(`http://localhost:__PORT__/api/tasks/${task.id}/comments`)
+        .then(r => r.json())
+        .then(data => {
+          const badge = document.getElementById('task-modal-comment-badge');
+          const count = (data.comments || []).length;
+          if (badge) badge.textContent = count > 0 ? `(${count})` : '';
+        })
+        .catch(() => {});
+      loadModalFilesBadge(task.id);
+    }
+    setTimeout(() => document.getElementById('task-modal-title').focus(), 50);
+  }
+
+  function closeTaskModal() {
+    document.getElementById('task-modal').classList.add('hidden');
+    editingTaskId = null;
+    addColumnId = null;
+  }
+
+  document.getElementById('task-modal-close').addEventListener('click', closeTaskModal);
+  document.getElementById('task-modal-cancel').addEventListener('click', closeTaskModal);
+  document.getElementById('task-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeTaskModal(); });
+
+  document.getElementById('task-modal-save').addEventListener('click', async () => {
+    const title = document.getElementById('task-modal-title').value.trim();
+    const desc = document.getElementById('task-modal-desc').value.trim();
+    if (!title) { document.getElementById('task-modal-title').focus(); return; }
+
+    if (modalMode === 'add') {
+      fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description: desc || title,
+          selector: '/',
+          status: addColumnId,
+          type: document.getElementById('task-modal-type').value || 'Task',
+        }),
+      })
+        .then(r => r.json())
+        .then(d => { if (d.success) { closeTaskModal(); fetchTasks(); } })
+        .catch(() => {});
+    } else {
+      await sendPendingTaskModalComment(editingTaskId);
+      patchTask(editingTaskId, {
+        title,
+        status: document.getElementById('task-modal-status').value,
+        type: document.getElementById('task-modal-type').value || 'Task',
+        priority: document.getElementById('task-modal-priority').value || undefined,
+        agent: document.getElementById('task-modal-agent').value || undefined,
+        model: document.getElementById('task-modal-model').value || undefined,
+        description: desc,
+      });
+      closeTaskModal();
+    }
+  });
+
+  document.getElementById('task-modal-title').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && modalMode === 'add') document.getElementById('task-modal-save').click();
+    if (e.key === 'Escape') closeTaskModal();
+  });
+
+  document.getElementById('task-modal-delete').addEventListener('click', () => {
+    if (!editingTaskId) return;
+    if (confirm('Delete this task?')) { deleteTask(editingTaskId); closeTaskModal(); }
+  });
+
+  // ── Settings modal ───────────────────────────────────────────────────────
+
+
+  function openSettings() {
+    const visible = getVisibleCols();
+    const container = document.getElementById('settings-column-checkboxes');
+    container.innerHTML = '';
+    for (const col of COLUMNS) {
+      const id = 'scol-chk-' + col.id;
+      const label = document.createElement('label');
+      label.htmlFor = id;
+      label.className = 'flex items-center gap-3 cursor-pointer select-none';
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.id = id;
+      chk.value = col.id;
+      chk.checked = visible.includes(col.id);
+      chk.className = 'w-4 h-4 rounded accent-blue-500';
+      const dot = document.createElement('div');
+      dot.className = 'w-2.5 h-2.5 rounded-full flex-shrink-0';
+      dot.style.background = col.color;
+      const name = document.createElement('span');
+      name.className = 'text-sm text-slate-200';
+      name.textContent = col.label;
+      label.append(chk, dot, name);
+      container.appendChild(label);
+    }
+    document.getElementById('settings-modal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function closeSettings() {
+    document.getElementById('settings-modal').classList.add('hidden');
+  }
+
+  document.getElementById('btn-settings').addEventListener('click', openSettings);
+
+  // ── Global search ─────────────────────────────────────────────────────────
+
+  const searchInput = document.getElementById('global-search');
+  const searchClear = document.getElementById('global-search-clear');
+
+  searchInput.addEventListener('input', () => {
+    searchQuery = searchInput.value.trim();
+    searchClear.classList.toggle('hidden', !searchQuery);
+    render();
+  });
+
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchQuery = '';
+    searchClear.classList.add('hidden');
+    searchInput.focus();
+    render();
+  });
+
+  // Keyboard shortcut: Ctrl+F / Cmd+F to focus search; Escape closes open modals
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+    if (e.key === 'Escape') {
+      if (document.activeElement === searchInput) { searchInput.blur(); return; }
+      if (!document.getElementById('file-preview-modal').classList.contains('hidden')) { document.getElementById('file-preview-modal').classList.add('hidden'); return; }
+      if (document.getElementById('detail-panel').classList.contains('open')) { closeDetailPanel(); return; }
+      if (!document.getElementById('task-modal').classList.contains('hidden')) { closeTaskModal(); return; }
+      if (!document.getElementById('comments-modal').classList.contains('hidden')) { closeCommentsModal(); return; }
+      if (!document.getElementById('settings-modal').classList.contains('hidden')) { closeSettings(); return; }
+    }
+  });
+  document.getElementById('settings-close').addEventListener('click', closeSettings);
+  document.getElementById('settings-cancel').addEventListener('click', closeSettings);
+  document.getElementById('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
+
+  document.getElementById('settings-apply').addEventListener('click', () => {
+    // Save visible columns
+    const checked = [...document.querySelectorAll('#settings-column-checkboxes input:checked')].map(el => el.value);
+    if (checked.length > 0) { setVisibleCols(checked); render(); }
+    closeSettings();
+  });
+
+  // ── Comments localStorage tracking ────────────────────────────────────────
+
+  const LS_SEEN_KEY = 'proto-comments-seen';
+  function seenCounts() {
+    try { const raw = localStorage.getItem(LS_SEEN_KEY); return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+  }
+  function isNewComments(taskId, count) {
+    const seen = seenCounts(); return count > (seen[taskId] || 0);
+  }
+  function markCommentsSeen(taskId, count) {
+    const seen = seenCounts(); seen[taskId] = count; localStorage.setItem(LS_SEEN_KEY, JSON.stringify(seen));
+  }
+
+  // ── Comments modal ────────────────────────────────────────────────────────
+
+  let commentsTaskId = null;
+
+  function switchCommentTab(tab) {
+    const isComments = tab === 'comments';
+    const isFiles = tab === 'files';
+    const activeStyle = 'padding:10px 20px;font-size:12px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;cursor:pointer;transition:color .15s;';
+    const inactiveStyle = 'padding:10px 20px;font-size:12px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;cursor:pointer;transition:color .15s;';
+    document.getElementById('comments-tab-comments').style.cssText = isComments ? activeStyle : inactiveStyle;
+    document.getElementById('comments-tab-files').style.cssText = isFiles ? activeStyle : inactiveStyle;
+    document.getElementById('comments-pane').style.display = isComments ? 'flex' : 'none';
+    document.getElementById('files-pane').style.display = isFiles ? 'flex' : 'none';
+    if (isFiles && commentsTaskId) loadFiles(commentsTaskId);
+  }
+
+  function openCommentsModal(task) {
+    commentsTaskId = task.id;
+    document.getElementById('comments-modal-title').textContent = task.title;
+    switchCommentTab('comments');
+    loadComments(task.id);
+    loadFilesCount(task.id);
+    document.getElementById('comments-modal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function closeCommentsModal() {
+    document.getElementById('comments-modal').classList.add('hidden');
+    commentsTaskId = null;
+    document.getElementById('comments-input').value = '';
+    // Reset comment input to edit tab
+    document.getElementById('comment-input-editor').style.display = 'block';
+    document.getElementById('comment-input-preview').style.display = 'none';
+    document.getElementById('comment-input-tab-edit').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+    document.getElementById('comment-input-tab-preview').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+  }
+
+  function loadComments(taskId) {
+    const list = document.getElementById('comments-list');
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments`)
+      .then(r => r.json())
+      .then(data => {
+        const comments = data.comments || [];
+        markCommentsSeen(taskId, comments.length);
+        list.innerHTML = '';
+        if (comments.length === 0) {
+          list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">No comments yet. Add the first!</p>';
+          scrollToBottom(list);
+          return;
+        }
+        for (const c of comments) {
+          const el = document.createElement('div');
+          el.className = 'flex flex-col gap-1 group/comment';
+          const isAgent = c.author === 'agent';
+          const canEdit = !!c.id && !isAgent;
+          el.innerHTML = `
+            <div class="flex items-center gap-1.5 text-xs mb-0.5 justify-between">
+              <div class="flex items-center gap-1.5">
+                <span style="color:${isAgent?'#a78bfa':'#60a5fa'};">${isAgent?'🤖 Agent':'👤 ' + (c.authorName || gitUserName)}</span>
+                <span style="color:#475569;">${new Date(c.createdAt).toLocaleString()}${c.updatedAt? ' · edited':''}
+                </span>
+              </div>
+              ${canEdit ? `<div class="flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
+                <button data-comment-id="${c.id}" data-comment-text="${c.text.replace(/"/g,'&quot;')}" class="btn-edit-comment p-1 rounded hover:bg-slate-700 transition-colors" title="Edit comment"><i data-lucide="pencil" class="w-3 h-3 text-slate-400"></i></button>
+                <button data-comment-id="${c.id}" class="btn-delete-comment p-1 rounded hover:bg-red-900/40 transition-colors" title="Delete comment"><i data-lucide="trash-2" class="w-3 h-3 text-slate-400 hover:text-red-400"></i></button>
+              </div>` : ''}
+            </div>
+            <div class="comment-body" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;font-size:13px;color:#cbd5e1;line-height:1.6;">${renderMarkdown(c.text)}</div>
+          `;
+          list.appendChild(el);
+        }
+        list.querySelectorAll('.btn-edit-comment').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.commentId;
+            const text = btn.dataset.commentText;
+            startEditComment(taskId, id, text, btn.closest('.flex.flex-col'));
+          });
+        });
+        list.querySelectorAll('.btn-delete-comment').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (confirm('Delete this comment?')) {
+              deleteCommentById(taskId, btn.dataset.commentId);
+            }
+          });
+        });
+        lucide.createIcons({ nodes: [...list.querySelectorAll('[data-lucide]')] });
+        scrollToBottom(list);
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#ef4444;font-size:12px;text-align:center;padding:8px 0;">Failed to load.</p>';
+      });
+  }
+
+  function postComment(taskId, text) {
+    const btn = document.getElementById('comments-submit');
+    btn.disabled = true;
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'user', text }),
+    })
+      .then(() => { document.getElementById('comments-input').value = ''; loadComments(taskId); })
+      .catch(() => {})
+      .finally(() => { btn.disabled = false; });
+  }
+
+  function deleteCommentById(taskId, commentId) {
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' })
+      .then(() => loadComments(taskId))
+      .catch(() => {});
+  }
+
+  function startEditComment(taskId, commentId, currentText, rowEl) {
+    const body = rowEl.querySelector('.comment-body');
+    if (!body || rowEl.querySelector('.edit-comment-form')) return;
+    body.style.display = 'none';
+    const form = document.createElement('div');
+    form.className = 'edit-comment-form flex flex-col gap-2';
+    form.innerHTML = `
+      <textarea class="w-full rounded-lg px-3 py-2 text-sm bg-slate-900 border border-slate-600 text-slate-200 resize-none focus:outline-none focus:border-blue-500" rows="3" style="font-family:inherit;">${currentText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      <div class="flex gap-2 justify-end">
+        <button class="btn-cancel-edit px-3 py-1 rounded-lg text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">Cancel</button>
+        <button class="btn-save-edit px-3 py-1 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors">Save</button>
+      </div>
+    `;
+    rowEl.appendChild(form);
+    const textarea = form.querySelector('textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    form.querySelector('.btn-cancel-edit').addEventListener('click', () => {
+      form.remove(); body.style.display = '';
+    });
+    form.querySelector('.btn-save-edit').addEventListener('click', () => {
+      const newText = textarea.value.trim();
+      if (!newText) return;
+      fetch(`http://localhost:__PORT__/api/tasks/${taskId}/comments/${commentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newText }),
+      })
+        .then(() => loadComments(taskId))
+        .catch(() => { form.remove(); body.style.display = ''; });
+    });
+  }
+
+  document.getElementById('comments-tab-comments').addEventListener('click', () => switchCommentTab('comments'));
+  document.getElementById('comments-tab-files').addEventListener('click', () => switchCommentTab('files'));
+
+  function loadFilesCount(taskId) {
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files`)
+      .then(r => r.json())
+      .then(data => {
+        const count = (data.files || []).length;
+        const badge = document.getElementById('comments-file-count');
+        if (badge) badge.textContent = count > 0 ? `(${count})` : '';
+      })
+      .catch(() => {});
+  }
+
+  function loadFiles(taskId) {
+    const list = document.getElementById('files-list');
+    list.innerHTML = '<p style="color:#475569;font-size:12px;text-align:center;padding:16px 0;">Loading…</p>';
+    fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files`)
+      .then(r => r.json())
+      .then(data => {
+        const files = data.files || [];
+        const badge = document.getElementById('comments-file-count');
+        if (badge) badge.textContent = files.length > 0 ? `(${files.length})` : '';
+        renderFilesInList(list, files, taskId, loadFiles);
+      })
+      .catch(() => {
+        list.innerHTML = '<p style="color:#ef4444;font-size:12px;text-align:center;padding:8px 0;">Failed to load.</p>';
+      });
+  }
+
+  function openFilePreview(name, url) {
+    const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(name);
+    const isMd = /\.md$/i.test(name);
+    document.getElementById('file-preview-name').textContent = name;
+    const content = document.getElementById('file-preview-content');
+    content.innerHTML = '<p style="color:#475569;font-size:12px;">Loading…</p>';
+    document.getElementById('file-preview-modal').classList.remove('hidden');
+    if (isImg) {
+      content.innerHTML = `<img src="${url}" style="max-width:100%;max-height:400px;border-radius:6px;object-fit:contain;" />`;
+    } else if (isMd) {
+      fetch(url)
+        .then(r => r.text())
+        .then(text => { content.innerHTML = `<div style="color:#e2e8f0;font-size:14px;line-height:1.7;">${renderMarkdown(text)}</div>`; })
+        .catch(() => { content.innerHTML = '<p style="color:#ef4444;">Failed to load.</p>'; });
+    } else {
+      fetch(url)
+        .then(r => r.text())
+        .then(text => {
+          const pre = document.createElement('pre');
+          pre.style.cssText = 'color:#e2e8f0;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;';
+          pre.textContent = text;
+          content.innerHTML = '';
+          content.appendChild(pre);
+        })
+        .catch(() => { content.innerHTML = '<p style="color:#ef4444;">Failed to load.</p>'; });
+    }
+  }
+
+  document.getElementById('file-preview-close').addEventListener('click', () => document.getElementById('file-preview-modal').classList.add('hidden'));
+  document.getElementById('file-preview-modal').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden'); });
+
+  document.getElementById('file-upload-input').addEventListener('change', e => {
+    const files = e.target.files;
+    if (!files || !commentsTaskId) return;
+    const taskId = commentsTaskId;
+    const uploads = Array.from(files).map(file =>
+      file.arrayBuffer().then(buf =>
+        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: buf,
+        })
+      )
+    );
+    Promise.all(uploads)
+      .then(() => { loadFiles(taskId); e.target.value = ''; render(); })
+      .catch(() => {});
+  });
+
+
+  document.getElementById('comments-modal-close').addEventListener('click', closeCommentsModal);
+  document.getElementById('comments-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeCommentsModal(); });
+
+  // Attach file from comment input area — uploads then inserts md reference
+  document.getElementById('comment-file-input').addEventListener('change', e => {
+    const files = e.target.files;
+    if (!files || !commentsTaskId) return;
+    const taskId = commentsTaskId;
+    const textarea = document.getElementById('comments-input');
+    const uploads = Array.from(files).map(file =>
+      file.arrayBuffer().then(buf =>
+        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: buf,
+        }).then(r => r.json()).then(d => {
+          const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name);
+          const fileUrl = d.url || '/api/tasks/' + taskId + '/files/' + file.name;
+          const ref = isImg
+            ? '![' + file.name + '](' + fileUrl + ')'
+            : '[' + file.name + '](' + fileUrl + ')';
+          textarea.value = (textarea.value ? textarea.value + '\n' : '') + ref;
+        })
+      )
+    );
+    Promise.all(uploads)
+      .then(() => { loadFilesCount(taskId); e.target.value = ''; })
+      .catch(() => {});
+  });
+
+  document.getElementById('comments-submit').addEventListener('click', () => {
+    const text = document.getElementById('comments-input').value.trim();
+    if (!text || !commentsTaskId) return;
+    postComment(commentsTaskId, text);
+  });
+  document.getElementById('comments-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('comments-submit').click(); }
+  });
+
+  // Comment input edit/preview tabs
+  document.getElementById('comment-input-tab-edit').addEventListener('click', () => {
+    document.getElementById('comment-input-editor').style.display = 'block';
+    document.getElementById('comment-input-preview').style.display = 'none';
+    document.getElementById('comment-input-tab-edit').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+    document.getElementById('comment-input-tab-preview').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+  });
+
+  document.getElementById('comment-input-tab-preview').addEventListener('click', () => {
+    document.getElementById('comment-input-editor').style.display = 'none';
+    const previewEl = document.getElementById('comment-input-preview');
+    previewEl.innerHTML = renderMarkdown(document.getElementById('comments-input').value);
+    previewEl.style.display = 'block';
+    document.getElementById('comment-input-tab-preview').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid #8b5cf6;color:#a78bfa;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+    document.getElementById('comment-input-tab-edit').style.cssText = 'padding:4px 12px;font-size:11px;font-weight:500;border-bottom:2px solid transparent;color:#64748b;background:none;border-top:none;border-left:none;border-right:none;cursor:pointer;';
+  });
+
+  // ── Agent Status Bar ─────────────────────────────────────────────────────
+
+  function showAgentStatus(message, active) {
+    const bar = document.getElementById('agent-status-bar');
+    const msg = document.getElementById('agent-status-message');
+    if (!message || !active) { bar.style.display = 'none'; return; }
+    msg.textContent = message;
+    bar.style.display = '';
+  }
+
+  document.getElementById('agent-status-dismiss').addEventListener('click', () => {
+    document.getElementById('agent-status-bar').style.display = 'none';
+    fetch(`http://localhost:__PORT__/api/agent-status`, { method: 'DELETE' }).catch(() => {});
+  });
+
+  fetch(`http://localhost:__PORT__/api/agent-status`)
+    .then(r => r.json())
+    .then(d => showAgentStatus(d.message, d.active))
+    .catch(() => {});
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+
+  function connectWs() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+      const pill = document.getElementById('header-live-pill');
+      if (pill) { pill.style.display = 'flex'; }
+    };
+    ws.onmessage = e => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'tasks-updated') fetchTasks();
+        if (msg.type === 'task-changed') {
+          const idx = tasks.findIndex(t => t.id === msg.taskId);
+          if (idx !== -1) tasks[idx] = msg.task;
+          else tasks.push(msg.task);
+          render();
+        }
+        if (msg.type === 'task-deleted') {
+          tasks = tasks.filter(t => t.id !== msg.taskId);
+          render();
+        }
+        if (msg.type === 'agent-status') showAgentStatus(msg.message, msg.active);
+      } catch {}
+    };
+    ws.onclose = () => {
+      const pill = document.getElementById('header-live-pill');
+      if (pill) { pill.style.display = 'none'; }
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(connectWs, 3000);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  // ── Custom horizontal scrollbar ───────────────────────────────────────────
+
+  (function setupCustomScrollbar() {
+    const board = document.getElementById('kanban-board');
+    const track = document.getElementById('kanban-scroll-track');
+    const thumb = document.getElementById('kanban-scroll-thumb');
+
+    function updateThumb() {
+      const ratio = board.scrollWidth > board.clientWidth
+        ? board.clientWidth / board.scrollWidth : 1;
+      if (ratio >= 1) { track.style.display = 'none'; return; }
+      track.style.display = '';
+      const thumbW = Math.max(40, ratio * board.clientWidth);
+      const maxLeft = board.clientWidth - thumbW;
+      const scrollFraction = board.scrollLeft / (board.scrollWidth - board.clientWidth);
+      thumb.style.width = thumbW + 'px';
+      thumb.style.left = (scrollFraction * maxLeft) + 'px';
+    }
+
+    board.addEventListener('scroll', updateThumb, { passive: true });
+    window.addEventListener('resize', updateThumb, { passive: true });
+    new MutationObserver(updateThumb).observe(board, { childList: true, subtree: false });
+
+    let dragStartX = 0, dragStartScroll = 0;
+    thumb.addEventListener('mousedown', e => {
+      e.preventDefault();
+      thumb.classList.add('dragging');
+      dragStartX = e.clientX;
+      dragStartScroll = board.scrollLeft;
+      function onMove(ev) {
+        const ratio = board.scrollWidth > board.clientWidth
+          ? board.scrollWidth / board.clientWidth : 1;
+        board.scrollLeft = dragStartScroll + (ev.clientX - dragStartX) * ratio;
+      }
+      function onUp() {
+        thumb.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    updateThumb();
+  })();
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  fetchTasks();
+  connectWs();
+  // Fetch project name and update header
+  fetch(`http://localhost:__PORT__/api/project`)
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.name) {
+        const el = document.getElementById('header-project-name');
+        if (el) el.textContent = d.name;
+      }
+    })
+    .catch(() => {});
+  fetch(`http://localhost:__PORT__/api/user`)
+    .then(r => r.json())
+    .then(d => { if (d && d.name) gitUserName = d.name; })
+    .catch(() => {});
+  setInterval(() => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({type:'ping'})), 20000);
+})();
+</script>
+</body>
+</html>

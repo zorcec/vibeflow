@@ -1,0 +1,6 @@
+/* ══════════════════════════════════════════════
+   CLI Kanban CSS — imports shared styles from @vibeflow/ui.
+   Single source of truth: packages/ui/src/kanban/kanban.css
+   Only add CLI-specific overrides below the import.
+   ══════════════════════════════════════════════ */
+@import '../../../../../packages/ui/src/kanban/kanban.css';

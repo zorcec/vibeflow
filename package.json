@@ -1,0 +1,36 @@
+{
+  "name": "vibeflow",
+  "version": "1.0.0",
+  "description": "Vibeflow — annotate, iterate, and ship faster with your AI agent",
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Tomislav Zorcec <zorcec@gmail.com>",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @vibeflow-tools/cli run build",
+    "dev": "pnpm --filter @vibeflow-tools/cli run dev",
+    "test": "pnpm --filter @vibeflow-tools/cli run test",
+    "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
+    "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
+    "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
+    "lint": "pnpm -r run lint",
+    "scan:secrets": "gitleaks detect --source . --staged --verbose",
+    "scan:secrets:full": "gitleaks detect --source . --verbose",
+    "check": "pnpm --filter @vibeflow-tools/cli run lint",
+    "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "esbuild": "0.25.11",
+    "husky": "^9.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "7.3.2",
+      "esbuild": "0.25.11",
+      "rollup": ">=4.59.0",
+      "encoding-sniffer": "^1.0.2"
+    }
+  }
+}
