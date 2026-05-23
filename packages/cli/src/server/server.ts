@@ -55,11 +55,6 @@ function requireSameOrigin(req: express.Request, res: express.Response): boolean
 
 const ALLOWED_WORKSPACE_ORIGINS = new Set([
   "https://app.vibeflow.tools",
-  "https://vibeflow.tools",
-  "https://app.vibeflow.dev",
-  "https://vibeflow.dev",
-  "https://app.vibeflow.ai",
-  "https://vibeflow.ai",
 ]);
 
 /** Validates workspace URL against known production domains to prevent SSRF. */
