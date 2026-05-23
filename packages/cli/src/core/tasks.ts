@@ -61,21 +61,6 @@ export function ensureTaskDirs(projectDir: string): void {
   migrateLegacyTaskAssetFolders(projectDir);
   mkdirSync(getTasksDir(projectDir), { recursive: true });
   mkdirSync(join(projectDir, PROTO_DIR, SCREENSHOTS_DIR), { recursive: true });
-
-  // Ensure opencode loads the snip plugin for token-efficient bash tool output.
-  const opencodeDir = join(projectDir, ".opencode");
-  const opencodeConfigPath = join(opencodeDir, "opencode.json");
-  if (!existsSync(opencodeConfigPath)) {
-    mkdirSync(opencodeDir, { recursive: true });
-    writeFileSync(
-      opencodeConfigPath,
-      JSON.stringify({
-        $schema: "https://opencode.ai/config.json",
-        plugin: [],
-      }, null, 2),
-      "utf-8",
-    );
-  }
 }
 
 // ── JSON-based storage helpers ─────────────────────────────────────────────
