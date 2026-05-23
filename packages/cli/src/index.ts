@@ -78,6 +78,19 @@ const STATUS_COLORS: Record<string, (s: string) => string> = {
 
 const VALID_TASK_TYPES = new Set(["Task", "Bug", "Research"]);
 
+/** All valid task status values. */
+const VALID_STATUSES = ["backlog", "todo", "in-progress", "review", "done"] as const;
+
+/** Ascending comparator for objects with a `createdAt` ISO string field. */
+const sortByCreatedAt = <T extends { createdAt: string }>(a: T, b: T): number =>
+  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+
+/** Returns the status count summary line (e.g. "Total: 10 | Backlog: 2 | Todo: 3 | ..."). */
+function formatStatusSummary(tasks: { status: string }[]): string {
+  const count = (s: string) => tasks.filter((t) => t.status === s).length;
+  return `  Total: ${tasks.length} | Backlog: ${count("backlog")} | Todo: ${count("todo")} | In Progress: ${count("in-progress")} | Review: ${count("review")} | Done: ${count("done")}`;
+}
+
 /** Normalize task type: invalid or legacy values fall back to the generic "Task" type. */
 function normalizeTaskType(type: string | undefined | null): string | undefined {
   if (!type) return undefined;
@@ -428,7 +441,7 @@ program
           console.log(chalk.dim(`    element text: ${saasTask.annotatedElementText}`));
         }
         const saasComments = [...(saasTask.comments ?? [])].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          sortByCreatedAt,
         );
         if (saasComments.length > 0) {
           console.log(chalk.dim(`    comments (${saasComments.length}):`));
@@ -468,7 +481,7 @@ program
         return;
       }
       const structuredComments = listComments(projectDir, task.id).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        sortByCreatedAt,
       );
       const linkedFiles = listFiles(projectDir, task.id).map((f) => ({
         ...f,
@@ -524,7 +537,7 @@ program
         todoTasks = todoTasks.sort((a, b) => {
           const byPriority = getPriorityRank(a.priority ?? undefined) - getPriorityRank(b.priority ?? undefined);
           if (byPriority !== 0) return byPriority;
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          return sortByCreatedAt(a, b);
         });
 
         if (todoTasks.length === 0) {
@@ -564,7 +577,7 @@ program
           for (const line of nextTask.description.split("\n")) console.log(chalk.dim(`      ${line}`));
         }
         const sortedNextComments = [...(nextTask.comments ?? [])].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          sortByCreatedAt,
         );
         if (sortedNextComments.length > 0) {
           console.log(chalk.dim(`    comments (${sortedNextComments.length}):`));
@@ -621,7 +634,7 @@ program
 
       const config = readConfig(nextProjectDir);
       const structuredComments = listComments(nextProjectDir, nextUpdated.id).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        sortByCreatedAt,
       );
       const linkedFiles = listFiles(nextProjectDir, nextUpdated.id).map((f) => ({
         ...f,
@@ -801,8 +814,6 @@ program
         return;
       }
 
-      const VALID_STATUSES = ["backlog", "todo", "in-progress", "review", "done"];
-
       if (opts.setStatus === "done") {
         console.log(chalk.yellow("⚠ WARNING: Agents should NEVER set a task status to \"done\"."));
         console.log(chalk.yellow("  Only humans should mark tasks as done after reviewing."));
@@ -810,7 +821,7 @@ program
         console.log();
       }
 
-      if (opts.setStatus && !VALID_STATUSES.includes(opts.setStatus)) {
+      if (opts.setStatus && !VALID_STATUSES.includes(opts.setStatus as typeof VALID_STATUSES[number])) {
         console.log(chalk.red(`✗ Invalid status: "${opts.setStatus}"`));
         console.log(chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`));
         console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status in-progress`));
@@ -1027,8 +1038,7 @@ program
     }
 
     // ── List mode ──────────────────────────────────────────────────────
-    const VALID_STATUSES = ["backlog", "todo", "in-progress", "review", "done"];
-    if (opts.status && !VALID_STATUSES.includes(opts.status)) {
+    if (opts.status && !VALID_STATUSES.includes(opts.status as typeof VALID_STATUSES[number])) {
       console.log(chalk.red(`✗ Invalid status filter: "${opts.status}"`));
       console.log(chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`));
       console.log(chalk.dim(`  Example: vibeflow tasks --status todo`));
@@ -1098,7 +1108,7 @@ program
           }
           if (task.comments && task.comments.length > 0) {
             const sortedComments = [...task.comments].sort(
-              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+              sortByCreatedAt,
             );
             console.log(chalk.dim(`    comments (${sortedComments.length}):`));
             for (const c of sortedComments) {
@@ -1125,14 +1135,7 @@ program
         }
 
         const allForCount = saasData.tasks.map((t) => ({ ...t, status: toCliStatus(t.status) }));
-        const backlogCount = allForCount.filter((t) => t.status === "backlog").length;
-        const todoCount = allForCount.filter((t) => t.status === "todo").length;
-        const inProgressCount = allForCount.filter((t) => t.status === "in-progress").length;
-        const reviewCount = allForCount.filter((t) => t.status === "review").length;
-        const doneCount = allForCount.filter((t) => t.status === "done").length;
-        console.log(
-          chalk.dim(`  Total: ${allForCount.length} | Backlog: ${backlogCount} | Todo: ${todoCount} | In Progress: ${inProgressCount} | Review: ${reviewCount} | Done: ${doneCount}`),
-        );
+        console.log(chalk.dim(formatStatusSummary(allForCount)));
       }
       return;
     }
@@ -1187,7 +1190,7 @@ program
     const config = readConfig(projectDir);
     for (const [idx, task] of filtered.entries()) {
       const structuredComments = listComments(projectDir, task.id).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        sortByCreatedAt,
       );
       const linkedFiles = listFiles(projectDir, task.id).map((f) => ({
         ...f,
@@ -1197,19 +1200,10 @@ program
       printTaskDetails(task, agent, idx, config.port, projectDir);
     }
 
-    const backlogCount = all.filter((t) => t.status === "backlog").length;
-    const todoCount = all.filter((t) => t.status === "todo").length;
-    const inProgressCount = all.filter((t) => t.status === "in-progress").length;
-    const reviewCount = all.filter((t) => t.status === "review").length;
-    const doneCount = all.filter((t) => t.status === "done").length;
     const limitSuffix = (!isNaN(taskLimit) && taskLimit > 0 && totalFiltered > taskLimit)
       ? chalk.yellow(` (showing ${taskLimit} of ${totalFiltered} matching — use --limit 0 for all)`)
       : "";
-    console.log(
-      chalk.dim(
-        `  Total: ${all.length} | Backlog: ${backlogCount} | Todo: ${todoCount} | In Progress: ${inProgressCount} | Review: ${reviewCount} | Done: ${doneCount}`,
-      ) + limitSuffix,
-    );
+    console.log(chalk.dim(formatStatusSummary(all)) + limitSuffix);
     await flushTelemetry();
     })();
   });
