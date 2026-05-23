@@ -212,6 +212,7 @@ program
       host: opts.host,
       open: false,
       projectDir: resolve(dir),
+      noCtrlCHint: true,
     });
     const kanbanUrl = instance.url + "/kanban";
     console.log();
@@ -221,6 +222,8 @@ program
     console.log(chalk.bold("Agent prompt:"));
     console.log(chalk.dim("  Get new tasks and implement them, once done check again for new ones:"));
     console.log(chalk.dim("  ") + chalk.green(`npx @vibeflow-tools/cli tasks --next`));
+    console.log();
+    console.log(chalk.dim("  Press Ctrl+C to stop"));
     console.log();
     import("open").then((mod) => mod.default(kanbanUrl)).catch(() => {
       console.log(chalk.dim("  Visit: ") + chalk.cyan(kanbanUrl));

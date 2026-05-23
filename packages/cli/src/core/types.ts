@@ -102,6 +102,8 @@ export interface ServeOptions {
   _testToken?: string | null;
   /** @internal Testing only: inject a mock workspace to simulate SaaS online mode (undefined = read from ~/.vibeflow/workspace). */
   _testWorkspace?: { id: string; name: string; url: string; icon?: string | null; email?: string | null } | null;
+  /** When true, suppress the "Press Ctrl+C to stop" hint from server startup output (caller will print it). */
+  noCtrlCHint?: boolean;
 }
 
 // ── Export / validation results ────────────────────────────────────────────

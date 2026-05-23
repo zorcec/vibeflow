@@ -1165,8 +1165,10 @@ async function serveApiOnly(
         console.log(chalk.dim("  Visit and drag the bookmarklet from ") + chalk.cyan(`${url}/inject`) + chalk.dim(" to your bookmarks bar."));
       }
       console.log();
-      console.log(chalk.dim("  Press Ctrl+C to stop"));
-      console.log();
+      if (!options.noCtrlCHint) {
+        console.log(chalk.dim("  Press Ctrl+C to stop"));
+        console.log();
+      }
 
       resolvePromise({
         url,
