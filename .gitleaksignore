@@ -1,0 +1,6 @@
+# gitleaksignore — known false positives / intentionally-public values
+#
+# PostHog project API key in telemetry.ts — this is a PUBLIC client-side key
+# (phc_ prefix = PostHog project key, ingest-only, no read access).
+# Safe to embed in source code, same as a Google Analytics tracking ID.
+20198b24669fff917cfa7b4bd376ca2a520aa374:packages/cli/src/telemetry.ts:generic-api-key-assignment:20
