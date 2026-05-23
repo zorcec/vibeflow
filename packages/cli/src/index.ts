@@ -324,7 +324,8 @@ program
   .argument("[dir]", "Project root directory", ".")
   .option("-p, --port <port>", "Port number", "3700")
   .option("--host <host>", "Bind hostname (default: localhost; use 0.0.0.0 for LAN sharing)")
-  .action(async (dir: string, opts: { port: string; host?: string }) => {
+  .option("--no-open", "Do not open browser automatically")
+  .action(async (dir: string, opts: { port: string; host?: string; open: boolean }) => {
     capture("command_run", { command: "kanban" });
     await flushTelemetry();
     const port = parseInt(opts.port, 10);
@@ -346,9 +347,11 @@ program
     console.log();
     console.log(chalk.dim("  Press Ctrl+C to stop"));
     console.log();
-    import("open").then((mod) => mod.default(kanbanUrl)).catch(() => {
-      console.log(chalk.dim("  Visit: ") + chalk.cyan(kanbanUrl));
-    });
+    if (opts.open) {
+      import("open").then((mod) => mod.default(kanbanUrl)).catch(() => {
+        console.log(chalk.dim("  Visit: ") + chalk.cyan(kanbanUrl));
+      });
+    }
     // Non-blocking update check — runs after all startup output is shown.
     void checkForUpdates();
   });
