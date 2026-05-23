@@ -135,6 +135,114 @@ function printAgentInstructions(opts: { hasResearchTasks: boolean; hasBugTasks?:
   }
 }
 
+/** Valid task type values for the --type filter. */
+const VALID_FILTER_TYPES = ["Task", "Bug", "Feature", "Enhancement", "Research"];
+
+/** Trim and lowercase a filter string for case-insensitive comparison. */
+const normalizeFilterValue = (value: string): string => value.trim().toLowerCase();
+
+/** True when `author` matches the user filter (case-insensitive). */
+function matchesUserFilter(author: string | null | undefined, filter: string): boolean {
+  const normalizedFilter = normalizeFilterValue(filter);
+  if (!normalizedFilter) return true;
+  return normalizeFilterValue(author ?? "") === normalizedFilter;
+}
+
+/** Returns sorted unique list of non-empty author strings from a task array. */
+function collectAvailableUsers<T extends { author?: string | null }>(tasks: T[]): string[] {
+  return [...new Set(
+    tasks.map((t) => t.author?.trim()).filter((a): a is string => Boolean(a)),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+/** Validates --type filter value; logs error and sets exitCode=1 if invalid. Returns true if valid. */
+function validateTypeFilter(typeFilter: string): boolean {
+  if (VALID_FILTER_TYPES.map((t) => t.toLowerCase()).includes(typeFilter.toLowerCase())) return true;
+  console.log(chalk.red(`✗ Invalid type filter: "${typeFilter}"`));
+  console.log(chalk.yellow(`  Available types: ${VALID_FILTER_TYPES.join(" | ")}`));
+  console.log(chalk.dim("  Type filter is exact (example: --type Bug)"));
+  process.exitCode = 1;
+  return false;
+}
+
+/** Validates --user filter value; logs error and sets exitCode=1 if invalid. Returns true if valid. */
+function validateUserFilter<T extends { author?: string | null }>(userFilter: string, tasks: T[]): boolean {
+  const availableUsers = collectAvailableUsers(tasks);
+  if (availableUsers.length === 0) {
+    console.log(chalk.red(`✗ Cannot filter by user: no task authors are available on this board.`));
+    process.exitCode = 1;
+    return false;
+  }
+  if (availableUsers.some((author) => matchesUserFilter(author, userFilter))) return true;
+  console.log(chalk.red(`✗ User not found: "${userFilter}"`));
+  console.log(chalk.yellow(`  Available users: ${availableUsers.join(" | ")}`));
+  console.log(chalk.dim("  User filter is exact email match (case-insensitive)."));
+  process.exitCode = 1;
+  return false;
+}
+
+/** Prints a single task's details in the agent-readable list format. */
+function printTaskDetails(
+  task: ReturnType<typeof listTasksWithPaths>[number],
+  agent: ReturnType<typeof formatTaskForAgent>,
+  idx: number,
+  port: number,
+  projectDir: string,
+): void {
+  const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
+  console.log(`  ${chalk.dim(`${idx + 1}.`)} ${colorFn(`[${agent.status}]`)} ${agent.title}`);
+  console.log(chalk.dim(`    id:       ${agent.id}`));
+  console.log(chalk.dim(`    file:     ${task.filePath}`));
+  if (agent.file) console.log(chalk.dim(`    source:   ${agent.file}${agent.line != null ? `:${agent.line}` : ""}${agent.col != null ? `:${agent.col}` : ""}`));
+  if (agent.component) console.log(chalk.dim(`    component: ${agent.component}`));
+  console.log(chalk.dim(`    selector: ${agent.selector}`));
+  if (task.cssSelector) console.log(chalk.dim(`    css:      ${task.cssSelector}`));
+  if (agent.url) console.log(chalk.dim(`    url:      ${agent.url}`));
+  if (task.screenshot) console.log(chalk.dim(`    screenshot: http://localhost:${port}/screenshots/${task.screenshot}`));
+  if (task.commits && task.commits.length > 0) {
+    if (task.commits.length === 1) {
+      console.log(chalk.dim(`    commit:   ${task.commits[0].sha}`));
+    } else {
+      console.log(chalk.dim(`    commits (${task.commits.length}):`));
+      for (const c of task.commits) {
+        console.log(chalk.dim(`      ${c.sha.slice(0, 8)}  ${c.timestamp}  ${c.message.slice(0, 60)}`));
+      }
+    }
+  }
+  console.log(chalk.dim(`    created:  ${agent.created}`));
+  if (agent.type) console.log(chalk.dim(`    type:     ${agent.type}`));
+  if (agent.priority) console.log(chalk.dim(`    priority: ${agent.priority}`));
+  if (agent.description) {
+    console.log(chalk.dim(`    description:`));
+    for (const line of agent.description.split("\n")) console.log(chalk.dim(`      ${line}`));
+  }
+  if (agent.structuredComments && agent.structuredComments.length > 0) {
+    console.log(chalk.dim(`    comments (${agent.structuredComments.length}):`));
+    for (const c of agent.structuredComments) {
+      const edited = c.updatedAt ? ` (edited ${c.updatedAt})` : "";
+      console.log(chalk.dim(`      [${c.author ?? "agent"}] ${c.createdAt}${edited}`));
+      for (const line of c.text.split("\n")) console.log(chalk.dim(`        ${line}`));
+    }
+  }
+  if (agent.linkedFiles && agent.linkedFiles.length > 0) {
+    console.log(chalk.dim(`    linked files (${agent.linkedFiles.length}):`));
+    for (const f of agent.linkedFiles) {
+      const absPath = f.linkedPath ?? join(projectDir, ".vibeflow", "files", task.id, f.name);
+      console.log(chalk.dim(`      - ${f.name}  ${f.url}`));
+      // Inline content for text/markdown files so agents have full context immediately.
+      if (/\.(md|txt)$/i.test(f.name) && f.size < 100_000 && existsSync(absPath)) {
+        try {
+          const content = readFileSync(absPath, "utf-8");
+          console.log(chalk.dim(`        ┌── content ──`));
+          for (const line of content.split("\n")) console.log(chalk.dim(`        │  ${line}`));
+          console.log(chalk.dim(`        └─────────────`));
+        } catch { /* file not readable — URL shown above */ }
+      }
+    }
+  }
+  console.log();
+}
+
 const program = new Command();
 
 program
@@ -282,48 +390,6 @@ program
     // Determine sub-command for telemetry before async operations
     const taskSubcommand = opts.add ? "add" : opts.next ? "next" : opts.edit ? "edit" : opts.get ? "get" : "list";
     capture("command_run", { command: "tasks", subcommand: taskSubcommand });
-
-    const VALID_TYPES = ["Task", "Bug", "Feature", "Enhancement", "Research"];
-
-    const normalizeFilterValue = (value: string): string => value.trim().toLowerCase();
-
-    const matchesUserFilter = (author: string | null | undefined, filter: string): boolean => {
-      const normalizedFilter = normalizeFilterValue(filter);
-      if (!normalizedFilter) return true;
-      return normalizeFilterValue(author ?? "") === normalizedFilter;
-    };
-
-    const collectAvailableUsers = <T extends { author?: string | null }>(tasks: T[]): string[] => {
-      return [...new Set(
-        tasks
-          .map((t) => t.author?.trim())
-          .filter((author): author is string => Boolean(author)),
-      )].sort((a, b) => a.localeCompare(b));
-    };
-
-    const validateTypeFilter = (typeFilter: string): boolean => {
-      if (VALID_TYPES.map((t) => t.toLowerCase()).includes(typeFilter.toLowerCase())) return true;
-      console.log(chalk.red(`✗ Invalid type filter: "${typeFilter}"`));
-      console.log(chalk.yellow(`  Available types: ${VALID_TYPES.join(" | ")}`));
-      console.log(chalk.dim("  Type filter is exact (example: --type Bug)"));
-      process.exitCode = 1;
-      return false;
-    };
-
-    const validateUserFilter = <T extends { author?: string | null }>(userFilter: string, tasks: T[]): boolean => {
-      const availableUsers = collectAvailableUsers(tasks);
-      if (availableUsers.length === 0) {
-        console.log(chalk.red(`✗ Cannot filter by user: no task authors are available on this board.`));
-        process.exitCode = 1;
-        return false;
-      }
-      if (availableUsers.some((author) => matchesUserFilter(author, userFilter))) return true;
-      console.log(chalk.red(`✗ User not found: "${userFilter}"`));
-      console.log(chalk.yellow(`  Available users: ${availableUsers.join(" | ")}`));
-      console.log(chalk.dim("  User filter is exact email match (case-insensitive)."));
-      process.exitCode = 1;
-      return false;
-    };
 
     // ── Get single task mode ───────────────────────────────────────────
     if (opts.get) {
@@ -1120,7 +1186,6 @@ program
 
     const config = readConfig(projectDir);
     for (const [idx, task] of filtered.entries()) {
-      const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
       const structuredComments = listComments(projectDir, task.id).sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
@@ -1129,57 +1194,7 @@ program
         url: `http://localhost:${config.port}${f.url}`,
       }));
       const agent = formatTaskForAgent(task, structuredComments, linkedFiles);
-      console.log(`  ${chalk.dim(`${idx + 1}.`)} ${colorFn(`[${agent.status}]`)} ${agent.title}`);
-      console.log(chalk.dim(`    id:       ${agent.id}`));
-      console.log(chalk.dim(`    file:     ${task.filePath}`));
-      if (agent.file) console.log(chalk.dim(`    source:   ${agent.file}${agent.line != null ? `:${agent.line}` : ""}${agent.col != null ? `:${agent.col}` : ""}`));
-      if (agent.component) console.log(chalk.dim(`    component: ${agent.component}`));
-      console.log(chalk.dim(`    selector: ${agent.selector}`));
-      if (task.cssSelector) console.log(chalk.dim(`    css:      ${task.cssSelector}`));
-      if (agent.url) console.log(chalk.dim(`    url:      ${agent.url}`));
-      if (task.screenshot) console.log(chalk.dim(`    screenshot: http://localhost:${config.port}/screenshots/${task.screenshot}`));
-      if (task.commits && task.commits.length > 0) {
-        if (task.commits.length === 1) {
-          console.log(chalk.dim(`    commit:   ${task.commits[0].sha}`));
-        } else {
-          console.log(chalk.dim(`    commits (${task.commits.length}):`));
-          for (const c of task.commits) {
-            console.log(chalk.dim(`      ${c.sha.slice(0, 8)}  ${c.timestamp}  ${c.message.slice(0, 60)}`));
-          }
-        }
-      }
-      console.log(chalk.dim(`    created:  ${agent.created}`));
-      if (agent.type) console.log(chalk.dim(`    type:     ${agent.type}`));
-      if (agent.priority) console.log(chalk.dim(`    priority: ${agent.priority}`));
-      if (agent.description) {
-        console.log(chalk.dim(`    description:`));
-        for (const line of agent.description.split("\n")) console.log(chalk.dim(`      ${line}`));
-      }
-      if (agent.structuredComments && agent.structuredComments.length > 0) {
-        console.log(chalk.dim(`    comments (${agent.structuredComments.length}):`));
-        for (const c of agent.structuredComments) {
-          const edited = c.updatedAt ? ` (edited ${c.updatedAt})` : "";
-          console.log(chalk.dim(`      [${c.author ?? "agent"}] ${c.createdAt}${edited}`));
-          for (const line of c.text.split("\n")) console.log(chalk.dim(`        ${line}`));
-        }
-      }
-      if (agent.linkedFiles && agent.linkedFiles.length > 0) {
-        console.log(chalk.dim(`    linked files (${agent.linkedFiles.length}):`));
-        for (const f of agent.linkedFiles) {
-          const absPath = f.linkedPath ?? join(projectDir, ".vibeflow", "files", task.id, f.name);
-          console.log(chalk.dim(`      - ${f.name}  ${f.url}`));
-          // Inline content for text/markdown files so agents have full context immediately.
-          if (/\.(md|txt)$/i.test(f.name) && f.size < 100_000 && existsSync(absPath)) {
-            try {
-              const content = readFileSync(absPath, "utf-8");
-              console.log(chalk.dim(`        ┌── content ──`));
-              for (const line of content.split("\n")) console.log(chalk.dim(`        │  ${line}`));
-              console.log(chalk.dim(`        └─────────────`));
-            } catch { /* file not readable — URL shown above */ }
-          }
-        }
-      }
-      console.log();
+      printTaskDetails(task, agent, idx, config.port, projectDir);
     }
 
     const backlogCount = all.filter((t) => t.status === "backlog").length;

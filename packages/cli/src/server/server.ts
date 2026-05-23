@@ -53,6 +53,32 @@ function requireSameOrigin(req: express.Request, res: express.Response): boolean
   return true;
 }
 
+/** Valid status values accepted when creating a task via POST /api/tasks. */
+const VALID_CREATE_STATUSES = ["backlog", "todo", "in-progress", "review", "done"] as const;
+type CreateTaskStatus = typeof VALID_CREATE_STATUSES[number];
+
+/** Shape of the POST /api/tasks request body. */
+type CreateTaskBody = {
+  title?: string;
+  description?: string;
+  selector?: string;
+  cssSelector?: string;
+  url?: string;
+  type?: string;
+  priority?: string;
+  file?: string;
+  line?: number;
+  col?: number;
+  component?: string;
+  status?: string;
+  agent?: string;
+  model?: string;
+  screenshot?: string;
+  annotatedElementText?: string;
+  tags?: string[];
+  sortKey?: string;
+};
+
 const ALLOWED_WORKSPACE_ORIGINS = new Set([
   "https://app.vibeflow.tools",
 ]);
