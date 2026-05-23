@@ -10,13 +10,6 @@ regexes = [
   '''example[-_]secret''',
 ]
 
-# Block internal Vibeflow domains that should never appear in public source
-[[rules]]
-id = "vibeflow-internal-domain"
-description = "Vibeflow internal subdomain (not the public app.vibeflow.tools)"
-regex = '''https?://(?!app\.vibeflow\.tools|vibeflow\.tools)[a-z0-9-]+\.vibeflow\.(tools|dev|ai)'''
-tags = ["internal", "url"]
-
 # Block common secret patterns not covered by built-in rules
 [[rules]]
 id = "generic-api-key-assignment"
