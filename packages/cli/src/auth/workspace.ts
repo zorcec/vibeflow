@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const SPOTA_DIR = path.join(os.homedir(), ".vibeflow");
-const WORKSPACE_PATH = path.join(SPOTA_DIR, "workspace");
+const VIBEFLOW_DIR = path.join(os.homedir(), ".vibeflow");
+const WORKSPACE_PATH = path.join(VIBEFLOW_DIR, "workspace");
 
 export interface WorkspaceInfo {
   id: string;
@@ -23,7 +23,7 @@ export async function readWorkspace(): Promise<WorkspaceInfo | null> {
 }
 
 export async function writeWorkspace(workspace: WorkspaceInfo): Promise<void> {
-  await fs.mkdir(SPOTA_DIR, { recursive: true });
+  await fs.mkdir(VIBEFLOW_DIR, { recursive: true });
   await fs.writeFile(WORKSPACE_PATH, JSON.stringify(workspace, null, 2), { mode: 0o600 });
 }
 

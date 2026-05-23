@@ -52,7 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  delete process.env.SPOTA_API_URL;
+  delete process.env.VIBEFLOW_API_URL;
 });
 
 describe("toCliStatus", () => {

@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const SPOTA_DIR = path.join(os.homedir(), ".vibeflow");
-const TOKEN_PATH = path.join(SPOTA_DIR, "token");
+const VIBEFLOW_DIR = path.join(os.homedir(), ".vibeflow");
+const TOKEN_PATH = path.join(VIBEFLOW_DIR, "token");
 
 export async function readToken(): Promise<string | null> {
   try {

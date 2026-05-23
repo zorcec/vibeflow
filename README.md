@@ -226,58 +226,7 @@ The CLI works 100% offline in local mode without an account.
 
 ---
 
-## Infrastructure Setup
-
-The production stack runs on a Contabo VPS (Debian) + Supabase + Cloudflare R2. The VPS runs Caddy (TLS + load balancer), Dozzle, Uptime Kuma, the marketing website, and three Next.js app replicas.
-
-Deployment uses plain bash + Docker Compose — no Ansible, no CI/CD daemon required.
-
-### Prerequisites
-
-- SSH key at `~/.ssh/contabo_deploy` (`.pub` already on the VPS, or provided via `VPS_ROOT_PASSWORD` on first bootstrap)
-- `deploy/secrets` filled in (copy from `deploy/secrets.example`)
-
-### First-time VPS Setup
-
-Run once on a **fresh Debian VPS**:
-
-```bash
-./deploy/scripts/bootstrap.sh
-```
-
-Installs Docker, configures UFW firewall, hardens SSH, and creates `/opt/vibeflow/`.
-
-### Deploy the App
-
-```bash
-./deploy/scripts/deploy-app.sh              # build + push + roll out latest
-./deploy/scripts/deploy-app.sh v1.2.3       # specific version
-./deploy/scripts/deploy-app.sh --dry-run    # full validation, no VPS changes
-```
-
-Runs a security audit, builds + pushes Docker images, runs DB migrations, then does a rolling `docker compose up -d`.
-
-### Deploy the Website
-
-```bash
-./deploy/scripts/deploy-website.sh             # rsync + nginx reload
-./deploy/scripts/deploy-website.sh --dry-run   # local nginx sim + smoke tests
-```
-
-### Publish CLI to npm
-
-```bash
-./deploy/scripts/publish-cli.sh            # test → build → publish
-./deploy/scripts/publish-cli.sh --dry-run  # all checks, simulated publish
-```
-
-> See [deploy/secrets.example](deploy/secrets.example) for all required configuration variables.
-
----
-
 ## Contributing
-
-See [AGENT.md](AGENT.md) for the development workflow, architecture, and agent-specific instructions.
 
 ```bash
 pnpm install       # install dependencies
@@ -285,18 +234,6 @@ pnpm build:cli     # build CLI
 pnpm test          # unit tests
 pnpm test:e2e      # end-to-end tests
 ```
-
-### Code Intelligence (GitNexus)
-
-GitNexus indexes the codebase for AI-assisted development (impact analysis, semantic search).
-The index is updated automatically after each build.
-
-```bash
-# Update the index manually
-npm run analyze:gitnexus
-```
-
-See [docs/gitnexus-guide.md](docs/gitnexus-guide.md) for tool reference and setup details.
 
 ---
 
