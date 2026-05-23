@@ -1,120 +1,169 @@
 # Vibeflow
 
-> Annotate, iterate, and ship faster with your AI agent — from a single CLI command.
+> **Tell your AI agent exactly what to fix — by clicking on it.**
 
-Vibeflow sits between your browser and your AI agent. Click any element to leave precise feedback, export it as a structured prompt, and let Copilot or Claude implement it. No copy-pasting, no context loss, no "what did you mean?" loops.
-
-<!-- TODO: Add demo GIF (10–30s: annotate → export → agent implements → browser reloads) -->
-<!-- Use LICEcap, Kap, or ttyrec to record. Target <3MB. -->
+Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any element on a page to create a task with its exact CSS selector, URL, and source location. Your agent gets precise, actionable context — no "the button in the top right" needed.
 
 ```bash
 npm install -g @vibeflow-tools/cli
-vibeflow serve
+vibeflow kanban
 ```
 
 ---
 
-## Why Vibeflow
+## Why It Matters
 
-AI agents are fast at writing code, but slow at *understanding what you mean*. Vibeflow eliminates the translation step:
+AI agents write code fast, but **understanding what to change is slow**. Describing a UI issue in prose wastes tokens and produces wrong fixes.
 
-- **Click any element** → instant task with exact CSS selector, URL, and source location
-- **Export** → one structured prompt with all the context your agent needs
-- **Done** → agent implements it, Kanban task closes, browser reloads
+Vibeflow turns visual feedback into structured tasks:
 
-No more describing layouts in prose. No more "the button in the top right."
+- **Click any element** → instant task with CSS selector, URL, and source file location
+- **Track on a Kanban board** → see everything at a glance, drag between columns
+- **Agents implement with context** → no guessing, no wrong elements, no wasted iterations
 
----
-
-## Features
-
-### CLI
-
-| Command | Description |
-|---------|-------------|
-| `vibeflow serve [target]` | Serve HTML files with live overlay, or run API-only task server |
-| `vibeflow kanban [dir]` | Start the server and open the Kanban board in the browser |
-| `vibeflow export <target>` | Export annotations/tasks as a structured LLM prompt |
-| `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
-| `vibeflow login` | Authenticate CLI against the SaaS backend (device flow) |
-| `vibeflow logout` | Remove stored auth token, switch to local mode |
-| `vibeflow mode` | Show current operating mode (local or SaaS) |
-| `vibeflow status` | Show login status, connection info, task statistics |
-| `vibeflow push` | Push all local tasks to the SaaS app |
-
-**Task management** (`vibeflow tasks`):
-- Filter: `--status <status>` · `--type <type>` · `--user <email>`
-- Create: `--add --title "..." --description "..."`
-- Edit: `--edit <id> --set-status <status> --title "..." --description "..."`
-- Comment: `--comment "..."` (required when marking review)
-- Auto-commit on review: `--set-status review --commit-message "..." --comment "..."`
-- Attach report files for Research tasks: `--report-file ./report.md`
-- Full task details: `--get <id>`
-- Machine-readable output: `--json`
-
-**Task types**: Task · Bug · Research  
-**Task statuses**: backlog → todo → in-progress → review → done
-
----
-
-### Browser Overlay
-
-The overlay is a shadow-DOM panel injected into any page (HTML prototypes or live apps):
-
-- **Click-to-annotate** — click any element to open a task form, pre-filled with CSS selector, URL, and source location
-- **Task sidebar** — lists open tasks with status badges; click to jump to annotated element
-- **Task indicators** — numbered markers on annotated elements
-- **Real-time sync** — over WebSocket (local) or polling (SaaS)
-- **Error recording** — captures recent console errors into bug reports automatically
-- **Dark theme** — polished dark UI, no configuration needed
-- **Keyboard shortcut** — `Alt+A` to toggle annotation mode
-- **CSP-safe injection** (SaaS mode) — bookmarklet bypasses `script-src` restrictions
-
-**Injection methods**: `<script>` tag · bookmarklet · DevTools snippet
-
----
-
-## Installation
-
-```bash
-npm install -g @vibeflow-tools/cli
-```
-
-Or run without installing:
-
-```bash
-npx @vibeflow-tools/cli serve
-```
+Perfect for small UI fixes, broken layouts, spacing issues, and anything where pointing is faster than explaining.
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Serve your project with annotation overlay (opens in browser)
-vibeflow serve
+# 1. Embed the overlay into your app (bookmarklet, script tag, or devtools)
+#    Visit /inject on your running server for ready-to-use snippets
 
-# 2. Click elements in the browser to annotate them
-# 3. Export annotations as a structured AI prompt
-vibeflow export .
+# 2. Open the Kanban board
+vibeflow kanban
 
-# 4. Paste into Copilot / Claude / any LLM and say "Implement all annotations"
+# 3. Click elements in your app to annotate, or create tasks on the board
+
+# 4. Your agent picks the next task with full context executing following command
+vibeflow tasks --next
+
 ```
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
+| `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
+| `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
+| `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
+
+### `vibeflow kanban [dir]`
+
+```bash
+vibeflow kanban                   # open Kanban board for current directory
+vibeflow kanban ./my-project      # open Kanban for a specific project
+```
+
+The Kanban board provides a visual task tracker with drag-and-drop columns, agent status display, and file attachments. Create tasks directly on the board or import them from annotated prototypes.
+
+### `vibeflow serve [target]`
+
+```bash
+vibeflow serve .                  # serve all HTML files in current directory
+vibeflow serve dashboard.html     # serve a single file
+vibeflow serve -p 4000 .          # custom port
+vibeflow serve --no-open .        # don't open browser automatically
+vibeflow serve                    # API-only mode — connects to an existing hosted app
+```
+
+Serve HTML prototypes with the annotation overlay — click any element to create a task with its CSS selector, URL, and source location.
+
+### `vibeflow tasks`
+
+Full task management from the command line — designed to be agent-friendly.
+
+```bash
+# Pick the next task (auto-claims a todo task)
+vibeflow tasks --next                             # picks highest-priority todo task
+vibeflow tasks --next --type Bug                  # next bug task only
+
+# List tasks
+vibeflow tasks                                    # all tasks (default: 20 most recent)
+vibeflow tasks --limit 0                          # show all tasks (no limit)
+vibeflow tasks --json                             # machine-readable JSON output
+
+# Filter
+vibeflow tasks --status todo                      # by status
+vibeflow tasks --type Bug                         # by type (Task, Bug, Feature, Enhancement, Research)
+vibeflow tasks --user dev@example.com             # by author email
+vibeflow tasks --tag frontend --tag urgent        # by tags (AND matching)
+
+# Get full details of a single task
+vibeflow tasks --get <id>                         # supports partial ID prefix
+
+# Create a task
+vibeflow tasks --add --title "Fix header" --description "Button overflows on mobile"
+
+# Edit a task
+vibeflow tasks --edit <id> --set-status in-progress
+vibeflow tasks --edit <id> --title "Updated title" --description "More detail"
+
+# Mark as review (requires implementation report)
+vibeflow tasks --edit <id> --set-status review \
+  --commit-message "fix: header layout" \
+  --comment "Fixed the alignment issue by adjusting flex-wrap"
+```
+
+**Task types:** Task · Bug · Feature · Enhancement · Research  
+**Task statuses:** backlog → todo → in-progress → review → done  
+**Priorities:** Critical · High · Medium · Low
+
+### `vibeflow telemetry`
+
+```bash
+vibeflow telemetry              # show current status
+vibeflow telemetry --disable    # opt out of usage tracking
+vibeflow telemetry --enable     # opt back in
+```
+
+No PII is ever collected. User identity is hashed.
+
+---
+
+## Browser Overlay
+
+The overlay is a Shadow DOM panel injected into any page — HTML prototypes or live apps:
+
+- **Click-to-annotate** — click any element to open a task form, pre-filled with CSS selector, URL, and source location
+- **Task sidebar** — lists open tasks with status badges; click to jump to the annotated element
+- **Task indicators** — numbered markers on annotated elements
+- **Real-time sync** — over WebSocket with live file watching
+- **Screenshot capture** — attach screenshots to tasks via the overlay
+- **Dark theme** — polished dark UI, no configuration needed
+- **Keyboard shortcut** — `Alt+A` to toggle annotation mode
+- **CSP-safe injection** — bookmarklet bypasses `script-src` restrictions
+
+### Injection Methods
+
+The overlay can be injected into any page three ways:
+
+| Method | Best for | CSP-safe |
+|--------|----------|----------|
+| **Bookmarklet** (recommended) | Any page, including production apps | Yes |
+| **Script tag** | Pages you control the HTML of | No |
+| **DevTools console** | Quick one-off sessions | Yes |
+
+Visit `/inject` on your running server for ready-to-use bookmarklets and snippets.
 
 ---
 
 ## How It Works
 
 ```
-LLM generates HTML  →  vibeflow serve  →  you annotate in browser
-        ↑                                         ↓
-  implements changes  ←  vibeflow export  ←  structured prompt
+You browse your app  →  click to annotate  →  task created with context
+         ↑                                         ↓
+   browser reloads  ←  agent implements  ←  vibeflow tasks --next
 ```
 
-1. **Serve** — HTML files with invisible annotation overlay injected
-2. **Annotate** — click any element, type your feedback, tag it with intent
-3. **Export** — assembles all annotations into a ready-to-paste LLM prompt
-4. **Iterate** — LLM updates files, browser reloads, annotate again
+1. **Overlay** — embed the bookmarklet or script into your app, click any element to annotate
+2. **Kanban** — open the board to see all tasks at a glance, create new ones directly
+3. **Tasks** — `vibeflow tasks --next` picks the highest-priority task with full context for your agent
+4. **Iterate** — agent implements, browser reloads, annotate again
 
 ---
 
@@ -124,7 +173,7 @@ Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts v
 
 **Rules:**
 - One file per screen — name after the route (`login.html`, `dashboard.html`)
-- Every meaningful element gets a `data-proto-id` — kebab-case, globally unique
+- Every meaningful element gets a `data-vibeflow-id` — kebab-case, globally unique
 - Navigate between pages with relative links: `<a href="./page.html">`
 - Repeat navigation on every page (no shared includes)
 
@@ -141,8 +190,8 @@ Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts v
   <style>body { font-family: 'Inter', sans-serif; }</style>
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen">
-  <main data-proto-id="main-content" class="max-w-4xl mx-auto px-6 py-8">
-    <h1 data-proto-id="page-title" class="text-2xl font-semibold">Dashboard</h1>
+  <main data-vibeflow-id="main-content" class="max-w-4xl mx-auto px-6 py-8">
+    <h1 data-vibeflow-id="page-title" class="text-2xl font-semibold">Dashboard</h1>
   </main>
   <script>lucide.createIcons();</script>
 </body>
@@ -151,78 +200,50 @@ Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts v
 
 ---
 
-## Commands Reference
+## Agent Integration
 
-### `vibeflow serve [target]`
+Vibeflow tasks are formatted for AI agents with full context:
 
-```bash
-vibeflow serve .                  # serve all HTML files in current directory
-vibeflow serve dashboard.html     # serve a single file
-vibeflow serve -p 4000 .          # custom port
-vibeflow serve --no-open .        # don't open browser automatically
-vibeflow serve                    # API-only mode — use with an existing project
-```
+- **CSS selectors** — exact element targeting, no guesswork
+- **Source locations** — file, line, and column where the element is defined
+- **Screenshots** — visual context attached to tasks
+- **Comments** — threaded discussions on each task
+- **File attachments** — research reports, specs, and reference materials
+- **Git commits** — changes linked back to tasks via `[proto:task-id]` in commit messages
 
-### `vibeflow export <target>`
-
-```bash
-vibeflow export .                        # print to stdout
-vibeflow export . --clipboard            # copy to clipboard
-vibeflow export . --output prompt.txt    # write to file
-```
-
-### `vibeflow tasks`
-
-```bash
-vibeflow tasks                                      # list all tasks
-vibeflow tasks --status todo                        # filter by status
-vibeflow tasks --type Research                      # filter by type
-vibeflow tasks --get <id>                           # full task details
-vibeflow tasks --add --title "Fix header" --description "..."
-vibeflow tasks --edit <id> --set-status in-progress
-vibeflow tasks --edit <id> --set-status review \
-  --commit-message "fix: header layout" \
-  --comment "Fixed the alignment issue"
-```
+Agents can also run directly from the Kanban board via `POST /api/agent/run`, which spawns [opencode](https://github.com/opencode-ai/opencode) with full task context.
 
 ---
 
-## SaaS Cloud Sync (Optional)
+## API
 
-Sign up at [vibeflow.tools](https://vibeflow.tools) to get a shared Kanban board, real-time collaboration, and CLI sync.
+A REST API and tRPC router are available at `http://localhost:3700` for integrations and the browser overlay. Key endpoints:
 
-```bash
-# Authenticate (device flow — opens browser)
-vibeflow login
+- `/kanban` — live Kanban board
+- `GET/POST /api/tasks` — list and create tasks
+- `GET/PATCH/DELETE /api/tasks/:id` — manage individual tasks
+- `GET/POST /api/tasks/:id/comments` — task comments
+- `GET/POST/DELETE /api/tasks/:id/files` — file attachments
+- `POST /api/agent/run` — spawn an AI agent for a task
+- `/inject` — overlay injection helper page
 
-# Tasks now sync to the cloud board automatically
-vibeflow tasks
-
-# Migrate local tasks to SaaS
-vibeflow push
-
-# Check connection status
-vibeflow status
-```
-
-The CLI works 100% offline in local mode without an account.
+See `src/server/server.ts` for the full API.
 
 ---
 
-## Where to Find Vibeflow
+## Installation
 
-| Platform | Category | Link |
-|----------|----------|-------|
-| **npm** | CLI packages | `npm install -g @vibeflow-tools/cli` |
-| **Product Hunt** | Developer Tools | [producthunt.com](https://www.producthunt.com) |
-| **DevHunt** | Developer Tools | [devhunt.org](https://devhunt.org) |
-| **There's An AI For That** | AI Productivity | [theresanaiforthat.com](https://theresanaiforthat.com) |
-| **Futurepedia** | AI Tools | [futurepedia.io](https://futurepedia.io) |
-| **AI Top Tools** | AI Productivity | [aitoptools.com](https://aitoptools.com) |
-| **Peerlist** | Developer Projects | [peerlist.io](https://peerlist.io) |
-| **BetaList** | Early-stage SaaS | [betalist.com](https://betalist.com) |
-| **Hacker News** | Show HN | [news.ycombinator.com](https://news.ycombinator.com) |
-| **awesome-cli-apps** | GitHub Awesome List | [github.com/agarrharr/awesome-cli-apps](https://github.com/agarrharr/awesome-cli-apps) |
+```bash
+npm install -g @vibeflow-tools/cli
+```
+
+Or run without installing:
+
+```bash
+npx @vibeflow-tools/cli kanban
+```
+
+**Requirements:** Node.js >= 22
 
 ---
 
