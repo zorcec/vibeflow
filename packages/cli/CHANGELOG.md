@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- Add agent queue side panel with button in header
+- Fix agent run: use positional message instead of invalid --task flag, add agent picker, list agents/models endpoints, align Run Agent button right, sync model/agent live updates
+- Implement real agent execution: Run Agent button now spawns opencode with task context via server endpoint. Output streams via WebSocket to the UI. Replaced simulated agent runs with actual opencode process spawning.
+
+### Patch Changes
+
+- Add agent session metadata display: capture tokens, cost, and duration from opencode JSON output and show in AgentTab footer.
+- Add minimal agent badge to kanban task cards and detail panel.
+
+  - TaskCard footer now shows a purple "Agent" pill with Bot icon when `task.agent` is set.
+  - KanbanListView rows also display the agent badge inline with the title.
+  - TaskDetailsTab metadata section includes an "Agent" tile when present.
+  - All styles blend with existing badge sizing (font-size 10, compact padding, purple tint).
+
+- Parse opencode JSON events into human-readable text in the agent streaming output.
+- Auto-move task to in-progress status when agent run is started
+- Auto-select default model in Agent tab so "Run Agent" works without user interaction.
+- Add `experimentalAgents` feature flag to gate all agent-related UI features. When disabled (default), the agent tab, agent queue, agent status badges, "Run Agents" multi-select toolbar, and agent settings are hidden from the kanban UI. The flag can be toggled in Settings > Agent.
+- Fix agent run: pass full task context, fix model picker dropdown clicks, and sync default model selection between UI and API request.
+- Fix agent run: replace fake model IDs with real opencode models, add integration test with WebSocket event verification.
+- Fix commit hash display in detail panel: show commit tile when commits array is present even if commit string is absent.
+- Fix experimentalAgents flag to properly hide agent UI by default. Changed all gating conditions from `experimentalAgents !== false` (which evaluated to true when undefined) to `experimentalAgents === true`, ensuring agent features are hidden unless explicitly enabled.
+- Fix model picker dropdown closing detail panel when selecting a model
+- Two fixes for model pickers in the kanban UI:
+
+  1. **CLI kanban now parses tRPC response correctly** — the `/trpc/models` endpoint returns `{ result: { data: { models: [...] } } }` but the CLI API client was expecting the inner shape directly. Now unwraps the tRPC envelope.
+
+  2. **ModelPicker dropdown no longer clipped by modal** — replaced absolute positioning with a `createPortal` that renders the dropdown at `position: fixed` using measured button coordinates. The dropdown now expands upward above the button and escapes any parent overflow clipping.
+
+- Fix sortKey not being accepted when creating tasks via POST /api/tasks, enabling multi-select drag-to-reorder to work correctly.
+- Fix web tRPC models endpoint path: `/api/trpc/settings.models` not `/api/trpc/models`
+- Move "Press Ctrl+C to stop" hint to the end of kanban startup output so it appears after the agent prompt block.
+- Kanban web app now loads models dynamically from OpenCode CLI via tRPC `settings.models` endpoint
+- Move agent action buttons from agent tab body to detail panel footer
+- Fix multi-select drag to compute sort keys incrementally, preserving relative order of selected tasks.
+- Add multi-select drag support: dragging a selected task in select mode moves all selected tasks together.
+- Remove AgentQueueBar from kanban UI — the bottom queue bar is no longer shown.
+- Settings modal Agent tab now uses the same searchable ModelPicker as the AgentTab task agent picker
+- Share agent task formatting between CLI --get and server agent-run endpoint via new `renderTaskForAgent` function.
+- Use default model from settings as initial selection in agent tab
+- Use default model from settings in Agent tab when no model is explicitly chosen. Fixed state disconnect where "Run Agent" passed empty string instead of the displayed default model. CLI kanban now passes defaultModel to DetailPanel.
+
 ## 0.5.1
 
 ### Patch Changes
