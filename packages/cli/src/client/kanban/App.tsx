@@ -563,6 +563,8 @@ export function App() {
     try {
       const settingsData = await api.getSettings();
       const settings = settingsData as AppSettings;
+      // Default experimentalAgents to true when not explicitly saved (opt-out model)
+      if (settings.experimentalAgents === undefined) settings.experimentalAgents = true;
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
       if (settings.viewMode) setViewMode(settings.viewMode);
@@ -854,6 +856,9 @@ export function App() {
     return result;
   }, [tasks, filterState]);
 
+  // Always computed at top level to satisfy Rules of Hooks — only used when experimentalAgents is enabled.
+  const agentStatusMap = React.useMemo(() => new Map(agentRuns.map(r => [r.taskId, r.status])), [agentRuns]);
+
   const showLostConnectionOverlay = hadWsConnection && !wsConnected;
 
   return (
@@ -922,7 +927,7 @@ export function App() {
             selectMode={selectMode}
             selectedTaskIds={selectedTaskIds}
             onToggleSelect={toggleSelect}
-            agentStatuses={appSettings.experimentalAgents === true ? React.useMemo(() => new Map(agentRuns.map(r => [r.taskId, r.status])), [agentRuns]) : undefined}
+            agentStatuses={appSettings.experimentalAgents === true ? agentStatusMap : undefined}
             onRunSelectedAgents={appSettings.experimentalAgents === true ? runSelectedAgents : undefined}
             onExitSelectMode={() => { setSelectMode(false); setSelectedTaskIds(new Set()); }}
             experimentalAgents={appSettings.experimentalAgents}

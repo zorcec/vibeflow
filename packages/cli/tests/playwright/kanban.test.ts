@@ -2133,7 +2133,11 @@ describe("Kanban board", () => {
   });
 
   // ── Multi-select drag & drop ───────────────────────────────────────────────
-  it("multi-select drag reorders selected tasks while preserving relative order", async () => {
+  it("multi-select drag reorders selected tasks while preserving relative order", { timeout: 30_000 }, async () => {
+    // Reload to ensure clean state after agent tests (close any open panels/modals)
+    await page.reload();
+    await page.waitForSelector("#kanban-board");
+
     // Create 5 tasks in todo column with explicit sortKeys
     const tasks: Array<{ id: string; title: string }> = [];
     for (let i = 0; i < 5; i++) {
@@ -2160,27 +2164,63 @@ describe("Kanban board", () => {
 
     // Enter select mode
     await page.click("#btn-select-tasks");
+    // Wait for select mode to activate (checkbox appears on cards)
+    await page.waitForFunction(() => !!document.querySelector("#btn-select-tasks"), { timeout: 2_000 }).catch(() => {});
 
     // Select tasks 2 and 4 (0-indexed: index 1 and 3)
     const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
     const task4Card = page.locator(`[data-task-id="${tasks[3].id}"]`).first();
 
-    // Click cards to select them (checkbox should appear in select mode)
-    await task2Card.click();
-    await task4Card.click();
+    // Click cards to select them — use force:true to bypass z-index overlap checks
+    // (a floating toolbar appears when experimentalAgents=true and a task is selected)
+    await task2Card.click({ force: true });
+    await task4Card.click({ force: true });
 
-    // Verify they are selected (selected cards get a border style)
+    // Verify both are selected (selected cards get a border style)
     const task2Selected = await page.evaluate((id) => {
       const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
       return card?.style.borderColor !== '' || card?.classList.contains('selected');
     }, tasks[1].id);
     expect(task2Selected).toBe(true);
 
-    // Drag task 2 (the first selected in DOM order) onto task 5.
-    // Playwright dragTo lands on the target card, which places the dragged items
-    // before the target (top half) or after it (bottom half).
+    const task4Selected = await page.evaluate((id) => {
+      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      return card?.style.borderColor !== '' || card?.classList.contains('selected');
+    }, tasks[3].id);
+    expect(task4Selected).toBe(true);
+
+    // Drag task 2 (the first selected in DOM order) onto the TOP HALF of task 5.
+    // Use page.evaluate to dispatch HTML5 drag events at precise positions.
     const task5Card = page.locator(`[data-task-id="${tasks[4].id}"]`).first();
-    await task2Card.dragTo(task5Card, { targetPosition: { x: 10, y: 40 } });
+
+    // Scroll both cards into view to get accurate bounding boxes
+    await task2Card.scrollIntoViewIfNeeded();
+    await task5Card.scrollIntoViewIfNeeded();
+    const t2Box = (await task2Card.boundingBox())!;
+    const t5Box = (await task5Card.boundingBox())!;
+
+    // Dispatch drag events: dragstart on t2 → dragover on t5 (top half) → drop on t5
+    await page.evaluate(({ t2Id, t5Id, t2CX, t2CY, t5X, t5Y }) => {
+      const t2 = document.querySelector(`article[data-task-id="${t2Id}"]`) as HTMLElement;
+      const t5 = document.querySelector(`article[data-task-id="${t5Id}"]`) as HTMLElement;
+      if (!t2 || !t5) return;
+      const dt = new DataTransfer();
+      // 1. dragstart on t2 (center)
+      t2.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t2CX, clientY: t2CY }));
+      // 2. multiple dragover events on t5 to ensure position is set (clientY in top 10% → "before")
+      for (let i = 0; i < 3; i++) {
+        t5.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t5X, clientY: t5Y }));
+      }
+      // 3. drop on t5 (same position as dragover)
+      t5.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t5X, clientY: t5Y }));
+    }, {
+      t2Id: tasks[1].id,
+      t5Id: tasks[4].id,
+      t2CX: Math.round(t2Box.x + t2Box.width / 2),
+      t2CY: Math.round(t2Box.y + t2Box.height / 2),
+      t5X: Math.round(t5Box.x + 10),
+      t5Y: Math.round(t5Box.y + Math.floor(t5Box.height * 0.1)),
+    });
 
     // Wait for reorder to settle
     await page.waitForTimeout(800);

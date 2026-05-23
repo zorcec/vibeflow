@@ -179,7 +179,7 @@ function registerTaskApi(
   });
 
   app.post("/api/tasks", (req, res) => {
-    const { title, description, selector, cssSelector, url, type, priority, file, line, col, component, status: reqStatus, agent, model, screenshot, annotatedElementText, tags } =
+    const { title, description, selector, cssSelector, url, type, priority, file, line, col, component, status: reqStatus, agent, model, screenshot, annotatedElementText, tags, sortKey } =
       req.body as {
         title?: string;
         description?: string;
@@ -198,6 +198,7 @@ function registerTaskApi(
         screenshot?: string;
         annotatedElementText?: string;
         tags?: string[];
+        sortKey?: string;
       };
 
     if (!title || !selector) {
@@ -225,6 +226,7 @@ function registerTaskApi(
       model: model || undefined,
       annotatedElementText: annotatedElementText ? String(annotatedElementText).slice(0, 300) : undefined,
       tags: Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string' && t.length > 0) : undefined,
+      sortKey: sortKey ? String(sortKey) : undefined,
     });
 
     if (screenshot) {
@@ -435,7 +437,7 @@ function registerMetaApis(
 
   app.post("/api/settings", (req, res) => {
     if (!requireSameOrigin(req, res)) return;
-    const SETTABLE_KEYS = new Set(["visibleCols", "viewMode", "panelWidth", "autoCommit", "autoComment", "autoPush", "createBranch", "defaultModel", "perTypeModels", "defaultModelBug", "defaultModelResearch", "defaultModelTask"]);
+    const SETTABLE_KEYS = new Set(["visibleCols", "viewMode", "panelWidth", "autoCommit", "autoComment", "autoPush", "createBranch", "defaultModel", "defaultAgent", "perTypeModels", "defaultModelBug", "defaultModelResearch", "defaultModelTask", "experimentalAgents"]);
     const filtered = Object.fromEntries(
       Object.entries(req.body as Record<string, unknown>).filter(([k]) => SETTABLE_KEYS.has(k)),
     );

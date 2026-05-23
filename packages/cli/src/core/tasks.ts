@@ -190,6 +190,7 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     tags: Array.isArray(raw.tags)
       ? (raw.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.length > 0)
       : undefined,
+    sortKey: raw.sortKey ? String(raw.sortKey) : undefined,
   };
 }
 
