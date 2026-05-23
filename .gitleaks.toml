@@ -1,9 +1,18 @@
 title = "Vibeflow gitleaks config"
 
-# Allow known safe test/fixture values
+# Allow known safe test/fixture values and vendor directories
 [allowlist]
 description = "Known safe patterns"
+paths = [
+  # Vendor / generated directories — not our code
+  '''node_modules''',
+  '''\.opencode''',
+  '''\.pnpm-store''',
+  '''dist''',
+]
 regexes = [
+  # PostHog public project API key — phc_ prefix = ingest-only, no read access (safe to embed, like GA IDs)
+  '''phc_[A-Za-z0-9]{40,}''',
   # Test placeholder tokens
   '''test[-_]token''',
   '''fake[-_]key''',
@@ -14,5 +23,6 @@ regexes = [
 [[rules]]
 id = "generic-api-key-assignment"
 description = "Generic API key or secret assignment"
-regex = '''(?i)(api_key|api_secret|auth_token|access_token|secret_key)\s*[:=]\s*["'][^"']{16,}["']'''
+# Capture group 1 = the secret VALUE (not the key name) so allowlist regexes can match it.
+regex = '''(?i)(?:api_key|api_secret|auth_token|access_token|secret_key)\s*[:=]\s*["']([^"']{16,})["']'''
 tags = ["secret", "api-key"]
