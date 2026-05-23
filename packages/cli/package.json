@@ -3,7 +3,7 @@
   "version": "0.5.1",
   "description": "Vibeflow CLI for frontend prototyping with LLM assistance — review, annotate, and iterate on HTML prototypes",
   "license": "Apache-2.0",
-  "author": "Tomislav Zorcec <zorcec@gmail.com>",
+  "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
   "type": "module",
   "engines": {
     "node": ">=22"

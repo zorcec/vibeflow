@@ -4,7 +4,7 @@
   "description": "Vibeflow — annotate, iterate, and ship faster with your AI agent",
   "private": true,
   "license": "Apache-2.0",
-  "author": "Tomislav Zorcec <zorcec@gmail.com>",
+  "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @vibeflow-tools/cli run build",
