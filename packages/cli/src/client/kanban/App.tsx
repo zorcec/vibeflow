@@ -1009,6 +1009,7 @@ export function App() {
               defaultModelResearch={appSettings.defaultModelResearch as string | undefined}
               defaultModelTask={appSettings.defaultModelTask as string | undefined}
               agents={agents}
+              defaultAgent={appSettings.defaultAgent as string | undefined}
               experimentalAgents={appSettings.experimentalAgents}
               createBranch={appSettings.createBranch}
             />

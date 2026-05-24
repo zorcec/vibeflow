@@ -13,6 +13,8 @@ interface Props {
   models?: { id: string; label: string; provider: string; recommended?: boolean }[];
   /** Default model from user settings — used as initial selection when task has no model */
   defaultModel?: string;
+  /** Default agent from user settings — used as initial selection when task has no agent */
+  defaultAgent?: string;
   /** Called when the selected model changes */
   onModelChange?: (model: string) => void;
   /** Available agents from OpenCode CLI */
@@ -557,10 +559,10 @@ function ParsedLogViewer({ logs, status }: { logs: string[]; status: AgentStatus
   );
 }
 
-export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultModel, onModelChange, agents, onAgentChange }: Props) {
+export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultModel, defaultAgent, onModelChange, agents, onAgentChange }: Props) {
   const availableModels = models && models.length > 0 ? models : DEFAULT_MODELS;
   const [model, setModel] = React.useState(task.model ?? defaultModel ?? availableModels[0]?.id);
-  const [agent, setAgent] = React.useState(task.agent ?? agents?.[0]?.id ?? '');
+  const [agent, setAgent] = React.useState(task.agent ?? defaultAgent ?? agents?.[0]?.id ?? '');
 
   function handleModelChange(newModel: string) {
     setModel(newModel);
@@ -591,6 +593,13 @@ export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultM
     if (task.model && task.model !== model) setModel(task.model);
     if (task.agent && task.agent !== agent) setAgent(task.agent);
   }, [task.model, task.agent]);
+
+  // Apply defaultAgent when agents load and no agent is set
+  React.useEffect(() => {
+    if (!agent && defaultAgent) {
+      setAgent(defaultAgent);
+    }
+  }, [defaultAgent]);
 
   const [elapsed, setElapsed] = React.useState('');
 

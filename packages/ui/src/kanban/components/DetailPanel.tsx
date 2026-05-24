@@ -103,6 +103,8 @@ interface Props {
   defaultModelTask?: string;
   /** Available agents from OpenCode CLI */
   agents?: { id: string; name: string; scope: string }[];
+  /** Default agent from user settings — used when task has no agent set */
+  defaultAgent?: string;
   /** When false, agent-related UI is hidden. */
   experimentalAgents?: boolean;
   /** When true, enforce branch name input when setting status to review. */
@@ -155,6 +157,7 @@ export function DetailPanel({
   defaultModelResearch,
   defaultModelTask,
   agents,
+  defaultAgent,
   experimentalAgents,
   createBranch,
 }: Props) {
@@ -201,7 +204,7 @@ export function DetailPanel({
   }, [perTypeModels, task?.type, defaultModel, defaultModelBug, defaultModelResearch, defaultModelTask, fallbackModel]);
 
   const [agentModel, setAgentModel] = React.useState(task?.model ?? resolvedDefaultModel);
-  const [agentAgent, setAgentAgent] = React.useState(task?.agent ?? '');
+  const [agentAgent, setAgentAgent] = React.useState(task?.agent ?? defaultAgent ?? '');
 
   // When models load after the panel is open, apply the fallback default so
   // "Run Agent" uses the same model shown in the picker.
@@ -210,6 +213,14 @@ export function DetailPanel({
       setAgentModel(resolvedDefaultModel);
     }
   }, [resolvedDefaultModel, agentModel]);
+
+  // When agents load after the panel is open, apply the fallback default so
+  // "Run Agent" uses the same agent shown in the picker.
+  React.useEffect(() => {
+    if (!agentAgent && defaultAgent) {
+      setAgentAgent(defaultAgent);
+    }
+  }, [defaultAgent, agentAgent]);
 
   // Persist model/agent selection to the task when changed in the Agent tab
   const handleAgentModelChange = React.useCallback((model: string) => {
@@ -1005,6 +1016,7 @@ export function DetailPanel({
                 onDequeue={onDequeueAgent ?? (() => {})}
                 models={models}
                 defaultModel={defaultModel}
+                defaultAgent={defaultAgent}
                 onModelChange={handleAgentModelChange}
                 agents={agents}
                 onAgentChange={handleAgentAgentChange}
