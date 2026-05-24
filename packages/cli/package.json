@@ -1,6 +1,6 @@
 {
   "name": "@vibeflow-tools/cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Vibeflow CLI for frontend prototyping with LLM assistance — review, annotate, and iterate on HTML prototypes",
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
