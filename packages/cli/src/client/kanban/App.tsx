@@ -270,8 +270,27 @@ export function App() {
     }
     // Use task agent, or fall back to default agent from settings
     const effectiveAgent = agent || task.agent || appSettings.defaultAgent || 'build';
+    const command = `opencode run --model ${model} --agent ${effectiveAgent} --dangerously-skip-permissions --format json -- ...`;
+
+    // Optimistically add entry so UI updates immediately
+    setAgentRuns((prev) => {
+      if (prev.some((r) => r.taskId === taskId && (r.status === 'running' || r.status === 'queued'))) return prev;
+      const hasRunning = prev.some((r) => r.status === 'running');
+      const newRun: AgentRun = {
+        taskId,
+        taskTitle: task.title,
+        status: hasRunning ? 'queued' : 'running',
+        model,
+        worktree: `wt/task-${taskId.slice(0, 8)}`,
+        branch: `agent/task-${taskId.slice(0, 8)}`,
+        startedAt: hasRunning ? undefined : new Date().toISOString(),
+        logs: hasRunning ? ['⏳ Queued — waiting for current run to finish'] : ['▶ Starting agent run…', `$ ${command}`],
+      };
+      return [...prev, newRun];
+    });
+
     // Call the server to spawn opencode — the server will broadcast events
-    // that update the agentRuns state via WebSocket.
+    // that update the agentRuns state via WebSocket (deduped if already present).
     fetch(`${baseUrl}/api/agent/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
