@@ -402,7 +402,8 @@ export function DetailPanel({
     if (task.priority !== undefined && task.priority !== priority) setPriority(task.priority ?? '');
     if (task.model && task.model !== agentModel) setAgentModel(task.model);
     if (task.agent && task.agent !== agentAgent) setAgentAgent(task.agent);
-    if (task.branchName && task.branchName !== branchName) setBranchName(task.branchName);
+    const externalBranchName = task.branchName ?? '';
+    if (externalBranchName !== branchName) setBranchName(externalBranchName);
   }, [task?.title, task?.description, task?.status, task?.type, task?.priority, task?.model, task?.agent, task?.branchName]);
 
   // Refetch comments/badge counts when another user adds a comment (commentVersion bumps)
@@ -646,6 +647,12 @@ export function DetailPanel({
   }
 
   function handleStatusClick(s: TaskStatus) {
+    // Dismiss any pending branch prompt when clicking a non-review status
+    if (showBranchPrompt && s !== 'review') {
+      setShowBranchPrompt(false);
+      pendingReviewPatchRef.current = null;
+    }
+
     setStatus(s);
     if (isAdd) {
       return;
