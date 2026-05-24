@@ -200,6 +200,16 @@ Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts v
 
 ---
 
+## Web App
+
+Vibeflow also offers a hosted web app with real-time collaboration, multi-user support, and team kanban boards. The web app syncs with your local CLI tasks and lets you run agents directly from the browser.
+
+- **Website:** [vibeflow.tools](https://vibeflow.tools)
+- **Features:** Team collaboration, shared boards, role-based access, activity feed
+- **CLI sync:** Tasks created locally appear in the web app and vice versa
+
+---
+
 ## Agent Integration
 
 Vibeflow tasks are formatted for AI agents with full context:
