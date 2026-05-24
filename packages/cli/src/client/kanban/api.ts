@@ -74,9 +74,9 @@ export const api: KanbanApi = {
     await fetch(`${API}/${taskId}/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
   },
 
-  async getProject(): Promise<{ name?: string; gitUserName?: string }> {
+  async getProject(): Promise<{ name?: string; gitUserName?: string; branch?: string | null }> {
     const r = await fetch(`${BASE}/api/project`);
-    return r.json() as Promise<{ name?: string; gitUserName?: string }>;
+    return r.json() as Promise<{ name?: string; gitUserName?: string; branch?: string | null }>;
   },
 
   async getCopilotStatus(): Promise<{ authenticated: boolean; username?: string }> {

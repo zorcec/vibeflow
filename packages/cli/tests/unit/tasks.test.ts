@@ -1265,8 +1265,8 @@ describe("renderAgentInstructions", () => {
     const output = renderAgentInstructions({ hasResearchTasks: false, createBranch: true });
     expect(output).toContain("Create branch ON");
     expect(output).toContain("git checkout -b");
-    expect(output).toContain("git push -u origin HEAD");
     expect(output).toContain("Branch name rules");
+    expect(output).toContain("Create a branch FIRST");
   });
 
   it("excludes Create branch instructions when createBranch is false", () => {
