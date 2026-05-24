@@ -75,6 +75,8 @@ export interface Task {
   tags?: string[];
   /** Fractional sort key for kanban column ordering. */
   sortKey?: string;
+  /** Git branch name created for this task (when createBranch setting is ON). */
+  branchName?: string;
 }
 
 export interface ProtoConfig {

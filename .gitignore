@@ -8,6 +8,12 @@ coverage/
 packages/cli/src/client/overlay-css.gen.ts
 packages/cli/src/client/overlay-css.gen.ts.map
 
+# Generated kanban bundle (rebuilt on npm run build)
+packages/cli/src/server/kanban-bundle.gen.ts
+packages/cli/src/server/kanban-bundle.gen.ts.map
+packages/cli/src/server/kanban-css.gen.ts
+packages/cli/src/server/kanban-css.gen.ts.map
+
 # NOTE: overlay-bundle.gen.ts is intentionally committed.
 # The SaaS web app consumes @vibeflow-tools/shared via git+ssh and needs
 # this file available at the tagged commit without a separate build step.

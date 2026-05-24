@@ -1013,6 +1013,7 @@ export function App() {
               defaultModelTask={appSettings.defaultModelTask as string | undefined}
               agents={agents}
               experimentalAgents={appSettings.experimentalAgents}
+              createBranch={appSettings.createBranch}
             />
           </div>
         )}

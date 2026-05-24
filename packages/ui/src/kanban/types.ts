@@ -40,6 +40,8 @@ export interface Task {
   sortKey?: string;
   /** Free-form tags for categorization and filtering. */
   tags?: string[];
+  /** Git branch name created for this task (when createBranch setting is ON). */
+  branchName?: string;
 }
 
 export interface Comment {

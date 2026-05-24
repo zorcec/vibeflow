@@ -60,6 +60,7 @@ export interface SaasTask {
   boardId: string;
   createdAt: string;
   updatedAt: string;
+  branchName?: string | null;
   comments?: SaasComment[];
   files?: Array<{ name: string; size?: number; url?: string; content?: string }>;
 }
@@ -108,7 +109,7 @@ export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
  */
 export async function updateSaasTask(
   taskId: string,
-  patch: { status?: string; title?: string; description?: string; priority?: string },
+  patch: { status?: string; title?: string; description?: string; priority?: string; branchName?: string },
 ): Promise<{ task: SaasTask; warning?: string } | null> {
   const headers = await getBearerHeaders();
   if (!headers) return null;
@@ -118,6 +119,7 @@ export async function updateSaasTask(
   if (patch.title !== undefined) body.title = patch.title;
   if (patch.description !== undefined) body.description = patch.description;
   if (patch.priority !== undefined) body.priority = patch.priority;
+  if (patch.branchName !== undefined) body.branchName = patch.branchName;
 
   try {
     const res = await fetch(
