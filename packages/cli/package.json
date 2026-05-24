@@ -26,8 +26,8 @@
     "vf": "dist/cli/index.js"
   },
   "scripts": {
-    "prebuild": "node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-kanban-bundle-stub.mjs",
-    "build": "tsup",
+    "prebuild": "node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs",
+    "build": "tsup && tsup --config tsup.cli.config.ts",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
