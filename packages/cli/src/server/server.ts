@@ -13,7 +13,7 @@ import { injectScript } from "../core/html-parser.js";
 import { createFileWatcher, createTaskWatcher } from "./watcher.js";
 import { getOverlayScript, getOverlaySaasScript } from "../client/overlay/index.js";
 import { getKanbanHtml, type KanbanOptions } from "./kanban-template.js";
-import { getProjectName, readConfig } from "../core/config.js";
+import { getProjectName, readConfig, getCurrentBranch } from "../core/config.js";
 import {
   createTask,
   listTasks,
@@ -153,10 +153,10 @@ function registerTaskApi(
   projectDir: string,
   broadcast: BroadcastFn,
 ): void {
-  // Returns project metadata: name derived from package.json or directory name.
-  // Used by the Chrome extension popup and sidebar to show the connected project.
+  // Returns project metadata: name derived from package.json or directory name,
+  // plus the current git branch. Used by the Chrome extension popup and kanban UI.
   app.get("/api/project", (_req, res) => {
-    res.json({ name: getProjectName(projectDir), projectDir });
+    res.json({ name: getProjectName(projectDir), projectDir, branch: getCurrentBranch(projectDir) });
   });
 
   app.get("/api/tasks", (_req, res) => {
