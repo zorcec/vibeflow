@@ -21,6 +21,8 @@ interface Props {
   agents?: { id: string; name: string; scope: string }[];
   /** Called when the selected agent changes */
   onAgentChange?: (agent: string) => void;
+  /** When false, the Run button is disabled and a message is shown */
+  cliAvailable?: boolean;
 }
 
 // OpenCode models in provider/model format (fallback when dynamic models unavailable)
@@ -559,7 +561,7 @@ function ParsedLogViewer({ logs, status }: { logs: string[]; status: AgentStatus
   );
 }
 
-export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultModel, defaultAgent, onModelChange, agents, onAgentChange }: Props) {
+export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultModel, defaultAgent, onModelChange, agents, onAgentChange, cliAvailable = true }: Props) {
   const availableModels = models && models.length > 0 ? models : DEFAULT_MODELS;
   const [model, setModel] = React.useState(task.model ?? defaultModel ?? availableModels[0]?.id);
   const [agent, setAgent] = React.useState(task.agent ?? defaultAgent ?? agents?.[0]?.id ?? '');
@@ -631,7 +633,17 @@ export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultM
       </div>
 
       {/* Idle / ready state */}
-      {status === 'idle' && (
+      {status === 'idle' && !cliAvailable && (
+        <div style={{
+          borderRadius: 8, padding: 12, fontSize: 12, lineHeight: 1.6,
+          background: 'color-mix(in srgb, var(--p-red) 6%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--p-red) 25%, transparent)',
+          color: 'var(--p-red-300)',
+        }}>
+          <strong>Local CLI not connected.</strong> Agent runs require the local CLI server to be running. Start it with <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 4 }}>vibeflow serve</code> and refresh this page.
+        </div>
+      )}
+      {status === 'idle' && cliAvailable && (
         <div style={{
           borderRadius: 8, padding: 12, fontSize: 12, lineHeight: 1.6,
           background: 'color-mix(in srgb, var(--p-purple) 6%, transparent)',

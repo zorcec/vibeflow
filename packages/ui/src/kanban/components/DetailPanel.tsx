@@ -107,6 +107,8 @@ interface Props {
   defaultAgent?: string;
   /** When false, agent-related UI is hidden. */
   experimentalAgents?: boolean;
+  /** Base URL of the local CLI server (e.g. "http://localhost:5174"). When set, agent runs are dispatched to it. */
+  cliBaseUrl?: string;
   /** When true, enforce branch name input when setting status to review. */
   createBranch?: boolean;
 }
@@ -159,6 +161,7 @@ export function DetailPanel({
   agents,
   defaultAgent,
   experimentalAgents,
+  cliBaseUrl,
   createBranch,
 }: Props) {
   const isAdd = !task;
@@ -1020,6 +1023,7 @@ export function DetailPanel({
                 onModelChange={handleAgentModelChange}
                 agents={agents}
                 onAgentChange={handleAgentAgentChange}
+                cliAvailable={!!cliBaseUrl}
               />
             )}
           </div>
@@ -1065,15 +1069,17 @@ export function DetailPanel({
             {(!agentRun || agentRun.status === 'idle') && (
               <button
                 id="dp-run-agent"
+                disabled={!cliBaseUrl}
                 onClick={() => onRunAgent?.(task.id, agentModel, agentAgent || undefined)}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                   padding: '5px 14px', borderRadius: 7, border: '1px solid var(--p-purple)',
-                  background: 'var(--p-purple)', color: '#fff', fontSize: 12, fontWeight: 600,
-                  cursor: 'pointer', transition: 'background .12s',
+                  background: cliBaseUrl ? 'var(--p-purple)' : 'var(--p-surface)', color: cliBaseUrl ? '#fff' : 'var(--p-text-g)', fontSize: 12, fontWeight: 600,
+                  cursor: cliBaseUrl ? 'pointer' : 'not-allowed', transition: 'background .12s',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#9333ea'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--p-purple)'; }}
+                onMouseEnter={(e) => { if (cliBaseUrl) e.currentTarget.style.background = '#9333ea'; }}
+                onMouseLeave={(e) => { if (cliBaseUrl) e.currentTarget.style.background = 'var(--p-purple)'; }}
+                title={!cliBaseUrl ? 'Local CLI server not connected. Run "vibeflow serve" and refresh.' : undefined}
               >
                 <Play style={{ width: 12, height: 12 }} />
                 Run Agent
