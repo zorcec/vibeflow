@@ -149,6 +149,87 @@ describe("Kanban board", () => {
     expect(hintVisible).toBe(true);
   });
 
+  // ── Header component regression tests ─────────────────────────────────────
+  it("header renders project name, search input, and settings button", async () => {
+    // Project name
+    const projectName = await page.textContent('#header-project-name');
+    expect(projectName).toBeTruthy();
+    expect(projectName!.length).toBeGreaterThan(0);
+
+    // Global search input
+    const searchInput = await page.locator('#global-search').count();
+    expect(searchInput).toBe(1);
+    const searchPlaceholder = await page.getAttribute('#global-search', 'placeholder');
+    expect(searchPlaceholder).toBeTruthy();
+
+    // Settings button
+    const settingsBtn = await page.locator('#btn-settings').count();
+    expect(settingsBtn).toBe(1);
+
+    // Shortcuts hint button
+    const shortcutsBtn = await page.locator('#header-shortcuts-hint').count();
+    expect(shortcutsBtn).toBe(1);
+  });
+
+  it("header search input accepts text and clear button appears", async () => {
+    // Search input should be empty initially
+    const initialValue = await page.inputValue('#global-search');
+    expect(initialValue).toBe('');
+
+    // Type into search
+    await page.fill('#global-search', 'test search');
+    const typedValue = await page.inputValue('#global-search');
+    expect(typedValue).toBe('test search');
+
+    // Clear button should appear when there is content
+    const clearBtn = await page.locator('#global-search-clear').count();
+    expect(clearBtn).toBe(1);
+
+    // Click clear button
+    await page.click('#global-search-clear');
+    const clearedValue = await page.inputValue('#global-search');
+    expect(clearedValue).toBe('');
+
+    // Clear button should disappear
+    const clearBtnAfter = await page.locator('#global-search-clear').count();
+    expect(clearBtnAfter).toBe(0);
+  });
+
+  it("header layout: project name is left-aligned, search is centered, actions are right-aligned", async () => {
+    const layout = await page.evaluate(() => {
+      const header = document.querySelector('header') as HTMLElement | null;
+      if (!header) return null;
+      const rect = header.getBoundingClientRect();
+
+      const projectName = document.getElementById('header-project-name') as HTMLElement | null;
+      const searchInput = document.getElementById('global-search') as HTMLElement | null;
+      const settingsBtn = document.getElementById('btn-settings') as HTMLElement | null;
+
+      if (!projectName || !searchInput || !settingsBtn) return null;
+
+      const projectRect = projectName.getBoundingClientRect();
+      const searchRect = searchInput.getBoundingClientRect();
+      const settingsRect = settingsBtn.getBoundingClientRect();
+
+      return {
+        projectLeft: projectRect.left,
+        searchCenter: searchRect.left + searchRect.width / 2,
+        headerCenter: rect.width / 2,
+        settingsRight: settingsRect.right,
+        headerWidth: rect.width,
+      };
+    });
+
+    expect(layout).not.toBeNull();
+    // Project name should be on the left side (within first 40% of header)
+    expect((layout?.projectLeft ?? 999) < (layout?.headerWidth ?? 100) * 0.4).toBe(true);
+    // Search should be roughly centered (within 20% of center)
+    const centerDiff = Math.abs((layout?.searchCenter ?? 0) - ((layout?.headerCenter ?? 0)));
+    expect(centerDiff < (layout?.headerWidth ?? 100) * 0.3).toBe(true);
+    // Settings should be on the right side (within last 20% of header)
+    expect((layout?.settingsRight ?? 0) > (layout?.headerWidth ?? 100) * 0.8).toBe(true);
+  });
+
   // ── "+" button per column ─────────────────────────────────────────────────
   it("each column has a '+' add button in the header", async () => {
     const addBtnCount = await page.evaluate(
@@ -408,6 +489,50 @@ describe("Kanban board", () => {
     }, API);
     expect(created).not.toBeNull();
     expect(created?.type).toBe("Bug");
+  });
+
+  it("Bug task with console errors shows error section in detail panel", async () => {
+    // Create a Bug task with console errors embedded in the description
+    // (simulating what the overlay error-recorder produces)
+    const errorSig = `vibeflow-err-task-test-${Date.now()}`;
+    const description = `A bug occurred\n\n---\n**Console logs** (1 entry)\n- 🔴 \`00:00:00\` ${errorSig}`;
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Bug with console errors",
+        description,
+        selector: "/",
+        type: "Bug",
+        status: "todo",
+      }),
+    });
+    const data = await res.json() as { success: boolean; task?: { id: string } };
+    expect(data.success).toBe(true);
+    const taskId = data.task?.id;
+    expect(taskId).toBeTruthy();
+
+    await waitForTaskOnBoard(page, "Bug with console errors");
+
+    // Open the task
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
+        .find(c => c.textContent?.includes("Bug with console errors")) as HTMLElement | undefined;
+      card?.click();
+    });
+    await page.waitForSelector("#detail-panel.open", { timeout: 5_000 });
+
+    // Switch to Details tab
+    await page.click("#dp-tab-details");
+    await page.waitForSelector("#dp-details-pane:not([style*='none'])");
+
+    // The ConsoleLogsSection should render with id="dp-console-logs"
+    // and contain the error signature
+    const consoleLogsExists = await page.locator("#dp-console-logs").count();
+    expect(consoleLogsExists).toBeGreaterThanOrEqual(1);
+
+    const consoleLogsText = await page.textContent("#dp-console-logs");
+    expect(consoleLogsText).toContain(errorSig);
   });
 
   it("auto-scrolls comments pane to latest comment", async () => {
