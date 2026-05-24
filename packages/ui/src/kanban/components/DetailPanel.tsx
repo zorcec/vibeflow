@@ -105,6 +105,8 @@ interface Props {
   agents?: { id: string; name: string; scope: string }[];
   /** When false, agent-related UI is hidden. */
   experimentalAgents?: boolean;
+  /** When true, enforce branch name input when setting status to review. */
+  createBranch?: boolean;
 }
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit
@@ -154,6 +156,7 @@ export function DetailPanel({
   defaultModelTask,
   agents,
   experimentalAgents,
+  createBranch,
 }: Props) {
   const isAdd = !task;
   const typeColor = task ? getTaskTypeColor(task.type) : getTaskTypeColor('Task');
@@ -180,6 +183,9 @@ export function DetailPanel({
   const [showDescPreview, setShowDescPreview] = React.useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [showCommentSendConfirm, setShowCommentSendConfirm] = React.useState(false);
+  const [branchName, setBranchName] = React.useState('');
+  const [showBranchPrompt, setShowBranchPrompt] = React.useState(false);
+  const pendingReviewPatchRef = React.useRef<{ taskId: string; patch: Partial<Task> } | null>(null);
 
   // Agent tab state — initialized from task or default model so "Run Agent"
   // uses the displayed model even when the user never touches the dropdown.
@@ -334,6 +340,9 @@ export function DetailPanel({
     setDraftTags([]);
     setAgentModel(task?.model ?? resolvedDefaultModel);
     setAgentAgent(task?.agent ?? '');
+    setBranchName(task?.branchName ?? '');
+    setShowBranchPrompt(false);
+    pendingReviewPatchRef.current = null;
 
     if (task) {
       // Trim stored values so autoSave comparisons are consistent (prevents
@@ -393,7 +402,8 @@ export function DetailPanel({
     if (task.priority !== undefined && task.priority !== priority) setPriority(task.priority ?? '');
     if (task.model && task.model !== agentModel) setAgentModel(task.model);
     if (task.agent && task.agent !== agentAgent) setAgentAgent(task.agent);
-  }, [task?.title, task?.description, task?.status, task?.type, task?.priority, task?.model, task?.agent]);
+    if (task.branchName && task.branchName !== branchName) setBranchName(task.branchName);
+  }, [task?.title, task?.description, task?.status, task?.type, task?.priority, task?.model, task?.agent, task?.branchName]);
 
   // Refetch comments/badge counts when another user adds a comment (commentVersion bumps)
   React.useEffect(() => {
@@ -637,7 +647,40 @@ export function DetailPanel({
 
   function handleStatusClick(s: TaskStatus) {
     setStatus(s);
-    if (!isAdd && task) onPatch(task.id, { status: s });
+    if (isAdd) {
+      return;
+    }
+    if (!task) {
+      return;
+    }
+
+    // When createBranch is ON and setting status to review, enforce branch name
+    if (createBranch && s === 'review' && !branchName.trim()) {
+      // Store the pending patch and show the branch prompt
+      pendingReviewPatchRef.current = { taskId: task.id, patch: { status: s } };
+      setShowBranchPrompt(true);
+      return;
+    }
+
+    const patch: Partial<Task> = { status: s };
+    if (branchName.trim()) patch.branchName = branchName.trim();
+    onPatch(task.id, patch);
+  }
+
+  function handleApplyBranchAndReview() {
+    if (!pendingReviewPatchRef.current || !task) return;
+    if (!branchName.trim()) return;
+    const patch: Partial<Task> = { ...pendingReviewPatchRef.current.patch, branchName: branchName.trim() };
+    onPatch(task.id, patch);
+    setShowBranchPrompt(false);
+    pendingReviewPatchRef.current = null;
+  }
+
+  function handleCancelBranchPrompt() {
+    setShowBranchPrompt(false);
+    pendingReviewPatchRef.current = null;
+    // Revert status back from review to previous status
+    if (task) setStatus(task.status);
   }
 
   const activeStatusClass = (s: TaskStatus) => {
@@ -777,6 +820,32 @@ export function DetailPanel({
             <button key={s.id} className={activeStatusClass(s.id)} data-status={s.id} onClick={() => handleStatusClick(s.id)}>{s.label}</button>
           ))}
         </div>
+
+        {/* Branch name prompt when createBranch is ON and setting to review */}
+        {showBranchPrompt && !remoteLocked && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)', fontSize: 12 }}>
+            <span style={{ color: 'var(--p-purple-300)', fontWeight: 500, whiteSpace: 'nowrap' }}>Branch name:</span>
+            <input
+              id="dp-branch-name"
+              type="text"
+              placeholder="e.g. feat/add-hover-effect"
+              value={branchName}
+              onChange={(e) => setBranchName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && branchName.trim()) handleApplyBranchAndReview(); if (e.key === 'Escape') handleCancelBranchPrompt(); }}
+              autoFocus
+              style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--p-border)', background: 'var(--p-input)', color: 'var(--p-text)', fontFamily: 'monospace' }}
+            />
+            <button
+              onClick={handleApplyBranchAndReview}
+              disabled={!branchName.trim()}
+              style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--p-purple)', background: branchName.trim() ? 'var(--p-purple)' : 'var(--p-border)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: branchName.trim() ? 'pointer' : 'not-allowed', transition: 'background .12s' }}
+            >Apply & Review</button>
+            <button
+              onClick={handleCancelBranchPrompt}
+              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--p-border)', background: 'transparent', color: 'var(--p-text-g)', fontSize: 11, cursor: 'pointer' }}
+            >Cancel</button>
+          </div>
+        )}
       </div>
 
       {/* Tabs (hidden in add mode) */}
@@ -1112,6 +1181,14 @@ function DpMetaRow({ task }: { task: Task }) {
   if (task.reportBack) {
     items.push(
       <span key="rb" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'color-mix(in srgb, var(--p-purple) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--p-purple) 24%, transparent)', borderRadius: 100, fontSize: 10, color: 'var(--p-purple-300)' }}>↩ report back</span>
+    );
+  }
+
+  if (task.branchName) {
+    items.push(
+      <span key="branch" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'color-mix(in srgb, var(--p-green) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--p-green) 24%, transparent)', borderRadius: 100, fontSize: 10, color: 'var(--p-green-300)', fontFamily: 'monospace' }}>
+        ⎇ {task.branchName}
+      </span>
     );
   }
 

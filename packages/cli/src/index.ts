@@ -222,6 +222,7 @@ function printTaskDetails(
       }
     }
   }
+  if (task.branchName) console.log(chalk.dim(`    branch:   ${task.branchName}`));
   console.log(chalk.dim(`    created:  ${agent.created}`));
   if (agent.type) console.log(chalk.dim(`    type:     ${agent.type}`));
   if (agent.priority) console.log(chalk.dim(`    priority: ${agent.priority}`));
@@ -380,6 +381,7 @@ program
   .option("--next", "Pick the next available todo task, move it to in-progress, and output it ready to work on")
   .option("--tag <tag>", "Filter by tag (can be specified multiple times for AND matching)", (val, prev: string[]) => [...prev, val], [] as string[])
   .option("--report-file <path>", "Path to a local .md file to upload as the research report (use with --set-status review on Research tasks; file is uploaded and deleted locally)")
+  .option("--branch <name>", "Git branch name for the task (required when createBranch setting is ON and setting status to review)")
   .option("--limit <n>", "Limit how many tasks are returned in list mode (default: 20; use 0 for unlimited)")
   .action((dir: string, opts: {
     status?: string;
@@ -399,6 +401,7 @@ program
     comment?: string;
     commitMessage?: string;
     reportFile?: string;
+    branch?: string;
     limit?: string;
     tag?: string[];
   }) => {
@@ -443,6 +446,7 @@ program
         if (saasTask.annotatedElementText) {
           console.log(chalk.dim(`    element text: ${saasTask.annotatedElementText}`));
         }
+        if (saasTask.branchName) console.log(chalk.dim(`    branch:   ${saasTask.branchName}`));
         const saasComments = [...(saasTask.comments ?? [])].sort(
           sortByCreatedAt,
         );
@@ -869,14 +873,24 @@ program
           process.exitCode = 1;
           return;
         }
+
+        // Enforce --branch when createBranch is ON.
+        if (settings.createBranch && !opts.branch?.trim()) {
+          console.log(chalk.red("✗ --branch is required (create-branch setting is ON)"));
+          console.log(chalk.dim("  Provide the git branch name created for this task."));
+          console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status review --branch feat/add-hover-effect --comment "..."`));
+          process.exitCode = 1;
+          return;
+        }
       }
 
       // ── SaaS edit path (online mode) ────────────────────────────────
       if (editMode === "saas") {
-        const saasPatch: { status?: string; title?: string; description?: string } = {};
+        const saasPatch: { status?: string; title?: string; description?: string; branchName?: string } = {};
         if (opts.setStatus) saasPatch.status = opts.setStatus;
         if (opts.title) saasPatch.title = opts.title;
         if (opts.description) saasPatch.description = opts.description;
+        if (opts.branch) saasPatch.branchName = opts.branch;
 
         // Conflict detection: warn when attempting in-progress on an already in-progress task
         if (opts.setStatus === "in-progress") {
@@ -913,10 +927,11 @@ program
       }
 
       // ── Local edit path ──────────────────────────────────────────────
-      const updates: Partial<Pick<Task, "status" | "title" | "description">> = {};
+      const updates: Partial<Pick<Task, "status" | "title" | "description" | "branchName">> = {};
       if (opts.title) updates.title = opts.title;
       if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
       if (opts.description) updates.description = opts.description;
+      if (opts.branch) updates.branchName = opts.branch;
 
       // Warn when setting a Research task to in-progress — should not implement.
       // Also detect in-progress conflicts (task already claimed by another agent/user).
