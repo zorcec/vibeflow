@@ -708,7 +708,7 @@ export function AgentTab({ task, run, onRun, onStop, onDequeue, models, defaultM
       )}
 
       {/* Agent metadata from task */}
-      {task.agent && !run && (
+      {task.agent && !run && (task.commits?.length ?? 0) > 0 && (
         <div style={{ fontSize: 11, color: 'var(--p-text-g)' }}>
           Last agent: <span style={{ color: 'var(--p-purple-300)' }}>{task.agent}</span>
           {task.model && <> · model <span style={{ color: 'var(--p-purple-300)' }}>{task.model}</span></>}

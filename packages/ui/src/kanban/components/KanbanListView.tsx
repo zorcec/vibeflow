@@ -286,7 +286,7 @@ function ListRow({ task, liveActivity, onOpen, onDragStart, dragOver, onDragOver
               {task.component}
             </span>
           )}
-          {experimentalAgents === true && task.agent && (
+          {experimentalAgents === true && task.agent && (task.commits?.length ?? 0) > 0 && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
               fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,

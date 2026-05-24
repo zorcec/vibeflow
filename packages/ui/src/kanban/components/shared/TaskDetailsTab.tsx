@@ -185,7 +185,7 @@ export function TaskDetailsTab({
           <MetaTile label="Created" id="dp-created">{task.createdAt ? formatDate(task.createdAt) : '—'}</MetaTile>
           <MetaTile label="ID" id="dp-id"><span style={{ fontFamily: 'monospace' }}>{task.id}</span></MetaTile>
           <MetaTile label="Author" id="dp-author">{task.authorName ?? task.author ?? '—'}</MetaTile>
-          {task.agent && <MetaTile label="Agent" id="dp-agent"><span style={{ color: '#a78bfa' }}>{task.agent}</span></MetaTile>}
+          {(task.agent && (task.commits?.length ?? 0) > 0) && <MetaTile label="Agent" id="dp-agent"><span style={{ color: '#a78bfa' }}>{task.agent}</span></MetaTile>}
           {(task.commit || task.commits?.length) && <CommitTile task={task} githubUrl={githubUrl} />}
           {task.branchName && <BranchTile branchName={task.branchName} />}
           {task.annotatedElementText && (

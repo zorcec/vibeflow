@@ -317,7 +317,7 @@ export const TaskCard = React.memo(function TaskCard({
             ✓ Done
           </span>
         )}
-        {experimentalAgents === true && !agentStatus && task.agent && (
+        {experimentalAgents === true && !agentStatus && task.agent && (task.commits?.length ?? 0) > 0 && (
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
             fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
