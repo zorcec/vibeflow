@@ -187,6 +187,7 @@ export function TaskDetailsTab({
           <MetaTile label="Author" id="dp-author">{task.authorName ?? task.author ?? '—'}</MetaTile>
           {task.agent && <MetaTile label="Agent" id="dp-agent"><span style={{ color: '#a78bfa' }}>{task.agent}</span></MetaTile>}
           {(task.commit || task.commits?.length) && <CommitTile task={task} githubUrl={githubUrl} />}
+          {task.branchName && <BranchTile branchName={task.branchName} />}
           {task.annotatedElementText && (
             <div id="dp-annotated-text" style={{ gridColumn: '1 / -1', background: 'var(--p-card)', borderRadius: 8, padding: '8px 10px' }}>
               <div style={{ fontSize: 9, color: 'var(--p-border-t)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Annotated element text</div>
@@ -261,6 +262,23 @@ function CommitTile({ task, githubUrl }: { task: Task; githubUrl?: string | null
             +{allCommits.length - 1}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function BranchTile({ branchName }: { branchName: string }) {
+  return (
+    <div
+      id="dp-branch"
+      style={{ background: 'var(--p-card)', borderRadius: 8, padding: '8px 10px', cursor: 'default' }}
+      title={`Branch: ${branchName}`}
+    >
+      <div style={{ fontSize: 9, color: 'var(--p-border-t)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        Branch
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--p-green-300)', fontFamily: 'monospace' }}>
+        ⎇ {branchName}
       </div>
     </div>
   );

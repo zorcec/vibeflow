@@ -237,7 +237,6 @@ export function App() {
   const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(COLUMNS.map(c => c.id));
   const [filterState, setFilterState] = React.useState<FilterState>({ status: 'all', component: null, type: null, user: null, tags: [] });
   const [projectName, setProjectName] = React.useState('Proto Board');
-  const [branchName, setBranchName] = React.useState<string | null>(null);
   const [wsConnected, setWsConnected] = React.useState(false);
   const [hadWsConnection, setHadWsConnection] = React.useState(false);
   const [gitUserName, setGitUserName] = React.useState('You');
@@ -550,7 +549,6 @@ export function App() {
       const data = await api.getProject();
       if (data.name) setProjectName(data.name);
       if (data.gitUserName) setGitUserName(data.gitUserName);
-      if (data.branch) setBranchName(data.branch);
     } catch {}
   }
 
@@ -870,7 +868,6 @@ export function App() {
       )}
       <Header
         projectName={projectName}
-        branchName={branchName}
         missingProjectIconStyle="vibeflow"
         wsConnected={wsConnected}
         port={PORT}

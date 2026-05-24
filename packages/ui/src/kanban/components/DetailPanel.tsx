@@ -1191,13 +1191,5 @@ function DpMetaRow({ task }: { task: Task }) {
     );
   }
 
-  if (task.branchName) {
-    items.push(
-      <span key="branch" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: 'color-mix(in srgb, var(--p-green) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--p-green) 24%, transparent)', borderRadius: 100, fontSize: 10, color: 'var(--p-green-300)', fontFamily: 'monospace' }}>
-        ⎇ {task.branchName}
-      </span>
-    );
-  }
-
   return <div id="dp-meta-row" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>{items}</div>;
 }

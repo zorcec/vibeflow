@@ -35,8 +35,6 @@ interface Props {
   onOpenAgentQueue?: () => void;
   /** When false, agent-related UI is hidden. */
   experimentalAgents?: boolean;
-  /** Current git branch name, displayed next to project name. */
-  branchName?: string | null;
 }
 
 export function Header({
@@ -50,7 +48,6 @@ export function Header({
   agentQueueCount,
   onOpenAgentQueue,
   experimentalAgents,
-  branchName,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [dropdownIdx, setDropdownIdx] = React.useState(0);
@@ -150,15 +147,6 @@ export function Header({
             <h1 id="header-project-name" className="text-sm font-semibold text-white leading-tight">
               {displayProjectName}
             </h1>
-            {branchName && (
-              <span
-                id="header-branch-name"
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--p-surface)', color: 'var(--p-text-g)', border: '1px solid var(--p-border)' }}
-              >
-                {branchName}
-              </span>
-            )}
             {wsConnected && (
               <div
                 id="header-live-pill"
