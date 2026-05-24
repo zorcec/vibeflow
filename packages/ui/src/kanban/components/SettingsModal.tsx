@@ -1,11 +1,11 @@
 import React from 'react';
-import { X, Settings, Layout, Workflow, Bot } from 'lucide-react';
+import { X, Settings, Layout, ShieldCheck, Bot } from 'lucide-react';
 import type { TaskStatus, AppSettings } from '../types';
 import { COLUMNS } from './KanbanBoard';
 import { ModalBase } from './ModalBase';
 import { ModelPicker, AgentPicker, DEFAULT_MODELS } from './AgentTab';
 
-type SettingsTab = 'board' | 'workflow' | 'agent';
+type SettingsTab = 'board' | 'enforcement' | 'agent';
 
 interface Props {
   open: boolean;
@@ -21,7 +21,7 @@ interface Props {
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'board', label: 'Board', icon: <Layout className="w-3.5 h-3.5" /> },
-  { id: 'workflow', label: 'Workflow', icon: <Workflow className="w-3.5 h-3.5" /> },
+  { id: 'enforcement', label: 'Enforcement', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
   { id: 'agent', label: 'Agent', icon: <Bot className="w-3.5 h-3.5" /> },
 ];
 
@@ -142,13 +142,13 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
         </div>
       )}
 
-      {/* Tab: Workflow */}
-      {activeTab === 'workflow' && (
+      {/* Tab: Enforcement */}
+      {activeTab === 'enforcement' && (
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <WorkflowToggle
             id="settings-auto-comment"
-            label="Comment after task implementation"
-            description="Agent is instructed to add a summary comment after completing a task."
+            label="Require comment on review"
+            description="CLI enforces an implementation report when setting task status to review."
             value={autoComment}
             onChange={setAutoComment}
           />
@@ -156,22 +156,22 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
           <div style={{ height: 1, background: 'var(--p-border)', marginTop: -4, marginBottom: -4 }} />
           <WorkflowToggle
             id="settings-create-branch"
-            label="Create branch before implementation"
-            description="Agent creates a descriptive branch before starting work (e.g. fix/bug-errors, feat/eye-toggle). Name reflects the work: lowercase, kebab-case, 2–5 words, prefix fix/feat/chore/docs."
+            label="Require branch per task"
+            description="CLI enforces a dedicated branch name when setting task status to review."
             value={createBranch}
             onChange={setCreateBranch}
           />
           <WorkflowToggle
             id="settings-auto-commit"
-            label="Commit after task implementation"
-            description="Agent is instructed to stage and commit changes after each task."
+            label="Auto-commit on review"
+            description="CLI automatically commits staged changes when setting task status to review."
             value={autoCommit}
             onChange={setAutoCommit}
           />
           <WorkflowToggle
             id="settings-auto-push"
-            label="Push after task commit"
-            description={`Agent is instructed to push after every commit. Requires 'Commit' to be ON.${autoCommit ? '' : ' (Enable Commit first)'}`}
+            label="Auto-push after commit"
+            description={`CLI pushes after auto-commit. Requires 'Auto-commit' to be ON.${autoCommit ? '' : ' (Enable Auto-commit first)'}`}
             value={autoPush && autoCommit}
             onChange={(v) => setAutoPush(v && autoCommit)}
           />
