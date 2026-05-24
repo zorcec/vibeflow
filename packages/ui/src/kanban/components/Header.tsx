@@ -122,7 +122,7 @@ export function Header({
             <ChevronRight className="w-3 h-3 text-slate-600 flex-shrink-0" />
           </>
         )}
-        <div className="flex-shrink-0" style={normalizedProjectIcon ? { fontSize: 20 } : undefined}>
+        <div className="flex-shrink-0" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', ...(normalizedProjectIcon ? { fontSize: 20 } : undefined) }}>
           {normalizedProjectIcon ? normalizedProjectIcon : (
             missingProjectIconStyle === 'vibeflow' ? (
               <VibeflowIcon size={32} />
