@@ -463,27 +463,42 @@ export function renderAgentInstructions(opts: {
   lines.push("");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  Workflow:");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    2. <implement the change>");
+  if (createBranch) {
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    ⚠ Create a branch FIRST, before any implementation:");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    1. git checkout -b <short-name>  (e.g. fix/annotation-errors, feat/eye-toggle, chore/cleanup-extension)");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("       Branch name rules: lowercase, kebab-case, 2-5 words, prefix fix/feat/chore/docs.");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("       Describe the WORK done (not dates). Bad: agent/2026-04-16. Good: fix/bug-errors-visibility.");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    2. vibeflow tasks --edit <id> --set-status in-progress  ← CLAIM TASK");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    3. <implement the change>");
+  } else {
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    2. <implement the change>");
+  }
   if (autoCommit) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    3. git add <files>   (stage your changes first)");
+    lines.push(createBranch ? "    4. git add <files>   (stage your changes first)" : "    3. git add <files>   (stage your changes first)");
     const reviewArgs = ["--set-status review"];
     if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
     if (autoComment) reviewArgs.push('--comment "<report>"');
-    lines.push(`    4. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
+    lines.push(`    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("       CLI will commit staged changes and link the commit SHA automatically.");
   } else {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    3. git add <files> && vibeflow tasks --commit --task <id> --message \"<one-line summary>\"");
+    lines.push(createBranch ? "    4. git add <files> && vibeflow tasks --commit --task <id> --message \"<one-line summary>\"" : "    3. git add <files> && vibeflow tasks --commit --task <id> --message \"<one-line summary>\"");
     const reviewArgs = ["--set-status review"];
     if (autoComment) reviewArgs.push('--comment "<report>"');
-    lines.push(`    4. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
+    lines.push(`    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
   }
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -516,15 +531,7 @@ export function renderAgentInstructions(opts: {
   }
   if (createBranch) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  [setting] Create branch ON: after ALL tasks in this session are done, create and push a descriptive branch:");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    git checkout -b <short-name>  (e.g. fix/annotation-errors, feat/eye-toggle, chore/cleanup-extension)");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    git push -u origin HEAD");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Branch name rules: lowercase, kebab-case, 2-5 words, prefix fix/feat/chore/docs.");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Describe the WORK done (not dates). Bad: agent/2026-04-16. Good: fix/bug-errors-visibility.");
+    lines.push("  [setting] Create branch ON: all work goes on a dedicated branch created before implementation.");
   }
   if (opts.hasResearchTasks) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent

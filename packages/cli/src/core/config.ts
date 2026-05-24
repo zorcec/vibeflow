@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
+import { execSync } from "node:child_process";
 import type { ProtoConfig } from "./types.js";
 import { PROTO_DIR, CONFIG_FILE } from "./types.js";
 
@@ -53,4 +54,20 @@ export function getProjectName(projectDir: string): string {
     } catch { /* fall through */ }
   }
   return basename(projectDir);
+}
+
+/**
+ * Returns the current git branch name, or null if not in a git repo.
+ */
+export function getCurrentBranch(projectDir: string): string | null {
+  try {
+    const branch = execSync("git branch --show-current", {
+      cwd: projectDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
 }

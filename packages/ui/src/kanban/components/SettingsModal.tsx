@@ -152,8 +152,15 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
             value={autoComment}
             onChange={setAutoComment}
           />
-          {/* Separator between comment and commit/push/branch options */}
+          {/* Separator between comment and branch/commit/push options */}
           <div style={{ height: 1, background: 'var(--p-border)', marginTop: -4, marginBottom: -4 }} />
+          <WorkflowToggle
+            id="settings-create-branch"
+            label="Create branch before implementation"
+            description="Agent creates a descriptive branch before starting work (e.g. fix/bug-errors, feat/eye-toggle). Name reflects the work: lowercase, kebab-case, 2–5 words, prefix fix/feat/chore/docs."
+            value={createBranch}
+            onChange={setCreateBranch}
+          />
           <WorkflowToggle
             id="settings-auto-commit"
             label="Commit after task implementation"
@@ -167,13 +174,6 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
             description={`Agent is instructed to push after every commit. Requires 'Commit' to be ON.${autoCommit ? '' : ' (Enable Commit first)'}`}
             value={autoPush && autoCommit}
             onChange={(v) => setAutoPush(v && autoCommit)}
-          />
-          <WorkflowToggle
-            id="settings-create-branch"
-            label="Create branch at end of session"
-            description="Agent creates a descriptive branch after all session tasks are done (e.g. fix/bug-errors, feat/eye-toggle). Name reflects the work: lowercase, kebab-case, 2–5 words, prefix fix/feat/chore/docs."
-            value={createBranch}
-            onChange={setCreateBranch}
           />
         </div>
       )}
