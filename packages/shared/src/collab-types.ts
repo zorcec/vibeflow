@@ -19,7 +19,7 @@ export type ClientEvent =
       roomKey: RoomKey;
       targetId: string;
       active: boolean;
-      state?: 'viewing' | 'locked';
+      state?: 'viewing' | 'editing' | 'locked';
     }
   | { type: "task.subscribe"; workspaceId: string }
   | { type: "task.unsubscribe"; workspaceId: string };
@@ -35,7 +35,7 @@ export type ServerEvent =
       userName?: string;
       targetId: string;
       active: boolean;
-      state?: 'viewing' | 'locked';
+      state?: 'viewing' | 'editing' | 'locked';
     }
   | {
       type: "task.patch";
