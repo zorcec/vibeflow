@@ -62,7 +62,10 @@ export type ServerEvent =
       actorName?: string;
     }
   | { type: "health.ping"; redisOk?: boolean }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "agent-run-started"; taskId: string; model?: string; agent?: string; command?: string; actorId: UserId }
+  | { type: "agent-run-log"; taskId: string; log: string }
+  | { type: "agent-run-finished"; taskId: string; exitCode: number | null; success: boolean; actorId: UserId; inputTokens?: number; outputTokens?: number; totalTokens?: number; reasoningTokens?: number; cost?: number };
 
 export interface RedisEnvelope {
   roomKey: RoomKey;
