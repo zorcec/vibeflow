@@ -40,7 +40,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       open={open}
       onClose={onClose}
       id="file-preview-modal"
-      width="min(700px, 95vw)"
+      width="min(1100px, 95vw)"
       maxHeight="88vh"
       boxStyle={{ display: 'flex', flexDirection: 'column' }}
       icon={<FileText className="w-4 h-4 text-slate-400" />}
