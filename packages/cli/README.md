@@ -4,6 +4,8 @@
 
 Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any element on a page to create a task with its exact CSS selector, URL, and source location. Your agent gets precise, actionable context — no "the button in the top right" needed.
 
+🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
+
 ```bash
 npm install -g @vibeflow-tools/cli
 vibeflow kanban
@@ -197,16 +199,6 @@ Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts v
 </body>
 </html>
 ```
-
----
-
-## Web App
-
-Vibeflow also offers a hosted web app with real-time collaboration, multi-user support, and team kanban boards. The web app syncs with your local CLI tasks and lets you run agents directly from the browser.
-
-- **Website:** [vibeflow.tools](https://vibeflow.tools)
-- **Features:** Team collaboration, shared boards, role-based access, activity feed
-- **CLI sync:** Tasks created locally appear in the web app and vice versa
 
 ---
 
