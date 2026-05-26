@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- 8065d50: Use default agent from settings in the agent picker dropdown, pre-selecting the configured default agent when opening the Agent tab.
+- 8065d50: Persist overlay burger icon position to localStorage so it appears at the last dragged position after page reload.
+
+### Patch Changes
+
+- 2e7a840: Change CLI console log prefix from [Proto] to [Vibeflow]
+
+  All console.log and console.error calls in the server now use
+  `[Vibeflow]` as the prefix instead of the legacy `[Proto]` name.
+
+- 8065d50: Fix kanban agent runs: dispatch webapp agent runs to local CLI server, show agent badge only when agent has actually run (commits exist), add optimistic agent run entry to prevent empty UI on agent start, and ensure board icon container has consistent dimensions for dual mode.
+- 8065d50: Remove the agent badge from task cards, list view rows, and detail panel metadata. Agent status badges (running/queued/done) for active runs remain.
+- 8065d50: Increase file preview modal max-width from 700px to 1100px for better readability of large screenshots and code previews.
+
 ## 0.6.1
 
 ### Patch Changes
