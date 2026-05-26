@@ -1,9 +1,9 @@
 ---
-name: vibeflow-implementation
-description: Implementation checklist, permissions, and code review graph guidance for the vibeflow project. This skill should be used when the user asks to "review my code before submitting", "what should I check before marking review", "how to use code-review-graph", or when completing an implementation and preparing to set a task to review status.
+name: implementation-workflow
+description: Implementation checklist, permissions, and code review graph guidance for the vibeflow project. ALWAYS load this skill when implementing ANY change — bug fixes, features, enhancements, refactoring, or test additions. Also load when the user asks to "review my code before submitting", "what should I check before marking review", "how to use code-review-graph", or when completing an implementation and preparing to set a task to review status.
 ---
 
-# Vibeflow Implementation
+# Implementation Workflow
 
 ## Implementation Checklist
 
