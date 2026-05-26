@@ -91,7 +91,17 @@ function CornerTrigger({
   );
 
   // Draggable position state (null = default bottom-right via CSS)
-  const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
+  // Restored from localStorage if previously saved
+  const [pos, setPos] = React.useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('vibeflow-trigger-pos');
+      if (saved) {
+        const parsed = JSON.parse(saved) as { x: number; y: number };
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
   const [isDragging, setIsDragging] = React.useState(false);
   const [isHolding, setIsHolding] = React.useState(false);
   const dragOrigin = React.useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
@@ -101,6 +111,13 @@ function CornerTrigger({
   // Track pos in a ref so the hold-timer callback always has the latest value.
   const posRef = React.useRef<{ x: number; y: number } | null>(null);
   posRef.current = pos;
+
+  // Persist position to localStorage whenever it changes
+  React.useEffect(() => {
+    if (pos) {
+      try { localStorage.setItem('vibeflow-trigger-pos', JSON.stringify(pos)); } catch { /* ignore */ }
+    }
+  }, [pos]);
 
   function getInitialPos(el: HTMLElement) {
     const rect = el.getBoundingClientRect();
