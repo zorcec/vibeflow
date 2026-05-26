@@ -21,6 +21,11 @@ Before setting any task to `review`, run through this checklist:
 - [ ] **Changeset created** — ALWAYS run `pnpm changeset` before review. Describe what changed and why. No exceptions.
 - [ ] **Committed in correct repo** — CLI changes in `vibeflow/` (public), web changes in `vibeflow-private/` (private)
 - [ ] **Task updated in private repo** — `cd vibeflow-private && node ../vibeflow/packages/cli/dist/cli/index.js tasks --edit <id> --set-status review --comment "..."`
+- [ ] **Skills reviewed and improved** — load `skill-improvement` skill. Fix any factual errors encountered during the session (wrong commands, outdated paths, incorrect defaults). Add gaps only if encountered 2+ times. Never make stylistic changes proactively. Commit skill improvements:
+  ```bash
+  cd /home/zorcec/workspace/vibeflow-workspace/vibeflow-private
+  git add .opencode/skills/ && git commit -m "improve(skill): <name> — <what changed>" && git push
+  ```
 
 ## Permissions
 
