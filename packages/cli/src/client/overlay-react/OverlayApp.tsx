@@ -76,9 +76,11 @@ export function setOverlayTriggerAnnotating(_active: boolean): void { /* no visu
 function CornerTrigger({
   onClick,
   flashing,
+  onHide,
 }: {
   onClick: () => void;
   flashing: boolean;
+  onHide: () => void;
 }) {
   // Equalizer wave icon matching the Vibeflow product icon
   const svgIcon = (
@@ -112,12 +114,23 @@ function CornerTrigger({
   const posRef = React.useRef<{ x: number; y: number } | null>(null);
   posRef.current = pos;
 
+  // Context menu state (right-click to hide overlay)
+  const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number } | null>(null);
+
   // Persist position to localStorage whenever it changes
   React.useEffect(() => {
     if (pos) {
       try { localStorage.setItem('vibeflow-trigger-pos', JSON.stringify(pos)); } catch { /* ignore */ }
     }
   }, [pos]);
+
+  // Close context menu on outside click
+  React.useEffect(() => {
+    if (!ctxMenu) return;
+    function onDocClick() { setCtxMenu(null); }
+    document.addEventListener('click', onDocClick, { once: true });
+    return () => document.removeEventListener('click', onDocClick);
+  }, [ctxMenu]);
 
   function getInitialPos(el: HTMLElement) {
     const rect = el.getBoundingClientRect();
@@ -187,20 +200,43 @@ function CornerTrigger({
 
   const title = isDragging ? 'Drag to reposition' : isHolding ? 'Drag to reposition · Release to open' : 'Open Kanban board · Hold to drag';
 
+  function onContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }
+
   return (
-    <button
-      ref={buttonRef}
-      className={className}
-      title={title}
-      style={posStyle}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      data-vibeflow-ignore="true"
-    >
-      {svgIcon}
-    </button>
+    <>
+      <button
+        ref={buttonRef}
+        className={className}
+        title={title}
+        style={posStyle}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onContextMenu={onContextMenu}
+        data-vibeflow-ignore="true"
+      >
+        {svgIcon}
+      </button>
+      {ctxMenu && (
+        <div
+          className="vibeflow-trigger-ctx-menu"
+          style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => { setCtxMenu(null); onHide(); }}
+          >
+            Hide Vibeflow
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -489,6 +525,7 @@ interface OverlayAppProps {
 export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
   const [addModalOpts, setAddModalOpts] = React.useState<AddModalOpts | null>(null);
   const [triggerFlashing, setTriggerFlashing] = React.useState(false);
+  const [isHidden, setIsHidden] = React.useState(false);
 
   // Register external bridge so vanilla-TS code can open the modal
   React.useEffect(() => {
@@ -510,10 +547,11 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
 
   return (
     <>
-      {!isKanbanPage && (
+      {!isKanbanPage && !isHidden && (
         <CornerTrigger
           onClick={onOpenKanban}
           flashing={triggerFlashing}
+          onHide={() => setIsHidden(true)}
         />
       )}
       {addModalOpts !== null && (

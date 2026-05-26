@@ -1541,3 +1541,34 @@
     color: rgba(255,255,255,0.7);
   }
   .rq-btn-secondary:hover { background: #475569; }
+
+  /* ── Corner trigger context menu (right-click to hide overlay) ─────── */
+  .vibeflow-trigger-ctx-menu {
+    position: fixed;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    z-index: 2147483647;
+    pointer-events: auto;
+  }
+
+  .vibeflow-trigger-ctx-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-family: system-ui, sans-serif;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .vibeflow-trigger-ctx-menu button:hover {
+    background: #334155;
+  }
