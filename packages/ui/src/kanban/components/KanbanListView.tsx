@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageCircle, Paperclip, Flag, Bot } from 'lucide-react';
+import { MessageCircle, Paperclip, Flag } from 'lucide-react';
 import type { Task, TaskStatus, LiveActivity } from '../types';
 import { LiveActivityBadge } from './TaskCard';
 import { TASK_TYPE_ICONS } from '../../task-types';
@@ -284,17 +284,6 @@ function ListRow({ task, liveActivity, onOpen, onDragStart, dragOver, onDragOver
           {task.component && (
             <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'color-mix(in srgb, var(--p-purple) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--p-purple) 30%, transparent)', color: 'var(--p-purple-300)', flexShrink: 0, fontFamily: 'monospace' }}>
               {task.component}
-            </span>
-          )}
-          {experimentalAgents === true && task.agent && (task.commits?.length ?? 0) > 0 && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
-              background: 'rgba(139,92,246,0.12)', color: '#a78bfa', whiteSpace: 'nowrap',
-              overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90, flexShrink: 0,
-            }} title={`Agent: ${task.agent}`}>
-              <Bot style={{ width: 8, height: 8, flexShrink: 0 }} />
-              Agent
             </span>
           )}
         </div>

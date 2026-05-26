@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { MessageCircle, Paperclip, CheckCircle, Eye, Lock, Bot } from 'lucide-react';
+import { MessageCircle, Paperclip, CheckCircle, Eye, Lock } from 'lucide-react';
 import type { Task, Column, LiveActivity, AgentStatus } from '../types';
 import { isNewComments } from '../utils';
 import { TypeBadge } from '../../TypeBadge';
@@ -315,17 +315,6 @@ export const TaskCard = React.memo(function TaskCard({
             overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90,
           }}>
             ✓ Done
-          </span>
-        )}
-        {experimentalAgents === true && !agentStatus && task.agent && (task.commits?.length ?? 0) > 0 && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
-            background: 'rgba(139,92,246,0.12)', color: '#a78bfa', whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90,
-          }} title={`Agent: ${task.agent}`}>
-            <Bot style={{ width: 8, height: 8, flexShrink: 0 }} />
-            Agent
           </span>
         )}
         {isInProgress && task.assigneeName && (
