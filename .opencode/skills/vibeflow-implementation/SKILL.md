@@ -12,12 +12,13 @@ Before setting any task to `review`, run through this checklist:
 - [ ] **Code compiles** — build succeeds for the affected package
 - [ ] **Type-check passes** — `pnpm --filter <package> run lint` (CLI) or `pnpm --filter <package> run typecheck` (web)
 - [ ] **Unit tests pass** — `pnpm --filter <package> run test` — all green
-- [ ] **Mutation tests** — for core logic changes:
+- [ ] **Mutation tests** — ALWAYS run before review:
   - CLI: `cd /home/zorcec/workspace/vibeflow-workspace/vibeflow && pnpm --filter @vibeflow-tools/cli run mutation`
   - Web-crawl: `cd /home/zorcec/workspace/vibeflow-workspace/vibeflow-private && pnpm --filter @vibeflow-tools/web-crawl run mutation`
+  - Review any surviving mutants and add tests to kill them (or confirm they are false positives)
 - [ ] **Playwright tests** — if overlay/kanban bundles changed: build first, then `pnpm --filter <package> run test:browser`
 - [ ] **Visual verification** — for UI/layout changes, open in browser and confirm it looks correct on both wide and narrow screens
-- [ ] **Changeset created** — if customer-facing (new feature, UI change, bug fix, API change). Skip for internal-only (tests, refactoring, dev tooling).
+- [ ] **Changeset created** — ALWAYS run `pnpm changeset` before review. Describe what changed and why. No exceptions.
 - [ ] **Committed in correct repo** — CLI changes in `vibeflow/` (public), web changes in `vibeflow-private/` (private)
 - [ ] **Task updated in private repo** — `cd vibeflow-private && node ../vibeflow/packages/cli/dist/cli/index.js tasks --edit <id> --set-status review --comment "..."`
 
