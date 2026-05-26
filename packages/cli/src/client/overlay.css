@@ -1547,9 +1547,9 @@
     position: fixed;
     background: #1e293b;
     border: 1px solid #334155;
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    padding: 4px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    padding: 2px;
     z-index: 2147483647;
     pointer-events: auto;
   }
@@ -1558,11 +1558,11 @@
     display: block;
     width: 100%;
     text-align: left;
-    padding: 8px 16px;
+    padding: 4px 10px;
     border: none;
     background: none;
     color: #e2e8f0;
-    font-size: 13px;
+    font-size: 12px;
     font-family: system-ui, sans-serif;
     cursor: pointer;
     border-radius: 4px;

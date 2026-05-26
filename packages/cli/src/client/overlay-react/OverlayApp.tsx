@@ -209,7 +209,11 @@ function CornerTrigger({
   function onContextMenu(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY });
+    // Clamp position so menu never gets cut off the screen (with 8px padding).
+    const MENU_W = 120, MENU_H = 28, PAD = 8;
+    const x = Math.min(e.clientX, window.innerWidth - MENU_W - PAD);
+    const y = Math.min(e.clientY, window.innerHeight - MENU_H - PAD);
+    setCtxMenu({ x: Math.max(PAD, x), y: Math.max(PAD, y) });
   }
 
   return (
