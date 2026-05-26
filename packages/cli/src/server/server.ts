@@ -259,7 +259,7 @@ function registerTaskApi(
       task.screenshot = filename;
     }
 
-    console.log(`[Proto] Task created: "${task.title}" (${task.id})`);
+    console.log(`[Vibeflow] Task created: "${task.title}" (${task.id})`);
     broadcast({ type: "tasks-updated" });
     res.json({ success: true, task });
   });
@@ -282,7 +282,7 @@ function registerTaskApi(
       return;
     }
 
-    console.log(`[Proto] Task updated: "${updated.title}" (${updated.id}) → status:${updated.status}`);
+    console.log(`[Vibeflow] Task updated: "${updated.title}" (${updated.id}) → status:${updated.status}`);
     // Broadcast task-changed with the full payload so clients can apply surgical
     // state updates without re-fetching all tasks (avoids full-list re-render).
     broadcast({ type: "task-changed", taskId: updated.id, action: "update", task: updated });
@@ -297,7 +297,7 @@ function registerTaskApi(
       return;
     }
 
-    console.log(`[Proto] Task deleted: ${id}`);
+    console.log(`[Vibeflow] Task deleted: ${id}`);
     // Broadcast task-deleted so clients can surgically remove the card.
     broadcast({ type: "task-deleted", taskId: id });
     res.json({ success: true });
@@ -479,13 +479,13 @@ function registerMetaApis(
       if (!r.ok) {
         const body = await r.json().catch(() => ({})) as Record<string, unknown>;
         const msg = (body.error as string) ?? `HTTP ${r.status} from ${apiUrl}`;
-        console.error(`[Proto] GET /api/push/workspaces failed: ${msg}`);
+        console.error(`[Vibeflow] GET /api/push/workspaces failed: ${msg}`);
         res.status(r.status).json({ error: msg }); return;
       }
       res.json(await r.json());
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[Proto] GET /api/push/workspaces network error: ${msg}`);
+      console.error(`[Vibeflow] GET /api/push/workspaces network error: ${msg}`);
       res.status(502).json({ error: `Network error contacting SaaS API: ${msg}` });
     }
   });
@@ -520,7 +520,7 @@ function registerMetaApis(
       res.json({ imported: result.imported, skipped: result.skipped ?? 0, workspaceId: result.workspaceId, boardId: result.boardId });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[Proto] POST /api/push network error: ${msg}`);
+      console.error(`[Vibeflow] POST /api/push network error: ${msg}`);
       res.status(502).json({ error: `Network error contacting SaaS API: ${msg}` });
     }
   });
@@ -530,7 +530,7 @@ function registerMetaApis(
     getCopilotAuthStatus(projectDir)
       .then((status) => res.json(status))
       .catch((e: unknown) => {
-        console.error(`[Proto] GET /api/copilot/status error: ${e instanceof Error ? e.message : String(e)}`);
+        console.error(`[Vibeflow] GET /api/copilot/status error: ${e instanceof Error ? e.message : String(e)}`);
         res.json({ authenticated: false, source: null, tokenHint: null, username: null });
       });
   });
@@ -574,7 +574,7 @@ function registerMetaApis(
       res.json({ launched: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[Proto] POST /api/copilot/login error: ${msg}`);
+      console.error(`[Vibeflow] POST /api/copilot/login error: ${msg}`);
       res.status(500).json({
         launched: false,
         error: msg,
@@ -978,7 +978,7 @@ function registerTrpcApi(
 function useErrorHandler(app: express.Application): void {
    
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error("[Proto] Unhandled error:", err.message);
+    console.error("[Vibeflow] Unhandled error:", err.message);
     res.status(500).json({ error: "Internal server error" });
   });
 }
