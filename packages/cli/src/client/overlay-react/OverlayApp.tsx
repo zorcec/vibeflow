@@ -109,6 +109,7 @@ function CornerTrigger({
   const dragOrigin = React.useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
   const holdTimer = React.useRef<number | null>(null);
   const didDrag = React.useRef(false);
+  const isRightClick = React.useRef(false);
   const buttonRef = React.useRef<HTMLButtonElement | null>(null);
   // Track pos in a ref so the hold-timer callback always has the latest value.
   const posRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -144,6 +145,9 @@ function CornerTrigger({
     const clientX = e.clientX;
     const clientY = e.clientY;
     didDrag.current = false;
+    isRightClick.current = e.button === 2;
+    // Right-click: don't start the hold timer at all — let contextmenu handle it.
+    if (isRightClick.current) return;
     // Start a hold timer — after 300ms, unlock dragging
     holdTimer.current = window.setTimeout(() => {
       setIsHolding(true);
@@ -168,11 +172,13 @@ function CornerTrigger({
   function onPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
     if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
     const wasDragged = didDrag.current;
+    const wasRight = isRightClick.current;
     dragOrigin.current = null;
     setIsDragging(false);
     setIsHolding(false);
     didDrag.current = false;
-    if (!wasDragged) onClick();
+    isRightClick.current = false;
+    if (!wasDragged && !wasRight) onClick();
   }
 
   function onPointerCancel() {
