@@ -2287,10 +2287,15 @@ describe("Kanban board", () => {
       await waitForTaskOnBoard(page, t.id);
     }
 
-    // Enter select mode
-    await page.click("#btn-select-tasks");
-    // Wait for select mode to activate (checkbox appears on cards)
-    await page.waitForFunction(() => !!document.querySelector("#btn-select-tasks"), { timeout: 2_000 }).catch(() => {});
+    // Enter select mode via long-press on task 1
+    const task1Card = page.locator(`[data-task-id="${tasks[0].id}"]`).first();
+    await task1Card.scrollIntoViewIfNeeded();
+    const task1Box = (await task1Card.boundingBox())!;
+    await page.mouse.move(task1Box.x + task1Box.width / 2, task1Box.y + task1Box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(350); // long-press threshold is 300ms
+    await page.mouse.up();
+    await page.waitForTimeout(200); // wait for select mode to activate
 
     // Select tasks 2 and 4 (0-indexed: index 1 and 3)
     const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
@@ -2376,8 +2381,8 @@ describe("Kanban board", () => {
 
     expect(ourTaskOrderIds).toEqual(expectedIds);
 
-    // Exit select mode
-    await page.click("#btn-select-tasks");
+    // Exit select mode via ESC
+    await page.keyboard.press("Escape");
   });
 
 });

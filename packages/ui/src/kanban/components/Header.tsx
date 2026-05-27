@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Settings, X, ChevronRight, Bot, CheckSquare } from 'lucide-react';
+import { Search, Settings, X, ChevronRight, Bot } from 'lucide-react';
 import { VibeflowIcon } from '../../VibeflowIcon';
 import { HeaderActionButton } from './shared/HeaderActionButton';
 import { getTagColors } from '../tag-colors';
@@ -27,8 +27,8 @@ interface Props {
   agentRuns?: AgentRun[];
   /** Whether multi-select mode is currently active. */
   selectMode?: boolean;
-  /** Toggle multi-select mode on/off. */
-  onToggleSelectMode?: () => void;
+  /** Number of selected tasks (shown in minimalistic indicator). */
+  selectedCount?: number;
   /** Number of active (running + queued) agent runs. */
   agentQueueCount?: number;
   /** Open the agent queue side panel. */
@@ -44,7 +44,7 @@ export function Header({
   onSearchChange, onSettings, extraActions, taskSummary,
   agentRuns,
   selectMode,
-  onToggleSelectMode,
+  selectedCount,
   agentQueueCount,
   onOpenAgentQueue,
   experimentalAgents,
@@ -297,14 +297,25 @@ export function Header({
           />
         )}
 
-        {onToggleSelectMode && (
-          <HeaderActionButton
-            id="btn-select-tasks"
-            title={selectMode ? 'Exit selection mode' : 'Select multiple tasks'}
-            onClick={onToggleSelectMode}
-            label={selectMode ? '✕ Done' : '☑ Select'}
-            icon={<CheckSquare className="w-3.5 h-3.5" />}
-          />
+        {selectMode && (
+          <span
+            id="select-mode-indicator"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 500,
+              border: '1px solid color-mix(in srgb, var(--p-blue) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--p-blue) 10%, transparent)',
+              color: 'var(--p-blue-300)', flexShrink: 0,
+            }}
+          >
+            <span
+              style={{
+                width: 6, height: 6, borderRadius: '50%', background: 'var(--p-blue)',
+                animation: 'pulse-live 1.5s ease-in-out infinite',
+              }}
+            />
+            select{selectedCount != null && selectedCount > 0 ? ` · ${selectedCount}` : ''}
+          </span>
         )}
 
         <HeaderActionButton

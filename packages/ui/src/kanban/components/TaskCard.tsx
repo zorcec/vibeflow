@@ -26,6 +26,8 @@ interface Props {
   experimentalAgents?: boolean;
   /** When multi-select dragging, shows how many tasks are being dragged (displayed on the lead card). */
   multiDragCount?: number;
+  /** Called when a long-press (300ms) activates select mode. */
+  onEnterSelectMode?: (taskId: string) => void;
 }
 
 function isImageFileName(name: string): boolean {
@@ -77,12 +79,15 @@ export const TaskCard = React.memo(function TaskCard({
   selectMode, selected, onToggleSelect, agentStatus,
   experimentalAgents,
   multiDragCount,
+  onEnterSelectMode,
 }: Props) {
   const isInProgress = col.id === 'in-progress';
   const isDone = col.id === 'done';
   const [showThumbPreview, setShowThumbPreview] = React.useState(false);
   const [thumbRect, setThumbRect] = React.useState<{ top: number; right: number } | null>(null);
   const thumbRef = React.useRef<HTMLImageElement>(null);
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressActivatedRef = React.useRef(false);
 
   const commentCount = task.commentCount ?? 0;
   const fileCount = task.fileCount ?? 0;
@@ -105,7 +110,35 @@ export const TaskCard = React.memo(function TaskCard({
     e.currentTarget.classList.remove('dragging');
   }
 
+  function handleMouseDown() {
+    if (selectMode) return;
+    longPressActivatedRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressActivatedRef.current = true;
+      onEnterSelectMode?.(task.id);
+    }, 300);
+  }
+
+  function handleMouseUp() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function handleMouseLeave() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
   function handleClick(e: React.MouseEvent) {
+    // If long-press activated, the click was for entering select mode — skip normal open
+    if (longPressActivatedRef.current) {
+      longPressActivatedRef.current = false;
+      return;
+    }
     if (selectMode) {
       e.stopPropagation();
       onToggleSelect?.(task.id);
@@ -149,6 +182,9 @@ export const TaskCard = React.memo(function TaskCard({
         }}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onClick={handleClick}
       >
         <div style={DONE_INNER_ROW_STYLE}>
@@ -197,6 +233,9 @@ export const TaskCard = React.memo(function TaskCard({
       }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
       onClick={handleClick}
     >
       {/* Row 1: [checkbox] [spinner] title [screenshot-thumb] */}

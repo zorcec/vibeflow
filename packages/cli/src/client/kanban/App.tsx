@@ -359,6 +359,11 @@ export function App() {
     });
   }
 
+  function enterSelectMode(taskId: string) {
+    setSelectMode(true);
+    setSelectedTaskIds(new Set([taskId]));
+  }
+
   function runSelectedAgents(taskIds: string[]) {
     for (const id of taskIds) {
       runAgent(id, 'claude-sonnet-4-5');
@@ -457,6 +462,7 @@ export function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
       if (e.key === 'Escape') {
+        if (selectMode) { setSelectMode(false); setSelectedTaskIds(new Set()); return; }
         if (filePreview.open) { setFilePreview(p => ({ ...p, open: false })); return; }
         if (panelState.open) { setPanelState(p => ({ ...p, open: false })); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
@@ -478,7 +484,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [filePreview.open, panelState.open, settingsOpen]);
+  }, [filePreview.open, panelState.open, settingsOpen, selectMode]);
 
   function appendStatusChange(taskId: string, fromStatus: TaskStatus, toStatus: TaskStatus, actor: string, source?: 'cli' | 'web') {
     const timestamp = new Date().toISOString();
@@ -905,7 +911,7 @@ export function App() {
         onSettings={() => setSettingsOpen(true)}
         agentRuns={agentRuns}
         selectMode={selectMode}
-        onToggleSelectMode={() => { setSelectMode(v => !v); setSelectedTaskIds(new Set()); }}
+        selectedCount={selectedTaskIds.size}
         agentQueueCount={agentRuns.filter(r => r.status === 'running' || r.status === 'queued').length}
         onOpenAgentQueue={() => setAgentQueueOpen(true)}
         experimentalAgents={appSettings.experimentalAgents}
@@ -946,6 +952,7 @@ export function App() {
             selectMode={selectMode}
             selectedTaskIds={selectedTaskIds}
             onToggleSelect={toggleSelect}
+            onEnterSelectMode={enterSelectMode}
             agentStatuses={appSettings.experimentalAgents === true ? agentStatusMap : undefined}
             onRunSelectedAgents={appSettings.experimentalAgents === true ? runSelectedAgents : undefined}
             onExitSelectMode={() => { setSelectMode(false); setSelectedTaskIds(new Set()); }}

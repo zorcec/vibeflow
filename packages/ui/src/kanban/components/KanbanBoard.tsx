@@ -54,6 +54,8 @@ interface Props {
   selectedTaskIds?: Set<string>;
   /** Toggle selection of a task. */
   onToggleSelect?: (taskId: string) => void;
+  /** Called when a long-press activates select mode. */
+  onEnterSelectMode?: (taskId: string) => void;
   /** Map of taskId -> agent status for visual indicators. */
   agentStatuses?: Map<string, AgentStatus>;
   /** Called when the user clicks "Run Agents" on the multi-select toolbar. */
@@ -64,7 +66,7 @@ interface Props {
   experimentalAgents?: boolean;
 }
 
-export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveActivities, onOpenPanel, onDrop, onReorder, selectMode, selectedTaskIds, onToggleSelect, agentStatuses, onRunSelectedAgents, onExitSelectMode, experimentalAgents }: Props) {
+export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveActivities, onOpenPanel, onDrop, onReorder, selectMode, selectedTaskIds, onToggleSelect, onEnterSelectMode, agentStatuses, onRunSelectedAgents, onExitSelectMode, experimentalAgents }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
@@ -329,6 +331,7 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
               selectMode={selectMode}
               selectedTaskIds={selectedTaskIds}
               onToggleSelect={onToggleSelect}
+              onEnterSelectMode={onEnterSelectMode}
               agentStatuses={experimentalAgents === true ? agentStatuses : undefined}
               experimentalAgents={experimentalAgents}
               multiDragIds={multiDragIds}
@@ -418,6 +421,8 @@ interface ColumnProps {
   selectMode?: boolean;
   selectedTaskIds?: Set<string>;
   onToggleSelect?: (taskId: string) => void;
+  /** Called when a long-press activates select mode. */
+  onEnterSelectMode?: (taskId: string) => void;
   agentStatuses?: Map<string, AgentStatus>;
   /** When false, agent-related UI is hidden. */
   experimentalAgents?: boolean;
@@ -425,7 +430,7 @@ interface ColumnProps {
   multiDragIds?: string[];
 }
 
-function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDragOver, onDrop, onDragLeave, onStatusChange, onAddTask, onOpenTask, onDragStart, onCardDragOver, cardDropTarget, selectMode, selectedTaskIds, onToggleSelect, agentStatuses, experimentalAgents, multiDragIds }: ColumnProps) {
+function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDragOver, onDrop, onDragLeave, onStatusChange, onAddTask, onOpenTask, onDragStart, onCardDragOver, cardDropTarget, selectMode, selectedTaskIds, onToggleSelect, onEnterSelectMode, agentStatuses, experimentalAgents, multiDragIds }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
   const dotClass = col.id === 'in-progress' ? 'sd-inprogress' : `sd-${col.id}`;
 
@@ -501,6 +506,7 @@ function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDra
                   selectMode={selectMode}
                   selected={selectedTaskIds?.has(task.id)}
                   onToggleSelect={onToggleSelect}
+                  onEnterSelectMode={onEnterSelectMode}
                   agentStatus={agentStatuses?.get(task.id)}
                   experimentalAgents={experimentalAgents}
                   multiDragCount={multiDragIds && multiDragIds.length > 1 && multiDragIds[0] === task.id ? multiDragIds.length : undefined}
