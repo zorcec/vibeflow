@@ -315,6 +315,17 @@ export function Header({
               }}
             />
             select{selectedCount != null && selectedCount > 0 ? ` · ${selectedCount}` : ''}
+            <kbd
+              style={{
+                fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
+                background: 'color-mix(in srgb, var(--p-blue) 18%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--p-blue) 30%, transparent)',
+                borderRadius: 3, padding: '0 4px', lineHeight: '16px',
+                color: 'var(--p-blue-300)', letterSpacing: '0.02em',
+              }}
+            >
+              esc
+            </kbd>
           </span>
         )}
 
