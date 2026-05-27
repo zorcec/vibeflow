@@ -10,12 +10,10 @@ export default {
   vitest: {
     configFile: 'vitest.config.ts',
   },
-  // Scope to core logic only — exclude server, client bundles, CLI entry
+  // All source code — no exclusions
   mutate: [
-    'src/core/**/*.ts',
-    'src/auth/**/*.ts',
-    'src/commands/**/*.ts',
-    'src/saas/**/*.ts',
+    'src/**/*.ts',
+    'src/**/*.tsx',
   ],
   incremental: true,
   incrementalFile: 'reports/stryker-incremental.json',
