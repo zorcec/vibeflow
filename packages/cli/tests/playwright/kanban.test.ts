@@ -2287,18 +2287,26 @@ describe("Kanban board", () => {
       await waitForTaskOnBoard(page, t.id);
     }
 
-    // Enter select mode via long-press on task 1
-    const task1Card = page.locator(`[data-task-id="${tasks[0].id}"]`).first();
-    await task1Card.scrollIntoViewIfNeeded();
-    const task1Box = (await task1Card.boundingBox())!;
-    await page.mouse.move(task1Box.x + task1Box.width / 2, task1Box.y + task1Box.height / 2);
-    await page.mouse.down();
+    // Enter select mode via long-press on task 2 (the first task we want to drag)
+    const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
+    await task2Card.scrollIntoViewIfNeeded();
+
+    // Dispatch long-press events directly on the DOM element (page.mouse doesn't
+    // reliably trigger React synthetic onMouseDown/onMouseUp)
+    await page.evaluate((taskId) => {
+      const card = document.querySelector(`article[data-task-id="${taskId}"]`) as HTMLElement;
+      if (!card) return;
+      card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    }, tasks[1].id);
     await page.waitForTimeout(350); // long-press threshold is 300ms
-    await page.mouse.up();
+    await page.evaluate((taskId) => {
+      const card = document.querySelector(`article[data-task-id="${taskId}"]`) as HTMLElement;
+      if (!card) return;
+      card.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    }, tasks[1].id);
     await page.waitForTimeout(200); // wait for select mode to activate
 
-    // Select tasks 2 and 4 (0-indexed: index 1 and 3)
-    const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
+    // Add task 4 to the selection (0-indexed: index 3)
     const task4Card = page.locator(`[data-task-id="${tasks[3].id}"]`).first();
 
     // Click cards to select them — use force:true to bypass z-index overlap checks
