@@ -382,7 +382,7 @@ program
   .option("--tag <tag>", "Filter by tag (can be specified multiple times for AND matching)", (val, prev: string[]) => [...prev, val], [] as string[])
   .option("--report-file <path>", "Path to a local .md file to upload as the research report (use with --set-status review on Research tasks; file is uploaded and deleted locally)")
   .option("--branch <name>", "Git branch name for the task (required when createBranch setting is ON and setting status to review)")
-  .option("--limit <n>", "Limit how many tasks are returned in list mode (default: 10; use 0 for unlimited)")
+  .option("--limit <n>", "Limit how many tasks are returned in list mode (default: 5; use 0 for unlimited)")
   .action((dir: string, opts: {
     status?: string;
     type?: string;
@@ -1087,7 +1087,7 @@ program
       if (opts.user) saasTasks = saasTasks.filter((t) => matchesUserFilter(t.author, opts.user!));
       if (opts.tag && opts.tag.length > 0) saasTasks = saasTasks.filter((t) => opts.tag!.every(tag => ((t as { tags?: string[] }).tags ?? []).includes(tag)));
 
-      const saasLimit = opts.limit !== undefined ? parseInt(opts.limit, 10) : 10;
+      const saasLimit = opts.limit !== undefined ? parseInt(opts.limit, 10) : 5;
       if (!isNaN(saasLimit) && saasLimit > 0) saasTasks = saasTasks.slice(0, saasLimit);
 
       if (opts.json) {
@@ -1165,7 +1165,7 @@ program
     if (opts.user) filtered = filtered.filter((t) => matchesUserFilter(t.author, opts.user!));
     if (opts.tag && opts.tag.length > 0) filtered = filtered.filter((t) => opts.tag!.every(tag => (t.tags ?? []).includes(tag)));
 
-    const taskLimit = opts.limit !== undefined ? parseInt(opts.limit, 10) : 10;
+    const taskLimit = opts.limit !== undefined ? parseInt(opts.limit, 10) : 5;
 
     if (opts.json) {
       console.log(JSON.stringify(filtered, null, 2));
