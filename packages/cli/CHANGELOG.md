@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+### Patch Changes
+
+- c917033: Increase kanban multi-select long-press timeout to 750ms with drag cancellation
+
 ## 0.8.0
 
 ### Minor Changes

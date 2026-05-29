@@ -1,5 +1,11 @@
 # @vibeflow-tools/ui
 
+## 0.1.2
+
+### Patch Changes
+
+- c917033: Increase kanban multi-select long-press timeout to 750ms with drag cancellation
+
 ## 0.1.1
 
 ### Patch Changes
