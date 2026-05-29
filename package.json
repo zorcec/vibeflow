@@ -8,8 +8,12 @@
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @vibeflow-tools/cli run build",
+    "build:ui-prototyping": "pnpm --filter @vibeflow-tools/ui-prototyping run build",
+    "build:all": "pnpm -r run build",
     "dev": "pnpm --filter @vibeflow-tools/cli run dev",
     "test": "pnpm --filter @vibeflow-tools/cli run test",
+    "test:ui-prototyping": "pnpm --filter @vibeflow-tools/ui-prototyping run test",
+    "test:all": "pnpm -r run test",
     "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
@@ -18,6 +22,7 @@
     "scan:secrets:full": "gitleaks detect --source . --verbose",
     "check": "pnpm --filter @vibeflow-tools/cli run lint",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
+    "publish-npm": "bash ../vibeflow-private/deploy/scripts/publish-npm.sh",
     "prepare": "husky"
   },
   "devDependencies": {
