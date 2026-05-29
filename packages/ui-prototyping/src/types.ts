@@ -29,6 +29,13 @@ export interface VariantContextValue {
   setActiveVariant: (name: string, variant: string) => void;
   /** Register a scope with its variant names (called by useVariant / VariantSwitcher). */
   registerScope: (name: string, variantNames: string[]) => void;
+  /**
+   * Register a VariantSwitcher instance for a scope.
+   * Returns true if this is the first instance (should render), false if duplicate (should skip).
+   */
+  registerSwitcher: (name: string) => boolean;
+  /** Unregister a VariantSwitcher instance (called on unmount). */
+  unregisterSwitcher: (name: string) => void;
   /** All registered scopes and their states. */
   scopes: Record<string, VariantState>;
   /** Whether switcher UI should be visible. */

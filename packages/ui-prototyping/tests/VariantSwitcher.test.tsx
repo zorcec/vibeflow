@@ -118,4 +118,36 @@ describe("VariantSwitcher", () => {
     const toolbar = screen.getByRole("toolbar");
     expect(toolbar.getAttribute("style")).toContain("right: -28px");
   });
+
+  it("deduplicates switchers per scope — only first instance renders", () => {
+    render(
+      <VariantProvider>
+        <div style={{ position: "relative" }}>
+          <VariantSwitcher name="Shared" variants={variants} />
+          <span>first</span>
+        </div>
+        <div style={{ position: "relative" }}>
+          <VariantSwitcher name="Shared" variants={variants} />
+          <span>second</span>
+        </div>
+      </VariantProvider>,
+    );
+    const toolbars = screen.getAllByRole("toolbar");
+    expect(toolbars.length).toBe(1);
+  });
+
+  it("allows different scopes to each have their own switcher", () => {
+    render(
+      <VariantProvider>
+        <div style={{ position: "relative" }}>
+          <VariantSwitcher name="ScopeA" variants={variants} />
+        </div>
+        <div style={{ position: "relative" }}>
+          <VariantSwitcher name="ScopeB" variants={variants} />
+        </div>
+      </VariantProvider>,
+    );
+    const toolbars = screen.getAllByRole("toolbar");
+    expect(toolbars.length).toBe(2);
+  });
 });
