@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useVariantContext } from "./context.js";
 
 /**
@@ -33,22 +33,52 @@ function isOverlayPresent(): boolean {
 export function VariantDevToolbar() {
   const ctx = useVariantContext();
   const [isOpen, setIsOpen] = useState(false);
-  const [overlayDetected, setOverlayDetected] = useState(false);
+  // Detect overlay synchronously on first render (for cases where both mount together).
+  const [overlayDetected, setOverlayDetected] = useState(() => isOverlayPresent());
+  const panelRef = useRef<HTMLDivElement>(null);
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
 
-  // Detect overlay presence on mount
+  // Also watch for the overlay appearing later (e.g. injected via bookmarklet).
+  // Uses both MutationObserver and polling as a fallback — bookmarklets may
+  // inject via eval() which doesn't always trigger childList mutations.
   useEffect(() => {
-    setOverlayDetected(isOverlayPresent());
-  }, []);
+    if (overlayDetected) return;
+
+    function detect() {
+      if (isOverlayPresent()) {
+        setOverlayDetected(true);
+        return true;
+      }
+      return false;
+    }
+
+    // Check immediately
+    if (detect()) return;
+
+    // MutationObserver for standard DOM additions
+    const observer = new MutationObserver(() => { detect(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Polling fallback — catches eval()-injected scripts that may bypass
+    // MutationObserver (e.g. bookmarklet fetch+eval pattern).
+    const interval = setInterval(() => { detect(); }, 500);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(interval);
+    };
+  }, [overlayDetected]);
 
   const openPanel = useCallback(() => setIsOpen(true), []);
   const closePanel = useCallback(() => setIsOpen(false), []);
 
-  // Register with the overlay if present
+  // Register with the overlay if present.
+  // Uses a ref for isOpen to avoid re-registration on every open/close.
   useEffect(() => {
     if (!overlayDetected) return;
 
-    // Expose API for the overlay to call
-    const api = { openPanel, closePanel, isOpen };
+    const api = { openPanel, closePanel, get isOpen() { return isOpenRef.current; } };
     Object.defineProperty(window, "__vf_prototyping", {
       value: api,
       writable: true,
@@ -56,12 +86,34 @@ export function VariantDevToolbar() {
     });
 
     return () => {
-      // Clean up on unmount — only if we still own it
       if ((window as any).__vf_prototyping === api) {
         delete (window as any).__vf_prototyping;
       }
     };
-  }, [overlayDetected, openPanel, closePanel, isOpen]);
+  }, [overlayDetected, openPanel, closePanel]);
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
+  // Close on click outside the panel
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      setIsOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, handleClickOutside]);
 
   const scopeEntries = Object.entries(ctx.scopes);
 
@@ -109,6 +161,7 @@ export function VariantDevToolbar() {
       {/* Toolbar panel */}
       {isOpen && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Variant dev toolbar"
           style={{

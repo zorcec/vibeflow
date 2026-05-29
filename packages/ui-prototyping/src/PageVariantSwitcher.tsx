@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useVariantContext } from "./context.js";
-import { resolveActiveVariant } from "./utils.js";
+import { useActiveVariant } from "./useActiveVariant.js";
 
 interface PageVariantSwitcherProps {
   /** Scope name — must match the first argument of useVariant. */
@@ -34,16 +34,13 @@ export function PageVariantSwitcher({
   const ctx = useVariantContext();
   const variantKeys = useMemo(() => Object.keys(variants), [variants]);
 
-  // Register scope
+  // Scope registration is handled by useVariant in the parent subtree.
+  // Only register if useVariant is not present (standalone usage).
   useEffect(() => {
     ctx.registerScope(name, variantKeys);
   }, [ctx, name, variantKeys]);
 
-  const activeKey = useMemo(() => {
-    const current = ctx.getActiveVariant(name);
-    if (current && variantKeys.includes(current)) return current;
-    return resolveActiveVariant(name, variantKeys, variantKeys[0] ?? "default");
-  }, [ctx, name, variantKeys]);
+  const activeKey = useActiveVariant(name, variantKeys);
 
   if (!ctx.uiVisible) return null;
   if (variantKeys.length < 2) return null;

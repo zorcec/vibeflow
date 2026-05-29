@@ -12,6 +12,7 @@ import type {
   VariantMode,
   VariantProviderProps,
 } from "./types.js";
+import type { KeyboardShortcut } from "./useKeyboardShortcuts.js";
 import {
   resolveActiveVariant,
   writeVariantToUrl,
@@ -76,6 +77,7 @@ export function VariantProvider({
   children,
   mode = "dev",
   defaultVisible,
+  shortcuts,
 }: VariantProviderProps): ReactNode {
   const [scopes, setScopes] = useState<Record<string, VariantState>>({});
   const [uiVisible, setUiVisible] = useState<boolean>(() =>
@@ -152,6 +154,7 @@ export function VariantProvider({
   // Keyboard shortcuts: Alt+H toggles UI, Ctrl+Shift+V also toggles
   useKeyboardShortcuts({
     onToggleUi: toggleUiVisible,
+    shortcuts,
   });
 
   const value: VariantContextValue = {

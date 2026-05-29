@@ -156,3 +156,62 @@ describe("useKeyboardShortcuts — negative (should NOT trigger)", () => {
     expect(capturedCtx?.uiVisible).toBe(true);
   });
 });
+
+describe("useKeyboardShortcuts — configurable shortcuts", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("custom shortcut (Ctrl+K) toggles uiVisible", () => {
+    let capturedCtx: ReturnType<typeof useVariantContext> | null = null;
+    render(
+      <VariantProvider shortcuts={[{ key: "k", ctrl: true }]}>
+        <ContextReader onContext={(ctx) => { capturedCtx = ctx; }} />
+      </VariantProvider>,
+    );
+    expect(capturedCtx?.uiVisible).toBe(true);
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }),
+      );
+    });
+    expect(capturedCtx?.uiVisible).toBe(false);
+  });
+
+  it("default shortcuts are disabled when custom shortcuts override them", () => {
+    let capturedCtx: ReturnType<typeof useVariantContext> | null = null;
+    render(
+      <VariantProvider shortcuts={[{ key: "k", ctrl: true }]}>
+        <ContextReader onContext={(ctx) => { capturedCtx = ctx; }} />
+      </VariantProvider>,
+    );
+    // Alt+H should NOT work when shortcuts are overridden
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "h", altKey: true, bubbles: true }),
+      );
+    });
+    expect(capturedCtx?.uiVisible).toBe(true); // unchanged
+  });
+
+  it("shortcuts=false disables all keyboard shortcuts", () => {
+    let capturedCtx: ReturnType<typeof useVariantContext> | null = null;
+    render(
+      <VariantProvider shortcuts={false}>
+        <ContextReader onContext={(ctx) => { capturedCtx = ctx; }} />
+      </VariantProvider>,
+    );
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "h", altKey: true, bubbles: true }),
+      );
+    });
+    expect(capturedCtx?.uiVisible).toBe(true); // unchanged — shortcuts disabled
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "V", ctrlKey: true, shiftKey: true, bubbles: true }),
+      );
+    });
+    expect(capturedCtx?.uiVisible).toBe(true); // still unchanged
+  });
+});

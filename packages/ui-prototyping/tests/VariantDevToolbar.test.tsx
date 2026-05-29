@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React, { useEffect } from "react";
 import { VariantProvider, useVariantContext } from "../src/context.js";
@@ -17,9 +17,11 @@ function ScopeRegistrar({ name, keys }: { name: string; keys: string[] }) {
 function TestApp({
   defaultVisible = true,
   scopes = [{ name: "Layout", keys: ["columns", "swimlane"] }],
+  children,
 }: {
   defaultVisible?: boolean;
   scopes?: Array<{ name: string; keys: string[] }>;
+  children?: React.ReactNode;
 }) {
   return (
     <VariantProvider defaultVisible={defaultVisible}>
@@ -27,6 +29,7 @@ function TestApp({
         <ScopeRegistrar key={s.name} name={s.name} keys={s.keys} />
       ))}
       <VariantDevToolbar />
+      {children}
     </VariantProvider>
   );
 }
@@ -113,5 +116,31 @@ describe("VariantDevToolbar", () => {
     expect(
       screen.queryByRole("button", { name: /Toggle variant dev toolbar/ }),
     ).toBeNull();
+  });
+
+  it("pressing Escape closes the panel", async () => {
+    const user = userEvent.setup();
+    render(<TestApp />);
+    await user.click(
+      screen.getByRole("button", { name: /Toggle variant dev toolbar/ }),
+    );
+    expect(screen.getByRole("dialog", { name: /Variant dev toolbar/ })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("clicking outside the panel closes it", async () => {
+    const user = userEvent.setup();
+    render(
+      <TestApp>
+        <span data-testid="outside">outside</span>
+      </TestApp>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Toggle variant dev toolbar/ }),
+    );
+    expect(screen.getByRole("dialog", { name: /Variant dev toolbar/ })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId("outside"));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

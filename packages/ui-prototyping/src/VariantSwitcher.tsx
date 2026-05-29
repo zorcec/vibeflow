@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useVariantContext } from "./context.js";
-import { resolveActiveVariant } from "./utils.js";
+import { useActiveVariant } from "./useActiveVariant.js";
 import type { SwitcherProps } from "./types.js";
 
 /**
@@ -47,16 +47,13 @@ export function VariantSwitcher({
     };
   }, [ctx, name]);
 
-  // Register scope
+  // Scope registration is handled by useVariant in the parent subtree.
+  // Only register if useVariant is not present (standalone usage).
   useEffect(() => {
     ctx.registerScope(name, variantKeys);
   }, [ctx, name, variantKeys]);
 
-  const activeKey = useMemo(() => {
-    const current = ctx.getActiveVariant(name);
-    if (current && variantKeys.includes(current)) return current;
-    return resolveActiveVariant(name, variantKeys, variantKeys[0] ?? "default");
-  }, [ctx, name, variantKeys]);
+  const activeKey = useActiveVariant(name, variantKeys);
 
   // Collapse on click outside
   const handleClickOutside = useCallback((e: MouseEvent) => {
@@ -203,11 +200,4 @@ export function VariantSwitcher({
       )}
     </div>
   );
-}
-
-/**
- * Reset styles. Used in tests only.
- */
-export function _resetStylesInjected(): void {
-  // No-op — styles are no longer injected
 }

@@ -17,7 +17,9 @@
 
 export { VariantProvider, VariantContext, useVariantContext } from "./context.js";
 export { useVariant } from "./useVariant.js";
+export { useActiveVariant } from "./useActiveVariant.js";
 export { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
+export type { KeyboardShortcut } from "./useKeyboardShortcuts.js";
 export { PageVariantSwitcher } from "./PageVariantSwitcher.js";
 export { VariantSwitcher } from "./VariantSwitcher.js";
 export { VariantDevToolbar } from "./VariantDevToolbar.js";
