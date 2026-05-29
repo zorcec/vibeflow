@@ -155,15 +155,12 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
     dragTaskIdRef.current = taskId;
     setDragTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
-    // Multi-select drag: if the dragged task is selected, drag all selected tasks together.
-    if (selectMode && selectedTaskIds?.has(taskId) && (selectedTaskIds.size ?? 0) > 1) {
-      const ids = Array.from(selectedTaskIds);
-      multiDragIdsRef.current = ids;
-      setMultiDragIds(ids);
-    } else {
-      multiDragIdsRef.current = [];
-      setMultiDragIds([]);
+    // Always cancel multiselect when a drag starts — dragging is a single-task operation.
+    if (selectMode) {
+      onExitSelectMode?.();
     }
+    multiDragIdsRef.current = [];
+    setMultiDragIds([]);
   }
 
   function handleDragOver(e: React.DragEvent, colId: string) {

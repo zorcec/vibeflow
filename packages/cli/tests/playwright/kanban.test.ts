@@ -2257,20 +2257,20 @@ describe("Kanban board", () => {
     expect(panelStillOpen).toBe(true);
   });
 
-  // ── Multi-select drag & drop ───────────────────────────────────────────────
-  it("multi-select drag reorders selected tasks while preserving relative order", { timeout: 30_000 }, async () => {
+  // ── Drag cancels multiselect ───────────────────────────────────────────────
+  it("dragging a task while in multiselect mode cancels multiselect", { timeout: 30_000 }, async () => {
     // Reload to ensure clean state after agent tests (close any open panels/modals)
     await page.reload();
     await page.waitForSelector("#kanban-board");
 
-    // Create 5 tasks in todo column with explicit sortKeys
+    // Create 3 tasks in todo column
     const tasks: Array<{ id: string; title: string }> = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       const res = await fetch(API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `Multi-drag task ${i + 1}`,
+          title: `Drag-cancel multiselect task ${i + 1}`,
           description: "md",
           selector: "/",
           status: "todo",
@@ -2279,118 +2279,67 @@ describe("Kanban board", () => {
       });
       const data = (await res.json()) as { success: boolean; task?: { id: string } };
       expect(data.success).toBe(true);
-      tasks.push({ id: data.task!.id, title: `Multi-drag task ${i + 1}` });
+      tasks.push({ id: data.task!.id, title: `Drag-cancel multiselect task ${i + 1}` });
     }
 
-    // Wait for all tasks to appear on the board
     for (const t of tasks) {
       await waitForTaskOnBoard(page, t.id);
     }
 
-    // Enter select mode via long-press on task 2 (the first task we want to drag)
-    const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
-    await task2Card.scrollIntoViewIfNeeded();
+    // Enter select mode via long-press on task 1
+    const task1Card = page.locator(`[data-task-id="${tasks[0].id}"]`).first();
+    await task1Card.scrollIntoViewIfNeeded();
 
-    // Dispatch long-press events directly on the DOM element (page.mouse doesn't
-    // reliably trigger React synthetic onMouseDown/onMouseUp)
     await page.evaluate((taskId) => {
       const card = document.querySelector(`article[data-task-id="${taskId}"]`) as HTMLElement;
       if (!card) return;
       card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    }, tasks[1].id);
+    }, tasks[0].id);
     await page.waitForTimeout(800); // long-press threshold is 750ms
     await page.evaluate((taskId) => {
       const card = document.querySelector(`article[data-task-id="${taskId}"]`) as HTMLElement;
       if (!card) return;
       card.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-    }, tasks[1].id);
-    await page.waitForTimeout(200); // wait for select mode to activate
+    }, tasks[0].id);
+    await page.waitForTimeout(200);
 
-    // Add task 4 to the selection (0-indexed: index 3)
-    const task4Card = page.locator(`[data-task-id="${tasks[3].id}"]`).first();
-
-    // Click cards to select them — use force:true to bypass z-index overlap checks
-    // (a floating toolbar appears when experimentalAgents=true and a task is selected)
+    // Select task 2 as well
+    const task2Card = page.locator(`[data-task-id="${tasks[1].id}"]`).first();
     await task2Card.click({ force: true });
-    await task4Card.click({ force: true });
 
-    // Verify both are selected (selected cards get a border style)
-    const task2Selected = await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
-      return card?.style.borderColor !== '' || card?.classList.contains('selected');
-    }, tasks[1].id);
-    expect(task2Selected).toBe(true);
+    // Verify select mode indicator is visible
+    const indicatorVisible = await page.locator("#select-mode-indicator").isVisible().catch(() => false);
+    expect(indicatorVisible).toBe(true);
 
-    const task4Selected = await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
-      return card?.style.borderColor !== '' || card?.classList.contains('selected');
-    }, tasks[3].id);
-    expect(task4Selected).toBe(true);
+    // Now drag task 1 — this should cancel multiselect
+    const task3Card = page.locator(`[data-task-id="${tasks[2].id}"]`).first();
+    await task1Card.scrollIntoViewIfNeeded();
+    await task3Card.scrollIntoViewIfNeeded();
+    const t1Box = (await task1Card.boundingBox())!;
+    const t3Box = (await task3Card.boundingBox())!;
 
-    // Drag task 2 (the first selected in DOM order) onto the TOP HALF of task 5.
-    // Use page.evaluate to dispatch HTML5 drag events at precise positions.
-    const task5Card = page.locator(`[data-task-id="${tasks[4].id}"]`).first();
-
-    // Scroll both cards into view to get accurate bounding boxes
-    await task2Card.scrollIntoViewIfNeeded();
-    await task5Card.scrollIntoViewIfNeeded();
-    const t2Box = (await task2Card.boundingBox())!;
-    const t5Box = (await task5Card.boundingBox())!;
-
-    // Dispatch drag events: dragstart on t2 → dragover on t5 (top half) → drop on t5
-    await page.evaluate(({ t2Id, t5Id, t2CX, t2CY, t5X, t5Y }) => {
-      const t2 = document.querySelector(`article[data-task-id="${t2Id}"]`) as HTMLElement;
-      const t5 = document.querySelector(`article[data-task-id="${t5Id}"]`) as HTMLElement;
-      if (!t2 || !t5) return;
+    await page.evaluate(({ t1Id, t3Id, t1CX, t1CY, t3X, t3Y }) => {
+      const t1 = document.querySelector(`article[data-task-id="${t1Id}"]`) as HTMLElement;
+      const t3 = document.querySelector(`article[data-task-id="${t3Id}"]`) as HTMLElement;
+      if (!t1 || !t3) return;
       const dt = new DataTransfer();
-      // 1. dragstart on t2 (center)
-      t2.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t2CX, clientY: t2CY }));
-      // 2. multiple dragover events on t5 to ensure position is set (clientY in top 10% → "before")
-      for (let i = 0; i < 3; i++) {
-        t5.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t5X, clientY: t5Y }));
-      }
-      // 3. drop on t5 (same position as dragover)
-      t5.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t5X, clientY: t5Y }));
+      t1.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t1CX, clientY: t1CY }));
+      t3.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t3X, clientY: t3Y }));
+      t3.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: t3X, clientY: t3Y }));
     }, {
-      t2Id: tasks[1].id,
-      t5Id: tasks[4].id,
-      t2CX: Math.round(t2Box.x + t2Box.width / 2),
-      t2CY: Math.round(t2Box.y + t2Box.height / 2),
-      t5X: Math.round(t5Box.x + 10),
-      t5Y: Math.round(t5Box.y + Math.floor(t5Box.height * 0.1)),
+      t1Id: tasks[0].id,
+      t3Id: tasks[2].id,
+      t1CX: Math.round(t1Box.x + t1Box.width / 2),
+      t1CY: Math.round(t1Box.y + t1Box.height / 2),
+      t3X: Math.round(t3Box.x + 10),
+      t3Y: Math.round(t3Box.y + Math.floor(t3Box.height * 0.9)),
     });
 
-    // Wait for reorder to settle
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(400);
 
-    // Get the final order of task IDs in the todo column
-    const finalOrderIds = await page.evaluate(() => {
-      const col = document.querySelector('[data-column-id="todo"] .column-scroll');
-      if (!col) return [];
-      return Array.from(col.querySelectorAll('article.task-card')).map(card =>
-        card.getAttribute('data-task-id'),
-      );
-    });
-
-    // Filter to only our test tasks — previous tests may have left other tasks in the column
-    const ourTaskIds = new Set(tasks.map(t => t.id));
-    const ourTaskOrderIds = finalOrderIds.filter((id: string | null) => ourTaskIds.has(id));
-
-    // With the drop landing on the top half of task 5, the dragged group is inserted
-    // BEFORE task 5. Expected order: task1, task3, task2, task4, task5.
-    // The key invariant: tasks 2 and 4 stay together and preserve their relative order.
-    const expectedIds = [
-      tasks[0].id, // task 1
-      tasks[2].id, // task 3
-      tasks[1].id, // task 2
-      tasks[3].id, // task 4
-      tasks[4].id, // task 5
-    ];
-
-    expect(ourTaskOrderIds).toEqual(expectedIds);
-
-    // Exit select mode via ESC
-    await page.keyboard.press("Escape");
+    // Select mode indicator must be gone — multiselect was cancelled
+    const indicatorAfter = await page.locator("#select-mode-indicator").isVisible().catch(() => false);
+    expect(indicatorAfter).toBe(false);
   });
 
   it("dragging before long-press threshold cancels select mode activation", { timeout: 30_000 }, async () => {
