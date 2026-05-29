@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@vibeflow-tools/ui-prototyping — Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #171717;
+      min-height: 100vh;
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    .header {
+      background: #171717;
+      color: #fff;
+      padding: 48px 32px 36px;
+      text-align: center;
+    }
+    .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .header p  { margin-top: 8px; font-size: 14px; color: #a3a3a3; }
+    .header code {
+      background: #262626;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+
+    /* ── Layout ───────────────────────────────────────────── */
+    .content {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 24px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+    }
+
+    /* ── Section ──────────────────────────────────────────── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #a3a3a3;
+      margin-bottom: 16px;
+    }
+
+    /* ── Keyboard hint ────────────────────────────────────── */
+    .kbd-hint {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 12px;
+      color: #737373;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .kbd {
+      background: #f0f0f0;
+      border: 1px solid #d4d4d4;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: "SF Mono", monospace;
+      color: #404040;
+    }
+
+    /* ── Page variant demo ────────────────────────────────── */
+    .kanban-board {
+      display: flex;
+      gap: 16px;
+      padding: 24px;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      min-height: 300px;
+      transition: all 0.2s;
+    }
+
+    /* Columns layout (default) */
+    .kanban-board.layout-columns {
+      flex-direction: row;
+    }
+    .kanban-board.layout-swimlane {
+      flex-direction: column;
+    }
+    .kanban-board.layout-compact {
+      flex-direction: row;
+      gap: 8px;
+      padding: 12px;
+      min-height: auto;
+    }
+
+    .kanban-column {
+      flex: 1;
+      background: #fafafa;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .layout-swimlane .kanban-column {
+      flex: none;
+    }
+    .layout-compact .kanban-column {
+      padding: 8px;
+    }
+
+    .column-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #737373;
+      margin-bottom: 10px;
+    }
+    .layout-swimlane .column-title {
+      display: inline-block;
+      width: 80px;
+      margin-bottom: 0;
+      flex-shrink: 0;
+    }
+    .layout-swimlane .kanban-column {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .layout-swimlane .cards-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .layout-compact .column-title { font-size: 10px; margin-bottom: 6px; }
+
+    /* ── Task Card ────────────────────────────────────────── */
+    .task-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      position: relative;
+      transition: all 0.15s;
+    }
+    .task-card:last-child { margin-bottom: 0; }
+    .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+    .task-card.variant-compact {
+      padding: 7px 10px;
+      margin-bottom: 5px;
+    }
+    .task-card.variant-detailed {
+      padding: 16px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #171717;
+      margin-bottom: 4px;
+    }
+    .card-meta {
+      font-size: 11px;
+      color: #a3a3a3;
+    }
+    .card-body {
+      font-size: 12px;
+      color: #525252;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+    .card-tags {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    }
+    .tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #f0f0f0;
+      color: #525252;
+    }
+    .tag.feature { background: #eff6ff; color: #3b82f6; }
+    .tag.bug     { background: #fef2f2; color: #ef4444; }
+
+    .variant-compact .card-body,
+    .variant-compact .card-tags { display: none; }
+
+    /* ── Code snippet ─────────────────────────────────────── */
+    .code-block {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-family: "SF Mono", "Fira Code", "Fira Mono", monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      overflow-x: auto;
+    }
+    .code-block .kw  { color: #569cd6; }
+    .code-block .fn  { color: #dcdcaa; }
+    .code-block .str { color: #ce9178; }
+    .code-block .cm  { color: #6a9955; }
+    .code-block .tag { color: #4ec9b0; }
+    .code-block .atr { color: #9cdcfe; }
+
+    /* ── Inline switcher demo panel ──────────────────────── */
+    .demo-panel {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .demo-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .demo-panel p  { font-size: 13px; color: #737373; margin-bottom: 16px; }
+
+    /* ── Cards grid ───────────────────────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 600px) { .cards-grid { grid-template-columns: 1fr; } }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #a3a3a3;
+      padding: 24px;
+    }
+    .footer a { color: #525252; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════
+     This demo is fully standalone (no React runtime needed).
+     It simulates the @vibeflow-tools/ui-prototyping API with
+     vanilla JS to showcase the UX — the actual package ships
+     as a React library.
+═══════════════════════════════════════════════════════════════ -->
+
+<div class="header">
+  <h1>@vibeflow-tools/ui-prototyping</h1>
+  <p>
+    In-app variant switching for React —
+    <code>useVariant</code> · <code>PageVariantSwitcher</code> · <code>VariantSwitcher</code>
+  </p>
+</div>
+
+<!-- ── Page-level variant switcher ── injected by JS ─────── -->
+<div id="page-switcher"></div>
+
+<div class="content">
+
+  <!-- Keyboard shortcut hint -->
+  <div class="kbd-hint">
+    <span>⌨️</span>
+    Press <kbd class="kbd">Alt + H</kbd> to toggle all switchers ·
+    Press <kbd class="kbd">Ctrl + Shift + V</kbd> to open the dev toolbar
+  </div>
+
+  <!-- ── Section 1: Page-level variants ─────────────────── -->
+  <div>
+    <div class="section-label">Page-level variant — Kanban Board layout</div>
+
+    <div class="demo-panel">
+      <h3>KanbanBoard</h3>
+      <p>
+        The dark segmented bar (top-left) switches between full-page layouts.
+        Try <strong>Columns</strong>, <strong>Swimlane</strong>, and <strong>Compact</strong>.
+        The active variant is synced to the URL — copy and share the link!
+      </p>
+
+      <div id="kanban-board" class="kanban-board layout-columns">
+        <div class="kanban-column">
+          <div class="column-title">Todo</div>
+          <div class="cards-row">
+            <div class="task-card" id="card-todo-1">
+              <div class="card-title">Design new onboarding flow</div>
+              <div class="card-meta">#14 · High</div>
+              <div class="card-body">Rethink the first-run experience to reduce friction for new users.</div>
+              <div class="card-tags"><span class="tag feature">feature</span></div>
+              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+            </div>
+            <div class="task-card" id="card-todo-2">
+              <div class="card-title">Fix email notification bug</div>
+              <div class="card-meta">#15 · Critical</div>
+              <div class="card-body">Users not receiving welcome emails after sign-up.</div>
+              <div class="card-tags"><span class="tag bug">bug</span></div>
+              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kanban-column">
+          <div class="column-title">In Progress</div>
+          <div class="cards-row">
+            <div class="task-card">
+              <div class="card-title">Implement dark mode toggle</div>
+              <div class="card-meta">#12 · Medium</div>
+              <div class="card-body">Add system preference detection + manual override.</div>
+              <div class="card-tags"><span class="tag feature">feature</span></div>
+              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kanban-column">
+          <div class="column-title">Done</div>
+          <div class="cards-row">
+            <div class="task-card">
+              <div class="card-title">Update README</div>
+              <div class="card-meta">#11 · Low</div>
+              <div class="card-body">Add setup instructions and contributing guide.</div>
+              <div class="card-tags"><span class="tag">docs</span></div>
+              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+            </div>
+            <div class="task-card">
+              <div class="card-title">Set up CI pipeline</div>
+              <div class="card-meta">#10 · High</div>
+              <div class="card-body">GitHub Actions for test, lint, and deploy.</div>
+              <div class="card-tags"><span class="tag">infra</span></div>
+              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 2: Component-level variants ────────────── -->
+  <div>
+    <div class="section-label">Component-level variant — TaskCard view density</div>
+
+    <div class="demo-panel">
+      <h3>TaskCard</h3>
+      <p>
+        Hover over each card to reveal the <strong>numbered dot switcher</strong> on the right.
+        Switch between <strong>default</strong> (1), <strong>compact</strong> (2), and <strong>detailed</strong> (3).
+        Each card uses the same variant state — they're all in the <code>TaskCard</code> scope.
+      </p>
+
+      <div class="cards-grid" id="cards-grid">
+        <!-- injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Code example ────────────────────────── -->
+  <div>
+    <div class="section-label">Usage — React code example</div>
+
+    <div class="code-block">
+<span class="cm">// 1. Wrap your app with VariantProvider</span>
+<span class="kw">import</span> {
+  VariantProvider, useVariant,
+  PageVariantSwitcher, VariantSwitcher, VariantDevToolbar
+} <span class="kw">from</span> <span class="str">'@vibeflow-tools/ui-prototyping'</span>
+
+<span class="kw">function</span> <span class="fn">App</span>() {
+  <span class="kw">return</span> (
+    <span class="tag">&lt;VariantProvider&gt;</span>
+      <span class="tag">&lt;VariantDevToolbar /&gt;</span>   <span class="cm">// ⚡ floating toolbar (Ctrl+Shift+V)</span>
+      <span class="tag">&lt;KanbanBoard /&gt;</span>
+    <span class="tag">&lt;/VariantProvider&gt;</span>
+  )
+}
+
+<span class="cm">// 2. Page-level switching (dark segmented bar, top-left)</span>
+<span class="kw">const</span> layoutVariants = {
+  columns:  { direction: <span class="str">'row'</span> },
+  swimlane: { direction: <span class="str">'column'</span> },
+  compact:  { direction: <span class="str">'row'</span>, dense: <span class="kw">true</span> },
+}
+
+<span class="kw">function</span> <span class="fn">KanbanBoard</span>() {
+  <span class="kw">const</span> layout = <span class="fn">useVariant</span>(<span class="str">'KanbanBoard'</span>, layoutVariants)
+  <span class="kw">return</span> (
+    &lt;&gt;
+      <span class="tag">&lt;PageVariantSwitcher</span> <span class="atr">name</span>=<span class="str">"KanbanBoard"</span> <span class="atr">variants</span>={layoutVariants} <span class="tag">/&gt;</span>
+      <span class="tag">&lt;div</span> <span class="atr">className</span>={<span class="str">`board board-${layout.direction}`</span>}<span class="tag">&gt;</span>
+        <span class="tag">&lt;TaskCard /&gt;</span>
+      <span class="tag">&lt;/div&gt;</span>
+    &lt;/&gt;
+  )
+}
+
+<span class="cm">// 3. Component-level switching (numbered dots, hover to reveal)</span>
+<span class="kw">const</span> cardVariants = {
+  default:  {},
+  compact:  { compact: <span class="kw">true</span> },
+  detailed: { showMeta: <span class="kw">true</span>, showComments: <span class="kw">true</span> },
+}
+
+<span class="kw">function</span> <span class="fn">TaskCard</span>({ task }) {
+  <span class="kw">const</span> variant = <span class="fn">useVariant</span>(<span class="str">'TaskCard'</span>, cardVariants)
+  <span class="kw">return</span> (
+    <span class="tag">&lt;div</span> <span class="atr">style</span>={{ position: <span class="str">'relative'</span> }}<span class="tag">&gt;</span>
+      <span class="tag">&lt;VariantSwitcher</span> <span class="atr">name</span>=<span class="str">"TaskCard"</span> <span class="atr">variants</span>={cardVariants} <span class="tag">/&gt;</span>
+      {variant.compact ? <span class="tag">&lt;CompactView /&gt;</span> : <span class="tag">&lt;FullView /&gt;</span>}
+    <span class="tag">&lt;/div&gt;</span>
+  )
+}
+    </div>
+  </div>
+
+  <!-- ── Section 4: URL persistence ───────────────────────── -->
+  <div>
+    <div class="section-label">URL Persistence</div>
+    <div class="demo-panel">
+      <h3>Shareable variant links</h3>
+      <p>Variant state is synced to URL query params automatically:</p>
+      <div class="code-block" style="font-size:12px;padding:14px 18px;">
+<span class="cm">// Active URL after switching KanbanBoard → swimlane, TaskCard → compact:</span>
+?vf[KanbanBoard]=swimlane&amp;vf[TaskCard]=compact
+      </div>
+      <p style="margin-top:12px;font-size:12px;color:#737373;">
+        ✅ Shareable — send the URL, recipient sees the same variant<br/>
+        ✅ Bookmarkable — preserved in browser history<br/>
+        ✅ localStorage fallback — persists across sessions
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Dev toolbar (⚡ button, bottom-right) ── injected by JS -->
+<div id="dev-toolbar"></div>
+
+<div class="footer">
+  <a href="https://github.com/vibeflow-tools/vibeflow" target="_blank">@vibeflow-tools/ui-prototyping</a>
+  · Apache-2.0 · Zero runtime deps
+</div>
+
+<script>
+// ============================================================
+// Standalone vanilla JS simulation of @vibeflow-tools/ui-prototyping
+// ============================================================
+// The real package is a React library. This demo simulates the
+// same UX patterns (URL sync, localStorage, keyboard shortcuts)
+// using plain JS so it runs without a build step.
+// ============================================================
+
+const URL_PARAM_PREFIX = "vf";
+const LS_PREFIX = "__vf__";
+const UI_VISIBLE_KEY = "__vf__ui_visible__";
+
+// ── State ──────────────────────────────────────────────────
+const state = {
+  // Page-level scope
+  KanbanBoard: {
+    variants: ["columns", "swimlane", "compact"],
+    active: null,
+  },
+  // Component-level scope
+  TaskCard: {
+    variants: ["default", "compact", "detailed"],
+    active: null,
+  },
+  uiVisible: true,
+};
+
+// ── URL / localStorage helpers ─────────────────────────────
+function encodeKey(name) { return `${URL_PARAM_PREFIX}[${name}]`; }
+
+function readFromUrl(name) {
+  const p = new URLSearchParams(window.location.search);
+  return p.get(encodeKey(name));
+}
+
+function writeToUrl(name, variant) {
+  const p = new URLSearchParams(window.location.search);
+  p.set(encodeKey(name), variant);
+  history.pushState(null, "", `${location.pathname}?${p}${location.hash}`);
+}
+
+function readFromStorage(name) {
+  try { return localStorage.getItem(`${LS_PREFIX}${name}`); } catch { return null; }
+}
+
+function writeToStorage(name, variant) {
+  try { localStorage.setItem(`${LS_PREFIX}${name}`, variant); } catch {}
+}
+
+function readUiVisible() {
+  try { const v = localStorage.getItem(UI_VISIBLE_KEY); return v === null ? null : v !== "false"; } catch { return null; }
+}
+
+function writeUiVisible(v) {
+  try { localStorage.setItem(UI_VISIBLE_KEY, String(v)); } catch {}
+}
+
+function resolve(name, keys) {
+  const fromUrl = readFromUrl(name);
+  if (fromUrl && keys.includes(fromUrl)) return fromUrl;
+  const fromStorage = readFromStorage(name);
+  if (fromStorage && keys.includes(fromStorage)) return fromStorage;
+  return keys[0];
+}
+
+// ── Initialization ─────────────────────────────────────────
+function init() {
+  // Resolve initial states
+  for (const [name, scope] of Object.entries(state)) {
+    if (name === "uiVisible") continue;
+    scope.active = resolve(name, scope.variants);
+  }
+  const persistedVisible = readUiVisible();
+  state.uiVisible = persistedVisible !== null ? persistedVisible : true;
+
+  renderAll();
+  setupKeyboard();
+}
+
+// ── Set variant ────────────────────────────────────────────
+function setVariant(name, variant) {
+  if (!state[name]) return;
+  state[name].active = variant;
+  writeToUrl(name, variant);
+  writeToStorage(name, variant);
+  renderAll();
+}
+
+function toggleUiVisible() {
+  state.uiVisible = !state.uiVisible;
+  writeUiVisible(state.uiVisible);
+  renderAll();
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────
+function setupKeyboard() {
+  window.addEventListener("keydown", (e) => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === "h") {
+      e.preventDefault();
+      toggleUiVisible();
+    }
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key === "V") {
+      e.preventDefault();
+      toggleUiVisible();
+    }
+  });
+}
+
+// ── Render ─────────────────────────────────────────────────
+function renderAll() {
+  renderBoard();
+  renderCards();
+  renderPageSwitcher();
+  renderDevToolbar();
+  renderComponentSwitchers();
+}
+
+// ── Board layout ───────────────────────────────────────────
+function renderBoard() {
+  const board = document.getElementById("kanban-board");
+  board.className = `kanban-board layout-${state.KanbanBoard.active}`;
+}
+
+// ── Task Cards ─────────────────────────────────────────────
+const cardData = [
+  { id: 1, title: "Design new onboarding flow", meta: "#14 · High", body: "Rethink the first-run experience to reduce friction for new users.", tags: ["feature"] },
+  { id: 2, title: "Fix email notification bug",  meta: "#15 · Critical", body: "Users not receiving welcome emails after sign-up.", tags: ["bug"] },
+  { id: 3, title: "Implement dark mode toggle", meta: "#12 · Medium", body: "Add system preference detection + manual override.", tags: ["feature"] },
+  { id: 4, title: "Update README documentation", meta: "#11 · Low", body: "Add setup instructions and contributing guide.", tags: ["docs"] },
+  { id: 5, title: "Set up CI/CD pipeline", meta: "#10 · High", body: "GitHub Actions for test, lint, and deploy workflows.", tags: ["infra"] },
+  { id: 6, title: "Performance audit Q1", meta: "#09 · Medium", body: "Measure and improve core web vitals on the dashboard page.", tags: ["perf"] },
+];
+
+function renderCards() {
+  const grid = document.getElementById("cards-grid");
+  const v = state.TaskCard.active;
+
+  grid.innerHTML = cardData.map((card) => {
+    const showBody = v !== "compact";
+    const showTags = v !== "compact";
+    const showExtra = v === "detailed";
+
+    return `
+      <div class="task-card variant-${v}" style="position:relative">
+        <div class="card-title">${card.title}</div>
+        <div class="card-meta">${card.meta}</div>
+        ${showBody ? `<div class="card-body">${card.body}</div>` : ""}
+        ${showTags ? `<div class="card-tags">${card.tags.map(t => `<span class="tag ${t}">${t}</span>`).join("")}</div>` : ""}
+        ${showExtra ? `<div class="card-meta" style="margin-top:8px;color:#a3a3a3">⚡ detailed view • comments + metadata visible</div>` : ""}
+        <div class="component-switcher-anchor" data-name="TaskCard"></div>
+      </div>
+    `;
+  }).join("");
+}
+
+// ── Page Switcher (dark segmented bar, top-left) ───────────
+function renderPageSwitcher() {
+  const el = document.getElementById("page-switcher");
+  if (!state.uiVisible) { el.innerHTML = ""; return; }
+
+  const scope = state.KanbanBoard;
+  el.innerHTML = `
+    <div role="toolbar" aria-label="Page variant switcher: KanbanBoard" style="
+      position:fixed;top:12px;left:12px;z-index:99999;
+      display:flex;align-items:center;
+      background:#171717;border-radius:8px;padding:4px;gap:2px;
+      box-shadow:0 2px 8px rgba(0,0,0,0.32);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      font-size:12px;user-select:none;
+    ">
+      ${scope.variants.map((key) => {
+        const isActive = key === scope.active;
+        return `<button
+          onclick="setVariant('KanbanBoard','${key}')"
+          role="radio" aria-checked="${isActive}" aria-label="Switch to ${key} variant"
+          style="
+            cursor:pointer;border:none;outline:none;border-radius:5px;
+            padding:5px 12px;font-size:12px;
+            font-weight:${isActive ? 600 : 400};
+            background:${isActive ? "#fff" : "transparent"};
+            color:${isActive ? "#171717" : "#a3a3a3"};
+            transition:background 0.15s,color 0.15s;white-space:nowrap;
+          "
+        >${key}</button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+// ── Component Switchers (numbered dots, middle-right) ──────
+function renderComponentSwitchers() {
+  if (!state.uiVisible) return;
+
+  document.querySelectorAll(".component-switcher-anchor[data-name]").forEach((anchor) => {
+    const name = anchor.dataset.name;
+    const scope = state[name];
+    if (!scope || scope.variants.length < 2) return;
+
+    anchor.style.cssText = `
+      position:absolute;top:50%;right:-28px;transform:translateY(-50%);
+      display:flex;flex-direction:column;gap:3px;z-index:9999;
+      background:#fff;border:1px solid #e5e5e5;border-radius:4px;
+      box-shadow:0 1px 3px rgba(0,0,0,0.08);padding:3px;
+      opacity:0;transition:opacity 0.15s;pointer-events:none;
+    `;
+    anchor.innerHTML = scope.variants.map((key, i) => {
+      const isActive = key === scope.active;
+      return `<button
+        onclick="setVariant('${name}','${key}')"
+        role="radio" aria-checked="${isActive}"
+        aria-label="Switch to ${key} variant (${i+1})"
+        title="${key}"
+        style="
+          cursor:pointer;border:none;outline:none;
+          width:22px;height:22px;border-radius:3px;
+          font-size:10px;font-weight:${isActive ? 700 : 400};
+          background:${isActive ? "#171717" : "transparent"};
+          color:${isActive ? "#fff" : "#737373"};
+          display:flex;align-items:center;justify-content:center;
+          transition:background 0.12s,color 0.12s;padding:0;line-height:1;
+          pointer-events:auto;
+        "
+      >${i+1}</button>`;
+    }).join("");
+
+    // CSS hover — inject once
+    if (!document.querySelector("[data-vf-switcher]")) {
+      const s = document.createElement("style");
+      s.dataset.vfSwitcher = "1";
+      s.textContent = `
+        *:hover > [data-name],
+        [data-name]:hover { opacity:1!important; }
+      `;
+      document.head.appendChild(s);
+    }
+  });
+}
+
+// ── Dev Toolbar (⚡ button + panel) ───────────────────────
+let toolbarOpen = false;
+
+function renderDevToolbar() {
+  const el = document.getElementById("dev-toolbar");
+  if (!state.uiVisible && !toolbarOpen) { el.innerHTML = ""; return; }
+
+  const allScopes = Object.entries(state).filter(([k]) => k !== "uiVisible");
+
+  el.innerHTML = `
+    ${state.uiVisible ? `
+    <button
+      onclick="toolbarOpen=!toolbarOpen;renderAll()"
+      aria-label="Toggle variant dev toolbar"
+      aria-expanded="${toolbarOpen}"
+      title="Open variant dev toolbar (Ctrl+Shift+V)"
+      style="
+        position:fixed;bottom:16px;right:16px;z-index:99998;
+        width:40px;height:40px;border-radius:50%;
+        background:#171717;color:#fff;border:none;cursor:pointer;
+        font-size:18px;display:flex;align-items:center;justify-content:center;
+        box-shadow:0 2px 8px rgba(0,0,0,0.32);transition:background 0.15s;
+        font-family:-apple-system,sans-serif;
+      "
+    >⚡</button>` : ""}
+
+    ${toolbarOpen ? `
+    <div
+      role="dialog" aria-label="Variant dev toolbar"
+      style="
+        position:fixed;bottom:68px;right:16px;z-index:99999;
+        background:#fff;border:1px solid #e5e5e5;border-radius:12px;
+        box-shadow:0 8px 32px rgba(0,0,0,0.16);padding:16px;
+        min-width:240px;max-width:360px;max-height:70vh;overflow-y:auto;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        font-size:13px;
+      "
+    >
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-weight:700;color:#171717;font-size:13px;">⚡ Variant Switcher</span>
+        <button
+          onclick="toolbarOpen=false;renderAll()"
+          aria-label="Close toolbar"
+          style="border:none;background:none;cursor:pointer;font-size:16px;color:#737373;padding:2px 4px;"
+        >×</button>
+      </div>
+      <div style="font-size:11px;color:#a3a3a3;margin-bottom:12px;">Alt+H to toggle · Ctrl+Shift+V to open</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        ${allScopes.map(([name, scope]) => `
+          <div>
+            <div style="font-weight:600;color:#404040;margin-bottom:6px;font-size:12px;">${name}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">
+              ${scope.variants.map((key) => {
+                const isActive = key === scope.active;
+                return `<button
+                  onclick="setVariant('${name}','${key}')"
+                  role="radio" aria-checked="${isActive}"
+                  aria-label="Switch ${name} to ${key}"
+                  style="
+                    cursor:pointer;
+                    border:${isActive ? "2px solid #171717" : "1px solid #e5e5e5"};
+                    border-radius:5px;padding:3px 10px;font-size:11px;
+                    font-weight:${isActive ? 600 : 400};
+                    background:${isActive ? "#171717" : "#fafafa"};
+                    color:${isActive ? "#fff" : "#404040"};
+                    transition:all 0.12s;
+                  "
+                >${key}</button>`;
+              }).join("")}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid #f0f0f0;">
+        <button
+          onclick="toggleUiVisible()"
+          style="
+            width:100%;padding:7px 12px;border:1px solid #e5e5e5;border-radius:6px;
+            background:none;cursor:pointer;font-size:12px;color:#737373;text-align:center;
+          "
+        >${state.uiVisible ? "Hide switchers (Alt+H)" : "Show switchers (Alt+H)"}</button>
+      </div>
+    </div>
+    ` : ""}
+  `;
+}
+
+// ── Boot ───────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

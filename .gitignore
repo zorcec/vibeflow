@@ -30,6 +30,8 @@ secrets
 # Mutation testing reports (Stryker)
 packages/cli/reports/
 packages/cli/.stryker-tmp/
+packages/ui-prototyping/reports/
+packages/ui-prototyping/.stryker-tmp/
 
 # Internal task management (not for public)
 .vibeflow/
