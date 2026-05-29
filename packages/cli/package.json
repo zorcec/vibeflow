@@ -34,8 +34,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:browser": "vitest run --config vitest.pw.config.ts",
-    "mutation": "stryker run",
-    "mutation:ci": "stryker run --thresholds.break 60",
+    "mutation": "node scripts/mutation.mjs",
+    "mutation:ci": "node scripts/mutation.mjs --all",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "serve:designs": "node dist/cli/index.js serve ../../docs/ --port 3701"

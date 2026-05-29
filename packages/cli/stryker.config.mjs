@@ -3,10 +3,7 @@ export default {
   testRunner: 'vitest',
   plugins: [
     '@stryker-mutator/vitest-runner',
-    '@stryker-mutator/typescript-checker',
   ],
-  checkers: ['typescript'],
-  tsconfigFile: 'tsconfig.stryker.json',
   vitest: {
     configFile: 'vitest.config.ts',
   },
