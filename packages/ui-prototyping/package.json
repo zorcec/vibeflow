@@ -22,7 +22,8 @@
     "demo.html"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && npm run build:demo-bundle",
+    "build:demo-bundle": "esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/prototype-bundle.js --external:react --external:react-dom --external:react-dom/client --external:react/jsx-runtime --define:process.env.NODE_ENV=\"production\" --target=es2020 --minify && esbuild src/index.ts --bundle --format=iife --platform=browser --global-name=VibeflowPrototyping --outfile=dist/prototype-bundle.iife.js --define:process.env.NODE_ENV=\"production\" --target=es2020 --minify",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -50,6 +51,7 @@
     "react-dom": "^18.0.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",

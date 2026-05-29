@@ -5,6 +5,8 @@
  * The generic V type preserves key-literal types for TypeScript consumers.
  */
 
+import type { KeyboardShortcut } from "./useKeyboardShortcuts.js";
+
 /** A map of variant name → arbitrary config object. */
 export type VariantDefinitions<
   V extends Record<string, Record<string, unknown>>,
@@ -59,6 +61,11 @@ export interface VariantProviderProps {
    * Defaults to true when mode allows it.
    */
   defaultVisible?: boolean;
+  /**
+   * Custom keyboard shortcuts for toggling the variant UI.
+   * Defaults to [Alt+H, Ctrl+Shift+V]. Pass `false` to disable shortcuts.
+   */
+  shortcuts?: KeyboardShortcut[] | false;
 }
 
 /** Props shared by switcher components. */
