@@ -26,7 +26,7 @@ interface Props {
   experimentalAgents?: boolean;
   /** When multi-select dragging, shows how many tasks are being dragged (displayed on the lead card). */
   multiDragCount?: number;
-  /** Called when a long-press (300ms) activates select mode. */
+  /** Called when a long-press (750ms) activates select mode. */
   onEnterSelectMode?: (taskId: string) => void;
 }
 
@@ -88,6 +88,9 @@ export const TaskCard = React.memo(function TaskCard({
   const thumbRef = React.useRef<HTMLImageElement>(null);
   const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivatedRef = React.useRef(false);
+  const longPressStartPosRef = React.useRef<{ x: number; y: number } | null>(null);
+  const LONG_PRESS_DELAY = 750;
+  const DRAG_THRESHOLD = 5; // px — cancel long-press if mouse moves beyond this
 
   const commentCount = task.commentCount ?? 0;
   const fileCount = task.fileCount ?? 0;
@@ -110,13 +113,26 @@ export const TaskCard = React.memo(function TaskCard({
     e.currentTarget.classList.remove('dragging');
   }
 
-  function handleMouseDown() {
+  function handleMouseDown(e: React.MouseEvent) {
     if (selectMode) return;
     longPressActivatedRef.current = false;
+    longPressStartPosRef.current = { x: e.clientX, y: e.clientY };
     longPressTimerRef.current = setTimeout(() => {
       longPressActivatedRef.current = true;
       onEnterSelectMode?.(task.id);
-    }, 300);
+    }, LONG_PRESS_DELAY);
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (!longPressTimerRef.current || !longPressStartPosRef.current) return;
+    const dx = e.clientX - longPressStartPosRef.current.x;
+    const dy = e.clientY - longPressStartPosRef.current.y;
+    if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+      // User started dragging — cancel long-press
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      longPressStartPosRef.current = null;
+    }
   }
 
   function handleMouseUp() {
@@ -183,6 +199,7 @@ export const TaskCard = React.memo(function TaskCard({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
@@ -234,6 +251,7 @@ export const TaskCard = React.memo(function TaskCard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}

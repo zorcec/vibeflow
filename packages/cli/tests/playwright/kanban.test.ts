@@ -2298,7 +2298,7 @@ describe("Kanban board", () => {
       if (!card) return;
       card.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     }, tasks[1].id);
-    await page.waitForTimeout(350); // long-press threshold is 300ms
+    await page.waitForTimeout(800); // long-press threshold is 750ms
     await page.evaluate((taskId) => {
       const card = document.querySelector(`article[data-task-id="${taskId}"]`) as HTMLElement;
       if (!card) return;
@@ -2391,6 +2391,61 @@ describe("Kanban board", () => {
 
     // Exit select mode via ESC
     await page.keyboard.press("Escape");
+  });
+
+  it("dragging before long-press threshold cancels select mode activation", { timeout: 30_000 }, async () => {
+    // Reload to ensure clean state
+    await page.reload();
+    await page.waitForSelector("#kanban-board");
+
+    // Create a task
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Drag cancel test",
+        description: "md",
+        selector: "/",
+        status: "todo",
+        sortKey: "0000000100000000",
+      }),
+    });
+    const data = (await res.json()) as { success: boolean; task?: { id: string } };
+    expect(data.success).toBe(true);
+    const taskId = data.task!.id;
+    await waitForTaskOnBoard(page, taskId);
+
+    // Start mousedown, move mouse beyond threshold, then release
+    const card = page.locator(`[data-task-id="${taskId}"]`).first();
+    await card.scrollIntoViewIfNeeded();
+
+    await page.evaluate((id) => {
+      const el = document.querySelector(`article[data-task-id="${id}"]`) as HTMLElement;
+      if (!el) return;
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
+    }, taskId);
+
+    // Move mouse beyond the 5px drag threshold
+    await page.waitForTimeout(100);
+    await page.evaluate((id) => {
+      const el = document.querySelector(`article[data-task-id="${id}"]`) as HTMLElement;
+      if (!el) return;
+      el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+    }, taskId);
+
+    // Wait past the long-press threshold (750ms)
+    await page.waitForTimeout(800);
+    await page.evaluate((id) => {
+      const el = document.querySelector(`article[data-task-id="${id}"]`) as HTMLElement;
+      if (!el) return;
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    }, taskId);
+
+    await page.waitForTimeout(200);
+
+    // Select mode should NOT have activated (no select-mode-indicator visible)
+    const indicatorVisible = await page.locator("#select-mode-indicator").isVisible().catch(() => false);
+    expect(indicatorVisible).toBe(false);
   });
 
 });
