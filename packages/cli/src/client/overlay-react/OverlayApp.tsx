@@ -29,6 +29,24 @@ export function showOverlayAddModal(opts: AddModalOpts = {}): void {
   _externalShowAddModal?.(opts);
 }
 
+// ── Prototyping integration ──────────────────────────────────────────────────
+
+interface PrototypingApi {
+  openPanel: () => void;
+  closePanel: () => void;
+}
+
+/** Checks if @vibeflow-tools/ui-prototyping is installed and registered */
+function hasPrototypingApi(): boolean {
+  return typeof window !== 'undefined' && '__vf_prototyping' in window;
+}
+
+/** Opens the variant switcher panel via the prototyping package API */
+function openPrototypingPanel(): void {
+  const api = (window as any).__vf_prototyping as PrototypingApi | undefined;
+  api?.openPanel();
+}
+
 /** Briefly animates the page favicon with the Vibeflow Sequential Wave animation when a task is saved. */
 function flashFavicon(durationMs: number = 2200): void {
   const head = document.head;
@@ -210,7 +228,10 @@ function CornerTrigger({
     e.preventDefault();
     e.stopPropagation();
     // Clamp position so menu never gets cut off the screen (with 8px padding).
-    const MENU_W = 120, MENU_H = 28, PAD = 8;
+    // Height varies: 28px base + 28px per menu item (Hide Vibeflow always, Prototyping if installed)
+    const MENU_W = 120, ITEM_H = 28, PAD = 8;
+    const itemCount = 1 + (hasPrototypingApi() ? 1 : 0);
+    const MENU_H = ITEM_H * itemCount;
     const x = Math.min(e.clientX, window.innerWidth - MENU_W - PAD);
     const y = Math.min(e.clientY, window.innerHeight - MENU_H - PAD);
     setCtxMenu({ x: Math.max(PAD, x), y: Math.max(PAD, y) });
@@ -238,6 +259,15 @@ function CornerTrigger({
           style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Prototyping variant switcher — only shown if @vibeflow-tools/ui-prototyping is installed */}
+          {hasPrototypingApi() && (
+            <button
+              type="button"
+              onClick={() => { setCtxMenu(null); openPrototypingPanel(); }}
+            >
+              Prototyping
+            </button>
+          )}
           <button
             type="button"
             onClick={() => { setCtxMenu(null); onHide(); }}

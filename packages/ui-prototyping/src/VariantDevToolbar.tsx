@@ -1,9 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useVariantContext } from "./context.js";
+
+/**
+ * Detects whether the Vibeflow overlay is present in the page.
+ * Checks for the overlay's shadow DOM host element.
+ */
+function isOverlayPresent(): boolean {
+  if (typeof document === "undefined") return false;
+  return !!document.getElementById("vibeflow-studio-root");
+}
 
 /**
  * Optional floating toolbar that shows all registered variant scopes.
  * Toggled via Ctrl+Shift+V keyboard shortcut or programmatically.
+ *
+ * **Vibeflow overlay integration:** When the Vibeflow overlay is detected,
+ * the standalone ⚡ button is hidden. Instead, the toolbar is accessible
+ * via the overlay's right-click context menu ("Prototyping" option).
  *
  * Place this once near the root of your app inside VariantProvider.
  *
@@ -20,6 +33,35 @@ import { useVariantContext } from "./context.js";
 export function VariantDevToolbar() {
   const ctx = useVariantContext();
   const [isOpen, setIsOpen] = useState(false);
+  const [overlayDetected, setOverlayDetected] = useState(false);
+
+  // Detect overlay presence on mount
+  useEffect(() => {
+    setOverlayDetected(isOverlayPresent());
+  }, []);
+
+  const openPanel = useCallback(() => setIsOpen(true), []);
+  const closePanel = useCallback(() => setIsOpen(false), []);
+
+  // Register with the overlay if present
+  useEffect(() => {
+    if (!overlayDetected) return;
+
+    // Expose API for the overlay to call
+    const api = { openPanel, closePanel, isOpen };
+    Object.defineProperty(window, "__vf_prototyping", {
+      value: api,
+      writable: true,
+      configurable: true,
+    });
+
+    return () => {
+      // Clean up on unmount — only if we still own it
+      if ((window as any).__vf_prototyping === api) {
+        delete (window as any).__vf_prototyping;
+      }
+    };
+  }, [overlayDetected, openPanel, closePanel, isOpen]);
 
   const scopeEntries = Object.entries(ctx.scopes);
 
@@ -27,8 +69,8 @@ export function VariantDevToolbar() {
 
   return (
     <>
-      {/* Toggle button — always visible when UI is on */}
-      {ctx.uiVisible && (
+      {/* Toggle button — hidden when overlay is detected (overlay provides its own entry point) */}
+      {ctx.uiVisible && !overlayDetected && (
         <button
           aria-label="Toggle variant dev toolbar"
           aria-expanded={isOpen}
