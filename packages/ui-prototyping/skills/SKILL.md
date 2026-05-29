@@ -151,6 +151,8 @@ function TaskCard({ task }) {
 
 Floating ⚡ button (bottom-right) that opens a dialog showing all active scopes and their current variants.
 
+**Vibeflow overlay integration:** When the Vibeflow overlay is detected (`#vibeflow-studio-root`), the standalone ⚡ button is hidden. Instead, access the toolbar via the overlay's right-click context menu → "Prototyping".
+
 ```tsx
 <VariantProvider>
   <VariantDevToolbar />
@@ -318,6 +320,18 @@ Team members opening this link see the exact same variant configuration.
 - ❌ Place multiple `PageVariantSwitcher` for the same scope
 - ❌ Place `VariantSwitcher` on every item — one per section, dedup handles it
 - ❌ Skip `VariantProvider` — all hooks require it
+
+## Vibeflow Overlay Integration
+
+When both `@vibeflow-tools/ui-prototyping` and the Vibeflow overlay are present on the same page:
+
+1. **Detection:** `VariantDevToolbar` detects the overlay via `#vibeflow-studio-root`
+2. **Hiding:** The standalone ⚡ button is hidden (no duplicate bottom-right icons)
+3. **Registration:** The toolbar registers on `window.__vf_prototyping` with `openPanel()` / `closePanel()` methods
+4. **Overlay menu:** The overlay's right-click context menu gains a "Prototyping" option
+5. **Opening:** Clicking "Prototyping" calls `window.__vf_prototyping.openPanel()`
+
+**No configuration needed** — integration is automatic via runtime detection.
 
 ## Troubleshooting
 
