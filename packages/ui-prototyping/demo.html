@@ -287,7 +287,7 @@
         <em>Note: This is independent from the TaskCard variant below — they use separate scopes.</em>
       </p>
 
-      <div id="kanban-board" class="kanban-board layout-columns">
+      <div id="kanban-board" class="kanban-board layout-columns" style="position:relative">
         <div class="kanban-column">
           <div class="column-title">Todo</div>
           <div class="cards-row">
@@ -296,8 +296,51 @@
               <div class="card-meta">#14 · High</div>
               <div class="card-body">Rethink the first-run experience to reduce friction for new users.</div>
               <div class="card-tags"><span class="tag feature">feature</span></div>
-              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
             </div>
+            <div class="task-card" id="card-todo-2">
+              <div class="card-title">Fix email notification bug</div>
+              <div class="card-meta">#15 · Critical</div>
+              <div class="card-body">Users not receiving welcome emails after sign-up.</div>
+              <div class="card-tags"><span class="tag bug">bug</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kanban-column">
+          <div class="column-title">In Progress</div>
+          <div class="cards-row">
+            <div class="task-card">
+              <div class="card-title">Implement dark mode toggle</div>
+              <div class="card-meta">#12 · Medium</div>
+              <div class="card-body">Add system preference detection + manual override.</div>
+              <div class="card-tags"><span class="tag feature">feature</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kanban-column">
+          <div class="column-title">Done</div>
+          <div class="cards-row">
+            <div class="task-card">
+              <div class="card-title">Update README</div>
+              <div class="card-meta">#11 · Low</div>
+              <div class="card-body">Add setup instructions and contributing guide.</div>
+              <div class="card-tags"><span class="tag">docs</span></div>
+            </div>
+            <div class="task-card">
+              <div class="card-title">Set up CI pipeline</div>
+              <div class="card-meta">#10 · High</div>
+              <div class="card-body">GitHub Actions for test, lint, and deploy.</div>
+              <div class="card-tags"><span class="tag">infra</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Single switcher for the whole board — one per scope -->
+        <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
+      </div>
+    </div>
+  </div>
             <div class="task-card" id="card-todo-2">
               <div class="card-title">Fix email notification bug</div>
               <div class="card-meta">#15 · Critical</div>
@@ -351,13 +394,14 @@
     <div class="demo-panel">
       <h3>TaskCard</h3>
       <p>
-        Hover over each card to reveal the <strong>numbered dot switcher</strong> on the right.
-        Switch between <strong>default</strong> (1), <strong>compact</strong> (2), and <strong>detailed</strong> (3).
-        Each card uses the same variant state — they're all in the <code>TaskCard</code> scope.
+        A small <strong>indicator dot</strong> appears on the right of the section.
+        Click it to expand the numbered switcher — pick <strong>default</strong> (1), <strong>compact</strong> (2), or <strong>detailed</strong> (3).
+        All cards share the same variant state via the <code>TaskCard</code> scope.
       </p>
 
-      <div class="cards-grid" id="cards-grid">
+      <div class="cards-grid" id="cards-grid" style="position:relative">
         <!-- injected by JS -->
+        <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-24px;transform:translateY(-50%)"></div>
       </div>
     </div>
   </div>
@@ -592,13 +636,12 @@ function renderCards() {
     const showExtra = v === "detailed";
 
     return `
-      <div class="task-card variant-${v}" style="position:relative">
+      <div class="task-card variant-${v}">
         <div class="card-title">${card.title}</div>
         <div class="card-meta">${card.meta}</div>
         ${showBody ? `<div class="card-body">${card.body}</div>` : ""}
         ${showTags ? `<div class="card-tags">${card.tags.map(t => `<span class="tag ${t}">${t}</span>`).join("")}</div>` : ""}
         ${showExtra ? `<div class="card-meta" style="margin-top:8px;color:#a3a3a3">⚡ detailed view • comments + metadata visible</div>` : ""}
-        <div class="component-switcher-anchor" data-name="TaskCard"></div>
       </div>
     `;
   }).join("");
@@ -638,9 +681,14 @@ function renderPageSwitcher() {
   `;
 }
 
-// ── Component Switchers (numbered dots, middle-right) ──────
+// ── Component Switchers (indicator dot → expand on click) ──
+const expandedSwitchers = new Set();
+
 function renderComponentSwitchers() {
-  if (!state.uiVisible) return;
+  if (!state.uiVisible) {
+    document.querySelectorAll(".component-switcher-anchor").forEach(el => el.innerHTML = "");
+    return;
+  }
 
   // Dedup: only render one switcher per scope name
   const renderedScopes = new Set();
@@ -648,7 +696,6 @@ function renderComponentSwitchers() {
   document.querySelectorAll(".component-switcher-anchor[data-name]").forEach((anchor) => {
     const name = anchor.dataset.name;
     if (renderedScopes.has(name)) {
-      // Hide duplicate anchors
       anchor.style.display = "none";
       return;
     }
@@ -657,44 +704,78 @@ function renderComponentSwitchers() {
     const scope = state[name];
     if (!scope || scope.variants.length < 2) return;
 
-    anchor.style.cssText = `
-      position:absolute;top:50%;right:-28px;transform:translateY(-50%);
-      display:flex;flex-direction:column;gap:3px;z-index:9999;
-      background:#fff;border:1px solid #e5e5e5;border-radius:4px;
-      box-shadow:0 1px 3px rgba(0,0,0,0.08);padding:3px;
-      opacity:0;transition:opacity 0.15s;pointer-events:none;
-    `;
-    anchor.innerHTML = scope.variants.map((key, i) => {
-      const isActive = key === scope.active;
-      return `<button
-        onclick="setVariant('${name}','${key}')"
-        role="radio" aria-checked="${isActive}"
-        aria-label="Switch to ${key} variant (${i+1})"
-        title="${key}"
-        style="
-          cursor:pointer;border:none;outline:none;
-          width:22px;height:22px;border-radius:3px;
-          font-size:10px;font-weight:${isActive ? 700 : 400};
-          background:${isActive ? "#171717" : "transparent"};
-          color:${isActive ? "#fff" : "#737373"};
-          display:flex;align-items:center;justify-content:center;
-          transition:background 0.12s,color 0.12s;padding:0;line-height:1;
-          pointer-events:auto;
-        "
-      >${i+1}</button>`;
-    }).join("");
+    const isExpanded = expandedSwitchers.has(name);
 
-    // CSS hover — inject once
-    if (!document.querySelector("[data-vf-switcher]")) {
-      const s = document.createElement("style");
-      s.dataset.vfSwitcher = "1";
-      s.textContent = `
-        *:hover > [data-name],
-        [data-name]:hover { opacity:1!important; }
+    anchor.style.cssText = `
+      position:absolute;top:50%;right:-24px;transform:translateY(-50%);
+      z-index:9999;
+    `;
+
+    if (isExpanded) {
+      // Expanded: show numbered dots picker
+      anchor.innerHTML = `
+        <div style="
+          display:flex;flex-direction:column;gap:3px;
+          background:#fff;border:1px solid #e5e5e5;border-radius:4px;
+          box-shadow:0 1px 3px rgba(0,0,0,0.08);padding:3px;
+          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        ">
+          ${scope.variants.map((key, i) => {
+            const isActive = key === scope.active;
+            return `<button
+              onclick="event.stopPropagation();setVariant('${name}','${key}');expandedSwitchers.delete('${name}');renderAll()"
+              role="radio" aria-checked="${isActive}"
+              aria-label="Switch to ${key} variant (${i+1})"
+              title="${key}"
+              style="
+                cursor:pointer;border:none;outline:none;
+                width:22px;height:22px;border-radius:3px;
+                font-size:10px;font-weight:${isActive ? 700 : 400};
+                background:${isActive ? "#171717" : "transparent"};
+                color:${isActive ? "#fff" : "#737373"};
+                display:flex;align-items:center;justify-content:center;
+                transition:background 0.12s,color 0.12s;padding:0;line-height:1;
+              "
+            >${i+1}</button>`;
+          }).join("")}
+        </div>
       `;
-      document.head.appendChild(s);
+    } else {
+      // Collapsed: subtle indicator dot
+      anchor.innerHTML = `
+        <button
+          onclick="event.stopPropagation();expandedSwitchers.add('${name}');renderAll()"
+          aria-label="Open variant switcher for ${name}"
+          title="${name} variants — click to switch"
+          style="
+            cursor:pointer;border:1px solid #e5e5e5;outline:none;
+            width:14px;height:14px;border-radius:50%;
+            background:#f5f5f5;padding:0;
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 1px 2px rgba(0,0,0,0.06);
+            transition:background 0.15s,border-color 0.15s;
+          "
+          onmouseenter="this.style.background='#e5e5e5';this.style.borderColor='#d4d4d4'"
+          onmouseleave="this.style.background='#f5f5f5';this.style.borderColor='#e5e5e5'"
+        >
+          <span style="width:5px;height:5px;border-radius:50%;background:#a3a3a3"></span>
+        </button>
+      `;
     }
   });
+
+  // Close expanded switchers on click outside
+  if (expandedSwitchers.size > 0) {
+    const closeHandler = (e) => {
+      if (!e.target.closest(".component-switcher-anchor")) {
+        expandedSwitchers.clear();
+        renderAll();
+        document.removeEventListener("mousedown", closeHandler);
+      }
+    };
+    // Use setTimeout to avoid immediate trigger from the current click
+    setTimeout(() => document.addEventListener("mousedown", closeHandler), 0);
+  }
 }
 
 // ── Dev Toolbar (⚡ button + panel) ───────────────────────
