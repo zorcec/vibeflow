@@ -192,12 +192,15 @@ function writeTaskJson(projectDir: string, task: Task): void {
 // ── CRUD operations ────────────────────────────────────────────────────────
 
 /**
- * Normalizes text that may contain literal escape sequences (common when
- * agents or scripts pass descriptions via shell arguments).  Real newlines pass
- * through unchanged so human-created descriptions are never affected.
+ * Converts literal escape sequences (common when agents or scripts pass text
+ * via shell arguments) into their actual character equivalents.  Real newlines,
+ * tabs, etc. pass through unchanged so human-created text is never affected.
  * Uses a single-pass regex to correctly preserve `\\n` as a literal backslash + n.
+ *
+ * Exported so that `comments.ts` (which already imports from this module) can
+ * reuse the same logic without circular dependencies.
  */
-function normalizeText(text: string): string {
+export function normalizeEscapeSequences(text: string): string {
   return text.replace(/\\(n|t|r|\\)/g, (_, c: string): string => {
     switch (c) {
       case 'n': return '\n';
@@ -206,7 +209,7 @@ function normalizeText(text: string): string {
       case '\\': return '\\';
       default: return c;
     }
-  }).trim();
+  });
 }
 
 export function createTask(
@@ -223,8 +226,8 @@ export function createTask(
 
   const task: Task = {
     ...input,
-    title: normalizeText(input.title ?? ""),
-    description: normalizeText(input.description ?? ""),
+    title: normalizeEscapeSequences(input.title ?? "").trim(),
+    description: normalizeEscapeSequences(input.description ?? "").trim(),
     priority: normalizedPriority,
     id: generateTaskId(),
     created: new Date().toISOString(),
