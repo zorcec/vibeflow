@@ -83,11 +83,10 @@ export function VariantDevToolbar() {
             width: "40px",
             height: "40px",
             borderRadius: "50%",
-            background: "#171717",
+            background: "#6366f1",
             color: "#fff",
             border: "none",
             cursor: "pointer",
-            fontSize: "18px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -98,7 +97,12 @@ export function VariantDevToolbar() {
           }}
           title="Open variant dev toolbar (Ctrl+Shift+V)"
         >
-          ⚡
+          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <rect x="2.5" y="5" width="2" height="8" rx="1" fill="currentColor" opacity="0.7"/>
+            <rect x="6.5" y="2" width="2" height="14" rx="1" fill="currentColor"/>
+            <rect x="10.5" y="6" width="2" height="6" rx="1" fill="currentColor" opacity="0.7"/>
+            <rect x="14.5" y="4" width="2" height="10" rx="1" fill="currentColor" opacity="0.85"/>
+          </svg>
         </button>
       )}
 
@@ -135,8 +139,14 @@ export function VariantDevToolbar() {
               marginBottom: "12px",
             }}
           >
-            <span style={{ fontWeight: 700, color: "#171717", fontSize: "13px" }}>
-              ⚡ Variant Switcher
+            <span style={{ fontWeight: 700, color: "#171717", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+              <svg width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <rect x="2.5" y="5" width="2" height="8" rx="1" fill="#6366f1" opacity="0.7"/>
+                <rect x="6.5" y="2" width="2" height="14" rx="1" fill="#6366f1"/>
+                <rect x="10.5" y="6" width="2" height="6" rx="1" fill="#6366f1" opacity="0.7"/>
+                <rect x="14.5" y="4" width="2" height="10" rx="1" fill="#6366f1" opacity="0.85"/>
+              </svg>
+              Variant Switcher
             </span>
             <button
               aria-label="Close toolbar"
