@@ -22,7 +22,6 @@
     "scan:secrets:full": "gitleaks detect --source . --verbose",
     "check": "pnpm --filter @vibeflow-tools/cli run lint",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
-    "npm-publish": "bash ../vibeflow-private/deploy/scripts/npm-publish.sh",
     "prepare": "husky"
   },
   "devDependencies": {
