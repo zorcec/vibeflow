@@ -191,6 +191,24 @@ function writeTaskJson(projectDir: string, task: Task): void {
 
 // ── CRUD operations ────────────────────────────────────────────────────────
 
+/**
+ * Normalizes text that may contain literal escape sequences (common when
+ * agents or scripts pass descriptions via shell arguments).  Real newlines pass
+ * through unchanged so human-created descriptions are never affected.
+ * Uses a single-pass regex to correctly preserve `\\n` as a literal backslash + n.
+ */
+function normalizeText(text: string): string {
+  return text.replace(/\\(n|t|r|\\)/g, (_, c: string): string => {
+    switch (c) {
+      case 'n': return '\n';
+      case 't': return '\t';
+      case 'r': return '\r';
+      case '\\': return '\\';
+      default: return c;
+    }
+  }).trim();
+}
+
 export function createTask(
   projectDir: string,
   input: Omit<Task, "id" | "created" | "comments" | "files">,
@@ -205,6 +223,8 @@ export function createTask(
 
   const task: Task = {
     ...input,
+    title: normalizeText(input.title ?? ""),
+    description: normalizeText(input.description ?? ""),
     priority: normalizedPriority,
     id: generateTaskId(),
     created: new Date().toISOString(),

@@ -120,6 +120,57 @@ describe("CRUD operations", () => {
     expect(task.priority).toBe("High");
   });
 
+  it("createTask converts literal \\n in description to real newlines", () => {
+    const task = createTask(tempDir, {
+      title: "Agent task",
+      description: "Line 1\\nLine 2\\nLine 3",
+      status: "todo",
+      selector: "/",
+    });
+    expect(task.description).toBe("Line 1\nLine 2\nLine 3");
+  });
+
+  it("createTask leaves real newlines in description unchanged", () => {
+    const task = createTask(tempDir, {
+      title: "Human task",
+      description: "Line 1\nLine 2\nLine 3",
+      status: "todo",
+      selector: "/",
+    });
+    expect(task.description).toBe("Line 1\nLine 2\nLine 3");
+  });
+
+  it("createTask converts literal \\n in title to real newlines", () => {
+    const task = createTask(tempDir, {
+      title: "Title with\\nNewline",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    expect(task.title).toBe("Title with\nNewline");
+  });
+
+  it("createTask converts literal \\t in description to real tabs", () => {
+    const task = createTask(tempDir, {
+      title: "Tab task",
+      description: "Col1\\tCol2",
+      status: "todo",
+      selector: "/",
+    });
+    expect(task.description).toBe("Col1\tCol2");
+  });
+
+  it("createTask preserves double-backslash-n as literal backslash+n (not a newline)", () => {
+    const task = createTask(tempDir, {
+      title: "Escape task",
+      description: "Path: C:\\\\nFolder",
+      status: "todo",
+      selector: "/",
+    });
+    // \\n (double backslash + n in the source) → \n (single backslash + n, not newline)
+    expect(task.description).toBe("Path: C:\\nFolder");
+  });
+
   it("listTasks returns empty array for non-existent dir", () => {
     expect(listTasks(tempDir)).toEqual([]);
   });
