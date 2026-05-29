@@ -85,129 +85,49 @@
       transition: all 0.2s;
     }
 
-    /* Columns layout (default) */
-    .kanban-board.layout-columns {
-      flex-direction: row;
-    }
-    .kanban-board.layout-swimlane {
-      flex-direction: column;
-    }
-    .kanban-board.layout-compact {
-      flex-direction: row;
-      gap: 8px;
-      padding: 12px;
-      min-height: auto;
-    }
+    .kanban-board.layout-columns { flex-direction: row; }
+    .kanban-board.layout-swimlane { flex-direction: column; }
+    .kanban-board.layout-compact { flex-direction: row; gap: 8px; padding: 12px; min-height: auto; }
 
-    .kanban-column {
-      flex: 1;
-      background: #fafafa;
-      border-radius: 8px;
-      padding: 12px;
-    }
-    .layout-swimlane .kanban-column {
-      flex: none;
-    }
-    .layout-compact .kanban-column {
-      padding: 8px;
-    }
-    .layout-compact .task-card {
-      /* Reset card styles in compact layout — card density is controlled by TaskCard variant, not board layout */
-      padding: 12px;
-      margin-bottom: 8px;
-    }
+    .kanban-column { flex: 1; background: #fafafa; border-radius: 8px; padding: 12px; }
+    .layout-swimlane .kanban-column { flex: none; }
+    .layout-compact .kanban-column { padding: 8px; }
+    .layout-compact .task-card { padding: 12px; margin-bottom: 8px; }
 
     .column-title {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: #737373;
-      margin-bottom: 10px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: #737373; margin-bottom: 10px;
     }
-    .layout-swimlane .column-title {
-      display: inline-block;
-      width: 80px;
-      margin-bottom: 0;
-      flex-shrink: 0;
-    }
-    .layout-swimlane .kanban-column {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .layout-swimlane .cards-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .layout-swimlane .column-title { display: inline-block; width: 80px; margin-bottom: 0; flex-shrink: 0; }
+    .layout-swimlane .kanban-column { display: flex; align-items: flex-start; gap: 8px; }
+    .layout-swimlane .cards-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .layout-compact .column-title { font-size: 10px; margin-bottom: 6px; }
 
     /* ── Task Card ────────────────────────────────────────── */
     .task-card {
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 8px;
-      position: relative;
-      transition: all 0.15s;
+      background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+      padding: 12px; margin-bottom: 8px; transition: all 0.15s;
     }
     .task-card:last-child { margin-bottom: 0; }
     .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .task-card.variant-compact { padding: 7px 10px; margin-bottom: 5px; }
+    .task-card.variant-detailed { padding: 16px; }
 
-    .task-card.variant-compact {
-      padding: 7px 10px;
-      margin-bottom: 5px;
-    }
-    .task-card.variant-detailed {
-      padding: 16px;
-    }
-
-    .card-title {
-      font-size: 13px;
-      font-weight: 500;
-      color: #171717;
-      margin-bottom: 4px;
-    }
-    .card-meta {
-      font-size: 11px;
-      color: #a3a3a3;
-    }
-    .card-body {
-      font-size: 12px;
-      color: #525252;
-      margin-top: 8px;
-      line-height: 1.5;
-    }
-    .card-tags {
-      display: flex;
-      gap: 4px;
-      margin-top: 8px;
-    }
-    .tag {
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 3px;
-      background: #f0f0f0;
-      color: #525252;
-    }
+    .card-title { font-size: 13px; font-weight: 500; color: #171717; margin-bottom: 4px; }
+    .card-meta { font-size: 11px; color: #a3a3a3; }
+    .card-body { font-size: 12px; color: #525252; margin-top: 8px; line-height: 1.5; }
+    .card-tags { display: flex; gap: 4px; margin-top: 8px; }
+    .tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #f0f0f0; color: #525252; }
     .tag.feature { background: #eff6ff; color: #3b82f6; }
     .tag.bug     { background: #fef2f2; color: #ef4444; }
-
     .variant-compact .card-body,
     .variant-compact .card-tags { display: none; }
 
     /* ── Code snippet ─────────────────────────────────────── */
     .code-block {
-      background: #1e1e1e;
-      color: #d4d4d4;
-      border-radius: 10px;
-      padding: 20px 24px;
-      font-family: "SF Mono", "Fira Code", "Fira Mono", monospace;
-      font-size: 13px;
-      line-height: 1.7;
-      overflow-x: auto;
+      background: #1e1e1e; color: #d4d4d4; border-radius: 10px;
+      padding: 20px 24px; font-family: "SF Mono", "Fira Code", "Fira Mono", monospace;
+      font-size: 13px; line-height: 1.7; overflow-x: auto;
     }
     .code-block .kw  { color: #569cd6; }
     .code-block .fn  { color: #dcdcaa; }
@@ -216,31 +136,21 @@
     .code-block .tag { color: #4ec9b0; }
     .code-block .atr { color: #9cdcfe; }
 
-    /* ── Inline switcher demo panel ──────────────────────── */
+    /* ── Demo panel ───────────────────────────────────────── */
     .demo-panel {
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      border-radius: 12px;
-      padding: 24px;
+      background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px;
     }
     .demo-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
     .demo-panel p  { font-size: 13px; color: #737373; margin-bottom: 16px; }
 
     /* ── Cards grid ───────────────────────────────────────── */
     .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
     }
     @media (max-width: 600px) { .cards-grid { grid-template-columns: 1fr; } }
 
     /* ── Footer ───────────────────────────────────────────── */
-    .footer {
-      text-align: center;
-      font-size: 12px;
-      color: #a3a3a3;
-      padding: 24px;
-    }
+    .footer { text-align: center; font-size: 12px; color: #a3a3a3; padding: 24px; }
     .footer a { color: #525252; }
   </style>
 </head>
@@ -251,7 +161,7 @@
      It simulates the @vibeflow-tools/ui-prototyping API with
      vanilla JS to showcase the UX — the actual package ships
      as a React library.
-═══════════════════════════════════════════════════════════════ -->
+══════════════════════════════════════════════════════════════ -->
 
 <div class="header">
   <h1>@vibeflow-tools/ui-prototyping</h1>
@@ -291,13 +201,13 @@
         <div class="kanban-column">
           <div class="column-title">Todo</div>
           <div class="cards-row">
-            <div class="task-card" id="card-todo-1">
+            <div class="task-card">
               <div class="card-title">Design new onboarding flow</div>
               <div class="card-meta">#14 · High</div>
               <div class="card-body">Rethink the first-run experience to reduce friction for new users.</div>
               <div class="card-tags"><span class="tag feature">feature</span></div>
             </div>
-            <div class="task-card" id="card-todo-2">
+            <div class="task-card">
               <div class="card-title">Fix email notification bug</div>
               <div class="card-meta">#15 · Critical</div>
               <div class="card-body">Users not receiving welcome emails after sign-up.</div>
@@ -337,52 +247,7 @@
         </div>
 
         <!-- Single switcher for the whole board — one per scope -->
-        <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
-      </div>
-    </div>
-  </div>
-            <div class="task-card" id="card-todo-2">
-              <div class="card-title">Fix email notification bug</div>
-              <div class="card-meta">#15 · Critical</div>
-              <div class="card-body">Users not receiving welcome emails after sign-up.</div>
-              <div class="card-tags"><span class="tag bug">bug</span></div>
-              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="kanban-column">
-          <div class="column-title">In Progress</div>
-          <div class="cards-row">
-            <div class="task-card">
-              <div class="card-title">Implement dark mode toggle</div>
-              <div class="card-meta">#12 · Medium</div>
-              <div class="card-body">Add system preference detection + manual override.</div>
-              <div class="card-tags"><span class="tag feature">feature</span></div>
-              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="kanban-column">
-          <div class="column-title">Done</div>
-          <div class="cards-row">
-            <div class="task-card">
-              <div class="card-title">Update README</div>
-              <div class="card-meta">#11 · Low</div>
-              <div class="card-body">Add setup instructions and contributing guide.</div>
-              <div class="card-tags"><span class="tag">docs</span></div>
-              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
-            </div>
-            <div class="task-card">
-              <div class="card-title">Set up CI pipeline</div>
-              <div class="card-meta">#10 · High</div>
-              <div class="card-body">GitHub Actions for test, lint, and deploy.</div>
-              <div class="card-tags"><span class="tag">infra</span></div>
-              <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-28px;transform:translateY(-50%)"></div>
-            </div>
-          </div>
-        </div>
+        <div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-24px;transform:translateY(-50%)"></div>
       </div>
     </div>
   </div>
@@ -420,7 +285,7 @@
 <span class="kw">function</span> <span class="fn">App</span>() {
   <span class="kw">return</span> (
     <span class="tag">&lt;VariantProvider&gt;</span>
-      <span class="tag">&lt;VariantDevToolbar /&gt;</span>   <span class="cm">// ⚡ floating toolbar (Ctrl+Shift+V)</span>
+      <span class="tag">&lt;VariantDevToolbar /&gt;</span>   <span class="cm">// indigo equalizer icon, bottom-right</span>
       <span class="tag">&lt;KanbanBoard /&gt;</span>
     <span class="tag">&lt;/VariantProvider&gt;</span>
   )
@@ -445,7 +310,7 @@
   )
 }
 
-<span class="cm">// 3. Component-level switching (numbered dots, hover to reveal)</span>
+<span class="cm">// 3. Component-level switching (indicator dot → click to expand)</span>
 <span class="kw">const</span> cardVariants = {
   default:  {},
   compact:  { compact: <span class="kw">true</span> },
@@ -484,7 +349,7 @@
 
 </div>
 
-<!-- ── Dev toolbar (⚡ button, bottom-right) ── injected by JS -->
+<!-- ── Dev toolbar (indigo equalizer icon, bottom-right) ── injected by JS -->
 <div id="dev-toolbar"></div>
 
 <div class="footer">
@@ -505,14 +370,27 @@ const URL_PARAM_PREFIX = "vf";
 const LS_PREFIX = "__vf__";
 const UI_VISIBLE_KEY = "__vf__ui_visible__";
 
+// Equalizer wave SVG (same shape as Vibeflow icon)
+const EQUALIZER_SVG = `<svg width="20" height="20" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+  <rect x="2.5" y="5" width="2" height="8" rx="1" fill="currentColor" opacity="0.7"/>
+  <rect x="6.5" y="2" width="2" height="14" rx="1" fill="currentColor"/>
+  <rect x="10.5" y="6" width="2" height="6" rx="1" fill="currentColor" opacity="0.7"/>
+  <rect x="14.5" y="4" width="2" height="10" rx="1" fill="currentColor" opacity="0.85"/>
+</svg>`;
+
+const EQUALIZER_SVG_INDIGO = `<svg width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+  <rect x="2.5" y="5" width="2" height="8" rx="1" fill="#6366f1" opacity="0.7"/>
+  <rect x="6.5" y="2" width="2" height="14" rx="1" fill="#6366f1"/>
+  <rect x="10.5" y="6" width="2" height="6" rx="1" fill="#6366f1" opacity="0.7"/>
+  <rect x="14.5" y="4" width="2" height="10" rx="1" fill="#6366f1" opacity="0.85"/>
+</svg>`;
+
 // ── State ──────────────────────────────────────────────────
 const state = {
-  // Page-level scope
   KanbanBoard: {
     variants: ["columns", "swimlane", "compact"],
     active: null,
   },
-  // Component-level scope
   TaskCard: {
     variants: ["default", "compact", "detailed"],
     active: null,
@@ -560,7 +438,6 @@ function resolve(name, keys) {
 
 // ── Initialization ─────────────────────────────────────────
 function init() {
-  // Resolve initial states
   for (const [name, scope] of Object.entries(state)) {
     if (name === "uiVisible") continue;
     scope.active = resolve(name, scope.variants);
@@ -641,10 +518,15 @@ function renderCards() {
         <div class="card-meta">${card.meta}</div>
         ${showBody ? `<div class="card-body">${card.body}</div>` : ""}
         ${showTags ? `<div class="card-tags">${card.tags.map(t => `<span class="tag ${t}">${t}</span>`).join("")}</div>` : ""}
-        ${showExtra ? `<div class="card-meta" style="margin-top:8px;color:#a3a3a3">⚡ detailed view • comments + metadata visible</div>` : ""}
+        ${showExtra ? `<div class="card-meta" style="margin-top:8px;color:#a3a3a3">detailed view — comments + metadata visible</div>` : ""}
       </div>
     `;
   }).join("");
+
+  // Re-append the switcher anchor (grid.innerHTML replaced it)
+  if (!grid.querySelector(".component-switcher-anchor")) {
+    grid.insertAdjacentHTML("beforeend", `<div class="component-switcher-anchor" data-name="TaskCard" style="position:absolute;top:50%;right:-24px;transform:translateY(-50%)"></div>`);
+  }
 }
 
 // ── Page Switcher (dark segmented bar, top-left) ───────────
@@ -690,7 +572,6 @@ function renderComponentSwitchers() {
     return;
   }
 
-  // Dedup: only render one switcher per scope name
   const renderedScopes = new Set();
 
   document.querySelectorAll(".component-switcher-anchor[data-name]").forEach((anchor) => {
@@ -712,7 +593,6 @@ function renderComponentSwitchers() {
     `;
 
     if (isExpanded) {
-      // Expanded: show numbered dots picker
       anchor.innerHTML = `
         <div style="
           display:flex;flex-direction:column;gap:3px;
@@ -741,7 +621,6 @@ function renderComponentSwitchers() {
         </div>
       `;
     } else {
-      // Collapsed: subtle indicator dot
       anchor.innerHTML = `
         <button
           onclick="event.stopPropagation();expandedSwitchers.add('${name}');renderAll()"
@@ -773,12 +652,11 @@ function renderComponentSwitchers() {
         document.removeEventListener("mousedown", closeHandler);
       }
     };
-    // Use setTimeout to avoid immediate trigger from the current click
     setTimeout(() => document.addEventListener("mousedown", closeHandler), 0);
   }
 }
 
-// ── Dev Toolbar (⚡ button + panel) ───────────────────────
+// ── Dev Toolbar (indigo equalizer icon + panel) ───────────
 let toolbarOpen = false;
 
 function renderDevToolbar() {
@@ -797,12 +675,11 @@ function renderDevToolbar() {
       style="
         position:fixed;bottom:16px;right:16px;z-index:99998;
         width:40px;height:40px;border-radius:50%;
-        background:#171717;color:#fff;border:none;cursor:pointer;
-        font-size:18px;display:flex;align-items:center;justify-content:center;
+        background:#6366f1;color:#fff;border:none;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;
         box-shadow:0 2px 8px rgba(0,0,0,0.32);transition:background 0.15s;
-        font-family:-apple-system,sans-serif;
       "
-    >⚡</button>` : ""}
+    >${EQUALIZER_SVG}</button>` : ""}
 
     ${toolbarOpen ? `
     <div
@@ -817,7 +694,9 @@ function renderDevToolbar() {
       "
     >
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span style="font-weight:700;color:#171717;font-size:13px;">⚡ Variant Switcher</span>
+        <span style="font-weight:700;color:#171717;font-size:13px;display:flex;align-items:center;gap:6px;">
+          ${EQUALIZER_SVG_INDIGO} Variant Switcher
+        </span>
         <button
           onclick="toolbarOpen=false;renderAll()"
           aria-label="Close toolbar"
