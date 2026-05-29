@@ -111,6 +111,11 @@
     .layout-compact .kanban-column {
       padding: 8px;
     }
+    .layout-compact .task-card {
+      /* Reset card styles in compact layout — card density is controlled by TaskCard variant, not board layout */
+      padding: 12px;
+      margin-bottom: 8px;
+    }
 
     .column-title {
       font-size: 11px;
@@ -278,6 +283,8 @@
         The dark segmented bar (top-left) switches between full-page layouts.
         Try <strong>Columns</strong>, <strong>Swimlane</strong>, and <strong>Compact</strong>.
         The active variant is synced to the URL — copy and share the link!
+        <br/><br/>
+        <em>Note: This is independent from the TaskCard variant below — they use separate scopes.</em>
       </p>
 
       <div id="kanban-board" class="kanban-board layout-columns">
@@ -635,8 +642,18 @@ function renderPageSwitcher() {
 function renderComponentSwitchers() {
   if (!state.uiVisible) return;
 
+  // Dedup: only render one switcher per scope name
+  const renderedScopes = new Set();
+
   document.querySelectorAll(".component-switcher-anchor[data-name]").forEach((anchor) => {
     const name = anchor.dataset.name;
+    if (renderedScopes.has(name)) {
+      // Hide duplicate anchors
+      anchor.style.display = "none";
+      return;
+    }
+    renderedScopes.add(name);
+
     const scope = state[name];
     if (!scope || scope.variants.length < 2) return;
 
