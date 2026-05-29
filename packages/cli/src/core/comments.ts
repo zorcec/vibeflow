@@ -5,7 +5,7 @@ import {
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TaskComment } from "./types.js";
-import { readTaskFile, updateTask, findTaskFilePath, getTaskFilePath } from "./tasks.js";
+import { readTaskFile, updateTask, findTaskFilePath, getTaskFilePath, normalizeEscapeSequences } from "./tasks.js";
 
 /**
  * Normalizes a raw comment loaded from JSON, handling legacy formats:
@@ -35,25 +35,11 @@ export function listComments(projectDir: string, taskId: string): TaskComment[] 
  * Normalizes comment text by converting literal escape sequences (such as `\n`, `\t`,
  * `\r`, `\\`) into their actual character equivalents.
  *
- * LLM agents frequently build `--comment` shell arguments using double-quoted strings
- * where `\n` is passed as two ASCII characters (backslash + 'n') instead of an actual
- * newline — because bash double-quotes do not interpret escape sequences. This function
- * corrects that automatically, making it robust regardless of how the agent encodes
- * multi-line text.
- *
- * The replacement is done in a single regex pass to avoid double-substitution issues
- * (e.g. `\\n` correctly becomes a literal backslash + 'n', not a newline).
+ * Delegates to `normalizeEscapeSequences` from `tasks.ts` — the shared implementation
+ * that also normalises task titles and descriptions — so the logic lives in one place.
  */
 export function normalizeCommentText(text: string): string {
-  return text.replace(/\\(n|t|r|\\)/g, (_, c: string): string => {
-    switch (c) {
-      case 'n': return '\n';
-      case 't': return '\t';
-      case 'r': return '\r';
-      case '\\': return '\\';
-      default: return c;
-    }
-  });
+  return normalizeEscapeSequences(text);
 }
 
 export function addComment(
