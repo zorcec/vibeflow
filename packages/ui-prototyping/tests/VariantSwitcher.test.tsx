@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import { VariantProvider } from "../src/context.js";
-import { VariantSwitcher, _resetStylesInjected } from "../src/VariantSwitcher.js";
+import { VariantSwitcher } from "../src/VariantSwitcher.js";
 
 const variants = {
   default: {},
@@ -24,18 +24,27 @@ function TestApp({ defaultVisible = true }: { defaultVisible?: boolean }) {
 describe("VariantSwitcher", () => {
   beforeEach(() => {
     localStorage.clear();
-    _resetStylesInjected();
     Object.defineProperty(window, "location", {
       writable: true,
       value: new URL("http://localhost/"),
     });
   });
 
-  it("renders the toolbar with numbered buttons", () => {
+  it("renders the indicator dot by default", () => {
     render(<TestApp />);
-    const toolbar = screen.getByRole("toolbar", { name: /Card/ });
-    expect(toolbar).toBeInTheDocument();
-    // Numbered: 1, 2, 3
+    const dot = screen.getByRole("toolbar", { name: /Card/ });
+    expect(dot).toBeInTheDocument();
+    // The expand button should be visible
+    const expandBtn = screen.getByRole("button", { name: /Open variant switcher/ });
+    expect(expandBtn).toBeInTheDocument();
+    // Numbered buttons should NOT be visible yet
+    expect(screen.queryByRole("radio", { name: /1/ })).toBeNull();
+  });
+
+  it("clicking the dot expands the picker", () => {
+    render(<TestApp />);
+    fireEvent.click(screen.getByRole("button", { name: /Open variant switcher/ }));
+    // Now numbered buttons should appear
     expect(screen.getByRole("radio", { name: /1/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /2/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /3/ })).toBeInTheDocument();
@@ -43,24 +52,48 @@ describe("VariantSwitcher", () => {
 
   it("first variant is active by default", () => {
     render(<TestApp />);
+    fireEvent.click(screen.getByRole("button", { name: /Open variant switcher/ }));
     expect(screen.getByRole("radio", { name: /1/ })).toHaveAttribute(
       "aria-checked",
       "true",
     );
   });
 
-  it("clicking button 2 activates the second variant", () => {
+  it("clicking a variant selects it and collapses the picker", () => {
     render(<TestApp />);
-    // Use fireEvent because the switcher uses pointer-events:none by default (CSS hover shows it)
+    fireEvent.click(screen.getByRole("button", { name: /Open variant switcher/ }));
     fireEvent.click(screen.getByRole("radio", { name: /2/ }));
-    expect(screen.getByRole("radio", { name: /2/ })).toHaveAttribute(
-      "aria-checked",
-      "true",
+    // Picker should collapse
+    expect(screen.queryByRole("radio", { name: /1/ })).toBeNull();
+    // Dot should be back
+    expect(screen.getByRole("button", { name: /Open variant switcher/ })).toBeInTheDocument();
+  });
+
+  it("clicking outside collapses the picker", () => {
+    render(
+      <VariantProvider>
+        <div style={{ position: "relative" }}>
+          <VariantSwitcher name="Card" variants={variants} />
+          <span>card content</span>
+        </div>
+        <span data-testid="outside">outside</span>
+      </VariantProvider>,
     );
-    expect(screen.getByRole("radio", { name: /1/ })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+    // Expand
+    fireEvent.click(screen.getByRole("button", { name: /Open variant switcher/ }));
+    expect(screen.getByRole("radio", { name: /1/ })).toBeInTheDocument();
+    // Click outside
+    fireEvent.mouseDown(screen.getByTestId("outside"));
+    // Should collapse
+    expect(screen.queryByRole("radio", { name: /1/ })).toBeNull();
+  });
+
+  it("pressing Escape collapses the picker", () => {
+    render(<TestApp />);
+    fireEvent.click(screen.getByRole("button", { name: /Open variant switcher/ }));
+    expect(screen.getByRole("radio", { name: /1/ })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("radio", { name: /1/ })).toBeNull();
   });
 
   it("is hidden when uiVisible is false", () => {
@@ -79,21 +112,6 @@ describe("VariantSwitcher", () => {
     expect(screen.queryByRole("toolbar")).toBeNull();
   });
 
-  it("injects CSS hover styles into document.head", () => {
-    render(<TestApp />);
-    const styleTag = document.head.querySelector("[data-vf-switcher]");
-    expect(styleTag).not.toBeNull();
-    expect(styleTag?.textContent).toContain("vf-variant-switcher");
-  });
-
-  it("does not inject CSS styles twice (singleton)", () => {
-    render(<TestApp />);
-    render(<TestApp />);
-    const styleTags = document.head.querySelectorAll("[data-vf-switcher]");
-    // After reset in beforeEach + two renders, should be exactly 1
-    expect(styleTags.length).toBe(1);
-  });
-
   it("position=left places switcher on the left", () => {
     render(
       <VariantProvider>
@@ -103,8 +121,7 @@ describe("VariantSwitcher", () => {
       </VariantProvider>,
     );
     const toolbar = screen.getByRole("toolbar");
-    // left: -28px should be in inline style
-    expect(toolbar.getAttribute("style")).toContain("left: -28px");
+    expect(toolbar.getAttribute("style")).toContain("left: -24px");
   });
 
   it("position=right (default) places switcher on the right", () => {
@@ -116,7 +133,7 @@ describe("VariantSwitcher", () => {
       </VariantProvider>,
     );
     const toolbar = screen.getByRole("toolbar");
-    expect(toolbar.getAttribute("style")).toContain("right: -28px");
+    expect(toolbar.getAttribute("style")).toContain("right: -24px");
   });
 
   it("deduplicates switchers per scope — only first instance renders", () => {
