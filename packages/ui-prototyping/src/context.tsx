@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import type {
@@ -81,6 +82,9 @@ export function VariantProvider({
     resolveInitialUiVisible(mode, defaultVisible),
   );
 
+  // Track which scopes already have a VariantSwitcher rendered (dedup per scope)
+  const registeredSwitchers = useRef(new Set<string>());
+
   const registerScope = useCallback(
     (name: string, variantNames: string[]) => {
       setScopes((prev) => {
@@ -134,6 +138,17 @@ export function VariantProvider({
     });
   }, []);
 
+  // Switcher dedup: register returns true if this is the first instance for the scope
+  const registerSwitcher = useCallback((name: string): boolean => {
+    if (registeredSwitchers.current.has(name)) return false;
+    registeredSwitchers.current.add(name);
+    return true;
+  }, []);
+
+  const unregisterSwitcher = useCallback((name: string): void => {
+    registeredSwitchers.current.delete(name);
+  }, []);
+
   // Keyboard shortcuts: Alt+H toggles UI, Ctrl+Shift+V also toggles
   useKeyboardShortcuts({
     onToggleUi: toggleUiVisible,
@@ -143,6 +158,8 @@ export function VariantProvider({
     getActiveVariant,
     setActiveVariant,
     registerScope,
+    registerSwitcher,
+    unregisterSwitcher,
     scopes,
     uiVisible,
     toggleUiVisible,

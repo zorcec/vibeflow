@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useVariantContext } from "./context.js";
 import { resolveActiveVariant } from "./utils.js";
 import type { SwitcherProps } from "./types.js";
@@ -30,6 +30,17 @@ export function VariantSwitcher({
   const ctx = useVariantContext();
   const variantKeys = useMemo(() => Object.keys(variants), [variants]);
 
+  // Dedup: only the first VariantSwitcher per scope renders
+  const [isPrimary, setIsPrimary] = useState(false);
+
+  useEffect(() => {
+    const primary = ctx.registerSwitcher(name);
+    setIsPrimary(primary);
+    return () => {
+      ctx.unregisterSwitcher(name);
+    };
+  }, [ctx, name]);
+
   // Register scope
   useEffect(() => {
     ctx.registerScope(name, variantKeys);
@@ -43,6 +54,7 @@ export function VariantSwitcher({
 
   if (!ctx.uiVisible) return null;
   if (variantKeys.length < 2) return null;
+  if (!isPrimary) return null;
 
   const sideStyle: React.CSSProperties =
     position === "left"
