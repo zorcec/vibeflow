@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React, { useEffect } from "react";
 import { VariantProvider, useVariantContext } from "../src/context.js";
@@ -37,6 +37,13 @@ function TestApp({
 describe("VariantDevToolbar", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    // Clean up any vibeflow overlay root injected during tests
+    document.getElementById("vibeflow-studio-root")?.remove();
+    // Clean up __vf_prototyping API
+    delete (window as any).__vf_prototyping;
   });
 
   it("renders the toggle button when uiVisible is true", () => {
@@ -142,5 +149,72 @@ describe("VariantDevToolbar", () => {
     expect(screen.getByRole("dialog", { name: /Variant dev toolbar/ })).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByTestId("outside"));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  describe("Vibeflow overlay integration", () => {
+    it("hides the toggle button when the Vibeflow overlay is present", () => {
+      // Simulate Vibeflow overlay being present in the page
+      const host = document.createElement("div");
+      host.id = "vibeflow-studio-root";
+      document.body.appendChild(host);
+
+      render(<TestApp />);
+
+      // The toggle button should be hidden when the overlay is detected
+      expect(
+        screen.queryByRole("button", { name: /Toggle variant dev toolbar/ }),
+      ).toBeNull();
+    });
+
+    it("registers __vf_prototyping API on window when overlay is detected", async () => {
+      const host = document.createElement("div");
+      host.id = "vibeflow-studio-root";
+      document.body.appendChild(host);
+
+      render(<TestApp />);
+
+      // Allow the useEffect to run
+      await act(async () => {});
+
+      expect((window as any).__vf_prototyping).toBeDefined();
+      expect(typeof (window as any).__vf_prototyping.openPanel).toBe("function");
+      expect(typeof (window as any).__vf_prototyping.closePanel).toBe("function");
+    });
+
+    it("openPanel via __vf_prototyping API opens the panel", async () => {
+      const host = document.createElement("div");
+      host.id = "vibeflow-studio-root";
+      document.body.appendChild(host);
+
+      render(<TestApp />);
+
+      await act(async () => {});
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      act(() => {
+        (window as any).__vf_prototyping.openPanel();
+      });
+
+      expect(screen.getByRole("dialog", { name: /Variant dev toolbar/ })).toBeInTheDocument();
+    });
+
+    it("closePanel via __vf_prototyping API closes the panel", async () => {
+      const host = document.createElement("div");
+      host.id = "vibeflow-studio-root";
+      document.body.appendChild(host);
+
+      render(<TestApp />);
+
+      await act(async () => {});
+
+      // Open via API
+      act(() => { (window as any).__vf_prototyping.openPanel(); });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      // Close via API
+      act(() => { (window as any).__vf_prototyping.closePanel(); });
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
   });
 });

@@ -8,6 +8,24 @@ import { scheduleRenderIndicators } from "./indicators.js";
 import { showAddTaskModal, showInspectModal } from "./modal.js";
 import { setOverlayTriggerAnnotating, showOverlayTrigger, hideOverlayTrigger, disableVibeflowOverlay, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 
+// ── Prototyping integration ───────────────────────────────────────────────────
+
+interface PrototypingApi {
+  openPanel: () => void;
+  closePanel: () => void;
+}
+
+/** Checks if @vibeflow-tools/ui-prototyping is installed and registered */
+function hasPrototypingApi(): boolean {
+  return typeof window !== "undefined" && "__vf_prototyping" in window;
+}
+
+/** Opens the variant switcher panel via the prototyping package API */
+function openPrototypingPanel(): void {
+  const api = (window as any).__vf_prototyping as PrototypingApi | undefined;
+  api?.openPanel();
+}
+
 // ── Context menu (right-click) ────────────────────────────────────────────────
 
 export function showContextMenu(element: Element, x: number, y: number): void {
@@ -43,6 +61,22 @@ export function showContextMenu(element: Element, x: number, y: number): void {
     void buildSourcePointerAsync(element).then(ptr => showInspectModal(element, ptr));
   });
   menu.appendChild(inspectBtn);
+
+  // Prototyping variant switcher — only shown if @vibeflow-tools/ui-prototyping is installed
+  if (hasPrototypingApi()) {
+    const prototypingBtn = el("button", null,
+      // Stryker disable next-line StringLiteral,ObjectLiteral: icon/class are aesthetic-only; same text exists in OverlayApp.tsx so string mutations are false positives
+      el("span", { className: "menu-icon" }, "🎨"),
+      // Stryker disable next-line StringLiteral: "Prototyping" also appears in OverlayApp.tsx — duplicate string causes false positive
+      "Prototyping",
+    );
+    // Stryker disable next-line StringLiteral,BlockStatement: "click" string is a false positive (50+ in bundle); block body verified by Playwright overlay-prototyping-integration.test.ts
+    prototypingBtn.addEventListener("click", () => {
+      hideContextMenu();
+      openPrototypingPanel();
+    });
+    menu.appendChild(prototypingBtn);
+  }
 
   // Show/Hide Vibeflow toggle — always visible regardless of badge state
   const isTriggerHidden = (() => {

@@ -3,10 +3,21 @@
 > **In-app variant switching for React** — page-level and component-level prototyping with URL persistence and zero runtime dependencies.
 
 [![npm](https://img.shields.io/npm/v/@vibeflow-tools/ui-prototyping)](https://www.npmjs.com/package/@vibeflow-tools/ui-prototyping)
+[![website](https://img.shields.io/badge/website-vibeflow.tools-2563eb)](https://www.vibeflow.tools/ui-prototyping.html)
 
 ```bash
 npm install @vibeflow-tools/ui-prototyping
 ```
+
+---
+
+## Built for Coding Agents
+
+`ui-prototyping` was built to enable coding agents to propose UI variants directly in your running app — without screenshots, back-and-forth prompts, or external design tools.
+
+An agent can define multiple named variants (layouts, colour schemes, component densities) and register them with a few lines of code. You switch between them with a click, see the result immediately in your real app, and tell the agent which one to keep. **No Figma. No mockups. No rebuild cycle.**
+
+This makes `ui-prototyping` one of the most efficient ways for developers to give and receive UI feedback when working with AI coding assistants.
 
 ---
 
@@ -267,9 +278,11 @@ Customise or disable shortcuts via the `shortcuts` prop on `VariantProvider`:
 
 ## Vibeflow Overlay Integration
 
-When the [Vibeflow](https://vibeflow.tools) overlay is injected into the page, `VariantDevToolbar` automatically hides its standalone vibeflow icon button and registers itself with the overlay. The toolbar is then accessible via the overlay's right-click context menu under **"Prototyping"**.
+When the [Vibeflow](https://vibeflow.tools) overlay is injected into the page, `VariantDevToolbar` automatically hides its standalone vibeflow icon button and registers itself with the overlay. The toolbar is then accessible via the overlay's right-click context menu under **"Prototyping"** — both on the bottom-right trigger and when right-clicking any element on the page.
 
 No configuration needed — detection is automatic.
+
+> **Tip for AI coding agents:** Combine `ui-prototyping` with the [Vibeflow overlay](https://vibeflow.tools) so variants are instantly accessible via right-click anywhere on the page. The agent defines the variants; you switch and approve. See the [ui-prototyping webpage](https://www.vibeflow.tools/ui-prototyping.html) for a live demo.
 
 ---
 
