@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getOverlayScript } from "../../src/client/overlay/index.js";
+import { clampTriggerPos } from "../../src/client/overlay-react/trigger-pos.js";
 
 describe("getOverlayScript", () => {
   it("detects server origin from document.currentScript for bookmarklet support", () => {
@@ -426,5 +427,43 @@ describe("getOverlayScript", () => {
     const script = getOverlayScript(3700);
     // Existing error logs should still be present
     expect(script).toContain("[Vibeflow Studio]");
+  });
+});
+
+describe("clampTriggerPos", () => {
+  const vp = { width: 1280, height: 800 };
+
+  it("returns position unchanged when already within bounds", () => {
+    expect(clampTriggerPos({ x: 100, y: 200 }, vp)).toEqual({ x: 100, y: 200 });
+  });
+
+  it("clamps x that exceeds right edge (viewport.width - 64)", () => {
+    // x=9999 should be clamped to 1280-64=1216
+    expect(clampTriggerPos({ x: 9999, y: 200 }, vp)).toEqual({ x: 1216, y: 200 });
+  });
+
+  it("clamps y that exceeds bottom edge (viewport.height - 64)", () => {
+    // y=9999 should be clamped to 800-64=736
+    expect(clampTriggerPos({ x: 100, y: 9999 }, vp)).toEqual({ x: 100, y: 736 });
+  });
+
+  it("clamps x below 8 (left margin)", () => {
+    expect(clampTriggerPos({ x: 0, y: 200 }, vp)).toEqual({ x: 8, y: 200 });
+  });
+
+  it("clamps y below 8 (top margin)", () => {
+    expect(clampTriggerPos({ x: 100, y: -50 }, vp)).toEqual({ x: 100, y: 8 });
+  });
+
+  it("clamps both axes simultaneously when both are out of bounds", () => {
+    expect(clampTriggerPos({ x: 9999, y: 9999 }, vp)).toEqual({ x: 1216, y: 736 });
+  });
+
+  it("keeps x exactly at right boundary (viewport.width - 64)", () => {
+    expect(clampTriggerPos({ x: 1216, y: 200 }, vp)).toEqual({ x: 1216, y: 200 });
+  });
+
+  it("keeps y exactly at bottom boundary (viewport.height - 64)", () => {
+    expect(clampTriggerPos({ x: 100, y: 736 }, vp)).toEqual({ x: 100, y: 736 });
   });
 });
