@@ -8,11 +8,11 @@
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @vibeflow-tools/cli run build",
-    "build:ui-prototyping": "pnpm --filter @vibeflow-tools/ui-prototyping run build",
+    "build:prototyping": "pnpm --filter @vibeflow-tools/prototyping run build",
     "build:all": "pnpm -r run build",
     "dev": "pnpm --filter @vibeflow-tools/cli run dev",
     "test": "pnpm --filter @vibeflow-tools/cli run test",
-    "test:ui-prototyping": "pnpm --filter @vibeflow-tools/ui-prototyping run test",
+    "test:prototyping": "pnpm --filter @vibeflow-tools/prototyping run test",
     "test:all": "pnpm -r run test",
     "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",

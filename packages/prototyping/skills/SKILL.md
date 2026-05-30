@@ -1,9 +1,9 @@
 ---
 name: ui-prototyping
-description: Use when building, reviewing, or integrating @vibeflow-tools/ui-prototyping — in-app variant switching for React. Triggers on "useVariant", "PageVariantSwitcher", "VariantSwitcher", "VariantProvider", "variant switching", "prototyping components", "A/B testing variants", "design variants".
+description: Use when building, reviewing, or integrating @vibeflow-tools/prototyping — in-app variant switching for React. Triggers on "useVariant", "PageVariantSwitcher", "VariantSwitcher", "VariantProvider", "variant switching", "prototyping components", "A/B testing variants", "design variants".
 ---
 
-# @vibeflow-tools/ui-prototyping
+# @vibeflow-tools/prototyping
 
 In-app variant switching for React — page-level layout changes and component-level density/style changes with URL persistence and zero runtime dependencies.
 
@@ -23,7 +23,7 @@ import {
   PageVariantSwitcher,
   VariantSwitcher,
   VariantDevToolbar,
-} from '@vibeflow-tools/ui-prototyping'
+} from '@vibeflow-tools/prototyping'
 
 function App() {
   return (
@@ -165,7 +165,7 @@ Floating ⚡ button (bottom-right) that opens a dialog showing all active scopes
 Pre-register variants before the React tree (module-level).
 
 ```tsx
-import { registerVariant } from '@vibeflow-tools/ui-prototyping'
+import { registerVariant } from '@vibeflow-tools/prototyping'
 
 // Call before any component renders
 registerVariant('TaskCard', {
@@ -323,7 +323,7 @@ Team members opening this link see the exact same variant configuration.
 
 ## Vibeflow Overlay Integration
 
-When both `@vibeflow-tools/ui-prototyping` and the Vibeflow overlay are present on the same page:
+When both `@vibeflow-tools/prototyping` and the Vibeflow overlay are present on the same page:
 
 1. **Detection:** `VariantDevToolbar` detects the overlay via `#vibeflow-studio-root`
 2. **Hiding:** The standalone ⚡ button is hidden (no duplicate bottom-right icons)

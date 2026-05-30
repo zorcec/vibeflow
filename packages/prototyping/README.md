@@ -1,12 +1,12 @@
-# @vibeflow-tools/ui-prototyping
+# @vibeflow-tools/prototyping
 
 > **In-app variant switching for React** — page-level and component-level prototyping with URL persistence and zero runtime dependencies.
 
-[![npm](https://img.shields.io/npm/v/@vibeflow-tools/ui-prototyping)](https://www.npmjs.com/package/@vibeflow-tools/ui-prototyping)
+[![npm](https://img.shields.io/npm/v/@vibeflow-tools/prototyping)](https://www.npmjs.com/package/@vibeflow-tools/prototyping)
 [![website](https://img.shields.io/badge/website-vibeflow.tools-2563eb)](https://www.vibeflow.tools/ui-prototyping.html)
 
 ```bash
-npm install @vibeflow-tools/ui-prototyping
+npm install @vibeflow-tools/prototyping
 ```
 
 ---
@@ -36,7 +36,7 @@ Designing and reviewing UI variations is slow when you have to change code, rebu
 ## Quick Start
 
 ```tsx
-import { VariantProvider, useVariant, PageVariantSwitcher } from '@vibeflow-tools/ui-prototyping'
+import { VariantProvider, useVariant, PageVariantSwitcher } from '@vibeflow-tools/prototyping'
 
 // 1. Define your variants
 const heroVariants = {
@@ -71,11 +71,11 @@ function App() {
 ## Installation
 
 ```bash
-npm install @vibeflow-tools/ui-prototyping
+npm install @vibeflow-tools/prototyping
 # or
-pnpm add @vibeflow-tools/ui-prototyping
+pnpm add @vibeflow-tools/prototyping
 # or
-yarn add @vibeflow-tools/ui-prototyping
+yarn add @vibeflow-tools/prototyping
 ```
 
 **Requirements:** React 18+, Node.js 18+.
@@ -211,7 +211,7 @@ Module-level registration. Use this to centralise all variant definitions in one
 
 ```ts
 // variants.ts
-import { registerVariant } from '@vibeflow-tools/ui-prototyping'
+import { registerVariant } from '@vibeflow-tools/prototyping'
 
 registerVariant('TaskCard', {
   default:  {},
@@ -301,7 +301,7 @@ import {
   resolveActiveVariant,
   readUiVisibleFromStorage,
   writeUiVisibleToStorage,
-} from '@vibeflow-tools/ui-prototyping'
+} from '@vibeflow-tools/prototyping'
 ```
 
 ---
@@ -329,9 +329,9 @@ function MyComponent() {
 
 ```bash
 pnpm install
-pnpm --filter @vibeflow-tools/ui-prototyping run build
-pnpm --filter @vibeflow-tools/ui-prototyping run test
-pnpm --filter @vibeflow-tools/ui-prototyping run test:coverage
+pnpm --filter @vibeflow-tools/prototyping run build
+pnpm --filter @vibeflow-tools/prototyping run test
+pnpm --filter @vibeflow-tools/prototyping run test:coverage
 ```
 
 ---

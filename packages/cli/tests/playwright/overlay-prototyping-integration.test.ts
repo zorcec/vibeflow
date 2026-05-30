@@ -1,7 +1,7 @@
 /**
- * Playwright e2e test: Overlay + ui-prototyping integration
+ * Playwright e2e test: Overlay + prototyping integration
  *
- * Uses the ACTUAL @vibeflow-tools/ui-prototyping VariantDevToolbar component
+ * Uses the ACTUAL @vibeflow-tools/prototyping VariantDevToolbar component
  * (bundled with esbuild at test setup time, React loaded via import maps).
  *
  * Scenario:
@@ -36,7 +36,7 @@ function buildPrototypeBundle(outDir: string): string {
   // Navigate from tests/playwright/ up to the monorepo root
   const testDir = import.meta.dirname; // .../packages/cli/tests/playwright
   const projectRoot = join(testDir, "..", "..", "..", ".."); // .../vibeflow (monorepo root)
-  const srcEntry = join(projectRoot, "packages/ui-prototyping/src/index.ts");
+  const srcEntry = join(projectRoot, "packages/prototyping/src/index.ts");
   const outFile = join(outDir, "prototype-bundle.js");
 
   execSync(
@@ -73,7 +73,7 @@ function makePrototypeHTML(bundleUrl: string, shimUrl: string): string {
 </head>
 <body>
   <h1>Prototype App</h1>
-  <p>This page has the real VariantDevToolbar from @vibeflow-tools/ui-prototyping.</p>
+  <p>This page has the real VariantDevToolbar from @vibeflow-tools/prototyping.</p>
   <div id="root"></div>
 
   <!-- Load React as a global (UMD) — the shim modules re-export from this -->
@@ -119,7 +119,7 @@ async function waitForShadowRoot(page: Page): Promise<void> {
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
-describe("Overlay + ui-prototyping integration (bookmarklet scenario)", () => {
+describe("Overlay + prototyping integration (bookmarklet scenario)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;

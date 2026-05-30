@@ -272,7 +272,7 @@ describe("getOverlayScript", () => {
   it("context menu shows Prototyping option when __vf_prototyping API is present", () => {
     const script = getOverlayScript(3700);
     // The app-level right-click context menu must conditionally show a Prototyping item
-    // when @vibeflow-tools/ui-prototyping is installed and has registered its API.
+    // when @vibeflow-tools/prototyping is installed and has registered its API.
     expect(script).toContain("__vf_prototyping");
     expect(script).toContain("Prototyping");
     expect(script).toContain("openPanel");
