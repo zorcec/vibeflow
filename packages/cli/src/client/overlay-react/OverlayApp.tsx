@@ -66,7 +66,7 @@ function hasPrototypingApi(): boolean {
 
 /** Opens the variant switcher panel via the prototyping package API */
 function openPrototypingPanel(): void {
-  const api = (window as any).__vf_prototyping as PrototypingApi | undefined;
+  const api = (window as unknown as Record<string, unknown>).__vf_prototyping as PrototypingApi | undefined;
   api?.openPanel();
 }
 

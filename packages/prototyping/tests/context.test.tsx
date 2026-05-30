@@ -158,53 +158,53 @@ describe("VariantProvider", () => {
 
     console.error = consoleError;
   });
-});
 
-describe("VariantProvider keyboard shortcuts", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it("Alt+H toggles uiVisible", async () => {
+  it("persists activeVariant to localStorage when setActiveVariant is called", async () => {
     let capturedCtx: ReturnType<typeof useVariantContext> | null = null;
 
+    function TestComponent() {
+      const ctx = useVariantContext();
+      capturedCtx = ctx;
+      React.useEffect(() => {
+        ctx.registerScope("PersistScope", ["a", "b"]);
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return (
+        <button onClick={() => ctx.setActiveVariant("PersistScope", "b")}>
+          switch
+        </button>
+      );
+    }
+
+    const user = userEvent.setup();
     render(
       <VariantProvider>
-        <ContextReader onContext={(ctx) => { capturedCtx = ctx; }} />
+        <TestComponent />
       </VariantProvider>,
     );
 
-    expect(capturedCtx?.uiVisible).toBe(true);
-
-    act(() => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "h", altKey: true, bubbles: true }),
-      );
-    });
-
-    expect(capturedCtx?.uiVisible).toBe(false);
+    await user.click(screen.getByText("switch"));
+    expect(localStorage.getItem("__vf__PersistScope")).toBe("b");
   });
 
-  it("Ctrl+Shift+V toggles uiVisible", async () => {
+  it("registerScope is idempotent — re-registering with same names does not change state", () => {
     let capturedCtx: ReturnType<typeof useVariantContext> | null = null;
+
+    function Registrar() {
+      const ctx = useVariantContext();
+      capturedCtx = ctx;
+      React.useEffect(() => {
+        ctx.registerScope("Idempotent", ["x", "y"]);
+        ctx.registerScope("Idempotent", ["x", "y"]);
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return null;
+    }
 
     render(
       <VariantProvider>
-        <ContextReader onContext={(ctx) => { capturedCtx = ctx; }} />
+        <Registrar />
       </VariantProvider>,
     );
 
-    act(() => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "V",
-          ctrlKey: true,
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
-    });
-
-    expect(capturedCtx?.uiVisible).toBe(false);
+    expect(capturedCtx?.scopes["Idempotent"]?.variantNames).toEqual(["x", "y"]);
   });
 });

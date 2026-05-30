@@ -22,7 +22,7 @@ function hasPrototypingApi(): boolean {
 
 /** Opens the variant switcher panel via the prototyping package API */
 function openPrototypingPanel(): void {
-  const api = (window as any).__vf_prototyping as PrototypingApi | undefined;
+  const api = (window as unknown as Record<string, unknown>).__vf_prototyping as PrototypingApi | undefined;
   api?.openPanel();
 }
 
@@ -167,8 +167,8 @@ function toggleAnnotationMode(host: HTMLElement): void {
 
 export function setupContextMenuListener(host: HTMLElement): void {
   document.addEventListener("contextmenu", (e: MouseEvent) => {
-    const target = e.target as Element;
-    if (!target || target === document.body || target === document.documentElement) return;
+    const target = e.target;
+    if (!target || !(target instanceof Element) || target === document.body || target === document.documentElement) return;
     if (e.composedPath().indexOf(host) !== -1) return;
     e.preventDefault();
     showContextMenu(target, e.clientX, e.clientY);
@@ -181,8 +181,8 @@ export function setupClickToAnnotate(host: HTMLElement): void {
   document.addEventListener("click", (e: MouseEvent) => {
     if (!state.annotationMode) return;
     if (e.composedPath().indexOf(host) !== -1) return;
-    const target = e.target as Element;
-    if (!target || target === document.body || target === document.documentElement) return;
+    const target = e.target;
+    if (!target || !(target instanceof Element) || target === document.body || target === document.documentElement) return;
     e.preventDefault();
     e.stopPropagation();
     void showPopover(target, e.clientX, e.clientY);

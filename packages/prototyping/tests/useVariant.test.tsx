@@ -228,4 +228,55 @@ describe("useVariant", () => {
 
     expect(capturedCtx?.getActiveVariant("SetTest")).toBe("detailed");
   });
+
+  it("throws when useVariant is used outside VariantProvider", () => {
+    const consoleError = console.error;
+    console.error = () => {}; // suppress React error boundary noise
+
+    function OutsideProvider() {
+      useVariant("Outside", demoVariants);
+      return null;
+    }
+
+    expect(() => render(<OutsideProvider />)).toThrow(
+      "useVariantContext must be used inside <VariantProvider>",
+    );
+
+    console.error = consoleError;
+  });
+
+  it("handles single variant gracefully", () => {
+    const singleVariant = { only: { label: "Only option" } };
+
+    function SingleComp() {
+      const v = useVariant("Single", singleVariant);
+      return <div data-testid="single">{v.label}</div>;
+    }
+
+    render(
+      <VariantProvider>
+        <SingleComp />
+      </VariantProvider>,
+    );
+    expect(screen.getByTestId("single").textContent).toBe("Only option");
+  });
+
+  it("variant config with undefined values is handled", () => {
+    const variantsWithUndefined = {
+      a: { x: 1 },
+      b: { x: undefined },
+    };
+
+    function UndefinedComp() {
+      const v = useVariant("UndefinedTest", variantsWithUndefined);
+      return <div data-testid="undef">{JSON.stringify(v)}</div>;
+    }
+
+    render(
+      <VariantProvider>
+        <UndefinedComp />
+      </VariantProvider>,
+    );
+    expect(screen.getByTestId("undef").textContent).toBe('{"x":1}');
+  });
 });

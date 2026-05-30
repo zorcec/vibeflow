@@ -244,6 +244,8 @@ export function VariantSwitcher({
       {/* Expanded: full numbered dots picker */}
       {expanded ? (
         <div
+          role="radiogroup"
+          aria-label={`Variant options for ${name}`}
           style={{
             display: "flex",
             flexDirection: "column",
