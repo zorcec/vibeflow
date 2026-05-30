@@ -264,7 +264,7 @@ export const appRouter = router({
   models: procedure.query(async () => {
     try {
       const { execSync } = await import("node:child_process");
-      const output = execSync("opencode models", { encoding: "utf-8", timeout: 10000 });
+      const output = execSync("opencode models", { encoding: "utf-8", timeout: 10000, stdio: "pipe" });
       const modelIds = output
         .split("\n")
         .map((line) => line.trim())
