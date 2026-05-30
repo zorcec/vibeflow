@@ -268,6 +268,15 @@ describe("getOverlayScript", () => {
     expect(script).not.toContain("Add FEATURE");
   });
 
+  it("context menu shows Prototyping option when __vf_prototyping API is present", () => {
+    const script = getOverlayScript(3700);
+    // The app-level right-click context menu must conditionally show a Prototyping item
+    // when @vibeflow-tools/ui-prototyping is installed and has registered its API.
+    expect(script).toContain("__vf_prototyping");
+    expect(script).toContain("Prototyping");
+    expect(script).toContain("openPanel");
+  });
+
   it("the compiled overlay script is valid JavaScript (no SyntaxError)", () => {
     // Regression: template-literal escape issues caused /^// and invalid regexes
     // that broke the overlay in the browser with 'Unexpected token ,' or similar.
