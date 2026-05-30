@@ -1337,7 +1337,9 @@ describe("renderAgentInstructions", () => {
   it("includes Bug task instructions when hasBugTasks is true", () => {
     const output = renderAgentInstructions({ hasResearchTasks: false, hasBugTasks: true });
     expect(output).toContain("Bug tasks:");
-    expect(output).toContain("error logs / stack traces");
+    expect(output).toContain("· Symptom:");
+    expect(output).toContain("· Root cause:");
+    expect(output).toContain("· Evidence:");
   });
 
   it("excludes Bug task instructions when hasBugTasks is false", () => {
