@@ -117,10 +117,12 @@ function CornerTrigger({
   onClick,
   flashing,
   onHide,
+  onDisable,
 }: {
   onClick: () => void;
   flashing: boolean;
   onHide: () => void;
+  onDisable: () => void;
 }) {
   // Equalizer wave icon matching the Vibeflow product icon
   const svgIcon = (
@@ -250,9 +252,9 @@ function CornerTrigger({
     e.preventDefault();
     e.stopPropagation();
     // Clamp position so menu never gets cut off the screen (with 8px padding).
-    // Height varies: 28px base + 28px per menu item (Hide Vibeflow always, Prototyping if installed)
+    // Height varies: 28px base + 28px per menu item (Hide + Disable always, Prototyping if installed)
     const MENU_W = 120, ITEM_H = 28, PAD = 8;
-    const itemCount = 1 + (hasPrototypingApi() ? 1 : 0);
+    const itemCount = 2 + (hasPrototypingApi() ? 1 : 0);
     const MENU_H = ITEM_H * itemCount;
     const x = Math.min(e.clientX, window.innerWidth - MENU_W - PAD);
     const y = Math.min(e.clientY, window.innerHeight - MENU_H - PAD);
@@ -295,6 +297,12 @@ function CornerTrigger({
             onClick={() => { setCtxMenu(null); onHide(); }}
           >
             Hide Vibeflow
+          </button>
+          <button
+            type="button"
+            onClick={() => { setCtxMenu(null); onDisable(); }}
+          >
+            Disable Vibeflow
           </button>
         </div>
       )}
@@ -633,6 +641,10 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
           onHide={() => {
             try { localStorage.setItem(TRIGGER_HIDDEN_KEY, '1'); } catch { /* ignore */ }
             setIsHidden(true);
+          }}
+          onDisable={() => {
+            state.disabled = true;
+            if (state.host) { state.host.remove(); state.host = null; }
           }}
         />
       )}
