@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- 4dc1975: Add "🎨 Prototyping" option to the overlay page-level right-click context menu when `@vibeflow-tools/prototyping` is installed. Clicking the option opens the variant switcher panel via the `__vf_prototyping` API.
+
+### Patch Changes
+
+- 3e4b441: Add "Hide Vibeflow" and "Disable Vibeflow" to the page-level right-click context menu.
+
+  - "Hide Vibeflow" now appears in the page context menu when the badge is visible (mirrors the badge's own context menu)
+  - "Disable Vibeflow" completely removes all overlay activity for the current page session (resets on page refresh)
+
+- ba09800: Cancel multiselect mode when a task is dragged on the Kanban board.
+- f4cf385: Add "Disable Vibeflow" option to the corner trigger right-click menu.
+
+  The bottom-right Vibeflow icon button's context menu now shows both "Hide Vibeflow" and "Disable Vibeflow", matching the options already available in the page-level right-click menu. Clicking "Disable Vibeflow" removes the overlay completely for the current session (resets on page refresh).
+
+- a1c2b76: Fix overlay button (corner trigger) not visible on fresh injection after "Hide Vibeflow" was previously used. The hidden state now resets on every fresh page load / bookmarklet injection so the button always appears when the overlay is first mounted.
+- 8db8f88: Fix overlay corner trigger rendering off-screen when a position saved on a larger monitor is restored from localStorage. The saved coordinates are now clamped to the current viewport bounds on load, so the button is always visible regardless of screen size changes.
+- e015fdc: Improve agent instructions: add --next auto-claim, blocked task escape hatch, structured bug format, and richer research task guidance.
+- 38c3da6: Normalize literal `\n`, `\t`, `\r` escape sequences in task titles and descriptions at creation time. This fixes agent-created tasks that pass descriptions via CLI args (e.g. `--description "Line 1\nLine 2"`) which previously stored literal backslash-n instead of real newlines.
+- 4e191ff: feat: add Show Vibeflow option to page context menu when badge is hidden
+
+  When the Vibeflow badge is hidden via the corner trigger's right-click menu,
+  it was previously impossible to restore it. Now, right-clicking any page element
+  shows a "Show Vibeflow" option in the context menu, allowing users to bring the
+  badge back.
+
+  The hidden state is also persisted to localStorage so it survives page reloads.
+
+- 4bbe370: fix: silence opencode stderr when not installed
+
+  Add `stdio: "pipe"` to all `execSync` calls for opencode commands in
+  `server.ts` and `trpc.ts`. Without this option, the OS "command not found"
+  error was written to the terminal each time the Kanban board started and
+  fetched models/agents — even though the errors were caught and handled.
+  Users who don't have opencode installed should see no output about it.
+
 ## 0.8.1
 
 ### Patch Changes

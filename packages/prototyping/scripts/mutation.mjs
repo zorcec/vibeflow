@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Incremental mutation runner for @vibeflow-tools/ui-prototyping.
+ * Incremental mutation runner for @vibeflow-tools/prototyping.
  * Only mutates files changed since last commit.
  *
  * Usage:

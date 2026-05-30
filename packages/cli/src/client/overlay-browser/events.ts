@@ -15,7 +15,7 @@ interface PrototypingApi {
   closePanel: () => void;
 }
 
-/** Checks if @vibeflow-tools/ui-prototyping is installed and registered */
+/** Checks if @vibeflow-tools/prototyping is installed and registered */
 function hasPrototypingApi(): boolean {
   return typeof window !== "undefined" && "__vf_prototyping" in window;
 }
@@ -62,7 +62,7 @@ export function showContextMenu(element: Element, x: number, y: number): void {
   });
   menu.appendChild(inspectBtn);
 
-  // Prototyping variant switcher — only shown if @vibeflow-tools/ui-prototyping is installed
+  // Prototyping variant switcher — only shown if @vibeflow-tools/prototyping is installed
   if (hasPrototypingApi()) {
     const prototypingBtn = el("button", null,
       // Stryker disable next-line StringLiteral,ObjectLiteral: icon/class are aesthetic-only; same text exists in OverlayApp.tsx so string mutations are false positives
