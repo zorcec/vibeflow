@@ -378,4 +378,49 @@ export const Fragment = R.Fragment;
     const isOpen = await page.evaluate(() => (window as any).__vf_prototyping?.isOpen);
     expect(isOpen).toBe(false);
   });
+
+  // ── Regression: overlay button must be visible even when localStorage has trigger-hidden=1 ──────
+  it("corner trigger is visible on fresh bookmarklet injection even when localStorage has trigger-hidden=1", async () => {
+    // Reproduces the bug: bookmarklet injection on a page where a prior "Hide Vibeflow"
+    // action left vibeflow-trigger-hidden='1' in localStorage caused the corner trigger
+    // to be permanently invisible. The fix: fresh injection always resets the hidden state.
+    const freshPage = await context.newPage();
+
+    // Pre-set the hidden state BEFORE the page loads — simulates a prior "Hide Vibeflow" action.
+    await freshPage.addInitScript(() => {
+      window.localStorage.setItem("vibeflow-trigger-hidden", "1");
+    });
+
+    // Navigate to the prototype app (overlay not yet injected)
+    await freshPage.goto(APP_BASE);
+
+    // Wait for the page to fully load
+    await freshPage.waitForFunction(
+      () => !!document.querySelector('[aria-label="Toggle variant dev toolbar"]'),
+      { timeout: 15_000 },
+    );
+
+    // Inject the overlay via bookmarklet simulation (inline script, as bookmarklet does)
+    const overlayScript = getOverlayScript(API_PORT);
+    await freshPage.evaluate((script) => {
+      const s = document.createElement("script");
+      s.textContent = script;
+      document.head.appendChild(s);
+    }, overlayScript);
+
+    // Wait for shadow root to mount
+    await freshPage.waitForFunction(
+      () => !!(document.querySelector("#vibeflow-studio-root") as HTMLElement)?.shadowRoot,
+      { timeout: 10_000 },
+    );
+
+    // Corner trigger MUST be visible despite localStorage having trigger-hidden='1'
+    const hasTrigger = await freshPage.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!(host?.shadowRoot?.querySelector(".vibeflow-corner-trigger"));
+    });
+
+    expect(hasTrigger).toBe(true);
+    await freshPage.close();
+  });
 });
