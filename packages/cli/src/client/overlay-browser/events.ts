@@ -85,10 +85,7 @@ export function showContextMenu(element: Element, x: number, y: number): void {
   state.root.appendChild(menu);
 
   setTimeout(() => {
-    document.addEventListener("click", function onClickClose() {
-      hideContextMenu();
-      document.removeEventListener("click", onClickClose);
-    }, { once: true });
+    document.addEventListener("click", () => hideContextMenu(), { once: true });
   }, 0);
 }
 
