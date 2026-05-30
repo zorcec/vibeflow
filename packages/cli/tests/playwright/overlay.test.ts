@@ -495,6 +495,35 @@ describe("Overlay — Shadow DOM visual isolation on dark-theme host", () => {
     await page.click("body");
   });
 
+  it("corner trigger context menu also shows Disable Vibeflow option", async () => {
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+
+    const pos = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const trigger = host?.shadowRoot?.querySelector(".vibeflow-corner-trigger") as HTMLElement;
+      const rect = trigger?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    });
+    expect(pos).not.toBeNull();
+    await page.mouse.click(pos!.x, pos!.y, { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+    }, { timeout: 2000 });
+
+    const hasDisableBtn = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+      return Array.from(menu?.querySelectorAll("button") ?? [])
+        .some((b) => b.textContent?.includes("Disable Vibeflow"));
+    });
+    expect(hasDisableBtn).toBe(true);
+
+    // Close context menu without disabling
+    await page.click("body");
+  });
+
   it("clicking Hide Vibeflow hides the corner trigger", async () => {
     expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
 
