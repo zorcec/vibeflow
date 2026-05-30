@@ -672,7 +672,7 @@ function registerMetaApis(
 
     // Check if opencode is available
     try {
-      execSync("which opencode", { timeout: 5000 });
+      execSync("which opencode", { timeout: 5000, stdio: "pipe" });
     } catch {
       res.status(500).json({ error: "opencode is not installed. Install it to run agents." });
       return;
@@ -769,7 +769,7 @@ function registerMetaApis(
   // ── List available opencode agents ─────────────────────────────────────────
   app.get("/api/agent/agents", (_req, res) => {
     try {
-      const output = execSync("opencode agent list", { cwd: projectDir, timeout: 10000, env: { ...process.env, FORCE_COLOR: "0" } }).toString();
+      const output = execSync("opencode agent list", { cwd: projectDir, timeout: 10000, env: { ...process.env, FORCE_COLOR: "0" }, stdio: "pipe" }).toString();
       // Parse "AgentName (scope)" lines from the output
       const agents = output
         .split("\n")
@@ -789,7 +789,7 @@ function registerMetaApis(
   // ── List available opencode models ─────────────────────────────────────────
   app.get("/api/agent/models", async (_req, res) => {
     try {
-      const output = execSync("opencode models", { cwd: projectDir, timeout: 15000, env: { ...process.env, FORCE_COLOR: "0" } }).toString();
+      const output = execSync("opencode models", { cwd: projectDir, timeout: 15000, env: { ...process.env, FORCE_COLOR: "0" }, stdio: "pipe" }).toString();
       // Parse model entries — opencode outputs them as "provider/model-id  Model Label"
       const models: Array<{ id: string; label: string; provider: string }> = [];
       for (const line of output.split("\n")) {
