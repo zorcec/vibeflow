@@ -23,11 +23,20 @@ export interface AddModalOpts {
 
 let _externalShowAddModal: ((opts: AddModalOpts) => void) | null = null;
 let _externalFlashTrigger: (() => void) | null = null;
+let _externalSetTriggerVisible: (() => void) | null = null;
 
 /** Opens the React add-task modal from vanilla-TS code */
 export function showOverlayAddModal(opts: AddModalOpts = {}): void {
   _externalShowAddModal?.(opts);
 }
+
+/** Shows the corner trigger after it was hidden — called from the page context menu */
+export function showOverlayTrigger(): void {
+  _externalSetTriggerVisible?.();
+}
+
+/** Key used to persist badge hidden state across page reloads */
+export const TRIGGER_HIDDEN_KEY = 'vibeflow-trigger-hidden';
 
 // ── Prototyping integration ──────────────────────────────────────────────────
 
@@ -565,7 +574,9 @@ interface OverlayAppProps {
 export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
   const [addModalOpts, setAddModalOpts] = React.useState<AddModalOpts | null>(null);
   const [triggerFlashing, setTriggerFlashing] = React.useState(false);
-  const [isHidden, setIsHidden] = React.useState(false);
+  const [isHidden, setIsHidden] = React.useState(() => {
+    try { return localStorage.getItem(TRIGGER_HIDDEN_KEY) === '1'; } catch { return false; }
+  });
 
   // Register external bridge so vanilla-TS code can open the modal
   React.useEffect(() => {
@@ -575,9 +586,14 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
       window.setTimeout(() => setTriggerFlashing(false), 1500);
       flashFavicon();
     };
+    _externalSetTriggerVisible = () => {
+      try { localStorage.removeItem(TRIGGER_HIDDEN_KEY); } catch { /* ignore */ }
+      setIsHidden(false);
+    };
     return () => {
       _externalShowAddModal = null;
       _externalFlashTrigger = null;
+      _externalSetTriggerVisible = null;
     };
   }, []);
 
@@ -591,7 +607,10 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
         <CornerTrigger
           onClick={onOpenKanban}
           flashing={triggerFlashing}
-          onHide={() => setIsHidden(true)}
+          onHide={() => {
+            try { localStorage.setItem(TRIGGER_HIDDEN_KEY, '1'); } catch { /* ignore */ }
+            setIsHidden(true);
+          }}
         />
       )}
       {addModalOpts !== null && (

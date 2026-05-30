@@ -6,7 +6,7 @@ import { toggleSidebar, closeSidebar } from "./sidebar.js";
 import { setAnnotateHighlight, clearAnnotateHighlight, startAnnotationHover, stopAnnotationHover } from "./ui.js";
 import { scheduleRenderIndicators } from "./indicators.js";
 import { showAddTaskModal, showInspectModal } from "./modal.js";
-import { setOverlayTriggerAnnotating } from "../overlay-react/OverlayApp.js";
+import { setOverlayTriggerAnnotating, showOverlayTrigger, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 
 // ── Context menu (right-click) ────────────────────────────────────────────────
 
@@ -41,6 +41,23 @@ export function showContextMenu(element: Element, x: number, y: number): void {
     void buildSourcePointerAsync(element).then(ptr => showInspectModal(element, ptr));
   });
   menu.appendChild(inspectBtn);
+
+  // If badge is currently hidden, offer a way to restore it
+  const isTriggerHidden = (() => {
+    try { return localStorage.getItem(TRIGGER_HIDDEN_KEY) === '1'; } catch { return false; }
+  })();
+  if (isTriggerHidden) {
+    const showBtn = el("button", null,
+      el("span", { className: "menu-icon" }, "👁"),
+      "Show Vibeflow",
+    );
+    showBtn.addEventListener("click", () => {
+      hideContextMenu();
+      showOverlayTrigger();
+    });
+    menu.appendChild(showBtn);
+  }
+
   state.contextMenu = menu;
   state.root.appendChild(menu);
 
