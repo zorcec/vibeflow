@@ -185,7 +185,7 @@ function App() {
 }
 ```
 
-The toolbar button (`⚡`) appears bottom-right of the page. When the Vibeflow overlay is detected, the button is hidden — access the toolbar instead via the overlay's right-click context menu.
+The toolbar button (vibeflow icon) appears bottom-right of the page. When the Vibeflow overlay is detected, the button is hidden — access the toolbar instead via the overlay's right-click context menu.
 
 **Keyboard shortcuts:**
 - `Alt+H` — toggle all switchers on/off
@@ -247,7 +247,7 @@ URL takes precedence over localStorage.
 | `Alt+H` | Toggle all variant switchers on/off |
 | `Ctrl+Shift+V` | Toggle all variant switchers on/off |
 
-Both shortcuts call `toggleUiVisible()` on the `VariantProvider`. To open the `VariantDevToolbar` panel, click the `⚡` button in the bottom-right corner.
+Both shortcuts call `toggleUiVisible()` on the `VariantProvider`. To open the `VariantDevToolbar` panel, click the vibeflow icon button in the bottom-right corner.
 
 Customise or disable shortcuts via the `shortcuts` prop on `VariantProvider`:
 
@@ -267,7 +267,7 @@ Customise or disable shortcuts via the `shortcuts` prop on `VariantProvider`:
 
 ## Vibeflow Overlay Integration
 
-When the [Vibeflow](https://vibeflow.tools) overlay is injected into the page, `VariantDevToolbar` automatically hides its standalone `⚡` button and registers itself with the overlay. The toolbar is then accessible via the overlay's right-click context menu under **"Prototyping"**.
+When the [Vibeflow](https://vibeflow.tools) overlay is injected into the page, `VariantDevToolbar` automatically hides its standalone vibeflow icon button and registers itself with the overlay. The toolbar is then accessible via the overlay's right-click context menu under **"Prototyping"**.
 
 No configuration needed — detection is automatic.
 
