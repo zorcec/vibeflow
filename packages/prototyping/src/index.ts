@@ -1,5 +1,5 @@
 /**
- * @vibeflow-tools/ui-prototyping
+ * @vibeflow-tools/prototyping
  *
  * In-app variant switching for React — page-level and component-level
  * prototyping with URL persistence and zero runtime dependencies.
@@ -12,7 +12,7 @@
  *   PageVariantSwitcher,
  *   VariantDevToolbar,
  *   registerVariant,
- * } from '@vibeflow-tools/ui-prototyping'
+ * } from '@vibeflow-tools/prototyping'
  */
 
 export { VariantProvider, VariantContext, useVariantContext } from "./context.js";

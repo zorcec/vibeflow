@@ -59,7 +59,7 @@ interface PrototypingApi {
   closePanel: () => void;
 }
 
-/** Checks if @vibeflow-tools/ui-prototyping is installed and registered */
+/** Checks if @vibeflow-tools/prototyping is installed and registered */
 function hasPrototypingApi(): boolean {
   return typeof window !== 'undefined' && '__vf_prototyping' in window;
 }
@@ -289,7 +289,7 @@ function CornerTrigger({
           style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Prototyping variant switcher — only shown if @vibeflow-tools/ui-prototyping is installed */}
+          {/* Prototyping variant switcher — only shown if @vibeflow-tools/prototyping is installed */}
           {hasPrototypingApi() && (
             <button
               type="button"

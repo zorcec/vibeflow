@@ -1,5 +1,5 @@
 /**
- * Core TypeScript types for @vibeflow-tools/ui-prototyping.
+ * Core TypeScript types for @vibeflow-tools/prototyping.
  *
  * VariantDefinitions maps variant names to arbitrary config objects.
  * The generic V type preserves key-literal types for TypeScript consumers.
