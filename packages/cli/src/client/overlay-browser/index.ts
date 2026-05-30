@@ -9,7 +9,7 @@ import { setupKeyboardShortcuts, setupContextMenuListener, setupClickToAnnotate,
 import { startRecording } from "./error-recorder.js";
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { OverlayApp } from "../overlay-react/OverlayApp.js";
+import { OverlayApp, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 
 declare const PROTO_CONFIG: import("./types.js").ProtoConfig;
 
@@ -52,6 +52,13 @@ function main(): void {
 
   // Skip if already injected (by extension or another script tag)
   if (document.getElementById("vibeflow-studio-root")) return;
+
+  // Reset the trigger-hidden state on every fresh injection so the overlay button
+  // always appears when the page loads or the bookmarklet is run.  Previously, a
+  // single "Hide Vibeflow" action would permanently hide the button across all future
+  // page loads / bookmarklet injections.  Users who want to suppress the overlay
+  // entirely should use "Disable Vibeflow" instead.
+  try { localStorage.removeItem(TRIGGER_HIDDEN_KEY); } catch { /* ignore */ }
 
   // ── Shadow DOM ────────────────────────────────────────────────────────────
   const { host, root } = setupShadowDom();
