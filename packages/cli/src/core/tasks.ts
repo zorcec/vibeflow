@@ -479,6 +479,8 @@ export function renderAgentInstructions(opts: {
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  Discover: vibeflow tasks --status todo   |  vibeflow tasks --type Research   |  vibeflow tasks --user <email>  |  vibeflow tasks --tag <tag>");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push("  Auto-claim: vibeflow tasks --next  (picks highest-priority todo task and sets it in-progress automatically)");
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  Details:  vibeflow tasks --get <id>  (full task info with comments and files)");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  Create:   vibeflow tasks --add --title \"...\" --description \"...\"");
@@ -504,6 +506,8 @@ export function renderAgentInstructions(opts: {
     lines.push("    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("       (if you used --next: task is already in-progress — skip to step 2)");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    2. <implement the change>");
   }
@@ -564,18 +568,36 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    CLI ENFORCES: cannot mark Research as review without an attached .md report.");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Use --report-file <path> to upload your .md report when marking as review:");
+    lines.push("    Create the report file locally first, then upload when marking as review:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("      vibeflow tasks --edit <id> --set-status review --report-file ./report.md --comment \"...\"");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    The file is uploaded to the task and deleted from the local filesystem automatically.");
+    lines.push("    The file is saved next to the task and deleted from the original path automatically.");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    Report must include: findings, options considered (with pros/cons), recommendation, sources.");
   }
   if (opts.hasBugTasks) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  Bug tasks: Include error logs / stack traces in the commit comment.");
+    lines.push("  Bug tasks: Reproduce the bug first, then include in the comment:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Describe: the symptom, the console error, what triggered it, and how it was fixed.");
+    lines.push("    · Symptom: what the user sees");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    · Trigger: exact steps to reproduce");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    · Root cause: the specific code/logic that caused it");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    · Fix: what was changed and why it works");
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("    · Evidence: paste the relevant error message or stack trace");
   }
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push("  BLOCKED? If a task is unclear or missing context:");
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push("    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"");
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push("    Then pick the next task: vibeflow tasks --next");
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push("    Do not guess at unclear requirements — leave a comment and move on.");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  CRITICAL: NEVER edit .vibeflow/ task files directly.");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent

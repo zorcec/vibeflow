@@ -8,6 +8,11 @@ describe("renderAgentInstructions", () => {
     expect(text).toContain("<implement the change>");
   });
 
+  it("includes --next auto-claim command in discover section", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("Auto-claim: vibeflow tasks --next");
+  });
+
   it("includes auto-commit workflow when autoCommit is true", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true });
     expect(text).toContain("git add <files>");
@@ -23,11 +28,25 @@ describe("renderAgentInstructions", () => {
     const text = renderAgentInstructions({ hasResearchTasks: true });
     expect(text).toContain("Research tasks: NEVER generate code");
     expect(text).toContain("--report-file");
+    expect(text).toContain("Create the report file locally first");
+    expect(text).toContain("saved next to the task and deleted from the original path");
+    expect(text).toContain("findings, options considered");
+  });
+
+  it("includes blocked task escape hatch", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("BLOCKED?");
+    expect(text).toContain("Blocked: <reason>");
+    expect(text).toContain("vibeflow tasks --next");
+    expect(text).toContain("Do not guess at unclear requirements");
   });
 
   it("includes bug task rules when hasBugTasks is true", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false, hasBugTasks: true });
-    expect(text).toContain("Bug tasks: Include error logs");
+    expect(text).toContain("Bug tasks: Reproduce the bug first");
+    expect(text).toContain("· Symptom:");
+    expect(text).toContain("· Root cause:");
+    expect(text).toContain("· Evidence:");
   });
 
   it("includes settings flags", () => {
