@@ -15,7 +15,7 @@ function isOverlayPresent(): boolean {
  * Toggled via Ctrl+Shift+V keyboard shortcut or programmatically.
  *
  * **Vibeflow overlay integration:** When the Vibeflow overlay is detected,
- * the standalone ⚡ button is hidden. Instead, the toolbar is accessible
+ * the standalone vibeflow icon button is hidden. Instead, the toolbar is accessible
  * via the overlay's right-click context menu ("Prototyping" option).
  *
  * Place this once near the root of your app inside VariantProvider.
