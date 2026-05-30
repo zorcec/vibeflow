@@ -36,6 +36,10 @@ export const state = {
   // Project info (fetched from /api/project on connect)
   projectName: null as string | null,
 
+  // Session-only flag — set by "Disable Vibeflow" to suppress all overlay
+  // activity for the rest of the page session (resets on page refresh).
+  disabled: false,
+
   // Callbacks registered by index.ts (avoids circular module deps)
   onTasksFetched: null as ((tasks: Task[]) => void) | null,
   onTasksUpdatedMessage: null as (() => void) | null,
