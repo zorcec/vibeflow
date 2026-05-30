@@ -463,6 +463,108 @@ describe("Overlay — Shadow DOM visual isolation on dark-theme host", () => {
     expect(throwTask?.description).toContain("Console logs");
   });
 
+  // ── Hide / Show Vibeflow badge ─────────────────────────────────────────────
+  it("right-clicking corner trigger shows Hide Vibeflow menu", async () => {
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+
+    // Get trigger position and right-click it
+    const pos = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const trigger = host?.shadowRoot?.querySelector(".vibeflow-corner-trigger") as HTMLElement;
+      const rect = trigger?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    });
+    expect(pos).not.toBeNull();
+    await page.mouse.click(pos!.x, pos!.y, { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+    }, { timeout: 2000 });
+
+    const hasHideBtn = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+      return Array.from(menu?.querySelectorAll("button") ?? [])
+        .some((b) => b.textContent?.includes("Hide Vibeflow"));
+    });
+    expect(hasHideBtn).toBe(true);
+
+    // Close context menu without hiding
+    await page.keyboard.press("Escape");
+    await page.click("body");
+  });
+
+  it("clicking Hide Vibeflow hides the corner trigger", async () => {
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+
+    const pos = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const trigger = host?.shadowRoot?.querySelector(".vibeflow-corner-trigger") as HTMLElement;
+      const rect = trigger?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    });
+    await page.mouse.click(pos!.x, pos!.y, { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+    }, { timeout: 2000 });
+
+    // Click "Hide Vibeflow"
+    await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-trigger-ctx-menu");
+      const btn = Array.from(menu?.querySelectorAll("button") ?? [])
+        .find((b) => b.textContent?.includes("Hide Vibeflow")) as HTMLElement | undefined;
+      btn?.click();
+    });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !host?.shadowRoot?.querySelector(".vibeflow-corner-trigger");
+    }, { timeout: 2000 });
+
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(false);
+  });
+
+  it("right-clicking page element shows Show Vibeflow when badge is hidden", async () => {
+    // Badge should be hidden from the previous test
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(false);
+
+    // Right-click a page element to get the page-level context menu
+    await page.click('[data-vibeflow-id="main-nav"]', { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+    }, { timeout: 2000 });
+
+    const hasShowBtn = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+      return Array.from(menu?.querySelectorAll("button") ?? [])
+        .some((b) => b.textContent?.includes("Show Vibeflow"));
+    });
+    expect(hasShowBtn).toBe(true);
+
+    // Click "Show Vibeflow"
+    await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+      const btn = Array.from(menu?.querySelectorAll("button") ?? [])
+        .find((b) => b.textContent?.includes("Show Vibeflow")) as HTMLElement | undefined;
+      btn?.click();
+    });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-corner-trigger");
+    }, { timeout: 2000 });
+
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+  });
+
   // ── Directory serve: index page ───────────────────────────────────────────
   it("directory index page is served when a directory is given", async () => {
     const res = await fetch(BASE);
