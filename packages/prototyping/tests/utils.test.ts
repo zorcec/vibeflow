@@ -24,6 +24,14 @@ describe("encodeUrlKey", () => {
   it("handles names with spaces", () => {
     expect(encodeUrlKey("My Component")).toBe("vf[My Component]");
   });
+
+  it("handles empty string", () => {
+    expect(encodeUrlKey("")).toBe("vf[]");
+  });
+
+  it("handles names with special characters", () => {
+    expect(encodeUrlKey("scope/key")).toBe("vf[scope/key]");
+  });
 });
 
 describe("readVariantFromUrl", () => {
@@ -82,6 +90,18 @@ describe("writeVariantToUrl / removeVariantFromUrl", () => {
     removeVariantFromUrl("TaskCard");
     expect(pushStateSpy).toHaveBeenCalledOnce();
     const url = pushStateSpy.mock.calls[0]![2] as string;
+    expect(url).not.toContain("TaskCard");
+  });
+
+  it("removeVariantFromUrl preserves other params", () => {
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: new URL("http://localhost/?vf%5BTaskCard%5D=minimal&vf%5BKanban%5D=swimlane"),
+    });
+    removeVariantFromUrl("TaskCard");
+    expect(pushStateSpy).toHaveBeenCalledOnce();
+    const url = pushStateSpy.mock.calls[0]![2] as string;
+    expect(url).toContain("vf%5BKanban%5D=swimlane");
     expect(url).not.toContain("TaskCard");
   });
 });
@@ -196,6 +216,21 @@ describe("resolveActiveVariant", () => {
 
   it("ignores localStorage value that is not in variantKeys", () => {
     writeVariantToStorage("Scope", "nonexistent");
+    expect(
+      resolveActiveVariant("Scope", ["default", "minimal"], "default"),
+    ).toBe("default");
+  });
+
+  it("returns defaultKey when variantKeys is empty", () => {
+    expect(resolveActiveVariant("Scope", [], "default")).toBe("default");
+  });
+
+  it("returns defaultKey when both URL and localStorage have invalid values", () => {
+    writeVariantToStorage("Scope", "invalid");
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: new URL("http://localhost/?vf%5BScope%5D=alsoInvalid"),
+    });
     expect(
       resolveActiveVariant("Scope", ["default", "minimal"], "default"),
     ).toBe("default");
