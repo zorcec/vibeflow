@@ -565,6 +565,89 @@ describe("Overlay — Shadow DOM visual isolation on dark-theme host", () => {
     expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
   });
 
+  it("right-clicking page element shows Hide Vibeflow when badge is visible", async () => {
+    // Badge should be visible from the previous test restoring it
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+
+    // Right-click a page element to get the page-level context menu
+    await page.click('[data-vibeflow-id="main-nav"]', { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+    }, { timeout: 2000 });
+
+    const hasHideBtn = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+      return Array.from(menu?.querySelectorAll("button") ?? [])
+        .some((b) => b.textContent?.includes("Hide Vibeflow"));
+    });
+    expect(hasHideBtn).toBe(true);
+
+    // Close menu without hiding
+    await page.keyboard.press("Escape");
+    await page.click("body");
+  });
+
+  it("right-clicking page element shows Disable Vibeflow option", async () => {
+    // Right-click a page element to get the page-level context menu
+    await page.click('[data-vibeflow-id="main-nav"]', { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+    }, { timeout: 2000 });
+
+    const hasDisableBtn = await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+      return Array.from(menu?.querySelectorAll("button") ?? [])
+        .some((b) => b.textContent?.includes("Disable Vibeflow"));
+    });
+    expect(hasDisableBtn).toBe(true);
+
+    // Close menu without disabling
+    await page.keyboard.press("Escape");
+    await page.click("body");
+  });
+
+  it("clicking Disable Vibeflow removes the overlay entirely", async () => {
+    expect(await shadowExists(page, ".vibeflow-corner-trigger")).toBe(true);
+
+    // Right-click a page element and click "Disable Vibeflow"
+    await page.click('[data-vibeflow-id="main-nav"]', { button: "right" });
+
+    await page.waitForFunction(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+    }, { timeout: 2000 });
+
+    await page.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const menu = host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+      const btn = Array.from(menu?.querySelectorAll("button") ?? [])
+        .find((b) => b.textContent?.includes("Disable Vibeflow")) as HTMLElement | undefined;
+      btn?.click();
+    });
+
+    // The host element should be removed from the DOM
+    await page.waitForFunction(() => {
+      return !document.getElementById("vibeflow-studio-root");
+    }, { timeout: 2000 });
+
+    expect(await page.evaluate(() => !document.getElementById("vibeflow-studio-root"))).toBe(true);
+
+    // Right-clicking after disable should NOT show a vibeflow context menu
+    await page.click('[data-vibeflow-id="main-nav"]', { button: "right" });
+    await page.waitForTimeout(500);
+    const hasContextMenu = await page.evaluate(() => {
+      const host = document.getElementById("vibeflow-studio-root") as HTMLElement | null;
+      return !!host?.shadowRoot?.querySelector(".vibeflow-context-menu");
+    });
+    expect(hasContextMenu).toBe(false);
+  });
+
   // ── Directory serve: index page ───────────────────────────────────────────
   it("directory index page is served when a directory is given", async () => {
     const res = await fetch(BASE);

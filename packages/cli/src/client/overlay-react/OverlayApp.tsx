@@ -4,6 +4,7 @@ import { AutoExpandTextarea } from '../shared/components/AutoExpandTextarea.js';
 import { MarkdownPreview } from '../shared/components/MarkdownPreview.js';
 import type { TaskType } from '../shared/task-types.js';
 import { getRecordedLogs } from '../overlay-browser/error-recorder.js';
+import { state } from '../overlay-browser/state.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ export interface AddModalOpts {
 let _externalShowAddModal: ((opts: AddModalOpts) => void) | null = null;
 let _externalFlashTrigger: (() => void) | null = null;
 let _externalSetTriggerVisible: (() => void) | null = null;
+let _externalHideTrigger: (() => void) | null = null;
+let _externalDisableOverlay: (() => void) | null = null;
 
 /** Opens the React add-task modal from vanilla-TS code */
 export function showOverlayAddModal(opts: AddModalOpts = {}): void {
@@ -33,6 +36,16 @@ export function showOverlayAddModal(opts: AddModalOpts = {}): void {
 /** Shows the corner trigger after it was hidden — called from the page context menu */
 export function showOverlayTrigger(): void {
   _externalSetTriggerVisible?.();
+}
+
+/** Hides the corner trigger — called from the page context menu */
+export function hideOverlayTrigger(): void {
+  _externalHideTrigger?.();
+}
+
+/** Disables the entire overlay for this page session (resets on page refresh) */
+export function disableVibeflowOverlay(): void {
+  _externalDisableOverlay?.();
 }
 
 /** Key used to persist badge hidden state across page reloads */
@@ -590,10 +603,20 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
       try { localStorage.removeItem(TRIGGER_HIDDEN_KEY); } catch { /* ignore */ }
       setIsHidden(false);
     };
+    _externalHideTrigger = () => {
+      try { localStorage.setItem(TRIGGER_HIDDEN_KEY, '1'); } catch { /* ignore */ }
+      setIsHidden(true);
+    };
+    _externalDisableOverlay = () => {
+      state.disabled = true;
+      if (state.host) { state.host.remove(); state.host = null; }
+    };
     return () => {
       _externalShowAddModal = null;
       _externalFlashTrigger = null;
       _externalSetTriggerVisible = null;
+      _externalHideTrigger = null;
+      _externalDisableOverlay = null;
     };
   }, []);
 

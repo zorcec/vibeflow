@@ -6,12 +6,14 @@ import { toggleSidebar, closeSidebar } from "./sidebar.js";
 import { setAnnotateHighlight, clearAnnotateHighlight, startAnnotationHover, stopAnnotationHover } from "./ui.js";
 import { scheduleRenderIndicators } from "./indicators.js";
 import { showAddTaskModal, showInspectModal } from "./modal.js";
-import { setOverlayTriggerAnnotating, showOverlayTrigger, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
+import { setOverlayTriggerAnnotating, showOverlayTrigger, hideOverlayTrigger, disableVibeflowOverlay, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 
 // ── Context menu (right-click) ────────────────────────────────────────────────
 
 export function showContextMenu(element: Element, x: number, y: number): void {
   hideContextMenu();
+  // Don't show the context menu if vibeflow is disabled for this session.
+  if (state.disabled) return;
   const info = buildSourcePointer(element);
   const displayName = info.display;
 
@@ -42,7 +44,7 @@ export function showContextMenu(element: Element, x: number, y: number): void {
   });
   menu.appendChild(inspectBtn);
 
-  // If badge is currently hidden, offer a way to restore it
+  // Show/Hide Vibeflow toggle — always visible regardless of badge state
   const isTriggerHidden = (() => {
     try { return localStorage.getItem(TRIGGER_HIDDEN_KEY) === '1'; } catch { return false; }
   })();
@@ -56,7 +58,28 @@ export function showContextMenu(element: Element, x: number, y: number): void {
       showOverlayTrigger();
     });
     menu.appendChild(showBtn);
+  } else {
+    const hideBtn = el("button", null,
+      el("span", { className: "menu-icon" }, "👁"),
+      "Hide Vibeflow",
+    );
+    hideBtn.addEventListener("click", () => {
+      hideContextMenu();
+      hideOverlayTrigger();
+    });
+    menu.appendChild(hideBtn);
   }
+
+  // Disable Vibeflow — completely removes all overlay activity for this session
+  const disableBtn = el("button", null,
+    el("span", { className: "menu-icon" }, "🚫"),
+    "Disable Vibeflow",
+  );
+  disableBtn.addEventListener("click", () => {
+    hideContextMenu();
+    disableVibeflowOverlay();
+  });
+  menu.appendChild(disableBtn);
 
   state.contextMenu = menu;
   state.root.appendChild(menu);
