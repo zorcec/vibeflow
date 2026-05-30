@@ -5,6 +5,7 @@ import { MarkdownPreview } from '../shared/components/MarkdownPreview.js';
 import type { TaskType } from '../shared/task-types.js';
 import { getRecordedLogs } from '../overlay-browser/error-recorder.js';
 import { state } from '../overlay-browser/state.js';
+import { clampTriggerPos } from './trigger-pos.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -135,13 +136,18 @@ function CornerTrigger({
   );
 
   // Draggable position state (null = default bottom-right via CSS)
-  // Restored from localStorage if previously saved
+  // Restored from localStorage if previously saved, clamped to current viewport bounds
+  // to ensure the button is always visible even if the saved position is out of bounds
+  // (e.g. the user was on a larger monitor when they last dragged the button).
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('vibeflow-trigger-pos');
       if (saved) {
         const parsed = JSON.parse(saved) as { x: number; y: number };
-        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed;
+        if (typeof parsed.x === 'number' && isFinite(parsed.x) &&
+            typeof parsed.y === 'number' && isFinite(parsed.y)) {
+          return clampTriggerPos(parsed, { width: window.innerWidth, height: window.innerHeight });
+        }
       }
     } catch { /* ignore */ }
     return null;

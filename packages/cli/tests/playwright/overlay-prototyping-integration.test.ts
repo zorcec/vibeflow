@@ -423,4 +423,70 @@ export const Fragment = R.Fragment;
     expect(hasTrigger).toBe(true);
     await freshPage.close();
   });
+
+  // ── Regression: overlay button must be within viewport when saved position is out-of-bounds ──
+  it("corner trigger stays within viewport even when vibeflow-trigger-pos is out of bounds", async () => {
+    // Reproduces the bug: if the user previously dragged the corner trigger on a larger monitor
+    // and the saved position (vibeflow-trigger-pos) falls outside the current viewport, the
+    // button is rendered off-screen and visually invisible. The fix: clamp the loaded position
+    // to the current viewport bounds before applying the inline style.
+    const freshPage = await context.newPage();
+
+    // Pre-set an extreme out-of-bounds position — simulates a saved position from a larger monitor
+    // or a corrupted/migrated localStorage value.
+    await freshPage.addInitScript(() => {
+      window.localStorage.setItem("vibeflow-trigger-pos", JSON.stringify({ x: 9999, y: 9999 }));
+    });
+
+    // Navigate to the prototype app (overlay not yet injected)
+    await freshPage.goto(APP_BASE);
+
+    // Wait for the page to fully load
+    await freshPage.waitForFunction(
+      () => !!document.querySelector('[aria-label="Toggle variant dev toolbar"]'),
+      { timeout: 15_000 },
+    );
+
+    // Inject the overlay via bookmarklet simulation
+    const overlayScript = getOverlayScript(API_PORT);
+    await freshPage.evaluate((script) => {
+      const s = document.createElement("script");
+      s.textContent = script;
+      document.head.appendChild(s);
+    }, overlayScript);
+
+    // Wait for shadow root to mount
+    await freshPage.waitForFunction(
+      () => !!(document.querySelector("#vibeflow-studio-root") as HTMLElement)?.shadowRoot,
+      { timeout: 10_000 },
+    );
+
+    // Wait for React to render the corner trigger
+    await freshPage.waitForFunction(
+      () => {
+        const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+        return !!(host?.shadowRoot?.querySelector(".vibeflow-corner-trigger"));
+      },
+      { timeout: 5_000 },
+    );
+
+    // The corner trigger MUST be within the viewport bounds after position clamping
+    const result = await freshPage.evaluate(() => {
+      const host = document.querySelector("#vibeflow-studio-root") as HTMLElement;
+      const trigger = host?.shadowRoot?.querySelector(".vibeflow-corner-trigger") as HTMLElement;
+      if (!trigger) return null;
+      const rect = trigger.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      return {
+        isWithinViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= vw && rect.bottom <= vh,
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        viewport: { width: vw, height: vh },
+      };
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.isWithinViewport).toBe(true);
+    await freshPage.close();
+  });
 });
