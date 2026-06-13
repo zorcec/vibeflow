@@ -1,0 +1,13 @@
+**/*.map
+**/*.js.map
+**/*.d.ts.map
+coverage/
+tests/
+src/
+scripts/
+reports/
+*.config.ts
+*.config.cjs
+tsconfig.json
+.stryker-tmp/
+test-results/

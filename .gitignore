@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tgz
+*.log
 .DS_Store
 
 # Generated CSS bundles (rebuilt on install)
@@ -32,6 +33,10 @@ packages/cli/reports/
 packages/cli/.stryker-tmp/
 packages/ui-prototyping/reports/
 packages/ui-prototyping/.stryker-tmp/
+packages/opencode-telegram-bridge/reports/
+packages/opencode-telegram-bridge/.stryker-tmp/
+packages/opencode-telegram-bridge/mutation-results*.txt
+packages/opencode-telegram-bridge/stryker.log
 
 # Internal task management (not for public)
 .vibeflow/
