@@ -21,6 +21,7 @@ const hr: Record<LocaleKeys, string> = {
   "creating_session": "🔄 _Kreiranje sesije..._",
   "session_expired": "🔄 _Sesija istekla. Ponovno spajanje..._",
   "transcribing": "🎙️ _Transkribiram..._",
+  "transcribed": "🎙️ _Transkribirano:_ {text}",
 
   // ── Heartbeat ──────────────────────────────────────────────────────────────
   "heartbeat_still_working": "⏱️ _Još radim..._ {elapsed}",
@@ -41,8 +42,13 @@ const hr: Record<LocaleKeys, string> = {
   "unknown_command": "Nepoznata naredba: {command}",
 
   // ── /start and /help ──────────────────────────────────────────────────────
-  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatajte s AI asistentom putem OpenCode-a.\n\n*Naredbe:*\n/new — Započni novi razgovor\n/stop — Prekini trenutni zahtjev\n/model — Promijeni AI model\n/sessions — Prikaži sve razgovore\n/switch — Prebaci se na razgovor\n/delete — Obriši trenutni razgovor\n/history — Prikaži nedavne poruke\n/providers — Prikaži AI pružatelje\n/status — Provjeri vezu\n/help — Prikaži ovu pomoć\n\nPošaljite tekstualne ili glasovne poruke.",
+  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatajte s AI asistentom putem OpenCode-a.\n\n*Naredbe:*\n/new — Započni novi razgovor\n/stop — Prekini trenutni zahtjev\n/model — Promijeni AI model\n/lang — Postavi jezik glasovnih poruka\n/sessions — Prikaži sve razgovore\n/switch — Prebaci se na razgovor\n/delete — Obriši trenutni razgovor\n/history — Prikaži nedavne poruke\n/providers — Prikaži AI pružatelje\n/status — Provjeri vezu\n/help — Prikaži ovu pomoć\n\nPošaljite tekstualne ili glasovne poruke.",
   "bot_startup": "🚀 *Bot pokrenut*\n\nPonovno sam online i spreman za razgovor\\!\n\nPošaljite /help za dostupne naredbe\\.",
+
+  // ── /lang ─────────────────────────────────────────────────────────────────
+  "lang_select": "Odaberite jezik za glasovne poruke:",
+  "lang_changed": "✅ Jezik promijenjen u: {lang}",
+  "lang_current": "Trenutni jezik: {lang}",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ Nova sesija kreirana. Pošaljite poruku za početak.",

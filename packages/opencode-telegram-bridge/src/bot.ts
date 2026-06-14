@@ -77,6 +77,7 @@ export async function createBot(config: BridgeConfig): Promise<BotInstance> {
     { command: "new", description: "Start a fresh conversation" },
     { command: "stop", description: "Cancel running request" },
     { command: "model", description: "Switch AI model" },
+    { command: "lang", description: "Set voice language" },
     { command: "sessions", description: "List all conversations" },
     { command: "switch", description: "Switch to a conversation" },
     { command: "delete", description: "Delete current conversation" },

@@ -32,7 +32,7 @@ import { escapeMd } from "./status-manager.js";
 import { isAllowed, retryAfter } from "./rate-limiter.js";
 import { existsSync } from "node:fs";
 import { StatusManager } from "./status-manager.js";
-import { detectLanguage, mapToSupported, t, LANGUAGE_NAMES } from "../i18n/index.js";
+import { detectLanguage, mapToSupported, t, LANGUAGE_NAMES, emotionName, audioEventName } from "../i18n/index.js";
 
 const DEFAULT_MODEL = process.env.TELEGRAM_DEFAULT_MODEL || "opencode-go/mimo-v2.5";
 const DEBUG = process.env.DEBUG_BRIDGE === "true" || process.env.DEBUG === "true";
@@ -469,7 +469,9 @@ export async function handleVoiceMessage(
     logDebug(`handleVoiceMessage: downloaded ${fileBuffer.length} bytes`);
 
     logDebug(`handleVoiceMessage: transcribing with ${sttAdapter.name}`);
-    const sttResult = await sttAdapter.transcribe(fileBuffer, voice.mime_type || "audio/ogg");
+    const languageHint = session.voiceLanguage || "auto";
+    logDebug(`handleVoiceMessage: using language hint: ${languageHint}`);
+    const sttResult = await sttAdapter.transcribe(fileBuffer, voice.mime_type || "audio/ogg", languageHint);
     logDebug(`handleVoiceMessage: transcription result: text="${sttResult.text?.slice(0, 50)}...", lang=${sttResult.language}, emotion=${sttResult.emotion}`);
 
     if (!sttResult.text || sttResult.text.trim().length === 0) {
@@ -477,6 +479,12 @@ export async function handleVoiceMessage(
       await bot.sendMessage(chatId, t("voice_no_text", locale));
       return;
     }
+
+    // Edit status message to show transcribed text
+    const transcribedPreview = sttResult.text.length > 100
+      ? sttResult.text.slice(0, 97) + "..."
+      : sttResult.text;
+    await statusMgr.update(statusId, t("transcribed", locale, { text: escapeMd(transcribedPreview) }));
 
     // Use STT-detected language if available
     if (sttResult.language) {
@@ -487,15 +495,32 @@ export async function handleVoiceMessage(
 
     statusMgr.complete(statusId);
 
-    const emotionPrefix =
-      sttResult.emotion && sttResult.emotion !== "neutral"
-        ? t("voice_emotion_prefix", locale, { emotion: sttResult.emotion })
-        : t("voice_prefix", locale);
-
-    // Pass detected language to LLM so it can use the correct TTS voice
+    // Build structured voice metadata for LLM consumption
     const detectedLang = session.language || "en";
-    const langHint = `[Detected language: ${detectedLang}. Use TTS with this language.]\n`;
-    const fakeMsg = { ...msg, text: `${langHint}${emotionPrefix} ${sttResult.text}` };
+    const emotion = sttResult.emotion || "neutral";
+    const audioEvents = sttResult.audioEvents || [];
+    const rawLanguage = sttResult.rawLanguage || "unknown";
+
+    // Translate emotion and audio events for display
+    const translatedEmotion = emotionName(emotion, locale);
+    const translatedEvents = audioEvents.map(e => audioEventName(e, locale));
+
+    // Format voice metadata block for LLM
+    const voiceMetadataLines = [
+      `[Voice Message]`,
+      `- Detected language: ${detectedLang} (raw: ${rawLanguage})`,
+      `- User emotion: ${translatedEmotion}`,
+      translatedEvents.length > 0 ? `- Audio events: ${translatedEvents.join(", ")}` : null,
+      ``,
+      sttResult.text,
+    ].filter(Boolean);
+
+    const voiceBlock = voiceMetadataLines.join("\n");
+
+    logDebug(`handleVoiceMessage: voice metadata - lang=${detectedLang}, emotion=${emotion}, ` +
+             `events=${audioEvents.length}, rawLang=${rawLanguage}`);
+
+    const fakeMsg = { ...msg, text: voiceBlock };
     logDebug(`handleVoiceMessage: forwarding to handleTextMessage`);
     await handleTextMessage(fakeMsg, bot, chatId, session, { skipStatus: true });
   } catch (e) {
@@ -673,6 +698,42 @@ export async function handleCommand(
         });
       }
       break;
+
+    case "/lang": {
+      const AVAILABLE_LANGUAGES = [
+        { code: "auto", label: "🌍 Auto-detect" },
+        { code: "en", label: "🇬🇧 English" },
+        { code: "de", label: "🇩🇪 German" },
+        { code: "hr", label: "🇭🇷 Croatian" },
+      ];
+
+      if (args.length > 0) {
+        const lang = args[0].toLowerCase();
+        const validLangs = ["auto", "en", "de", "hr"];
+        if (!validLangs.includes(lang)) {
+          await bot.sendMessage(chatId, t("lang_select", locale));
+          return;
+        }
+        updateSession(String(chatId), { voiceLanguage: lang });
+        const langLabel = AVAILABLE_LANGUAGES.find(l => l.code === lang)?.label || lang;
+        await bot.sendMessage(chatId, t("lang_changed", locale, { lang: langLabel }));
+      } else {
+        const currentLang = session.voiceLanguage || "auto";
+        const currentLabel = AVAILABLE_LANGUAGES.find(l => l.code === currentLang)?.label || currentLang;
+        await bot.sendMessage(
+          chatId,
+          `${t("lang_current", locale, { lang: currentLabel })}\n\n${t("lang_select", locale)}`,
+          {
+            reply_markup: {
+              inline_keyboard: AVAILABLE_LANGUAGES.map((l) => [
+                { text: l.code === currentLang ? `✅ ${l.label}` : l.label, callback_data: `lang:${l.code}` },
+              ]),
+            },
+          },
+        );
+      }
+      break;
+    }
 
     case "/status": {
       const health = await ocHealth();
@@ -874,6 +935,21 @@ export async function handleCallbackQuery(
       updateSession(String(chatId), { model });
       await bot.answerCallbackQuery(query.id, { text: t("model_changed", locale, { model }) });
       await bot.sendMessage(chatId, t("model_changed", locale, { model }));
+    }
+  } else if (data.startsWith("lang:")) {
+    const lang = data.slice(5);
+    const validLangs = ["auto", "en", "de", "hr"];
+    if (validLangs.includes(lang)) {
+      updateSession(String(chatId), { voiceLanguage: lang });
+      const AVAILABLE_LANGUAGES = [
+        { code: "auto", label: "🌍 Auto-detect" },
+        { code: "en", label: "🇬🇧 English" },
+        { code: "de", label: "🇩🇪 German" },
+        { code: "hr", label: "🇭🇷 Croatian" },
+      ];
+      const langLabel = AVAILABLE_LANGUAGES.find(l => l.code === lang)?.label || lang;
+      await bot.answerCallbackQuery(query.id, { text: t("lang_changed", locale, { lang: langLabel }) });
+      await bot.sendMessage(chatId, t("lang_changed", locale, { lang: langLabel }));
     }
   } else if (data.startsWith("switch:")) {
     const sessionId = data.slice(7);

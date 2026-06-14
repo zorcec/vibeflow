@@ -19,6 +19,7 @@ const en = {
   "creating_session": "🔄 _Creating session..._",
   "session_expired": "🔄 _Session expired. Reconnecting..._",
   "transcribing": "🎙️ _Transcribing..._",
+  "transcribed": "🎙️ _Transcribed:_ {text}",
 
   // ── Heartbeat ──────────────────────────────────────────────────────────────
   "heartbeat_still_working": "⏱️ _Still working..._ {elapsed}",
@@ -39,8 +40,13 @@ const en = {
   "unknown_command": "Unknown command: {command}",
 
   // ── /start and /help ──────────────────────────────────────────────────────
-  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChat with the AI assistant via OpenCode\\.\n\n*Commands:*\n/new — Start fresh conversation\n/stop — Cancel running request\n/model — Switch AI model\n/sessions — List all conversations\n/switch — Switch to a conversation\n/delete — Delete current conversation\n/history — Show recent messages\n/providers — List AI providers\n/status — Check connection\n/help — Show this help\n\nSend text or voice messages to chat\\.",
+  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChat with the AI assistant via OpenCode\\.\n\n*Commands:*\n/new — Start fresh conversation\n/stop — Cancel running request\n/model — Switch AI model\n/lang — Set voice language\n/sessions — List all conversations\n/switch — Switch to a conversation\n/delete — Delete current conversation\n/history — Show recent messages\n/providers — List AI providers\n/status — Check connection\n/help — Show this help\n\nSend text or voice messages to chat\\.",
   "bot_startup": "🚀 *Bot Started*\n\nI'm back online and ready to chat\\!\n\nSend /help to see available commands\\.",
+
+  // ── /lang ─────────────────────────────────────────────────────────────────
+  "lang_select": "Select voice language:",
+  "lang_changed": "✅ Voice language set to: {lang}",
+  "lang_current": "Current voice language: {lang}",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ New session created. Send a message to start.",

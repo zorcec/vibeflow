@@ -153,6 +153,56 @@ export function toolName(toolId: string, locale: SupportedLocale): string {
   return TOOL_NAMES[toolId]?.[locale] ?? TOOL_NAMES[toolId]?.en ?? toolId;
 }
 
+// ── Emotion name translation ─────────────────────────────────────────────
+
+/** Maps SenseVoice emotion codes to locale-aware display names */
+const EMOTION_NAMES: Record<string, Record<SupportedLocale, string>> = {
+  "HAPPY": { en: "happy", de: "glücklich", hr: "sretan" },
+  "SAD": { en: "sad", de: "traurig", hr: "tužan" },
+  "ANGRY": { en: "angry", de: "wütend", hr: "ljut" },
+  "NEUTRAL": { en: "neutral", de: "neutral", hr: "neutralan" },
+  "FEARFUL": { en: "fearful", de: "ängstlich", hr: "uplašen" },
+  "DISGUSTED": { en: "disgusted", de: "angewidert", hr: "zgađen" },
+  "SURPRISED": { en: "surprised", de: "überrascht", hr: "iznenađen" },
+  "EMO_UNKNOWN": { en: "unknown", de: "unbekannt", hr: "nepoznat" },
+};
+
+/**
+ * Get a translated display name for an emotion code.
+ *
+ * @param emotionCode - SenseVoice emotion code (e.g. "HAPPY", "SAD")
+ * @param locale - Target locale
+ * @returns Localized emotion name (falls back to raw code)
+ */
+export function emotionName(emotionCode: string, locale: SupportedLocale): string {
+  const normalized = emotionCode.toUpperCase();
+  return EMOTION_NAMES[normalized]?.[locale] ?? EMOTION_NAMES[normalized]?.en ?? emotionCode;
+}
+
+// ── Audio event name translation ──────────────────────────────────────────
+
+/** Maps SenseVoice audio event codes to locale-aware display names */
+const AUDIO_EVENT_NAMES: Record<string, Record<SupportedLocale, string>> = {
+  "BGM": { en: "background music", de: "Hintergrundmusik", hr: "pozadinska glazba" },
+  "Applause": { en: "applause", de: "Applaus", hr: "pljesak" },
+  "Laughter": { en: "laughter", de: "Lachen", hr: "smijeh" },
+  "Crying": { en: "crying", de: "Weinen", hr: "plakanje" },
+  "Coughing": { en: "coughing", de: "Husten", hr: "kašalj" },
+  "Sneezing": { en: "sneezing", de: "Niesen", hr: "kihanje" },
+  "Speech": { en: "speech", de: "Sprache", hr: "govor" },
+};
+
+/**
+ * Get a translated display name for an audio event code.
+ *
+ * @param eventCode - SenseVoice audio event code (e.g. "Laughter", "Applause")
+ * @param locale - Target locale
+ * @returns Localized event name (falls back to raw code)
+ */
+export function audioEventName(eventCode: string, locale: SupportedLocale): string {
+  return AUDIO_EVENT_NAMES[eventCode]?.[locale] ?? AUDIO_EVENT_NAMES[eventCode]?.en ?? eventCode;
+}
+
 // ── Exports ────────────────────────────────────────────────────────────────
 
 export type { LocaleKeys };

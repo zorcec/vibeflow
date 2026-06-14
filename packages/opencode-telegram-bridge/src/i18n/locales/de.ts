@@ -21,6 +21,7 @@ const de: Record<LocaleKeys, string> = {
   "creating_session": "🔄 _Sitzung wird erstellt..._",
   "session_expired": "🔄 _Sitzung abgelaufen. Verbinde neu..._",
   "transcribing": "🎙️ _Transkribiere..._",
+  "transcribed": "🎙️ _Transkribiert:_ {text}",
 
   // ── Heartbeat ──────────────────────────────────────────────────────────────
   "heartbeat_still_working": "⏱️ _Arbeite noch..._ {elapsed}",
@@ -41,8 +42,13 @@ const de: Record<LocaleKeys, string> = {
   "unknown_command": "Unbekannter Befehl: {command}",
 
   // ── /start and /help ──────────────────────────────────────────────────────
-  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatte mit dem KI-Assistenten via OpenCode.\n\n*Befehle:*\n/new — Neues Gespräch starten\n/stop — Laufende Anfrage abbrechen\n/model — KI-Modell wechseln\n/sessions — Alle Gespräche anzeigen\n/switch — Zu einem Gespräch wechseln\n/delete — Aktuelles Gespräch löschen\n/history — Letzte Nachrichten anzeigen\n/providers — KI-Anbieter anzeigen\n/status — Verbindung prüfen\n/help — Diese Hilfe anzeigen\n\nSende Text- oder Sprachnachrichten.",
+  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatte mit dem KI-Assistenten via OpenCode.\n\n*Befehle:*\n/new — Neues Gespräch starten\n/stop — Laufende Anfrage abbrechen\n/model — KI-Modell wechseln\n/lang — Sprache einstellen\n/sessions — Alle Gespräche anzeigen\n/switch — Zu einem Gespräch wechseln\n/delete — Aktuelles Gespräch löschen\n/history — Letzte Nachrichten anzeigen\n/providers — KI-Anbieter anzeigen\n/status — Verbindung prüfen\n/help — Diese Hilfe anzeigen\n\nSende Text- oder Sprachnachrichten.",
   "bot_startup": "🚀 *Bot gestartet*\n\nIch bin wieder online und bereit zum Chatten\\!\n\nSende /help um verfügbare Befehle zu sehen\\.",
+
+  // ── /lang ─────────────────────────────────────────────────────────────────
+  "lang_select": "Sprache für Sprachnachrichten auswählen:",
+  "lang_changed": "✅ Sprache geändert zu: {lang}",
+  "lang_current": "Aktuelle Sprache: {lang}",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ Neue Sitzung erstellt. Sende eine Nachricht um zu starten.",

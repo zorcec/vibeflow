@@ -10,7 +10,7 @@
 // ── STT ──────────────────────────────────────────────────────────────────────
 
 export interface STTResult {
-  /** Transcribed text */
+  /** Transcribed text (cleaned of SenseVoice tags) */
   text: string;
   /** Detected emotion (e.g. "happy", "sad", "neutral") */
   emotion?: string;
@@ -18,6 +18,8 @@ export interface STTResult {
   audioEvents?: string[];
   /** Detected language code (e.g. "en", "de") */
   language?: string;
+  /** Raw language code from SenseVoice before normalization */
+  rawLanguage?: string;
 }
 
 export interface STTAdapter {
@@ -27,9 +29,10 @@ export interface STTAdapter {
    * Transcribe an audio buffer to text.
    * @param buffer - Raw audio data
    * @param mimeType - MIME type of the audio (e.g. "audio/ogg", "audio/wav")
+   * @param languageHint - Optional language hint (e.g. "en", "de", "hr", "auto")
    * @returns Transcription result with text and optional metadata
    */
-  transcribe(buffer: Buffer, mimeType: string): Promise<STTResult>;
+  transcribe(buffer: Buffer, mimeType: string, languageHint?: string): Promise<STTResult>;
 }
 
 // ── TTS ──────────────────────────────────────────────────────────────────────

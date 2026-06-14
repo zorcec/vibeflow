@@ -9,6 +9,19 @@
 const OPENCODE_URL = process.env.OPENCODE_URL || "http://localhost:4096";
 const DEBUG = process.env.DEBUG_BRIDGE === "true" || process.env.DEBUG === "true";
 
+// Configure undici global dispatcher with longer headers timeout
+// This fixes the UND_ERR_HEADERS_TIMEOUT error for long-running LLM requests
+try {
+  // Node.js 18+ uses undici internally, access via global symbol
+  const undiciGlobal = (globalThis as Record<string, unknown>)[Symbol.for("undici.globalDispatcher.1")] as { defaults?: { headersTimeout?: number } } | undefined;
+  if (undiciGlobal?.defaults) {
+    undiciGlobal.defaults.headersTimeout = 600_000; // 10 minutes
+    if (DEBUG) console.log("[bridge:debug] Set undici headersTimeout to 600s");
+  }
+} catch {
+  // Ignore - undici not accessible
+}
+
 function logDebug(msg: string, ...args: unknown[]): void {
   if (DEBUG) console.log(`[bridge:debug] ${msg}`, ...args);
 }
