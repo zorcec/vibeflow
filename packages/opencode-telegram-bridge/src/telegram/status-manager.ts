@@ -1,11 +1,12 @@
 /**
  * StatusManager — real-time progress indicators for Telegram messages.
  *
- * Manages a per-chat status message that updates as OpenCode processes:
- *   "🤔 Thinking..." → "🔧 Running tool-name..." → "📝 Writing..." → final response
+ * Manages a per-chat status message that updates live as OpenCode processes:
+ *   Phase + current tool + elapsed time + step count + cost — all in one line.
  *
- * Uses Telegram's sendChatAction + editMessageText for live feedback.
- * Handles Telegram API rate limits (max 1 edit/sec per message).
+ * Every state change (thinking → tool call → writing) immediately edits the
+ * existing message. Heartbeat timer refreshes elapsed time periodically.
+ * Never creates new messages for status — always edits the last one.
  *
  * Supports i18n: all status strings are translated to the user's detected language.
  */
@@ -21,11 +22,25 @@ export interface StatusManagerOptions {
   chatActionInterval?: number;
   /** Minimum interval in ms between message edits (Telegram limit: 1000) */
   editThrottleMs?: number;
-  /** Interval in ms to send heartbeat progress messages (default: 60000 = 1 min) */
+  /** Interval in ms to refresh elapsed time in status message (default: 5000) */
   heartbeatIntervalMs?: number;
 }
 
-export type Phase = "thinking" | "tool_running" | "writing";
+export type Phase = "thinking" | "tool_running" | "writing" | "coding" | "searching" | "responding";
+
+// Tool classification for granular status
+const CODING_TOOLS = new Set(["write", "edit", "create", "mkdir", "rename"]);
+const SEARCH_TOOLS = new Set(["glob", "grep", "find", "read", "list_directory"]);
+
+// Phase → i18n key for phase label
+const PHASE_I18N: Record<Phase, string> = {
+  thinking: "phase_analyzing",
+  tool_running: "phase_running_tool",
+  coding: "phase_coding",
+  searching: "phase_searching",
+  writing: "phase_responding",
+  responding: "phase_responding",
+};
 
 interface PendingStatus {
   chatId: number;
@@ -39,7 +54,6 @@ interface PendingStatus {
   phase: Phase;
   currentTool: string | null;
   toolCalls: string[];
-  lastHeartbeatAt: number;
   cost: number;
   tokensInput: number;
   tokensOutput: number;
@@ -63,14 +77,8 @@ function formatTokens(tokens: number): string {
   return String(tokens);
 }
 
-function escapeMd(text: string): string {
-  return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, "\\$1");
-}
-
-function formatToolStatus(toolId: string, locale: SupportedLocale): string {
-  const name = toolName(toolId, locale);
-  const escaped = escapeMd(name);
-  return `🔧 _${escapeMd(t("running_tool", locale, { tool: "" }).replace("🔧 _", "").replace("..._", ""))}${escaped}\\.\\.\\._`;
+export function escapeMd(text: string): string {
+  return text.replace(/([_*\[\]()~`>#+=|{}.!\\\-])/g, "\\$1");
 }
 
 // ── StatusManager class ──────────────────────────────────────────────────────
@@ -86,7 +94,7 @@ export class StatusManager {
     this.bot = bot;
     this.chatActionInterval = options?.chatActionInterval ?? 4000;
     this.editThrottleMs = options?.editThrottleMs ?? 1200;
-    this.heartbeatIntervalMs = options?.heartbeatIntervalMs ?? 60_000;
+    this.heartbeatIntervalMs = options?.heartbeatIntervalMs ?? 5000;
   }
 
   async start(chatId: number, initialText?: string, locale?: SupportedLocale): Promise<string> {
@@ -95,7 +103,7 @@ export class StatusManager {
 
     const loc = locale ?? "en";
     const text = initialText ?? t("thinking", loc);
-    const msg = await this.bot.sendMessage(chatId, text, {
+    const msg = await this.bot.sendMessage(chatId, escapeMd(text), {
       parse_mode: "MarkdownV2",
     });
 
@@ -112,7 +120,6 @@ export class StatusManager {
       phase: "thinking",
       currentTool: null,
       toolCalls: [],
-      lastHeartbeatAt: now,
       cost: 0,
       tokensInput: 0,
       tokensOutput: 0,
@@ -126,9 +133,10 @@ export class StatusManager {
       }
     }, this.chatActionInterval);
 
+    // Heartbeat: refresh elapsed time in status message
     status.heartbeatTimer = setInterval(() => {
       if (!status.disposed) {
-        this.sendHeartbeat(statusId);
+        this.refreshStatus(statusId);
       }
     }, this.heartbeatIntervalMs);
 
@@ -156,38 +164,34 @@ export class StatusManager {
 
   async toolStart(statusId: string, toolId: string): Promise<void> {
     const status = this.pending.get(statusId);
-    if (status && !status.disposed) {
-      const name = toolName(toolId, status.locale);
-      status.toolCalls.push(name);
-      status.currentTool = name;
-      status.phase = "tool_running";
-    }
-    const status2 = this.pending.get(statusId);
-    const locale = status2?.locale ?? "en";
-    const name = toolName(toolId, locale);
-    const escaped = escapeMd(name);
-    const prefix = escapeMd(t("running_tool", locale, { tool: "" }).replace(/🔧\s*_/, "").replace(/\.\.\._$/, ""));
-    await this.update(statusId, `🔧 _${prefix}${escaped}\\.\\.\\._`);
+    if (!status || status.disposed) return;
+
+    const name = toolName(toolId, status.locale);
+    status.toolCalls.push(name);
+    status.currentTool = name;
+    status.phase = CODING_TOOLS.has(toolId) ? "coding" : SEARCH_TOOLS.has(toolId) ? "searching" : "tool_running";
+
+    await this.refreshStatus(statusId);
   }
 
   async thinking(statusId: string): Promise<void> {
     const status = this.pending.get(statusId);
-    const locale = status?.locale ?? "en";
-    if (status && !status.disposed) {
-      status.phase = "thinking";
-      status.currentTool = null;
-    }
-    await this.update(statusId, t("thinking", locale));
+    if (!status || status.disposed) return;
+
+    status.phase = "thinking";
+    status.currentTool = null;
+
+    await this.refreshStatus(statusId);
   }
 
   async writing(statusId: string): Promise<void> {
     const status = this.pending.get(statusId);
-    const locale = status?.locale ?? "en";
-    if (status && !status.disposed) {
-      status.phase = "writing";
-      status.currentTool = null;
-    }
-    await this.update(statusId, t("writing", locale));
+    if (!status || status.disposed) return;
+
+    status.phase = "responding";
+    status.currentTool = null;
+
+    await this.refreshStatus(statusId);
   }
 
   updateUsage(statusId: string, cost: number, tokens: { input: number; output: number }): void {
@@ -196,12 +200,15 @@ export class StatusManager {
     status.cost = cost;
     status.tokensInput = tokens.input;
     status.tokensOutput = tokens.output;
+    // Don't refresh on every usage update — heartbeat will pick it up
   }
 
   updateToolSummary(statusId: string, summary: string): void {
     const status = this.pending.get(statusId);
     if (!status || status.disposed) return;
     status.currentToolSummary = summary;
+    // Refresh to show the tool summary
+    this.refreshStatus(statusId);
   }
 
   getMessageId(statusId: string): number | null {
@@ -216,12 +223,23 @@ export class StatusManager {
     return status.chatId;
   }
 
-  complete(statusId: string): void {
+  complete(statusId: string): { elapsed: string; toolCalls: string[]; cost: number; tokensInput: number; tokensOutput: number } | null {
     const status = this.pending.get(statusId);
-    if (!status) return;
+    if (!status) return null;
     this.stopTimers(status);
+
+    // Collect stats for the handler to use (don't edit message here - handler will do it)
+    const elapsed = Date.now() - status.startedAt;
+    const elapsedStr = formatElapsed(elapsed);
+    const toolCalls = [...status.toolCalls];
+    const cost = status.cost;
+    const tokensInput = status.tokensInput;
+    const tokensOutput = status.tokensOutput;
+
     status.disposed = true;
     this.pending.delete(statusId);
+
+    return { elapsed: elapsedStr, toolCalls, cost, tokensInput, tokensOutput };
   }
 
   async cancel(statusId: string): Promise<void> {
@@ -245,50 +263,85 @@ export class StatusManager {
     );
   }
 
-  private async sendHeartbeat(statusId: string): Promise<void> {
-    const status = this.pending.get(statusId);
-    if (!status || status.disposed) return;
+  // ── Private: build live status text ───────────────────────────────────────
 
-    const now = Date.now();
-    if (now - status.lastHeartbeatAt < 30_000) return;
-    status.lastHeartbeatAt = now;
-
-    const elapsed = now - status.startedAt;
-    const elapsedStr = formatElapsed(elapsed);
+  /**
+   * Build the full status text from current state.
+   * Shows: phase icon + label, current tool (if any), elapsed time, steps, cost.
+   */
+  private buildStatusText(status: PendingStatus): string {
     const locale = status.locale;
+    const elapsed = Date.now() - status.startedAt;
+    const elapsedStr = formatElapsed(elapsed);
 
-    const lines: string[] = [escapeMd(t("heartbeat_still_working", locale, { elapsed: elapsedStr }))];
-
-    const phaseKey = `phase_${status.phase === "tool_running" ? "running_tool" : status.phase === "writing" ? "generating" : "analyzing"}` as const;
+    // Phase icon + label
+    const PHASE_ICONS: Record<Phase, string> = {
+      thinking: "🤔",
+      tool_running: "🔧",
+      coding: "💻",
+      searching: "🔍",
+      writing: "📝",
+      responding: "💬",
+    };
+    const icon = PHASE_ICONS[status.phase];
+    const phaseKey = PHASE_I18N[status.phase];
     const phaseLabel = t(phaseKey as "phase_analyzing", locale);
 
-    if (status.phase === "tool_running" && status.currentTool) {
-      lines.push(`📍 _${escapeMd(phaseLabel)} — ${escapeMd(status.currentTool)}_`);
+    // Build line 1: icon + phase + current tool
+    let line1: string;
+    if (status.currentTool) {
+      line1 = `${icon} _${escapeMd(phaseLabel)} \\— ${escapeMd(status.currentTool)}_`;
     } else {
-      lines.push(`📍 _${escapeMd(phaseLabel)}_`);
+      line1 = `${icon} _${escapeMd(phaseLabel)}\\.\\.\\._`;
     }
 
+    // Build line 2: elapsed + step count
+    // Show elapsed time after 1 second to avoid "0s" flash, but show step count immediately
+    const lines: string[] = [line1];
+    const parts: string[] = [];
+    
+    // Only show elapsed time after 1 second to avoid "0s" flash
+    if (elapsed > 1000) {
+      parts.push(`⏱️ ${escapeMd(elapsedStr)}`);
+    }
+    
+    // Show step count immediately when there are tool calls
     if (status.toolCalls.length > 0) {
-      const uniqueTools = [...new Set(status.toolCalls)];
       const stepCount = status.toolCalls.length;
-      const recent = uniqueTools.slice(-3);
-      const chain = recent.join(" → ");
-      const extra = uniqueTools.length > 3 ? ` +${uniqueTools.length - 3}` : "";
-      lines.push(escapeMd(t("heartbeat_steps", locale, { count: String(stepCount), chain: `${chain}${extra}` })));
+      const uniqueTools = [...new Set(status.toolCalls)];
+      const chain = uniqueTools.slice(-3).join(" \\→ ");
+      const extra = uniqueTools.length > 3 ? ` \\+${uniqueTools.length - 3}` : "";
+      parts.push(`Step ${stepCount}\\: ${escapeMd(chain)}${extra}`);
+    }
+    
+    if (parts.length > 0) {
+      lines.push(parts.join(" \\| "));
     }
 
+    // Build line 3: cost (if any)
     if (status.cost > 0 || status.tokensInput > 0 || status.tokensOutput > 0) {
-      const costStr = status.cost > 0 ? `$${status.cost.toFixed(2)}` : "";
+      const costStr = status.cost > 0 ? `\\$${status.cost.toFixed(2)}` : "";
       const inStr = status.tokensInput > 0 ? `${formatTokens(status.tokensInput)} in` : "";
       const outStr = status.tokensOutput > 0 ? `${formatTokens(status.tokensOutput)} out` : "";
-      const parts = [costStr, inStr && outStr ? `${inStr} / ${outStr}` : inStr || outStr].filter(Boolean);
-      if (parts.length > 0) {
-        lines.push(escapeMd(t("heartbeat_cost", locale, { cost: parts.join(" · ") })));
+      const costParts = [costStr, inStr && outStr ? `${inStr} / ${outStr}` : inStr || outStr].filter(Boolean);
+      if (costParts.length > 0) {
+        lines.push(`💰 ${escapeMd(costParts.join(" · "))}`);
       }
     }
 
-    const text = lines.join("\n");
-    await this.bot.sendMessage(status.chatId, text, { parse_mode: "MarkdownV2" }).catch(() => {});
+    return lines.join("\n");
+  }
+
+  /**
+   * Rebuild and edit the status message with current state.
+   * Called on every phase change, tool start, and heartbeat tick.
+   */
+  private async refreshStatus(statusId: string): Promise<void> {
+    const status = this.pending.get(statusId);
+    if (!status || status.disposed) return;
+
+    const text = this.buildStatusText(status);
+    await this.update(statusId, text);
   }
 
   private doEdit(status: PendingStatus, text: string): void {

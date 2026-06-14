@@ -28,12 +28,18 @@ import {
   getOrCreateSession,
 } from "./session-manager.js";
 import { formatForTelegram, splitMessage } from "./format.js";
+import { escapeMd } from "./status-manager.js";
 import { isAllowed, retryAfter } from "./rate-limiter.js";
 import { existsSync } from "node:fs";
 import { StatusManager } from "./status-manager.js";
 import { detectLanguage, mapToSupported, t, LANGUAGE_NAMES } from "../i18n/index.js";
 
 const DEFAULT_MODEL = process.env.TELEGRAM_DEFAULT_MODEL || "opencode-go/mimo-v2.5";
+const DEBUG = process.env.DEBUG_BRIDGE === "true" || process.env.DEBUG === "true";
+
+function logDebug(msg: string, ...args: unknown[]): void {
+  if (DEBUG) console.log(`[bridge:debug] ${msg}`, ...args);
+}
 
 const DEFAULT_MODELS = [
   "opencode-go/mimo-v2.5",
@@ -88,6 +94,16 @@ export function initHandlers(
   }
 }
 
+/**
+ * Shutdown handlers — clean up all pending status messages.
+ * Call this during graceful bot shutdown.
+ */
+export async function shutdownHandlers(): Promise<void> {
+  if (statusMgr) {
+    await statusMgr.shutdown();
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Get or detect locale for a session from text */
@@ -121,13 +137,15 @@ export async function handleTextMessage(
   const text = msg.text;
   if (!text) return;
 
+  const chatKey = String(chatId);
+  logDebug(`handleTextMessage: chat=${chatKey}, text="${text.slice(0, 50)}...", session=${session.sessionId || "none"}`);
+
   if (!isAllowed(String(chatId))) {
     const locale = resolveLocale(session);
     await bot.sendMessage(chatId, t("rate_limited", locale, { retryAfter: String(retryAfter(String(chatId))) }));
     return;
   }
 
-  const chatKey = String(chatId);
   if (busyChats.has(chatKey)) {
     const queue = messageQueue.get(chatKey) || [];
     if (queue.length >= MAX_QUEUE_SIZE) {
@@ -138,7 +156,7 @@ export async function handleTextMessage(
     queue.push(text);
     messageQueue.set(chatKey, queue);
     const locale = resolveLocale(session);
-    await bot.sendMessage(chatId, t("queued", locale, { count: String(queue.length) }), {
+    await bot.sendMessage(chatId, escapeMd(t("queued", locale, { count: String(queue.length) })), {
       parse_mode: "MarkdownV2",
     });
     return;
@@ -172,14 +190,33 @@ export async function handleTextMessage(
     : null;
 
   try {
+    // Step 1: Create session if needed
     if (!session.sessionId) {
       sm?.update(t("creating_session", locale));
-      const ocSession = await ocCreateSession(`Telegram ${chatId}`);
-      session.sessionId = ocSession.id;
-      updateSession(String(chatId), { sessionId: ocSession.id });
+      logDebug(`handleTextMessage: creating OpenCode session for chat ${chatKey}`);
+      try {
+        const ocSession = await ocCreateSession(`Telegram ${chatId}`);
+        session.sessionId = ocSession.id;
+        updateSession(String(chatId), { sessionId: ocSession.id });
+        logDebug(`handleTextMessage: session created: ${ocSession.id}`);
+      } catch (err) {
+        const e = err as Error & { code?: string; cause?: unknown };
+        console.error(`[bridge] handleTextMessage: session creation FAILED for chat ${chatKey}`);
+        console.error(`[bridge]   error: ${e.message}`);
+        if (e.code) console.error(`[bridge]   code: ${e.code}`);
+        if (e.cause) {
+          const cause = e.cause as Error & { code?: string; syscall?: string };
+          console.error(`[bridge]   cause: ${cause.message || cause}`);
+          if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+          if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+        }
+        throw err;
+      }
     }
 
+    // Step 2: Subscribe to SSE events
     const ac = new AbortController();
+    logDebug(`handleTextMessage: subscribing to SSE events for session ${session.sessionId}`);
     const unsubscribe = ocSubscribeEvents(
       (event) => {
         if (!event.properties) return;
@@ -244,12 +281,27 @@ export async function handleTextMessage(
     // Prepend language instruction for non-English locales
     const prompt = langPrefix(locale) + text;
 
+    // Step 3: Send message to OpenCode
     let response;
     try {
       sm?.thinking();
+      logDebug(`handleTextMessage: sending message to session ${session.sessionId}`);
       response = await ocSendMessage(session.sessionId, parseModel(session.model), prompt);
+      logDebug(`handleTextMessage: message sent successfully, response has ${response.parts?.length || 0} parts`);
     } catch (err) {
-      if ((err as Error).message.includes("Session not found")) {
+      const e = err as Error & { code?: string; cause?: unknown };
+      console.error(`[bridge] handleTextMessage: message send FAILED for chat ${chatKey}`);
+      console.error(`[bridge]   session: ${session.sessionId}`);
+      console.error(`[bridge]   error: ${e.message}`);
+      if (e.code) console.error(`[bridge]   code: ${e.code}`);
+      if (e.cause) {
+        const cause = e.cause as Error & { code?: string; syscall?: string };
+        console.error(`[bridge]   cause: ${cause.message || cause}`);
+        if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+        if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+      }
+
+      if (e.message.includes("Session not found")) {
         sm?.update(t("session_expired", locale));
         const ocSession = await ocCreateSession(`Telegram ${chatId}`);
         session.sessionId = ocSession.id;
@@ -259,10 +311,11 @@ export async function handleTextMessage(
       } else {
         throw err;
       }
+    } finally {
+      // Always clean up SSE subscription and abort controller
+      unsubscribe();
+      ac.abort();
     }
-
-    unsubscribe();
-    ac.abort();
 
     const responseText = response.parts
       .filter((p) => p.type === "text")
@@ -306,7 +359,7 @@ export async function handleTextMessage(
     }
 
     const statusMsgId = sm?.getMessageId();
-    sm?.complete();
+    const stats = sm?.complete();
 
     const chunks = splitMessage(formatForTelegram(reply));
 
@@ -355,6 +408,16 @@ export async function handleTextMessage(
       messageQueue.delete(chatKey);
     }
   } catch (e) {
+    const err = e as Error & { code?: string; cause?: unknown };
+    console.error(`[bridge] handleTextMessage FAILED for chat ${chatKey}:`);
+    console.error(`[bridge]   error: ${err.message}`);
+    if (err.code) console.error(`[bridge]   code: ${err.code}`);
+    if (err.cause) {
+      const cause = err.cause as Error & { code?: string; syscall?: string };
+      console.error(`[bridge]   cause: ${cause.message || cause}`);
+      if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+      if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+    }
     sm?.cancel();
     busyChats.delete(chatKey);
     const nextMsg = messageQueue.get(chatKey)?.shift();
@@ -379,6 +442,9 @@ export async function handleVoiceMessage(
   const voice = msg.voice;
   if (!voice) return;
 
+  const chatKey = String(chatId);
+  logDebug(`handleVoiceMessage: chat=${chatKey}, mime=${voice.mime_type}, duration=${voice.duration}s`);
+
   if (!isAllowed(String(chatId))) {
     const locale = resolveLocale(session);
     await bot.sendMessage(chatId, t("rate_limited", locale, { retryAfter: String(retryAfter(String(chatId))) }));
@@ -395,9 +461,16 @@ export async function handleVoiceMessage(
   const statusId = await statusMgr.start(chatId, t("transcribing", locale), locale);
 
   try {
+    logDebug(`handleVoiceMessage: downloading file ${voice.file_id}`);
     const fileInfo = await fetchTelegramFile(voice.file_id);
+    logDebug(`handleVoiceMessage: file path=${fileInfo.file_path}`);
+
     const fileBuffer = await downloadTelegramFile(fileInfo.file_path);
+    logDebug(`handleVoiceMessage: downloaded ${fileBuffer.length} bytes`);
+
+    logDebug(`handleVoiceMessage: transcribing with ${sttAdapter.name}`);
     const sttResult = await sttAdapter.transcribe(fileBuffer, voice.mime_type || "audio/ogg");
+    logDebug(`handleVoiceMessage: transcription result: text="${sttResult.text?.slice(0, 50)}...", lang=${sttResult.language}, emotion=${sttResult.emotion}`);
 
     if (!sttResult.text || sttResult.text.trim().length === 0) {
       statusMgr.complete(statusId);
@@ -419,9 +492,23 @@ export async function handleVoiceMessage(
         ? t("voice_emotion_prefix", locale, { emotion: sttResult.emotion })
         : t("voice_prefix", locale);
 
-    const fakeMsg = { ...msg, text: `${emotionPrefix} ${sttResult.text}` };
+    // Pass detected language to LLM so it can use the correct TTS voice
+    const detectedLang = session.language || "en";
+    const langHint = `[Detected language: ${detectedLang}. Use TTS with this language.]\n`;
+    const fakeMsg = { ...msg, text: `${langHint}${emotionPrefix} ${sttResult.text}` };
+    logDebug(`handleVoiceMessage: forwarding to handleTextMessage`);
     await handleTextMessage(fakeMsg, bot, chatId, session, { skipStatus: true });
   } catch (e) {
+    const err = e as Error & { code?: string; cause?: unknown };
+    console.error(`[bridge] handleVoiceMessage FAILED for chat ${chatKey}:`);
+    console.error(`[bridge]   error: ${err.message}`);
+    if (err.code) console.error(`[bridge]   code: ${err.code}`);
+    if (err.cause) {
+      const cause = err.cause as Error & { code?: string; syscall?: string };
+      console.error(`[bridge]   cause: ${cause.message || cause}`);
+      if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+      if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+    }
     await statusMgr.cancel(statusId);
     await bot.sendMessage(chatId, t("voice_failed", locale, { error: sanitizeError(e) }));
   }
@@ -539,9 +626,20 @@ export async function handleCommand(
       break;
 
     case "/new":
-      deleteSession(String(chatId));
-      getOrCreateSession(String(chatId), DEFAULT_MODEL);
-      await bot.sendMessage(chatId, t("new_session", locale));
+      try {
+        // Create a new OpenCode session immediately
+        const ocSession = await ocCreateSession(`Telegram ${chatId}`);
+        deleteSession(String(chatId));
+        const newSession = getOrCreateSession(String(chatId), DEFAULT_MODEL);
+        newSession.sessionId = ocSession.id;
+        updateSession(String(chatId), { sessionId: ocSession.id });
+        await bot.sendMessage(chatId, t("new_session_created", locale));
+      } catch (e) {
+        // Fallback to local session creation if OpenCode is unavailable
+        deleteSession(String(chatId));
+        getOrCreateSession(String(chatId), DEFAULT_MODEL);
+        await bot.sendMessage(chatId, t("new_session", locale));
+      }
       break;
 
     case "/stop":

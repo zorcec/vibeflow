@@ -16,6 +16,7 @@ const de: Record<LocaleKeys, string> = {
   // ── Status messages ────────────────────────────────────────────────────────
   "thinking": "🤔 _Nachdenken..._",
   "writing": "📝 _Schreibe..._",
+  "responding": "💬 _Antworte..._",
   "running_tool": "🔧 _Ausführen: {tool}..._",
   "creating_session": "🔄 _Sitzung wird erstellt..._",
   "session_expired": "🔄 _Sitzung abgelaufen. Verbinde neu..._",
@@ -30,6 +31,9 @@ const de: Record<LocaleKeys, string> = {
   "phase_analyzing": "Analysiere",
   "phase_running_tool": "Führe Werkzeug aus",
   "phase_generating": "Generiere Antwort",
+  "phase_responding": "Antworte",
+  "phase_coding": "Code",
+  "phase_searching": "Suche",
 
   // ── Empty / error responses ────────────────────────────────────────────────
   "no_response": "(Keine Antwort vom Assistenten)",
@@ -38,9 +42,11 @@ const de: Record<LocaleKeys, string> = {
 
   // ── /start and /help ──────────────────────────────────────────────────────
   "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatte mit dem KI-Assistenten via OpenCode.\n\n*Befehle:*\n/new — Neues Gespräch starten\n/stop — Laufende Anfrage abbrechen\n/model — KI-Modell wechseln\n/sessions — Alle Gespräche anzeigen\n/switch — Zu einem Gespräch wechseln\n/delete — Aktuelles Gespräch löschen\n/history — Letzte Nachrichten anzeigen\n/providers — KI-Anbieter anzeigen\n/status — Verbindung prüfen\n/help — Diese Hilfe anzeigen\n\nSende Text- oder Sprachnachrichten.",
+  "bot_startup": "🚀 *Bot gestartet*\n\nIch bin wieder online und bereit zum Chatten\\!\n\nSende /help um verfügbare Befehle zu sehen\\.",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ Neue Sitzung erstellt. Sende eine Nachricht um zu starten.",
+  "new_session_created": "✅ Neue OpenCode-Sitzung erstellt. Sende eine Nachricht um zu chatten.",
 
   // ── /stop ──────────────────────────────────────────────────────────────────
   "stop_cancelled": "⏹️ Anfrage abgebrochen.",

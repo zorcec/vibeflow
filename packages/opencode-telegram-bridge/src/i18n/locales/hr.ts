@@ -16,6 +16,7 @@ const hr: Record<LocaleKeys, string> = {
   // ── Status messages ────────────────────────────────────────────────────────
   "thinking": "🤔 _Razmišljam..._",
   "writing": "📝 _Pišem..._",
+  "responding": "💬 _Odgovaram..._",
   "running_tool": "🔧 _Pokretanje: {tool}..._",
   "creating_session": "🔄 _Kreiranje sesije..._",
   "session_expired": "🔄 _Sesija istekla. Ponovno spajanje..._",
@@ -30,6 +31,9 @@ const hr: Record<LocaleKeys, string> = {
   "phase_analyzing": "Analiziram",
   "phase_running_tool": "Pokrećem alat",
   "phase_generating": "Generiram odgovor",
+  "phase_responding": "Odgovaram",
+  "phase_coding": "Kodiram",
+  "phase_searching": "Pretražujem",
 
   // ── Empty / error responses ────────────────────────────────────────────────
   "no_response": "(Nema odgovora od asistenta)",
@@ -38,9 +42,11 @@ const hr: Record<LocaleKeys, string> = {
 
   // ── /start and /help ──────────────────────────────────────────────────────
   "start_help": "👋 *OpenCode Telegram Bridge*\n\nChatajte s AI asistentom putem OpenCode-a.\n\n*Naredbe:*\n/new — Započni novi razgovor\n/stop — Prekini trenutni zahtjev\n/model — Promijeni AI model\n/sessions — Prikaži sve razgovore\n/switch — Prebaci se na razgovor\n/delete — Obriši trenutni razgovor\n/history — Prikaži nedavne poruke\n/providers — Prikaži AI pružatelje\n/status — Provjeri vezu\n/help — Prikaži ovu pomoć\n\nPošaljite tekstualne ili glasovne poruke.",
+  "bot_startup": "🚀 *Bot pokrenut*\n\nPonovno sam online i spreman za razgovor\\!\n\nPošaljite /help za dostupne naredbe\\.",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ Nova sesija kreirana. Pošaljite poruku za početak.",
+  "new_session_created": "✅ Nova OpenCode sesija kreirana. Pošaljite poruku za početak razgovora.",
 
   // ── /stop ──────────────────────────────────────────────────────────────────
   "stop_cancelled": "⏹️ Zahtjev otkazan.",

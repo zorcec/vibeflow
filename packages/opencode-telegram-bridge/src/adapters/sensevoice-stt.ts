@@ -16,7 +16,17 @@ import type { STTAdapter, STTResult } from "../types.js";
 import { validateUrl } from "../validate-url.js";
 
 const DEFAULT_SENSEVOICE_URL = "http://localhost:9001";
-const SAFE_EXTENSIONS = new Set([".wav", ".ogg", ".mp3"]);
+const SAFE_EXTENSIONS = new Set([".wav", ".ogg", ".mp3", ".webm", ".opus"]);
+
+/** Map MIME type to file extension */
+function mimeToExt(mimeType: string): string {
+  if (mimeType.includes("wav")) return ".wav";
+  if (mimeType.includes("ogg")) return ".ogg";
+  if (mimeType.includes("mp3")) return ".mp3";
+  if (mimeType.includes("webm")) return ".webm";
+  if (mimeType.includes("opus")) return ".opus";
+  throw new Error(`Unsupported audio format: ${mimeType}`);
+}
 
 export class SenseVoiceSTTAdapter implements STTAdapter {
   readonly name = "sensevoice";
@@ -30,18 +40,7 @@ export class SenseVoiceSTTAdapter implements STTAdapter {
   }
 
   async transcribe(buffer: Buffer, mimeType: string): Promise<STTResult> {
-    // Validate mimeType — only allow known audio formats
-    let ext: string;
-    if (mimeType.includes("wav")) {
-      ext = ".wav";
-    } else if (mimeType.includes("ogg")) {
-      ext = ".ogg";
-    } else if (mimeType.includes("mp3")) {
-      ext = ".mp3";
-    } else {
-      throw new Error(`Unsupported audio format: ${mimeType}`);
-    }
-
+    const ext = mimeToExt(mimeType);
     const ts = Date.now();
     const tmpIn = join(this.tmpDir, `stt-input-${ts}${ext}`);
     const tmpWav = join(this.tmpDir, `stt-output-${ts}.wav`);

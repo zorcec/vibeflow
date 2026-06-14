@@ -7,34 +7,88 @@
  */
 
 const OPENCODE_URL = process.env.OPENCODE_URL || "http://localhost:4096";
+const DEBUG = process.env.DEBUG_BRIDGE === "true" || process.env.DEBUG === "true";
+
+function logDebug(msg: string, ...args: unknown[]): void {
+  if (DEBUG) console.log(`[bridge:debug] ${msg}`, ...args);
+}
+
+function logError(context: string, err: unknown): void {
+  const e = err as Error & { cause?: unknown; code?: string };
+  console.error(`[bridge] ${context}:`, e.message);
+  if (e.code) console.error(`[bridge]   code: ${e.code}`);
+  if (e.cause) {
+    const cause = e.cause as Error & { code?: string; cause?: unknown };
+    console.error(`[bridge]   cause: ${cause.message || cause}`);
+    if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+    if (cause.cause) {
+      const cause2 = cause.cause as Error;
+      console.error(`[bridge]   cause.cause: ${cause2.message || cause2}`);
+    }
+  }
+  if (e.stack && DEBUG) {
+    console.error(`[bridge]   stack: ${e.stack.split("\n").slice(1, 4).join("\n   ")}`);
+  }
+}
 
 async function ocFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${OPENCODE_URL}${path}`, {
-    ...init,
-    signal: init?.signal ?? AbortSignal.timeout(1_800_000),
-  });
-  if (!res.ok) {
-    // Sanitize error — don't leak internal server response details
-    throw new Error(`OpenCode error ${res.status}`);
-  }
-  const data = await res.json();
-  const errObj =
-    data?.error || data?.info?.error || (data?.name?.includes("Error") ? data : null);
-  if (errObj) {
-    // Sanitize error — extract only safe message, strip internal details
-    const msg = errObj?.data?.message || errObj?.message;
-    if (typeof msg === "string") {
-      // Strip file paths, URLs, stack traces, internal identifiers
-      const sanitized = msg
-        .replace(/\/[a-zA-Z0-9_/.-]+\.(ts|js|json)/g, "[file]")
-        .replace(/https?:\/\/[^\s]+/g, "[url]")
-        .replace(/at\s+.*\n?/g, "")
-        .slice(0, 200);
-      throw new Error(sanitized || "OpenCode error");
+  const url = `${OPENCODE_URL}${path}`;
+  const method = init?.method || "GET";
+  const start = Date.now();
+
+  logDebug(`ocFetch ${method} ${url}`);
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(1_800_000),
+    });
+
+    const elapsed = Date.now() - start;
+    logDebug(`ocFetch ${method} ${url} -> ${res.status} (${elapsed}ms)`);
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[bridge] ocFetch ${method} ${url} failed: HTTP ${res.status}, body: ${body.slice(0, 200)}`);
+      throw new Error(`OpenCode error ${res.status}`);
     }
-    throw new Error("OpenCode error");
+    const data = await res.json();
+    const errObj =
+      data?.error || data?.info?.error || (data?.name?.includes("Error") ? data : null);
+    if (errObj) {
+      // Sanitize error — extract only safe message, strip internal details
+      const msg = errObj?.data?.message || errObj?.message;
+      if (typeof msg === "string") {
+        // Strip file paths, URLs, stack traces, internal identifiers
+        const sanitized = msg
+          .replace(/\/[a-zA-Z0-9_/.-]+\.(ts|js|json)/g, "[file]")
+          .replace(/https?:\/\/[^\s]+/g, "[url]")
+          .replace(/at\s+.*\n?/g, "")
+          .slice(0, 200);
+        throw new Error(sanitized || "OpenCode error");
+      }
+      throw new Error("OpenCode error");
+    }
+    return data;
+  } catch (err) {
+    const elapsed = Date.now() - start;
+    const e = err as Error & { code?: string; cause?: unknown };
+
+    // Distinguish between abort/timeout and real fetch failures
+    if (e.name === "AbortError" || e.name === "TimeoutError") {
+      console.error(`[bridge] ocFetch ${method} ${url} ABORTED after ${elapsed}ms: ${e.message}`);
+    } else if (e.cause) {
+      // Node.js fetch wraps network errors in cause
+      const cause = e.cause as Error & { code?: string; syscall?: string };
+      console.error(`[bridge] ocFetch ${method} ${url} FETCH FAILED after ${elapsed}ms: ${e.message}`);
+      console.error(`[bridge]   cause: ${cause.message || cause}`);
+      if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+      if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+    } else {
+      console.error(`[bridge] ocFetch ${method} ${url} ERROR after ${elapsed}ms: ${e.message}`);
+    }
+    throw err;
   }
-  return data;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -73,6 +127,7 @@ export function ocHealth(): Promise<OcHealth> {
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
 export function ocCreateSession(title: string): Promise<{ id: string; title: string }> {
+  logDebug(`ocCreateSession: title="${title}"`);
   return ocFetch("/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -96,6 +151,7 @@ export function ocSendMessage(
   text: string,
   signal?: AbortSignal,
 ): Promise<{ parts: Array<{ type: string; text?: string; tool?: string; [k: string]: unknown }> }> {
+  logDebug(`ocSendMessage: session=${sessionId}, model=${model.providerID}/${model.modelID}, text="${text.slice(0, 50)}..."`);
   return ocFetch(`/session/${sessionId}/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -141,6 +197,7 @@ export function ocSubscribeEvents(
   const ac = new AbortController();
   const sessionFilter = options?.sessionID;
   let active = true;
+  let eventCount = 0;
 
   if (options?.signal) {
     options.signal.addEventListener("abort", () => ac.abort(), { once: true });
@@ -148,14 +205,18 @@ export function ocSubscribeEvents(
 
   (async () => {
     try {
+      logDebug(`SSE connecting to ${OPENCODE_URL}/global/event (session=${sessionFilter || "all"})`);
       const res = await fetch(`${OPENCODE_URL}/global/event`, {
         signal: ac.signal,
         headers: { Accept: "text/event-stream" },
       });
 
       if (!res.ok || !res.body) {
+        console.error(`[bridge] SSE connection failed: HTTP ${res.status}`);
         throw new Error(`SSE connection failed: ${res.status}`);
       }
+
+      logDebug(`SSE connected (status=${res.status})`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -163,22 +224,37 @@ export function ocSubscribeEvents(
 
       while (active) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          logDebug(`SSE stream ended after ${eventCount} events`);
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const events = parseSSEBuffer(buffer);
         buffer = events.remainder;
 
         for (const event of events.parsed) {
+          eventCount++;
           if (sessionFilter && event.sessionID !== sessionFilter) {
             continue;
+          }
+          if (DEBUG && event.type !== "server.heartbeat") {
+            logDebug(`SSE event[${eventCount}]: ${event.type} session=${event.sessionID || "none"}`);
           }
           handler(event);
         }
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        console.error("[bridge] SSE error:", (err as Error).message);
+      const e = err as Error & { code?: string; cause?: unknown };
+      if (e.name === "AbortError") {
+        logDebug(`SSE aborted after ${eventCount} events`);
+      } else {
+        console.error(`[bridge] SSE error after ${eventCount} events: ${e.message}`);
+        if (e.cause) {
+          const cause = e.cause as Error & { code?: string };
+          console.error(`[bridge]   cause: ${cause.message || cause}`);
+          if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+        }
       }
     }
   })();

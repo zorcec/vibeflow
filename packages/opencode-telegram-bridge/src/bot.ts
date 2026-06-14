@@ -17,6 +17,7 @@ import {
   handleCommand,
   handleCallbackQuery,
   initHandlers,
+  shutdownHandlers,
 } from "./telegram/handlers.js";
 import { getOrCreateSession } from "./telegram/session-manager.js";
 import { ocHealth } from "./telegram/opencode-client.js";
@@ -117,7 +118,16 @@ export async function createBot(config: BridgeConfig): Promise<BotInstance> {
         await handleTextMessage(msg, bot, chatId, session);
       }
     } catch (e) {
-      console.error(`[bridge] Error handling message from ${chatId}:`, (e as Error).message);
+      const err = e as Error & { code?: string; cause?: unknown };
+      console.error(`[bridge] Error handling message from ${chatId}:`);
+      console.error(`[bridge]   error: ${err.message}`);
+      if (err.code) console.error(`[bridge]   code: ${err.code}`);
+      if (err.cause) {
+        const cause = err.cause as Error & { code?: string; syscall?: string };
+        console.error(`[bridge]   cause: ${cause.message || cause}`);
+        if (cause.code) console.error(`[bridge]   cause.code: ${cause.code}`);
+        if (cause.syscall) console.error(`[bridge]   cause.syscall: ${cause.syscall}`);
+      }
       const safeMsg = ((e as Error).message || "Unknown error")
         .replace(/https?:\/\/[^\s]+/g, "[redacted]")
         .replace(/bot\d+:[A-Za-z0-9_-]+/g, "[redacted]")
@@ -155,15 +165,15 @@ export async function createBot(config: BridgeConfig): Promise<BotInstance> {
   });
 
   // Graceful shutdown — only call process.exit for real signals, not for stop()
-  function cleanup() {
+  async function cleanup() {
+    await shutdownHandlers();
     bot.stopPolling();
     server.close();
   }
 
   function shutdown(signal: string) {
     console.log(`[bridge] Shutting down (${signal})`);
-    cleanup();
-    process.exit(0);
+    cleanup().then(() => process.exit(0)).catch(() => process.exit(1));
   }
 
   process.on("SIGINT", () => shutdown("SIGINT"));
@@ -171,10 +181,21 @@ export async function createBot(config: BridgeConfig): Promise<BotInstance> {
 
   console.log("[bridge] Bot ready — press Ctrl+C to stop");
 
+  // Send startup message to all allowed users
+  if (allowedUserIds.length > 0) {
+    const startupMsg = t("bot_startup", "en");
+    for (const userId of allowedUserIds) {
+      bot.sendMessage(parseInt(userId), startupMsg, { parse_mode: "MarkdownV2" })
+        .catch((err) => {
+          console.error(`[bridge] Failed to send startup message to ${userId}:`, (err as Error).message);
+        });
+    }
+  }
+
   return {
     bot,
     stop: () => {
-      cleanup();
+      cleanup().catch(() => {});
     },
   };
 }

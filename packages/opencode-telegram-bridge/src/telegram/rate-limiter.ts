@@ -1,6 +1,6 @@
 /**
  * Simple per-user rate limiter using sliding window counter.
- * Includes periodic cleanup to prevent memory exhaustion.
+ * Uses lazy cleanup — expired buckets are removed on access, not on a timer.
  */
 
 interface Bucket {
@@ -15,14 +15,14 @@ const MAX = Number.isFinite(MAX_RAW) && MAX_RAW > 0 ? MAX_RAW : 10;
 const WINDOW = Number.isFinite(WINDOW_RAW) && WINDOW_RAW > 0 ? WINDOW_RAW : 60_000;
 const MAX_BUCKETS = 10_000;
 
-/** Periodic cleanup of expired buckets to prevent memory leak */
-let lastCleanup = Date.now();
+/**
+ * Lazy cleanup: remove expired buckets when map grows too large.
+ * O(n) only when near capacity, otherwise O(1).
+ */
 function cleanupIfNeeded(): void {
-  const now = Date.now();
-  // Run cleanup every 5 minutes or when approaching limit
-  if (buckets.size < MAX_BUCKETS && now - lastCleanup < 300_000) return;
-  lastCleanup = now;
+  if (buckets.size < MAX_BUCKETS) return;
 
+  const now = Date.now();
   for (const [key, bucket] of buckets) {
     if (now > bucket.resetAt) {
       buckets.delete(key);
@@ -31,12 +31,13 @@ function cleanupIfNeeded(): void {
 }
 
 export function isAllowed(userId: string): boolean {
-  cleanupIfNeeded();
-
   const now = Date.now();
   const b = buckets.get(userId);
 
   if (!b || now > b.resetAt) {
+    // New bucket or expired — clean up this user's old entry if exists
+    if (b) buckets.delete(userId);
+    cleanupIfNeeded();
     buckets.set(userId, { count: 1, resetAt: now + WINDOW });
     return true;
   }
@@ -55,5 +56,4 @@ export function retryAfter(userId: string): number {
 /** Reset rate limiter state (for testing) */
 export function _resetRateLimiter(): void {
   buckets.clear();
-  lastCleanup = Date.now();
 }

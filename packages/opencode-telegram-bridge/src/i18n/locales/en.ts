@@ -14,6 +14,7 @@ const en = {
   // ── Status messages ────────────────────────────────────────────────────────
   "thinking": "🤔 _Thinking..._",
   "writing": "📝 _Writing..._",
+  "responding": "💬 _Responding..._",
   "running_tool": "🔧 _Running {tool}..._",
   "creating_session": "🔄 _Creating session..._",
   "session_expired": "🔄 _Session expired. Reconnecting..._",
@@ -28,6 +29,9 @@ const en = {
   "phase_analyzing": "Analyzing",
   "phase_running_tool": "Running tool",
   "phase_generating": "Generating response",
+  "phase_responding": "Responding",
+  "phase_coding": "Coding",
+  "phase_searching": "Searching",
 
   // ── Empty / error responses ────────────────────────────────────────────────
   "no_response": "(No response from assistant)",
@@ -35,10 +39,12 @@ const en = {
   "unknown_command": "Unknown command: {command}",
 
   // ── /start and /help ──────────────────────────────────────────────────────
-  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChat with the AI assistant via OpenCode.\n\n*Commands:*\n/new — Start fresh conversation\n/stop — Cancel running request\n/model — Switch AI model\n/sessions — List all conversations\n/switch — Switch to a conversation\n/delete — Delete current conversation\n/history — Show recent messages\n/providers — List AI providers\n/status — Check connection\n/help — Show this help\n\nSend text or voice messages to chat.",
+  "start_help": "👋 *OpenCode Telegram Bridge*\n\nChat with the AI assistant via OpenCode\\.\n\n*Commands:*\n/new — Start fresh conversation\n/stop — Cancel running request\n/model — Switch AI model\n/sessions — List all conversations\n/switch — Switch to a conversation\n/delete — Delete current conversation\n/history — Show recent messages\n/providers — List AI providers\n/status — Check connection\n/help — Show this help\n\nSend text or voice messages to chat\\.",
+  "bot_startup": "🚀 *Bot Started*\n\nI'm back online and ready to chat\\!\n\nSend /help to see available commands\\.",
 
   // ── /new ───────────────────────────────────────────────────────────────────
   "new_session": "✅ New session created. Send a message to start.",
+  "new_session_created": "✅ New OpenCode session created. Send a message to start chatting.",
 
   // ── /stop ──────────────────────────────────────────────────────────────────
   "stop_cancelled": "⏹️ Request cancelled.",

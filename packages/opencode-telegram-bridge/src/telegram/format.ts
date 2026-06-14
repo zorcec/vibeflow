@@ -8,7 +8,7 @@
 const MAX_MSG_LENGTH = 4096;
 
 /** Characters that must be escaped in MarkdownV2 (outside code/link elements) */
-const MDV2_ESCAPE_RE = /([_*\[\]()~`>#+=|{}.!\\-])/g;
+const MDV2_ESCAPE_RE = /([_*\[\]()~`>#+=|{}.!\\\-])/g;
 
 /**
  * Format opencode markdown response for Telegram MarkdownV2.
