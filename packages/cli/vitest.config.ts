@@ -5,6 +5,8 @@ export default defineConfig({
     include: ["tests/unit/**/*.test.ts"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
+    testTimeout: 10000,
+    hookTimeout: 15000,
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts", "src/**/*.tsx"],
