@@ -19,7 +19,7 @@ import {
   updateComment,
   deleteComment,
 } from "../core/comments.js";
-import { listFiles, getFileCount } from "../core/files.js";
+import { listFiles } from "../core/files.js";
 import { getCopilotAuthStatus, isGhCliAvailable } from "../core/copilot-auth.js";
 import type { Task } from "../core/types.js";
 
@@ -64,8 +64,8 @@ export const appRouter = router({
     const tasksWithMeta = tasks.map((task) => ({
       ...task,
       createdAt: task.created,
-      commentCount: (task.comments ?? []).length,
-      fileCount: getFileCount(ctx.projectDir, task.id),
+      commentCount: (task.comments ?? []).filter((c) => !c.deleted).length,
+      fileCount: task.files?.length ?? 0,
     }));
     return { tasks: tasksWithMeta };
   }),
@@ -92,8 +92,8 @@ export const appRouter = router({
         .map((task) => ({
           score: 1,
           task,
-          commentCount: (task.comments ?? []).length,
-          fileCount: getFileCount(ctx.projectDir, task.id),
+          commentCount: (task.comments ?? []).filter((c) => !c.deleted).length,
+          fileCount: task.files?.length ?? 0,
         }));
       return { results: matches };
     }),
@@ -156,6 +156,9 @@ export const appRouter = router({
           reportBack: z.boolean().optional(),
           agent: z.string().optional(),
           model: z.string().optional(),
+          tags: z.array(z.string().max(50)).max(20).optional(),
+          sortKey: z.string().optional(),
+          branchName: z.string().optional(),
         }),
       }),
     )
@@ -163,7 +166,7 @@ export const appRouter = router({
       const updated = updateTask(
         ctx.projectDir,
         input.id,
-        input.updates as Partial<Pick<Task, "status" | "title" | "description" | "type" | "priority" | "reportBack" | "agent" | "model">>,
+        input.updates as Partial<Pick<Task, "status" | "title" | "description" | "type" | "priority" | "reportBack" | "agent" | "model" | "tags" | "sortKey" | "branchName">>,
       );
       if (!updated) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });

@@ -228,7 +228,6 @@ function registerTaskApi(
     }
 
     const gitUser = getGitUser(projectDir);
-    const VALID_CREATE_STATUSES = ["backlog", "todo", "in-progress", "review", "done"] as const;
     const task = createTask(projectDir, {
       title,
       description: description || "",
@@ -976,7 +975,6 @@ function registerTrpcApi(
  * Returns a plain JSON error without stack traces to prevent information disclosure.
  */
 function useErrorHandler(app: express.Application): void {
-   
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error("[Vibeflow] Unhandled error:", err.message);
     res.status(500).json({ error: "Internal server error" });

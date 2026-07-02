@@ -366,7 +366,9 @@ export function App() {
 
   function runSelectedAgents(taskIds: string[]) {
     for (const id of taskIds) {
-      runAgent(id, 'claude-sonnet-4-5');
+      const task = tasksRef.current.find((t) => t.id === id);
+      const model = task?.model ?? appSettings.defaultModel ?? 'claude-sonnet-4-5';
+      runAgent(id, model);
     }
     setSelectMode(false);
     setSelectedTaskIds(new Set());
@@ -515,7 +517,9 @@ export function App() {
     if (!id) return;
     const incomingCreated = incoming.created ?? incoming.createdAt;
     const updated = incoming.updated ? String(incoming.updated) : undefined;
-    const commentCount = Array.isArray(incoming.comments) ? incoming.comments.length : undefined;
+    const commentCount = Array.isArray(incoming.comments)
+      ? (incoming.comments as Array<{ deleted?: boolean }>).filter((c) => !c.deleted).length
+      : undefined;
     const fileCount = Array.isArray(incoming.files) ? incoming.files.length : undefined;
     const newStatus = incoming.status ? String(incoming.status) as TaskStatus : undefined;
 
