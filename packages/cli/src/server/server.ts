@@ -39,8 +39,13 @@ import { getGitUser } from "../core/git-user.js";
 import type { FSWatcher } from "chokidar";
 
 /** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings (30 chars, 15 random bytes). */
-function isValidTaskId(id: string): boolean {
+export function isValidTaskId(id: string): boolean {
   return /^[a-f0-9]{30}$/.test(id);
+}
+
+/** Validates opencode model/agent identifiers to prevent option injection. */
+export function isSafeAgentArg(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._\-/]{0,79}$/.test(value);
 }
 
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
@@ -639,6 +644,8 @@ function registerMetaApis(
     const { taskId, model, agent } = req.body as { taskId?: string; model?: string; agent?: string };
     if (!taskId) { res.status(400).json({ error: "taskId is required" }); return; }
     if (!isValidTaskId(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
+    if (model && !isSafeAgentArg(model)) { res.status(400).json({ error: "Invalid model" }); return; }
+    if (agent && !isSafeAgentArg(agent)) { res.status(400).json({ error: "Invalid agent" }); return; }
 
     // Read the task to build a meaningful message for opencode
     const taskFilePath = findTaskFilePath(projectDir, taskId);
@@ -754,6 +761,7 @@ function registerMetaApis(
     if (!requireSameOrigin(req, res)) return;
     const { taskId } = req.body as { taskId?: string };
     if (!taskId) { res.status(400).json({ error: "taskId is required" }); return; }
+    if (!isValidTaskId(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
 
     const child = activeAgentRuns.get(taskId);
     if (!child) {
