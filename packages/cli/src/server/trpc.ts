@@ -75,7 +75,6 @@ export const appRouter = router({
       z.object({
         query: z.string().min(1),
         limit: z.number().int().min(1).max(100).optional(),
-        pageScope: z.string().optional(),
       }),
     )
     .query(({ ctx, input }) => {
