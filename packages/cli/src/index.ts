@@ -275,9 +275,11 @@ For coding agents — quick reference:
   vibeflow tasks --status todo         Filter to open tasks
   vibeflow tasks --tag <tag>           Filter by tag (repeatable for AND)
   vibeflow tasks --get <id>            Full task details
+  vibeflow tasks --next                Pick highest-priority todo task (auto-claims)
   vibeflow tasks --edit <id> --set-status in-progress
   vibeflow serve [target]              Start local server / prototype viewer
   vibeflow kanban                      Open the Kanban board in browser
+  vibeflow watch [dir]                 Watch task store; print new + moved-to-todo tickets
 
 Task statuses: backlog | todo | in-progress | review | done
 
@@ -294,7 +296,7 @@ File attachments:
   You can attach .md reports and other files to any task.
   Files are stored in .vibeflow/ and visible in the Kanban Files tab.
   Upload via the API:
-    POST /api/tasks/<id>/files?filename=report.md
+    POST /api/tasks/<id>/files/<filename>
     Content-Type: application/octet-stream
     <file binary body>
   List:   GET  /api/tasks/<id>/files
