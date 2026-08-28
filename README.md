@@ -50,6 +50,7 @@ vibeflow tasks --next
 | `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
+| `vibeflow watch [dir]` | Watch the task store and print ticket details for important updates |
 | `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
 
 ### `vibeflow kanban [dir]`
@@ -112,6 +113,17 @@ vibeflow tasks --edit <id> --set-status review \
 **Task types:** Task · Bug · Feature · Enhancement · Research  
 **Task statuses:** backlog → todo → in-progress → review → done  
 **Priorities:** Critical · High · Medium · Low
+
+### `vibeflow watch [dir]`
+
+```bash
+vibeflow watch                    # watch the current directory's task store
+vibeflow watch ./my-project       # watch a specific project
+```
+
+Runs until interrupted (Ctrl+C) and prints full ticket details whenever a task is
+newly created or moved back to `todo` — handy as a driver for AI-agent loops that
+react to new work.
 
 ### `vibeflow telemetry`
 
