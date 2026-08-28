@@ -1,9 +1,8 @@
 import React from 'react';
-import { Search, Settings, X, ChevronRight, Bot } from 'lucide-react';
+import { Search, Settings, X, ChevronRight } from 'lucide-react';
 import { VibeflowIcon } from '../../VibeflowIcon';
 import { HeaderActionButton } from './shared/HeaderActionButton';
 import { getTagColors } from '../tag-colors';
-import type { AgentRun } from '../types';
 
 interface Props {
   projectName: string;
@@ -23,18 +22,6 @@ interface Props {
   onSettings: () => void;
   extraActions?: React.ReactNode;
   taskSummary: string;
-  /** Active agent runs — shown as a compact status chip in the header. */
-  agentRuns?: AgentRun[];
-  /** Whether multi-select mode is currently active. */
-  selectMode?: boolean;
-  /** Number of selected tasks (shown in minimalistic indicator). */
-  selectedCount?: number;
-  /** Number of active (running + queued) agent runs. */
-  agentQueueCount?: number;
-  /** Open the agent queue side panel. */
-  onOpenAgentQueue?: () => void;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
 }
 
 export function Header({
@@ -42,12 +29,6 @@ export function Header({
   filterTags, allTags, onToggleTag,
   backHref, backLabel,
   onSearchChange, onSettings, extraActions, taskSummary,
-  agentRuns,
-  selectMode,
-  selectedCount,
-  agentQueueCount,
-  onOpenAgentQueue,
-  experimentalAgents,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [dropdownIdx, setDropdownIdx] = React.useState(0);
@@ -267,67 +248,6 @@ export function Header({
       {/* Actions */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {extraActions}
-
-        {experimentalAgents === true && agentRuns && agentRuns.length > 0 && (
-          <span
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 600,
-              border: '1px solid color-mix(in srgb, var(--p-blue) 40%, transparent)',
-              background: 'color-mix(in srgb, var(--p-blue) 10%, transparent)',
-              color: 'var(--p-blue-300)', flexShrink: 0,
-            }}
-            title={`${agentRuns.filter(r => r.status === 'running').length} running · ${agentRuns.filter(r => r.status === 'queued').length} queued`}
-          >
-            <span className="spinner" style={{ width: 9, height: 9, borderWidth: 1.5 }} />
-            {agentRuns.filter(r => r.status === 'running').length} running
-            {agentRuns.filter(r => r.status === 'queued').length > 0 && (
-              <> · {agentRuns.filter(r => r.status === 'queued').length} queued</>
-            )}
-          </span>
-        )}
-
-        {experimentalAgents === true && onOpenAgentQueue && agentQueueCount !== undefined && agentQueueCount > 0 && (
-          <HeaderActionButton
-            id="btn-agent-queue"
-            title="Agent Queue"
-            onClick={onOpenAgentQueue}
-            label={`🤖 Queue ${agentQueueCount}`}
-            icon={<Bot className="w-3.5 h-3.5" />}
-          />
-        )}
-
-        {selectMode && (
-          <span
-            id="select-mode-indicator"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 500,
-              border: '1px solid color-mix(in srgb, var(--p-blue) 35%, transparent)',
-              background: 'color-mix(in srgb, var(--p-blue) 10%, transparent)',
-              color: 'var(--p-blue-300)', flexShrink: 0,
-            }}
-          >
-            <span
-              style={{
-                width: 6, height: 6, borderRadius: '50%', background: 'var(--p-blue)',
-                animation: 'pulse-live 1.5s ease-in-out infinite',
-              }}
-            />
-            select{selectedCount != null && selectedCount > 0 ? ` · ${selectedCount}` : ''}
-            <kbd
-              style={{
-                fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
-                background: 'color-mix(in srgb, var(--p-blue) 18%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--p-blue) 30%, transparent)',
-                borderRadius: 3, padding: '0 4px', lineHeight: '16px',
-                color: 'var(--p-blue-300)', letterSpacing: '0.02em',
-              }}
-            >
-              esc
-            </kbd>
-          </span>
-        )}
 
         <HeaderActionButton
           id="header-shortcuts-hint"

@@ -89,31 +89,10 @@ export interface Column {
   glow?: boolean;
 }
 
-export type AgentStatus = 'idle' | 'queued' | 'running' | 'done' | 'failed';
-
-export interface AgentRun {
-  taskId: string;
-  taskTitle: string;
-  status: AgentStatus;
-  model?: string;
-  worktree?: string;
-  branch?: string;
-  startedAt?: string;
-  completedAt?: string;
-  logs: string[];
-  /** Session metadata captured from opencode JSON output */
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
-  cost?: number;
-  durationMs?: number;
-}
-
 export interface PanelState {
   open: boolean;
   task: Task | null;
-  tab: 'details' | 'comments' | 'files' | 'agent';
+  tab: 'details' | 'comments' | 'files';
   addColumnId?: TaskStatus;
 }
 
@@ -139,20 +118,6 @@ export interface AppSettings {
   autoComment?: boolean;
   autoPush?: boolean;
   createBranch?: boolean;
-  /** Default model for agent runs (overall fallback) */
-  defaultModel?: string;
-  /** Default agent for agent runs (fallback when task has no agent set) */
-  defaultAgent?: string;
-  /** When true, use per-type default models instead of the overall default */
-  perTypeModels?: boolean;
-  /** Default model for Bug tasks */
-  defaultModelBug?: string;
-  /** Default model for Research tasks */
-  defaultModelResearch?: string;
-  /** Default model for Task tasks */
-  defaultModelTask?: string;
-  /** When true, show agent-related UI features (experimental) */
-  experimentalAgents?: boolean;
 }
 
 /** Abstract API interface for kanban operations – implemented differently by CLI (fetch) and web (tRPC). */
@@ -175,8 +140,4 @@ export interface KanbanApi {
   saveSettings(settings: Record<string, unknown>): Promise<void>;
   /** Optional WebSocket URL for real-time updates (CLI only). */
   wsUrl?(): string;
-  /** Get available models from OpenCode CLI */
-  getModels?(): Promise<{ models: { id: string; label: string; provider: string; recommended?: boolean }[]; error: string | null }>;
-  /** Get available agents from OpenCode CLI */
-  getAgents?(): Promise<{ agents: { id: string; name: string; scope: string }[]; error: string | null }>;
 }

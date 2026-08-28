@@ -17,18 +17,6 @@ export interface ProtoSettings {
   autoComment?: boolean;
   autoPush?: boolean;
   createBranch?: boolean;
-  /** Default model for agent runs (overall fallback) */
-  defaultModel?: string;
-  /** When true, use per-type default models instead of the overall default */
-  perTypeModels?: boolean;
-  /** Default model for Bug tasks */
-  defaultModelBug?: string;
-  /** Default model for Research tasks */
-  defaultModelResearch?: string;
-  /** Default model for Task tasks */
-  defaultModelTask?: string;
-  /** When true, show agent-related UI features (experimental) */
-  experimentalAgents?: boolean;
   _settingsRefreshedAt?: number;
 }
 

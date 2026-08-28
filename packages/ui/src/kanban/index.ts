@@ -15,8 +15,6 @@ export type {
   KanbanApi,
   LiveActivity,
   LiveActivityState,
-  AgentStatus,
-  AgentRun,
 } from './types';
 
 // Kanban shared utilities
@@ -45,8 +43,7 @@ export { SettingsModal } from './components/SettingsModal';
 export { ConfirmModal } from './components/ConfirmModal';
 export { FilePreviewModal } from './components/FilePreviewModal';
 export { ModalBase } from './components/ModalBase';
-export { AgentTab } from './components/AgentTab';
-export { AgentQueuePanel } from './components/AgentQueuePanel';
+
 
 // Shared sub-components
 export { HeaderActionButton } from './components/shared/HeaderActionButton';

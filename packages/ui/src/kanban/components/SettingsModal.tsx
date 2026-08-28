@@ -1,11 +1,10 @@
 import React from 'react';
-import { X, Settings, Layout, ShieldCheck, Bot } from 'lucide-react';
+import { X, Settings, Layout, ShieldCheck } from 'lucide-react';
 import type { TaskStatus, AppSettings } from '../types';
 import { COLUMNS } from './KanbanBoard';
 import { ModalBase } from './ModalBase';
-import { ModelPicker, AgentPicker, DEFAULT_MODELS } from './AgentTab';
 
-type SettingsTab = 'board' | 'enforcement' | 'agent';
+type SettingsTab = 'board' | 'enforcement';
 
 interface Props {
   open: boolean;
@@ -13,33 +12,20 @@ interface Props {
   settings: AppSettings;
   onClose: () => void;
   onSave: (visibleCols: TaskStatus[], settings: Partial<AppSettings>) => void;
-  /** Available models from OpenCode CLI */
-  models?: { id: string; label: string; provider: string; recommended?: boolean }[];
-  /** Available agents from OpenCode CLI */
-  agents?: { id: string; name: string; scope: string }[];
 }
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'board', label: 'Board', icon: <Layout className="w-3.5 h-3.5" /> },
   { id: 'enforcement', label: 'Enforcement', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
-  { id: 'agent', label: 'Agent', icon: <Bot className="w-3.5 h-3.5" /> },
 ];
 
-export function SettingsModal({ open, visibleCols, settings, onClose, onSave, models, agents }: Props) {
-  const availableModels = models && models.length > 0 ? models : DEFAULT_MODELS;
+export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: Props) {
   const [activeTab, setActiveTab] = React.useState<SettingsTab>('board');
   const [colState, setColState] = React.useState<Record<TaskStatus, boolean>>({} as Record<TaskStatus, boolean>);
   const [autoCommit, setAutoCommit] = React.useState(settings.autoCommit ?? false);
   const [autoComment, setAutoComment] = React.useState(settings.autoComment ?? false);
   const [autoPush, setAutoPush] = React.useState(settings.autoPush ?? false);
   const [createBranch, setCreateBranch] = React.useState(settings.createBranch ?? false);
-  const [defaultModel, setDefaultModel] = React.useState(settings.defaultModel ?? '');
-  const [defaultAgent, setDefaultAgent] = React.useState(settings.defaultAgent ?? 'build');
-  const [perTypeModels, setPerTypeModels] = React.useState(settings.perTypeModels ?? false);
-  const [defaultModelBug, setDefaultModelBug] = React.useState(settings.defaultModelBug ?? '');
-  const [defaultModelResearch, setDefaultModelResearch] = React.useState(settings.defaultModelResearch ?? '');
-  const [defaultModelTask, setDefaultModelTask] = React.useState(settings.defaultModelTask ?? '');
-  const [experimentalAgents, setExperimentalAgents] = React.useState(settings.experimentalAgents ?? false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -50,19 +36,12 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
     setAutoComment(settings.autoComment ?? false);
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
-    setDefaultModel(settings.defaultModel ?? '');
-    setDefaultAgent(settings.defaultAgent ?? 'build');
-    setPerTypeModels(settings.perTypeModels ?? false);
-    setDefaultModelBug(settings.defaultModelBug ?? '');
-    setDefaultModelResearch(settings.defaultModelResearch ?? '');
-    setDefaultModelTask(settings.defaultModelTask ?? '');
-    setExperimentalAgents(settings.experimentalAgents ?? false);
     setActiveTab('board');
   }, [open, visibleCols, settings]);
 
   function handleApply() {
     const newCols = COLUMNS.filter(c => colState[c.id]).map(c => c.id);
-    onSave(newCols, { autoCommit, autoComment, autoPush, createBranch, defaultModel, defaultAgent, perTypeModels, defaultModelBug, defaultModelResearch, defaultModelTask, experimentalAgents });
+    onSave(newCols, { autoCommit, autoComment, autoPush, createBranch });
     onClose();
   }
 
@@ -178,115 +157,6 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave, mo
         </div>
       )}
 
-      {/* Tab: Agent */}
-      {activeTab === 'agent' && (
-        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Experimental toggle */}
-          <div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 4 }}>
-              <input
-                id="settings-experimental-agents"
-                type="checkbox"
-                checked={experimentalAgents}
-                onChange={() => setExperimentalAgents(!experimentalAgents)}
-                style={{ width: 14, height: 14, accentColor: 'var(--p-purple)', cursor: 'pointer' }}
-              />
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--p-text-m)' }}>Enable agent features (experimental)</span>
-            </label>
-            <div style={{ fontSize: 11, color: 'var(--p-text-g)', marginLeft: 24 }}>Agent runs, queue, and model selection are experimental and may change.</div>
-          </div>
-
-          {!experimentalAgents && (
-            <div style={{ padding: 16, borderRadius: 8, background: 'var(--p-bg-2)', border: '1px dashed var(--p-border)', textAlign: 'center', fontSize: 12, color: 'var(--p-text-g)' }}>
-              Agent features are disabled. Toggle above to enable.
-            </div>
-          )}
-
-          {experimentalAgents && (
-            <>
-              <div>
-                <div className="dp-meta-label" style={{ marginBottom: 6 }}>Default Model</div>
-                <div style={{ fontSize: 11, color: 'var(--p-text-g)', marginBottom: 10 }}>This model will be pre-selected when running the agent on a task.</div>
-                <ModelPicker
-                  value={defaultModel}
-                  onChange={(id) => setDefaultModel(id === defaultModel ? '' : id)}
-                  models={availableModels}
-                />
-              </div>
-
-              {defaultModel && (
-                <div style={{ padding: 10, borderRadius: 7, background: 'color-mix(in srgb, var(--p-green) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--p-green) 30%, transparent)', fontSize: 11, color: 'var(--p-green-300)' }}>
-                  ✓ Default model set to: <strong>{availableModels.find(m => m.id === defaultModel)?.label}</strong>
-                </div>
-              )}
-
-              {/* Default Agent */}
-              <div>
-                <div className="dp-meta-label" style={{ marginBottom: 6 }}>Default Agent</div>
-                <div style={{ fontSize: 11, color: 'var(--p-text-g)', marginBottom: 10 }}>This agent will be used when running agent on a task without a specific agent set.</div>
-                <AgentPicker
-                  value={defaultAgent}
-                  onChange={(id) => setDefaultAgent(id)}
-                  agents={agents ?? []}
-                />
-              </div>
-
-              {defaultAgent && (
-                <div style={{ padding: 10, borderRadius: 7, background: 'color-mix(in srgb, var(--p-purple) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--p-purple) 30%, transparent)', fontSize: 11, color: 'var(--p-purple-300)' }}>
-                  ✓ Default agent set to: <strong>{agents?.find(a => a.id === defaultAgent)?.name ?? defaultAgent}</strong>
-                </div>
-              )}
-
-              {/* Separator */}
-              <div style={{ height: 1, background: 'var(--p-border)', margin: '4px 0' }} />
-
-              {/* Per-type models */}
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 4 }}>
-                  <input
-                    id="settings-per-type-models"
-                    type="checkbox"
-                    checked={perTypeModels}
-                    onChange={() => setPerTypeModels(!perTypeModels)}
-                    style={{ width: 14, height: 14, accentColor: 'var(--p-purple)', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--p-text-m)' }}>Use different models per task type</span>
-                </label>
-                <div style={{ fontSize: 11, color: 'var(--p-text-g)', marginLeft: 24 }}>Override the default model for specific task types.</div>
-              </div>
-
-              {perTypeModels && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 24 }}>
-                  <TypeModelPicker
-                    id="dp-type-model-picker-bug"
-                    label="Bug"
-                    color="var(--p-red)"
-                    value={defaultModelBug}
-                    onChange={(id) => setDefaultModelBug(id === defaultModelBug ? '' : id)}
-                    models={availableModels}
-                  />
-                  <TypeModelPicker
-                    id="dp-type-model-picker-research"
-                    label="Research"
-                    color="var(--p-blue)"
-                    value={defaultModelResearch}
-                    onChange={(id) => setDefaultModelResearch(id === defaultModelResearch ? '' : id)}
-                    models={availableModels}
-                  />
-                  <TypeModelPicker
-                    id="dp-type-model-picker-task"
-                    label="Task"
-                    color="var(--p-green)"
-                    value={defaultModelTask}
-                    onChange={(id) => setDefaultModelTask(id === defaultModelTask ? '' : id)}
-                    models={availableModels}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </ModalBase>
   );
 }
@@ -315,29 +185,4 @@ function WorkflowToggle({ id, label, description, value, onChange }: WorkflowTog
   );
 }
 
-interface TypeModelPickerProps {
-  id: string;
-  label: string;
-  color: string;
-  value: string;
-  onChange: (id: string) => void;
-  models: { id: string; label: string; provider: string; recommended?: boolean }[];
-}
 
-function TypeModelPicker({ id, label, color, value, onChange, models }: TypeModelPickerProps) {
-  const selectedModel = models.find(m => m.id === value);
-  return (
-    <div id={id}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--p-text-m)' }}>{label}</span>
-      </div>
-      <ModelPicker value={value} onChange={onChange} models={models} />
-      {selectedModel && (
-        <div style={{ fontSize: 10, color: 'var(--p-text-g)', marginTop: 4, paddingLeft: 4 }}>
-          → {selectedModel.label}
-        </div>
-      )}
-    </div>
-  );
-}

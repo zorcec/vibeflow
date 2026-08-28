@@ -1,6 +1,6 @@
 import React from 'react';
-import { X, Upload, Play, Square, Trash2 } from 'lucide-react';
-import type { Task, Comment, FileEntry, TaskStatus, TaskType, Priority, KanbanApi, AgentRun } from '../types';
+import { X, Upload } from 'lucide-react';
+import type { Task, Comment, FileEntry, TaskStatus, TaskType, Priority, KanbanApi } from '../types';
 import { TypePicker } from './shared/TypePicker';
 import { CommentsList } from './shared/CommentsList';
 import type { LocalChange } from './shared/CommentsList';
@@ -8,7 +8,6 @@ import { FilesList } from './shared/FilesList';
 import { TaskDetailsTab } from './shared/TaskDetailsTab';
 import { CommentsInputArea } from './shared/CommentsInputArea';
 import { ConfirmModal } from './ConfirmModal';
-import { AgentTab } from './AgentTab';
 
 import { getTaskTypeColor } from '../../task-types';
 
@@ -42,7 +41,7 @@ function PasteHintBanner({ storageKey = PASTE_HINT_KEY }: { storageKey?: string 
   );
 }
 
-type Tab = 'details' | 'comments' | 'files' | 'agent';
+type Tab = 'details' | 'comments' | 'files';
 
 const STATUS_BUTTONS: { id: TaskStatus; label: string }[] = [
   { id: 'backlog', label: 'backlog' },
@@ -81,34 +80,6 @@ interface Props {
   navBackLabel?: string;
   /** Monotonically increasing counter that triggers a comment/badge refetch when bumped. */
   commentVersion?: number;
-  /** Active agent run for the currently open task, if any. */
-  agentRun?: AgentRun;
-  /** Request to start an agent on a task. */
-  onRunAgent?: (taskId: string, model: string, agent?: string) => void;
-  /** Request to stop a running agent. */
-  onStopAgent?: (taskId: string) => void;
-  /** Request to remove a queued agent run. */
-  onDequeueAgent?: (taskId: string) => void;
-  /** Available models from OpenCode CLI */
-  models?: { id: string; label: string; provider: string; recommended?: boolean }[];
-  /** Default model from user settings */
-  defaultModel?: string;
-  /** When true, use per-type default models */
-  perTypeModels?: boolean;
-  /** Default model for Bug tasks */
-  defaultModelBug?: string;
-  /** Default model for Research tasks */
-  defaultModelResearch?: string;
-  /** Default model for Task tasks */
-  defaultModelTask?: string;
-  /** Available agents from OpenCode CLI */
-  agents?: { id: string; name: string; scope: string }[];
-  /** Default agent from user settings — used when task has no agent set */
-  defaultAgent?: string;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
-  /** Base URL of the local CLI server (e.g. "http://localhost:5174"). When set, agent runs are dispatched to it. */
-  cliBaseUrl?: string;
   /** When true, enforce branch name input when setting status to review. */
   createBranch?: boolean;
 }
@@ -148,20 +119,6 @@ export function DetailPanel({
   onGoBack, navBackLabel,
   commentVersion,
   allTasks = [],
-  agentRun,
-  onRunAgent,
-  onStopAgent,
-  onDequeueAgent,
-  models,
-  defaultModel,
-  perTypeModels,
-  defaultModelBug,
-  defaultModelResearch,
-  defaultModelTask,
-  agents,
-  defaultAgent,
-  experimentalAgents,
-  cliBaseUrl,
   createBranch,
 }: Props) {
   const isAdd = !task;
@@ -192,53 +149,6 @@ export function DetailPanel({
   const [branchName, setBranchName] = React.useState('');
   const [showBranchPrompt, setShowBranchPrompt] = React.useState(false);
   const pendingReviewPatchRef = React.useRef<{ taskId: string; patch: Partial<Task> } | null>(null);
-
-  // Agent tab state — initialized from task or default model so "Run Agent"
-  // uses the displayed model even when the user never touches the dropdown.
-  // Resolves default model: task.model → per-type default → overall default → first available model → ''
-  const fallbackModel = models && models.length > 0 ? models[0].id : '';
-  const resolvedDefaultModel = React.useMemo(() => {
-    if (perTypeModels && task?.type) {
-      if (task.type === 'Bug' && defaultModelBug) return defaultModelBug;
-      if (task.type === 'Research' && defaultModelResearch) return defaultModelResearch;
-      if (task.type === 'Task' && defaultModelTask) return defaultModelTask;
-    }
-    return defaultModel ?? fallbackModel;
-  }, [perTypeModels, task?.type, defaultModel, defaultModelBug, defaultModelResearch, defaultModelTask, fallbackModel]);
-
-  const [agentModel, setAgentModel] = React.useState(task?.model ?? resolvedDefaultModel);
-  const [agentAgent, setAgentAgent] = React.useState(task?.agent ?? defaultAgent ?? '');
-
-  // When models load after the panel is open, apply the fallback default so
-  // "Run Agent" uses the same model shown in the picker.
-  React.useEffect(() => {
-    if (!agentModel && resolvedDefaultModel) {
-      setAgentModel(resolvedDefaultModel);
-    }
-  }, [resolvedDefaultModel, agentModel]);
-
-  // When agents load after the panel is open, apply the fallback default so
-  // "Run Agent" uses the same agent shown in the picker.
-  React.useEffect(() => {
-    if (!agentAgent && defaultAgent) {
-      setAgentAgent(defaultAgent);
-    }
-  }, [defaultAgent, agentAgent]);
-
-  // Persist model/agent selection to the task when changed in the Agent tab
-  const handleAgentModelChange = React.useCallback((model: string) => {
-    setAgentModel(model);
-    if (task && model !== task.model) {
-      onPatch(task.id, { model });
-    }
-  }, [task, onPatch]);
-
-  const handleAgentAgentChange = React.useCallback((agent: string) => {
-    setAgentAgent(agent);
-    if (task && agent !== task.agent) {
-      onPatch(task.id, { agent });
-    }
-  }, [task, onPatch]);
 
   // Tab data
   const [comments, setComments] = React.useState<Comment[]>([]);
@@ -296,13 +206,9 @@ export function DetailPanel({
       if (isResizingRef.current) return;
       // Allow clicks on portaled autocomplete dropdowns (rendered outside the panel DOM).
       if ((e.target as Element)?.closest?.('[data-task-ref-suggest]')) return;
-      // Allow clicks inside any modal overlay (FilePreviewModal, SettingsModal, AgentRunnerModal, etc.)
+      // Allow clicks inside any modal overlay (FilePreviewModal, SettingsModal, etc.)
       // They render outside the panel DOM but should not close the panel.
       if ((e.target as Element)?.closest?.('.modal-backdrop')) return;
-      // Allow clicks on portaled model picker dropdown
-      if ((e.target as Element)?.closest?.('[data-model-picker-dropdown]')) return;
-      // Allow clicks on portaled agent picker dropdown
-      if ((e.target as Element)?.closest?.('[data-agent-picker-dropdown]')) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         // If a "send comment?" modal is already shown, don't trigger another one
         if (showCommentSendConfirmRef.current) return;
@@ -352,8 +258,6 @@ export function DetailPanel({
     setFileCount(0);
     setLocalChanges([]);
     setDraftTags([]);
-    setAgentModel(task?.model ?? resolvedDefaultModel);
-    setAgentAgent(task?.agent ?? '');
     setBranchName(task?.branchName ?? '');
     setShowBranchPrompt(false);
     pendingReviewPatchRef.current = null;
@@ -414,11 +318,9 @@ export function DetailPanel({
     if (task.status && task.status !== status) setStatus(task.status);
     if (task.type && task.type !== type) setType(task.type);
     if (task.priority !== undefined && task.priority !== priority) setPriority(task.priority ?? '');
-    if (task.model && task.model !== agentModel) setAgentModel(task.model);
-    if (task.agent && task.agent !== agentAgent) setAgentAgent(task.agent);
     const externalBranchName = task.branchName ?? '';
     if (externalBranchName !== branchName) setBranchName(externalBranchName);
-  }, [task?.title, task?.description, task?.status, task?.type, task?.priority, task?.model, task?.agent, task?.branchName]);
+  }, [task?.title, task?.description, task?.status, task?.type, task?.priority, task?.branchName]);
 
   // Refetch comments/badge counts when another user adds a comment (commentVersion bumps)
   React.useEffect(() => {
@@ -879,25 +781,6 @@ export function DetailPanel({
           <button className={`dp-tab${activeTab === 'files' ? ' active' : ''}`} id="dp-tab-files" onClick={() => setActiveTab('files')}>
             Files {fileCount > 0 && <span id="dp-file-count" style={{ color: 'var(--p-text-g)', fontSize: 10 }}>({fileCount})</span>}
           </button>
-          {experimentalAgents === true && (
-            <button
-              className={`dp-tab${activeTab === 'agent' ? ' active' : ''}`}
-              id="dp-tab-agent"
-              onClick={() => setActiveTab('agent')}
-              style={{ color: activeTab === 'agent' ? '#c4b5fd' : undefined, borderBottomColor: activeTab === 'agent' ? '#a78bfa' : undefined }}
-            >
-              🤖 Agent
-              {agentRun && agentRun.status !== 'idle' && (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: 14, height: 12, borderRadius: 10, fontSize: 9, fontWeight: 700,
-                  background: '#a78bfa', color: '#fff', marginLeft: 4,
-                }}>
-                  {agentRun.status === 'running' ? '●' : agentRun.status === 'queued' ? '⏳' : '✓'}
-                </span>
-              )}
-            </button>
-          )}
         </div>
       )}
 
@@ -1003,31 +886,6 @@ export function DetailPanel({
           </div>
         </div>
 
-        {/* ── Agent pane ── */}
-        {experimentalAgents === true && (
-          <div
-            className="dp-pane"
-            id="dp-agent-pane"
-            style={{ display: activeTab === 'agent' && !isAdd && task ? '' : 'none' }}
-          >
-            {task && (
-              <AgentTab
-                task={task}
-                run={agentRun}
-                onRun={(taskId, model, agent) => onRunAgent?.(taskId, model, agent)}
-                onStop={onStopAgent ?? (() => {})}
-                onDequeue={onDequeueAgent ?? (() => {})}
-                models={models}
-                defaultModel={defaultModel}
-                defaultAgent={defaultAgent}
-                onModelChange={handleAgentModelChange}
-                agents={agents}
-                onAgentChange={handleAgentAgentChange}
-                cliAvailable={!!cliBaseUrl}
-              />
-            )}
-          </div>
-        )}
       </div>
 
       {/* Footer */}
@@ -1064,62 +922,6 @@ export function DetailPanel({
               onMouseOut={(e) => { e.currentTarget.style.background = 'var(--p-blue)'; }}
             >Add Task</button>
           </>
-        ) : experimentalAgents === true && activeTab === 'agent' && task ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flex: 1 }}>
-            {(!agentRun || agentRun.status === 'idle') && (
-              <button
-                id="dp-run-agent"
-                disabled={!cliBaseUrl}
-                onClick={() => onRunAgent?.(task.id, agentModel, agentAgent || undefined)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '5px 14px', borderRadius: 7, border: '1px solid var(--p-purple)',
-                  background: cliBaseUrl ? 'var(--p-purple)' : 'var(--p-surface)', color: cliBaseUrl ? '#fff' : 'var(--p-text-g)', fontSize: 12, fontWeight: 600,
-                  cursor: cliBaseUrl ? 'pointer' : 'not-allowed', transition: 'background .12s',
-                }}
-                onMouseEnter={(e) => { if (cliBaseUrl) e.currentTarget.style.background = '#9333ea'; }}
-                onMouseLeave={(e) => { if (cliBaseUrl) e.currentTarget.style.background = 'var(--p-purple)'; }}
-                title={!cliBaseUrl ? 'Local CLI server not connected. Run "vibeflow serve" and refresh.' : undefined}
-              >
-                <Play style={{ width: 12, height: 12 }} />
-                Run Agent
-              </button>
-            )}
-            {agentRun?.status === 'running' && (
-              <button
-                id="dp-stop-agent"
-                onClick={() => onStopAgent?.(task.id)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '5px 14px', borderRadius: 7, border: '1px solid var(--p-red)',
-                  background: 'color-mix(in srgb, var(--p-red) 15%, transparent)', color: 'var(--p-red)',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'background .12s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-red) 25%, transparent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-red) 15%, transparent)'; }}
-              >
-                <Square style={{ width: 12, height: 12 }} />
-                Stop
-              </button>
-            )}
-            {agentRun?.status === 'queued' && (
-              <button
-                id="dp-dequeue-agent"
-                onClick={() => onDequeueAgent?.(task.id)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '5px 14px', borderRadius: 7, border: '1px solid var(--p-red)',
-                  background: 'color-mix(in srgb, var(--p-red) 15%, transparent)', color: 'var(--p-red)',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'background .12s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-red) 25%, transparent)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-red) 15%, transparent)'; }}
-              >
-                <Trash2 style={{ width: 12, height: 12 }} />
-                Dequeue
-              </button>
-            )}
-          </div>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--p-text-g)', padding: '5px 4px' }}>Changes are saved automatically</span>
         )}

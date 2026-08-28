@@ -1,8 +1,8 @@
 import React from 'react';
-import { Plus, Play, X } from 'lucide-react';
-import type { Task, Column, TaskStatus, LiveActivity, AgentStatus } from '../types';
+import { Plus } from 'lucide-react';
+import type { Task, Column, TaskStatus, LiveActivity } from '../types';
 import { TaskCard } from './TaskCard';
-import { compareTaskOrder, computeReorder, generateSortKeyBetween } from '../utils';
+import { compareTaskOrder, computeReorder } from '../utils';
 
 const COLUMNS: Column[] = [
   { id: 'backlog',      label: 'Backlog',      color: 'var(--p-text-f)',    accent: 'color-mix(in srgb, var(--p-text-g) 20%, transparent)' },
@@ -44,29 +44,13 @@ interface Props {
   searchQuery: string;
   isLoading?: boolean;
   liveActivities?: Map<string, LiveActivity>;
-  onOpenPanel: (task: Task | null, tab?: 'details' | 'comments' | 'files' | 'agent', columnId?: TaskStatus) => void;
+  onOpenPanel: (task: Task | null, tab?: 'details' | 'comments' | 'files', columnId?: TaskStatus) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
   /** Called when a task is dropped at a specific position within/across columns. */
   onReorder?: (taskId: string, newStatus: TaskStatus, beforeId: string | null, afterId: string | null, explicitSortKey?: string) => void;
-  /** Multi-select mode state. */
-  selectMode?: boolean;
-  /** Currently selected task IDs. */
-  selectedTaskIds?: Set<string>;
-  /** Toggle selection of a task. */
-  onToggleSelect?: (taskId: string) => void;
-  /** Called when a long-press activates select mode. */
-  onEnterSelectMode?: (taskId: string) => void;
-  /** Map of taskId -> agent status for visual indicators. */
-  agentStatuses?: Map<string, AgentStatus>;
-  /** Called when the user clicks "Run Agents" on the multi-select toolbar. */
-  onRunSelectedAgents?: (taskIds: string[]) => void;
-  /** Called when the user exits multi-select mode. */
-  onExitSelectMode?: () => void;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
 }
 
-export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveActivities, onOpenPanel, onDrop, onReorder, selectMode, selectedTaskIds, onToggleSelect, onEnterSelectMode, agentStatuses, onRunSelectedAgents, onExitSelectMode, experimentalAgents }: Props) {
+export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveActivities, onOpenPanel, onDrop, onReorder }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
@@ -77,9 +61,6 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
   // at drop time when dragleave briefly clears it while moving between cards through the gap.
   const dragTaskIdRef = React.useRef<string | null>(null);
   const cardDropTargetRef = React.useRef<DropTarget | null>(null);
-  // Multi-select drag: when dragging a selected task in select mode, all selected tasks move together.
-  const [multiDragIds, setMultiDragIds] = React.useState<string[]>([]);
-  const multiDragIdsRef = React.useRef<string[]>([]);
 
   const filtered = searchQuery
     ? tasks.filter(t =>
@@ -155,12 +136,6 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
     dragTaskIdRef.current = taskId;
     setDragTaskId(taskId);
     e.dataTransfer.effectAllowed = 'move';
-    // Always cancel multiselect when a drag starts — dragging is a single-task operation.
-    if (selectMode) {
-      onExitSelectMode?.();
-    }
-    multiDragIdsRef.current = [];
-    setMultiDragIds([]);
   }
 
   function handleDragOver(e: React.DragEvent, colId: string) {
@@ -190,64 +165,7 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
     const dragging = dragTaskIdRef.current;
     dragTaskIdRef.current = null;
     setDragTaskId(null);
-    const multiIds = multiDragIdsRef.current;
-    multiDragIdsRef.current = [];
-    setMultiDragIds([]);
     if (!dragging) return;
-
-    // Multi-select drop: reorder all selected tasks and place them at the drop position,
-    // preserving their original relative order.
-    if (multiIds.length > 1 && onReorder) {
-      // Sort selected tasks by their current order so relative order is preserved
-      const sortedMultiIds = multiIds
-        .map(id => tasks.find(t => t.id === id)!)
-        .filter(Boolean)
-        .sort(compareTaskOrder)
-        .map(t => t.id);
-
-      // Build the target column with selected tasks inserted at the drop position
-      const targetColTasks = tasks
-        .filter(t => t.status === colId)
-        .sort(compareTaskOrder);
-
-      // Remove selected tasks from target column (they may already be in it)
-      const filteredTargetTasks = targetColTasks.filter(t => !multiIds.includes(t.id));
-
-      // Determine insertion index based on drop target
-      let insertIndex: number;
-      if (target) {
-        const targetIndex = filteredTargetTasks.findIndex(t => t.id === target.taskId);
-        insertIndex = target.position === 'before' ? targetIndex : targetIndex + 1;
-      } else {
-        insertIndex = filteredTargetTasks.length;
-      }
-
-      // Build the final column array with selected tasks inserted
-      const selectedTasks = sortedMultiIds.map(id => tasks.find(t => t.id === id)!);
-      const finalTasks = [
-        ...filteredTargetTasks.slice(0, insertIndex),
-        ...selectedTasks,
-        ...filteredTargetTasks.slice(insertIndex),
-      ];
-
-      // Compute sort keys incrementally using a mutable key map so each selected
-      // task gets a key relative to the previously-moved task's new key.
-      const keyMap = new Map<string, string | null>();
-      for (const t of finalTasks) keyMap.set(t.id, t.sortKey ?? null);
-
-      for (let i = 0; i < finalTasks.length; i++) {
-        const task = finalTasks[i];
-        if (!multiIds.includes(task.id)) continue;
-        const beforeId = i > 0 ? finalTasks[i - 1].id : null;
-        const afterId = i < finalTasks.length - 1 ? finalTasks[i + 1].id : null;
-        const beforeKey = beforeId ? keyMap.get(beforeId) ?? null : null;
-        const afterKey = afterId ? keyMap.get(afterId) ?? null : null;
-        const newSortKey = generateSortKeyBetween(beforeKey, afterKey);
-        keyMap.set(task.id, newSortKey);
-        onReorder(task.id, colId, beforeId, afterId, newSortKey);
-      }
-      return;
-    }
 
     if (onReorder && target) {
       // Dropped onto a specific card — compute before/after neighbours
@@ -274,11 +192,7 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
     setDragOver(null);
     cardDropTargetRef.current = null;
     setCardDropTarget(null);
-    multiDragIdsRef.current = [];
-    setMultiDragIds([]);
   }
-
-  const selectedCount = selectedTaskIds?.size ?? 0;
 
   return (
     <>
@@ -325,63 +239,10 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
               onDragStart={handleDragStart}
               onCardDragOver={handleCardDragOver}
               cardDropTarget={cardDropTarget}
-              selectMode={selectMode}
-              selectedTaskIds={selectedTaskIds}
-              onToggleSelect={onToggleSelect}
-              onEnterSelectMode={onEnterSelectMode}
-              agentStatuses={experimentalAgents === true ? agentStatuses : undefined}
-              experimentalAgents={experimentalAgents}
-              multiDragIds={multiDragIds}
             />
           );
         })}
       </main>
-
-      {/* Multi-select floating toolbar */}
-      {experimentalAgents === true && selectMode && selectedCount > 0 && (
-        <div
-          style={{
-            position: 'fixed', bottom: 14, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 45, display: 'flex', alignItems: 'center', gap: 10,
-            background: 'var(--p-surface)', border: '1px solid var(--p-border-s)',
-            borderRadius: 10, padding: '8px 14px',
-            boxShadow: '0 -4px 24px rgba(0,0,0,0.4)',
-          }}
-        >
-          <span style={{ fontSize: 12, color: 'var(--p-text-m)', fontWeight: 500 }}>
-            <strong style={{ color: 'var(--p-text)' }}>{selectedCount}</strong> task{selectedCount !== 1 ? 's' : ''} selected
-          </span>
-          <div style={{ width: 1, height: 16, background: 'var(--p-border)' }} />
-          <button
-            onClick={() => onRunSelectedAgents?.(Array.from(selectedTaskIds!))}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '5px 12px', borderRadius: 6, border: '1px solid var(--p-purple)',
-              background: 'var(--p-purple)', color: '#fff', fontSize: 11, fontWeight: 600,
-              cursor: 'pointer', transition: 'background .12s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#9333ea'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--p-purple)'; }}
-          >
-            <Play style={{ width: 10, height: 10 }} />
-            Run Agents ({selectedCount})
-          </button>
-          <button
-            onClick={onExitSelectMode}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '5px 10px', borderRadius: 6, border: '1px solid var(--p-border)',
-              background: 'transparent', color: 'var(--p-text-m)', fontSize: 11,
-              cursor: 'pointer', transition: 'all .12s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--p-border-s)'; e.currentTarget.style.color = 'var(--p-text)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--p-border)'; e.currentTarget.style.color = 'var(--p-text-m)'; }}
-          >
-            <X style={{ width: 10, height: 10 }} />
-            Clear
-          </button>
-        </div>
-      )}
 
       {/* Custom horizontal scrollbar */}
       <div
@@ -411,23 +272,13 @@ interface ColumnProps {
   onDragLeave: (e: React.DragEvent) => void;
   onStatusChange: (taskId: string, nextStatus: TaskStatus) => void;
   onAddTask: () => void;
-  onOpenTask: (task: Task, tab?: 'details' | 'comments' | 'files' | 'agent') => void;
+  onOpenTask: (task: Task, tab?: 'details' | 'comments' | 'files') => void;
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
   cardDropTarget: DropTarget | null;
-  selectMode?: boolean;
-  selectedTaskIds?: Set<string>;
-  onToggleSelect?: (taskId: string) => void;
-  /** Called when a long-press activates select mode. */
-  onEnterSelectMode?: (taskId: string) => void;
-  agentStatuses?: Map<string, AgentStatus>;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
-  /** Task IDs being dragged together in multi-select mode. */
-  multiDragIds?: string[];
 }
 
-function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDragOver, onDrop, onDragLeave, onStatusChange, onAddTask, onOpenTask, onDragStart, onCardDragOver, cardDropTarget, selectMode, selectedTaskIds, onToggleSelect, onEnterSelectMode, agentStatuses, experimentalAgents, multiDragIds }: ColumnProps) {
+function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDragOver, onDrop, onDragLeave, onStatusChange, onAddTask, onOpenTask, onDragStart, onCardDragOver, cardDropTarget }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
   const dotClass = col.id === 'in-progress' ? 'sd-inprogress' : `sd-${col.id}`;
 
@@ -500,13 +351,6 @@ function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDra
                   liveActivity={liveActivities?.get(task.id)}
                   onOpen={onOpenTask}
                   onDragStart={onDragStart}
-                  selectMode={selectMode}
-                  selected={selectedTaskIds?.has(task.id)}
-                  onToggleSelect={onToggleSelect}
-                  onEnterSelectMode={onEnterSelectMode}
-                  agentStatus={agentStatuses?.get(task.id)}
-                  experimentalAgents={experimentalAgents}
-                  multiDragCount={multiDragIds && multiDragIds.length > 1 && multiDragIds[0] === task.id ? multiDragIds.length : undefined}
                 />
                 {cardDropTarget?.taskId === task.id && cardDropTarget.position === 'after' && (
                   <div style={{ height: 2, borderRadius: 1, background: col.color, margin: '2px 0' }} />

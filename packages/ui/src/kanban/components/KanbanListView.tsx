@@ -25,11 +25,9 @@ interface Props {
   searchQuery: string;
   isLoading?: boolean;
   liveActivities?: Map<string, LiveActivity>;
-  onOpenPanel: (task: Task, tab?: 'details' | 'comments' | 'files' | 'agent') => void;
+  onOpenPanel: (task: Task, tab?: 'details' | 'comments' | 'files') => void;
   onAddTask: (status: TaskStatus) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
 }
 
 function SkeletonListRow() {
@@ -47,7 +45,7 @@ function SkeletonListRow() {
   );
 }
 
-export function KanbanListView({ tasks, searchQuery, isLoading, liveActivities, onOpenPanel, onAddTask, onDrop, experimentalAgents }: Props) {
+export function KanbanListView({ tasks, searchQuery, isLoading, liveActivities, onOpenPanel, onAddTask, onDrop }: Props) {
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState<TaskStatus | null>(null);
   const [dragOverRowId, setDragOverRowId] = React.useState<string | null>(null);
@@ -197,7 +195,6 @@ export function KanbanListView({ tasks, searchQuery, isLoading, liveActivities, 
                     setDragTaskId(null);
                     setDragOverRowId(null);
                   }}
-                  experimentalAgents={experimentalAgents}
                 />
               ))}
             </div>
@@ -224,10 +221,9 @@ interface RowProps {
   onDragOver: () => void;
   onDragLeave: () => void;
   onDropToStatus: () => void;
-  experimentalAgents?: boolean;
 }
 
-function ListRow({ task, liveActivity, onOpen, onDragStart, dragOver, onDragOver, onDragLeave, onDropToStatus, experimentalAgents }: RowProps) {
+function ListRow({ task, liveActivity, onOpen, onDragStart, dragOver, onDragOver, onDragLeave, onDropToStatus }: RowProps) {
   const [hovered, setHovered] = React.useState(false);
   const typeIcon = TYPE_ICONS[task.type ?? 'Task'] ?? '☑';
   const commentCount = task.commentCount ?? 0;

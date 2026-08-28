@@ -210,17 +210,4 @@ describe("appRouter tRPC", () => {
       expect(files[0].name).toBe("doc.txt");
     });
   });
-
-  describe("models", () => {
-    it("returns an error when opencode is not available", async () => {
-      const { execSync } = await import("node:child_process");
-      vi.mocked(execSync).mockImplementation(() => {
-        throw new Error("command not found");
-      });
-
-      const result = await caller.models();
-      expect(result.error).toBeTruthy();
-      expect(result.models).toEqual([]);
-    });
-  });
 });

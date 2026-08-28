@@ -268,39 +268,6 @@ export const appRouter = router({
       return { files };
     }),
 
-  // ── Models ─────────────────────────────────────────────────────────────────
-
-  models: procedure.query(async () => {
-    try {
-      const { execSync } = await import("node:child_process");
-      const output = execSync("opencode models", { encoding: "utf-8", timeout: 10000, stdio: "pipe" });
-      const modelIds = output
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith("#"));
-
-      // Parse provider/model format into structured data
-      const models = modelIds.map((id) => {
-        const parts = id.split("/");
-        const provider = parts[0] || "other";
-        const modelId = parts.slice(1).join("/") || id;
-        // Generate a human-readable label
-        const label = modelId
-          .replace(/-/g, " ")
-          .replace(/(\d+\.\d+)/, "v$1")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
-
-        return { id, label, provider };
-      });
-
-      return { models, error: null };
-    } catch (err) {
-      // OpenCode not installed or command failed
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return { models: [], error: `OpenCode not found: ${message}` };
-    }
-  }),
-
 });
 
 export type AppRouter = typeof appRouter;

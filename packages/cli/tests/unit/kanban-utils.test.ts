@@ -1,30 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compareTaskOrder, computeReorder } from "@vibeflow-tools/ui/kanban";
 
-/**
- * Helper that mirrors the model resolution logic in DetailPanel:
- * task.model → per-type default → overall default → ''
- */
-function resolveDefaultModel(
-  taskModel: string | undefined,
-  taskType: string | undefined,
-  perTypeModels: boolean | undefined,
-  defaults: {
-    defaultModel?: string;
-    defaultModelBug?: string;
-    defaultModelResearch?: string;
-    defaultModelTask?: string;
-  },
-): string {
-  if (taskModel) return taskModel;
-  if (perTypeModels && taskType) {
-    if (taskType === 'Bug' && defaults.defaultModelBug) return defaults.defaultModelBug;
-    if (taskType === 'Research' && defaults.defaultModelResearch) return defaults.defaultModelResearch;
-    if (taskType === 'Task' && defaults.defaultModelTask) return defaults.defaultModelTask;
-  }
-  return defaults.defaultModel ?? '';
-}
-
 describe("compareTaskOrder", () => {
   it("sorts by sortKey ascending when both have keys", () => {
     const a = { sortKey: "0000000000000002", createdAt: "2024-01-02" };
@@ -121,53 +97,5 @@ describe("computeReorder", () => {
     const result = computeReorder(colTasks, "c", "b", null);
     expect(result.normalizationPatches.length).toBeGreaterThan(0);
     expect(result.normalizationPatches[0].sortKey).not.toBe("n");
-  });
-});
-
-describe("resolveDefaultModel", () => {
-  it("uses task.model when set", () => {
-    expect(resolveDefaultModel('custom-model', 'Bug', true, { defaultModelBug: 'bug-model' })).toBe('custom-model');
-  });
-
-  it("uses per-type default when perTypeModels is true and type matches", () => {
-    const defaults = {
-      defaultModel: 'overall-default',
-      defaultModelBug: 'bug-model',
-      defaultModelResearch: 'research-model',
-      defaultModelTask: 'task-model',
-    };
-    expect(resolveDefaultModel(undefined, 'Bug', true, defaults)).toBe('bug-model');
-    expect(resolveDefaultModel(undefined, 'Research', true, defaults)).toBe('research-model');
-    expect(resolveDefaultModel(undefined, 'Task', true, defaults)).toBe('task-model');
-  });
-
-  it("falls back to overall default when perTypeModels is false", () => {
-    const defaults = {
-      defaultModel: 'overall-default',
-      defaultModelBug: 'bug-model',
-    };
-    expect(resolveDefaultModel(undefined, 'Bug', false, defaults)).toBe('overall-default');
-  });
-
-  it("falls back to overall default when per-type model is not set", () => {
-    const defaults = {
-      defaultModel: 'overall-default',
-      defaultModelResearch: 'research-model',
-    };
-    // Bug type has no per-type default, so falls back to overall
-    expect(resolveDefaultModel(undefined, 'Bug', true, defaults)).toBe('overall-default');
-  });
-
-  it("returns empty string when no defaults are set", () => {
-    expect(resolveDefaultModel(undefined, 'Bug', true, {})).toBe('');
-    expect(resolveDefaultModel(undefined, 'Task', false, {})).toBe('');
-  });
-
-  it("handles unknown task types by falling back to overall default", () => {
-    const defaults = {
-      defaultModel: 'overall-default',
-      defaultModelBug: 'bug-model',
-    };
-    expect(resolveDefaultModel(undefined, 'Unknown', true, defaults)).toBe('overall-default');
   });
 });

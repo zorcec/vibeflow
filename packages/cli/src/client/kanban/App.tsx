@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import type { Task, TaskStatus, PanelState, AppSettings, AgentRun, AgentStatus } from '@vibeflow-tools/ui/kanban';
-import { KanbanHeader as Header, KanbanBoard, COLUMNS, KanbanListView, DetailPanel, FilterBar, SettingsModal, FilePreviewModal, AgentQueuePanel, computeReorder, compareTaskOrder } from '@vibeflow-tools/ui/kanban';
+import type { Task, TaskStatus, PanelState, AppSettings } from '@vibeflow-tools/ui/kanban';
+import { KanbanHeader as Header, KanbanBoard, COLUMNS, KanbanListView, DetailPanel, FilterBar, SettingsModal, FilePreviewModal, computeReorder, compareTaskOrder } from '@vibeflow-tools/ui/kanban';
 import type { FilterState } from '@vibeflow-tools/ui/kanban';
 import { api } from './api.js';
 
@@ -243,8 +243,6 @@ export function App() {
   const [githubUrl, setGithubUrl] = React.useState<string | null>(null);
   const [premiumUsage, setPremiumUsage] = React.useState('');
   const [appSettings, setAppSettings] = React.useState<AppSettings>({});
-  const [models, setModels] = React.useState<{ id: string; label: string; provider: string }[]>([]);
-  const [agents, setAgents] = React.useState<{ id: string; name: string; scope: string }[]>([]);
   const wsRef = React.useRef<WebSocket | null>(null);
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const consumedHashTaskRef = React.useRef<string | null>(null);
@@ -255,124 +253,6 @@ export function App() {
   const tasksRef = React.useRef<Task[]>([]);
   // In-session log of status changes for the detail panel activity tab.
   const [statusChangeLog, setStatusChangeLog] = React.useState<StatusEntry[]>([]);
-  // ── Agent queue state (v1: single agent execution) ───────────────────────
-  const [agentRuns, setAgentRuns] = React.useState<AgentRun[]>([]);
-  const [selectMode, setSelectMode] = React.useState(false);
-  const [selectedTaskIds, setSelectedTaskIds] = React.useState<Set<string>>(new Set());
-  const [agentQueueOpen, setAgentQueueOpen] = React.useState(false);
-
-  function runAgent(taskId: string, model: string, agent?: string) {
-    const task = tasksRef.current.find((t) => t.id === taskId);
-    if (!task) return;
-    // Move task to in-progress when agent starts
-    if (task.status !== 'in-progress') {
-      patchTask(taskId, { status: 'in-progress' });
-    }
-    // Use task agent, or fall back to default agent from settings
-    const effectiveAgent = agent || task.agent || appSettings.defaultAgent || 'build';
-    const command = `opencode run --model ${model} --agent ${effectiveAgent} --dangerously-skip-permissions --format json -- ...`;
-
-    // Optimistically add entry so UI updates immediately
-    setAgentRuns((prev) => {
-      if (prev.some((r) => r.taskId === taskId && (r.status === 'running' || r.status === 'queued'))) return prev;
-      const hasRunning = prev.some((r) => r.status === 'running');
-      const newRun: AgentRun = {
-        taskId,
-        taskTitle: task.title,
-        status: hasRunning ? 'queued' : 'running',
-        model,
-        worktree: `wt/task-${taskId.slice(0, 8)}`,
-        branch: `agent/task-${taskId.slice(0, 8)}`,
-        startedAt: hasRunning ? undefined : new Date().toISOString(),
-        logs: hasRunning ? ['⏳ Queued — waiting for current run to finish'] : ['▶ Starting agent run…', `$ ${command}`],
-      };
-      return [...prev, newRun];
-    });
-
-    // Call the server to spawn opencode — the server will broadcast events
-    // that update the agentRuns state via WebSocket (deduped if already present).
-    fetch(`${baseUrl}/api/agent/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, model, agent: effectiveAgent }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to start agent' }));
-        setAgentRuns((prev) =>
-          prev.map((r) =>
-            r.taskId === taskId
-              ? { ...r, status: 'failed' as AgentStatus, logs: [...r.logs, `✗ ${err.error ?? 'Failed to start agent'}`] }
-              : r,
-          ),
-        );
-      }
-    }).catch((err) => {
-      setAgentRuns((prev) =>
-        prev.map((r) =>
-          r.taskId === taskId
-            ? { ...r, status: 'failed' as AgentStatus, logs: [...r.logs, `✗ Network error: ${err.message}`] }
-            : r,
-        ),
-      );
-    });
-  }
-
-  function stopAgent(taskId: string) {
-    // Call the server to stop the opencode process
-    fetch(`${baseUrl}/api/agent/stop`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId }),
-    }).catch(() => {});
-
-    setAgentRuns((prev) => {
-      const wasRunning = prev.some((r) => r.taskId === taskId && r.status === 'running');
-      const updated = prev.map((r) =>
-        r.taskId === taskId && r.status === 'running'
-          ? { ...r, status: 'failed' as AgentStatus, logs: [...r.logs, '✗ Stopped by user'] }
-          : r,
-      );
-      if (wasRunning) {
-        const next = updated.find((r) => r.status === 'queued');
-        if (next) {
-          return updated.map((r) =>
-            r.taskId === next.taskId
-              ? { ...r, status: 'running' as AgentStatus, startedAt: new Date().toISOString(), logs: [...r.logs, '▶ Starting agent run…'] }
-              : r,
-          );
-        }
-      }
-      return updated;
-    });
-  }
-
-  function dequeueAgent(taskId: string) {
-    setAgentRuns((prev) => prev.filter((r) => r.taskId !== taskId));
-  }
-
-  function toggleSelect(taskId: string) {
-    setSelectedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
-  }
-
-  function enterSelectMode(taskId: string) {
-    setSelectMode(true);
-    setSelectedTaskIds(new Set([taskId]));
-  }
-
-  function runSelectedAgents(taskIds: string[]) {
-    for (const id of taskIds) {
-      const task = tasksRef.current.find((t) => t.id === id);
-      const model = task?.model ?? appSettings.defaultModel ?? 'claude-sonnet-4-5';
-      runAgent(id, model);
-    }
-    setSelectMode(false);
-    setSelectedTaskIds(new Set());
-  }
 
   // Load initial data
   React.useEffect(() => {
@@ -381,8 +261,6 @@ export function App() {
     void loadAppSettings();
     void loadCopilotStatus();
     void loadGithubUrl();
-    void loadModels();
-    void loadAgents();
     connectWs();
     return () => {
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
@@ -464,7 +342,6 @@ export function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
       if (e.key === 'Escape') {
-        if (selectMode) { setSelectMode(false); setSelectedTaskIds(new Set()); return; }
         if (filePreview.open) { setFilePreview(p => ({ ...p, open: false })); return; }
         if (panelState.open) { setPanelState(p => ({ ...p, open: false })); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
@@ -486,7 +363,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [filePreview.open, panelState.open, settingsOpen, selectMode]);
+  }, [filePreview.open, panelState.open, settingsOpen]);
 
   function appendStatusChange(taskId: string, fromStatus: TaskStatus, toStatus: TaskStatus, actor: string, source?: 'cli' | 'web') {
     const timestamp = new Date().toISOString();
@@ -538,8 +415,6 @@ export function App() {
         status: (newStatus ?? existing?.status ?? 'todo') as TaskStatus,
         type: incoming.type ? String(incoming.type) as Task['type'] : existing?.type,
         priority: incoming.priority ? String(incoming.priority) as Task['priority'] : existing?.priority,
-        agent: incoming.agent ? String(incoming.agent) : existing?.agent,
-        model: incoming.model ? String(incoming.model) : existing?.model,
         selector: incoming.selector ? String(incoming.selector) : existing?.selector,
         cssSelector: incoming.cssSelector ? String(incoming.cssSelector) : existing?.cssSelector,
         file: incoming.file ? String(incoming.file) : existing?.file,
@@ -592,8 +467,6 @@ export function App() {
     try {
       const settingsData = await api.getSettings();
       const settings = settingsData as AppSettings;
-      // Default experimentalAgents to true when not explicitly saved (opt-out model)
-      if (settings.experimentalAgents === undefined) settings.experimentalAgents = true;
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
       if (settings.viewMode) setViewMode(settings.viewMode);
@@ -610,28 +483,6 @@ export function App() {
         setPremiumUsage(`Copilot: ${data.username}`);
       } else {
         setPremiumUsage('Copilot: not logged in');
-      }
-    } catch {}
-  }
-
-  async function loadModels() {
-    try {
-      if (api.getModels) {
-        const data = await api.getModels();
-        if (data.models && data.models.length > 0) {
-          setModels(data.models);
-        }
-      }
-    } catch {}
-  }
-
-  async function loadAgents() {
-    try {
-      if (api.getAgents) {
-        const data = await api.getAgents();
-        if (data.agents && data.agents.length > 0) {
-          setAgents(data.agents);
-        }
       }
     } catch {}
   }
@@ -669,92 +520,6 @@ export function App() {
         if (msg.type === 'task-deleted' && msg.taskId) {
           const taskId = String(msg.taskId);
           setTasks((prev) => { const next = prev.filter((t) => t.id !== taskId); tasksRef.current = next; return next; });
-        }
-        // Agent run events from server
-        if (msg.type === 'agent-run-started') {
-          setAgentRuns((prev) => {
-            const existing = prev.find((r) => r.taskId === msg.taskId && (r.status === 'running' || r.status === 'queued'));
-            if (existing) return prev; // already tracked
-            const task = tasksRef.current.find((t) => t.id === msg.taskId);
-            const hasRunning = prev.some((r) => r.status === 'running');
-            const newRun: AgentRun = {
-              taskId: msg.taskId,
-              taskTitle: task?.title ?? msg.taskId.slice(0, 8),
-              status: hasRunning ? 'queued' : 'running',
-              model: msg.model,
-              worktree: `wt/task-${msg.taskId.slice(0, 8)}`,
-              branch: `agent/task-${msg.taskId.slice(0, 8)}`,
-              startedAt: hasRunning ? undefined : new Date().toISOString(),
-              logs: [msg.command ?? `▶ Starting agent run…`],
-            };
-            return [...prev, newRun];
-          });
-          return;
-        }
-        if (msg.type === 'agent-run-log') {
-          setAgentRuns((prev) =>
-            prev.map((r) => {
-              if (r.taskId !== msg.taskId) return r;
-              const next = { ...r, logs: [...r.logs, msg.log] };
-              // Try to parse opencode JSON events inline to accumulate metadata
-              // even before the run finishes (handles dropped connections gracefully)
-              for (const line of msg.log.split('\n')) {
-                const trimmed = line.trim();
-                if (!trimmed || !trimmed.startsWith('{')) continue;
-                try {
-                  const event = JSON.parse(trimmed) as Record<string, unknown>;
-                  if (event.type === 'step_finish' && typeof event.part === 'object' && event.part) {
-                    const part = event.part as Record<string, unknown>;
-                    const tokens = part.tokens as Record<string, number> | undefined;
-                    const cost = typeof part.cost === 'number' ? part.cost : 0;
-                    if (tokens) {
-                      next.inputTokens = (next.inputTokens ?? 0) + (tokens.input ?? 0);
-                      next.outputTokens = (next.outputTokens ?? 0) + (tokens.output ?? 0);
-                      next.totalTokens = (next.totalTokens ?? 0) + (tokens.total ?? 0);
-                      next.reasoningTokens = (next.reasoningTokens ?? 0) + (tokens.reasoning ?? 0);
-                      next.cost = (next.cost ?? 0) + cost;
-                    }
-                  }
-                } catch { /* ignore non-JSON lines */ }
-              }
-              return next;
-            }),
-          );
-          return;
-        }
-        if (msg.type === 'agent-run-finished') {
-          setAgentRuns((prev) => {
-            const updated = prev.map((r) =>
-              r.taskId === msg.taskId
-                ? {
-                    ...r,
-                    status: (msg.success ? 'done' : 'failed') as AgentStatus,
-                    completedAt: new Date().toISOString(),
-                    logs: [...r.logs, msg.success ? '✓ Agent run completed' : `✗ Agent run failed (exit ${msg.exitCode})`],
-                    inputTokens: typeof msg.inputTokens === 'number' ? msg.inputTokens : r.inputTokens,
-                    outputTokens: typeof msg.outputTokens === 'number' ? msg.outputTokens : r.outputTokens,
-                    totalTokens: typeof msg.totalTokens === 'number' ? msg.totalTokens : r.totalTokens,
-                    reasoningTokens: typeof msg.reasoningTokens === 'number' ? msg.reasoningTokens : r.reasoningTokens,
-                    cost: typeof msg.cost === 'number' ? msg.cost : r.cost,
-                    durationMs: r.startedAt ? Date.now() - new Date(r.startedAt).getTime() : undefined,
-                  }
-                : r,
-            );
-            // Auto-start next queued
-            const running = updated.find((r) => r.status === 'running');
-            if (!running) {
-              const next = updated.find((r) => r.status === 'queued');
-              if (next) {
-                return updated.map((r) =>
-                  r.taskId === next.taskId
-                    ? { ...r, status: 'running' as AgentStatus, startedAt: new Date().toISOString(), logs: [...r.logs, '▶ Starting agent run…'] }
-                    : r,
-                );
-              }
-            }
-            return updated;
-          });
-          return;
         }
       } catch {}
     });
@@ -885,9 +650,6 @@ export function App() {
     return result;
   }, [tasks, filterState]);
 
-  // Always computed at top level to satisfy Rules of Hooks — only used when experimentalAgents is enabled.
-  const agentStatusMap = React.useMemo(() => new Map(agentRuns.map(r => [r.taskId, r.status])), [agentRuns]);
-
   const showLostConnectionOverlay = hadWsConnection && !wsConnected;
 
   return (
@@ -913,12 +675,6 @@ export function App() {
         taskSummary={taskSummary}
         onSearchChange={setSearchQuery}
         onSettings={() => setSettingsOpen(true)}
-        agentRuns={agentRuns}
-        selectMode={selectMode}
-        selectedCount={selectedTaskIds.size}
-        agentQueueCount={agentRuns.filter(r => r.status === 'running' || r.status === 'queued').length}
-        onOpenAgentQueue={() => setAgentQueueOpen(true)}
-        experimentalAgents={appSettings.experimentalAgents}
       />
 
       <FilterBar
@@ -942,7 +698,6 @@ export function App() {
             onOpenPanel={(task, tab) => openPanel(task, tab)}
             onAddTask={(status) => openPanel(null, 'details', status)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
-            experimentalAgents={appSettings.experimentalAgents}
           />
         ) : (
           <KanbanBoard
@@ -953,14 +708,6 @@ export function App() {
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
             onReorder={handleReorder}
-            selectMode={selectMode}
-            selectedTaskIds={selectedTaskIds}
-            onToggleSelect={toggleSelect}
-            onEnterSelectMode={enterSelectMode}
-            agentStatuses={appSettings.experimentalAgents === true ? agentStatusMap : undefined}
-            onRunSelectedAgents={appSettings.experimentalAgents === true ? runSelectedAgents : undefined}
-            onExitSelectMode={() => { setSelectMode(false); setSelectedTaskIds(new Set()); }}
-            experimentalAgents={appSettings.experimentalAgents}
           />
         )}
 
@@ -1028,19 +775,6 @@ export function App() {
               navBackLabel={navHistory.length > 0 ? navHistory[navHistory.length - 1].title : undefined}
               externalLocalChanges={panelStatusChanges}
               allTasks={tasks}
-              agentRun={agentRuns.find(r => r.taskId === panelState.task?.id)}
-              onRunAgent={runAgent}
-              onStopAgent={stopAgent}
-              onDequeueAgent={dequeueAgent}
-              models={models}
-              defaultModel={appSettings.defaultModel as string | undefined}
-              perTypeModels={appSettings.perTypeModels as boolean | undefined}
-              defaultModelBug={appSettings.defaultModelBug as string | undefined}
-              defaultModelResearch={appSettings.defaultModelResearch as string | undefined}
-              defaultModelTask={appSettings.defaultModelTask as string | undefined}
-              agents={agents}
-              defaultAgent={appSettings.defaultAgent as string | undefined}
-              experimentalAgents={appSettings.experimentalAgents}
               createBranch={appSettings.createBranch}
             />
           </div>
@@ -1048,19 +782,6 @@ export function App() {
 
       </div>
 
-
-      {appSettings.experimentalAgents === true && (
-        <AgentQueuePanel
-          open={agentQueueOpen}
-          runs={agentRuns}
-          onStop={stopAgent}
-          onOpenTask={(taskId) => {
-            const task = tasks.find((t) => t.id === taskId);
-            if (task) { openPanel(task, 'agent'); setAgentQueueOpen(false); }
-          }}
-          onClose={() => setAgentQueueOpen(false)}
-        />
-      )}
 
       {showLostConnectionOverlay && createPortal(
         <div
@@ -1128,8 +849,6 @@ export function App() {
         open={settingsOpen}
         visibleCols={visibleCols}
         settings={appSettings}
-        models={models}
-        agents={agents}
         onClose={() => setSettingsOpen(false)}
         onSave={(cols, newSettings) => {
           setVisibleCols(cols);

@@ -23,8 +23,6 @@ import {
   ensureTaskDirs,
   readTaskFile,
   findTaskFilePath,
-  renderTaskForAgent,
-  renderAgentInstructions,
 } from "../core/tasks.js";
 import { listComments, addComment, updateComment, deleteComment } from "../core/comments.js";
 import { listFiles, saveFile, deleteFile, getFilePath } from "../core/files.js";
@@ -41,11 +39,6 @@ import type { FSWatcher } from "chokidar";
 /** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings (30 chars, 15 random bytes). */
 export function isValidTaskId(id: string): boolean {
   return /^[a-f0-9]{30}$/.test(id);
-}
-
-/** Validates opencode model/agent identifiers to prevent option injection. */
-export function isSafeAgentArg(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._\-/]{0,79}$/.test(value);
 }
 
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
@@ -462,7 +455,7 @@ function registerMetaApis(
 
   app.post("/api/settings", (req, res) => {
     if (!requireSameOrigin(req, res)) return;
-    const SETTABLE_KEYS = new Set(["visibleCols", "viewMode", "panelWidth", "autoCommit", "autoComment", "autoPush", "createBranch", "defaultModel", "defaultAgent", "perTypeModels", "defaultModelBug", "defaultModelResearch", "defaultModelTask", "experimentalAgents"]);
+    const SETTABLE_KEYS = new Set(["visibleCols", "viewMode", "panelWidth", "autoCommit", "autoComment", "autoPush", "createBranch"]);
     const filtered = Object.fromEntries(
       Object.entries(req.body as Record<string, unknown>).filter(([k]) => SETTABLE_KEYS.has(k)),
     );
@@ -611,206 +604,6 @@ function registerMetaApis(
     agentStatus = null;
     broadcast?.({ type: "agent-status", message: "", active: false, updatedAt: null });
     res.json({ ok: true });
-  });
-
-  // ── Agent run: spawn opencode with task context ────────────────────────────
-  const activeAgentRuns = new Map<string, import("node:child_process").ChildProcess>();
-  /** Accumulated session metadata per active run (tokens, cost from opencode JSON output) */
-  const activeRunMeta = new Map<string, { inputTokens: number; outputTokens: number; totalTokens: number; reasoningTokens: number; cost: number }>();
-
-  function accumulateRunMeta(taskId: string, line: string) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      if (event.type === "step_finish" && typeof event.part === "object" && event.part) {
-        const part = event.part as Record<string, unknown>;
-        const tokens = part.tokens as Record<string, number> | undefined;
-        const cost = typeof part.cost === "number" ? part.cost : 0;
-        if (tokens) {
-          const prev = activeRunMeta.get(taskId) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cost: 0 };
-          activeRunMeta.set(taskId, {
-            inputTokens: prev.inputTokens + (tokens.input ?? 0),
-            outputTokens: prev.outputTokens + (tokens.output ?? 0),
-            totalTokens: prev.totalTokens + (tokens.total ?? 0),
-            reasoningTokens: prev.reasoningTokens + (tokens.reasoning ?? 0),
-            cost: prev.cost + cost,
-          });
-        }
-      }
-    } catch { /* not JSON or unexpected shape — ignore */ }
-  }
-
-  app.post("/api/agent/run", express.json(), async (req, res) => {
-    if (!requireSameOrigin(req, res)) return;
-    const { taskId, model, agent } = req.body as { taskId?: string; model?: string; agent?: string };
-    if (!taskId) { res.status(400).json({ error: "taskId is required" }); return; }
-    if (!isValidTaskId(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
-    if (model && !isSafeAgentArg(model)) { res.status(400).json({ error: "Invalid model" }); return; }
-    if (agent && !isSafeAgentArg(agent)) { res.status(400).json({ error: "Invalid agent" }); return; }
-
-    // Read the task to build a meaningful message for opencode
-    const taskFilePath = findTaskFilePath(projectDir, taskId);
-    if (!taskFilePath) { res.status(404).json({ error: "Task not found" }); return; }
-    const task = readTaskFile(taskFilePath);
-    if (!task) { res.status(404).json({ error: "Task not found" }); return; }
-
-    // Build comprehensive task context for the agent.
-    // Uses the same shared formatter as `vibeflow tasks --get` so agents
-    // always receive identical instructions regardless of entry point.
-    const comments = listComments(projectDir, taskId).filter((c) => !c.deleted);
-    const config = readConfig(projectDir);
-    const linkedFiles = listFiles(projectDir, taskId).map((f) => ({
-      ...f,
-      url: `http://localhost:${config.port}${f.url}`,
-    }));
-    const settings = loadSettings(projectDir);
-    const isResearch = (task.type ?? "").toLowerCase() === "research";
-    const isBug = (task.type ?? "").toLowerCase() === "bug";
-    const taskMessage = renderTaskForAgent(task, taskFilePath, comments, linkedFiles, projectDir);
-    const instructions = renderAgentInstructions({
-      hasResearchTasks: isResearch,
-      hasBugTasks: isBug,
-      autoCommit: settings.autoCommit,
-      autoPush: settings.autoPush,
-      autoComment: settings.autoComment,
-      createBranch: settings.createBranch,
-    });
-    const message = `${taskMessage}\n\n${instructions}`;
-
-    // Check if opencode is available
-    try {
-      execSync("which opencode", { timeout: 5000, stdio: "pipe" });
-    } catch {
-      res.status(500).json({ error: "opencode is not installed. Install it to run agents." });
-      return;
-    }
-
-    // Prevent duplicate runs for the same task
-    if (activeAgentRuns.has(taskId)) {
-      res.status(409).json({ error: "Agent already running for this task" });
-      return;
-    }
-
-    const args = ["run", "--dangerously-skip-permissions", "--format", "json", "--", message];
-    if (model) args.splice(2, 0, "--model", model);
-    if (agent) args.splice(2, 0, "--agent", agent);
-
-    broadcast?.({
-      type: "agent-run-started",
-      taskId,
-      model,
-      agent,
-      command: `opencode ${args.join(" ")}`,
-    });
-
-    const child = spawn("opencode", args, {
-      cwd: projectDir,
-      env: { ...process.env, FORCE_COLOR: "0" },
-    });
-
-    activeAgentRuns.set(taskId, child);
-    activeRunMeta.set(taskId, { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cost: 0 });
-
-    let output = "";
-    child.stdout?.on("data", (data: Buffer) => {
-      const text = data.toString();
-      output += text;
-      // Parse JSON lines to accumulate token/cost metadata
-      for (const line of text.split("\n")) {
-        if (line.trim()) accumulateRunMeta(taskId, line.trim());
-      }
-      broadcast?.({ type: "agent-run-log", taskId, log: text });
-    });
-
-    child.stderr?.on("data", (data: Buffer) => {
-      const text = data.toString();
-      output += text;
-      broadcast?.({ type: "agent-run-log", taskId, log: text });
-    });
-
-    child.on("close", (code) => {
-      activeAgentRuns.delete(taskId);
-      const meta = activeRunMeta.get(taskId);
-      activeRunMeta.delete(taskId);
-      broadcast?.({
-        type: "agent-run-finished",
-        taskId,
-        exitCode: code,
-        success: code === 0,
-        ...(meta ?? {}),
-      });
-    });
-
-    child.on("error", (err) => {
-      activeAgentRuns.delete(taskId);
-      const meta = activeRunMeta.get(taskId);
-      activeRunMeta.delete(taskId);
-      broadcast?.({
-        type: "agent-run-finished",
-        taskId,
-        exitCode: 1,
-        success: false,
-        error: err.message,
-        ...(meta ?? {}),
-      });
-    });
-
-    res.json({ ok: true, taskId, command: `opencode ${args.join(" ")}` });
-  });
-
-  app.post("/api/agent/stop", express.json(), (req, res) => {
-    if (!requireSameOrigin(req, res)) return;
-    const { taskId } = req.body as { taskId?: string };
-    if (!taskId) { res.status(400).json({ error: "taskId is required" }); return; }
-    if (!isValidTaskId(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
-
-    const child = activeAgentRuns.get(taskId);
-    if (!child) {
-      res.status(404).json({ error: "No active agent run for this task" });
-      return;
-    }
-
-    child.kill("SIGINT");
-    res.json({ ok: true, taskId });
-  });
-
-  // ── List available opencode agents ─────────────────────────────────────────
-  app.get("/api/agent/agents", (_req, res) => {
-    try {
-      const output = execSync("opencode agent list", { cwd: projectDir, timeout: 10000, env: { ...process.env, FORCE_COLOR: "0" }, stdio: "pipe" }).toString();
-      // Parse "AgentName (scope)" lines from the output
-      const agents = output
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => /^[A-Za-z][A-Za-z0-9_-]+ \(/.test(line))
-        .map((line) => {
-          const match = line.match(/^([A-Za-z][A-Za-z0-9_-]+)\s+\((.+)\)$/);
-          return match ? { id: match[1], name: match[1], scope: match[2] } : null;
-        })
-        .filter(Boolean) as Array<{ id: string; name: string; scope: string }>;
-      res.json({ agents });
-    } catch {
-      res.json({ agents: [] });
-    }
-  });
-
-  // ── List available opencode models ─────────────────────────────────────────
-  app.get("/api/agent/models", async (_req, res) => {
-    try {
-      const output = execSync("opencode models", { cwd: projectDir, timeout: 15000, env: { ...process.env, FORCE_COLOR: "0" }, stdio: "pipe" }).toString();
-      // Parse model entries — opencode outputs them as "provider/model-id  Model Label"
-      const models: Array<{ id: string; label: string; provider: string }> = [];
-      for (const line of output.split("\n")) {
-        const trimmed = line.trim();
-        // Match lines like "openai/gpt-4o  GPT-4o" or "anthropic/claude-sonnet-4-20250514  Claude Sonnet 4"
-        const match = trimmed.match(/^([a-z0-9-]+)\/([a-z0-9._-]+)\s+(.+)$/i);
-        if (match) {
-          models.push({ id: `${match[1]}/${match[2]}`, label: match[3].trim(), provider: match[1] });
-        }
-      }
-      res.json({ models });
-    } catch {
-      res.json({ models: [] });
-    }
   });
 
   // Returns the GitHub commit URL base for this repo (parsed from git remote origin).

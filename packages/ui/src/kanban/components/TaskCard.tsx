@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { MessageCircle, Paperclip, CheckCircle, Eye, Lock } from 'lucide-react';
-import type { Task, Column, LiveActivity, AgentStatus } from '../types';
+import type { Task, Column, LiveActivity } from '../types';
 import { isNewComments } from '../utils';
 import { TypeBadge } from '../../TypeBadge';
 import { PriorityBadge } from '../../PriorityBadge';
@@ -12,22 +12,8 @@ interface Props {
   task: Task;
   col: Column;
   liveActivity?: LiveActivity;
-  onOpen: (task: Task, tab?: 'details' | 'comments' | 'files' | 'agent') => void;
+  onOpen: (task: Task, tab?: 'details' | 'comments' | 'files') => void;
   onDragStart: (e: React.DragEvent, taskId: string) => void;
-  /** True when the board is in multi-select mode. */
-  selectMode?: boolean;
-  /** True when this card is selected. */
-  selected?: boolean;
-  /** Toggle selection for this card. */
-  onToggleSelect?: (taskId: string) => void;
-  /** Agent status for this task, if any. */
-  agentStatus?: AgentStatus;
-  /** When false, agent-related UI is hidden. */
-  experimentalAgents?: boolean;
-  /** When multi-select dragging, shows how many tasks are being dragged (displayed on the lead card). */
-  multiDragCount?: number;
-  /** Called when a long-press (750ms) activates select mode. */
-  onEnterSelectMode?: (taskId: string) => void;
 }
 
 function isImageFileName(name: string): boolean {
@@ -76,21 +62,12 @@ const SPACER_STYLE: React.CSSProperties = { flex: 1 };
 
 export const TaskCard = React.memo(function TaskCard({
   task, col, liveActivity, onOpen, onDragStart,
-  selectMode, selected, onToggleSelect, agentStatus,
-  experimentalAgents,
-  multiDragCount,
-  onEnterSelectMode,
 }: Props) {
   const isInProgress = col.id === 'in-progress';
   const isDone = col.id === 'done';
   const [showThumbPreview, setShowThumbPreview] = React.useState(false);
   const [thumbRect, setThumbRect] = React.useState<{ top: number; right: number } | null>(null);
   const thumbRef = React.useRef<HTMLImageElement>(null);
-  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressActivatedRef = React.useRef(false);
-  const longPressStartPosRef = React.useRef<{ x: number; y: number } | null>(null);
-  const LONG_PRESS_DELAY = 750;
-  const DRAG_THRESHOLD = 5; // px — cancel long-press if mouse moves beyond this
 
   const commentCount = task.commentCount ?? 0;
   const fileCount = task.fileCount ?? 0;
@@ -113,77 +90,9 @@ export const TaskCard = React.memo(function TaskCard({
     e.currentTarget.classList.remove('dragging');
   }
 
-  function handleMouseDown(e: React.MouseEvent) {
-    if (selectMode) return;
-    longPressActivatedRef.current = false;
-    longPressStartPosRef.current = { x: e.clientX, y: e.clientY };
-    longPressTimerRef.current = setTimeout(() => {
-      longPressActivatedRef.current = true;
-      onEnterSelectMode?.(task.id);
-    }, LONG_PRESS_DELAY);
-  }
-
-  function handleMouseMove(e: React.MouseEvent) {
-    if (!longPressTimerRef.current || !longPressStartPosRef.current) return;
-    const dx = e.clientX - longPressStartPosRef.current.x;
-    const dy = e.clientY - longPressStartPosRef.current.y;
-    if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-      // User started dragging — cancel long-press
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-      longPressStartPosRef.current = null;
-    }
-  }
-
-  function handleMouseUp() {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }
-
-  function handleMouseLeave() {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }
-
-  function handleClick(e: React.MouseEvent) {
-    // If long-press activated, the click was for entering select mode — skip normal open
-    if (longPressActivatedRef.current) {
-      longPressActivatedRef.current = false;
-      return;
-    }
-    if (selectMode) {
-      e.stopPropagation();
-      onToggleSelect?.(task.id);
-      return;
-    }
+  function handleClick() {
     onOpen(task);
   }
-
-  function handleCheckboxClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    onToggleSelect?.(task.id);
-  }
-
-  // Agent state overrides border/bg
-  const agentBorder = experimentalAgents === true && agentStatus === 'running'
-    ? '1px solid rgba(59,130,246,0.5)'
-    : experimentalAgents === true && agentStatus === 'queued'
-      ? '1px solid color-mix(in srgb, var(--p-amber) 45%, transparent)'
-      : experimentalAgents === true && agentStatus === 'done'
-        ? '1px solid color-mix(in srgb, var(--p-green) 40%, transparent)'
-        : undefined;
-
-  const agentBg = experimentalAgents === true && agentStatus === 'running'
-    ? 'color-mix(in srgb, var(--p-blue) 6%, var(--p-card))'
-    : experimentalAgents === true && agentStatus === 'queued'
-      ? 'color-mix(in srgb, var(--p-amber) 5%, var(--p-card))'
-      : experimentalAgents === true && agentStatus === 'done'
-        ? 'color-mix(in srgb, var(--p-green) 5%, var(--p-card))'
-        : undefined;
 
   // Done column: minimal strikethrough card
   if (isDone) {
@@ -194,41 +103,16 @@ export const TaskCard = React.memo(function TaskCard({
         data-task-id={task.id}
         style={{
           ...DONE_ARTICLE_STYLE,
-          ...(selectMode && selected ? { borderColor: 'var(--p-blue)', background: 'color-mix(in srgb, var(--p-blue) 10%, var(--p-card))' } : {}),
         }}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
         onClick={handleClick}
       >
         <div style={DONE_INNER_ROW_STYLE}>
-          {selectMode && (
-          <span
-            onClick={handleCheckboxClick}
-            style={{
-              width: 12, height: 12, borderRadius: 3, border: selected ? '1px solid var(--p-blue)' : '1px solid var(--p-border-s)',
-              background: selected ? 'var(--p-blue)' : 'var(--p-input)', flexShrink: 0, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-              {selected && <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>✓</span>}
-            </span>
-          )}
           <CheckCircle style={DONE_CHECK_ICON_STYLE} />
           <span style={DONE_TITLE_STYLE}>
             {task.title}
           </span>
-          {multiDragCount != null && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
-              background: 'var(--p-blue)', color: '#fff', flexShrink: 0, marginLeft: 4,
-            }}>
-              +{multiDragCount - 1}
-            </span>
-          )}
         </div>
       </article>
     );
@@ -241,48 +125,22 @@ export const TaskCard = React.memo(function TaskCard({
       data-task-id={task.id}
       style={{
         padding: '7px 8px', gap: 4, userSelect: 'none',
-        background: liveActivity ? 'rgba(59,130,246,0.08)' : (agentBg ?? cardBgColor),
-        border: agentBorder ?? (liveActivity
+        background: liveActivity ? 'rgba(59,130,246,0.08)' : cardBgColor,
+        border: liveActivity
           ? '1px solid rgba(59,130,246,0.5)'
-          : cardBorderColor ? `1px solid ${cardBorderColor}` : undefined),
+          : cardBorderColor ? `1px solid ${cardBorderColor}` : undefined,
         ...(liveActivity ? { boxShadow: '0 0 0 2px rgba(59,130,246,0.14)' } : {}),
-        ...(selectMode && selected ? { borderColor: 'var(--p-blue)', background: 'color-mix(in srgb, var(--p-blue) 10%, var(--p-card))' } : {}),
       }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
       onClick={handleClick}
     >
-      {/* Row 1: [checkbox] [spinner] title [screenshot-thumb] */}
+      {/* Row 1: title [screenshot-thumb] */}
       <div style={CARD_TITLE_ROW_STYLE}>
-        {selectMode && (
-          <span
-            onClick={handleCheckboxClick}
-            style={{
-              width: 14, height: 14, borderRadius: 3, border: selected ? '1px solid var(--p-blue)' : '1px solid var(--p-border-s)',
-              background: selected ? 'var(--p-blue)' : 'var(--p-input)', flexShrink: 0, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: 2,
-            }}
-          >
-            {selected && <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>✓</span>}
-          </span>
-        )}
         {isInProgress && <span className="spinner" style={SPINNER_SHRINK_STYLE} />}
-        {experimentalAgents === true && agentStatus === 'running' && !isInProgress && <span className="spinner" style={SPINNER_SHRINK_STYLE} />}
         <span style={CARD_TITLE_TEXT_STYLE}>
           {task.title}
         </span>
-        {multiDragCount != null && (
-          <span style={{
-            fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
-            background: 'var(--p-blue)', color: '#fff', flexShrink: 0, marginLeft: 4,
-          }}>
-            +{multiDragCount - 1}
-          </span>
-        )}
       </div>
 
       {/* Description + screenshot thumbnail */}
@@ -339,41 +197,10 @@ export const TaskCard = React.memo(function TaskCard({
         </div>
       )}
 
-      {/* Footer: TypeBadge + PriorityBadge + Agent status + Assignee + tags + spacer + action buttons */}
+      {/* Footer: TypeBadge + PriorityBadge + Assignee + tags + spacer + action buttons */}
       <div className="flex items-center" style={CARD_FOOTER_STYLE}>
         <TypeBadge type={task.type} />
         {task.priority && <PriorityBadge priority={task.priority} />}
-        {experimentalAgents === true && agentStatus === 'running' && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
-            background: 'rgba(59,130,246,0.12)', color: '#60a5fa', whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90,
-          }}>
-            <span className="spinner" style={{ width: 8, height: 8, borderWidth: 1.5 }} />
-            Agent
-          </span>
-        )}
-        {experimentalAgents === true && agentStatus === 'queued' && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
-            background: 'rgba(245,158,11,0.12)', color: 'var(--p-amber)', whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90,
-          }}>
-            ⏳ Queued
-          </span>
-        )}
-        {experimentalAgents === true && agentStatus === 'done' && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,
-            background: 'rgba(34,197,94,0.12)', color: 'var(--p-green)', whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90,
-          }}>
-            ✓ Done
-          </span>
-        )}
         {isInProgress && task.assigneeName && (
           <span style={{
             fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 6,

@@ -106,16 +106,4 @@ export const api: KanbanApi = {
     const wsScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${wsScheme}//${window.location.host}`;
   },
-
-  async getModels(): Promise<{ models: { id: string; label: string; provider: string }[]; error: string | null }> {
-    const r = await fetch(`${BASE}/trpc/models`, { cache: 'no-store' });
-    const data = await r.json() as { result?: { data?: { models: { id: string; label: string; provider: string }[]; error: string | null } } };
-    return data?.result?.data ?? { models: [], error: 'Invalid response' };
-  },
-
-  async getAgents(): Promise<{ agents: { id: string; name: string; scope: string }[]; error: string | null }> {
-    const r = await fetch(`${BASE}/api/agent/agents`, { cache: 'no-store' });
-    const data = await r.json() as { agents: { id: string; name: string; scope: string }[] };
-    return { agents: data.agents ?? [], error: null };
-  },
 };
