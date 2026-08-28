@@ -1229,7 +1229,7 @@ describe("Kanban board", () => {
       body: JSON.stringify({ author: "user", text: "has comments" }),
     });
 
-    await fetch(`${API}/${taskId}/files?filename=note.txt`, {
+    await fetch(`${API}/${taskId}/files/note.txt`, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: "x",

@@ -1660,7 +1660,7 @@
     const files = e.target.files;
     for (const file of files) {
       const buf = await file.arrayBuffer();
-      await fetch(`http://localhost:__PORT__/api/tasks/${editingTaskId}/files?filename=${encodeURIComponent(file.name)}`, {
+      await fetch(`http://localhost:__PORT__/api/tasks/${editingTaskId}/files/${encodeURIComponent(file.name)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
         body: buf,
@@ -2203,7 +2203,7 @@
     const taskId = commentsTaskId;
     const uploads = Array.from(files).map(file =>
       file.arrayBuffer().then(buf =>
-        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files?filename=${encodeURIComponent(file.name)}`, {
+        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files/${encodeURIComponent(file.name)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
           body: buf,
@@ -2227,7 +2227,7 @@
     const textarea = document.getElementById('comments-input');
     const uploads = Array.from(files).map(file =>
       file.arrayBuffer().then(buf =>
-        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files?filename=${encodeURIComponent(file.name)}`, {
+        fetch(`http://localhost:__PORT__/api/tasks/${taskId}/files/${encodeURIComponent(file.name)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
           body: buf,
