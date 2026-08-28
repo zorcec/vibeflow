@@ -121,8 +121,14 @@ describe("appRouter tRPC", () => {
 
     it("throws NOT_FOUND for missing task", async () => {
       await expect(
-        caller.updateTask({ id: "missing-id", updates: { title: "x" } }),
+        caller.updateTask({ id: "a".repeat(30), updates: { title: "x" } }),
       ).rejects.toThrow("Task not found");
+    });
+
+    it("rejects malformed task IDs before lookup", async () => {
+      await expect(
+        caller.updateTask({ id: "../../etc/passwd", updates: { title: "x" } }),
+      ).rejects.toThrow();
     });
   });
 
@@ -135,7 +141,7 @@ describe("appRouter tRPC", () => {
     });
 
     it("throws NOT_FOUND for missing task", async () => {
-      await expect(caller.deleteTask({ id: "missing-id" })).rejects.toThrow("Task not found");
+      await expect(caller.deleteTask({ id: "a".repeat(30) })).rejects.toThrow("Task not found");
     });
   });
 

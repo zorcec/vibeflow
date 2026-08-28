@@ -11,6 +11,7 @@ import { getMode } from "./auth/mode.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
+import { watch } from "./commands/watch.js";
 import { fetchSaasTasks, fetchSaasTask, updateSaasTask, addSaasComment, createSaasTask, toCliStatus } from "./saas/client.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
@@ -927,6 +928,13 @@ program
       }
 
       // ── Local edit path ──────────────────────────────────────────────
+      // Resolve partial ID prefixes to the full task ID so `--edit` behaves like
+      // `--get` and `--commit` (both already accept a unique prefix). The resolved
+      // ID is used for the write so a partial prefix never hits an exact-match miss.
+      const localProjectDir = resolve(dir);
+      const resolvedTaskId =
+        listTasks(localProjectDir).find((t) => t.id === taskId || t.id.startsWith(taskId))?.id ?? taskId;
+
       const updates: Partial<Pick<Task, "status" | "title" | "description" | "branchName">> = {};
       if (opts.title) updates.title = opts.title;
       if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
@@ -995,7 +1003,7 @@ program
         }
       }
 
-      const updated = updateTask(dir, taskId, updates);
+      const updated = updateTask(dir, resolvedTaskId, updates);
       if (!updated) {
         console.log(chalk.red(`✗ Task not found: ${taskId}`));
         console.log(chalk.yellow(`  Run 'vibeflow tasks' to see available task IDs.`));
@@ -1006,7 +1014,7 @@ program
       // Add comment BEFORE the git commit attempt. This guarantees the comment is
       // always persisted even if auto-commit fails (e.g., nothing staged, git error).
       if (opts.setStatus === "review" && opts.comment?.trim()) {
-        addComment(resolve(dir), taskId, "agent", opts.comment.trim());
+        addComment(resolve(dir), resolvedTaskId, "agent", opts.comment.trim());
         console.log(chalk.dim(`  comment: added`));
       }
 
@@ -1320,6 +1328,16 @@ program
     capture("command_run", { command: "push" });
     await push(dir, opts);
     await flushTelemetry();
+  });
+
+program
+  .command("watch")
+  .description("Watch the task store and print ticket details for important updates (new tasks, tasks moved to todo)")
+  .argument("[dir]", "Project root directory", ".")
+  .action(async (dir: string) => {
+    capture("command_run", { command: "watch" });
+    await flushTelemetry();
+    watch(dir);
   });
 
 program

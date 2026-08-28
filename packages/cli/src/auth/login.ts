@@ -100,12 +100,15 @@ async function promptPushLocalTasks(projectDir: string, apiUrl: string, token: s
 
   const taskFiles: string[] = [];
   try {
-    for (const entry of readdirSync(tasksDir)) {
-      if (!entry.startsWith(".")) {
-        const dayDir = join(tasksDir, entry);
+    for (const entry of readdirSync(tasksDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const dayDir = join(tasksDir, entry.name);
         for (const f of readdirSync(dayDir).filter((f) => f.endsWith(".json"))) {
           taskFiles.push(join(dayDir, f));
         }
+      } else if (entry.isFile() && entry.name.endsWith(".json")) {
+        // Legacy flat layout — task JSON files directly under tasks/.
+        taskFiles.push(join(tasksDir, entry.name));
       }
     }
   } catch { return; }

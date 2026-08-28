@@ -37,7 +37,14 @@ const procedure = t.procedure;
 
 const taskStatusSchema = z.enum(["backlog", "todo", "in-progress", "review", "done"]);
 
-const taskIdInput = z.object({ id: z.string().min(1) });
+/**
+ * Task IDs are 30-char lowercase hex strings (15 random bytes from `generateTaskId`).
+ * Enforcing this shape blocks path traversal via crafted IDs in file/comment endpoints,
+ * mirroring the REST API's `isValidTaskId` guard.
+ */
+const taskIdSchema = z.string().regex(/^[a-f0-9]{30}$/, "Invalid task ID");
+
+const taskIdInput = z.object({ id: taskIdSchema });
 
 // ── App router ─────────────────────────────────────────────────────────────
 
@@ -145,7 +152,7 @@ export const appRouter = router({
   updateTask: procedure
     .input(
       z.object({
-        id: z.string().min(1),
+        id: taskIdSchema,
         updates: z.object({
           status: taskStatusSchema.optional(),
           title: z.string().min(1).optional(),
@@ -197,7 +204,7 @@ export const appRouter = router({
   addComment: procedure
     .input(
       z.object({
-        taskId: z.string().min(1),
+        taskId: taskIdSchema,
         text: z.string().min(1),
         author: z.enum(["user", "agent"]).optional().default("user"),
         files: z.array(z.string()).optional(),
@@ -221,7 +228,7 @@ export const appRouter = router({
   updateComment: procedure
     .input(
       z.object({
-        taskId: z.string().min(1),
+        taskId: taskIdSchema,
         commentId: z.string().min(1),
         text: z.string().min(1),
       }),
@@ -242,7 +249,7 @@ export const appRouter = router({
   deleteComment: procedure
     .input(
       z.object({
-        taskId: z.string().min(1),
+        taskId: taskIdSchema,
         commentId: z.string().min(1),
       }),
     )

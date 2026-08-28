@@ -370,8 +370,8 @@ export function formatTaskForAgent(
 /**
  * Renders a task, its comments, and linked files into the exact plain-text
  * format produced by `vibeflow tasks --get`. This is shared between the CLI
- * `--get` command and the server agent-run endpoint so agents always receive
- * identical instructions.
+ * `--get` command and any agent-facing rendering (e.g. `--next`) so agents
+ * always receive identical instructions.
  */
 export function renderTaskForAgent(
   task: Task,
