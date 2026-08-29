@@ -1,6 +1,5 @@
 ---
 "@vibeflow-tools/cli": minor
-"@vibeflow-tools/ui": minor
 ---
 
 Remove the experimental agent-run feature and its supporting packages.
