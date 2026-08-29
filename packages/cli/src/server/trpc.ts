@@ -20,7 +20,10 @@ import {
   deleteComment,
 } from "../core/comments.js";
 import { listFiles } from "../core/files.js";
-import { getCopilotAuthStatus, isGhCliAvailable } from "../core/copilot-auth.js";
+import {
+  getCopilotAuthStatus,
+  isGhCliAvailable,
+} from "../core/copilot-auth.js";
 import type { Task } from "../core/types.js";
 
 export interface TrpcContext {
@@ -35,7 +38,13 @@ const procedure = t.procedure;
 
 // ── Shared Zod schemas ─────────────────────────────────────────────────────
 
-const taskStatusSchema = z.enum(["backlog", "todo", "in-progress", "review", "done"]);
+const taskStatusSchema = z.enum([
+  "backlog",
+  "todo",
+  "in-progress",
+  "review",
+  "done",
+]);
 
 /**
  * Task IDs are 30-char lowercase hex strings (15 random bytes from `generateTaskId`).
@@ -47,7 +56,9 @@ const taskIdSchema = z.string().regex(/^[a-f0-9]{30}$/, "Invalid task ID");
 /**
  * Comment IDs are 16-char lowercase hex strings (8 random bytes from `addComment`).
  */
-const commentIdSchema = z.string().regex(/^[a-f0-9]{16}$/, "Invalid comment ID");
+const commentIdSchema = z
+  .string()
+  .regex(/^[a-f0-9]{16}$/, "Invalid comment ID");
 
 const taskIdInput = z.object({ id: taskIdSchema });
 
@@ -177,7 +188,22 @@ export const appRouter = router({
       const updated = updateTask(
         ctx.projectDir,
         input.id,
-        input.updates as Partial<Pick<Task, "status" | "title" | "description" | "type" | "priority" | "reportBack" | "agent" | "model" | "tags" | "sortKey" | "branchName">>,
+        input.updates as Partial<
+          Pick<
+            Task,
+            | "status"
+            | "title"
+            | "description"
+            | "type"
+            | "priority"
+            | "reportBack"
+            | "agent"
+            | "model"
+            | "tags"
+            | "sortKey"
+            | "branchName"
+          >
+        >,
       );
       if (!updated) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
@@ -186,25 +212,21 @@ export const appRouter = router({
       return { success: true, task: updated };
     }),
 
-  deleteTask: procedure
-    .input(taskIdInput)
-    .mutation(({ ctx, input }) => {
-      const deleted = deleteTask(ctx.projectDir, input.id);
-      if (!deleted) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      }
-      ctx.broadcast({ type: "tasks-updated" });
-      return { success: true };
-    }),
+  deleteTask: procedure.input(taskIdInput).mutation(({ ctx, input }) => {
+    const deleted = deleteTask(ctx.projectDir, input.id);
+    if (!deleted) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+    }
+    ctx.broadcast({ type: "tasks-updated" });
+    return { success: true };
+  }),
 
   // ── Comments ──────────────────────────────────────────────────────────────
 
-  comments: procedure
-    .input(taskIdInput)
-    .query(({ ctx, input }) => {
-      const comments = listComments(ctx.projectDir, input.id);
-      return { comments };
-    }),
+  comments: procedure.input(taskIdInput).query(({ ctx, input }) => {
+    const comments = listComments(ctx.projectDir, input.id);
+    return { comments };
+  }),
 
   addComment: procedure
     .input(
@@ -246,7 +268,10 @@ export const appRouter = router({
         input.text.trim(),
       );
       if (!comment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found",
+        });
       }
       return { success: true, comment };
     }),
@@ -266,13 +291,10 @@ export const appRouter = router({
 
   // ── Files ─────────────────────────────────────────────────────────────────
 
-  files: procedure
-    .input(taskIdInput)
-    .query(({ ctx, input }) => {
-      const files = listFiles(ctx.projectDir, input.id);
-      return { files };
-    }),
-
+  files: procedure.input(taskIdInput).query(({ ctx, input }) => {
+    const files = listFiles(ctx.projectDir, input.id);
+    return { files };
+  }),
 });
 
 export type AppRouter = typeof appRouter;
