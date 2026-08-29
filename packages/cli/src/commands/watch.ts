@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { basename, resolve, join } from "node:path";
+import { existsSync, statSync } from "node:fs";
 import {
   ensureTaskDirs,
   listTasksWithPaths,
@@ -32,15 +33,19 @@ export function classifyTaskUpdate(
 
 /** Renders full ticket details for a task, in the same format as `tasks --get`. */
 function renderTicket(projectDir: string, taskId: string): string | null {
-  const task = listTasksWithPaths(projectDir).find((t) => t.id === taskId);
-  if (!task) return null;
-  const config = readConfig(projectDir);
-  const comments = listComments(projectDir, taskId);
-  const files = listFiles(projectDir, taskId).map((f) => ({
-    ...f,
-    url: `http://localhost:${config.port}${f.url}`,
-  }));
-  return renderTaskForAgent(task, task.filePath, comments, files, projectDir);
+  try {
+    const task = listTasksWithPaths(projectDir).find((t) => t.id === taskId);
+    if (!task) return null;
+    const config = readConfig(projectDir);
+    const comments = listComments(projectDir, taskId);
+    const files = listFiles(projectDir, taskId).map((f) => ({
+      ...f,
+      url: `http://localhost:${config.port}${f.url}`,
+    }));
+    return renderTaskForAgent(task, task.filePath, comments, files, projectDir);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -50,6 +55,19 @@ function renderTicket(projectDir: string, taskId: string): string | null {
  */
 export function watch(dir: string): void {
   const projectDir = resolve(dir);
+
+  // Validate the directory exists and is actually a directory.
+  if (!existsSync(projectDir)) {
+    console.error(chalk.red(`  Error: directory does not exist: ${projectDir}`));
+    process.exitCode = 1;
+    return;
+  }
+  if (!statSync(projectDir).isDirectory()) {
+    console.error(chalk.red(`  Error: not a directory: ${projectDir}`));
+    process.exitCode = 1;
+    return;
+  }
+
   // Ensure the task store exists before watching — chokidar does not detect
   // creation of a previously non-existent watch root.
   ensureTaskDirs(projectDir);
@@ -62,33 +80,45 @@ export function watch(dir: string): void {
   }
 
   const announce = (kind: "new" | "moved-to-todo", taskId: string): void => {
-    const details = renderTicket(projectDir, taskId);
-    if (!details) return;
-    console.log();
-    if (kind === "new") {
-      console.log(chalk.green.bold("🆕 NEW TASK"));
-    } else {
-      console.log(chalk.blue.bold("▶ MOVED TO TODO"));
+    try {
+      const details = renderTicket(projectDir, taskId);
+      if (!details) return;
+      console.log();
+      if (kind === "new") {
+        console.log(chalk.green.bold("🆕 NEW TASK"));
+      } else {
+        console.log(chalk.blue.bold("▶ MOVED TO TODO"));
+      }
+      console.log(chalk.dim("─".repeat(62)));
+      for (const line of details.split("\n")) {
+        console.log(chalk.dim(line));
+      }
+      console.log(chalk.dim("─".repeat(62)));
+    } catch (err) {
+      console.error(chalk.red(`  Error rendering task ${taskId}:`), err);
     }
-    console.log(chalk.dim("─".repeat(62)));
-    for (const line of details.split("\n")) {
-      console.log(chalk.dim(line));
-    }
-    console.log(chalk.dim("─".repeat(62)));
   };
 
   const watcher = createTaskWatcher(tasksDir, {
     onChanged: (filePath) => {
-      const task = readTaskFile(filePath);
-      if (!task) return;
-      const prev = statusById.get(task.id);
-      const kind = classifyTaskUpdate(prev, task.status);
-      statusById.set(task.id, task.status);
-      if (kind) announce(kind, task.id);
+      try {
+        const task = readTaskFile(filePath);
+        if (!task) return;
+        const prev = statusById.get(task.id);
+        const kind = classifyTaskUpdate(prev, task.status);
+        statusById.set(task.id, task.status);
+        if (kind) announce(kind, task.id);
+      } catch (err) {
+        console.error(chalk.red(`  Error processing ${basename(filePath)}:`), err);
+      }
     },
     onDeleted: (filePath) => {
       statusById.delete(basename(filePath, ".json"));
     },
+  });
+
+  watcher.on("error", (err) => {
+    console.error(chalk.red("  Watcher error:"), err);
   });
 
   console.log();
@@ -100,12 +130,15 @@ export function watch(dir: string): void {
 
   // chokidar keeps the event loop alive; close cleanly on interrupt.
   process.once("SIGINT", () => {
-    void watcher.close().then(() => {
-      console.log(chalk.dim("\n  Watch stopped."));
-      process.exit(0);
-    });
+    void watcher.close().then(
+      () => {
+        console.log(chalk.dim("\n  Watch stopped."));
+        process.exit(0);
+      },
+      () => process.exit(0),
+    );
   });
   process.once("SIGTERM", () => {
-    void watcher.close().then(() => process.exit(0));
+    void watcher.close().then(() => process.exit(0), () => process.exit(0));
   });
 }

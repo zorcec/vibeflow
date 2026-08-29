@@ -44,6 +44,11 @@ const taskStatusSchema = z.enum(["backlog", "todo", "in-progress", "review", "do
  */
 const taskIdSchema = z.string().regex(/^[a-f0-9]{30}$/, "Invalid task ID");
 
+/**
+ * Comment IDs are 16-char lowercase hex strings (8 random bytes from `addComment`).
+ */
+const commentIdSchema = z.string().regex(/^[a-f0-9]{16}$/, "Invalid comment ID");
+
 const taskIdInput = z.object({ id: taskIdSchema });
 
 // ── App router ─────────────────────────────────────────────────────────────
@@ -205,7 +210,7 @@ export const appRouter = router({
     .input(
       z.object({
         taskId: taskIdSchema,
-        text: z.string().min(1),
+        text: z.string().trim().min(1, "Comment text is required"),
         author: z.enum(["user", "agent"]).optional().default("user"),
         files: z.array(z.string()).optional(),
         source: z.enum(["cli", "web"]).optional().default("web"),
@@ -229,7 +234,7 @@ export const appRouter = router({
     .input(
       z.object({
         taskId: taskIdSchema,
-        commentId: z.string().min(1),
+        commentId: commentIdSchema,
         text: z.string().min(1),
       }),
     )
@@ -250,7 +255,7 @@ export const appRouter = router({
     .input(
       z.object({
         taskId: taskIdSchema,
-        commentId: z.string().min(1),
+        commentId: commentIdSchema,
       }),
     )
     .mutation(({ ctx, input }) => {

@@ -143,6 +143,10 @@ describe("appRouter tRPC", () => {
     it("throws NOT_FOUND for missing task", async () => {
       await expect(caller.deleteTask({ id: "a".repeat(30) })).rejects.toThrow("Task not found");
     });
+
+    it("rejects invalid task ID format", async () => {
+      await expect(caller.deleteTask({ id: "../../etc/passwd" })).rejects.toThrow();
+    });
   });
 
   describe("comments", () => {
@@ -154,6 +158,10 @@ describe("appRouter tRPC", () => {
       expect(comments).toHaveLength(1);
       expect(comments[0].text).toBe("hello");
     });
+
+    it("rejects invalid task ID format", async () => {
+      await expect(caller.comments({ id: "../../etc/passwd" })).rejects.toThrow();
+    });
   });
 
   describe("addComment", () => {
@@ -164,6 +172,19 @@ describe("appRouter tRPC", () => {
       expect(result.success).toBe(true);
       expect(result.comment.text).toBe("note");
       expect(broadcast).toHaveBeenCalledWith({ type: "tasks-updated" });
+    });
+
+    it("rejects invalid task ID format", async () => {
+      await expect(
+        caller.addComment({ taskId: "../../etc/passwd", text: "x" }),
+      ).rejects.toThrow();
+    });
+
+    it("rejects whitespace-only text", async () => {
+      const task = createTask(tempDir, { title: "x", selector: "#x" });
+      await expect(
+        caller.addComment({ taskId: task.id, text: "   " }),
+      ).rejects.toThrow();
     });
   });
 
@@ -183,9 +204,18 @@ describe("appRouter tRPC", () => {
 
     it("throws NOT_FOUND for missing comment", async () => {
       const task = createTask(tempDir, { title: "x", selector: "#x" });
+      // Use a valid-format comment ID that doesn't exist in the store.
+      const fakeId = "a".repeat(16);
       await expect(
-        caller.updateComment({ taskId: task.id, commentId: "missing", text: "x" }),
+        caller.updateComment({ taskId: task.id, commentId: fakeId, text: "x" }),
       ).rejects.toThrow("Comment not found");
+    });
+
+    it("rejects invalid comment ID format", async () => {
+      const task = createTask(tempDir, { title: "x", selector: "#x" });
+      await expect(
+        caller.updateComment({ taskId: task.id, commentId: "../../etc/passwd", text: "x" }),
+      ).rejects.toThrow();
     });
   });
 
@@ -208,6 +238,10 @@ describe("appRouter tRPC", () => {
       const { files } = await caller.files({ id: task.id });
       expect(files).toHaveLength(1);
       expect(files[0].name).toBe("doc.txt");
+    });
+
+    it("rejects invalid task ID format", async () => {
+      await expect(caller.files({ id: "../../etc/passwd" })).rejects.toThrow();
     });
   });
 });
