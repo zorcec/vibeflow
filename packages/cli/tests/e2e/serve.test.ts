@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
@@ -160,11 +155,14 @@ describe("proto serve (e2e)", () => {
     const { task } = await createRes.json();
 
     // Update it
-    const updateRes = await fetch(`http://localhost:3756/api/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "done" }),
-    });
+    const updateRes = await fetch(
+      `http://localhost:3756/api/tasks/${task.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "done" }),
+      },
+    );
 
     const updateData = await updateRes.json();
     expect(updateData.success).toBe(true);
@@ -188,9 +186,12 @@ describe("proto serve (e2e)", () => {
     });
     const { task } = await createRes.json();
 
-    const deleteRes = await fetch(`http://localhost:3757/api/tasks/${task.id}`, {
-      method: "DELETE",
-    });
+    const deleteRes = await fetch(
+      `http://localhost:3757/api/tasks/${task.id}`,
+      {
+        method: "DELETE",
+      },
+    );
     expect(deleteRes.ok).toBe(true);
 
     const listRes = await fetch("http://localhost:3757/api/tasks");
@@ -204,11 +205,14 @@ describe("proto serve (e2e)", () => {
 
     instance = await serve(filePath, { port: 3758, open: false });
 
-    const response = await fetch("http://localhost:3758/api/tasks/aabbccddeeff001122334455667788", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "done" }),
-    });
+    const response = await fetch(
+      "http://localhost:3758/api/tasks/aabbccddeeff001122334455667788",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "done" }),
+      },
+    );
     expect(response.status).toBe(404);
   });
 
@@ -231,7 +235,9 @@ describe("proto serve (e2e)", () => {
 
     const { existsSync } = await import("node:fs");
     expect(existsSync(join(tempDir, ".vibeflow", "tasks"))).toBe(true);
-    expect(existsSync(join(tempDir, ".vibeflow", "tasks", "screenshots"))).toBe(true);
+    expect(existsSync(join(tempDir, ".vibeflow", "tasks", "screenshots"))).toBe(
+      true,
+    );
   });
 
   it("DELETE /api/tasks/:id/screenshot removes screenshot and returns success", async () => {
@@ -248,7 +254,8 @@ describe("proto serve (e2e)", () => {
         title: "Screenshot task",
         selector: '[data-vibeflow-id="cta-button"]',
         // eslint-disable-next-line no-secrets/no-secrets -- 1x1 pixel PNG test fixture, not a credential
-        screenshot: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        screenshot:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
       }),
     });
     const { task } = await createRes.json();
@@ -274,9 +281,12 @@ describe("proto serve (e2e)", () => {
 
     instance = await serve(filePath, { port: 3765, open: false });
 
-    const res = await fetch("http://localhost:3765/api/tasks/aabbccddeeff001122334455667788/screenshot", {
-      method: "DELETE",
-    });
+    const res = await fetch(
+      "http://localhost:3765/api/tasks/aabbccddeeff001122334455667788/screenshot",
+      {
+        method: "DELETE",
+      },
+    );
     expect(res.status).toBe(404);
   });
 
@@ -303,7 +313,8 @@ describe("proto serve (e2e)", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           // eslint-disable-next-line no-secrets/no-secrets -- 1x1 pixel PNG test fixture, not a credential
-          screenshot: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          screenshot:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
         }),
       },
     );
@@ -339,7 +350,9 @@ describe("proto serve (e2e)", () => {
     );
     expect(uploadRes.ok).toBe(true);
 
-    const listRes = await fetch(`http://localhost:3767/api/tasks/${task.id}/files`);
+    const listRes = await fetch(
+      `http://localhost:3767/api/tasks/${task.id}/files`,
+    );
     const listData = await listRes.json();
     expect(listData.files).toHaveLength(1);
     expect(listData.files[0].name).toBe("design-notes.md");
@@ -371,7 +384,6 @@ describe("proto serve (e2e)", () => {
     );
     expect(uploadRes.status).toBe(400);
   });
-
 });
 
 // ── API-only mode (no target / existing hosted project) ───────────────────
@@ -392,7 +404,11 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("starts without a target and serves the task API", async () => {
-    instance = await serve(undefined, { port: 3780, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3780,
+      open: false,
+      projectDir: tempDir,
+    });
     expect(instance.url).toBe("http://localhost:3780");
 
     const res = await fetch("http://localhost:3780/api/tasks");
@@ -402,7 +418,11 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: creates and retrieves tasks", async () => {
-    instance = await serve(undefined, { port: 3781, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3781,
+      open: false,
+      projectDir: tempDir,
+    });
 
     const createRes = await fetch("http://localhost:3781/api/tasks", {
       method: "POST",
@@ -420,14 +440,22 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: does not serve HTML (/ returns 404)", async () => {
-    instance = await serve(undefined, { port: 3782, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3782,
+      open: false,
+      projectDir: tempDir,
+    });
 
     const res = await fetch("http://localhost:3782/");
     expect(res.status).toBe(404);
   });
 
   it("API-only mode: PATCH updates task status", async () => {
-    instance = await serve(undefined, { port: 3783, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3783,
+      open: false,
+      projectDir: tempDir,
+    });
 
     const createRes = await fetch("http://localhost:3783/api/tasks", {
       method: "POST",
@@ -450,7 +478,11 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: DELETE removes a task", async () => {
-    instance = await serve(undefined, { port: 3784, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3784,
+      open: false,
+      projectDir: tempDir,
+    });
 
     const createRes = await fetch("http://localhost:3784/api/tasks", {
       method: "POST",
@@ -462,22 +494,33 @@ describe("proto serve — API-only mode (no target)", () => {
     });
     const { task } = await createRes.json();
 
-    const deleteRes = await fetch(`http://localhost:3784/api/tasks/${task.id}`, {
-      method: "DELETE",
-    });
+    const deleteRes = await fetch(
+      `http://localhost:3784/api/tasks/${task.id}`,
+      {
+        method: "DELETE",
+      },
+    );
     expect(deleteRes.ok).toBe(true);
 
     const listRes = await fetch("http://localhost:3784/api/tasks");
     const listData = await listRes.json();
-    expect(listData.tasks.every((t: { id: string }) => t.id !== task.id)).toBe(true);
+    expect(listData.tasks.every((t: { id: string }) => t.id !== task.id)).toBe(
+      true,
+    );
   });
 
   it("API-only mode: creates .proto dirs in the specified projectDir", async () => {
-    instance = await serve(undefined, { port: 3785, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3785,
+      open: false,
+      projectDir: tempDir,
+    });
 
     const { existsSync } = await import("node:fs");
     expect(existsSync(join(tempDir, ".vibeflow", "tasks"))).toBe(true);
-    expect(existsSync(join(tempDir, ".vibeflow", "tasks", "screenshots"))).toBe(true);
+    expect(existsSync(join(tempDir, ".vibeflow", "tasks", "screenshots"))).toBe(
+      true,
+    );
   });
 });
 
@@ -542,7 +585,7 @@ describe("proto serve — regression: pageRoutes ReferenceError (dir mode)", () 
 
     const res = await fetch("http://localhost:9722/api/pages");
     expect(res.ok).toBe(true);
-    const body = await res.json() as { pages: string[] };
+    const body = (await res.json()) as { pages: string[] };
     expect(body.pages).toContain("/index.html");
     expect(body.pages).toContain("/map.html");
     expect(body.pages).toHaveLength(2);
@@ -556,16 +599,20 @@ describe("proto serve — regression: pageRoutes ReferenceError (dir mode)", () 
 
     const res = await fetch("http://localhost:9723/api/pages");
     expect(res.ok).toBe(true);
-    const body = await res.json() as { pages: string[] };
+    const body = (await res.json()) as { pages: string[] };
     expect(body.pages).toEqual([]);
   });
 
   it("GET /api/pages returns empty array in API-only mode", async () => {
-    const apiInstance = await serve(undefined, { port: 9724, open: false, projectDir: tempDir });
+    const apiInstance = await serve(undefined, {
+      port: 9724,
+      open: false,
+      projectDir: tempDir,
+    });
     try {
       const res = await fetch("http://localhost:9724/api/pages");
       expect(res.ok).toBe(true);
-      const body = await res.json() as { pages: string[] };
+      const body = (await res.json()) as { pages: string[] };
       expect(body.pages).toEqual([]);
     } finally {
       await apiInstance.close();
@@ -633,7 +680,9 @@ describe("proto serve — regression: overlay SyntaxError (Unexpected token ',')
     const res = await fetch("http://localhost:9727/page1.html");
     const html = await res.text();
 
-    const match = html.match(/<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/);
+    const match = html.match(
+      /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
+    );
     expect(match).not.toBeNull();
     const inlineScript = match![1];
     expect(() => new Function(inlineScript)).not.toThrow();
@@ -686,7 +735,10 @@ describe("proto serve — task url field and overlay url-filtering", () => {
         url: "/page1.html",
       }),
     });
-    const d1 = await r1.json() as { success: boolean; task: { url?: string } };
+    const d1 = (await r1.json()) as {
+      success: boolean;
+      task: { url?: string };
+    };
     expect(d1.success).toBe(true);
     expect(d1.task.url).toBe("/page1.html");
 
@@ -701,7 +753,10 @@ describe("proto serve — task url field and overlay url-filtering", () => {
         url: "/page2.html",
       }),
     });
-    const d2 = await r2.json() as { success: boolean; task: { url?: string } };
+    const d2 = (await r2.json()) as {
+      success: boolean;
+      task: { url?: string };
+    };
     expect(d2.success).toBe(true);
     expect(d2.task.url).toBe("/page2.html");
 
@@ -715,13 +770,18 @@ describe("proto serve — task url field and overlay url-filtering", () => {
         selector: '[data-vibeflow-id="header"]',
       }),
     });
-    const d3 = await r3.json() as { success: boolean; task: { url?: string } };
+    const d3 = (await r3.json()) as {
+      success: boolean;
+      task: { url?: string };
+    };
     expect(d3.success).toBe(true);
     expect(d3.task.url).toBeUndefined();
 
     // API returns ALL three tasks (no server-side URL filtering)
     const listRes = await fetch("http://localhost:9728/api/tasks");
-    const listData = await listRes.json() as { tasks: Array<{ url?: string; title: string }> };
+    const listData = (await listRes.json()) as {
+      tasks: Array<{ url?: string; title: string }>;
+    };
     expect(listData.tasks).toHaveLength(3);
 
     const urls = listData.tasks.map((t) => t.url);
@@ -738,7 +798,9 @@ describe("proto serve — task url field and overlay url-filtering", () => {
     const res = await fetch("http://localhost:9729/index.html");
     const html = await res.text();
 
-    const match = html.match(/<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/);
+    const match = html.match(
+      /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
+    );
     expect(match).not.toBeNull();
     const overlayScript = match![1];
     // Must contain the client-side URL filter logic
@@ -818,7 +880,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
 
     const res = await fetch("http://localhost:9732/");
     const html = await res.text();
-    const match = html.match(/<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/);
+    const match = html.match(
+      /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
+    );
     expect(match).not.toBeNull();
     const overlayScript = match![1];
     // Overlay must use absolute screenshotsUrl from PROTO_CONFIG (not relative path).
@@ -838,7 +902,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
 
     const res = await fetch("http://localhost:9733/");
     const html = await res.text();
-    const match = html.match(/<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/);
+    const match = html.match(
+      /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
+    );
     expect(match).not.toBeNull();
     const overlayScript = match![1];
     expect(overlayScript).toContain("location.pathname");
@@ -852,7 +918,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
 
     const res = await fetch("http://localhost:9734/");
     const html = await res.text();
-    const match = html.match(/<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/);
+    const match = html.match(
+      /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
+    );
     expect(match).not.toBeNull();
     const overlayScript = match![1];
     expect(overlayScript).toContain("history.pushState");
@@ -901,20 +969,26 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
 
     // Externally write a new task file into .vibeflow/tasks/
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
-    writeFileSync(join(tasksDir, "external-task.md"), [
-      "---",
-      "id: exttest1",
-      "status: todo",
-      'selector: "#btn"',
-      "created: 2025-01-01T00:00:00.000Z",
-      "---",
-      "",
-      "# External Task",
-    ].join("\n"), "utf-8");
+    writeFileSync(
+      join(tasksDir, "external-task.md"),
+      [
+        "---",
+        "id: exttest1",
+        "status: todo",
+        'selector: "#btn"',
+        "created: 2025-01-01T00:00:00.000Z",
+        "---",
+        "",
+        "# External Task",
+      ].join("\n"),
+      "utf-8",
+    );
 
     const msg = await Promise.race([
       msgReceived,
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 3000),
+      ),
     ]);
 
     ws.close();
@@ -922,12 +996,19 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
     // Server sends task-changed when it can parse the task file, tasks-updated otherwise
     expect(["task-changed", "tasks-updated"]).toContain(parsed.type);
     if (parsed.type === "task-changed") {
-      expect(parsed).toMatchObject({ taskId: expect.any(String), action: expect.any(String) });
+      expect(parsed).toMatchObject({
+        taskId: expect.any(String),
+        action: expect.any(String),
+      });
     }
   });
 
   it("broadcasts WS notification when a task file is externally modified (API-only mode)", async () => {
-    instance = await serve(undefined, { port: 9801, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 9801,
+      open: false,
+      projectDir: tempDir,
+    });
 
     // Create a task via API so the tasks dir exists
     await fetch("http://localhost:9801/api/tasks", {
@@ -945,20 +1026,26 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
     });
 
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
-    writeFileSync(join(tasksDir, "external-task2.md"), [
-      "---",
-      "id: exttest2",
-      "status: in-progress",
-      'selector: "#nav"',
-      "created: 2025-01-01T00:00:00.000Z",
-      "---",
-      "",
-      "# Another External Task",
-    ].join("\n"), "utf-8");
+    writeFileSync(
+      join(tasksDir, "external-task2.md"),
+      [
+        "---",
+        "id: exttest2",
+        "status: in-progress",
+        'selector: "#nav"',
+        "created: 2025-01-01T00:00:00.000Z",
+        "---",
+        "",
+        "# Another External Task",
+      ].join("\n"),
+      "utf-8",
+    );
 
     const msg = await Promise.race([
       msgReceived,
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 3000),
+      ),
     ]);
 
     ws.close();
@@ -966,7 +1053,10 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
     // Server sends task-changed when it can parse the task file, tasks-updated otherwise
     expect(["task-changed", "tasks-updated"]).toContain(parsed.type);
     if (parsed.type === "task-changed") {
-      expect(parsed).toMatchObject({ taskId: expect.any(String), action: expect.any(String) });
+      expect(parsed).toMatchObject({
+        taskId: expect.any(String),
+        action: expect.any(String),
+      });
     }
   });
 });
@@ -988,9 +1078,190 @@ describe("proto serve — deprecated agents API", () => {
   });
 
   it("/api/agents is no longer exposed as JSON", async () => {
-    instance = await serve(undefined, { port: 9820, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 9820,
+      open: false,
+      projectDir: tempDir,
+    });
     const res = await fetch("http://localhost:9820/api/agents");
     expect(res.ok).toBe(false);
     expect([404, 503]).toContain(res.status);
+  });
+
+  // ── GET /api/tasks query params (?status=, ?limit=) ──────────────────────
+  it("GET /api/tasks?status= filters by status", async () => {
+    instance = await serve(undefined, {
+      port: 9830,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create 3 tasks with different statuses
+    for (const status of ["todo", "in-progress", "done"] as const) {
+      const res = await fetch("http://localhost:9830/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Task ${status}`,
+          selector: "/body",
+          status,
+        }),
+      });
+      expect(((await res.json()) as { success: boolean }).success).toBe(true);
+    }
+
+    // Filter by todo
+    const todoRes = await fetch("http://localhost:9830/api/tasks?status=todo");
+    expect(todoRes.ok).toBe(true);
+    const todoData = (await todoRes.json()) as { tasks: { status: string }[] };
+    expect(todoData.tasks).toHaveLength(1);
+    expect(todoData.tasks[0].status).toBe("todo");
+
+    // Filter by done
+    const doneRes = await fetch("http://localhost:9830/api/tasks?status=done");
+    expect(doneRes.ok).toBe(true);
+    const doneData = (await doneRes.json()) as { tasks: { status: string }[] };
+    expect(doneData.tasks).toHaveLength(1);
+    expect(doneData.tasks[0].status).toBe("done");
+  });
+
+  it("GET /api/tasks?limit= limits results", async () => {
+    instance = await serve(undefined, {
+      port: 9831,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create 5 tasks
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch("http://localhost:9831/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: `Limit task ${i}`, selector: "/body" }),
+      });
+      expect(((await res.json()) as { success: boolean }).success).toBe(true);
+    }
+
+    // Limit to 2
+    const res = await fetch("http://localhost:9831/api/tasks?limit=2");
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { tasks: unknown[] };
+    expect(data.tasks.length).toBeLessThanOrEqual(2);
+  });
+
+  it("GET /api/tasks?status= and ?limit= combined", async () => {
+    instance = await serve(undefined, {
+      port: 9832,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create tasks: 3 todo, 2 done
+    for (let i = 0; i < 3; i++) {
+      await fetch("http://localhost:9832/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Todo ${i}`,
+          selector: "/body",
+          status: "todo",
+        }),
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      await fetch("http://localhost:9832/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Done ${i}`,
+          selector: "/body",
+          status: "done",
+        }),
+      });
+    }
+
+    // Filter todo + limit 1
+    const res = await fetch(
+      "http://localhost:9832/api/tasks?status=todo&limit=1",
+    );
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { tasks: { status: string }[] };
+    expect(data.tasks.length).toBeLessThanOrEqual(1);
+    if (data.tasks.length > 0) {
+      expect(data.tasks[0].status).toBe("todo");
+    }
+  });
+
+  it("GET /api/tasks?status= with no matches returns empty", async () => {
+    instance = await serve(undefined, {
+      port: 9833,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create a task
+    await fetch("http://localhost:9833/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Only task",
+        selector: "/body",
+        status: "todo",
+      }),
+    });
+
+    // Filter by nonexistent status
+    const res = await fetch(
+      "http://localhost:9833/api/tasks?status=nonexistent",
+    );
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { tasks: unknown[] };
+    expect(data.tasks).toHaveLength(0);
+  });
+
+  it("GET /api/tasks?limit=0 returns all (ignored, 0 is not > 0)", async () => {
+    instance = await serve(undefined, {
+      port: 9834,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create 2 tasks
+    for (let i = 0; i < 2; i++) {
+      await fetch("http://localhost:9834/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: `Task ${i}`, selector: "/body" }),
+      });
+    }
+
+    // limit=0 is ignored (0 > 0 is false), all tasks returned
+    const res = await fetch("http://localhost:9834/api/tasks?limit=0");
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { tasks: unknown[] };
+    expect(data.tasks).toHaveLength(2);
+  });
+
+  it("GET /api/tasks?limit=abc is ignored and returns all", async () => {
+    instance = await serve(undefined, {
+      port: 9835,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    // Create 3 tasks
+    for (let i = 0; i < 3; i++) {
+      await fetch("http://localhost:9835/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: `Task ${i}`, selector: "/body" }),
+      });
+    }
+
+    // limit=abc should be ignored (NaN), returning all tasks
+    const res = await fetch("http://localhost:9835/api/tasks?limit=abc");
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { tasks: unknown[] };
+    expect(data.tasks).toHaveLength(3);
   });
 });
