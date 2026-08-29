@@ -4,8 +4,18 @@ import { el } from "./dom.js";
 import { connectWS, setupWsVisibilityReconnect } from "./ws.js";
 import { fetchTasks, submitTask } from "./api.js";
 import { fetchPages } from "./pages.js";
-import { renderIndicators, setupIndicatorScrollRefresh, setupInteractionDebounce, setupClickOutsideTooltipClose } from "./indicators.js";
-import { setupKeyboardShortcuts, setupContextMenuListener, setupClickToAnnotate, setupSpaNavigation } from "./events.js";
+import {
+  renderIndicators,
+  setupIndicatorScrollRefresh,
+  setupInteractionDebounce,
+  setupClickOutsideTooltipClose,
+} from "./indicators.js";
+import {
+  setupKeyboardShortcuts,
+  setupContextMenuListener,
+  setupClickToAnnotate,
+  setupSpaNavigation,
+} from "./events.js";
 import { startRecording } from "./error-recorder.js";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -26,10 +36,10 @@ function main(): void {
   // we mark it here so the popup detects it the same way.
   // Prefer the script tag that carries a boardId (SaaS embed) so that the
   // CLI overlay script (src*="vibeflow-overlay") does not shadow it.
-  const selfScript = (
-    document.querySelector('script[data-board-id]') ??
-    document.querySelector('script[src*="vibeflow-overlay"]')
-  ) as HTMLScriptElement | null;
+  const selfScript = (document.querySelector("script[data-board-id]") ??
+    document.querySelector(
+      'script[src*="vibeflow-overlay"]',
+    )) as HTMLScriptElement | null;
   if (selfScript && !selfScript.hasAttribute("data-vibeflow-overlay")) {
     selfScript.setAttribute("data-vibeflow-overlay", "");
   }
@@ -42,13 +52,15 @@ function main(): void {
   // Fallback: read boardId from a global variable set by fetch+eval bookmarklets
   // in CSP-restricted environments where no script element is available.
   // SAFETY: window.__PROTO_BOARD_ID is set by fetch+eval bookmarklets in CSP-restricted environments; the Record cast reads an optional global.
-  const globalBoardId = (window as unknown as Record<string, unknown>).__PROTO_BOARD_ID as string | undefined;
+  const globalBoardId = (window as unknown as Record<string, unknown>)
+    .__PROTO_BOARD_ID as string | undefined;
   if (globalBoardId && !PROTO_CONFIG.boardId) {
     (PROTO_CONFIG as { boardId?: string }).boardId = globalBoardId;
   }
   // Read the overlay API key from data-overlay-api-key for authenticated mutations.
   if (selfScript?.dataset.overlayApiKey && !PROTO_CONFIG.overlayApiKey) {
-    (PROTO_CONFIG as { overlayApiKey?: string }).overlayApiKey = selfScript.dataset.overlayApiKey;
+    (PROTO_CONFIG as { overlayApiKey?: string }).overlayApiKey =
+      selfScript.dataset.overlayApiKey;
   }
 
   // Skip if already injected (by extension or another script tag)
@@ -59,7 +71,11 @@ function main(): void {
   // single "Hide Vibeflow" action would permanently hide the button across all future
   // page loads / bookmarklet injections.  Users who want to suppress the overlay
   // entirely should use "Disable Vibeflow" instead.
-  try { localStorage.removeItem(TRIGGER_HIDDEN_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(TRIGGER_HIDDEN_KEY);
+  } catch {
+    /* ignore */
+  }
 
   // ── Shadow DOM ────────────────────────────────────────────────────────────
   const { host, root } = setupShadowDom();
@@ -87,15 +103,38 @@ function main(): void {
         if (PROTO_CONFIG.boardId) {
           // SaaS mode: open the webapp kanban for this board
           const origin = new URL(PROTO_CONFIG.apiUrl).origin;
-          window.open(`${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`, '_blank', 'noopener');
+          window.open(
+            `${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`,
+            "_blank",
+            "noopener",
+          );
         } else if (PROTO_CONFIG.wsUrl) {
           // Local CLI mode: open the local kanban server
-          const kanbanUrl = PROTO_CONFIG.apiUrl.replace('/api/tasks', '/kanban');
-          window.open(kanbanUrl, '_blank', 'noopener');
+          const kanbanUrl = PROTO_CONFIG.apiUrl.replace(
+            "/api/tasks",
+            "/kanban",
+          );
+          window.open(kanbanUrl, "_blank", "noopener");
         }
       },
-      onSubmitTask: (selector, cssSelector, title, description, status, type, meta) => {
-        return submitTask(selector, cssSelector, title, description, status, meta, type);
+      onSubmitTask: (
+        selector,
+        cssSelector,
+        title,
+        description,
+        status,
+        type,
+        meta,
+      ) => {
+        return submitTask(
+          selector,
+          cssSelector,
+          title,
+          description,
+          status,
+          meta,
+          type,
+        );
       },
     }),
   );

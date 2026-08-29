@@ -4,7 +4,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  status: 'backlog' | 'todo' | 'in-progress' | 'review' | 'done';
+  status: "backlog" | "todo" | "in-progress" | "review" | "done";
   selector: string;
   cssSelector?: string;
   url?: string;
@@ -68,7 +68,7 @@ export interface AuthState {
     expires: number;
     httpOnly: boolean;
     secure: boolean;
-    sameSite: 'Strict' | 'Lax' | 'None';
+    sameSite: "Strict" | "Lax" | "None";
   }>;
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
