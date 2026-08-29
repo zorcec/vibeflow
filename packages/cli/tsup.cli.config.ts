@@ -15,6 +15,10 @@ export default defineConfig({
   minify: true,
   dts: true,
   banner: { js: "#!/usr/bin/env node" },
+  // Playwright is a runtime dependency that cannot be bundled by esbuild
+  // (chromium-bidi has deep CJS requires). Mark it external so it's
+  // resolved at runtime via node_modules.
+  external: ["playwright", "playwright-core"],
   esbuildOptions(options) {
     const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { version: string };
     options.define = { ...options.define, __VIBEFLOW_CLI_VERSION__: JSON.stringify(pkg.version) };

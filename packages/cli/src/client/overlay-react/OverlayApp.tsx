@@ -66,6 +66,7 @@ function hasPrototypingApi(): boolean {
 
 /** Opens the variant switcher panel via the prototyping package API */
 function openPrototypingPanel(): void {
+  // SAFETY: __vf_prototyping is injected at runtime by the prototyping package — same pattern as __PROTO_CONFIG in api.ts
   const api = (window as unknown as Record<string, unknown>).__vf_prototyping as PrototypingApi | undefined;
   api?.openPanel();
 }
@@ -217,7 +218,7 @@ function CornerTrigger({
     setPos({ x, y });
   }
 
-  function onPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+  function onPointerUp(_e: React.PointerEvent<HTMLButtonElement>) {
     if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
     const wasDragged = didDrag.current;
     const wasRight = isRightClick.current;
@@ -237,13 +238,13 @@ function CornerTrigger({
     didDrag.current = false;
   }
 
-  const posStyle: React.CSSProperties = pos !== null ? {
+  const posStyle: React.CSSProperties = pos === null ? {} : {
     position: 'fixed',
     left: pos.x,
     top: pos.y,
     bottom: 'auto',
     right: 'auto',
-  } : {};
+  };
 
   const className = [
     'vibeflow-corner-trigger',
@@ -342,7 +343,7 @@ interface AddModalProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
-  ) => void;
+  ) => Promise<{ success: boolean; taskId?: string }>;
 }
 
 function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
@@ -423,12 +424,12 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
     fontFamily: 'inherit', fontWeight: 500, transition: 'all .12s',
   };
 
-  const modalStyle: React.CSSProperties = dragPos !== null ? {
+  const modalStyle: React.CSSProperties = dragPos === null ? {} : {
     position: 'fixed',
     left: dragPos.x,
     top: dragPos.y,
     margin: 0,
-  } : {};
+  };
 
   const headerStyle: React.CSSProperties = {
     cursor: isDragging ? 'grabbing' : 'grab',
@@ -518,12 +519,12 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: 'var(--vibeflow-surface-elevated)', borderBottom: '1px solid var(--vibeflow-border-subtle)', fontSize: 11, color: 'var(--vibeflow-text-muted)' }}>
             {opts.file && (
               <a
-                href={`vscode://file${opts.file}${opts.line != null ? `:${opts.line}` : ''}`}
+                href={`vscode://file${opts.file}${opts.line == null ? '' : `:${opts.line}`}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 4, background: 'var(--vibeflow-accent-soft)', border: '1px solid var(--vibeflow-accent-border)', color: 'var(--vibeflow-accent-strong)', textDecoration: 'none', fontSize: 11 }}
               >
-                🗎 {opts.file.split('/').slice(-2).join('/')}{opts.line != null ? `:${opts.line}` : ''}
+                🗎 {opts.file.split('/').slice(-2).join('/')}{opts.line == null ? '' : `:${opts.line}`}
               </a>
             )}
             {opts.component && (
@@ -536,12 +537,17 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
 
         {/* ── Body: description tabs with shared AutoExpandTextarea + MarkdownPreview ── */}
         <div className="modal-tabs">
-          <div className={`modal-tab${!showPreview ? ' active' : ''}`} onClick={() => setShowPreview(false)}>Edit</div>
+          <div className={`modal-tab${showPreview ? '' : ' active'}`} onClick={() => setShowPreview(false)}>Edit</div>
           <div className={`modal-tab${showPreview ? ' active' : ''}`} onClick={() => setShowPreview(true)}>Preview</div>
         </div>
 
         <div className="modal-body">
-          {!showPreview ? (
+          {showPreview ? (
+            <MarkdownPreview
+              markdown={description}
+              className="modal-preview-pane"
+            />
+          ) : (
             <div className="modal-editor-pane">
               <AutoExpandTextarea
                 className="dp-textarea"
@@ -552,11 +558,6 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
                 maxRows={14}
               />
             </div>
-          ) : (
-            <MarkdownPreview
-              markdown={description}
-              className="modal-preview-pane"
-            />
           )}
 
           {/* ── Body: description tabs with shared AutoExpandTextarea + MarkdownPreview ── */}
@@ -595,7 +596,7 @@ interface OverlayAppProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
-  ) => void;
+  ) => Promise<{ success: boolean; taskId?: string }>;
 }
 
 export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
@@ -604,7 +605,6 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
   const [isHidden, setIsHidden] = React.useState(() => {
     try { return localStorage.getItem(TRIGGER_HIDDEN_KEY) === '1'; } catch { return false; }
   });
-
   // Register external bridge so vanilla-TS code can open the modal
   React.useEffect(() => {
     _externalShowAddModal = (opts) => setAddModalOpts(opts);
@@ -658,9 +658,10 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
         <OverlayAddModal
           opts={addModalOpts}
           onClose={() => setAddModalOpts(null)}
-          onSubmit={(selector, cssSelector, title, description, status, type, meta) => {
-            onSubmitTask(selector, cssSelector, title, description, status, type, meta);
+          onSubmit={async (selector, cssSelector, title, description, status, type, meta) => {
+            const result = await onSubmitTask(selector, cssSelector, title, description, status, type, meta);
             setAddModalOpts(null);
+            return result;
           }}
         />
       )}
