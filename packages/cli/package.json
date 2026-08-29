@@ -75,9 +75,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/typescript-checker": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.28",
