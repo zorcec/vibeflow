@@ -39,11 +39,6 @@
 
 - 4a2d8c0: Harden REST API input validation for comments and file uploads to match tRPC validation: add `isValidCommentId` (16-char hex) for all comment endpoints, `isValidFilename` rejecting traversal/control chars for file endpoints, and whitespace-only rejection on comment text.
 - d402441: Harden watch command error handling and tRPC input validation
-- 681766e: Add `?status=` and `?limit=` query parameters to the REST API `GET /api/tasks` endpoint. Previously these params were accepted but ignored.
-
-  Also includes 18 new end-to-end tests:
-  - 12 Playwright tests covering API query params, filter tabs, search, real-time WebSocket updates, column counts, and oldest-first ordering.
-  - 6 headless e2e tests for status filtering, limit, combined params, no-match handling, and edge cases (limit=0, invalid limit).
 
 ## 0.9.1
 
