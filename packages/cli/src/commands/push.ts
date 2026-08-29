@@ -7,6 +7,7 @@ import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { login } from "../auth/login.js";
 import { PROTO_DIR, FILES_DIR } from "../core/types.js";
+import { ExitCode } from "../core/exit-codes.js";
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
@@ -121,7 +122,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     if (!token) {
       // Stryker disable once StringLiteral: display message for login failure
       console.error(chalk.red("  Login failed. Please run `vibeflow login` and try again."));
-      process.exitCode = 1;
+      process.exitCode = ExitCode.AUTH;
       return;
     }
   }
@@ -164,7 +165,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       const err = await res.json().catch(() => ({})) as Record<string, unknown>;
       // Stryker disable once StringLiteral: display message for import failure
       console.error(chalk.red(`  Import failed: ${res.status} ${(err.error as string) ?? res.statusText}`));
-      process.exitCode = 1;
+      process.exitCode = ExitCode.GENERAL;
       return;
     }
 
@@ -173,7 +174,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     const msg = err instanceof Error ? err.message : String(err);
     // Stryker disable once StringLiteral: display message for network error
     console.error(chalk.red(`  Network error: ${msg}`));
-    process.exitCode = 1;
+    process.exitCode = ExitCode.GENERAL;
     return;
   }
 

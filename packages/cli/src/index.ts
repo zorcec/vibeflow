@@ -18,6 +18,7 @@ import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import chalk from "chalk";
 import { capture, flushTelemetry, isTelemetryEnabled, setTelemetryEnabled, getTelemetryStatus } from "./telemetry.js";
+import { ExitCode } from "./core/exit-codes.js";
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
 declare const __VIBEFLOW_CLI_VERSION__: string | undefined;
@@ -169,29 +170,29 @@ function collectAvailableUsers<T extends { author?: string | null }>(tasks: T[])
   )].sort((a, b) => a.localeCompare(b));
 }
 
-/** Validates --type filter value; logs error and sets exitCode=1 if invalid. Returns true if valid. */
+/** Validates --type filter value; logs error and sets exitCode if invalid. Returns true if valid. */
 function validateTypeFilter(typeFilter: string): boolean {
   if (VALID_FILTER_TYPES.map((t) => t.toLowerCase()).includes(typeFilter.toLowerCase())) return true;
   console.log(chalk.red(`✗ Invalid type filter: "${typeFilter}"`));
   console.log(chalk.yellow(`  Available types: ${VALID_FILTER_TYPES.join(" | ")}`));
   console.log(chalk.dim("  Type filter is exact (example: --type Bug)"));
-  process.exitCode = 1;
+  process.exitCode = ExitCode.USAGE;
   return false;
 }
 
-/** Validates --user filter value; logs error and sets exitCode=1 if invalid. Returns true if valid. */
+/** Validates --user filter value; logs error and sets exitCode if invalid. Returns true if valid. */
 function validateUserFilter<T extends { author?: string | null }>(userFilter: string, tasks: T[]): boolean {
   const availableUsers = collectAvailableUsers(tasks);
   if (availableUsers.length === 0) {
     console.log(chalk.red(`✗ Cannot filter by user: no task authors are available on this board.`));
-    process.exitCode = 1;
+    process.exitCode = ExitCode.USAGE;
     return false;
   }
   if (availableUsers.some((author) => matchesUserFilter(author, userFilter))) return true;
   console.log(chalk.red(`✗ User not found: "${userFilter}"`));
   console.log(chalk.yellow(`  Available users: ${availableUsers.join(" | ")}`));
   console.log(chalk.dim("  User filter is exact email match (case-insensitive)."));
-  process.exitCode = 1;
+  process.exitCode = ExitCode.USAGE;
   return false;
 }
 
@@ -421,13 +422,13 @@ program
         const saasData = await fetchSaasTasks(workspace?.id);
         if (!saasData) {
           console.log(chalk.red("✗ Unable to reach the online backend."));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.GENERAL;
           return;
         }
         const saasTask = saasData.tasks.find((t) => t.id === opts.get || t.id.startsWith(opts.get!));
         if (!saasTask) {
           console.log(chalk.red(`✗ Task not found: ${opts.get}`));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.NOT_FOUND;
           return;
         }
         const cliStatus = toCliStatus(saasTask.status);
@@ -487,7 +488,7 @@ program
       if (!task) {
         console.log(chalk.red(`✗ Task not found: ${opts.get}`));
         console.log(chalk.dim("  Run 'vibeflow tasks' to see available task IDs."));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.NOT_FOUND;
         return;
       }
       const structuredComments = listComments(projectDir, task.id).sort(
@@ -533,7 +534,7 @@ program
         const saasData = await fetchSaasTasks(nextWorkspace?.id);
         if (!saasData) {
           console.log(chalk.red("✗ Unable to reach the online backend."));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.GENERAL;
           return;
         }
         if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -561,7 +562,7 @@ program
         const updated = await updateSaasTask(nextTask.id, { status: "in-progress" });
         if (!updated) {
           console.log(chalk.red(`✗ Failed to move task to in-progress: ${nextTask.id}`));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.GENERAL;
           return;
         }
 
@@ -628,7 +629,7 @@ program
       const nextUpdated = updateTask(nextProjectDir, nextLocalTask.id, { status: "in-progress" });
       if (!nextUpdated) {
         console.log(chalk.red(`✗ Failed to update task: ${nextLocalTask.id}`));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
         return;
       }
 
@@ -676,7 +677,7 @@ program
       if (!opts.title?.trim()) {
         console.log(chalk.red("✗ --title is required with --add"));
         console.log(chalk.dim("  Example: vibeflow tasks --add --title \"Fix CTA spacing\" --description \"Button overflows on mobile\""));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -696,7 +697,7 @@ program
         if (!saasCreated) {
           console.log(chalk.red("✗ Failed to create task in online board."));
           console.log(chalk.yellow("  Check your connection or run 'vibeflow login'."));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.GENERAL;
           return;
         }
         if (opts.json) {
@@ -736,7 +737,7 @@ program
       if (!opts.task) {
         console.log(chalk.red("✗ --task <task-id> is required with --commit"));
         console.log(chalk.dim("  Example: vibeflow tasks --commit --task abc12345 --message \"fix button alignment\""));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
       const projectDir = resolve(dir);
@@ -745,7 +746,7 @@ program
       if (!task) {
         console.log(chalk.red(`✗ Task not found: ${opts.task}`));
         console.log(chalk.dim("  Run 'vibeflow tasks' to see available task IDs."));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.NOT_FOUND;
         return;
       }
       const baseMsg = opts.message?.trim() || task.title;
@@ -784,7 +785,7 @@ program
         }
       } catch {
         console.log(chalk.red("✗ git commit failed — ensure changes are staged with 'git add'"));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
       }
       return;
     }
@@ -835,7 +836,7 @@ program
         console.log(chalk.red(`✗ Invalid status: "${opts.setStatus}"`));
         console.log(chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`));
         console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status in-progress`));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -846,7 +847,7 @@ program
         console.log(chalk.dim("    · key decisions and trade-offs"));
         console.log(chalk.dim("    · anything future agents should know"));
         console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status review --comment "Implemented X by doing Y. Key decision: Z."`));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.USAGE;
         return;
       }
 
@@ -862,7 +863,7 @@ program
           console.log(chalk.dim("  Provide: what changed, why, key decisions, anything future agents should know."));
           console.log(chalk.dim("  Plain text for short notes; Markdown for multi-section reports."));
           console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status review --comment "Implemented X by doing Y."`));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -873,7 +874,7 @@ program
           console.log(chalk.red("✗ --commit-message is required (auto-commit setting is ON)"));
           console.log(chalk.dim("  Stage your changes first, then provide a one-line commit summary."));
           console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status review --commit-message "fix: add hover effect" --comment "..."`));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
 
@@ -882,7 +883,7 @@ program
           console.log(chalk.red("✗ --branch is required (create-branch setting is ON)"));
           console.log(chalk.dim("  Provide the git branch name created for this task."));
           console.log(chalk.dim(`  Example: vibeflow tasks --edit ${taskId} --set-status review --branch feat/add-hover-effect --comment "..."`));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.USAGE;
           return;
         }
       }
@@ -911,7 +912,7 @@ program
         if (!saasResult) {
           console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
           console.log(chalk.yellow("  Ensure you are connected and the task ID exists in the online board."));
-          process.exitCode = 1;
+          process.exitCode = ExitCode.GENERAL;
           return;
         }
 
@@ -977,12 +978,12 @@ program
             const reportPath = resolve(opts.reportFile);
             if (!existsSync(reportPath)) {
               console.log(chalk.red(`✗ Report file not found: ${reportPath}`));
-              process.exitCode = 1;
+              process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
             if (!/\.md$/i.test(reportPath)) {
               console.log(chalk.red("✗ Report file must be a Markdown (.md) file"));
-              process.exitCode = 1;
+              process.exitCode = ExitCode.USAGE;
               return;
             }
             const content = readFileSync(reportPath);
@@ -998,7 +999,7 @@ program
               console.log(chalk.red("✗ Cannot mark Research task as review: no .md report file attached."));
               console.log(chalk.dim("  Provide a research report:"));
               console.log(chalk.dim(`    vibeflow tasks --edit ${taskId} --set-status review --report-file ./my-research.md --comment "..."`));
-              process.exitCode = 1;
+              process.exitCode = ExitCode.USAGE;
               return;
             }
           }
@@ -1009,7 +1010,7 @@ program
       if (!updated) {
         console.log(chalk.red(`✗ Task not found: ${taskId}`));
         console.log(chalk.yellow(`  Run 'vibeflow tasks' to see available task IDs.`));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.NOT_FOUND;
         return;
       }
 
@@ -1056,7 +1057,7 @@ program
             } catch {
               // Task status and comment are already saved — only the commit failed.
               console.log(chalk.red("✗ git commit failed — ensure changes are staged with 'git add'"));
-              process.exitCode = 1;
+              process.exitCode = ExitCode.GENERAL;
             }
           }
         }
@@ -1070,7 +1071,7 @@ program
       console.log(chalk.red(`✗ Invalid status filter: "${opts.status}"`));
       console.log(chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`));
       console.log(chalk.dim(`  Example: vibeflow tasks --status todo`));
-      process.exitCode = 1;
+      process.exitCode = ExitCode.USAGE;
       return;
     }
     if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -1083,7 +1084,7 @@ program
       if (!saasData) {
         console.log(chalk.red("✗ Unable to reach the online backend."));
         console.log(chalk.yellow("  Check your connection or run 'vibeflow login' if your session expired."));
-        process.exitCode = 1;
+        process.exitCode = ExitCode.GENERAL;
         return;
       }
 

@@ -12,6 +12,7 @@ import { listFiles } from "../core/files.js";
 import { readConfig } from "../core/config.js";
 import { createTaskWatcher } from "../server/watcher.js";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
+import { ExitCode } from "../core/exit-codes.js";
 
 /**
  * Classifies a task update into an "important" event or nothing.
@@ -59,12 +60,12 @@ export function watch(dir: string): void {
   // Validate the directory exists and is actually a directory.
   if (!existsSync(projectDir)) {
     console.error(chalk.red(`  Error: directory does not exist: ${projectDir}`));
-    process.exitCode = 1;
+    process.exitCode = ExitCode.USAGE;
     return;
   }
   if (!statSync(projectDir).isDirectory()) {
     console.error(chalk.red(`  Error: not a directory: ${projectDir}`));
-    process.exitCode = 1;
+    process.exitCode = ExitCode.USAGE;
     return;
   }
 

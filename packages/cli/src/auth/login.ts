@@ -8,6 +8,7 @@ import { writeGlobalSettings, readGlobalSettings, type ProtoSettings } from "../
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
+import { ExitCode } from "../core/exit-codes.js";
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
@@ -204,7 +205,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
     console.error(
       chalk.red(`  Failed to initiate login: ${initRes.status} ${initRes.statusText}`),
     );
-    process.exitCode = 1;
+    process.exitCode = ExitCode.AUTH;
     return;
   }
 
@@ -271,7 +272,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
 
     if ("expired" in data) {
       console.error(chalk.red("  Device code expired. Please try again."));
-      process.exitCode = 1;
+      process.exitCode = ExitCode.AUTH;
       return;
     }
 
@@ -280,5 +281,5 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
   }
 
   console.error(chalk.red("\n  Login timed out. Please try again."));
-  process.exitCode = 1;
+  process.exitCode = ExitCode.AUTH;
 }

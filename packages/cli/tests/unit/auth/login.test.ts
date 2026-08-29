@@ -403,7 +403,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
 
     await login();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(4);
   });
 
   it("handles device-init failure", async () => {
@@ -418,6 +418,6 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
 
     await login();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(4);
   });
 });

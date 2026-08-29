@@ -140,7 +140,7 @@ describe("push — authentication flow", () => {
 
     await push(projectDir, {});
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(4);
     process.exitCode = originalExitCode;
   });
 });
