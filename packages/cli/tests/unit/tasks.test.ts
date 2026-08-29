@@ -1366,3 +1366,65 @@ describe("renderAgentInstructions", () => {
   });
 });
 
+// ── next_actions hints ──────────────────────────────────────────────────────
+
+describe("next_actions hints", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-next-actions-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("add task returns next_actions in JSON output", () => {
+    const task = createTask(tempDir, { title: "Test task", description: "", status: "todo", selector: "/" });
+    // Simulate what the CLI does for --add --json output
+    const nextActions = ["set status to in-progress before implementation", "add a description"];
+    const output = { success: true, task, next_actions: nextActions };
+    const json = JSON.stringify(output, null, 2);
+    expect(json).toContain('"next_actions"');
+    expect(json).toContain("set status to in-progress before implementation");
+    expect(json).toContain("add a description");
+  });
+
+  it("set-status in-progress returns next_actions with implementation hints", () => {
+    const task = createTask(tempDir, { title: "Test task", description: "", status: "todo", selector: "/" });
+    const updated = updateTask(tempDir, task.id, { status: "in-progress" });
+    const nextActions = ["implement the change", "run tests", `commit with vibeflow tasks --commit --task ${task.id} --message "..."`, "set review status"];
+    const output = { success: true, task: updated, next_actions: nextActions };
+    const json = JSON.stringify(output, null, 2);
+    expect(json).toContain('"next_actions"');
+    expect(json).toContain("implement the change");
+    expect(json).toContain("run tests");
+    expect(json).toContain("set review status");
+  });
+
+  it("set-status review returns next_actions with review hint", () => {
+    const task = createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
+    const updated = updateTask(tempDir, task.id, { status: "review" });
+    const nextActions = ["only humans mark done after reviewing"];
+    const output = { success: true, task: updated, next_actions: nextActions };
+    const json = JSON.stringify(output, null, 2);
+    expect(json).toContain('"next_actions"');
+    expect(json).toContain("only humans mark done after reviewing");
+  });
+
+  it("commit returns next_actions with review status hint", () => {
+    const task = createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
+    const commitSha = "abc12345";
+    const nextActions = ["set review status with vibeflow tasks --edit <id> --set-status review --comment \"what changed and why\""];
+    const output = { success: true, commit: commitSha, next_actions: nextActions };
+    const json = JSON.stringify(output, null, 2);
+    expect(json).toContain('"next_actions"');
+    expect(json).toContain("set review status with vibeflow tasks --edit");
+  });
+
+  it("next_actions array has max 4 items", () => {
+    const nextActions = ["implement the change", "run tests", `commit with vibeflow tasks --commit --task test123 --message "..."`, "set review status"];
+    expect(nextActions.length).toBeLessThanOrEqual(4);
+  });
+});
+

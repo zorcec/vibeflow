@@ -153,6 +153,26 @@ function printAgentInstructions(opts: { hasResearchTasks: boolean; hasBugTasks?:
 /** Valid task type values for the --type filter. */
 const VALID_FILTER_TYPES = ["Task", "Bug", "Feature", "Enhancement", "Research"];
 
+/** Returns next_actions hints for mutation commands based on the action performed. */
+function getNextActions(action: "add" | "set-status:in-progress" | "set-status:review" | "commit", taskId?: string): string[] {
+  switch (action) {
+    case "add":
+      return ["set status to in-progress before implementation", "add a description"];
+    case "set-status:in-progress":
+      return ["implement the change", "run tests", `commit with vibeflow tasks --commit --task ${taskId} --message "..."`, "set review status"];
+    case "set-status:review":
+      return ["only humans mark done after reviewing"];
+    case "commit":
+      return ["set review status with vibeflow tasks --edit <id> --set-status review --comment \"what changed and why\""];
+  }
+}
+
+/** Prints the → Next: hint line for human-readable output. */
+function printNextHint(actions: string[]): void {
+  const hint = actions.slice(0, 3).join(", ");
+  console.log(chalk.cyan(`  → Next: ${hint}`));
+}
+
 /** Trim and lowercase a filter string for case-insensitive comparison. */
 const normalizeFilterValue = (value: string): string => value.trim().toLowerCase();
 
@@ -566,8 +586,9 @@ program
           return;
         }
 
+        const nextSaasNextActions = getNextActions("set-status:in-progress", nextTask.id);
         if (opts.json) {
-          console.log(JSON.stringify({ ...nextTask, status: "in-progress" }, null, 2));
+          console.log(JSON.stringify({ success: true, task: { ...nextTask, status: "in-progress" }, next_actions: nextSaasNextActions }, null, 2));
           return;
         }
 
@@ -600,6 +621,7 @@ program
         }
         console.log();
         console.log(chalk.yellow("  ⚡ This task is already in-progress. Implement it now and mark as review when done."));
+        printNextHint(nextSaasNextActions);
         return;
       }
 
@@ -633,8 +655,9 @@ program
         return;
       }
 
+      const nextLocalNextActions = getNextActions("set-status:in-progress", nextUpdated.id);
       if (opts.json) {
-        console.log(JSON.stringify({ ...nextUpdated, filePath: nextLocalTask.filePath }, null, 2));
+        console.log(JSON.stringify({ success: true, task: { ...nextUpdated, filePath: nextLocalTask.filePath }, next_actions: nextLocalNextActions }, null, 2));
         return;
       }
 
@@ -669,6 +692,7 @@ program
       }
       console.log();
       console.log(chalk.yellow("  ⚡ This task is already in-progress. Implement it now and mark as review when done."));
+      printNextHint(nextLocalNextActions);
       return;
     }
 
@@ -700,11 +724,13 @@ program
           process.exitCode = ExitCode.GENERAL;
           return;
         }
+        const addNextActions = getNextActions("add", saasCreated.id);
         if (opts.json) {
-          console.log(JSON.stringify(saasCreated, null, 2));
+          console.log(JSON.stringify({ success: true, task: saasCreated, next_actions: addNextActions }, null, 2));
         } else {
           console.log(chalk.green(`✓ Task created: ${saasCreated.title}`));
           console.log(chalk.dim(`  id: ${saasCreated.id} | status: ${toCliStatus(saasCreated.status)}`));
+          printNextHint(addNextActions);
         }
         return;
       }
@@ -723,11 +749,13 @@ program
         selector: "/",
       });
 
+      const localAddNextActions = getNextActions("add", created.id);
       if (opts.json) {
-        console.log(JSON.stringify(created, null, 2));
+        console.log(JSON.stringify({ success: true, task: created, next_actions: localAddNextActions }, null, 2));
       } else {
         console.log(chalk.green(`✓ Task created: ${created.title}`));
         console.log(chalk.dim(`  id: ${created.id} | status: ${created.status}`));
+        printNextHint(localAddNextActions);
       }
       return;
     }
@@ -766,9 +794,15 @@ program
         const commitRecord = { sha, message: baseMsg, timestamp: new Date().toISOString() };
         const existingCommits = task.commits ?? [];
         updateTask(projectDir, task.id, { commits: [...existingCommits, commitRecord] });
-        console.log(chalk.green(`✓ Committed and linked to task: ${task.title}`));
-        console.log(chalk.dim(`  commit: ${sha}`));
-        console.log(chalk.dim(`  proto:  ${task.id}`));
+        const commitNextActions = getNextActions("commit", task.id);
+        if (opts.json) {
+          console.log(JSON.stringify({ success: true, commit: sha, next_actions: commitNextActions }, null, 2));
+        } else {
+          console.log(chalk.green(`✓ Committed and linked to task: ${task.title}`));
+          console.log(chalk.dim(`  commit: ${sha}`));
+          console.log(chalk.dim(`  proto:  ${task.id}`));
+          printNextHint(commitNextActions);
+        }
 
         const settings = loadSettings(projectDir);
         if (settings.autoPush) {
@@ -925,8 +959,16 @@ program
           if (commented) console.log(chalk.dim("  comment: added"));
         }
 
-        console.log(chalk.green(`✓ Task updated: ${saasResult.task.title}`));
-        console.log(chalk.dim(`  id: ${saasResult.task.id} | status: ${toCliStatus(saasResult.task.status)}`));
+        const saasEditNextActions = opts.setStatus
+          ? getNextActions(opts.setStatus === "review" ? "set-status:review" : "set-status:in-progress", taskId)
+          : [];
+        if (opts.json) {
+          console.log(JSON.stringify({ success: true, task: saasResult.task, next_actions: saasEditNextActions }, null, 2));
+        } else {
+          console.log(chalk.green(`✓ Task updated: ${saasResult.task.title}`));
+          console.log(chalk.dim(`  id: ${saasResult.task.id} | status: ${toCliStatus(saasResult.task.status)}`));
+          if (saasEditNextActions.length > 0) printNextHint(saasEditNextActions);
+        }
         return;
       }
 
@@ -1021,8 +1063,16 @@ program
         console.log(chalk.dim(`  comment: added`));
       }
 
-      console.log(chalk.green(`✓ Task updated: ${updated.title}`));
-      console.log(chalk.dim(`  id: ${updated.id} | status: ${updated.status}`));
+      const localEditNextActions = opts.setStatus
+        ? getNextActions(opts.setStatus === "review" ? "set-status:review" : "set-status:in-progress", resolvedTaskId)
+        : [];
+      if (opts.json) {
+        console.log(JSON.stringify({ success: true, task: updated, next_actions: localEditNextActions }, null, 2));
+      } else {
+        console.log(chalk.green(`✓ Task updated: ${updated.title}`));
+        console.log(chalk.dim(`  id: ${updated.id} | status: ${updated.status}`));
+        if (localEditNextActions.length > 0) printNextHint(localEditNextActions);
+      }
 
       // ── Auto-commit (runs after task status + comment are already saved) ──────
       // Keeping this after updateTask/addComment ensures comment is preserved even
