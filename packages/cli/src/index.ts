@@ -167,6 +167,16 @@ function getNextActions(action: "add" | "set-status:in-progress" | "set-status:r
   }
 }
 
+/** Picks only the specified fields from an object. If fields is empty, returns the object unchanged. */
+function pickFields<T extends Record<string, unknown>>(obj: T, fields: string[]): Partial<T> {
+  if (fields.length === 0) return obj;
+  const result: Record<string, unknown> = {};
+  for (const f of fields) {
+    if (f in obj) result[f] = obj[f];
+  }
+  return result as Partial<T>;
+}
+
 /** Prints the → Next: hint line for human-readable output. */
 function printNextHint(actions: string[]): void {
   const hint = actions.slice(0, 3).join(", ");
@@ -175,6 +185,37 @@ function printNextHint(actions: string[]): void {
 
 /** Trim and lowercase a filter string for case-insensitive comparison. */
 const normalizeFilterValue = (value: string): string => value.trim().toLowerCase();
+
+/**
+ * Structured error output. In JSON mode, writes a machine-readable envelope
+ * to stderr so stdout stays clean for piping. In human mode, writes to stderr
+ * with chalk formatting.
+ */
+function outputError(opts: {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  suggestion?: string;
+  json?: boolean;
+}): void {
+  if (opts.json) {
+    const envelope = {
+      ok: false,
+      error: {
+        code: opts.code,
+        message: opts.message,
+        retryable: opts.retryable ?? false,
+        ...(opts.suggestion ? { suggestion: opts.suggestion } : {}),
+      },
+    };
+    process.stderr.write(JSON.stringify(envelope) + "\n");
+  } else {
+    process.stderr.write(chalk.red(`✗ ${opts.message}\n`));
+    if (opts.suggestion) {
+      process.stderr.write(chalk.dim(`  ${opts.suggestion}\n`));
+    }
+  }
+}
 
 /** True when `author` matches the user filter (case-insensitive). */
 function matchesUserFilter(author: string | null | undefined, filter: string): boolean {
@@ -407,6 +448,8 @@ program
   .option("--report-file <path>", "Path to a local .md file to upload as the research report (use with --set-status review on Research tasks; file is uploaded and deleted locally)")
   .option("--branch <name>", "Git branch name for the task (required when createBranch setting is ON and setting status to review)")
   .option("--limit <n>", "Limit how many tasks are returned in list mode (default: 5; use 0 for unlimited)")
+  .option("--dry-run", "Preview what would change without modifying anything (mutations only)")
+  .option("--fields <fields>", "Comma-separated list of fields to include in output (list/get modes)")
   .action((dir: string, opts: {
     status?: string;
     type?: string;
@@ -428,6 +471,8 @@ program
     branch?: string;
     limit?: string;
     tag?: string[];
+    dryRun?: boolean;
+    fields?: string;
   }) => {
     void (async () => {
     // Determine sub-command for telemetry before async operations
@@ -506,8 +551,7 @@ program
       const allWithPaths = listTasksWithPaths(projectDir);
       const task = allWithPaths.find((t) => t.id === opts.get || t.id.startsWith(opts.get!));
       if (!task) {
-        console.log(chalk.red(`✗ Task not found: ${opts.get}`));
-        console.log(chalk.dim("  Run 'vibeflow tasks' to see available task IDs."));
+        outputError({ code: "E_NOT_FOUND", message: `Task not found: ${opts.get}`, suggestion: "Run 'vibeflow tasks' to see available task IDs.", json: opts.json });
         process.exitCode = ExitCode.NOT_FOUND;
         return;
       }
@@ -520,7 +564,8 @@ program
       }));
       const agent = formatTaskForAgent(task, structuredComments, linkedFiles);
       if (opts.json) {
-        console.log(JSON.stringify({ ...task, comments: structuredComments, files: linkedFiles }, null, 2));
+        const getFields = opts.fields ? opts.fields.split(",").map((f: string) => f.trim()).filter(Boolean) : [];
+        console.log(JSON.stringify(pickFields({ ...task, comments: structuredComments, files: linkedFiles } as unknown as Record<string, unknown>, getFields), null, 2));
         return;
       }
       const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
@@ -699,8 +744,7 @@ program
     // ── Add mode ───────────────────────────────────────────────────────
     if (opts.add) {
       if (!opts.title?.trim()) {
-        console.log(chalk.red("✗ --title is required with --add"));
-        console.log(chalk.dim("  Example: vibeflow tasks --add --title \"Fix CTA spacing\" --description \"Button overflows on mobile\""));
+        outputError({ code: "E_USAGE", message: "--title is required with --add", suggestion: "Example: vibeflow tasks --add --title \"Fix CTA spacing\" --description \"Button overflows on mobile\"", json: opts.json });
         process.exitCode = ExitCode.USAGE;
         return;
       }
@@ -711,6 +755,19 @@ program
         const validSaasStatuses = ["backlog", "todo", "in-progress", "review", "done"];
         const saasStatus = validSaasStatuses.includes(opts.setStatus ?? "") ? opts.setStatus : "todo";
         const newId = generateTaskId();
+        if (opts.dryRun) {
+          const dryTask = { id: newId, title: opts.title.trim(), description: opts.description?.trim() ?? "", status: saasStatus, boardId: addWorkspace?.id };
+          if (opts.json) {
+            console.log(JSON.stringify({ dryRun: true, action: "create", task: dryTask, next_actions: getNextActions("add", newId) }, null, 2));
+          } else {
+            console.log(chalk.yellow("  [dry-run] Would create task:"));
+            console.log(chalk.dim(`    title:  ${dryTask.title}`));
+            console.log(chalk.dim(`    status: ${dryTask.status}`));
+            if (dryTask.description) console.log(chalk.dim(`    description: ${dryTask.description}`));
+            printNextHint(getNextActions("add", newId));
+          }
+          return;
+        }
         const saasCreated = await createSaasTask({
           id: newId,
           title: opts.title.trim(),
@@ -742,6 +799,21 @@ program
         ? (opts.setStatus as TaskStatus)
         : "todo";
 
+      if (opts.dryRun) {
+        const dryId = generateTaskId();
+        const dryTask = { id: dryId, title: opts.title.trim(), description: opts.description?.trim() ?? "", status, selector: "/" };
+        if (opts.json) {
+          console.log(JSON.stringify({ dryRun: true, action: "create", task: dryTask, next_actions: getNextActions("add", dryId) }, null, 2));
+        } else {
+          console.log(chalk.yellow("  [dry-run] Would create task:"));
+          console.log(chalk.dim(`    title:  ${dryTask.title}`));
+          console.log(chalk.dim(`    status: ${dryTask.status}`));
+          if (dryTask.description) console.log(chalk.dim(`    description: ${dryTask.description}`));
+          printNextHint(getNextActions("add", dryId));
+        }
+        return;
+      }
+
       const created = createTask(projectDir, {
         title: opts.title.trim(),
         description: opts.description?.trim() ?? "",
@@ -763,8 +835,7 @@ program
     // ── Commit mode ────────────────────────────────────────────────────
     if (opts.commit) {
       if (!opts.task) {
-        console.log(chalk.red("✗ --task <task-id> is required with --commit"));
-        console.log(chalk.dim("  Example: vibeflow tasks --commit --task abc12345 --message \"fix button alignment\""));
+        outputError({ code: "E_USAGE", message: "--task <task-id> is required with --commit", suggestion: "Example: vibeflow tasks --commit --task abc12345 --message \"fix button alignment\"", json: opts.json });
         process.exitCode = ExitCode.USAGE;
         return;
       }
@@ -772,12 +843,23 @@ program
       const tasks = listTasks(projectDir);
       const task = tasks.find((t) => t.id === opts.task || t.id.startsWith(opts.task!));
       if (!task) {
-        console.log(chalk.red(`✗ Task not found: ${opts.task}`));
-        console.log(chalk.dim("  Run 'vibeflow tasks' to see available task IDs."));
+        outputError({ code: "E_NOT_FOUND", message: `Task not found: ${opts.task}`, suggestion: "Run 'vibeflow tasks' to see available task IDs.", json: opts.json });
         process.exitCode = ExitCode.NOT_FOUND;
         return;
       }
       const baseMsg = opts.message?.trim() || task.title;
+      if (opts.dryRun) {
+        const commitMsg = `${baseMsg} [proto:${task.id}]`;
+        if (opts.json) {
+          console.log(JSON.stringify({ dryRun: true, action: "commit", message: commitMsg, taskId: task.id, next_actions: getNextActions("commit", task.id) }, null, 2));
+        } else {
+          console.log(chalk.yellow("  [dry-run] Would commit:"));
+          console.log(chalk.dim(`    message: ${commitMsg}`));
+          console.log(chalk.dim(`    task:    ${task.id}`));
+          printNextHint(getNextActions("commit", task.id));
+        }
+        return;
+      }
       // Warn when committing for a Research task — code changes should not be made.
       if ((task.type ?? '').toLowerCase() === 'research') {
         console.log(chalk.yellow("⚠  WARNING: This is a Research task. Research tasks must NOT produce code changes."));
@@ -980,6 +1062,25 @@ program
       const resolvedTaskId =
         listTasks(localProjectDir).find((t) => t.id === taskId || t.id.startsWith(taskId))?.id ?? taskId;
 
+      if (opts.dryRun) {
+        const dryUpdates: Record<string, unknown> = {};
+        if (opts.title) dryUpdates.title = opts.title;
+        if (opts.setStatus) dryUpdates.status = opts.setStatus;
+        if (opts.description) dryUpdates.description = opts.description;
+        if (opts.branch) dryUpdates.branchName = opts.branch;
+        if (opts.json) {
+          console.log(JSON.stringify({ dryRun: true, action: "update", taskId: resolvedTaskId, updates: dryUpdates, next_actions: opts.setStatus ? getNextActions(opts.setStatus === "review" ? "set-status:review" : "set-status:in-progress", resolvedTaskId) : [] }, null, 2));
+        } else {
+          console.log(chalk.yellow("  [dry-run] Would update task:"));
+          console.log(chalk.dim(`    id: ${resolvedTaskId}`));
+          for (const [k, v] of Object.entries(dryUpdates)) {
+            console.log(chalk.dim(`    ${k}: ${v}`));
+          }
+          if (opts.setStatus) printNextHint(getNextActions(opts.setStatus === "review" ? "set-status:review" : "set-status:in-progress", resolvedTaskId));
+        }
+        return;
+      }
+
       const updates: Partial<Pick<Task, "status" | "title" | "description" | "branchName">> = {};
       if (opts.title) updates.title = opts.title;
       if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
@@ -1126,6 +1227,8 @@ program
     }
     if (opts.type && !validateTypeFilter(opts.type)) return;
 
+    const parsedFields = opts.fields ? opts.fields.split(",").map((f: string) => f.trim()).filter(Boolean) : [];
+
     // ── SaaS online mode: fetch from backend ───────────────────────────
     const mode = await getMode();
     if (mode === "saas") {
@@ -1152,7 +1255,7 @@ program
       if (!isNaN(saasLimit) && saasLimit > 0) saasTasks = saasTasks.slice(0, saasLimit);
 
       if (opts.json) {
-        console.log(JSON.stringify(saasTasks, null, 2));
+        console.log(JSON.stringify(saasTasks.map((t) => pickFields(t as unknown as Record<string, unknown>, parsedFields)), null, 2));
         return;
       }
 
@@ -1229,7 +1332,7 @@ program
     const taskLimit = opts.limit !== undefined ? parseInt(opts.limit, 10) : 5;
 
     if (opts.json) {
-      console.log(JSON.stringify(filtered, null, 2));
+      console.log(JSON.stringify(filtered.map((t) => pickFields(t as unknown as Record<string, unknown>, parsedFields)), null, 2));
       return;
     }
 
