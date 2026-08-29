@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
 import type { ServeInstance } from "../../src/server/server.js";
-import WebSocket from "ws";
+
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="en">
