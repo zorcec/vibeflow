@@ -41,6 +41,27 @@ export function isValidTaskId(id: string): boolean {
   return /^[a-f0-9]{30}$/.test(id);
 }
 
+/** Validates comment IDs to prevent path traversal attacks. Comment IDs are hex strings (16 chars, 8 random bytes). */
+export function isValidCommentId(id: string): boolean {
+  return /^[a-f0-9]{16}$/.test(id);
+}
+
+/**
+ * Validates upload filenames to prevent path traversal, null-byte injection,
+ * and control-character abuse. Rejects path separators, `..`, null bytes,
+ * and any byte below 0x20 (ASCII control characters).
+ */
+export function isValidFilename(name: string): boolean {
+  if (!name) return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (name === "." || name === ".." || name.includes("..")) return false;
+  if (name.includes("\0")) return false;
+  for (let i = 0; i < name.length; i++) {
+    if (name.charCodeAt(i) < 0x20) return false;
+  }
+  return true;
+}
+
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
 function requireSameOrigin(req: express.Request, res: express.Response): boolean {
   const origin = req.headers.origin;
@@ -179,6 +200,15 @@ function registerTaskApi(
   app.param("id", (_req, res, next, id: string) => {
     if (!isValidTaskId(id)) {
       res.status(400).json({ error: "Invalid task id" });
+      return;
+    }
+    next();
+  });
+
+  // Reject invalid comment IDs at the router level to prevent path traversal on all :commentId routes.
+  app.param("commentId", (_req, res, next, commentId: string) => {
+    if (!isValidCommentId(commentId)) {
+      res.status(400).json({ error: "Invalid comment id" });
       return;
     }
     next();
@@ -356,6 +386,10 @@ function registerTaskApi(
 
   app.get("/api/tasks/:id/files/:filename", (req, res) => {
     const { id, filename } = req.params;
+    if (!isValidFilename(filename)) {
+      res.status(400).json({ error: "Invalid filename" });
+      return;
+    }
     const filePath = getFilePath(projectDir, id, filename);
     if (!filePath) {
       res.status(404).json({ error: "File not found" });
@@ -373,8 +407,8 @@ function registerTaskApi(
     express.raw({ type: "*/*", limit: "50mb" }),
     (req, res) => {
       const { id, filename: rawFilename } = req.params;
-      // Reject path-traversal filenames
-      if (!rawFilename || rawFilename.includes("/") || rawFilename.includes("\\")) {
+      // Reject path-traversal, null-byte, and control-character filenames
+      if (!isValidFilename(rawFilename)) {
         res.status(400).json({ error: "Invalid filename" });
         return;
       }
@@ -396,6 +430,10 @@ function registerTaskApi(
 
   app.delete("/api/tasks/:id/files/:filename", (req, res) => {
     const { id, filename } = req.params;
+    if (!isValidFilename(filename)) {
+      res.status(400).json({ error: "Invalid filename" });
+      return;
+    }
     const deleted = deleteFile(projectDir, id, filename);
     if (!deleted) {
       res.status(404).json({ error: "File not found" });
