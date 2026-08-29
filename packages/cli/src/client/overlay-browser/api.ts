@@ -45,8 +45,8 @@ export function submitTask(
   source?: SubmitTaskSource,
   type?: string,
   annotatedElementText?: string,
-): void {
-  fetch(PROTO_CONFIG.apiUrl, {
+): Promise<{ success: boolean; taskId?: string }> {
+  return fetch(PROTO_CONFIG.apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -66,8 +66,14 @@ export function submitTask(
     }),
   })
     .then(r => r.json())
-    .then((d: { success?: boolean }) => { if (d.success) fetchTasks(); })
-    .catch(err => console.error("[Vibeflow Studio]", err));
+    .then((d: { success?: boolean; taskId?: string }) => {
+      if (d.success) fetchTasks();
+      return { success: d.success === true, taskId: d.taskId };
+    })
+    .catch(err => {
+      console.error("[Vibeflow Studio]", err);
+      return { success: false };
+    });
 }
 
 function mutationHeaders(): Record<string, string> {

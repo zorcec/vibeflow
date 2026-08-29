@@ -41,6 +41,7 @@ function main(): void {
   }
   // Fallback: read boardId from a global variable set by fetch+eval bookmarklets
   // in CSP-restricted environments where no script element is available.
+  // SAFETY: window.__PROTO_BOARD_ID is set by fetch+eval bookmarklets in CSP-restricted environments; the Record cast reads an optional global.
   const globalBoardId = (window as unknown as Record<string, unknown>).__PROTO_BOARD_ID as string | undefined;
   if (globalBoardId && !PROTO_CONFIG.boardId) {
     (PROTO_CONFIG as { boardId?: string }).boardId = globalBoardId;
@@ -94,7 +95,7 @@ function main(): void {
         }
       },
       onSubmitTask: (selector, cssSelector, title, description, status, type, meta) => {
-        void submitTask(selector, cssSelector, title, description, status, meta, type);
+        return submitTask(selector, cssSelector, title, description, status, meta, type);
       },
     }),
   );
