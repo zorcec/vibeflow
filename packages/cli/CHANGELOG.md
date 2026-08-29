@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- 2929354: Add a `vibeflow watch` command that watches the local task store and prints full ticket details whenever a task is newly created or moved back to `todo`.
+
+  Also includes several hardening and consistency fixes:
+
+  - tRPC task-ID inputs now enforce the 30-char hex shape, matching the REST API's `isValidTaskId` guard and blocking path-traversal IDs in file/comment endpoints.
+  - `tasks --edit` now resolves a unique partial task-ID prefix to the full ID, consistent with `--get` and `--commit`.
+  - The login push preview now handles legacy flat `.json` task files in addition to date-based subdirectories.
+
+- 98ea6a6: Remove the experimental agent-run feature and its supporting packages.
+
+  - Delete the `opencode-telegram-bridge` package.
+  - Remove the agent-run API endpoints (`/api/agent/run`, `/api/agent/stop`, `/api/agent/agents`, `/api/agent/models`) and the `models` tRPC procedure from the CLI server.
+  - Remove the Agent tab, model/agent pickers, agent queue panel, and multi-select (long-press) mode from the kanban UI.
+  - Remove agent/model-related settings keys (`defaultModel`, `perTypeModels`, `defaultModelBug/Research/Task`, `defaultAgent`, `experimentalAgents`).
+  - Remove `AgentStatus`/`AgentRun` types and the `getModels`/`getAgents` API methods from `@vibeflow-tools/ui`.
+
+### Patch Changes
+
+- c4b85d4: Add next_actions hints to mutation command JSON output
+
+  - `tasks --add`: returns next_actions with hints to set status and add description
+  - `tasks --next`: returns next_actions with implementation workflow hints
+  - `tasks --edit --set-status`: returns context-appropriate next_actions
+  - `tasks --commit`: returns next_actions to set review status
+
+  Human-readable output shows concise → Next: hint lines.
+
+- 7c49b56: Add semantic exit codes to the CLI. Instead of always exiting with code 1, the CLI now uses purpose-specific codes: 2 for usage/argument errors, 3 for not-found, 4 for auth failures, and 5 for conflicts. Exit code 1 is reserved for general/unexpected errors.
+- b03bdc7: Add --dry-run, --fields, and structured JSON error output for agent-friendly CLI
+- 9b600ac: Fix the file-upload endpoint documented in `vibeflow --help` and used by the legacy kanban template: the correct route is `POST /api/tasks/<id>/files/<filename>` (path segment), not `?filename=` (query parameter).
+
+  Also document the `vibeflow watch` command and `vibeflow tasks --next` in the CLI help quick reference and README.
+
+- 4a2d8c0: Harden REST API input validation for comments and file uploads to match tRPC validation: add `isValidCommentId` (16-char hex) for all comment endpoints, `isValidFilename` rejecting traversal/control chars for file endpoints, and whitespace-only rejection on comment text.
+- d402441: Harden watch command error handling and tRPC input validation
+
 ## 0.9.1
 
 ### Patch Changes

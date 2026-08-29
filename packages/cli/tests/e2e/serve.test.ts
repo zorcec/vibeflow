@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
 import type { ServeInstance } from "../../src/server/server.js";
 
-
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Test</title></head>
