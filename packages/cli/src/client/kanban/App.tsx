@@ -1,184 +1,394 @@
-import React from 'react';
-import { createPortal } from 'react-dom';
-import type { Task, TaskStatus, PanelState, AppSettings } from '@vibeflow-tools/ui/kanban';
-import { KanbanHeader as Header, KanbanBoard, COLUMNS, KanbanListView, DetailPanel, FilterBar, SettingsModal, FilePreviewModal, computeReorder, compareTaskOrder } from '@vibeflow-tools/ui/kanban';
-import type { FilterState } from '@vibeflow-tools/ui/kanban';
-import { api } from './api.js';
+import React from "react";
+import { createPortal } from "react-dom";
+import type {
+  Task,
+  TaskStatus,
+  PanelState,
+  AppSettings,
+} from "@vibeflow-tools/ui/kanban";
+import {
+  KanbanHeader as Header,
+  KanbanBoard,
+  COLUMNS,
+  KanbanListView,
+  DetailPanel,
+  FilterBar,
+  SettingsModal,
+  FilePreviewModal,
+  computeReorder,
+  compareTaskOrder,
+} from "@vibeflow-tools/ui/kanban";
+import type { FilterState } from "@vibeflow-tools/ui/kanban";
+import { api } from "./api.js";
 
-type ViewMode = 'board' | 'list';
+type ViewMode = "board" | "list";
 
 const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
-const SAAS_MODE = (window as unknown as { __SAAS_MODE__?: boolean }).__SAAS_MODE__ ?? false;
-const BOARD_URL = (window as unknown as { __BOARD_URL__?: string }).__BOARD_URL__ ?? "";
-const BOARD_NAME = (window as unknown as { __BOARD_NAME__?: string }).__BOARD_NAME__ ?? "";
-const IS_ADMIN = (window as unknown as { __IS_ADMIN__?: boolean }).__IS_ADMIN__ ?? false;
+const SAAS_MODE =
+  (window as unknown as { __SAAS_MODE__?: boolean }).__SAAS_MODE__ ?? false;
+const BOARD_URL =
+  (window as unknown as { __BOARD_URL__?: string }).__BOARD_URL__ ?? "";
+const BOARD_NAME =
+  (window as unknown as { __BOARD_NAME__?: string }).__BOARD_NAME__ ?? "";
+const IS_ADMIN =
+  (window as unknown as { __IS_ADMIN__?: boolean }).__IS_ADMIN__ ?? false;
 
-type PushState = 'idle' | 'pushing' | 'done' | 'error';
+type PushState = "idle" | "pushing" | "done" | "error";
 
 function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
   const BASE = window.location.origin;
-  const [pushState, setPushState] = React.useState<PushState>('idle');
+  const [pushState, setPushState] = React.useState<PushState>("idle");
   const [keepLocalFiles, setKeepLocalFiles] = React.useState(true);
-  const [pushResult, setPushResult] = React.useState<{ imported: number; skipped?: number } | null>(null);
-  const [pushError, setPushError] = React.useState('');
+  const [pushResult, setPushResult] = React.useState<{
+    imported: number;
+    skipped?: number;
+  } | null>(null);
+  const [pushError, setPushError] = React.useState("");
 
   async function handlePush() {
-    setPushState('pushing');
-    setPushError('');
+    setPushState("pushing");
+    setPushError("");
     try {
       const r = await fetch(`${BASE}/api/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keepLocalFiles }),
       });
-      const data = await r.json() as { imported?: number; skipped?: number; error?: string };
-      if (!r.ok) { setPushError(data.error ?? 'Push failed'); setPushState('error'); return; }
+      const data = (await r.json()) as {
+        imported?: number;
+        skipped?: number;
+        error?: string;
+      };
+      if (!r.ok) {
+        setPushError(data.error ?? "Push failed");
+        setPushState("error");
+        return;
+      }
       setPushResult({ imported: data.imported ?? 0, skipped: data.skipped });
-      setPushState('done');
+      setPushState("done");
     } catch (e) {
-      setPushError(e instanceof Error ? e.message : 'Network error');
-      setPushState('error');
+      setPushError(e instanceof Error ? e.message : "Network error");
+      setPushState("error");
     }
   }
 
-  const isWorking = pushState === 'pushing';
+  const isWorking = pushState === "pushing";
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(5, 8, 18, 0.72)',
-      backdropFilter: 'blur(10px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 20,
-      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-    }}>
-      <div style={{
-        background: '#101827',
-        border: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 24,
-        maxWidth: 380,
-        width: '100%',
-        boxShadow: '0 0 0 1px rgba(59,130,246,0.07), 0 40px 80px rgba(0,0,0,0.75)',
-        overflow: 'hidden',
-        position: 'relative',
-      }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "rgba(5, 8, 18, 0.72)",
+        backdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        fontFamily: "Inter, system-ui, -apple-system, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          background: "#101827",
+          border: "1px solid rgba(255,255,255,0.07)",
+          borderRadius: 24,
+          maxWidth: 380,
+          width: "100%",
+          boxShadow:
+            "0 0 0 1px rgba(59,130,246,0.07), 0 40px 80px rgba(0,0,0,0.75)",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
         {/* Top accent line */}
-        <div style={{
-          position: 'absolute', top: 0, left: '20%', right: '20%', height: 1,
-          background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.5), transparent)',
-        }} />
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: "20%",
+            right: "20%",
+            height: 1,
+            background:
+              "linear-gradient(90deg, transparent, rgba(59,130,246,0.5), transparent)",
+          }}
+        />
 
         {/* Hero */}
-        <div style={{ padding: '36px 36px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+        <div
+          style={{
+            padding: "36px 36px 20px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            textAlign: "center",
+          }}
+        >
           {/* Brand icon */}
-          <div style={{ position: 'relative', width: 52, height: 52, marginBottom: 22 }}>
-            <svg width="52" height="52" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <div
+            style={{
+              position: "relative",
+              width: 52,
+              height: 52,
+              marginBottom: 22,
+            }}
+          >
+            <svg
+              width="52"
+              height="52"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
               <rect width="18" height="18" rx="4" fill="#2563eb" />
-              <rect x="2.5" y="5" width="2" height="8" rx="1" fill="white" opacity="0.7" />
+              <rect
+                x="2.5"
+                y="5"
+                width="2"
+                height="8"
+                rx="1"
+                fill="white"
+                opacity="0.7"
+              />
               <rect x="6.5" y="2" width="2" height="14" rx="1" fill="white" />
-              <rect x="10.5" y="6" width="2" height="6" rx="1" fill="white" opacity="0.7" />
-              <rect x="14.5" y="4" width="2" height="10" rx="1" fill="white" opacity="0.85" />
+              <rect
+                x="10.5"
+                y="6"
+                width="2"
+                height="6"
+                rx="1"
+                fill="white"
+                opacity="0.7"
+              />
+              <rect
+                x="14.5"
+                y="4"
+                width="2"
+                height="10"
+                rx="1"
+                fill="white"
+                opacity="0.85"
+              />
             </svg>
           </div>
 
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.3px', margin: '0 0 7px' }}>
+          <h1
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: "#f1f5f9",
+              letterSpacing: "-0.3px",
+              margin: "0 0 7px",
+            }}
+          >
             Online Mode Active
           </h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.36)', lineHeight: 1.5, margin: 0 }}>
-            Connected to{' '}
-            <strong style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>
-              {BOARD_NAME || 'Vibeflow SaaS'}
+          <p
+            style={{
+              fontSize: 12,
+              color: "rgba(255,255,255,0.36)",
+              lineHeight: 1.5,
+              margin: 0,
+            }}
+          >
+            Connected to{" "}
+            <strong
+              style={{ color: "rgba(255,255,255,0.55)", fontWeight: 500 }}
+            >
+              {BOARD_NAME || "Vibeflow SaaS"}
             </strong>
           </p>
         </div>
 
         {/* Push banner */}
-        {pushState === 'done' && pushResult && (
-          <div style={{
-            margin: '0 28px 0', padding: '10px 14px', borderRadius: 9, fontSize: 12,
-            display: 'flex', alignItems: 'center', gap: 9,
-            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.18)', color: '#34d399',
-          }}>
+        {pushState === "done" && pushResult && (
+          <div
+            style={{
+              margin: "0 28px 0",
+              padding: "10px 14px",
+              borderRadius: 9,
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              background: "rgba(16,185,129,0.08)",
+              border: "1px solid rgba(16,185,129,0.18)",
+              color: "#34d399",
+            }}
+          >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <path d="M13 5L6.5 11.5 3 8" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              <path
+                d="M13 5L6.5 11.5 3 8"
+                stroke="#34d399"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
-            {pushResult.imported} task{pushResult.imported !== 1 ? 's' : ''} pushed to board
-            {pushResult.skipped != null && pushResult.skipped > 0 ? ` · ${pushResult.skipped} already existed` : ''}
+            {pushResult.imported} task{pushResult.imported === 1 ? "" : "s"}{" "}
+            pushed to board
+            {pushResult.skipped != null && pushResult.skipped > 0
+              ? ` · ${pushResult.skipped} already existed`
+              : ""}
           </div>
         )}
 
-        {pushState === 'error' && pushError && (
-          <div style={{
-            margin: '0 28px 0', padding: '10px 14px', borderRadius: 9, fontSize: 12,
-            display: 'flex', alignItems: 'center', gap: 9,
-            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.18)', color: '#f87171',
-          }}>
+        {pushState === "error" && pushError && (
+          <div
+            style={{
+              margin: "0 28px 0",
+              padding: "10px 14px",
+              borderRadius: 9,
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.18)",
+              color: "#f87171",
+            }}
+          >
             {pushError}
           </div>
         )}
 
         {/* Actions */}
-        <div style={{ padding: '20px 24px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div
+          style={{
+            padding: "20px 24px 28px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
           {BOARD_URL && (
             <a
               href={BOARD_URL}
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
-                padding: 14, background: '#2563eb', border: 'none', borderRadius: 12,
-                color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                textDecoration: 'none', letterSpacing: '-0.1px',
-                transition: 'background 0.15s, transform 0.1s',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 9,
+                padding: 14,
+                background: "#2563eb",
+                border: "none",
+                borderRadius: 12,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                textDecoration: "none",
+                letterSpacing: "-0.1px",
+                transition: "background 0.15s, transform 0.1s",
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = '#2563eb'; e.currentTarget.style.transform = 'none'; }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#3b82f6";
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#2563eb";
+                e.currentTarget.style.transform = "none";
+              }}
             >
               Open Web App →
             </a>
           )}
 
-          {pushState !== 'done' && (
+          {pushState !== "done" && (
             <button
               onClick={() => void handlePush()}
               disabled={isWorking}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
-                padding: 12, background: 'transparent',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
-                color: isWorking ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.4)',
-                fontSize: 13, fontWeight: 500, cursor: isWorking ? 'not-allowed' : 'pointer',
-                transition: 'border-color 0.15s, color 0.15s, background 0.15s',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 9,
+                padding: 12,
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 12,
+                color: isWorking
+                  ? "rgba(255,255,255,0.25)"
+                  : "rgba(255,255,255,0.4)",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: isWorking ? "not-allowed" : "pointer",
+                transition: "border-color 0.15s, color 0.15s, background 0.15s",
               }}
-              onMouseEnter={e => { if (!isWorking) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; } }}
-              onMouseLeave={e => { if (!isWorking) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.background = 'transparent'; } }}
+              onMouseEnter={(e) => {
+                if (!isWorking) {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)";
+                  e.currentTarget.style.color = "rgba(255,255,255,0.65)";
+                  e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isWorking) {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+                  e.currentTarget.style.color = "rgba(255,255,255,0.4)";
+                  e.currentTarget.style.background = "transparent";
+                }
+              }}
             >
-              {isWorking ? '⏳ Pushing…' : '↑ Push local tasks'}
+              {isWorking ? "⏳ Pushing…" : "↑ Push local tasks"}
             </button>
           )}
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px 20px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 24px 20px",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              cursor: "pointer",
+            }}
+          >
             <input
               type="checkbox"
               checked={keepLocalFiles}
-              onChange={e => setKeepLocalFiles(e.target.checked)}
-              style={{ accentColor: '#2563eb', width: 13, height: 13, cursor: 'pointer' }}
+              onChange={(e) => setKeepLocalFiles(e.target.checked)}
+              style={{
+                accentColor: "#2563eb",
+                width: 13,
+                height: 13,
+                cursor: "pointer",
+              }}
             />
-            <span style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.28)' }}>Keep local files</span>
+            <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.28)" }}>
+              Keep local files
+            </span>
           </label>
           {IS_ADMIN && onClose && (
             <button
               onClick={onClose}
               style={{
-                fontSize: 11, color: 'rgba(255,255,255,0.2)', background: 'none', border: 'none',
-                cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2,
-                transition: 'color 0.15s',
+                fontSize: 11,
+                color: "rgba(255,255,255,0.2)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: 2,
+                transition: "color 0.15s",
               }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "rgba(255,255,255,0.45)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "rgba(255,255,255,0.2)";
+              }}
             >
               Dismiss (admin)
             </button>
@@ -190,11 +400,11 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
 }
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  todo: 'Todo',
-  'in-progress': 'In Progress',
-  review: 'Review',
-  done: 'Done',
+  backlog: "Backlog",
+  todo: "Todo",
+  "in-progress": "In Progress",
+  review: "Review",
+  done: "Done",
 };
 
 interface StatusEntry {
@@ -204,20 +414,25 @@ interface StatusEntry {
   to: string;
   actor: string;
   timestamp: string;
-  source?: 'cli' | 'web';
+  source?: "cli" | "web";
 }
 
-function buildTaskSummary(tasks: Task[], visibleCols: TaskStatus[], search: string): string {
+function buildTaskSummary(
+  tasks: Task[],
+  visibleCols: TaskStatus[],
+  search: string,
+): string {
   const filtered = search
-    ? tasks.filter(t =>
-        t.title?.toLowerCase().includes(search) ||
-        t.description?.toLowerCase().includes(search)
+    ? tasks.filter(
+        (t) =>
+          t.title?.toLowerCase().includes(search) ||
+          t.description?.toLowerCase().includes(search),
       )
     : tasks;
   if (search) return `${filtered.length} of ${tasks.length} tasks`;
-  const open = filtered.filter(t => t.status !== 'done').length;
-  const wip = filtered.filter(t => t.status === 'in-progress').length;
-  const rev = filtered.filter(t => t.status === 'review').length;
+  const open = filtered.filter((t) => t.status !== "done").length;
+  const wip = filtered.filter((t) => t.status === "in-progress").length;
+  const rev = filtered.filter((t) => t.status === "review").length;
   return `${open} open · ${wip} in-progress · ${rev} in review`;
 }
 
@@ -226,25 +441,42 @@ export function App() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [overlayDismissed, setOverlayDismissed] = React.useState(false);
   const [panelState, setPanelState] = React.useState<PanelState>({
-    open: false, task: null, tab: 'details',
+    open: false,
+    task: null,
+    tab: "details",
   });
-  const [viewMode, setViewMode] = React.useState<ViewMode>('board');
+  const [viewMode, setViewMode] = React.useState<ViewMode>("board");
   const [settingsOpen, setSettingsOpen] = React.useState(false);
-  const [filePreview, setFilePreview] = React.useState({ open: false, name: '', url: '' });
+  const [filePreview, setFilePreview] = React.useState({
+    open: false,
+    name: "",
+    url: "",
+  });
   const [panelWidth, setPanelWidth] = React.useState(420);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
-  const [searchQuery, setSearchQuery] = React.useState('');
-  const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(COLUMNS.map(c => c.id));
-  const [filterState, setFilterState] = React.useState<FilterState>({ status: 'all', component: null, type: null, user: null, tags: [] });
-  const [projectName, setProjectName] = React.useState('Proto Board');
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(
+    COLUMNS.map((c) => c.id),
+  );
+  const [filterState, setFilterState] = React.useState<FilterState>({
+    status: "all",
+    component: null,
+    type: null,
+    user: null,
+    tags: [],
+  });
+  const [projectName, setProjectName] = React.useState("Proto Board");
   const [wsConnected, setWsConnected] = React.useState(false);
   const [hadWsConnection, setHadWsConnection] = React.useState(false);
-  const [gitUserName, setGitUserName] = React.useState('You');
+  const [gitUserName, setGitUserName] = React.useState("You");
   const [githubUrl, setGithubUrl] = React.useState<string | null>(null);
-  const [premiumUsage, setPremiumUsage] = React.useState('');
+  const [premiumUsage, setPremiumUsage] = React.useState("");
   const [appSettings, setAppSettings] = React.useState<AppSettings>({});
   const wsRef = React.useRef<WebSocket | null>(null);
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const consumedHashTaskRef = React.useRef<string | null>(null);
   // Navigation history for task-ref jumping (supports browser back + UI back button).
   const [navHistory, setNavHistory] = React.useState<Task[]>([]);
@@ -252,7 +484,9 @@ export function App() {
   // Keep a ref to latest tasks that WS handlers can read without stale closure.
   const tasksRef = React.useRef<Task[]>([]);
   // In-session log of status changes for the detail panel activity tab.
-  const [statusChangeLog, setStatusChangeLog] = React.useState<StatusEntry[]>([]);
+  const [statusChangeLog, setStatusChangeLog] = React.useState<StatusEntry[]>(
+    [],
+  );
 
   // Load initial data
   React.useEffect(() => {
@@ -268,10 +502,30 @@ export function App() {
     };
   }, []);
 
-  // No polling fallback: the board is driven entirely by WS events.
+  // Polling fallback: fetch tasks every 5s when WebSocket is disconnected.
+  React.useEffect(() => {
+    if (wsConnected) {
+      // WS connected — stop polling fallback
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
+    }
+    // Start polling fallback when WS is disconnected
+    pollIntervalRef.current = setInterval(() => {
+      void loadTasks();
+    }, 5000);
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [wsConnected]);
 
   React.useEffect(() => {
-    document.body.setAttribute('data-theme', 'dark');
+    document.body.setAttribute("data-theme", "dark");
   }, []);
 
   // Allow #task-<id> deep-links from markdown references in comments/descriptions.
@@ -291,15 +545,20 @@ export function App() {
       consumedHashTaskRef.current = refId;
 
       // Push current task to nav history (unless we're going back)
-      if (!suppressHistoryPushRef.current) {
+      if (suppressHistoryPushRef.current) {
+        setPanelState((prev) => ({
+          ...prev,
+          open: true,
+          task,
+          tab: "details",
+        }));
+      } else {
         setPanelState((prev) => {
           if (prev.task && prev.task.id !== task.id) {
             setNavHistory((h) => [...h, prev.task!]);
           }
-          return { ...prev, open: true, task, tab: 'details' };
+          return { ...prev, open: true, task, tab: "details" };
         });
-      } else {
-        setPanelState((prev) => ({ ...prev, open: true, task, tab: 'details' }));
       }
       suppressHistoryPushRef.current = false;
     }
@@ -318,11 +577,11 @@ export function App() {
       consumedHashTaskRef.current = null;
       openTaskFromHash();
     };
-    window.addEventListener('hashchange', onHashChange);
-    window.addEventListener('vibeflow-task-ref-click', onTaskRefClick);
+    window.addEventListener("hashchange", onHashChange);
+    window.addEventListener("vibeflow-task-ref-click", onTaskRefClick);
     return () => {
-      window.removeEventListener('hashchange', onHashChange);
-      window.removeEventListener('vibeflow-task-ref-click', onTaskRefClick);
+      window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("vibeflow-task-ref-click", onTaskRefClick);
     };
   }, [tasks]);
 
@@ -330,52 +589,94 @@ export function App() {
   // Sync open panel task with live task updates (e.g. tag additions, status changes)
   React.useEffect(() => {
     if (!panelState.open || !panelState.task) return;
-    const updated = tasks.find(t => t.id === panelState.task!.id);
+    const updated = tasks.find((t) => t.id === panelState.task!.id);
     if (!updated) return;
     const current = panelState.task;
-    const changed = (Object.keys(updated) as (keyof typeof updated)[]).some(k => updated[k] !== current[k]);
-    if (changed) setPanelState(prev => ({ ...prev, task: updated }));
+    const changed = (Object.keys(updated) as (keyof typeof updated)[]).some(
+      (k) => updated[k] !== current[k],
+    );
+    if (changed) setPanelState((prev) => ({ ...prev, task: updated }));
   }, [tasks, panelState.open, panelState.task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
-      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable;
-      if (e.key === 'Escape') {
-        if (filePreview.open) { setFilePreview(p => ({ ...p, open: false })); return; }
-        if (panelState.open) { setPanelState(p => ({ ...p, open: false })); return; }
-        if (settingsOpen) { setSettingsOpen(false); return; }
+      const inInput =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (e.key === "Escape") {
+        if (filePreview.open) {
+          setFilePreview((p) => ({ ...p, open: false }));
+          return;
+        }
+        if (panelState.open) {
+          setPanelState((p) => ({ ...p, open: false }));
+          return;
+        }
+        if (settingsOpen) {
+          setSettingsOpen(false);
+          return;
+        }
       }
       if (inInput) return;
-      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
-        (document.getElementById('header-shortcuts-hint') as HTMLButtonElement | null)?.click();
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        (
+          document.getElementById(
+            "header-shortcuts-hint",
+          ) as HTMLButtonElement | null
+        )?.click();
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'n' || e.key === 'N')) {
+      if (
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        (e.key === "n" || e.key === "N")
+      ) {
         e.preventDefault();
-        openPanel(null, 'details');
+        openPanel(null, "details");
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'f' || e.key === 'F')) {
+      if (
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        (e.key === "f" || e.key === "F")
+      ) {
         e.preventDefault();
-        const searchInput = document.getElementById('global-search') as HTMLInputElement | null;
+        const searchInput = document.getElementById(
+          "global-search",
+        ) as HTMLInputElement | null;
         searchInput?.focus();
         searchInput?.select();
       }
     }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [filePreview.open, panelState.open, settingsOpen]);
 
-  function appendStatusChange(taskId: string, fromStatus: TaskStatus, toStatus: TaskStatus, actor: string, source?: 'cli' | 'web') {
+  function appendStatusChange(
+    taskId: string,
+    fromStatus: TaskStatus,
+    toStatus: TaskStatus,
+    actor: string,
+    source?: "cli" | "web",
+  ) {
     const timestamp = new Date().toISOString();
     const from = STATUS_LABELS[fromStatus] ?? fromStatus;
     const to = STATUS_LABELS[toStatus] ?? toStatus;
     const recent = Date.now() - 3000;
     setStatusChangeLog((prev) => {
       const duplicate = prev.some(
-        (e) => e.taskId === taskId && e.to === to && new Date(e.timestamp).getTime() > recent,
+        (e) =>
+          e.taskId === taskId &&
+          e.to === to &&
+          new Date(e.timestamp).getTime() > recent,
       );
       if (duplicate) return prev;
-      return [...prev, { taskId, field: 'status', from, to, actor, timestamp, source }].slice(-500);
+      return [
+        ...prev,
+        { taskId, field: "status", from, to, actor, timestamp, source },
+      ].slice(-500);
     });
   }
 
@@ -384,69 +685,118 @@ export function App() {
       const data = await api.getTasks();
       tasksRef.current = data.tasks ?? [];
       setTasks(data.tasks ?? []);
-    } catch {} finally {
+    } catch {
+    } finally {
       setIsLoading(false);
     }
   }
 
-  const upsertTaskFromWs = React.useCallback((incoming: Record<string, unknown>, actor?: string, source?: 'cli' | 'web') => {
-    const id = String(incoming.id ?? '');
-    if (!id) return;
-    const incomingCreated = incoming.created ?? incoming.createdAt;
-    const updated = incoming.updated ? String(incoming.updated) : undefined;
-    const commentCount = Array.isArray(incoming.comments)
-      ? (incoming.comments as Array<{ deleted?: boolean }>).filter((c) => !c.deleted).length
-      : undefined;
-    const fileCount = Array.isArray(incoming.files) ? incoming.files.length : undefined;
-    const newStatus = incoming.status ? String(incoming.status) as TaskStatus : undefined;
+  const upsertTaskFromWs = React.useCallback(
+    (
+      incoming: Record<string, unknown>,
+      actor?: string,
+      source?: "cli" | "web",
+    ) => {
+      const id = String(incoming.id ?? "");
+      if (!id) return;
+      const incomingCreated = incoming.created ?? incoming.createdAt;
+      const updated = incoming.updated ? String(incoming.updated) : undefined;
+      const commentCount = Array.isArray(incoming.comments)
+        ? (incoming.comments as Array<{ deleted?: boolean }>).filter(
+            (c) => !c.deleted,
+          ).length
+        : undefined;
+      const fileCount = Array.isArray(incoming.files)
+        ? incoming.files.length
+        : undefined;
+      const newStatus = incoming.status
+        ? (String(incoming.status) as TaskStatus)
+        : undefined;
 
-    // Detect status change from remote WS event before updating state
-    const prevTask = tasksRef.current.find((t) => t.id === id);
-    if (newStatus && prevTask && prevTask.status !== newStatus) {
-      appendStatusChange(id, prevTask.status, newStatus, actor ?? 'Someone', source);
-    }
+      // Detect status change from remote WS event before updating state
+      const prevTask = tasksRef.current.find((t) => t.id === id);
+      if (newStatus && prevTask && prevTask.status !== newStatus) {
+        appendStatusChange(
+          id,
+          prevTask.status,
+          newStatus,
+          actor ?? "Someone",
+          source,
+        );
+      }
 
-    setTasks((prev) => {
-      const existing = prev.find((t) => t.id === id);
-      const mapped: Task = {
-        id,
-        title: incoming.title ? String(incoming.title) : (existing?.title ?? 'Untitled'),
-        description: incoming.description != null ? String(incoming.description) : (existing?.description ?? ''),
-        status: (newStatus ?? existing?.status ?? 'todo') as TaskStatus,
-        type: incoming.type ? String(incoming.type) as Task['type'] : existing?.type,
-        priority: incoming.priority ? String(incoming.priority) as Task['priority'] : existing?.priority,
-        selector: incoming.selector ? String(incoming.selector) : existing?.selector,
-        cssSelector: incoming.cssSelector ? String(incoming.cssSelector) : existing?.cssSelector,
-        file: incoming.file ? String(incoming.file) : existing?.file,
-        line: typeof incoming.line === 'number' ? incoming.line : existing?.line,
-        col: typeof incoming.col === 'number' ? incoming.col : existing?.col,
-        component: incoming.component ? String(incoming.component) : existing?.component,
-        url: incoming.url ? String(incoming.url) : existing?.url,
-        reportBack: incoming.reportBack === true || existing?.reportBack === true,
-        commit: incoming.commit ? String(incoming.commit) : existing?.commit,
-        commits: Array.isArray(incoming.commits) ? (incoming.commits as { sha: string; message: string; timestamp: string }[]) : existing?.commits,
-        commentCount: commentCount ?? existing?.commentCount,
-        fileCount: fileCount ?? existing?.fileCount,
-        createdAt: incomingCreated ? String(incomingCreated) : (existing?.createdAt ?? new Date().toISOString()),
-        updatedAt: updated ?? existing?.updatedAt,
-        author: incoming.author ? String(incoming.author) : existing?.author,
-        tags: Array.isArray(incoming.tags) ? (incoming.tags as string[]) : existing?.tags,
-        sortKey: incoming.sortKey ? String(incoming.sortKey) : existing?.sortKey,
-      };
+      setTasks((prev) => {
+        const existing = prev.find((t) => t.id === id);
+        const mapped: Task = {
+          id,
+          title: incoming.title
+            ? String(incoming.title)
+            : (existing?.title ?? "Untitled"),
+          description:
+            incoming.description == null
+              ? (existing?.description ?? "")
+              : String(incoming.description),
+          status: (newStatus ?? existing?.status ?? "todo") as TaskStatus,
+          type: incoming.type
+            ? (String(incoming.type) as Task["type"])
+            : existing?.type,
+          priority: incoming.priority
+            ? (String(incoming.priority) as Task["priority"])
+            : existing?.priority,
+          selector: incoming.selector
+            ? String(incoming.selector)
+            : existing?.selector,
+          cssSelector: incoming.cssSelector
+            ? String(incoming.cssSelector)
+            : existing?.cssSelector,
+          file: incoming.file ? String(incoming.file) : existing?.file,
+          line:
+            typeof incoming.line === "number" ? incoming.line : existing?.line,
+          col: typeof incoming.col === "number" ? incoming.col : existing?.col,
+          component: incoming.component
+            ? String(incoming.component)
+            : existing?.component,
+          url: incoming.url ? String(incoming.url) : existing?.url,
+          reportBack:
+            incoming.reportBack === true || existing?.reportBack === true,
+          commit: incoming.commit ? String(incoming.commit) : existing?.commit,
+          commits: Array.isArray(incoming.commits)
+            ? (incoming.commits as {
+                sha: string;
+                message: string;
+                timestamp: string;
+              }[])
+            : existing?.commits,
+          commentCount: commentCount ?? existing?.commentCount,
+          fileCount: fileCount ?? existing?.fileCount,
+          createdAt: incomingCreated
+            ? String(incomingCreated)
+            : (existing?.createdAt ?? new Date().toISOString()),
+          updatedAt: updated ?? existing?.updatedAt,
+          author: incoming.author ? String(incoming.author) : existing?.author,
+          tags: Array.isArray(incoming.tags)
+            ? (incoming.tags as string[])
+            : existing?.tags,
+          sortKey: incoming.sortKey
+            ? String(incoming.sortKey)
+            : existing?.sortKey,
+        };
 
-      const next = prev.filter((t) => t.id !== id);
-      next.push(mapped);
-      next.sort((a, b) => {
-        const aDate = new Date(a.updatedAt ?? a.createdAt ?? '').getTime();
-        const bDate = new Date(b.updatedAt ?? b.createdAt ?? '').getTime();
-        if (aDate === bDate) return a.id.localeCompare(b.id);
-        return bDate - aDate;
+        const next = prev.filter((t) => t.id !== id);
+        next.push(mapped);
+        next.sort((a, b) => {
+          const aDate = new Date(a.updatedAt ?? a.createdAt ?? "").getTime();
+          const bDate = new Date(b.updatedAt ?? b.createdAt ?? "").getTime();
+          if (aDate === bDate) return a.id.localeCompare(b.id);
+          return bDate - aDate;
+        });
+        tasksRef.current = next;
+        return next;
       });
-      tasksRef.current = next;
-      return next;
-    });
-  // appendStatusChange is stable (useCallback with empty deps); intentional empty dep array
-  }, []);
+      // appendStatusChange is stable (useCallback with empty deps); intentional empty dep array
+    },
+    [],
+  );
 
   async function loadMeta() {
     try {
@@ -458,7 +808,9 @@ export function App() {
 
   async function loadGithubUrl() {
     try {
-      const data = await fetch('/api/github-url').then((r) => r.json()) as { githubUrl: string | null };
+      const data = (await fetch("/api/github-url").then((r) => r.json())) as {
+        githubUrl: string | null;
+      };
       setGithubUrl(data.githubUrl ?? null);
     } catch {}
   }
@@ -470,7 +822,11 @@ export function App() {
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
       if (settings.viewMode) setViewMode(settings.viewMode);
-      if (settings.panelWidth && settings.panelWidth >= 280 && settings.panelWidth <= 900) {
+      if (
+        settings.panelWidth &&
+        settings.panelWidth >= 280 &&
+        settings.panelWidth <= 900
+      ) {
         setPanelWidth(settings.panelWidth);
       }
     } catch {}
@@ -482,69 +838,104 @@ export function App() {
       if (data?.authenticated && data?.username) {
         setPremiumUsage(`Copilot: ${data.username}`);
       } else {
-        setPremiumUsage('Copilot: not logged in');
+        setPremiumUsage("Copilot: not logged in");
       }
     } catch {}
   }
 
   function connectWs() {
-    const wsScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsScheme}//${window.location.host}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
-    ws.addEventListener('open', () => {
+    ws.addEventListener("open", () => {
       setWsConnected(true);
       setHadWsConnection(true);
       void loadTasks();
     });
-    ws.addEventListener('close', () => {
+    ws.addEventListener("close", () => {
       setWsConnected(false);
+      // Retry WS connection with exponential backoff (max 10s)
+      if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
       wsRetryRef.current = setTimeout(connectWs, 1500);
     });
-    ws.addEventListener('message', (ev) => {
+    ws.addEventListener("error", () => {
+      // On error, let 'close' handle reconnection
+    });
+    ws.addEventListener("message", (ev) => {
       try {
         const msg = JSON.parse(ev.data as string);
-        if (msg.type === 'tasks-updated' || msg.type?.startsWith('task:')) {
+        if (msg.type === "tasks-updated" || msg.type?.startsWith("task:")) {
           void loadTasks();
           return;
         }
-        if (msg.type === 'task-changed' && msg.task) {
+        if (msg.type === "task-changed" && msg.task) {
           const task = msg.task as Record<string, unknown>;
-          const actor = typeof task.alteredBy === 'string' ? task.alteredBy
-            : typeof task.author === 'string' ? task.author
-            : 'Someone';
-          const source = msg.source === 'cli' ? 'cli' as const : undefined;
+          const actor =
+            typeof task.alteredBy === "string"
+              ? task.alteredBy
+              : typeof task.author === "string"
+                ? task.author
+                : "Someone";
+          const source = msg.source === "cli" ? ("cli" as const) : undefined;
           upsertTaskFromWs(task, actor, source);
           return;
         }
-        if (msg.type === 'task-deleted' && msg.taskId) {
+        if (msg.type === "task-deleted" && msg.taskId) {
           const taskId = String(msg.taskId);
-          setTasks((prev) => { const next = prev.filter((t) => t.id !== taskId); tasksRef.current = next; return next; });
+          setTasks((prev) => {
+            const next = prev.filter((t) => t.id !== taskId);
+            tasksRef.current = next;
+            return next;
+          });
         }
       } catch {}
     });
     // Keep-alive ping
     const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "ping" }));
     }, 20000);
-    ws.addEventListener('close', () => clearInterval(pingInterval));
+    ws.addEventListener("close", () => clearInterval(pingInterval));
+    ws.addEventListener("error", () => {});
   }
 
   async function patchTask(id: string, updates: Partial<Task>) {
-    const previous = tasksRef.current.find(t => t.id === id);
-    setTasks(prev => { const next = prev.map(t => t.id === id ? { ...t, ...updates } : t); tasksRef.current = next; return next; });
-    if (updates.status && previous?.status && updates.status !== previous.status) {
+    const previous = tasksRef.current.find((t) => t.id === id);
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...updates } : t));
+      tasksRef.current = next;
+      return next;
+    });
+    if (
+      updates.status &&
+      previous?.status &&
+      updates.status !== previous.status
+    ) {
       appendStatusChange(id, previous.status, updates.status, gitUserName);
     }
     try {
       const data = await api.updateTask(id, updates);
-      if (data.task) setTasks(prev => { const next = prev.map(t => t.id === id ? data.task! : t); tasksRef.current = next; return next; });
-    } catch { void loadTasks(); }
+      if (data.task)
+        setTasks((prev) => {
+          const next = prev.map((t) => (t.id === id ? data.task! : t));
+          tasksRef.current = next;
+          return next;
+        });
+    } catch {
+      void loadTasks();
+    }
   }
 
-  async function handleReorder(taskId: string, newStatus: TaskStatus, beforeId: string | null, afterId: string | null, explicitSortKey?: string) {
+  async function handleReorder(
+    taskId: string,
+    newStatus: TaskStatus,
+    beforeId: string | null,
+    afterId: string | null,
+    explicitSortKey?: string,
+  ) {
     const colTasks = tasksRef.current
-      .filter(t => t.status === newStatus)
+      .filter((t) => t.status === newStatus)
       .sort(compareTaskOrder);
 
     const result = computeReorder(colTasks, taskId, beforeId, afterId);
@@ -552,34 +943,55 @@ export function App() {
     const normalizationPatches = result.normalizationPatches;
 
     // Apply optimistic updates for all affected tasks at once
-    setTasks(prev => {
+    setTasks((prev) => {
       const patches = new Map<string, Partial<Task>>();
-      for (const { id, sortKey } of normalizationPatches) patches.set(id, { sortKey });
+      for (const { id, sortKey } of normalizationPatches)
+        patches.set(id, { sortKey });
       patches.set(taskId, { status: newStatus, sortKey: newSortKey });
-      const next = prev.map(t => patches.has(t.id) ? { ...t, ...patches.get(t.id) } : t);
+      const next = prev.map((t) =>
+        patches.has(t.id) ? { ...t, ...patches.get(t.id) } : t,
+      );
       tasksRef.current = next;
       return next;
     });
 
     // Only persist the dragged task — normalization patches are applied optimistically
     // in the UI but must not trigger server-side updates for other tasks.
-    await api.updateTask(taskId, { status: newStatus, sortKey: newSortKey }).catch(() => { void loadTasks(); });
+    await api
+      .updateTask(taskId, { status: newStatus, sortKey: newSortKey })
+      .catch(() => {
+        void loadTasks();
+      });
   }
 
   async function deleteTaskById(id: string) {
-    setTasks(prev => { const next = prev.filter(t => t.id !== id); tasksRef.current = next; return next; });
-    try { await api.deleteTask(id); } catch { void loadTasks(); }
+    setTasks((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      tasksRef.current = next;
+      return next;
+    });
+    try {
+      await api.deleteTask(id);
+    } catch {
+      void loadTasks();
+    }
   }
 
   async function createTask(draft: Partial<Task>): Promise<string | undefined> {
     try {
-      const result = await api.createTask(draft as Parameters<typeof api.createTask>[0]);
+      const result = await api.createTask(
+        draft as Parameters<typeof api.createTask>[0],
+      );
       await loadTasks();
       return result?.task?.id;
     } catch {}
   }
 
-  function openPanel(task: Task | null, tab: PanelState['tab'] = 'details', addColumnId?: TaskStatus) {
+  function openPanel(
+    task: Task | null,
+    tab: PanelState["tab"] = "details",
+    addColumnId?: TaskStatus,
+  ) {
     // Direct panel opens (clicking a card) reset navigation history since
     // the user is starting a new navigation context.
     setNavHistory([]);
@@ -598,7 +1010,12 @@ export function App() {
       consumedHashTaskRef.current = null;
       window.location.hash = `#task-${prevTask.id}`;
       // Also directly update panel state in case hashchange isn't triggered immediately
-      setPanelState((p) => ({ ...p, open: true, task: prevTask, tab: 'details' }));
+      setPanelState((p) => ({
+        ...p,
+        open: true,
+        task: prevTask,
+        tab: "details",
+      }));
       return newHistory;
     });
   }
@@ -606,18 +1023,22 @@ export function App() {
   function openFilePreview(name: string, url: string) {
     // HTML files open in a new tab for sandboxed preview; all others use the modal.
     if (/\.html?$/i.test(name)) {
-      window.open(url, '_blank', 'noopener,noreferrer');
+      window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
     setFilePreview({ open: true, name, url });
   }
 
-  const taskSummary = buildTaskSummary(tasks, visibleCols, searchQuery.toLowerCase());
+  const taskSummary = buildTaskSummary(
+    tasks,
+    visibleCols,
+    searchQuery.toLowerCase(),
+  );
   const baseUrl = window.location.origin;
 
   const allTags = React.useMemo(() => {
     const set = new Set<string>();
-    tasks.forEach(t => (t.tags ?? []).forEach(tag => set.add(tag)));
+    tasks.forEach((t) => (t.tags ?? []).forEach((tag) => set.add(tag)));
     return Array.from(set).sort();
   }, [tasks]);
 
@@ -627,25 +1048,34 @@ export function App() {
     if (!panelTaskId) return [];
     return statusChangeLog
       .filter((e) => e.taskId === panelTaskId)
-      .map(({ field, from, to, actor, timestamp, source }) => ({ field, from, to, actor, timestamp, source }));
+      .map(({ field, from, to, actor, timestamp, source }) => ({
+        field,
+        from,
+        to,
+        actor,
+        timestamp,
+        source,
+      }));
   }, [panelState.task?.id, statusChangeLog]);
 
   const filteredTasks = React.useMemo(() => {
     let result = tasks;
-    if (filterState.status !== 'all') {
-      result = result.filter(t => t.status === filterState.status);
+    if (filterState.status !== "all") {
+      result = result.filter((t) => t.status === filterState.status);
     }
     if (filterState.component) {
-      result = result.filter(t => t.component === filterState.component);
+      result = result.filter((t) => t.component === filterState.component);
     }
     if (filterState.type) {
-      result = result.filter(t => t.type === filterState.type);
+      result = result.filter((t) => t.type === filterState.type);
     }
     if (filterState.user) {
-      result = result.filter(t => t.author === filterState.user);
+      result = result.filter((t) => t.author === filterState.user);
     }
     if (filterState.tags && filterState.tags.length > 0) {
-      result = result.filter(t => filterState.tags!.every(tag => (t.tags ?? []).includes(tag)));
+      result = result.filter((t) =>
+        filterState.tags!.every((tag) => (t.tags ?? []).includes(tag)),
+      );
     }
     return result;
   }, [tasks, filterState]);
@@ -655,7 +1085,9 @@ export function App() {
   return (
     <>
       {SAAS_MODE && !overlayDismissed && (
-        <OnlineModeOverlay onClose={IS_ADMIN ? () => setOverlayDismissed(true) : undefined} />
+        <OnlineModeOverlay
+          onClose={IS_ADMIN ? () => setOverlayDismissed(true) : undefined}
+        />
       )}
       <Header
         projectName={projectName}
@@ -667,8 +1099,10 @@ export function App() {
         allTags={allTags}
         onToggleTag={(tag) => {
           const current = filterState.tags ?? [];
-          const next = current.includes(tag) ? current.filter(t => t !== tag) : [...current, tag];
-          setFilterState(prev => ({ ...prev, tags: next }));
+          const next = current.includes(tag)
+            ? current.filter((t) => t !== tag)
+            : [...current, tag];
+          setFilterState((prev) => ({ ...prev, tags: next }));
         }}
         premiumUsage={premiumUsage}
         isLoading={isLoading}
@@ -685,18 +1119,21 @@ export function App() {
         onViewChange={(mode) => {
           setViewMode(mode);
           void api.saveSettings({ ...appSettings, viewMode: mode });
-          setAppSettings(prev => ({ ...prev, viewMode: mode }));
+          setAppSettings((prev) => ({ ...prev, viewMode: mode }));
         }}
       />
 
-      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0, position: 'relative' }}>
-        {viewMode === 'list' ? (
+      <div
+        className="flex flex-1 overflow-hidden"
+        style={{ minHeight: 0, position: "relative" }}
+      >
+        {viewMode === "list" ? (
           <KanbanListView
             tasks={filteredTasks}
             searchQuery={searchQuery}
             isLoading={isLoading}
             onOpenPanel={(task, tab) => openPanel(task, tab)}
-            onAddTask={(status) => openPanel(null, 'details', status)}
+            onAddTask={(status) => openPanel(null, "details", status)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
           />
         ) : (
@@ -715,14 +1152,14 @@ export function App() {
           <div
             id="detail-panel-container"
             style={{ width: panelWidth, zIndex: isResizingPanel ? 30 : 10 }}
-            className={isResizingPanel ? 'resizing' : ''}
+            className={isResizingPanel ? "resizing" : ""}
           >
             <div
               id="detail-panel-resize-handle"
               onMouseDown={(e) => {
                 e.preventDefault();
                 setIsResizingPanel(true);
-                document.body.classList.add('vibeflow-resizing-panel');
+                document.body.classList.add("vibeflow-resizing-panel");
                 const startX = e.clientX;
                 const startWidth = panelWidth;
                 const onMove = (ev: MouseEvent) => {
@@ -731,15 +1168,24 @@ export function App() {
                 };
                 const onUp = (ev: MouseEvent) => {
                   setIsResizingPanel(false);
-                  document.body.classList.remove('vibeflow-resizing-panel');
-                  const finalWidth = Math.max(360, Math.min(860, startWidth - (ev.clientX - startX)));
-                  void api.saveSettings({ ...appSettings, panelWidth: finalWidth });
-                  setAppSettings(prev => ({ ...prev, panelWidth: finalWidth }));
-                  window.removeEventListener('mousemove', onMove);
-                  window.removeEventListener('mouseup', onUp);
+                  document.body.classList.remove("vibeflow-resizing-panel");
+                  const finalWidth = Math.max(
+                    360,
+                    Math.min(860, startWidth - (ev.clientX - startX)),
+                  );
+                  void api.saveSettings({
+                    ...appSettings,
+                    panelWidth: finalWidth,
+                  });
+                  setAppSettings((prev) => ({
+                    ...prev,
+                    panelWidth: finalWidth,
+                  }));
+                  window.removeEventListener("mousemove", onMove);
+                  window.removeEventListener("mouseup", onUp);
                 };
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
               }}
             />
             <DetailPanel
@@ -753,97 +1199,119 @@ export function App() {
               baseUrl={baseUrl}
               isResizing={isResizingPanel}
               api={api}
-              onClose={() => { setNavHistory([]); setPanelState(p => ({ ...p, open: false })); }}
+              onClose={() => {
+                setNavHistory([]);
+                setPanelState((p) => ({ ...p, open: false }));
+              }}
               onSave={async (updates) => {
                 if (panelState.task) {
                   await patchTask(panelState.task.id, updates);
                 }
-                setPanelState(p => ({ ...p, open: false }));
+                setPanelState((p) => ({ ...p, open: false }));
               }}
               onCreate={async (draft) => {
                 const taskId = await createTask(draft);
-                setPanelState(p => ({ ...p, open: false }));
+                setPanelState((p) => ({ ...p, open: false }));
                 return taskId;
               }}
               onDelete={async (id) => {
                 await deleteTaskById(id);
-                setPanelState(p => ({ ...p, open: false }));
+                setPanelState((p) => ({ ...p, open: false }));
               }}
               onPatch={patchTask}
               onFilePreview={openFilePreview}
               onGoBack={navHistory.length > 0 ? goBack : undefined}
-              navBackLabel={navHistory.length > 0 ? navHistory[navHistory.length - 1].title : undefined}
+              navBackLabel={
+                navHistory.length > 0
+                  ? navHistory[navHistory.length - 1].title
+                  : undefined
+              }
               externalLocalChanges={panelStatusChanges}
               allTasks={tasks}
               createBranch={appSettings.createBranch}
             />
           </div>
         )}
-
       </div>
 
-
-      {showLostConnectionOverlay && createPortal(
-        <div
-          id="ws-lost-overlay"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: 99999,
-            background: 'rgba(2, 6, 23, 0.88)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            pointerEvents: 'all',
-            cursor: 'not-allowed',
-          }}
-        >
+      {showLostConnectionOverlay &&
+        createPortal(
           <div
+            id="ws-lost-overlay"
             style={{
-              width: 'min(420px, 92vw)',
-              borderRadius: 14,
-              border: '1px solid var(--p-border-s)',
-              background: 'var(--p-card)',
-              boxShadow: '0 16px 40px rgba(2,6,23,0.7)',
-              padding: '20px 22px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              cursor: 'default',
-              pointerEvents: 'auto',
+              position: "fixed",
+              top: 0,
+              left: 0,
+              width: "100vw",
+              height: "100vh",
+              zIndex: 99999,
+              background: "rgba(2, 6, 23, 0.88)",
+              backdropFilter: "blur(4px)",
+              WebkitBackdropFilter: "blur(4px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+              pointerEvents: "all",
+              cursor: "not-allowed",
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--p-text-m)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ animation: 'spin 1.1s linear infinite', flexShrink: 0 }}
+            <div
+              style={{
+                width: "min(420px, 92vw)",
+                borderRadius: 14,
+                border: "1px solid var(--p-border-s)",
+                background: "var(--p-card)",
+                boxShadow: "0 16px 40px rgba(2,6,23,0.7)",
+                padding: "20px 22px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                cursor: "default",
+                pointerEvents: "auto",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--p-text-m)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{
+                    animation: "spin 1.1s linear infinite",
+                    flexShrink: 0,
+                  }}
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--p-text)",
+                  }}
+                >
+                  Connection Lost
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--p-text-m)",
+                  lineHeight: 1.6,
+                }}
               >
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--p-text)' }}>
-                Connection Lost
-              </span>
+                Real-time connection to the server was interrupted. Reconnecting
+                in the background&hellip;
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--p-text-m)', lineHeight: 1.6 }}>
-              Real-time connection to the server was interrupted. Reconnecting in the background&hellip;
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body,
+        )}
 
       <SettingsModal
         open={settingsOpen}
@@ -862,9 +1330,8 @@ export function App() {
         open={filePreview.open}
         name={filePreview.name}
         url={filePreview.url}
-        onClose={() => setFilePreview(p => ({ ...p, open: false }))}
+        onClose={() => setFilePreview((p) => ({ ...p, open: false }))}
       />
-
     </>
   );
 }
