@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureTaskDirs } from "../../src/core/tasks.js";
 import { writeConfig } from "../../src/core/config.js";
+import { PROTO_DIR, FILES_DIR } from "../../src/core/types.js";
 
 const CLI = join(process.cwd(), "dist", "index.js");
 const run = (args: string, cwd?: string) =>
@@ -25,6 +26,17 @@ const run = (args: string, cwd?: string) =>
 function initProtoDir(dir: string): void {
   ensureTaskDirs(dir);
   writeConfig(dir, { mode: "attach", port: 3700 });
+}
+
+/** Add dummy verification evidence so gating allows review status. */
+function addVerificationEvidence(projectDir: string, taskId: string): void {
+  const filesDir = join(projectDir, PROTO_DIR, FILES_DIR, taskId);
+  mkdirSync(filesDir, { recursive: true });
+  writeFileSync(
+    join(filesDir, "verify-after.json"),
+    JSON.stringify({ ok: true, taskId, verdict: "verified" }),
+    "utf-8",
+  );
 }
 
 describe("proto tasks (e2e)", () => {
@@ -403,6 +415,9 @@ describe("proto tasks (e2e)", () => {
     // Should fail without --comment
     expect(() => run(`tasks ${tempDir} --edit reviewtask1 --set-status review`)).toThrow();
 
+    // Add verification evidence so gating allows review
+    addVerificationEvidence(tempDir, "reviewtask1");
+
     // Should succeed with --comment
     const output = run(`tasks ${tempDir} --edit reviewtask1 --set-status review --comment "Fixed the alignment issue by adjusting flex layout"`);
     expect(output).toContain("Task updated");
@@ -541,6 +556,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
 
   it("normalizes literal \\n in --comment to actual newlines on set-status review", () => {
     const taskId = createTask("Normalize test task");
+    addVerificationEvidence(tempDir, taskId);
     // Pass literal \n (backslash + n) as they appear in double-quoted bash strings
     run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "line1\\nline2\\n\\nbullets:\\n- A\\n- B"`);
 
@@ -557,6 +573,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
 
   it("stores comment with actual newlines in task JSON file", () => {
     const taskId = createTask("JSON storage test");
+    addVerificationEvidence(tempDir, taskId);
     run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Summary:\\n\\n- Changed X\\n- Changed Y"`);
 
     // Find task JSON by scanning date subdirectories
@@ -579,6 +596,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
 
   it("leaves plain text comments unchanged", () => {
     const taskId = createTask("Plain text comment test");
+    addVerificationEvidence(tempDir, taskId);
     run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Simple one-liner comment"`);
 
     const getOutput = run(`tasks ${tempDir} --get ${taskId}`);
@@ -605,6 +623,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
       "utf-8",
     );
     // Pass a comment with no literal \n — just plain text over multiple --comment calls
+    addVerificationEvidence(tempDir, taskId);
     run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Plain line without escapes"`);
 
     // Find task JSON by scanning date subdirectories
