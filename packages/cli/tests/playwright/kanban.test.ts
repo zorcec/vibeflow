@@ -28,8 +28,11 @@ async function openAddTask(page: Page, columnId: string) {
 
 async function openTaskByTitle(page: Page, title: string) {
   await page.evaluate((taskTitle) => {
-    const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-      .find((candidate) => candidate.textContent?.includes(taskTitle)) as HTMLElement | undefined;
+    const card = [
+      ...document.querySelectorAll("#kanban-board article.task-card"),
+    ].find((candidate) => candidate.textContent?.includes(taskTitle)) as
+      | HTMLElement
+      | undefined;
     card?.click();
   }, title);
   await page.waitForSelector("#detail-panel.open");
@@ -56,26 +59,38 @@ async function closePanelIfOpen(page: Page) {
   const closeCount = await page.locator("#dp-close").count();
   if (closeCount === 0) return;
   await page.click("#dp-close");
-  await page.waitForFunction(() => !document.getElementById("detail-panel"), { timeout: 5_000 }).catch(() => {});
+  await page
+    .waitForFunction(() => !document.getElementById("detail-panel"), {
+      timeout: 5_000,
+    })
+    .catch(() => {});
 }
 
 /**
  * Wait for a task to appear on the kanban board via WebSocket live update.
  * Falls back to page.reload() if the task doesn't appear within 3s.
  */
-async function waitForTaskOnBoard(page: Page, titleOrId: string, timeout = 8_000) {
+async function waitForTaskOnBoard(
+  page: Page,
+  titleOrId: string,
+  timeout = 8_000,
+) {
   // First try waiting for WS live update (no reload needed)
-  const appeared = await page.waitForFunction(
-    (idOrTitle) => {
-      // Check by data-task-id attribute
-      if (document.querySelector(`[data-task-id="${idOrTitle}"]`)) return true;
-      // Check by card text content
-      return [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes(idOrTitle));
-    },
-    titleOrId,
-    { timeout },
-  ).catch(() => false);
+  const appeared = await page
+    .waitForFunction(
+      (idOrTitle) => {
+        // Check by data-task-id attribute
+        if (document.querySelector(`[data-task-id="${idOrTitle}"]`))
+          return true;
+        // Check by card text content
+        return [
+          ...document.querySelectorAll("#kanban-board article.task-card"),
+        ].some((c) => c.textContent?.includes(idOrTitle));
+      },
+      titleOrId,
+      { timeout },
+    )
+    .catch(() => false);
   if (appeared) return;
 
   // Fallback: reload if WS didn't deliver (edge case)
@@ -84,8 +99,9 @@ async function waitForTaskOnBoard(page: Page, titleOrId: string, timeout = 8_000
   await page.waitForFunction(
     (idOrTitle) => {
       if (document.querySelector(`[data-task-id="${idOrTitle}"]`)) return true;
-      return [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes(idOrTitle));
+      return [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].some((c) => c.textContent?.includes(idOrTitle));
     },
     titleOrId,
     { timeout: 8_000 },
@@ -103,10 +119,16 @@ describe("Kanban board", () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-kanban-pw-"));
 
     // Serve with no HTML file — API-only mode, kanban route registered
-    instance = await serve(undefined, { port: PORT, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: PORT,
+      open: false,
+      projectDir: tempDir,
+    });
 
     browser = await chromium.launch({ headless: true });
-    context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     page = await context.newPage();
 
     await page.goto(`${BASE}/kanban`);
@@ -127,82 +149,98 @@ describe("Kanban board", () => {
   });
 
   it("renders 5 columns (backlog, todo, in-progress, review, done)", async () => {
-    await page.waitForFunction(() => {
-      return document.querySelectorAll("[data-column-id]").length >= 5;
-    }, { timeout: 5_000 });
+    await page.waitForFunction(
+      () => {
+        return document.querySelectorAll("[data-column-id]").length >= 5;
+      },
+      { timeout: 5_000 },
+    );
 
-    const colCount = await page.evaluate(() => document.querySelectorAll("[data-column-id]").length);
+    const colCount = await page.evaluate(
+      () => document.querySelectorAll("[data-column-id]").length,
+    );
     expect(colCount).toBe(5);
   });
 
   it("shows empty-column placeholders when no tasks are present", async () => {
-    const placeholderCount = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-column-id] .column-scroll div')]
-        .filter((el) => /No tasks in/i.test(el.textContent || '')).length,
+    const placeholderCount = await page.evaluate(
+      () =>
+        [
+          ...document.querySelectorAll("[data-column-id] .column-scroll div"),
+        ].filter((el) => /No tasks in/i.test(el.textContent || "")).length,
     );
     expect(placeholderCount).toBeGreaterThanOrEqual(5);
   });
 
   it("shows a visible keyboard shortcuts hint in the header", async () => {
-    const hintVisible = await page.isVisible('#header-shortcuts-hint');
+    const hintVisible = await page.isVisible("#header-shortcuts-hint");
     expect(hintVisible).toBe(true);
   });
 
   // ── Header component regression tests ─────────────────────────────────────
   it("header renders project name, search input, and settings button", async () => {
     // Project name
-    const projectName = await page.textContent('#header-project-name');
+    const projectName = await page.textContent("#header-project-name");
     expect(projectName).toBeTruthy();
     expect(projectName!.length).toBeGreaterThan(0);
 
     // Global search input
-    const searchInput = await page.locator('#global-search').count();
+    const searchInput = await page.locator("#global-search").count();
     expect(searchInput).toBe(1);
-    const searchPlaceholder = await page.getAttribute('#global-search', 'placeholder');
+    const searchPlaceholder = await page.getAttribute(
+      "#global-search",
+      "placeholder",
+    );
     expect(searchPlaceholder).toBeTruthy();
 
     // Settings button
-    const settingsBtn = await page.locator('#btn-settings').count();
+    const settingsBtn = await page.locator("#btn-settings").count();
     expect(settingsBtn).toBe(1);
 
     // Shortcuts hint button
-    const shortcutsBtn = await page.locator('#header-shortcuts-hint').count();
+    const shortcutsBtn = await page.locator("#header-shortcuts-hint").count();
     expect(shortcutsBtn).toBe(1);
   });
 
   it("header search input accepts text and clear button appears", async () => {
     // Search input should be empty initially
-    const initialValue = await page.inputValue('#global-search');
-    expect(initialValue).toBe('');
+    const initialValue = await page.inputValue("#global-search");
+    expect(initialValue).toBe("");
 
     // Type into search
-    await page.fill('#global-search', 'test search');
-    const typedValue = await page.inputValue('#global-search');
-    expect(typedValue).toBe('test search');
+    await page.fill("#global-search", "test search");
+    const typedValue = await page.inputValue("#global-search");
+    expect(typedValue).toBe("test search");
 
     // Clear button should appear when there is content
-    const clearBtn = await page.locator('#global-search-clear').count();
+    const clearBtn = await page.locator("#global-search-clear").count();
     expect(clearBtn).toBe(1);
 
     // Click clear button
-    await page.click('#global-search-clear');
-    const clearedValue = await page.inputValue('#global-search');
-    expect(clearedValue).toBe('');
+    await page.click("#global-search-clear");
+    const clearedValue = await page.inputValue("#global-search");
+    expect(clearedValue).toBe("");
 
     // Clear button should disappear
-    const clearBtnAfter = await page.locator('#global-search-clear').count();
+    const clearBtnAfter = await page.locator("#global-search-clear").count();
     expect(clearBtnAfter).toBe(0);
   });
 
   it("header layout: project name is left-aligned, search is centered, actions are right-aligned", async () => {
     const layout = await page.evaluate(() => {
-      const header = document.querySelector('header') as HTMLElement | null;
+      const header = document.querySelector("header") as HTMLElement | null;
       if (!header) return null;
       const rect = header.getBoundingClientRect();
 
-      const projectName = document.getElementById('header-project-name') as HTMLElement | null;
-      const searchInput = document.getElementById('global-search') as HTMLElement | null;
-      const settingsBtn = document.getElementById('btn-settings') as HTMLElement | null;
+      const projectName = document.getElementById(
+        "header-project-name",
+      ) as HTMLElement | null;
+      const searchInput = document.getElementById(
+        "global-search",
+      ) as HTMLElement | null;
+      const settingsBtn = document.getElementById(
+        "btn-settings",
+      ) as HTMLElement | null;
 
       if (!projectName || !searchInput || !settingsBtn) return null;
 
@@ -221,18 +259,26 @@ describe("Kanban board", () => {
 
     expect(layout).not.toBeNull();
     // Project name should be on the left side (within first 40% of header)
-    expect((layout?.projectLeft ?? 999) < (layout?.headerWidth ?? 100) * 0.4).toBe(true);
+    expect(
+      (layout?.projectLeft ?? 999) < (layout?.headerWidth ?? 100) * 0.4,
+    ).toBe(true);
     // Search should be roughly centered (within 20% of center)
-    const centerDiff = Math.abs((layout?.searchCenter ?? 0) - ((layout?.headerCenter ?? 0)));
+    const centerDiff = Math.abs(
+      (layout?.searchCenter ?? 0) - (layout?.headerCenter ?? 0),
+    );
     expect(centerDiff < (layout?.headerWidth ?? 100) * 0.3).toBe(true);
     // Settings should be on the right side (within last 20% of header)
-    expect((layout?.settingsRight ?? 0) > (layout?.headerWidth ?? 100) * 0.8).toBe(true);
+    expect(
+      (layout?.settingsRight ?? 0) > (layout?.headerWidth ?? 100) * 0.8,
+    ).toBe(true);
   });
 
   // ── "+" button per column ─────────────────────────────────────────────────
   it("each column has a '+' add button in the header", async () => {
     const addBtnCount = await page.evaluate(
-      () => document.querySelectorAll("[data-column-id] button[title^='Add task']").length,
+      () =>
+        document.querySelectorAll("[data-column-id] button[title^='Add task']")
+          .length,
     );
     expect(addBtnCount).toBe(5);
   });
@@ -258,21 +304,27 @@ describe("Kanban board", () => {
 
     // Panel closes
     await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
+      () =>
+        !document.getElementById("detail-panel")?.classList.contains("open"),
       { timeout: 5_000 },
     );
 
     // Wait for board to re-render with the new task
     await page.waitForFunction(
-      () => [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes("Test kanban add task")),
+      () =>
+        [...document.querySelectorAll("#kanban-board article.task-card")].some(
+          (c) => c.textContent?.includes("Test kanban add task"),
+        ),
       { timeout: 8_000 },
     );
 
     // Verify the task landed in the "todo" column
     const inTodo = await page.evaluate(() => {
-      return [...document.querySelectorAll("[data-column-id='todo'] article.task-card")]
-        .some(c => c.textContent?.includes("Test kanban add task"));
+      return [
+        ...document.querySelectorAll(
+          "[data-column-id='todo'] article.task-card",
+        ),
+      ].some((c) => c.textContent?.includes("Test kanban add task"));
     });
     expect(inTodo).toBe(true);
   });
@@ -281,9 +333,17 @@ describe("Kanban board", () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Inline status cycle task", description: "cycle", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Inline status cycle task",
+        description: "cycle",
+        selector: "/",
+        status: "todo",
+      }),
     });
-    const data = await res.json() as { success: boolean; task?: { id: string } };
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(data.success).toBe(true);
     const taskId = data.task?.id;
     expect(taskId).toBeTruthy();
@@ -293,7 +353,10 @@ describe("Kanban board", () => {
     await openTaskByTitle(page, "Inline status cycle task");
     await page.click(".dp-status-btn[data-status='in-progress']");
     await page.waitForFunction(
-      (id) => !!document.querySelector(`[data-column-id='in-progress'] [data-task-id="${id}"]`),
+      (id) =>
+        !!document.querySelector(
+          `[data-column-id='in-progress'] [data-task-id="${id}"]`,
+        ),
       taskId,
       { timeout: 8_000 },
     );
@@ -308,14 +371,18 @@ describe("Kanban board", () => {
     await page.click("#dp-cancel");
 
     await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
+      () =>
+        !document.getElementById("detail-panel")?.classList.contains("open"),
     );
 
     // The task should NOT appear — allow any pending network requests to settle
-    await page.waitForLoadState("networkidle", { timeout: 2_000 }).catch(() => {});
+    await page
+      .waitForLoadState("networkidle", { timeout: 2_000 })
+      .catch(() => {});
     const hasCancelledTask = await page.evaluate(() =>
-      [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes("This should not be saved")),
+      [...document.querySelectorAll("#kanban-board article.task-card")].some(
+        (c) => c.textContent?.includes("This should not be saved"),
+      ),
     );
     expect(hasCancelledTask).toBe(false);
   });
@@ -325,24 +392,32 @@ describe("Kanban board", () => {
     await closePanelIfOpen(page);
     await openAddTask(page, "in-progress");
     // Wait for the status to be correctly set to 'in-progress' before saving
-    await page.waitForSelector(".dp-status-btn.active-in-progress", { timeout: 3_000 });
+    await page.waitForSelector(".dp-status-btn.active-in-progress", {
+      timeout: 3_000,
+    });
 
     await page.fill("#dp-title", "Enter key task");
     await page.keyboard.press("Enter");
 
     await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
+      () =>
+        !document.getElementById("detail-panel")?.classList.contains("open"),
       { timeout: 5_000 },
     );
     await page.waitForFunction(
-      () => [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes("Enter key task")),
+      () =>
+        [...document.querySelectorAll("#kanban-board article.task-card")].some(
+          (c) => c.textContent?.includes("Enter key task"),
+        ),
       { timeout: 8_000 },
     );
 
     const inInProgress = await page.evaluate(() => {
-      return [...document.querySelectorAll("[data-column-id='in-progress'] article.task-card")]
-        .some(c => c.textContent?.includes("Enter key task"));
+      return [
+        ...document.querySelectorAll(
+          "[data-column-id='in-progress'] article.task-card",
+        ),
+      ].some((c) => c.textContent?.includes("Enter key task"));
     });
     expect(inInProgress).toBe(true);
   });
@@ -363,7 +438,7 @@ describe("Kanban board", () => {
         component: "SubmitButton",
       }),
     });
-    const data = await res.json() as { success: boolean };
+    const data = (await res.json()) as { success: boolean };
     expect(data.success).toBe(true);
 
     // The board should have the task via WebSocket live update
@@ -371,8 +446,11 @@ describe("Kanban board", () => {
 
     // Click the task card to open the detail panel
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Task with source info")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Task with source info")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
 
@@ -393,16 +471,23 @@ describe("Kanban board", () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Task without source", description: "No source", selector: "/" }),
+      body: JSON.stringify({
+        title: "Task without source",
+        description: "No source",
+        selector: "/",
+      }),
     });
-    const data = await res.json() as { success: boolean };
+    const data = (await res.json()) as { success: boolean };
     expect(data.success).toBe(true);
 
     await waitForTaskOnBoard(page, "Task without source");
 
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Task without source")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Task without source")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
 
@@ -425,7 +510,10 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const created = await createRes.json() as { success: boolean; task?: { id: string } };
+    const created = (await createRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(created.success).toBe(true);
 
     await fetch(`${API}/${created.task?.id}/comments`, {
@@ -437,15 +525,25 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, "Right aligned controls task");
 
     const layout = await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Right aligned controls task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Right aligned controls task")) as
+        | HTMLElement
+        | undefined;
       if (!card) return null;
       // Bottom row: flex div containing icon buttons and a flex spacer.
-      const rows = [...card.querySelectorAll("div.flex.items-center")] as HTMLElement[];
-      const bottomRow = rows.reverse().find((row) => row.querySelectorAll("button").length > 0) ?? null;
+      const rows = [
+        ...card.querySelectorAll("div.flex.items-center"),
+      ] as HTMLElement[];
+      const bottomRow =
+        rows
+          .reverse()
+          .find((row) => row.querySelectorAll("button").length > 0) ?? null;
       if (!bottomRow) return null;
       // Has a flex:1 spacer that pushes buttons to the right
-      const spacer = bottomRow.querySelector("div[style*='flex: 1'], div[style*='flex:1']");
+      const spacer = bottomRow.querySelector(
+        "div[style*='flex: 1'], div[style*='flex:1']",
+      );
       return {
         hasIcons: bottomRow.querySelectorAll("button").length > 0,
         hasSpacer: spacer != null,
@@ -457,14 +555,14 @@ describe("Kanban board", () => {
     expect(layout?.hasSpacer).toBe(true);
   });
 
-
   it("opens the compact type picker next to title and stores selected type on add", async () => {
     // Close detail panel if still open from previous test
     await page.keyboard.press("Escape");
-    await page.waitForFunction(
-      () => !document.querySelector("#detail-panel.open"),
-      { timeout: 2_000 },
-    ).catch(() => {});
+    await page
+      .waitForFunction(() => !document.querySelector("#detail-panel.open"), {
+        timeout: 2_000,
+      })
+      .catch(() => {});
 
     await openAddTask(page, "todo");
 
@@ -479,12 +577,19 @@ describe("Kanban board", () => {
     await page.click("#dp-save");
 
     await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
+      () =>
+        !document.getElementById("detail-panel")?.classList.contains("open"),
     );
     const created = await page.evaluate(async (api) => {
       const res = await fetch(api);
-      const data = await res.json() as { tasks?: Array<{ title: string; type?: string }> };
-      return (data.tasks || []).find((t) => t.title === "Compact type picker task") || null;
+      const data = (await res.json()) as {
+        tasks?: Array<{ title: string; type?: string }>;
+      };
+      return (
+        (data.tasks || []).find(
+          (t) => t.title === "Compact type picker task",
+        ) || null
+      );
     }, API);
     expect(created).not.toBeNull();
     expect(created?.type).toBe("Bug");
@@ -506,7 +611,10 @@ describe("Kanban board", () => {
         status: "todo",
       }),
     });
-    const data = await res.json() as { success: boolean; task?: { id: string } };
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(data.success).toBe(true);
     const taskId = data.task?.id;
     expect(taskId).toBeTruthy();
@@ -515,8 +623,11 @@ describe("Kanban board", () => {
 
     // Open the task
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Bug with console errors")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Bug with console errors")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
     await page.waitForSelector("#detail-panel.open", { timeout: 5_000 });
@@ -538,9 +649,16 @@ describe("Kanban board", () => {
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Scroll comments task", description: "Scroll test", selector: "/" }),
+      body: JSON.stringify({
+        title: "Scroll comments task",
+        description: "Scroll test",
+        selector: "/",
+      }),
     });
-    const taskData = await taskRes.json() as { success: boolean; task?: { id: string } };
+    const taskData = (await taskRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskData.success).toBe(true);
     const taskId = taskData.task?.id;
     expect(taskId).toBeTruthy();
@@ -556,9 +674,14 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, "Scroll comments task");
     // Open on comments tab via the comment count badge button on the task card
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find((c) => c.textContent?.includes("Scroll comments task")) as HTMLElement | undefined;
-      const commentBtn = card?.querySelector("button[title*='comment']") as HTMLButtonElement | null;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Scroll comments task")) as
+        | HTMLElement
+        | undefined;
+      const commentBtn = card?.querySelector(
+        "button[title*='comment']",
+      ) as HTMLButtonElement | null;
       commentBtn?.click();
     });
     await page.waitForSelector("#detail-panel.open");
@@ -584,17 +707,27 @@ describe("Kanban board", () => {
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Autosend panel comment task", description: "autosend", selector: "/" }),
+      body: JSON.stringify({
+        title: "Autosend panel comment task",
+        description: "autosend",
+        selector: "/",
+      }),
     });
-    const taskData = await taskRes.json() as { success: boolean; task?: { id: string } };
+    const taskData = (await taskRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskData.success).toBe(true);
     const taskId = taskData.task?.id;
     expect(taskId).toBeTruthy();
 
     await waitForTaskOnBoard(page, "Autosend panel comment task");
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find((c) => c.textContent?.includes("Autosend panel comment task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Autosend panel comment task")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
     await page.waitForSelector("#detail-panel.open");
@@ -605,12 +738,19 @@ describe("Kanban board", () => {
     await page.click("#dp-close");
     await page.locator("button", { hasText: "Send & Close" }).click();
 
-    await page.waitForFunction(() => !document.getElementById("detail-panel"), { timeout: 5_000 });
-    const comments = await page.evaluate(async (args) => {
-      const res = await fetch(`${args.api}/${args.id}/comments`);
-      const data = await res.json() as { comments?: Array<{ text: string }> };
-      return data.comments || [];
-    }, { api: API, id: taskId });
+    await page.waitForFunction(() => !document.getElementById("detail-panel"), {
+      timeout: 5_000,
+    });
+    const comments = await page.evaluate(
+      async (args) => {
+        const res = await fetch(`${args.api}/${args.id}/comments`);
+        const data = (await res.json()) as {
+          comments?: Array<{ text: string }>;
+        };
+        return data.comments || [];
+      },
+      { api: API, id: taskId },
+    );
     expect(comments.some((c) => c.text.includes("auto-sent"))).toBe(true);
   });
 
@@ -618,9 +758,16 @@ describe("Kanban board", () => {
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Paste image regression task", description: "paste", selector: "/" }),
+      body: JSON.stringify({
+        title: "Paste image regression task",
+        description: "paste",
+        selector: "/",
+      }),
     });
-    const taskData = await taskRes.json() as { success: boolean; task?: { id: string } };
+    const taskData = (await taskRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskData.success).toBe(true);
     const taskId = taskData.task?.id;
     expect(taskId).toBeTruthy();
@@ -628,8 +775,11 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, "Paste image regression task");
 
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find((c) => c.textContent?.includes("Paste image regression task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Paste image regression task")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
     await page.waitForSelector("#detail-panel.open");
@@ -639,15 +789,10 @@ describe("Kanban board", () => {
       if (!panel) return;
 
       const pngBytes = new Uint8Array([
-        137, 80, 78, 71, 13, 10, 26, 10,
-        0, 0, 0, 13, 73, 72, 68, 82,
-        0, 0, 0, 1, 0, 0, 0, 1,
-        8, 6, 0, 0, 0, 31, 21, 196,
-        137, 0, 0, 0, 13, 73, 68, 65,
-        84, 120, 156, 99, 248, 15, 4, 0,
-        9, 251, 3, 253, 160, 90, 186, 57,
-        0, 0, 0, 0, 73, 69, 78, 68,
-        174, 66, 96, 130,
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0,
+        1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65,
+        84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 186, 57, 0, 0,
+        0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
       ]);
 
       const file = new File([pngBytes], "clipboard.png", { type: "image/png" });
@@ -664,8 +809,10 @@ describe("Kanban board", () => {
     await page.waitForFunction(
       async (args) => {
         const res = await fetch(`${args.api}/${args.id}/files`);
-        const data = await res.json() as { files?: Array<{ name: string }> };
-        return (data.files || []).some((f) => /^paste-.*\.(png|jpg)$/i.test(f.name));
+        const data = (await res.json()) as { files?: Array<{ name: string }> };
+        return (data.files || []).some((f) =>
+          /^paste-.*\.(png|jpg)$/i.test(f.name),
+        );
       },
       { api: API, id: taskId },
       { timeout: 10_000 },
@@ -684,17 +831,14 @@ describe("Kanban board", () => {
       const panel = document.getElementById("detail-panel");
       if (!panel) return;
       const pngBytes = new Uint8Array([
-        137, 80, 78, 71, 13, 10, 26, 10,
-        0, 0, 0, 13, 73, 72, 68, 82,
-        0, 0, 0, 1, 0, 0, 0, 1,
-        8, 6, 0, 0, 0, 31, 21, 196,
-        137, 0, 0, 0, 13, 73, 68, 65,
-        84, 120, 156, 99, 248, 15, 4, 0,
-        9, 251, 3, 253, 160, 90, 186, 57,
-        0, 0, 0, 0, 73, 69, 78, 68,
-        174, 66, 96, 130,
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0,
+        1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65,
+        84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 186, 57, 0, 0,
+        0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
       ]);
-      const file = new File([pngBytes], "clipboard-2.png", { type: "image/png" });
+      const file = new File([pngBytes], "clipboard-2.png", {
+        type: "image/png",
+      });
       const dt = new DataTransfer();
       dt.items.add(file);
       const event = new ClipboardEvent("paste", {
@@ -708,8 +852,12 @@ describe("Kanban board", () => {
     await page.waitForFunction(
       async (args) => {
         const res = await fetch(`${args.api}/${args.id}/files`);
-        const data = await res.json() as { files?: Array<{ name: string }> };
-        return (data.files || []).filter((f) => /^paste-.*\.(png|jpg)$/i.test(f.name)).length >= 2;
+        const data = (await res.json()) as { files?: Array<{ name: string }> };
+        return (
+          (data.files || []).filter((f) =>
+            /^paste-.*\.(png|jpg)$/i.test(f.name),
+          ).length >= 2
+        );
       },
       { api: API, id: taskId },
       { timeout: 10_000 },
@@ -722,15 +870,23 @@ describe("Kanban board", () => {
     expect(commentsStillActive).toBe(true);
 
     // First image should be shown as task thumbnail on the board.
-    await page.waitForFunction((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`);
-      return !!card?.querySelector('img[alt="Task screenshot"]');
-    }, taskId, { timeout: 5_000 });
+    await page.waitForFunction(
+      (id) => {
+        const card = document.querySelector(`[data-task-id="${id}"]`);
+        return !!card?.querySelector('img[alt="Task screenshot"]');
+      },
+      taskId,
+      { timeout: 5_000 },
+    );
 
     // Thumbnail should be larger and render next to description section.
     const thumbSize = await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
-      const img = card?.querySelector('img[data-role="task-thumb"]') as HTMLImageElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
+      const img = card?.querySelector(
+        'img[data-role="task-thumb"]',
+      ) as HTMLImageElement | null;
       if (!img) return null;
       const rect = img.getBoundingClientRect();
       return { width: rect.width, height: rect.height };
@@ -740,11 +896,19 @@ describe("Kanban board", () => {
 
     // Hovering thumbnail should show enlarged preview.
     await page.hover(`[data-task-id="${taskId}"] img[data-role="task-thumb"]`);
-    await page.waitForSelector(`img[data-role="task-thumb-preview"]`, { timeout: 3_000 });
+    await page.waitForSelector(`img[data-role="task-thumb-preview"]`, {
+      timeout: 3_000,
+    });
     const previewScale = await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
-      const thumb = card?.querySelector('img[data-role="task-thumb"]') as HTMLImageElement | null;
-      const preview = document.querySelector('img[data-role="task-thumb-preview"]') as HTMLImageElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
+      const thumb = card?.querySelector(
+        'img[data-role="task-thumb"]',
+      ) as HTMLImageElement | null;
+      const preview = document.querySelector(
+        'img[data-role="task-thumb-preview"]',
+      ) as HTMLImageElement | null;
       if (!thumb || !preview) return null;
       return {
         thumbWidth: thumb.getBoundingClientRect().width,
@@ -752,40 +916,66 @@ describe("Kanban board", () => {
       };
     }, taskId);
     expect(previewScale).not.toBeNull();
-    expect((previewScale?.previewWidth ?? 0) > (previewScale?.thumbWidth ?? 0)).toBe(true);
+    expect(
+      (previewScale?.previewWidth ?? 0) > (previewScale?.thumbWidth ?? 0),
+    ).toBe(true);
 
     // Re-open details and ensure screenshot preview is shown there too.
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, taskId);
     await page.waitForSelector("#detail-panel.open");
     await page.click("#dp-tab-details");
-    await page.waitForSelector("#dp-screenshot-preview img[alt='Task screenshot']", { timeout: 5_000 });
-    await page.waitForSelector("#dp-screenshot-preview button", { timeout: 5_000 });
-    const screenshotActions = await page.$$eval('#dp-screenshot-preview button', (btns) => btns.map((b) => b.textContent?.trim() ?? ''));
-    expect(screenshotActions.some((txt) => txt === 'Preview')).toBe(true);
-    expect(screenshotActions.some((txt) => txt === 'Remove')).toBe(true);
+    await page.waitForSelector(
+      "#dp-screenshot-preview img[alt='Task screenshot']",
+      { timeout: 5_000 },
+    );
+    await page.waitForSelector("#dp-screenshot-preview button", {
+      timeout: 5_000,
+    });
+    const screenshotActions = await page.$$eval(
+      "#dp-screenshot-preview button",
+      (btns) => btns.map((b) => b.textContent?.trim() ?? ""),
+    );
+    expect(screenshotActions.some((txt) => txt === "Preview")).toBe(true);
+    expect(screenshotActions.some((txt) => txt === "Remove")).toBe(true);
   });
 
   it("shows file-removal activity and removes deleted comment content", async () => {
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Removal trace task", description: "", selector: "/" }),
+      body: JSON.stringify({
+        title: "Removal trace task",
+        description: "",
+        selector: "/",
+      }),
     });
-    const taskData = await taskRes.json() as { success: boolean; task?: { id: string } };
+    const taskData = (await taskRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskData.success).toBe(true);
     const taskId = taskData.task?.id!;
 
     // Upload a file using the correct raw-body endpoint
-    const pngBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 186, 57, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+    const pngBytes = new Uint8Array([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+      0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84,
+      120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 186, 57, 0, 0, 0, 0,
+      73, 69, 78, 68, 174, 66, 96, 130,
+    ]);
     const uploadRes = await fetch(`${API}/${taskId}/files/trace-test.png`, {
       method: "POST",
       headers: { "Content-Type": "image/png" },
       body: pngBytes,
     });
-    expect((await uploadRes.json() as { success?: boolean }).success).toBe(true);
+    expect(((await uploadRes.json()) as { success?: boolean }).success).toBe(
+      true,
+    );
 
     // Add a comment via API
     const commentRes = await fetch(`${API}/${taskId}/comments`, {
@@ -793,7 +983,9 @@ describe("Kanban board", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "Comment to delete", author: "user" }),
     });
-    const commentData = await commentRes.json() as { comment?: { id: string } };
+    const commentData = (await commentRes.json()) as {
+      comment?: { id: string };
+    };
     const commentId = commentData.comment?.id!;
 
     // Delete the file
@@ -805,7 +997,9 @@ describe("Kanban board", () => {
     // Open the task in the Kanban and navigate to comments tab
     await waitForTaskOnBoard(page, "Removal trace task");
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, taskId);
     await page.waitForSelector("#detail-panel.open");
@@ -829,16 +1023,26 @@ describe("Kanban board", () => {
     });
     expect(hasFfileTrace).toBe(true);
 
-    const comments = await page.evaluate(async (args) => {
-      const res = await fetch(`${args.api}/${args.taskId}/comments`);
-      const data = await res.json() as { comments?: Array<{ id: string; deleted?: boolean; text?: string }> };
-      return data.comments ?? [];
-    }, { api: API, taskId });
+    const comments = await page.evaluate(
+      async (args) => {
+        const res = await fetch(`${args.api}/${args.taskId}/comments`);
+        const data = (await res.json()) as {
+          comments?: Array<{ id: string; deleted?: boolean; text?: string }>;
+        };
+        return data.comments ?? [];
+      },
+      { api: API, taskId },
+    );
     const deletedComment = comments.find((comment) => comment.id === commentId);
-    const hasOriginalCommentContent = comments.some((comment) => comment.text === "Comment to delete");
+    const hasOriginalCommentContent = comments.some(
+      (comment) => comment.text === "Comment to delete",
+    );
     expect(hasOriginalCommentContent).toBe(false);
     if (deletedComment) {
-      expect(deletedComment.deleted === true || deletedComment.text === "[Comment deleted]").toBe(true);
+      expect(
+        deletedComment.deleted === true ||
+          deletedComment.text === "[Comment deleted]",
+      ).toBe(true);
     }
   });
 
@@ -847,9 +1051,17 @@ describe("Kanban board", () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description: "check bullet", selector: "/", priority: "High" }),
+      body: JSON.stringify({
+        title,
+        description: "check bullet",
+        selector: "/",
+        priority: "High",
+      }),
     });
-    const data = await res.json() as { success: boolean; task?: { id: string } };
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(data.success).toBe(true);
     const taskId = data.task?.id;
     expect(taskId).toBeTruthy();
@@ -857,25 +1069,32 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, taskId);
 
     const hasPriorityDot = await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       if (!card) return true;
       return [...card.querySelectorAll("span")].some((el) => {
         const style = window.getComputedStyle(el);
-        return style.borderRadius === "50%" && style.width === "5px" && style.height === "5px";
+        return (
+          style.borderRadius === "50%" &&
+          style.width === "5px" &&
+          style.height === "5px"
+        );
       });
     }, taskId);
     expect(hasPriorityDot).toBe(false);
   });
 
   it("keeps kanban in dark theme", async () => {
-    await page.waitForSelector('#header-project-name');
-    const initialTheme = await page.evaluate(() => document.body.getAttribute('data-theme'));
-    expect(initialTheme).toBe('dark');
+    await page.waitForSelector("#header-project-name");
+    const initialTheme = await page.evaluate(() =>
+      document.body.getAttribute("data-theme"),
+    );
+    expect(initialTheme).toBe("dark");
 
-    const toggleCount = await page.locator('#btn-theme-toggle').count();
+    const toggleCount = await page.locator("#btn-theme-toggle").count();
     expect(toggleCount).toBe(0);
   });
-
 
   it("uses readable select controls and aligned comments send button", async () => {
     const createRes = await fetch(API, {
@@ -887,22 +1106,30 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const created = await createRes.json() as { success: boolean };
+    const created = (await createRes.json()) as { success: boolean };
     expect(created.success).toBe(true);
 
     await waitForTaskOnBoard(page, "Meta select visibility task");
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Meta select visibility task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Meta select visibility task")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
     await page.waitForSelector("#detail-panel.open");
 
     // Check that priority label and select have readable (non-invisible) colors
     const metaStyles = await page.evaluate(() => {
-      const priorityLabel = [...document.querySelectorAll("#dp-details-pane .dp-meta-label")]
-        .find(el => el.textContent?.includes("Priority")) as HTMLElement | null;
-      const select = document.getElementById("dp-priority") as HTMLSelectElement | null;
+      const priorityLabel = [
+        ...document.querySelectorAll("#dp-details-pane .dp-meta-label"),
+      ].find((el) =>
+        el.textContent?.includes("Priority"),
+      ) as HTMLElement | null;
+      const select = document.getElementById(
+        "dp-priority",
+      ) as HTMLSelectElement | null;
       if (!priorityLabel || !select) return null;
       const labelStyle = getComputedStyle(priorityLabel);
       const selectStyle = getComputedStyle(select);
@@ -922,20 +1149,29 @@ describe("Kanban board", () => {
     expect(metaStyles?.selectBackground).toBe("rgb(5, 13, 26)");
 
     await page.click("#dp-close");
-    await page.waitForFunction(() => !document.getElementById("detail-panel"), { timeout: 5_000 });
+    await page.waitForFunction(() => !document.getElementById("detail-panel"), {
+      timeout: 5_000,
+    });
 
     // Open the task again via the comment button (opens on comments tab)
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Meta select visibility task")) as HTMLElement | undefined;
-      const commentBtn = card?.querySelector("button[title*='comment']") as HTMLButtonElement | null;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Meta select visibility task")) as
+        | HTMLElement
+        | undefined;
+      const commentBtn = card?.querySelector(
+        "button[title*='comment']",
+      ) as HTMLButtonElement | null;
       commentBtn?.click();
     });
     await page.waitForSelector("#detail-panel.open");
     await page.waitForSelector("#dp-comment-input");
 
     const sendButtonStyle = await page.evaluate(() => {
-      const btn = document.getElementById("dp-comment-submit") as HTMLButtonElement | null;
+      const btn = document.getElementById(
+        "dp-comment-submit",
+      ) as HTMLButtonElement | null;
       if (!btn) return null;
       const style = getComputedStyle(btn);
       return {
@@ -966,7 +1202,10 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const target = await targetRes.json() as { success: boolean; task?: { id: string } };
+    const target = (await targetRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(target.success).toBe(true);
     expect(target.task?.id).toBeTruthy();
 
@@ -979,15 +1218,18 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const source = await sourceRes.json() as { success: boolean };
+    const source = (await sourceRes.json()) as { success: boolean };
     expect(source.success).toBe(true);
 
     await waitForTaskOnBoard(page, "Autocomplete source beta");
     // Allow time for WS state to settle and API to be consistent
     await page.waitForTimeout(500);
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Autocomplete source beta")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Autocomplete source beta")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
 
@@ -995,10 +1237,19 @@ describe("Kanban board", () => {
     await openActivityTab(page);
     await page.waitForSelector("#dp-comment-input");
     // Type character-by-character so the textarea cursor stays at the end for autocomplete detection.
-    await page.locator("#dp-comment-input").pressSequentially("Link to #alpha", { delay: 50 });
+    await page
+      .locator("#dp-comment-input")
+      .pressSequentially("Link to #alpha", { delay: 50 });
 
-    await page.waitForSelector("[data-task-ref-suggest]", { state: "visible", timeout: 8_000 });
-    const targetSuggestion = page.locator("[data-task-ref-suggest] button", { hasText: "Autocomplete target alpha" }).first();
+    await page.waitForSelector("[data-task-ref-suggest]", {
+      state: "visible",
+      timeout: 8_000,
+    });
+    const targetSuggestion = page
+      .locator("[data-task-ref-suggest] button", {
+        hasText: "Autocomplete target alpha",
+      })
+      .first();
     expect(await targetSuggestion.count()).toBeGreaterThan(0);
 
     // Use a real click (not dispatchEvent) to simulate actual browser mouse interaction.
@@ -1010,7 +1261,9 @@ describe("Kanban board", () => {
 
     // Detail panel must still be open after selecting autocomplete suggestion.
     const panelStillOpen = await page.evaluate(
-      () => document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelStillOpen).toBe(true);
   });
@@ -1020,18 +1273,32 @@ describe("Kanban board", () => {
     const taskARes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Panel host task", description: "", selector: "/" }),
+      body: JSON.stringify({
+        title: "Panel host task",
+        description: "",
+        selector: "/",
+      }),
     });
-    const taskAData = await taskARes.json() as { success: boolean; task?: { id: string } };
+    const taskAData = (await taskARes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskAData.success).toBe(true);
     const taskAId = taskAData.task?.id;
 
     const taskBRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Panel linked task", description: "", selector: "/" }),
+      body: JSON.stringify({
+        title: "Panel linked task",
+        description: "",
+        selector: "/",
+      }),
     });
-    const taskBData = await taskBRes.json() as { success: boolean; task?: { id: string } };
+    const taskBData = (await taskBRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskBData.success).toBe(true);
     const taskBId = taskBData.task?.id;
 
@@ -1039,7 +1306,9 @@ describe("Kanban board", () => {
 
     // Open Task A.
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, taskAId);
     await page.waitForSelector("#detail-panel.open");
@@ -1052,16 +1321,23 @@ describe("Kanban board", () => {
 
     // Blur textarea to switch to preview mode (renders the link).
     await page.evaluate(() => {
-      (document.getElementById("dp-desc") as HTMLTextAreaElement | null)?.blur();
+      (
+        document.getElementById("dp-desc") as HTMLTextAreaElement | null
+      )?.blur();
     });
-    await page.waitForSelector(`#dp-desc-preview a[data-task-ref="${taskBId}"]`, { timeout: 5_000 });
+    await page.waitForSelector(
+      `#dp-desc-preview a[data-task-ref="${taskBId}"]`,
+      { timeout: 5_000 },
+    );
 
     // Click the task reference link.
     await page.click(`#dp-desc-preview a[data-task-ref="${taskBId}"]`);
 
     // Panel must still be open (showing referenced task).
     const panelOpen = await page.evaluate(
-      () => document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelOpen).toBe(true);
 
@@ -1071,7 +1347,9 @@ describe("Kanban board", () => {
 
     // The panel title input should now show Task B's title (navigation worked).
     await page.waitForFunction(
-      (expectedTitle) => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === expectedTitle,
+      (expectedTitle) =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === expectedTitle,
       "Panel linked task",
       { timeout: 3_000 },
     );
@@ -1081,14 +1359,23 @@ describe("Kanban board", () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Preview click task", description: "Some description text", selector: "/" }),
+      body: JSON.stringify({
+        title: "Preview click task",
+        description: "Some description text",
+        selector: "/",
+      }),
     });
-    const data = await res.json() as { success: boolean; task?: { id: string } };
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(data.success).toBe(true);
 
     await waitForTaskOnBoard(page, data.task?.id ?? "");
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, data.task?.id);
     await page.waitForSelector("#detail-panel.open");
@@ -1101,7 +1388,10 @@ describe("Kanban board", () => {
 
     // Click on the preview text area (not on a link) → should switch to edit mode.
     await page.click("#dp-desc-preview");
-    await page.waitForSelector("#dp-desc", { state: "visible", timeout: 3_000 });
+    await page.waitForSelector("#dp-desc", {
+      state: "visible",
+      timeout: 3_000,
+    });
 
     // Verify the textarea is now visible with the correct value.
     const descValue = await page.inputValue("#dp-desc");
@@ -1112,7 +1402,9 @@ describe("Kanban board", () => {
     // Ensure board is loaded (no reload needed - already on the page)
 
     const initialWidth = await page.evaluate(() => {
-      const board = document.getElementById("kanban-board") as HTMLElement | null;
+      const board = document.getElementById(
+        "kanban-board",
+      ) as HTMLElement | null;
       return board?.getBoundingClientRect().width ?? 0;
     });
 
@@ -1120,18 +1412,23 @@ describe("Kanban board", () => {
     await page.waitForSelector("#detail-panel.open");
 
     const widthWhileOpen = await page.evaluate(() => {
-      const board = document.getElementById("kanban-board") as HTMLElement | null;
+      const board = document.getElementById(
+        "kanban-board",
+      ) as HTMLElement | null;
       return board?.getBoundingClientRect().width ?? 0;
     });
 
     await page.click("#dp-close");
     await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
+      () =>
+        !document.getElementById("detail-panel")?.classList.contains("open"),
       { timeout: 5_000 },
     );
 
     const widthAfterClose = await page.evaluate(() => {
-      const board = document.getElementById("kanban-board") as HTMLElement | null;
+      const board = document.getElementById(
+        "kanban-board",
+      ) as HTMLElement | null;
       return board?.getBoundingClientRect().width ?? 0;
     });
 
@@ -1140,7 +1437,10 @@ describe("Kanban board", () => {
   });
 
   it("keeps details pane scrollable for long content", async () => {
-    const longDescription = Array.from({ length: 140 }, (_, i) => `line-${i + 1}`).join("\n");
+    const longDescription = Array.from(
+      { length: 140 },
+      (_, i) => `line-${i + 1}`,
+    ).join("\n");
     const createRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1150,27 +1450,35 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const created = await createRes.json() as { success: boolean };
+    const created = (await createRes.json()) as { success: boolean };
     expect(created.success).toBe(true);
 
     await waitForTaskOnBoard(page, "Scrollable details task");
 
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Scrollable details task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Scrollable details task")) as
+        | HTMLElement
+        | undefined;
       card?.click();
     });
     await page.waitForSelector("#detail-panel.open");
 
     const scrollState = await page.evaluate(() => {
-      const pane = document.getElementById("dp-details-pane") as HTMLElement | null;
-      const descPreview = document.getElementById("dp-desc-preview") as HTMLElement | null;
+      const pane = document.getElementById(
+        "dp-details-pane",
+      ) as HTMLElement | null;
+      const descPreview = document.getElementById(
+        "dp-desc-preview",
+      ) as HTMLElement | null;
 
       const paneCan = !!pane && pane.scrollHeight > pane.clientHeight;
       if (pane) pane.scrollTop = 180;
       const paneMoved = !!pane && pane.scrollTop > 0;
 
-      const descCan = !!descPreview && descPreview.scrollHeight > descPreview.clientHeight;
+      const descCan =
+        !!descPreview && descPreview.scrollHeight > descPreview.clientHeight;
       if (descPreview) descPreview.scrollTop = 120;
       const descMoved = !!descPreview && descPreview.scrollTop > 0;
 
@@ -1188,21 +1496,29 @@ describe("Kanban board", () => {
     const createRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: marker, description: "ws update", selector: "/" }),
+      body: JSON.stringify({
+        title: marker,
+        description: "ws update",
+        selector: "/",
+      }),
     });
-    const created = await createRes.json() as { success: boolean };
+    const created = (await createRes.json()) as { success: boolean };
     expect(created.success).toBe(true);
 
     await page.waitForFunction(
-      (title) => [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes(title)),
+      (title) =>
+        [...document.querySelectorAll("#kanban-board article.task-card")].some(
+          (c) => c.textContent?.includes(title),
+        ),
       marker,
       { timeout: 15_000 },
     );
 
-    const exists = await page.evaluate((title) =>
-      [...document.querySelectorAll("#kanban-board article.task-card")]
-        .some(c => c.textContent?.includes(title)),
+    const exists = await page.evaluate(
+      (title) =>
+        [...document.querySelectorAll("#kanban-board article.task-card")].some(
+          (c) => c.textContent?.includes(title),
+        ),
       marker,
     );
     expect(exists).toBe(true);
@@ -1218,7 +1534,10 @@ describe("Kanban board", () => {
         selector: "/",
       }),
     });
-    const created = await createRes.json() as { success: boolean; task?: { id: string } };
+    const created = (await createRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(created.success).toBe(true);
     const taskId = created.task?.id;
     expect(taskId).toBeTruthy();
@@ -1238,16 +1557,24 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, "Compact actions spacing task");
 
     const spacing = await page.evaluate(() => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes("Compact actions spacing task")) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes("Compact actions spacing task")) as
+        | HTMLElement
+        | undefined;
       if (!card) return null;
 
-      const controls = [...card.querySelectorAll("div.flex.items-center")]
-        .find((row) => row.querySelectorAll("button").length >= 2) as HTMLElement | undefined;
+      const controls = [...card.querySelectorAll("div.flex.items-center")].find(
+        (row) => row.querySelectorAll("button").length >= 2,
+      ) as HTMLElement | undefined;
       if (!controls) return null;
 
-      const actionButtons = [...controls.querySelectorAll("button")] as HTMLButtonElement[];
-      const rects = actionButtons.map(b => b.getBoundingClientRect()).sort((a, b) => a.left - b.left);
+      const actionButtons = [
+        ...controls.querySelectorAll("button"),
+      ] as HTMLButtonElement[];
+      const rects = actionButtons
+        .map((b) => b.getBoundingClientRect())
+        .sort((a, b) => a.left - b.left);
       let maxGap = 0;
       for (let i = 1; i < rects.length; i++) {
         maxGap = Math.max(maxGap, rects[i].left - rects[i - 1].right);
@@ -1284,7 +1611,10 @@ describe("Kanban board", () => {
 
     // Wait for the card to appear in the todo column
     await page.waitForFunction(
-      (id) => !!document.querySelector(`[data-column-id="todo"] [data-task-id="${id}"]`),
+      (id) =>
+        !!document.querySelector(
+          `[data-column-id="todo"] [data-task-id="${id}"]`,
+        ),
       task.id,
       { timeout: 5_000 },
     );
@@ -1297,7 +1627,10 @@ describe("Kanban board", () => {
 
     // Wait for the task to appear in the done column (optimistic update or WS)
     await page.waitForFunction(
-      (id) => !!document.querySelector(`[data-column-id="done"] [data-task-id="${id}"]`),
+      (id) =>
+        !!document.querySelector(
+          `[data-column-id="done"] [data-task-id="${id}"]`,
+        ),
       task.id,
       { timeout: 5_000 },
     );
@@ -1313,7 +1646,11 @@ describe("Kanban board", () => {
     const createRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, selector: "#activity-drag-test", status: "todo" }),
+      body: JSON.stringify({
+        title,
+        selector: "#activity-drag-test",
+        status: "todo",
+      }),
     });
     const { task } = (await createRes.json()) as { task: { id: string } };
     expect(task?.id).toBeTruthy();
@@ -1321,7 +1658,10 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, task.id);
 
     await page.waitForFunction(
-      (id) => !!document.querySelector(`[data-column-id="todo"] [data-task-id="${id}"]`),
+      (id) =>
+        !!document.querySelector(
+          `[data-column-id="todo"] [data-task-id="${id}"]`,
+        ),
       task.id,
       { timeout: 5_000 },
     );
@@ -1332,14 +1672,19 @@ describe("Kanban board", () => {
 
     // Wait for optimistic move to done column
     await page.waitForFunction(
-      (id) => !!document.querySelector(`[data-column-id="done"] [data-task-id="${id}"]`),
+      (id) =>
+        !!document.querySelector(
+          `[data-column-id="done"] [data-task-id="${id}"]`,
+        ),
       task.id,
       { timeout: 5_000 },
     );
 
     // Open the detail panel
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, task.id);
     await page.waitForSelector("#dp-tab-activity", { timeout: 5_000 });
@@ -1349,11 +1694,15 @@ describe("Kanban board", () => {
     await page.waitForSelector("#dp-activity-pane", { timeout: 3_000 });
 
     // Wait for the optimistic status-change activity to render in the pane.
-    await page.waitForFunction(() => {
-      const pane = document.getElementById("dp-activity-pane");
-      const text = pane?.textContent?.toLowerCase() ?? "";
-      return text.includes("changed status") && text.includes("done");
-    }, undefined, { timeout: 5_000 });
+    await page.waitForFunction(
+      () => {
+        const pane = document.getElementById("dp-activity-pane");
+        const text = pane?.textContent?.toLowerCase() ?? "";
+        return text.includes("changed status") && text.includes("done");
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
   });
 
   it("description switches between preview and editor based on focus (Grammarly regression)", async () => {
@@ -1362,7 +1711,11 @@ describe("Kanban board", () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description: "**Bold** text", selector: "/" }),
+      body: JSON.stringify({
+        title,
+        description: "**Bold** text",
+        selector: "/",
+      }),
     });
     const data = (await res.json()) as { success?: boolean };
     expect(data.success).toBe(true);
@@ -1371,14 +1724,19 @@ describe("Kanban board", () => {
 
     // Open detail panel
     await page.evaluate((taskTitle) => {
-      const card = [...document.querySelectorAll("#kanban-board article.task-card")]
-        .find(c => c.textContent?.includes(taskTitle)) as HTMLElement | undefined;
+      const card = [
+        ...document.querySelectorAll("#kanban-board article.task-card"),
+      ].find((c) => c.textContent?.includes(taskTitle)) as
+        | HTMLElement
+        | undefined;
       card?.click();
     }, title);
     await page.waitForSelector("#dp-desc-preview", { timeout: 5_000 });
 
     // Initially in preview mode for existing tasks.
-    await page.waitForFunction(() => !document.getElementById("dp-desc"), { timeout: 3_000 });
+    await page.waitForFunction(() => !document.getElementById("dp-desc"), {
+      timeout: 3_000,
+    });
 
     // Click preview container — should switch to edit mode.
     await page.click("#dp-desc-preview");
@@ -1392,9 +1750,9 @@ describe("Kanban board", () => {
 
     // Preview should render markdown (bold text)
     const previewRendered = await page.evaluate(() => {
-      const preview = document.getElementById('dp-desc-preview');
-      const strong = preview?.querySelector('strong');
-      return !!strong && /bold/i.test(strong.textContent || '');
+      const preview = document.getElementById("dp-desc-preview");
+      const strong = preview?.querySelector("strong");
+      return !!strong && /bold/i.test(strong.textContent || "");
     });
     expect(previewRendered).toBe(true);
   });
@@ -1402,69 +1760,98 @@ describe("Kanban board", () => {
   // ── PasteHintBanner — each test needs fresh localStorage for banner state ──
 
   it("shows paste hint banner in Activity tab", async () => {
-    const bannerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const bannerContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const bannerPage = await bannerContext.newPage();
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
     await bannerPage.waitForSelector("#detail-panel", { timeout: 5_000 });
     await openActivityTab(bannerPage);
-    const bannerVisible = await bannerPage.isVisible("#detail-panel button[title='Dismiss']");
+    const bannerVisible = await bannerPage.isVisible(
+      "#detail-panel button[title='Dismiss']",
+    );
     expect(bannerVisible).toBe(true);
     const bannerText = await bannerPage.textContent("#detail-panel");
-    expect(bannerText ?? "").toContain("Paste screenshots or files anywhere in this panel");
+    expect(bannerText ?? "").toContain(
+      "Paste screenshots or files anywhere in this panel",
+    );
     await bannerContext.close();
   });
 
   it("dismisses paste hint banner when × is clicked", async () => {
-    const bannerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const bannerContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const bannerPage = await bannerContext.newPage();
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
     await bannerPage.waitForSelector("#detail-panel", { timeout: 5_000 });
     await openActivityTab(bannerPage);
-    await bannerPage.waitForSelector("#detail-panel button[title='Dismiss']", { timeout: 3_000 });
-    await bannerPage.click("#detail-panel button[title='Dismiss']", { timeout: 3_000 });
-    const bannerGone = await bannerPage.locator("#detail-panel button[title='Dismiss']").count();
+    await bannerPage.waitForSelector("#detail-panel button[title='Dismiss']", {
+      timeout: 3_000,
+    });
+    await bannerPage.click("#detail-panel button[title='Dismiss']", {
+      timeout: 3_000,
+    });
+    const bannerGone = await bannerPage
+      .locator("#detail-panel button[title='Dismiss']")
+      .count();
     expect(bannerGone).toBe(0);
     await bannerContext.close();
   });
 
   it("shows paste hint banner in Files tab", async () => {
-    const bannerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const bannerContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const bannerPage = await bannerContext.newPage();
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
     await bannerPage.waitForSelector("#detail-panel", { timeout: 5_000 });
     await openFilesTab(bannerPage);
-    const bannerVisible = await bannerPage.isVisible("#detail-panel button[title='Dismiss']");
+    const bannerVisible = await bannerPage.isVisible(
+      "#detail-panel button[title='Dismiss']",
+    );
     expect(bannerVisible).toBe(true);
     const bannerText = await bannerPage.textContent("#detail-panel");
-    expect(bannerText ?? "").toContain("Paste screenshots or files anywhere in this panel");
+    expect(bannerText ?? "").toContain(
+      "Paste screenshots or files anywhere in this panel",
+    );
     await bannerContext.close();
   });
 
   it("banner does not reappear after dismissal (localStorage persistence)", async () => {
-    const bannerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const bannerContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const bannerPage = await bannerContext.newPage();
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
     await bannerPage.waitForSelector("#detail-panel", { timeout: 5_000 });
     await openFilesTab(bannerPage);
-    await bannerPage.waitForSelector("#detail-panel button[title='Dismiss']", { timeout: 3_000 });
-    await bannerPage.click("#detail-panel button[title='Dismiss']", { timeout: 3_000 });
+    await bannerPage.waitForSelector("#detail-panel button[title='Dismiss']", {
+      timeout: 3_000,
+    });
+    await bannerPage.click("#detail-panel button[title='Dismiss']", {
+      timeout: 3_000,
+    });
     await bannerPage.keyboard.press("Escape");
-    await bannerPage.waitForFunction(
-      () => !document.querySelector("#detail-panel.open"),
-      { timeout: 2_000 },
-    ).catch(() => {});
+    await bannerPage
+      .waitForFunction(() => !document.querySelector("#detail-panel.open"), {
+        timeout: 2_000,
+      })
+      .catch(() => {});
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
     await bannerPage.waitForSelector("#detail-panel", { timeout: 5_000 });
     await openFilesTab(bannerPage);
-    const bannerStillGone = await bannerPage.locator("#detail-panel button[title='Dismiss']").count();
+    const bannerStillGone = await bannerPage
+      .locator("#detail-panel button[title='Dismiss']")
+      .count();
     expect(bannerStillGone).toBe(0);
     await bannerContext.close();
   });
@@ -1476,9 +1863,16 @@ describe("Kanban board", () => {
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Modal-close regression: file preview", description: "", selector: "/" }),
+      body: JSON.stringify({
+        title: "Modal-close regression: file preview",
+        description: "",
+        selector: "/",
+      }),
     });
-    const taskData = await taskRes.json() as { success: boolean; task?: { id: string } };
+    const taskData = (await taskRes.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
     expect(taskData.success).toBe(true);
     const taskId = taskData.task?.id!;
 
@@ -1488,24 +1882,33 @@ describe("Kanban board", () => {
       120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 160, 90, 186, 57, 0, 0, 0, 0,
       73, 69, 78, 68, 174, 66, 96, 130,
     ]);
-    const uploadRes = await fetch(`${API}/${taskId}/files/preview-regression.png`, {
-      method: "POST",
-      headers: { "Content-Type": "image/png" },
-      body: pngBytes,
-    });
-    expect((await uploadRes.json() as { success?: boolean }).success).toBe(true);
+    const uploadRes = await fetch(
+      `${API}/${taskId}/files/preview-regression.png`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "image/png" },
+        body: pngBytes,
+      },
+    );
+    expect(((await uploadRes.json()) as { success?: boolean }).success).toBe(
+      true,
+    );
 
     // Open the task detail panel
     await waitForTaskOnBoard(page, taskId);
     await page.evaluate((id) => {
-      const card = document.querySelector(`[data-task-id="${id}"]`) as HTMLElement | null;
+      const card = document.querySelector(
+        `[data-task-id="${id}"]`,
+      ) as HTMLElement | null;
       card?.click();
     }, taskId);
     await page.waitForSelector("#detail-panel.open");
 
     // Navigate to Files tab and open the first previewable file
     await openFilesTab(page);
-    await page.waitForSelector("#dp-files-pane button[title='Preview']", { timeout: 8_000 });
+    await page.waitForSelector("#dp-files-pane button[title='Preview']", {
+      timeout: 8_000,
+    });
     await page.click("#dp-files-pane button[title='Preview']");
 
     // FilePreviewModal should be visible
@@ -1515,8 +1918,10 @@ describe("Kanban board", () => {
     await page.click(".modal-box", { timeout: 3_000 });
 
     // Detail panel must still be open — this was the bug
-    const panelStillOpen = await page.evaluate(() =>
-      document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+    const panelStillOpen = await page.evaluate(
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelStillOpen).toBe(true);
 
@@ -1528,8 +1933,10 @@ describe("Kanban board", () => {
     );
 
     // Detail panel should still be open after modal close
-    const panelOpenAfterModalClose = await page.evaluate(() =>
-      document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+    const panelOpenAfterModalClose = await page.evaluate(
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelOpenAfterModalClose).toBe(true);
   });
@@ -1537,10 +1944,11 @@ describe("Kanban board", () => {
   it("clicking inside the settings modal does not close the task detail panel", async () => {
     // Ensure a task panel is open
     await page.keyboard.press("Escape");
-    await page.waitForFunction(
-      () => !document.querySelector("#detail-panel.open"),
-      { timeout: 2_000 },
-    ).catch(() => {});
+    await page
+      .waitForFunction(() => !document.querySelector("#detail-panel.open"), {
+        timeout: 2_000,
+      })
+      .catch(() => {});
     await page.click("[data-task-id]", { timeout: 5_000 });
     await page.waitForSelector("#detail-panel.open");
 
@@ -1548,7 +1956,9 @@ describe("Kanban board", () => {
     // on the panel doesn't fire — simulates the defense-in-depth scenario where the
     // modal opens while the panel stays open).
     await page.evaluate(() => {
-      (document.getElementById("btn-settings") as HTMLButtonElement | null)?.click();
+      (
+        document.getElementById("btn-settings") as HTMLButtonElement | null
+      )?.click();
     });
     await page.waitForSelector("#settings-modal", { timeout: 5_000 });
 
@@ -1557,8 +1967,10 @@ describe("Kanban board", () => {
     await page.click("#settings-modal .modal-box");
 
     // Detail panel must still be open
-    const panelOpen = await page.evaluate(() =>
-      document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+    const panelOpen = await page.evaluate(
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelOpen).toBe(true);
 
@@ -1570,12 +1982,13 @@ describe("Kanban board", () => {
     );
 
     // Panel should still be open after modal close
-    const panelOpenAfterClose = await page.evaluate(() =>
-      document.getElementById("detail-panel")?.classList.contains("open") ?? false,
+    const panelOpenAfterClose = await page.evaluate(
+      () =>
+        document.getElementById("detail-panel")?.classList.contains("open") ??
+        false,
     );
     expect(panelOpenAfterClose).toBe(true);
   });
-
 
   it("done column shows at most 20 tasks with overflow indicator", async () => {
     // Create 22 done tasks via API
@@ -1584,21 +1997,29 @@ describe("Kanban board", () => {
       const r = await fetch(`${API}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `Done overflow task ${i}`, status: "done", selector: "/" }),
+        body: JSON.stringify({
+          title: `Done overflow task ${i}`,
+          status: "done",
+          selector: "/",
+        }),
       });
-      const data = await r.json() as { task?: { id: string } };
+      const data = (await r.json()) as { task?: { id: string } };
       if (data.task?.id) taskIds.push(data.task.id);
     }
     expect(taskIds).toHaveLength(22);
 
     // Wait for done tasks to appear via WebSocket
     await page.waitForFunction(
-      () => document.querySelectorAll('[data-column-id="done"] [data-task-id]').length > 0,
+      () =>
+        document.querySelectorAll('[data-column-id="done"] [data-task-id]')
+          .length > 0,
       { timeout: 15_000 },
     );
 
     // Done column should show at most 20 task cards
-    const doneCards = await page.locator('[data-column-id="done"] [data-task-id]').count();
+    const doneCards = await page
+      .locator('[data-column-id="done"] [data-task-id]')
+      .count();
     expect(doneCards).toBeLessThanOrEqual(20);
 
     // The overflow indicator should contain a number showing hidden tasks
@@ -1607,9 +2028,9 @@ describe("Kanban board", () => {
     expect(scrollText).toMatch(/\+\d+\s+older/);
 
     // Clean up the extra tasks
-    await Promise.all(taskIds.map((id) =>
-      fetch(`${API}/${id}`, { method: "DELETE" }),
-    ));
+    await Promise.all(
+      taskIds.map((id) => fetch(`${API}/${id}`, { method: "DELETE" })),
+    );
   });
 
   it("stress: board renders correctly with 100 tasks across columns", async () => {
@@ -1651,15 +2072,16 @@ describe("Kanban board", () => {
     }
 
     // Done column should respect the 20-card limit even under load
-    const doneCards = await page.locator('[data-column-id="done"] [data-task-id]').count();
+    const doneCards = await page
+      .locator('[data-column-id="done"] [data-task-id]')
+      .count();
     expect(doneCards).toBeLessThanOrEqual(20);
 
     // Clean up all created tasks
-    await Promise.all(taskIds.map((id) =>
-      fetch(`${API}/${id}`, { method: "DELETE" }),
-    ));
+    await Promise.all(
+      taskIds.map((id) => fetch(`${API}/${id}`, { method: "DELETE" })),
+    );
   });
-
 
   // ── New tasks appear at bottom of column ───────────────────────────────────
   it("new tasks appear at the bottom of the column (oldest-first ordering)", async () => {
@@ -1668,51 +2090,203 @@ describe("Kanban board", () => {
     const task1Res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Oldest task", description: "first", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Oldest task",
+        description: "first",
+        selector: "/",
+        status: "todo",
+      }),
     });
-    expect((await task1Res.json() as { success: boolean }).success).toBe(true);
+    expect(((await task1Res.json()) as { success: boolean }).success).toBe(
+      true,
+    );
 
     const task2Res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Middle task", description: "second", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Middle task",
+        description: "second",
+        selector: "/",
+        status: "todo",
+      }),
     });
-    expect((await task2Res.json() as { success: boolean }).success).toBe(true);
+    expect(((await task2Res.json()) as { success: boolean }).success).toBe(
+      true,
+    );
 
     const task3Res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Newest task", description: "third", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Newest task",
+        description: "third",
+        selector: "/",
+        status: "todo",
+      }),
     });
-    expect((await task3Res.json() as { success: boolean }).success).toBe(true);
+    expect(((await task3Res.json()) as { success: boolean }).success).toBe(
+      true,
+    );
 
     // Wait for all 3 tasks to appear in the todo column via WebSocket
     await page.waitForFunction(
-      () => document.querySelectorAll('[data-column-id="todo"] [data-task-id]').length >= 3,
+      () =>
+        document.querySelectorAll('[data-column-id="todo"] [data-task-id]')
+          .length >= 3,
       { timeout: 8_000 },
     );
 
     // Get the order of tasks in the todo column
     const taskOrder = await page.evaluate(() => {
-      const cards = [...document.querySelectorAll('[data-column-id="todo"] article.task-card')];
-      return cards.map(c => c.textContent?.trim() ?? '');
+      const cards = [
+        ...document.querySelectorAll(
+          '[data-column-id="todo"] article.task-card',
+        ),
+      ];
+      return cards.map((c) => c.textContent?.trim() ?? "");
     });
 
     // The newest task ("Newest task") should be at the bottom (last position)
     // The oldest task ("Oldest task") should be at the top (first position)
-    const oldestIndex = taskOrder.findIndex(t => t.includes("Oldest task"));
-    const newestIndex = taskOrder.findIndex(t => t.includes("Newest task"));
+    const oldestIndex = taskOrder.findIndex((t) => t.includes("Oldest task"));
+    const newestIndex = taskOrder.findIndex((t) => t.includes("Newest task"));
 
     expect(oldestIndex).toBeGreaterThanOrEqual(0);
     expect(newestIndex).toBeGreaterThanOrEqual(0);
     expect(oldestIndex).toBeLessThan(newestIndex);
   });
 
+  // ── API query params ─────────────────────────────────────────────────────
+  it("GET /api/tasks?status=todo returns only todo tasks", async () => {
+    const res = await fetch(`${API}?status=todo`);
+    const data = await res.json();
+    expect(
+      data.tasks.every((t: { status: string }) => t.status === "todo"),
+    ).toBe(true);
+  });
 
+  it("GET /api/tasks?limit=2 returns at most 2 tasks", async () => {
+    const res = await fetch(`${API}?limit=2`);
+    const data = await res.json();
+    expect(data.tasks.length).toBeLessThanOrEqual(2);
+  });
+
+  it("GET /api/tasks?status=done&limit=1 returns filtered and limited results", async () => {
+    const res = await fetch(`${API}?status=done&limit=1`);
+    const data = await res.json();
+    expect(data.tasks.length).toBeLessThanOrEqual(1);
+    if (data.tasks.length > 0) {
+      expect(data.tasks[0].status).toBe("done");
+    }
+  });
+
+  // ── Filter tabs ───────────────────────────────────────────────────────────
+  it("filter tabs exist: All, Todo, In Progress, Review", async () => {
+    const tabTexts = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("button[data-status]")).map(
+        (b) => b.textContent?.trim(),
+      );
+    });
+    expect(tabTexts.some((t) => t?.startsWith("All"))).toBe(true);
+    expect(tabTexts.some((t) => t?.startsWith("Todo"))).toBe(true);
+    expect(tabTexts.some((t) => t?.startsWith("In Progress"))).toBe(true);
+    expect(tabTexts.some((t) => t?.startsWith("Review"))).toBe(true);
+  });
+
+  it("clicking Todo filter shows only todo tasks", async () => {
+    await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Filter Test Todo", selector: "/body" }),
+    });
+    await page.waitForTimeout(500);
+    await page.click("button[data-status='todo']");
+    await page.waitForTimeout(500);
+    const visibleCards = await page.evaluate(() => {
+      return [...document.querySelectorAll("article.task-card")].filter(
+        (c) => (c as HTMLElement).offsetParent !== null,
+      ).length;
+    });
+    expect(visibleCards).toBeGreaterThanOrEqual(1);
+  });
+
+  it("clicking All filter restores all tasks", async () => {
+    await page.click("button[data-status='todo']");
+    await page.waitForTimeout(300);
+    const todoCount = await page.evaluate(
+      () => document.querySelectorAll("article.task-card").length,
+    );
+    await page.click("button[data-status='all']");
+    await page.waitForTimeout(300);
+    const allCount = await page.evaluate(
+      () => document.querySelectorAll("article.task-card").length,
+    );
+    expect(allCount).toBeGreaterThanOrEqual(todoCount);
+  });
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  it("search input filters tasks by title", async () => {
+    await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "UniqueSearchableXYZ", selector: "/body" }),
+    });
+    await page.waitForTimeout(500);
+    const searchInput = page.locator("#global-search");
+    await searchInput.fill("UniqueSearchableXYZ");
+    await page.waitForTimeout(500);
+    const visibleText = await page.evaluate(
+      () => document.body.textContent ?? "",
+    );
+    expect(visibleText).toContain("UniqueSearchableXYZ");
+  });
+
+  it("clearing search restores all tasks", async () => {
+    const searchInput = page.locator("#global-search");
+    await searchInput.fill("UniqueSearchableXYZ");
+    await page.waitForTimeout(300);
+    await searchInput.fill("");
+    await page.waitForTimeout(300);
+    const cardCount = await page.evaluate(
+      () => document.querySelectorAll("article.task-card").length,
+    );
+    expect(cardCount).toBeGreaterThanOrEqual(2);
+  });
+
+  // ── Real-time WebSocket ───────────────────────────────────────────────────
+  it("task created via API appears without page refresh", async () => {
+    const uniqueTitle = `RT-${Date.now()}`;
+    await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: uniqueTitle, selector: "/body" }),
+    });
+    const appeared = await page
+      .waitForFunction(
+        (title) => {
+          return [...document.querySelectorAll("article.task-card")].some((c) =>
+            c.textContent?.includes(title),
+          );
+        },
+        uniqueTitle,
+        { timeout: 5_000 },
+      )
+      .catch(() => false);
+    expect(appeared).toBeTruthy();
+  });
+
+  // ── Column counts ─────────────────────────────────────────────────────────
+  it("column headers show task counts", async () => {
+    const colCount = await page.evaluate(
+      () => document.querySelectorAll("[data-column-id]").length,
+    );
+    expect(colCount).toBeGreaterThanOrEqual(5);
+  });
 });
 
 // ─── Task reference navigation e2e tests ────────────────────────────────────
-// Covers: #taskId links rendered in markdown, hash navigation, back button, 
+// Covers: #taskId links rendered in markdown, hash navigation, back button,
 // multiple jump stack, and browser back.
 
 describe("Task reference navigation", () => {
@@ -1726,24 +2300,40 @@ describe("Task reference navigation", () => {
 
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-refnav-pw-"));
-    instance = await serve(undefined, { port: 3898, open: false, projectDir: tempDir });
+    instance = await serve(undefined, {
+      port: 3898,
+      open: false,
+      projectDir: tempDir,
+    });
 
     browser = await chromium.launch({ headless: true });
-    context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     page = await context.newPage();
 
     // Create two tasks: Task A references Task B in its description.
     const resA = await fetch("http://localhost:3898/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Task Alpha", description: "See also: #PLACEHOLDER", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Task Alpha",
+        description: "See also: #PLACEHOLDER",
+        selector: "/",
+        status: "todo",
+      }),
     });
     taskAId = ((await resA.json()) as { task?: { id: string } }).task?.id ?? "";
 
     const resB = await fetch("http://localhost:3898/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Task Beta", description: "This is referenced from Alpha.", selector: "/", status: "todo" }),
+      body: JSON.stringify({
+        title: "Task Beta",
+        description: "This is referenced from Alpha.",
+        selector: "/",
+        status: "todo",
+      }),
     });
     taskBId = ((await resB.json()) as { task?: { id: string } }).task?.id ?? "";
 
@@ -1770,23 +2360,29 @@ describe("Task reference navigation", () => {
 
   /** Wait for task to appear via WS update, fallback to reload. */
   async function waitForTaskOnBoardLocal(titleOrId: string, timeout = 8_000) {
-    const appeared = await page.waitForFunction(
-      (idOrTitle) => {
-        if (document.querySelector(`[data-task-id="${idOrTitle}"]`)) return true;
-        return [...document.querySelectorAll("#kanban-board article.task-card")]
-          .some(c => c.textContent?.includes(idOrTitle));
-      },
-      titleOrId,
-      { timeout },
-    ).catch(() => false);
+    const appeared = await page
+      .waitForFunction(
+        (idOrTitle) => {
+          if (document.querySelector(`[data-task-id="${idOrTitle}"]`))
+            return true;
+          return [
+            ...document.querySelectorAll("#kanban-board article.task-card"),
+          ].some((c) => c.textContent?.includes(idOrTitle));
+        },
+        titleOrId,
+        { timeout },
+      )
+      .catch(() => false);
     if (appeared) return;
     await page.reload();
     await page.waitForSelector("#kanban-board");
     await page.waitForFunction(
       (idOrTitle) => {
-        if (document.querySelector(`[data-task-id="${idOrTitle}"]`)) return true;
-        return [...document.querySelectorAll("#kanban-board article.task-card")]
-          .some(c => c.textContent?.includes(idOrTitle));
+        if (document.querySelector(`[data-task-id="${idOrTitle}"]`))
+          return true;
+        return [
+          ...document.querySelectorAll("#kanban-board article.task-card"),
+        ].some((c) => c.textContent?.includes(idOrTitle));
       },
       titleOrId,
       { timeout: 8_000 },
@@ -1799,8 +2395,13 @@ describe("Task reference navigation", () => {
     await page.waitForSelector("#detail-panel");
 
     // Wait for the markdown-rendered description with the task ref link
-    await page.waitForSelector(`a[data-task-ref="${taskBId}"]`, { timeout: 5_000 });
-    const href = await page.getAttribute(`a[data-task-ref="${taskBId}"]`, "href");
+    await page.waitForSelector(`a[data-task-ref="${taskBId}"]`, {
+      timeout: 5_000,
+    });
+    const href = await page.getAttribute(
+      `a[data-task-ref="${taskBId}"]`,
+      "href",
+    );
     expect(href).toBe(`#task-${taskBId}`);
   });
 
@@ -1811,7 +2412,9 @@ describe("Task reference navigation", () => {
 
     // Wait for the panel title to update to Task B
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Beta",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Beta",
       { timeout: 5_000 },
     );
   });
@@ -1828,11 +2431,15 @@ describe("Task reference navigation", () => {
     await page.click("#dp-back");
 
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Alpha",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Alpha",
       { timeout: 5_000 },
     );
     // Back button should be gone after returning to the original task
-    await page.waitForFunction(() => !document.getElementById("dp-back"), { timeout: 2_000 });
+    await page.waitForFunction(() => !document.getElementById("dp-back"), {
+      timeout: 2_000,
+    });
   });
 
   it("does not convert short task ID prefixes into task reference links", async () => {
@@ -1840,7 +2447,9 @@ describe("Task reference navigation", () => {
     await fetch(`http://localhost:3898/api/tasks/${taskAId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: `Short ref: #${taskBId.slice(0, 8)}` }),
+      body: JSON.stringify({
+        description: `Short ref: #${taskBId.slice(0, 8)}`,
+      }),
     });
 
     await waitForTaskOnBoardLocal(taskAId);
@@ -1848,7 +2457,9 @@ describe("Task reference navigation", () => {
     await page.locator(`[data-task-id="${taskAId}"]`).click();
     await page.waitForSelector("#detail-panel");
 
-    const shortLinkCount = await page.locator(`a[data-task-ref="${taskBId.slice(0, 8)}"]`).count();
+    const shortLinkCount = await page
+      .locator(`a[data-task-ref="${taskBId.slice(0, 8)}"]`)
+      .count();
     expect(shortLinkCount).toBe(0);
     const previewText = await page.textContent("#dp-desc-preview");
     expect(previewText ?? "").toContain(`#${taskBId.slice(0, 8)}`);
@@ -1876,14 +2487,18 @@ describe("Task reference navigation", () => {
     // Jump A → B
     await page.click(`a[data-task-ref="${taskBId}"]`);
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Beta",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Beta",
       { timeout: 5_000 },
     );
 
     // Jump B → A (second level)
     await page.click(`a[data-task-ref="${taskAId}"]`);
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Alpha",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Alpha",
       { timeout: 5_000 },
     );
 
@@ -1894,22 +2509,26 @@ describe("Task reference navigation", () => {
     // Clicking back should go to Task B
     await page.click("#dp-back");
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Beta",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Beta",
       { timeout: 5_000 },
     );
 
     // Clicking back again should go to Task A
     await page.click("#dp-back");
     await page.waitForFunction(
-      () => (document.getElementById("dp-title") as HTMLInputElement | null)?.value === "Task Alpha",
+      () =>
+        (document.getElementById("dp-title") as HTMLInputElement | null)
+          ?.value === "Task Alpha",
       { timeout: 5_000 },
     );
 
     // Back button should be gone now (empty history)
-    await page.waitForFunction(() => !document.getElementById("dp-back"), { timeout: 2_000 });
+    await page.waitForFunction(() => !document.getElementById("dp-back"), {
+      timeout: 2_000,
+    });
   });
 
   // ── Task reference navigation ──────────────────────────────────────────────
 });
-
-

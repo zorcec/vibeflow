@@ -31,7 +31,6 @@
   },
   "overrides": {
     "vite": ">=7.3.5",
-    "esbuild": ">=0.28.1",
     "rollup": ">=4.59.0",
     "encoding-sniffer": "^1.0.2",
     "undici": ">=7.29.0",

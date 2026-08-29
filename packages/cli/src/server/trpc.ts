@@ -25,7 +25,7 @@ import type { Task } from "../core/types.js";
 
 export interface TrpcContext {
   projectDir: string;
-  broadcast: (data: object) => void;
+  broadcast: (data: Record<string, unknown>) => void;
 }
 
 const t = initTRPC.context<TrpcContext>().create();
