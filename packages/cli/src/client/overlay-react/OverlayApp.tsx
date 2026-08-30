@@ -8,9 +8,9 @@ import { state } from "../overlay-browser/state.js";
 import { clampTriggerPos } from "./trigger-pos.js";
 import { captureDomSnapshot } from "../overlay-browser/core/baseline.js";
 import {
-  activateVerifyMode,
   sendBaselineToServer,
-} from "../overlay-browser/core/verify-mode.js";
+  captureAndStoreAuthState,
+} from "../overlay-browser/core/capture.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -479,7 +479,6 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
   const [type, setType] = React.useState<TaskType>("Task");
   const [showPreview, setShowPreview] = React.useState(false);
   const [titleError, setTitleError] = React.useState(false);
-  const [verifyMode, setVerifyMode] = React.useState(false);
   const titleRef = React.useRef<HTMLInputElement>(null);
 
   // ── Draggable modal state ──────────────────────────────────────────────────
@@ -565,8 +564,8 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         component: opts.component,
       },
     );
-    // If verify mode is on and task was created, capture baseline + activate verify mode
-    if (verifyMode && result.success && result.taskId) {
+    // Capture baseline + auth state automatically at annotation time
+    if (result.success && result.taskId) {
       const selector = opts.selector ?? location.pathname;
       const cssSelector = opts.cssSelector ?? location.pathname;
       const el = document.querySelector(selector) as HTMLElement | null;
@@ -578,8 +577,8 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         );
         // Send baseline to server (fire-and-forget)
         void sendBaselineToServer(result.taskId, snapshot);
-        // Activate verify mode (locks navigation, shows indicator)
-        activateVerifyMode(result.taskId, t, "unknown");
+        // Capture and send auth state (fire-and-forget)
+        void captureAndStoreAuthState(result.taskId, "unknown");
       }
     }
     onClose();
@@ -949,13 +948,6 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
                 userSelect: "none",
               }}
             >
-              <input
-                type="checkbox"
-                checked={verifyMode}
-                onChange={(e) => setVerifyMode(e.target.checked)}
-                style={{ width: 14, height: 14, accentColor: "#10b981" }}
-              />
-              <span>🔒 Verify mode</span>
             </label>
           </div>
         </div>
