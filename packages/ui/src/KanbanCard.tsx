@@ -29,43 +29,6 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
       ? `${col.color}${task.priority === "Critical" ? "5c" : "3d"}`
       : `color-mix(in srgb, ${col.color} ${task.priority === "Critical" ? "36%" : "24%"}, transparent)`;
 
-  if (isDone) {
-    return (
-      <article
-        draggable
-        data-task-id={task.id}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onClick={() => handlers.onCardClick?.(task)}
-        style={{
-          background: "var(--p-card)",
-          border: `1px solid ${borderColor}`,
-          borderRadius: 10,
-          padding: "7px 10px",
-          cursor: "pointer",
-          opacity: 0.45,
-          userSelect: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--p-text-g)",
-            textDecoration: "line-through",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {task.title}
-        </span>
-      </article>
-    );
-  }
-
   return (
     <article
       draggable
@@ -105,7 +68,8 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
           style={{
             fontSize: 12,
             fontWeight: 600,
-            color: "var(--p-text)",
+            color: isDone ? "var(--p-text-g)" : "var(--p-text)",
+            textDecoration: isDone ? "line-through" : "none",
             lineHeight: 1.4,
             flex: 1,
             overflow: "hidden",
