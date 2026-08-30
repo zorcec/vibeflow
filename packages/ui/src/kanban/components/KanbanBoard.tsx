@@ -1,15 +1,41 @@
-import React from 'react';
-import { Plus } from 'lucide-react';
-import type { Task, Column, TaskStatus, LiveActivity } from '../types';
-import { TaskCard } from './TaskCard';
-import { compareTaskOrder, computeReorder } from '../utils';
+import React from "react";
+import { Plus } from "lucide-react";
+import type { Task, Column, TaskStatus, LiveActivity } from "../types";
+import { TaskCard } from "./TaskCard";
+import { compareTaskOrder, computeReorder } from "../utils";
 
 const COLUMNS: Column[] = [
-  { id: 'backlog',      label: 'Backlog',      color: 'var(--p-text-f)',    accent: 'color-mix(in srgb, var(--p-text-g) 25%, transparent)' },
-  { id: 'todo',         label: 'Todo',         color: 'var(--p-amber)',     accent: 'color-mix(in srgb, var(--p-amber) 18%, transparent)' },
-  { id: 'in-progress',  label: 'In Progress',  color: 'var(--p-blue)',      accent: 'color-mix(in srgb, var(--p-blue) 18%, transparent)', glow: true },
-  { id: 'review',       label: 'Review',       color: 'var(--p-purple)',    accent: 'color-mix(in srgb, var(--p-purple) 18%, transparent)' },
-  { id: 'done',         label: 'Done',         color: 'var(--p-green)',     accent: 'color-mix(in srgb, var(--p-green) 12%, transparent)' },
+  {
+    id: "backlog",
+    label: "Backlog",
+    color: "var(--p-text-f)",
+    accent: "color-mix(in srgb, var(--p-text-g) 25%, transparent)",
+  },
+  {
+    id: "todo",
+    label: "Todo",
+    color: "var(--p-amber)",
+    accent: "color-mix(in srgb, var(--p-amber) 18%, transparent)",
+  },
+  {
+    id: "in-progress",
+    label: "In Progress",
+    color: "var(--p-blue)",
+    accent: "color-mix(in srgb, var(--p-blue) 18%, transparent)",
+    glow: true,
+  },
+  {
+    id: "review",
+    label: "Review",
+    color: "var(--p-purple)",
+    accent: "color-mix(in srgb, var(--p-purple) 18%, transparent)",
+  },
+  {
+    id: "done",
+    label: "Done",
+    color: "var(--p-green)",
+    accent: "color-mix(in srgb, var(--p-green) 18%, transparent)",
+  },
 ];
 
 export { COLUMNS };
@@ -18,16 +44,51 @@ const SKELETON_COUNT = 3;
 
 function SkeletonCard() {
   return (
-    <div style={{
-      borderRadius: 8, border: '1px solid var(--p-border-t)', padding: '10px 12px',
-      background: 'var(--p-bg-2)', marginBottom: 6,
-      animation: 'skeleton-pulse 1.5s ease-in-out infinite',
-    }}>
-      <div style={{ height: 12, borderRadius: 4, background: 'var(--p-border-s)', width: '75%', marginBottom: 8 }} />
-      <div style={{ height: 10, borderRadius: 4, background: 'var(--p-border-s)', width: '50%', marginBottom: 8 }} />
-      <div style={{ display: 'flex', gap: 6 }}>
-        <div style={{ height: 18, borderRadius: 10, background: 'var(--p-border-s)', width: 48 }} />
-        <div style={{ height: 18, borderRadius: 10, background: 'var(--p-border-s)', width: 36 }} />
+    <div
+      style={{
+        borderRadius: 8,
+        border: "1px solid var(--p-border-t)",
+        padding: "10px 12px",
+        background: "var(--p-bg-2)",
+        marginBottom: 6,
+        animation: "skeleton-pulse 1.5s ease-in-out infinite",
+      }}
+    >
+      <div
+        style={{
+          height: 12,
+          borderRadius: 4,
+          background: "var(--p-border-s)",
+          width: "75%",
+          marginBottom: 8,
+        }}
+      />
+      <div
+        style={{
+          height: 10,
+          borderRadius: 4,
+          background: "var(--p-border-s)",
+          width: "50%",
+          marginBottom: 8,
+        }}
+      />
+      <div style={{ display: "flex", gap: 6 }}>
+        <div
+          style={{
+            height: 18,
+            borderRadius: 10,
+            background: "var(--p-border-s)",
+            width: 48,
+          }}
+        />
+        <div
+          style={{
+            height: 18,
+            borderRadius: 10,
+            background: "var(--p-border-s)",
+            width: 36,
+          }}
+        />
       </div>
     </div>
   );
@@ -35,7 +96,7 @@ function SkeletonCard() {
 
 interface DropTarget {
   taskId: string;
-  position: 'before' | 'after';
+  position: "before" | "after";
 }
 
 interface Props {
@@ -44,18 +105,39 @@ interface Props {
   searchQuery: string;
   isLoading?: boolean;
   liveActivities?: Map<string, LiveActivity>;
-  onOpenPanel: (task: Task | null, tab?: 'details' | 'comments' | 'files', columnId?: TaskStatus) => void;
+  onOpenPanel: (
+    task: Task | null,
+    tab?: "details" | "comments" | "files",
+    columnId?: TaskStatus,
+  ) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
   /** Called when a task is dropped at a specific position within/across columns. */
-  onReorder?: (taskId: string, newStatus: TaskStatus, beforeId: string | null, afterId: string | null, explicitSortKey?: string) => void;
+  onReorder?: (
+    taskId: string,
+    newStatus: TaskStatus,
+    beforeId: string | null,
+    afterId: string | null,
+    explicitSortKey?: string,
+  ) => void;
 }
 
-export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveActivities, onOpenPanel, onDrop, onReorder }: Props) {
+export function KanbanBoard({
+  tasks,
+  visibleCols,
+  searchQuery,
+  isLoading,
+  liveActivities,
+  onOpenPanel,
+  onDrop,
+  onReorder,
+}: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
-  const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
+  const [, setDragTaskId] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState<string | null>(null);
-  const [cardDropTarget, setCardDropTarget] = React.useState<DropTarget | null>(null);
+  const [cardDropTarget, setCardDropTarget] = React.useState<DropTarget | null>(
+    null,
+  );
   // Refs mirror the above states so handleDrop always reads the latest value synchronously.
   // React state updates are async; reading from a stale closure causes cardDropTarget to be null
   // at drop time when dragleave briefly clears it while moving between cards through the gap.
@@ -63,13 +145,16 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
   const cardDropTargetRef = React.useRef<DropTarget | null>(null);
 
   const filtered = searchQuery
-    ? tasks.filter(t =>
-        (t.title ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (t.description ?? '').toLowerCase().includes(searchQuery.toLowerCase()),
+    ? tasks.filter(
+        (t) =>
+          (t.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (t.description ?? "")
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase()),
       )
     : tasks;
 
-  const cols = COLUMNS.filter(c => visibleCols.includes(c.id));
+  const cols = COLUMNS.filter((c) => visibleCols.includes(c.id));
 
   // Custom scrollbar sync
   React.useEffect(() => {
@@ -79,18 +164,19 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
 
     function update() {
       if (!board || !thumb) return;
-      const ratio = board.scrollWidth > board.clientWidth
-        ? board.clientWidth / board.scrollWidth
-        : 1;
+      const ratio =
+        board.scrollWidth > board.clientWidth
+          ? board.clientWidth / board.scrollWidth
+          : 1;
       const thumbWidth = Math.max(40, board.clientWidth * ratio);
       thumb.style.width = `${thumbWidth}px`;
       const maxScroll = board.scrollWidth - board.clientWidth;
       const thumbRange = board.clientWidth - thumbWidth;
       thumb.style.left = `${maxScroll > 0 ? (board.scrollLeft / maxScroll) * thumbRange : 0}px`;
-      thumb.style.opacity = ratio < 1 ? '1' : '0';
+      thumb.style.opacity = ratio < 1 ? "1" : "0";
     }
 
-    board.addEventListener('scroll', update);
+    board.addEventListener("scroll", update);
     const ro = new ResizeObserver(update);
     ro.observe(board);
     update();
@@ -104,38 +190,40 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
       dragging = true;
       startX = e.clientX;
       startScroll = board!.scrollLeft;
-      thumb!.classList.add('dragging');
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      thumb!.classList.add("dragging");
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
     }
 
     function onMouseMove(e: MouseEvent) {
       if (!dragging || !board || !thumb) return;
-      const ratio = board.scrollWidth > board.clientWidth
-        ? board.scrollWidth / board.clientWidth : 1;
+      const ratio =
+        board.scrollWidth > board.clientWidth
+          ? board.scrollWidth / board.clientWidth
+          : 1;
       board.scrollLeft = startScroll + (e.clientX - startX) * ratio;
     }
 
     function onMouseUp() {
       dragging = false;
-      thumb?.classList.remove('dragging');
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      thumb?.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
     }
 
-    thumb.addEventListener('mousedown', onMouseDown);
+    thumb.addEventListener("mousedown", onMouseDown);
 
     return () => {
-      board.removeEventListener('scroll', update);
+      board.removeEventListener("scroll", update);
       ro.disconnect();
-      thumb.removeEventListener('mousedown', onMouseDown);
+      thumb.removeEventListener("mousedown", onMouseDown);
     };
   }, [cols.length]);
 
   function handleDragStart(e: React.DragEvent, taskId: string) {
     dragTaskIdRef.current = taskId;
     setDragTaskId(taskId);
-    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = "move";
   }
 
   function handleDragOver(e: React.DragEvent, colId: string) {
@@ -147,10 +235,11 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
     e.preventDefault();
     e.stopPropagation(); // prevent column-level dragover from overriding
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    const position: "before" | "after" =
+      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
     const newTarget = { taskId, position };
     cardDropTargetRef.current = newTarget;
-    setCardDropTarget(prev =>
+    setCardDropTarget((prev) =>
       prev?.taskId === taskId && prev.position === position ? prev : newTarget,
     );
   }
@@ -169,15 +258,18 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
 
     if (onReorder && target) {
       // Dropped onto a specific card — compute before/after neighbours
-      const targetIndex = colTasks.findIndex(t => t.id === target.taskId);
+      const targetIndex = colTasks.findIndex((t) => t.id === target.taskId);
       let beforeId: string | null = null;
       let afterId: string | null = null;
-      if (target.position === 'before') {
+      if (target.position === "before") {
         afterId = target.taskId;
         beforeId = targetIndex > 0 ? colTasks[targetIndex - 1].id : null;
       } else {
         beforeId = target.taskId;
-        afterId = targetIndex < colTasks.length - 1 ? colTasks[targetIndex + 1].id : null;
+        afterId =
+          targetIndex < colTasks.length - 1
+            ? colTasks[targetIndex + 1].id
+            : null;
       }
       onReorder(dragging, colId, beforeId, afterId);
     } else {
@@ -200,18 +292,19 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
         id="kanban-board"
         ref={boardRef}
         className="flex-1 flex overflow-x-auto overflow-y-hidden"
-        style={{ padding: '16px 20px', gap: 16 }}
+        style={{ padding: "16px 20px", gap: 16 }}
         onDragEnd={handleDragEnd}
       >
         {cols.map((col) => {
           const colTasks = isLoading
             ? []
             : filtered
-                .filter(t => t.status === col.id)
+                .filter((t) => t.status === col.id)
                 .sort(compareTaskOrder);
 
           // Done column: show latest modified tasks first (reverse order)
-          const displayTasks = col.id === 'done' ? [...colTasks].reverse() : colTasks;
+          const displayTasks =
+            col.id === "done" ? [...colTasks].reverse() : colTasks;
 
           return (
             <KanbanColumn
@@ -228,13 +321,19 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
                 // between child elements (cards). Moving from the inter-card gap to a card
                 // fires dragleave on the section — check relatedTarget to avoid false clears.
                 const related = e.relatedTarget as Node | null;
-                if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+                if (
+                  related &&
+                  (e.currentTarget as HTMLElement).contains(related)
+                )
+                  return;
                 setDragOver(null);
                 cardDropTargetRef.current = null;
                 setCardDropTarget(null);
               }}
-              onStatusChange={(taskId, nextStatus) => onDrop(taskId, nextStatus)}
-              onAddTask={() => onOpenPanel(null, 'details', col.id)}
+              onStatusChange={(taskId, nextStatus) =>
+                onDrop(taskId, nextStatus)
+              }
+              onAddTask={() => onOpenPanel(null, "details", col.id)}
               onOpenTask={onOpenPanel}
               onDragStart={handleDragStart}
               onCardDragOver={handleCardDragOver}
@@ -247,14 +346,44 @@ export function KanbanBoard({ tasks, visibleCols, searchQuery, isLoading, liveAc
       {/* Custom horizontal scrollbar */}
       <div
         id="kanban-scroll-track"
-        style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 6, background: 'transparent', zIndex: 40, pointerEvents: 'none' }}
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 6,
+          background: "transparent",
+          zIndex: 40,
+          pointerEvents: "none",
+        }}
       >
         <div
           id="kanban-scroll-thumb"
           ref={thumbRef}
-          style={{ position: 'absolute', top: 1, height: 4, borderRadius: 2, background: 'var(--p-border-t)', cursor: 'pointer', pointerEvents: 'auto', transition: 'background 0.15s', opacity: 0 }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--p-text-g)'; }}
-          onMouseLeave={(e) => { if (!(e.currentTarget as HTMLDivElement).classList.contains('dragging')) (e.currentTarget as HTMLDivElement).style.background = 'var(--p-border-t)'; }}
+          style={{
+            position: "absolute",
+            top: 1,
+            height: 4,
+            borderRadius: 2,
+            background: "var(--p-border-t)",
+            cursor: "pointer",
+            pointerEvents: "auto",
+            transition: "background 0.15s",
+            opacity: 0,
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.background =
+              "var(--p-text-g)";
+          }}
+          onMouseLeave={(e) => {
+            if (
+              !(e.currentTarget as HTMLDivElement).classList.contains(
+                "dragging",
+              )
+            )
+              (e.currentTarget as HTMLDivElement).style.background =
+                "var(--p-border-t)";
+          }}
         />
       </div>
     </>
@@ -272,26 +401,46 @@ interface ColumnProps {
   onDragLeave: (e: React.DragEvent) => void;
   onStatusChange: (taskId: string, nextStatus: TaskStatus) => void;
   onAddTask: () => void;
-  onOpenTask: (task: Task, tab?: 'details' | 'comments' | 'files') => void;
+  onOpenTask: (task: Task, tab?: "details" | "comments" | "files") => void;
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
   cardDropTarget: DropTarget | null;
 }
 
-function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDragOver, onDrop, onDragLeave, onStatusChange, onAddTask, onOpenTask, onDragStart, onCardDragOver, cardDropTarget }: ColumnProps) {
+function KanbanColumn({
+  col,
+  tasks,
+  isLoading,
+  liveActivities,
+  isDragOver,
+  onDragOver,
+  onDrop,
+  onDragLeave,
+  onStatusChange: _onStatusChange,
+  onAddTask,
+  onOpenTask,
+  onDragStart,
+  onCardDragOver,
+  cardDropTarget,
+}: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
-  const dotClass = col.id === 'in-progress' ? 'sd-inprogress' : `sd-${col.id}`;
+  const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
   const DONE_LIMIT = 20;
-  const isDone = col.id === 'done';
-  const hiddenCount = isDone && tasks.length > DONE_LIMIT ? tasks.length - DONE_LIMIT : 0;
+  const isDone = col.id === "done";
+  const hiddenCount =
+    isDone && tasks.length > DONE_LIMIT ? tasks.length - DONE_LIMIT : 0;
   const visibleTasks = isDone ? tasks.slice(0, DONE_LIMIT) : tasks;
 
   return (
     <section
       className="board-column"
       data-column-id={col.id}
-      style={{ outline: isDragOver ? `2px dashed ${col.color}66` : undefined, outlineOffset: -2, borderRadius: 8 }}
+      style={{
+        outline: isDragOver ? `2px dashed ${col.color}66` : undefined,
+        outlineOffset: -2,
+        borderRadius: 8,
+      }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -305,14 +454,34 @@ function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDra
         }}
       >
         <div className={`status-dot ${dotClass}`} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: col.id === 'done' ? `${col.color}b3` : col.color }}>
-          {col.label}{isLoading ? '' : ` · ${tasks.length}`}
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: col.id === "done" ? `${col.color}b3` : col.color,
+          }}
+        >
+          {col.label}
+          {isLoading ? "" : ` · ${tasks.length}`}
         </span>
-        <span style={{ marginLeft: 'auto' }} />
+        <span style={{ marginLeft: "auto" }} />
         <button
           type="button"
           title={`Add task to ${col.label}`}
-          style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, border: 'none', background: 'transparent', color: addHovered ? col.color : 'var(--p-text-g)', cursor: 'pointer', transition: 'color .15s', padding: 0 }}
+          style={{
+            width: 20,
+            height: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 4,
+            border: "none",
+            background: "transparent",
+            color: addHovered ? col.color : "var(--p-text-g)",
+            cursor: "pointer",
+            transition: "color .15s",
+            padding: 0,
+          }}
           onMouseEnter={() => setAddHovered(true)}
           onMouseLeave={() => setAddHovered(false)}
           onClick={onAddTask}
@@ -322,29 +491,43 @@ function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDra
       </div>
 
       {/* Cards */}
-      <div
-        className="column-scroll"
-        data-status={col.id}
-      >
+      <div className="column-scroll" data-status={col.id}>
         {isLoading ? (
           Array.from({ length: SKELETON_COUNT }).map((_, i) => (
             <SkeletonCard key={i} />
           ))
         ) : tasks.length === 0 ? (
-          <div style={{ border: '1px dashed var(--p-border-t)', borderRadius: 8, padding: '10px 8px', fontSize: 11, color: 'var(--p-text-f)', textAlign: 'center' }}>
+          <div
+            style={{
+              border: "1px dashed var(--p-border-t)",
+              borderRadius: 8,
+              padding: "10px 8px",
+              fontSize: 11,
+              color: "var(--p-text-f)",
+              textAlign: "center",
+            }}
+          >
             No tasks in {col.label.toLowerCase()}.
           </div>
         ) : (
           <>
-            {visibleTasks.map(task => (
+            {visibleTasks.map((task) => (
               <div
                 key={task.id}
-                style={{ position: 'relative' }}
+                style={{ position: "relative" }}
                 onDragOver={(e) => onCardDragOver(e, task.id)}
               >
-                {cardDropTarget?.taskId === task.id && cardDropTarget.position === 'before' && (
-                  <div style={{ height: 2, borderRadius: 1, background: col.color, margin: '2px 0' }} />
-                )}
+                {cardDropTarget?.taskId === task.id &&
+                  cardDropTarget.position === "before" && (
+                    <div
+                      style={{
+                        height: 2,
+                        borderRadius: 1,
+                        background: col.color,
+                        margin: "2px 0",
+                      }}
+                    />
+                  )}
                 <TaskCard
                   task={task}
                   col={col}
@@ -352,25 +535,34 @@ function KanbanColumn({ col, tasks, isLoading, liveActivities, isDragOver, onDra
                   onOpen={onOpenTask}
                   onDragStart={onDragStart}
                 />
-                {cardDropTarget?.taskId === task.id && cardDropTarget.position === 'after' && (
-                  <div style={{ height: 2, borderRadius: 1, background: col.color, margin: '2px 0' }} />
-                )}
+                {cardDropTarget?.taskId === task.id &&
+                  cardDropTarget.position === "after" && (
+                    <div
+                      style={{
+                        height: 2,
+                        borderRadius: 1,
+                        background: col.color,
+                        margin: "2px 0",
+                      }}
+                    />
+                  )}
               </div>
             ))}
             {hiddenCount > 0 && (
               <div
                 style={{
-                  margin: '4px 0 2px',
-                  padding: '6px 8px',
+                  margin: "4px 0 2px",
+                  padding: "6px 8px",
                   borderRadius: 6,
-                  border: '1px dashed var(--p-border-t)',
+                  border: "1px dashed var(--p-border-t)",
                   fontSize: 11,
-                  color: 'var(--p-text-g)',
-                  textAlign: 'center',
+                  color: "var(--p-text-g)",
+                  textAlign: "center",
                   lineHeight: 1.4,
                 }}
               >
-                +{hiddenCount} older {hiddenCount === 1 ? 'task' : 'tasks'} not shown
+                +{hiddenCount} older {hiddenCount === 1 ? "task" : "tasks"} not
+                shown
               </div>
             )}
           </>

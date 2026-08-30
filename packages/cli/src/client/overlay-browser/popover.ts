@@ -3,6 +3,7 @@ import { el } from "./dom.js";
 import { buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
 import { submitTask } from "./api.js";
 import { setAnnotateHighlight, clearAnnotateHighlight } from "./ui.js";
+import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { buildTypePickerEl } from "./type-picker-el.js";
 import { flashOverlayTrigger } from "../overlay-react/OverlayApp.js";
 import { getRecordedLogs } from "./error-recorder.js";
@@ -188,7 +189,12 @@ export async function showPopover(element: Element, x?: number, y?: number): Pro
       line: pointer.line,
       col: pointer.col,
       component: pointer.component,
-    }, selectedType || undefined, capturedHtmlText);
+    }, selectedType || undefined, capturedHtmlText).then((result) => {
+      // Capture baseline for the annotated element (fire-and-forget)
+      if (result.taskId && selector) {
+        void captureAndStoreBaseline(result.taskId, selector);
+      }
+    });
     state.popover?.remove(); state.popover = null;
     clearAnnotateHighlight();
     flashOverlayTrigger();
