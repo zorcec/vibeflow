@@ -5,11 +5,11 @@ import { TaskCard } from './TaskCard';
 import { compareTaskOrder, computeReorder } from '../utils';
 
 const COLUMNS: Column[] = [
-  { id: 'backlog',      label: 'Backlog',      color: 'var(--p-text-f)',    accent: 'color-mix(in srgb, var(--p-text-g) 20%, transparent)' },
-  { id: 'todo',         label: 'Todo',         color: 'var(--p-amber)',     accent: 'color-mix(in srgb, var(--p-amber) 12%, transparent)' },
-  { id: 'in-progress',  label: 'In Progress',  color: 'var(--p-blue)',      accent: 'color-mix(in srgb, var(--p-blue) 12%, transparent)', glow: true },
-  { id: 'review',       label: 'Review',       color: 'var(--p-purple)',    accent: 'color-mix(in srgb, var(--p-purple) 12%, transparent)' },
-  { id: 'done',         label: 'Done',         color: 'var(--p-green)',     accent: 'color-mix(in srgb, var(--p-green) 10%, transparent)' },
+  { id: 'backlog',      label: 'Backlog',      color: 'var(--p-text-f)',    accent: 'color-mix(in srgb, var(--p-text-g) 25%, transparent)' },
+  { id: 'todo',         label: 'Todo',         color: 'var(--p-amber)',     accent: 'color-mix(in srgb, var(--p-amber) 18%, transparent)' },
+  { id: 'in-progress',  label: 'In Progress',  color: 'var(--p-blue)',      accent: 'color-mix(in srgb, var(--p-blue) 18%, transparent)', glow: true },
+  { id: 'review',       label: 'Review',       color: 'var(--p-purple)',    accent: 'color-mix(in srgb, var(--p-purple) 18%, transparent)' },
+  { id: 'done',         label: 'Done',         color: 'var(--p-green)',     accent: 'color-mix(in srgb, var(--p-green) 12%, transparent)' },
 ];
 
 export { COLUMNS };
