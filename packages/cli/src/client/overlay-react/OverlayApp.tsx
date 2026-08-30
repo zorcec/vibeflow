@@ -467,7 +467,7 @@ interface AddModalProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
-  ) => Promise<{ success: boolean; taskId?: string }>;
+  ) => Promise<{ success: boolean; taskId?: string; taskAuthor?: string }>;
 }
 
 function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
@@ -578,7 +578,8 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         // Send baseline to server (fire-and-forget)
         void sendBaselineToServer(result.taskId, snapshot);
         // Capture and send auth state (fire-and-forget)
-        void captureAndStoreAuthState(result.taskId, "unknown");
+        // Use task author from server response, fallback to "unknown"
+        void captureAndStoreAuthState(result.taskId, result.taskAuthor ?? "unknown");
       }
     }
     onClose();
@@ -947,8 +948,7 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
                 cursor: "pointer",
                 userSelect: "none",
               }}
-            >
-            </label>
+            ></label>
           </div>
         </div>
       </div>
@@ -968,7 +968,7 @@ interface OverlayAppProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
-  ) => Promise<{ success: boolean; taskId?: string }>;
+  ) => Promise<{ success: boolean; taskId?: string; taskAuthor?: string }>;
 }
 
 export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {

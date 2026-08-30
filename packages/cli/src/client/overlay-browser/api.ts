@@ -45,7 +45,7 @@ export function submitTask(
   source?: SubmitTaskSource,
   type?: string,
   annotatedElementText?: string,
-): Promise<{ success: boolean; taskId?: string }> {
+): Promise<{ success: boolean; taskId?: string; taskAuthor?: string }> {
   return fetch(PROTO_CONFIG.apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -66,9 +66,9 @@ export function submitTask(
     }),
   })
     .then(r => r.json())
-    .then((d: { success?: boolean; taskId?: string }) => {
+    .then((d: { success?: boolean; task?: { id?: string; author?: string } }) => {
       if (d.success) fetchTasks();
-      return { success: d.success === true, taskId: d.taskId };
+      return { success: d.success === true, taskId: d.task?.id, taskAuthor: d.task?.author };
     })
     .catch(err => {
       console.error("[Vibeflow Studio]", err);
