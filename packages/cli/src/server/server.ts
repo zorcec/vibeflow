@@ -1201,19 +1201,21 @@ function useErrorHandler(app: express.Application): void {
 function useCors(app: express.Application): void {
   app.use(
     (
-      _req: express.Request,
+      req: express.Request,
       res: express.Response,
       next: express.NextFunction,
     ) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      const origin = req.headers.origin ?? "*";
+      // SAFETY: Local dev server — restrict CORS to localhost and 127.0.0.1
+      const isLocal = /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin);
+      res.setHeader("Access-Control-Allow-Origin", isLocal ? origin : "http://localhost:3700");
       res.setHeader(
         "Access-Control-Allow-Methods",
-        // pi-lens-ignore: opengrep
-        // pi-lens-ignore: opengrep
         "GET, POST, PATCH, DELETE, OPTIONS",
       );
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      if (_req.method === "OPTIONS") {
+      if (req.method === "OPTIONS") {
         res.status(204).end();
         return;
       }

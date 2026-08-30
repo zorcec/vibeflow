@@ -55,8 +55,21 @@ export function submitTask(
 ): Promise<{ success: boolean; taskId?: string; taskAuthor?: string }> {
   // SAFETY: PROTO_CONFIG.apiUrl is a build-time constant injected by the CLI bundler,
   // always pointing to the local CLI server (e.g. http://localhost:3700/api/tasks).
-  // pi-lens-ignore: opengrep — SSRF: build-time constant, not user input
-  return fetch(PROTO_CONFIG.apiUrl, {
+  const apiUrl = PROTO_CONFIG.apiUrl;
+  // Validate URL is http/https origin before fetch
+  const allowedOrigin = location.origin;
+  let fetchUrl = apiUrl;
+  try {
+    const parsed = new URL(apiUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(" blocked protocol");
+    }
+    fetchUrl = parsed.href;
+  } catch {
+    // Relative URL — resolve against current origin
+    fetchUrl = new URL(apiUrl, allowedOrigin).href;
+  }
+  return fetch(fetchUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

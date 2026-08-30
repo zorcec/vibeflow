@@ -102,20 +102,22 @@ function main(): void {
       onOpenKanban: () => {
         if (PROTO_CONFIG.boardId) {
           // SaaS mode: open the webapp kanban for this board
-          // pi-lens-ignore: opengrep
-          const origin = new URL(PROTO_CONFIG.apiUrl).origin;
-          window.open(
-            `${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`,
-            "_blank",
-            "noopener",
-          );
+          try {
+            const origin = new URL(PROTO_CONFIG.apiUrl).origin;
+            window.open(
+              `${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`,
+              "_blank",
+              "noopener",
+            );
+          } catch {
+            // Invalid URL — cannot open kanban
+          }
         } else if (PROTO_CONFIG.wsUrl) {
-          // Local CLI mode: open the local kanban server
+          // SAFETY: kanbanUrl derived from PROTO_CONFIG.apiUrl (build-time constant).
+          // pi-lens-ignore: opengrep — open redirect: build-time constant, not user input
           const kanbanUrl = PROTO_CONFIG.apiUrl.replace(
             "/api/tasks",
             "/kanban",
-          // pi-lens-ignore: opengrep
-          // pi-lens-ignore: opengrep
           );
           window.open(kanbanUrl, "_blank", "noopener");
         }

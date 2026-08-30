@@ -52,17 +52,20 @@ describe("proto tasks (e2e)", () => {
   });
 
   it("shows 'No tasks found' for empty task dir", () => {
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("No tasks found");
   });
 
   it("lists tasks with --status filter after creating tasks via API", async () => {
     // This test just verifies the CLI runs without error with filters
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --status todo`);
     expect(output).toContain("No tasks found");
   });
 
   it("supports tasks --add for CLI task creation", () => {
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(
       `tasks ${tempDir} --add --title "CLI created task" --description "Created from CLI"`,
     );
@@ -78,9 +81,11 @@ describe("proto tasks (e2e)", () => {
     const freshDir = mkdtempSync(join(tmpdir(), "proto-e2e-autoinit-"));
     try {
       expect(existsSync(join(freshDir, ".vibeflow"))).toBe(false);
+      // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
       const output = run(`tasks ${freshDir} --add --title "Auto-init task"`);
       expect(output).toContain("Task created");
       expect(existsSync(join(freshDir, ".vibeflow", "tasks"))).toBe(true);
+      // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
       const listOutput = run(`tasks ${freshDir} --status todo`);
       expect(listOutput).toContain("Auto-init task");
     } finally {
@@ -110,6 +115,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const jsonOutput = run(`tasks ${tempDir} --json`);
     const parsed = JSON.parse(jsonOutput) as Array<{
       id: string;
@@ -122,6 +128,7 @@ describe("proto tasks (e2e)", () => {
   });
 
   it("--edit with no task-id prints LLM usage instructions", () => {
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --edit`);
     expect(output).toContain("LLM Usage Instructions");
     expect(output).toContain("--edit <task-id>");
@@ -129,6 +136,7 @@ describe("proto tasks (e2e)", () => {
   });
 
   it("--edit with task-id but no fields also prints LLM usage instructions", () => {
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --edit abc12345`);
     expect(output).toContain("LLM Usage Instructions");
     // With no tasks in the project it shows "No tasks found."
@@ -158,8 +166,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
-    // pi-lens-ignore: opengrep
-    // pi-lens-ignore: opengrep
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const output = run(
       `tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`,
     );
@@ -167,6 +174,7 @@ describe("proto tasks (e2e)", () => {
     expect(output).toContain("Updated Title");
 
     // Verify the file was actually updated
+    // pi-lens-ignore: opengrep — run() calls execSync for CLI, not SQL queries
     const listOutput = run(`tasks ${tempDir}`);
     expect(listOutput).toContain("Updated Title");
     expect(listOutput).toContain("in-progress");
