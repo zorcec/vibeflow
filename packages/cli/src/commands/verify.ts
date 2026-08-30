@@ -626,25 +626,14 @@ function printResult(result: VerifyResult): void {
     }
   }
   console.log();
-  console.log(
-    chalk.cyan(
-      "  Check evidences with available tools, confirm task was implemented correctly.",
-    ),
-  );
-  console.log(chalk.cyan("  If not, move it back to in-progress and debug."));
+  console.log(chalk.cyan("  Review evidences:"));
+  console.log(chalk.dim("    1. Check if the fix is confirmed (styles match expectations)"));
+  console.log(chalk.dim(`    2. If confirmed → vibeflow tasks --edit ${result.taskId} --set-status review --comment "Verified: <what you confirmed>"`));
+  console.log(chalk.dim("    3. If not sure → leave a comment explaining uncertainty"));
+  console.log(chalk.dim(`    4. If wrong → vibeflow tasks --edit ${result.taskId} --set-status in-progress`));
   console.log();
   if (!result.ok) {
-    console.log(
-      chalk.yellow(
-        "  ⚠ If verification failed, set task back to in-progress and fix:",
-      ),
-    );
-    console.log(
-      chalk.dim(
-        `    vibeflow tasks --edit ${result.taskId} --set-status in-progress`,
-      ),
-    );
+    console.log(chalk.yellow("  ⚠ Verification failed — move to in-progress and fix:"));
+    console.log(chalk.dim(`    vibeflow tasks --edit ${result.taskId} --set-status in-progress`));
   }
-  console.log(chalk.dim("─".repeat(60)));
-  console.log();
 }
