@@ -337,6 +337,7 @@ describe("proto tasks (e2e)", () => {
     expect(output).toContain("Alice task");
     expect(output).not.toContain("Bob task");
 
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const editOutput = run(`tasks ${tempDir} --edit --user alice@example.com`);
     expect(editOutput).toContain("Alice task");
     expect(editOutput).not.toContain("Bob task");
@@ -489,11 +490,13 @@ describe("proto tasks (e2e)", () => {
     );
 
     // Without filter: lists both tasks in usage instructions
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const outputAll = run(`tasks ${tempDir} --edit`);
     expect(outputAll).toContain("Todo Task");
     expect(outputAll).toContain("Done Task");
 
     // With --status todo: only shows todo tasks in the edit usage list
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const outputTodo = run(`tasks ${tempDir} --edit --status todo`);
     expect(outputTodo).toContain("Todo Task");
     expect(outputTodo).not.toContain("Done Task");
@@ -582,6 +585,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const normalOutput = run(`tasks ${tempDir} --status todo`);
     expect(normalOutput).not.toContain("attach a .md report file");
 
@@ -605,6 +609,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const researchOutput = run(`tasks ${tempDir} --status todo`);
     expect(researchOutput).toContain("Attach a .md report");
   });
@@ -806,10 +811,12 @@ describe("proto tasks (e2e)", () => {
     }
 
     // No more todo tasks
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const afterOutput = run(`tasks ${tempDir} --status todo`);
     expect(afterOutput).toContain("No tasks found");
 
     // All show as done overall
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const allOutput = run(`tasks ${tempDir}`);
     expect(allOutput).toContain("done");
   });
@@ -893,6 +900,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
       `tasks ${tempDir} --edit ${taskId} --set-status review --comment "line1\\nline2\\n\\nbullets:\\n- A\\n- B"`,
     );
 
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const getOutput = run(`tasks ${tempDir} --get ${taskId}`);
     // The comment should show actual newlines, not \n sequences
     expect(getOutput).toContain("line1");
@@ -941,6 +949,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
       `tasks ${tempDir} --edit ${taskId} --set-status review --comment "Simple one-liner comment"`,
     );
 
+    // pi-lens-ignore: sql-injection — run() is execSync wrapper for CLI, not SQL
     const getOutput = run(`tasks ${tempDir} --get ${taskId}`);
     expect(getOutput).toContain("Simple one-liner comment");
   });
