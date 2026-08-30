@@ -63,7 +63,9 @@ describe("proto tasks (e2e)", () => {
   });
 
   it("supports tasks --add for CLI task creation", () => {
-    const output = run(`tasks ${tempDir} --add --title "CLI created task" --description "Created from CLI"`);
+    const output = run(
+      `tasks ${tempDir} --add --title "CLI created task" --description "Created from CLI"`,
+    );
     expect(output).toContain("Task created");
     expect(output).toContain("CLI created task");
 
@@ -89,21 +91,34 @@ describe("proto tasks (e2e)", () => {
   it("supports tasks --json machine-readable output", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "jsontask1.json"), JSON.stringify({
-      id: "jsontask1",
-      title: "JSON task",
-      description: "Structured output",
-      status: "todo",
-      selector: "/",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [],
-      files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "jsontask1.json"),
+      JSON.stringify(
+        {
+          id: "jsontask1",
+          title: "JSON task",
+          description: "Structured output",
+          status: "todo",
+          selector: "/",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const jsonOutput = run(`tasks ${tempDir} --json`);
-    const parsed = JSON.parse(jsonOutput) as Array<{ id: string; title: string }>;
+    const parsed = JSON.parse(jsonOutput) as Array<{
+      id: string;
+      title: string;
+    }>;
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed.some((t) => t.id === "jsontask1" && t.title === "JSON task")).toBe(true);
+    expect(
+      parsed.some((t) => t.id === "jsontask1" && t.title === "JSON task"),
+    ).toBe(true);
   });
 
   it("--edit with no task-id prints LLM usage instructions", () => {
@@ -124,18 +139,28 @@ describe("proto tasks (e2e)", () => {
     // Create a task file manually in JSON format
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "test1234.json"), JSON.stringify({
-      id: "test1234",
-      title: "Original Title",
-      description: "Original description.",
-      status: "todo",
-      selector: "#btn",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [],
-      files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "test1234.json"),
+      JSON.stringify(
+        {
+          id: "test1234",
+          title: "Original Title",
+          description: "Original description.",
+          status: "todo",
+          selector: "#btn",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
-    const output = run(`tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`);
+    const output = run(
+      `tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`,
+    );
     expect(output).toContain("Task updated");
     expect(output).toContain("Updated Title");
 
@@ -158,11 +183,24 @@ describe("proto tasks (e2e)", () => {
   it("--set-status with invalid value exits with error code 1 and shows guidance", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "validtask1.json"), JSON.stringify({
-      id: "validtask1", title: "Valid Task", description: "",
-      status: "todo", selector: "#x", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "validtask1.json"),
+      JSON.stringify(
+        {
+          id: "validtask1",
+          title: "Valid Task",
+          description: "",
+          status: "todo",
+          selector: "#x",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     let output = "";
     let threw = false;
@@ -194,16 +232,44 @@ describe("proto tasks (e2e)", () => {
   it("filters tasks by --type", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "type-task.json"), JSON.stringify({
-      id: "type-task", title: "Feature polish", description: "",
-      status: "todo", selector: "#a", type: "Task",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
-    writeFileSync(join(tasksDir, "type-bug.json"), JSON.stringify({
-      id: "type-bug", title: "Fix save race", description: "",
-      status: "todo", selector: "#b", type: "Bug",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "type-task.json"),
+      JSON.stringify(
+        {
+          id: "type-task",
+          title: "Feature polish",
+          description: "",
+          status: "todo",
+          selector: "#a",
+          type: "Task",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tasksDir, "type-bug.json"),
+      JSON.stringify(
+        {
+          id: "type-bug",
+          title: "Fix save race",
+          description: "",
+          status: "todo",
+          selector: "#b",
+          type: "Bug",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir} --type bug`);
     expect(output).toContain("Fix save race");
@@ -213,16 +279,44 @@ describe("proto tasks (e2e)", () => {
   it("filters tasks by --user using exact email match (case-insensitive)", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "user-a.json"), JSON.stringify({
-      id: "user-a", title: "Alice task", description: "",
-      status: "todo", selector: "#a", author: "alice@example.com",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
-    writeFileSync(join(tasksDir, "user-b.json"), JSON.stringify({
-      id: "user-b", title: "Bob task", description: "",
-      status: "todo", selector: "#b", author: "bob@example.com",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "user-a.json"),
+      JSON.stringify(
+        {
+          id: "user-a",
+          title: "Alice task",
+          description: "",
+          status: "todo",
+          selector: "#a",
+          author: "alice@example.com",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tasksDir, "user-b.json"),
+      JSON.stringify(
+        {
+          id: "user-b",
+          title: "Bob task",
+          description: "",
+          status: "todo",
+          selector: "#b",
+          author: "bob@example.com",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir} --user ALICE@EXAMPLE.COM`);
     expect(output).toContain("Alice task");
@@ -236,16 +330,44 @@ describe("proto tasks (e2e)", () => {
   it("rejects partial --user filter and shows available users", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "user-aa.json"), JSON.stringify({
-      id: "user-aa", title: "Alice task", description: "",
-      status: "todo", selector: "#a", author: "alice@example.com",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
-    writeFileSync(join(tasksDir, "user-bb.json"), JSON.stringify({
-      id: "user-bb", title: "Bob task", description: "",
-      status: "todo", selector: "#b", author: "bob@example.com",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "user-aa.json"),
+      JSON.stringify(
+        {
+          id: "user-aa",
+          title: "Alice task",
+          description: "",
+          status: "todo",
+          selector: "#a",
+          author: "alice@example.com",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tasksDir, "user-bb.json"),
+      JSON.stringify(
+        {
+          id: "user-bb",
+          title: "Bob task",
+          description: "",
+          status: "todo",
+          selector: "#b",
+          author: "bob@example.com",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     let output = "";
     let threw = false;
@@ -284,16 +406,24 @@ describe("proto tasks (e2e)", () => {
   it("tasks list output includes file path for each task", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "pathtest1.json"), JSON.stringify({
-      id: "pathtest1",
-      title: "Task with path",
-      description: "",
-      status: "todo",
-      selector: "#btn",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [],
-      files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "pathtest1.json"),
+      JSON.stringify(
+        {
+          id: "pathtest1",
+          title: "Task with path",
+          description: "",
+          status: "todo",
+          selector: "#btn",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir}`);
     // File path should be the absolute path to the JSON file
@@ -305,16 +435,42 @@ describe("proto tasks (e2e)", () => {
   it("--edit respects --status filter when listing available tasks", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "todotask1.json"), JSON.stringify({
-      id: "todotask1", title: "Todo Task", description: "",
-      status: "todo", selector: "#a", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
-    writeFileSync(join(tasksDir, "donetask1.json"), JSON.stringify({
-      id: "donetask1", title: "Done Task", description: "",
-      status: "done", selector: "#b", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "todotask1.json"),
+      JSON.stringify(
+        {
+          id: "todotask1",
+          title: "Todo Task",
+          description: "",
+          status: "todo",
+          selector: "#a",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tasksDir, "donetask1.json"),
+      JSON.stringify(
+        {
+          id: "donetask1",
+          title: "Done Task",
+          description: "",
+          status: "done",
+          selector: "#b",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     // Without filter: lists both tasks in usage instructions
     const outputAll = run(`tasks ${tempDir} --edit`);
@@ -330,13 +486,25 @@ describe("proto tasks (e2e)", () => {
   it("tasks list shows cssSelector when present", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "csstask1.json"), JSON.stringify({
-      id: "csstask1", title: "CSS Selector Task", description: "",
-      status: "todo", selector: '[data-testid="hero"]',
-      cssSelector: "main > section > h1",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "csstask1.json"),
+      JSON.stringify(
+        {
+          id: "csstask1",
+          title: "CSS Selector Task",
+          description: "",
+          status: "todo",
+          selector: '[data-testid="hero"]',
+          cssSelector: "main > section > h1",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("css:");
@@ -346,11 +514,24 @@ describe("proto tasks (e2e)", () => {
   it("tasks list prints concise agent instructions", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "insttask1.json"), JSON.stringify({
-      id: "insttask1", title: "Instruction test", description: "",
-      status: "todo", selector: "#x", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "insttask1.json"),
+      JSON.stringify(
+        {
+          id: "insttask1",
+          title: "Instruction test",
+          description: "",
+          status: "todo",
+          selector: "#x",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir} --status todo`);
     expect(output).toContain("Agent instructions (concise):");
@@ -363,22 +544,48 @@ describe("proto tasks (e2e)", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
 
-    writeFileSync(join(tasksDir, "normal001.json"), JSON.stringify({
-      id: "normal001", title: "Normal task", description: "",
-      status: "todo", selector: "#a", type: "Task",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "normal001.json"),
+      JSON.stringify(
+        {
+          id: "normal001",
+          title: "Normal task",
+          description: "",
+          status: "todo",
+          selector: "#a",
+          type: "Task",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const normalOutput = run(`tasks ${tempDir} --status todo`);
     expect(normalOutput).not.toContain("attach a .md report file");
 
-    writeFileSync(join(tasksDir, "research01.json"), JSON.stringify({
-      id: "research", title: "Research task", description: "",
-      status: "todo", selector: "#b", type: "Research",
-      created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "research01.json"),
+      JSON.stringify(
+        {
+          id: "research",
+          title: "Research task",
+          description: "",
+          status: "todo",
+          selector: "#b",
+          type: "Research",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const researchOutput = run(`tasks ${tempDir} --status todo`);
     expect(researchOutput).toContain("Attach a .md report");
@@ -387,13 +594,28 @@ describe("proto tasks (e2e)", () => {
   it("--edit --description updates task description", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "desctask1.json"), JSON.stringify({
-      id: "desctask1", title: "Button Task", description: "Old description.",
-      status: "todo", selector: "#btn", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "desctask1.json"),
+      JSON.stringify(
+        {
+          id: "desctask1",
+          title: "Button Task",
+          description: "Old description.",
+          status: "todo",
+          selector: "#btn",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
-    const output = run(`tasks ${tempDir} --edit desctask1 --description "The button needs better contrast"`);
+    const output = run(
+      `tasks ${tempDir} --edit desctask1 --description "The button needs better contrast"`,
+    );
     expect(output).toContain("Task updated");
     expect(output).toContain("Button Task");
 
@@ -404,22 +626,43 @@ describe("proto tasks (e2e)", () => {
   it("--edit --set-status review requires --comment", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "reviewtask1.json"), JSON.stringify({
-      id: "reviewtask1", title: "Review Comment Test", description: "",
-      status: "in-progress", selector: "#x", created: "2025-01-01T00:00:00.000Z",
-      comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "reviewtask1.json"),
+      JSON.stringify(
+        {
+          id: "reviewtask1",
+          title: "Review Comment Test",
+          description: "",
+          status: "in-progress",
+          selector: "#x",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
     // Disable autoCommit and autoComment in local settings to prevent interference from global settings
-    writeFileSync(join(tempDir, ".vibeflow", "settings.json"), JSON.stringify({ autoCommit: false, autoComment: false }), "utf-8");
+    writeFileSync(
+      join(tempDir, ".vibeflow", "settings.json"),
+      JSON.stringify({ autoCommit: false, autoComment: false }),
+      "utf-8",
+    );
 
     // Should fail without --comment
-    expect(() => run(`tasks ${tempDir} --edit reviewtask1 --set-status review`)).toThrow();
+    expect(() =>
+      run(`tasks ${tempDir} --edit reviewtask1 --set-status review`),
+    ).toThrow();
 
     // Add verification evidence so gating allows review
     addVerificationEvidence(tempDir, "reviewtask1");
 
     // Should succeed with --comment
-    const output = run(`tasks ${tempDir} --edit reviewtask1 --set-status review --comment "Fixed the alignment issue by adjusting flex layout"`);
+    const output = run(
+      `tasks ${tempDir} --edit reviewtask1 --set-status review --comment "Fixed the alignment issue by adjusting flex layout"`,
+    );
     expect(output).toContain("Task updated");
     expect(output).toContain("comment: added");
 
@@ -432,12 +675,25 @@ describe("proto tasks (e2e)", () => {
   it("tasks list shows description when present", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "descdisplay1.json"), JSON.stringify({
-      id: "descdisplay1", title: "Feature card feedback",
-      description: "Feature card feedback", status: "todo",
-      selector: '[data-vibeflow-id="feature-card"]', url: "/",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "descdisplay1.json"),
+      JSON.stringify(
+        {
+          id: "descdisplay1",
+          title: "Feature card feedback",
+          description: "Feature card feedback",
+          status: "todo",
+          selector: '[data-vibeflow-id="feature-card"]',
+          url: "/",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("Feature card feedback");
@@ -447,12 +703,25 @@ describe("proto tasks (e2e)", () => {
   it("tasks list shows url when present", () => {
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(join(tasksDir, "urltask1.json"), JSON.stringify({
-      id: "urltask1", title: "API-only task", description: "",
-      status: "todo", selector: '[data-testid="submit-btn"]',
-      url: "http://localhost:5173/checkout",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "urltask1.json"),
+      JSON.stringify(
+        {
+          id: "urltask1",
+          title: "API-only task",
+          description: "",
+          status: "todo",
+          selector: '[data-testid="submit-btn"]',
+          url: "http://localhost:5173/checkout",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("url:");
@@ -464,22 +733,45 @@ describe("proto tasks (e2e)", () => {
     mkdirSync(tasksDir, { recursive: true });
 
     const tasks = [
-      { id: "task0001", title: "Fix main button", selector: "#primary-btn", url: "/" },
-      { id: "task0002", title: "Feature card feedback", selector: '[data-vibeflow-id="feature-card"]', url: "/" },
+      {
+        id: "task0001",
+        title: "Fix main button",
+        selector: "#primary-btn",
+        url: "/",
+      },
+      {
+        id: "task0002",
+        title: "Feature card feedback",
+        selector: '[data-vibeflow-id="feature-card"]',
+        url: "/",
+      },
       { id: "task0003", title: "CORS task", selector: "#primary-btn" },
     ];
 
     for (const t of tasks) {
-      writeFileSync(join(tasksDir, `${t.id}.json`), JSON.stringify({
-        id: t.id, title: t.title, description: "",
-        status: "todo", selector: t.selector,
-        ...(t.url ? { url: t.url } : {}),
-        created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-      }, null, 2), "utf-8");
+      writeFileSync(
+        join(tasksDir, `${t.id}.json`),
+        JSON.stringify(
+          {
+            id: t.id,
+            title: t.title,
+            description: "",
+            status: "todo",
+            selector: t.selector,
+            ...(t.url ? { url: t.url } : {}),
+            created: "2025-01-01T00:00:00.000Z",
+            comments: [],
+            files: [],
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
     }
 
     // All 3 should be todo
-    let output = run(`tasks ${tempDir} --status todo`);
+    const output = run(`tasks ${tempDir} --status todo`);
     expect(output).toContain("Fix main button");
     expect(output).toContain("Feature card feedback");
     expect(output).toContain("CORS task");
@@ -505,12 +797,25 @@ describe("proto tasks (e2e)", () => {
     mkdirSync(screenshotsDir, { recursive: true });
 
     // Write a task file with a screenshot reference
-    writeFileSync(join(tasksDir, "shottask1.json"), JSON.stringify({
-      id: "shottask1", title: "Screenshot task", description: "",
-      status: "todo", selector: "#hero",
-      screenshot: "shot-abc123.png",
-      created: "2025-01-01T00:00:00.000Z", comments: [], files: [],
-    }, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "shottask1.json"),
+      JSON.stringify(
+        {
+          id: "shottask1",
+          title: "Screenshot task",
+          description: "",
+          status: "todo",
+          selector: "#hero",
+          screenshot: "shot-abc123.png",
+          created: "2025-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
     // Create a dummy screenshot file
     writeFileSync(join(screenshotsDir, "shot-abc123.png"), "PNG", "utf-8");
 
@@ -558,7 +863,9 @@ describe("proto tasks --comment normalization (e2e)", () => {
     const taskId = createTask("Normalize test task");
     addVerificationEvidence(tempDir, taskId);
     // Pass literal \n (backslash + n) as they appear in double-quoted bash strings
-    run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "line1\\nline2\\n\\nbullets:\\n- A\\n- B"`);
+    run(
+      `tasks ${tempDir} --edit ${taskId} --set-status review --comment "line1\\nline2\\n\\nbullets:\\n- A\\n- B"`,
+    );
 
     const getOutput = run(`tasks ${tempDir} --get ${taskId}`);
     // The comment should show actual newlines, not \n sequences
@@ -574,18 +881,25 @@ describe("proto tasks --comment normalization (e2e)", () => {
   it("stores comment with actual newlines in task JSON file", () => {
     const taskId = createTask("JSON storage test");
     addVerificationEvidence(tempDir, taskId);
-    run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Summary:\\n\\n- Changed X\\n- Changed Y"`);
+    run(
+      `tasks ${tempDir} --edit ${taskId} --set-status review --comment "Summary:\\n\\n- Changed X\\n- Changed Y"`,
+    );
 
     // Find task JSON by scanning date subdirectories
     const tasksDir = join(tempDir, ".vibeflow", "tasks");
     let taskFilePath: string | null = null;
     for (const day of readdirSync(tasksDir)) {
       const candidate = join(tasksDir, day, `${taskId}.json`);
-      if (existsSync(candidate)) { taskFilePath = candidate; break; }
+      if (existsSync(candidate)) {
+        taskFilePath = candidate;
+        break;
+      }
     }
     if (!taskFilePath) throw new Error(`Task file not found for id: ${taskId}`);
 
-    const taskJson = JSON.parse(readFileSync(taskFilePath, "utf-8")) as { comments: Array<{ text: string }> };
+    const taskJson = JSON.parse(readFileSync(taskFilePath, "utf-8")) as {
+      comments: Array<{ text: string }>;
+    };
     const commentText = taskJson.comments[taskJson.comments.length - 1].text;
 
     // Should contain actual newline characters, not literal \n
@@ -597,7 +911,9 @@ describe("proto tasks --comment normalization (e2e)", () => {
   it("leaves plain text comments unchanged", () => {
     const taskId = createTask("Plain text comment test");
     addVerificationEvidence(tempDir, taskId);
-    run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Simple one-liner comment"`);
+    run(
+      `tasks ${tempDir} --edit ${taskId} --set-status review --comment "Simple one-liner comment"`,
+    );
 
     const getOutput = run(`tasks ${tempDir} --get ${taskId}`);
     expect(getOutput).toContain("Simple one-liner comment");
@@ -610,31 +926,42 @@ describe("proto tasks --comment normalization (e2e)", () => {
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
       join(tasksDir, `${taskId}.json`),
-      JSON.stringify({
-        id: taskId,
-        title: "Actual newline task",
-        description: "",
-        status: "in-progress",
-        selector: "/",
-        created: "2026-01-01T00:00:00.000Z",
-        comments: [],
-        files: [],
-      }, null, 2),
+      JSON.stringify(
+        {
+          id: taskId,
+          title: "Actual newline task",
+          description: "",
+          status: "in-progress",
+          selector: "/",
+          created: "2026-01-01T00:00:00.000Z",
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
       "utf-8",
     );
     // Pass a comment with no literal \n — just plain text over multiple --comment calls
     addVerificationEvidence(tempDir, taskId);
-    run(`tasks ${tempDir} --edit ${taskId} --set-status review --comment "Plain line without escapes"`);
+    run(
+      `tasks ${tempDir} --edit ${taskId} --set-status review --comment "Plain line without escapes"`,
+    );
 
     // Find task JSON by scanning date subdirectories
     let taskFilePath: string | null = null;
     for (const day of readdirSync(tasksDir)) {
       const candidate = join(tasksDir, day, `${taskId}.json`);
-      if (existsSync(candidate)) { taskFilePath = candidate; break; }
+      if (existsSync(candidate)) {
+        taskFilePath = candidate;
+        break;
+      }
     }
     if (!taskFilePath) throw new Error(`Task file not found for id: ${taskId}`);
 
-    const taskJson = JSON.parse(readFileSync(taskFilePath, "utf-8")) as { comments: Array<{ text: string }> };
+    const taskJson = JSON.parse(readFileSync(taskFilePath, "utf-8")) as {
+      comments: Array<{ text: string }>;
+    };
     const text = taskJson.comments[taskJson.comments.length - 1].text;
     // No literal \n should appear — text stays as-is
     expect(text).toBe("Plain line without escapes");

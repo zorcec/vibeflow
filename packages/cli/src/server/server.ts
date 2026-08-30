@@ -46,6 +46,7 @@ import {
   deleteComment,
 } from "../core/comments.js";
 import { listFiles, saveFile, deleteFile, getFilePath } from "../core/files.js";
+import { encryptAuthState } from "../core/auth.js";
 import {
   getCopilotAuthStatus,
   isGhCliAvailable,
@@ -652,6 +653,75 @@ function registerTaskApi(
     updateTask(projectDir, id, { screenshot: undefined } as Partial<Task>);
     broadcast({ type: "tasks-updated" });
     res.json({ success: true });
+  });
+
+  // ── Verification routes (spec §6, §7) ───────────────────────────────────
+
+  // POST /api/tasks/:id/auth-state — store encrypted auth state from overlay
+  app.post("/api/tasks/:id/auth-state", express.json(), async (req, res) => {
+    const { id } = req.params;
+    const { authState, taskAuthor } = req.body as {
+      authState?: import("../core/verification-types.js").AuthState;
+      taskAuthor?: string;
+    };
+
+    // Validate task exists
+    if (!findTaskFilePath(projectDir, id)) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+
+    // Validate required fields
+    if (!authState || !taskAuthor) {
+      res.status(400).json({ error: "Missing required fields: authState, taskAuthor" });
+      return;
+    }
+
+    try {
+      const encrypted = encryptAuthState(authState, taskAuthor);
+      const authStatePath = join(projectDir, PROTO_DIR, `auth-state.${id}.enc`);
+      mkdirSync(join(projectDir, PROTO_DIR), { recursive: true });
+      writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), {
+        mode: 0o600,
+      });
+      console.log(`[Vibeflow] Auth state stored for task ${id}`);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Vibeflow] Failed to store auth state for ${id}: ${msg}`);
+      res.status(500).json({ error: "Failed to store auth state" });
+    }
+  });
+
+  // POST /api/tasks/:id/baseline — store baseline snapshot from overlay
+  app.post("/api/tasks/:id/baseline", express.json(), (req, res) => {
+    const { id } = req.params;
+    const { baseline } = req.body as {
+      baseline?: import("../core/verification-types.js").DomSnapshot;
+    };
+
+    // Validate task exists
+    if (!findTaskFilePath(projectDir, id)) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+
+    // Validate required fields
+    if (!baseline || !baseline.selector || !baseline.outerHTML) {
+      res.status(400).json({ error: "Missing required fields: baseline.selector, baseline.outerHTML" });
+      return;
+    }
+
+    try {
+      const baselineJson = JSON.stringify(baseline, null, 2);
+      saveFile(projectDir, id, "baseline.json", Buffer.from(baselineJson));
+      console.log(`[Vibeflow] Baseline snapshot stored for task ${id}`);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Vibeflow] Failed to store baseline for ${id}: ${msg}`);
+      res.status(500).json({ error: "Failed to store baseline" });
+    }
   });
 }
 

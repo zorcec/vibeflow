@@ -1,30 +1,8 @@
 import crypto from "node:crypto";
 
-/** Capture shape from §7.1 — what the overlay stores in the browser. */
-export interface AuthState {
-  cookies: Array<{
-    name: string;
-    value: string;
-    domain: string;
-    path: string;
-    expires: number;
-    httpOnly: boolean;
-    secure: boolean;
-    sameSite: "Strict" | "Lax" | "None";
-  }>;
-  localStorage: Record<string, string>;
-  sessionStorage: Record<string, string>;
-}
+import type { AuthState, EncryptedAuthState } from "./verification-types.js";
 
-/** On-disk encryption envelope from §7.2. */
-export interface EncryptedAuthState {
-  version: number;
-  createdAt: string;
-  expiresAt: string;
-  iv: string;
-  tag: string;
-  data: string;
-}
+export type { AuthState, EncryptedAuthState } from "./verification-types.js";
 
 const SALT = "vibeflow-auth-v1";
 /** 24-hour TTL in milliseconds. */

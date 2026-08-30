@@ -1,43 +1,8 @@
 // ── Structural diff engine (§10 — mechanical layer) ───────────────────────
 
-/** Position context captured at annotation time (§6.1). */
-export interface PositionContext {
-  boundingBox: { x: number; y: number; width: number; height: number };
-  scrollPosition: { x: number; y: number };
-  viewport: { width: number; height: number; dpr: number };
-  stackingContext: {
-    zIndex: string;
-    position: string;
-    parentZIndex?: string;
-  };
-}
+import type { PositionContext, DomSnapshot, DiffResult } from "./verification-types.js";
 
-/** DOM snapshot captured by the overlay (§6). */
-export interface DomSnapshot {
-  outerHTML: string;
-  computedStyles: Record<string, string>;
-  selector: string;
-  xpath?: string;
-  position: PositionContext;
-  parentSnippet?: string;
-  browser: string;
-  consoleErrors: string[];
-  capturedAt: string;
-}
-
-/** Result of computing the structural diff between baseline and after snapshots. */
-export interface DiffResult {
-  /** Did the selector find an element? */
-  selectorResolves: boolean;
-  /** Did outerHTML change? */
-  htmlChanged: boolean;
-  /** Per-property computed style changes: { prop: [baseline, after] } */
-  stylesChanged: Record<string, [string, string]>;
-  /** Did the bounding box shift? */
-  positionChanged: boolean;
-  /** New console errors that weren't in the baseline */
-  newConsoleErrors: string[];
-}
+export type { PositionContext, DomSnapshot, DiffResult } from "./verification-types.js";
 
 /** Tolerance in pixels for bounding box comparison (sub-pixel jitter). */
 const POSITION_TOLERANCE = 2;
