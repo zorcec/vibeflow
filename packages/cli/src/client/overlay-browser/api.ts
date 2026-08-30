@@ -9,9 +9,13 @@ export function fetchProjectName(): void {
   // Derives the API base from PROTO_CONFIG.apiUrl: strip "/api/tasks" → use "/api/project"
   const baseUrl = PROTO_CONFIG.apiUrl.replace(/\/api\/tasks$/, "");
   fetch(`${baseUrl}/api/project`)
-    .then(r => r.json())
-    .then((d: { name?: string }) => { if (d.name) state.projectName = d.name; })
-    .catch(() => { /* server may not have endpoint yet in old versions */ });
+    .then((r) => r.json())
+    .then((d: { name?: string }) => {
+      if (d.name) state.projectName = d.name;
+    })
+    .catch(() => {
+      /* server may not have endpoint yet in old versions */
+    });
 }
 
 export function fetchTasks(): void {
@@ -19,14 +23,17 @@ export function fetchTasks(): void {
     ? `${PROTO_CONFIG.apiUrl}?boardId=${encodeURIComponent(PROTO_CONFIG.boardId)}`
     : PROTO_CONFIG.apiUrl;
   const headers: Record<string, string> = {};
-  if (PROTO_CONFIG.overlayApiKey) headers["X-Overlay-Api-Key"] = PROTO_CONFIG.overlayApiKey;
+  if (PROTO_CONFIG.overlayApiKey)
+    headers["X-Overlay-Api-Key"] = PROTO_CONFIG.overlayApiKey;
   fetch(url, Object.keys(headers).length > 0 ? { headers } : undefined)
-    .then(r => r.json())
+    .then((r) => r.json())
     .then((d: { tasks?: Task[] }) => {
       state.tasks = d.tasks ?? [];
       state.onTasksFetched?.(state.tasks);
     })
-    .catch(() => { /* server down */ });
+    .catch(() => {
+      /* server down */
+    });
 }
 
 export interface SubmitTaskSource {
@@ -65,20 +72,29 @@ export function submitTask(
       ...(PROTO_CONFIG.boardId ? { boardId: PROTO_CONFIG.boardId } : {}),
     }),
   })
-    .then(r => r.json())
-    .then((d: { success?: boolean; task?: { id?: string; author?: string } }) => {
-      if (d.success) fetchTasks();
-      return { success: d.success === true, taskId: d.task?.id, taskAuthor: d.task?.author };
-    })
-    .catch(err => {
+    .then((r) => r.json())
+    .then(
+      (d: { success?: boolean; task?: { id?: string; author?: string } }) => {
+        if (d.success) fetchTasks();
+        return {
+          success: d.success === true,
+          taskId: d.task?.id,
+          taskAuthor: d.task?.author,
+        };
+      },
+    )
+    .catch((err) => {
       console.error("[Vibeflow Studio]", err);
       return { success: false };
     });
 }
 
 function mutationHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (PROTO_CONFIG.overlayApiKey) headers["X-Overlay-Api-Key"] = PROTO_CONFIG.overlayApiKey;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (PROTO_CONFIG.overlayApiKey)
+    headers["X-Overlay-Api-Key"] = PROTO_CONFIG.overlayApiKey;
   return headers;
 }
 
@@ -92,7 +108,7 @@ export function markTaskDone(taskId: string): void {
     body: JSON.stringify({ status: "done" }),
   })
     .then(() => fetchTasks())
-    .catch(err => console.error("[Vibeflow Studio]", err));
+    .catch((err) => console.error("[Vibeflow Studio]", err));
 }
 
 export function removeTask(taskId: string): void {
@@ -101,5 +117,5 @@ export function removeTask(taskId: string): void {
     : `${PROTO_CONFIG.apiUrl}/${taskId}`;
   fetch(url, { method: "DELETE", headers: mutationHeaders() })
     .then(() => fetchTasks())
-    .catch(err => console.error("[Vibeflow Studio]", err));
+    .catch((err) => console.error("[Vibeflow Studio]", err));
 }

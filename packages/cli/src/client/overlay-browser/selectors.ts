@@ -53,7 +53,10 @@ export interface V8CallSite {
 // exist when the new task's baseline is captured (the selector would point to
 // a different task's card, not the annotated element).
 const STABLE_DATA_ATTRS = [
-  "data-testid", "data-test", "data-cy", "data-test-id",
+  "data-testid",
+  "data-test",
+  "data-cy",
+  "data-test-id",
   "data-id",
 ];
 
@@ -73,7 +76,11 @@ export function buildCssSelector(element: Element): string {
     let anchorName: string | null = null;
     for (const attr of STABLE_DATA_ATTRS) {
       const val = node.getAttribute(attr);
-      if (val) { anchorAttr = attr; anchorName = val; break; }
+      if (val) {
+        anchorAttr = attr;
+        anchorName = val;
+        break;
+      }
     }
     if (anchorAttr && anchorName) {
       parts.unshift(`[${anchorAttr}="${anchorName}"]`);
@@ -83,14 +90,16 @@ export function buildCssSelector(element: Element): string {
     let segment = node.tagName.toLowerCase();
 
     const stableClasses = Array.from(node.classList)
-      .filter(c => !/^[0-9a-f]{5,}/.test(c) && !c.startsWith("vibeflow-"))
+      .filter((c) => !/^[0-9a-f]{5,}/.test(c) && !c.startsWith("vibeflow-"))
       .slice(0, 2);
     if (stableClasses.length > 0) segment += `.${stableClasses.join(".")}`;
 
     const parent = node.parentElement;
     if (parent) {
       const parentChildren = Array.from(parent.children);
-      const siblings = parentChildren.filter(c => c.tagName === node!.tagName);
+      const siblings = parentChildren.filter(
+        (c) => c.tagName === node!.tagName,
+      );
       if (siblings.length > 1) {
         segment += `:nth-child(${parentChildren.indexOf(node) + 1})`;
       }
@@ -164,11 +173,11 @@ function parseFunctionFromReactStack(stack: string): string | null {
 
 function getReactSource(el: Element): Tier1Result | null {
   const fiberKey = Object.keys(el).find(
-    k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
+    (k) =>
+      k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
   );
   if (!fiberKey) return null;
 
-   
   let fiber: any = (el as any)[fiberKey];
   const result: Tier1Result = {};
   let nearestComponent: string | undefined;
@@ -193,18 +202,29 @@ function getReactSource(el: Element): Tier1Result | null {
       }
 
       const ownerParentName =
-        (fiber._debugOwner?.return?._debugOwner?.type?.displayName as string | undefined) ??
-        (fiber._debugOwner?.return?._debugOwner?.type?.name as string | undefined) ??
-        (fiber._debugOwner?._debugOwner?.type?.displayName as string | undefined) ??
+        (fiber._debugOwner?.return?._debugOwner?.type?.displayName as
+          | string
+          | undefined) ??
+        (fiber._debugOwner?.return?._debugOwner?.type?.name as
+          | string
+          | undefined) ??
+        (fiber._debugOwner?._debugOwner?.type?.displayName as
+          | string
+          | undefined) ??
         (fiber._debugOwner?._debugOwner?.type?.name as string | undefined);
-      if (ownerParentName && ownerParentName !== ownerName && !parentComponent) {
+      if (
+        ownerParentName &&
+        ownerParentName !== ownerName &&
+        !parentComponent
+      ) {
         parentComponent = ownerParentName;
       }
     }
 
     // React 19: _debugStack is an Error whose .stack contains component frames.
     if (!result.component) {
-      const stack = (fiber._debugStack as { stack?: string } | undefined)?.stack;
+      const stack = (fiber._debugStack as { stack?: string } | undefined)
+        ?.stack;
       if (stack) {
         const name = parseComponentFromReactStack(stack);
         if (name && !nearestComponent) nearestComponent = name;
@@ -219,7 +239,9 @@ function getReactSource(el: Element): Tier1Result | null {
   }
 
   if (nearestComponent) {
-    result.component = parentComponent ? `${parentComponent} > ${nearestComponent}` : nearestComponent;
+    result.component = parentComponent
+      ? `${parentComponent} > ${nearestComponent}`
+      : nearestComponent;
   }
 
   return result.file != null || result.component != null ? result : null;
@@ -229,7 +251,6 @@ function getReactSource(el: Element): Tier1Result | null {
 function getVue3Source(el: Element): Tier1Result | null {
   let node: Element | null = el;
   while (node) {
-     
     const instance = (node as any).__vueParentComponent;
     if (instance) {
       return {
@@ -249,7 +270,6 @@ function getVue3Source(el: Element): Tier1Result | null {
 function getVue2Source(el: Element): Tier1Result | null {
   let node: Element | null = el;
   while (node) {
-     
     const vm = (node as any).__vue__;
     if (vm) {
       return {
@@ -264,7 +284,6 @@ function getVue2Source(el: Element): Tier1Result | null {
 
 // Angular (dev mode) — uses ng.getComponent() global.
 function getAngularSource(el: Element): Tier1Result | null {
-   
   const ng = (window as any).ng;
   if (!ng) return null;
   let node: Element | null = el;
@@ -273,7 +292,8 @@ function getAngularSource(el: Element): Tier1Result | null {
       const component = ng.getComponent(node);
       if (component) {
         return {
-          component: (component.constructor?.name as string | undefined) ?? undefined,
+          component:
+            (component.constructor?.name as string | undefined) ?? undefined,
         };
       }
     } catch {
@@ -286,18 +306,18 @@ function getAngularSource(el: Element): Tier1Result | null {
 
 // Preact (dev mode) — reads __P and __k from DOM nodes.
 function getPreactSource(el: Element): Tier1Result | null {
-   
   const e = el as any;
   const children: unknown[] = e.__P?.__k ?? [];
   // Walk __k to find the first VNode with a named component type
   const GENERIC_NAMES = new Set(["Object", "VNode", "VNode2"]);
   for (const vnode of children) {
     if (!vnode || typeof vnode !== "object") continue;
-     
+
     const v = vnode as any;
     const typeNameRaw = v?.type?.name as string | undefined;
     const ctorNameRaw = v?.constructor?.name as string | undefined;
-    const ctorName = ctorNameRaw && !GENERIC_NAMES.has(ctorNameRaw) ? ctorNameRaw : undefined;
+    const ctorName =
+      ctorNameRaw && !GENERIC_NAMES.has(ctorNameRaw) ? ctorNameRaw : undefined;
     const name = typeNameRaw ?? ctorName ?? undefined;
     if (name) return { component: name };
   }
@@ -323,7 +343,10 @@ function resolveFrameworkSource(el: Element): Tier1Result | null {
 export function buildSourcePointer(element: Element): SourcePointer {
   // Tier 3b — always computed first (CSS selector is the ultimate fallback)
   const cssSelector = buildCssSelector(element);
-  const pointer: SourcePointer = { selector: cssSelector, display: cssSelector };
+  const pointer: SourcePointer = {
+    selector: cssSelector,
+    display: cssSelector,
+  };
 
   // Tier 1 — framework internals (highest informational value)
   const tier1 = resolveFrameworkSource(element);
@@ -353,9 +376,12 @@ export function buildSourcePointer(element: Element): SourcePointer {
   // The `selector` field is the primary task identifier stored in the task file.
   // `cssSelector` is sent separately and used for DOM element lookup.
   if (pointer.file) {
-    const fileName = pointer.file.replace(/\\/g, "/").split("/").pop() ?? pointer.file;
-    pointer.selector = pointer.line != null ? `${pointer.file}:${pointer.line}` : pointer.file;
-    pointer.display = pointer.line != null ? `${fileName}:${pointer.line}` : fileName;
+    const fileName =
+      pointer.file.replace(/\\/g, "/").split("/").pop() ?? pointer.file;
+    pointer.selector =
+      pointer.line == null ? pointer.file : `${pointer.file}:${pointer.line}`;
+    pointer.display =
+      pointer.line == null ? fileName : `${fileName}:${pointer.line}`;
   } else if (pointer.component) {
     pointer.selector = pointer.component;
     pointer.display = pointer.component;
@@ -363,9 +389,10 @@ export function buildSourcePointer(element: Element): SourcePointer {
     pointer.selector = pointer.functionName;
     pointer.display = pointer.functionName;
   } else if (testIdResult) {
-    pointer.selector = testIdResult.attr === "id"
-      ? `#${testIdResult.value}`
-      : `[${testIdResult.attr}="${testIdResult.value}"]`;
+    pointer.selector =
+      testIdResult.attr === "id"
+        ? `#${testIdResult.value}`
+        : `[${testIdResult.attr}="${testIdResult.value}"]`;
     pointer.display = `${testIdResult.attr}:${testIdResult.value}`;
   }
 
@@ -382,18 +409,22 @@ export function buildSourcePointer(element: Element): SourcePointer {
 // Minimal VLQ base64 decoder. Each base64 char is: 1 continuation bit (MSB)
 // + 5 data bits; first char's bit 0 is the sign bit.
 // eslint-disable-next-line no-secrets/no-secrets -- base64 alphabet constant, not a credential
-const VLQ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const VLQ_CHARS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const VLQ_TABLE: Record<number, number> = {};
-for (let i = 0; i < VLQ_CHARS.length; i++) VLQ_TABLE[VLQ_CHARS.charCodeAt(i)] = i;
+for (let i = 0; i < VLQ_CHARS.length; i++)
+  VLQ_TABLE[VLQ_CHARS.charCodeAt(i)] = i;
 
 function vlqDecodeInt(s: string, pos: number): [number, number] {
-  let result = 0, shift = 0, byte = 0;
+  let result = 0,
+    shift = 0,
+    byte = 0;
   do {
     byte = VLQ_TABLE[s.charCodeAt(pos++)] ?? 0;
     result |= (byte & 0x1f) << shift;
     shift += 5;
   } while (byte & 0x20);
-  return [(result & 1) ? -(result >> 1) : (result >> 1), pos];
+  return [result & 1 ? -(result >> 1) : result >> 1, pos];
 }
 
 function vlqDecodeSegment(seg: string): number[] {
@@ -401,7 +432,8 @@ function vlqDecodeSegment(seg: string): number[] {
   let pos = 0;
   while (pos < seg.length) {
     const [n, next] = vlqDecodeInt(seg, pos);
-    out.push(n); pos = next;
+    out.push(n);
+    pos = next;
   }
   return out;
 }
@@ -411,17 +443,30 @@ interface RawSourceMap {
   sources?: string[];
   mappings?: string;
   sourceRoot?: string;
-  sections?: Array<{ offset: { line: number; column: number }; map: RawSourceMap }>;
+  sections?: Array<{
+    offset: { line: number; column: number };
+    map: RawSourceMap;
+  }>;
 }
 
-interface MappingResult { source: string; line: number; col: number; }
+interface MappingResult {
+  source: string;
+  line: number;
+  col: number;
+}
 
 // Walk a flat (non-sectioned) source map to find the original position.
 // srcIdx/srcLine/srcCol state accumulates across ALL segments (never reset).
-function findFlatMapping(map: RawSourceMap, genLine: number, genCol: number): MappingResult | null {
+function findFlatMapping(
+  map: RawSourceMap,
+  genLine: number,
+  genCol: number,
+): MappingResult | null {
   if (!map.mappings || !map.sources) return null;
   const lines = map.mappings.split(";");
-  let srcIdx = 0, srcLine = 0, srcCol = 0;
+  let srcIdx = 0,
+    srcLine = 0,
+    srcCol = 0;
   let best: MappingResult | null = null;
 
   for (let i = 0; i < lines.length; i++) {
@@ -432,9 +477,15 @@ function findFlatMapping(map: RawSourceMap, genLine: number, genCol: number): Ma
       if (d.length < 1) continue;
       genColAcc += d[0];
       if (d.length >= 4) {
-        srcIdx += d[1]; srcLine += d[2]; srcCol += d[3];
+        srcIdx += d[1];
+        srcLine += d[2];
+        srcCol += d[3];
         if (i === genLine && genColAcc <= genCol) {
-          best = { source: map.sources[srcIdx] ?? "", line: srcLine + 1, col: srcCol + 1 };
+          best = {
+            source: map.sources[srcIdx] ?? "",
+            line: srcLine + 1,
+            col: srcCol + 1,
+          };
         }
         if (i === genLine && genColAcc > genCol) break;
       }
@@ -445,11 +496,18 @@ function findFlatMapping(map: RawSourceMap, genLine: number, genCol: number): Ma
 }
 
 // Resolve in a potentially-sectioned source map (Turbopack uses sections).
-function resolveInMap(map: RawSourceMap, genLine: number, genCol: number): MappingResult | null {
+function resolveInMap(
+  map: RawSourceMap,
+  genLine: number,
+  genCol: number,
+): MappingResult | null {
   if (map.sections) {
     let best: (typeof map.sections)[0] | null = null;
     for (const s of map.sections) {
-      if (s.offset.line < genLine || (s.offset.line === genLine && s.offset.column <= genCol)) {
+      if (
+        s.offset.line < genLine ||
+        (s.offset.line === genLine && s.offset.column <= genCol)
+      ) {
         best = s;
       }
     }
@@ -468,7 +526,7 @@ function fetchSourceMap(chunkUrl: string): Promise<RawSourceMap | null> {
   let p = smCache.get(chunkUrl);
   if (!p) {
     p = fetch(`${chunkUrl}.map`)
-      .then(r => (r.ok ? r.json() as Promise<RawSourceMap> : null))
+      .then((r) => (r.ok ? (r.json() as Promise<RawSourceMap>) : null))
       .catch(() => null);
     smCache.set(chunkUrl, p);
   }
@@ -476,16 +534,23 @@ function fetchSourceMap(chunkUrl: string): Promise<RawSourceMap | null> {
 }
 
 // Patterns that identify non-user frames in _debugStack (bundler/React internals).
-const SKIP_FRAME_RE = /node_modules|_next\/dist|react-stack-top-frame|jsxDEV|react_stack_bottom_frame|fakeJSXCallSite|initializeElement/;
+const SKIP_FRAME_RE =
+  /node_modules|_next\/dist|react-stack-top-frame|jsxDEV|react_stack_bottom_frame|fakeJSXCallSite|initializeElement/;
 
 // Extract the first user-land frame from a React _debugStack.stack string.
-function parseUserFrame(stack: string): { chunkUrl: string; line: number; col: number } | null {
+function parseUserFrame(
+  stack: string,
+): { chunkUrl: string; line: number; col: number } | null {
   for (const line of stack.split("\n")) {
     const m = line.match(/at [^(]+ \((https?:\/\/[^)]+):(\d+):(\d+)\)/);
     if (!m) continue;
     const [, url, lineStr, colStr] = m;
     if (!SKIP_FRAME_RE.test(url)) {
-      return { chunkUrl: url, line: parseInt(lineStr, 10), col: parseInt(colStr, 10) };
+      return {
+        chunkUrl: url,
+        line: parseInt(lineStr, 10),
+        col: parseInt(colStr, 10),
+      };
     }
   }
   return null;
@@ -494,10 +559,11 @@ function parseUserFrame(stack: string): { chunkUrl: string; line: number; col: n
 // Get the _debugStack string from the element's immediate React fiber.
 function getDebugStackStr(el: Element): string | null {
   const fiberKey = Object.keys(el).find(
-    k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
+    (k) =>
+      k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
   );
   if (!fiberKey) return null;
-   
+
   const fiber = (el as any)[fiberKey];
   return (fiber?._debugStack as { stack?: string } | undefined)?.stack ?? null;
 }
@@ -508,13 +574,14 @@ function getDebugStackStr(el: Element): string | null {
 // e.g. "http://localhost:5173/src/Button.tsx?v=abc" → "/src/Button.tsx"
 function cleanSourcePath(raw: string): string {
   return raw
-    .replace(/\?.*$/, "")                      // strip Vite ?v=hash query first
-    .replace(/^https?:\/\/[^/]+\/@fs/, "")    // Vite @fs virtual route (absolute path)
-    .replace(/^https?:\/\/[^/]+/, "")          // strip http://host → relative URL path
-    .replace(/^file:\/\/\/app\//, "")          // docker container absolute
-    .replace(/^file:\/\/\//, "")               // generic absolute file URL
-    .replace(/\[project\]\//g, "")             // Turbopack virtual prefix
-    .replace(/%28/g, "(").replace(/%29/g, ")") // URL-decode parens
+    .replace(/\?.*$/, "") // strip Vite ?v=hash query first
+    .replace(/^https?:\/\/[^/]+\/@fs/, "") // Vite @fs virtual route (absolute path)
+    .replace(/^https?:\/\/[^/]+/, "") // strip http://host → relative URL path
+    .replace(/^file:\/\/\/app\//, "") // docker container absolute
+    .replace(/^file:\/\/\//, "") // generic absolute file URL
+    .replace(/\[project\]\//g, "") // Turbopack virtual prefix
+    .replace(/%28/g, "(")
+    .replace(/%29/g, ")") // URL-decode parens
     .replace(/%20/g, " ");
 }
 
@@ -534,7 +601,8 @@ function cleanSourcePath(raw: string): string {
 // Matches .ts/.tsx/.js/.jsx/.mts/.mjs extensions with optional Vite ?v=hash query.
 const DIRECT_SRC_EXT_RE = /\.m?[tj]sx?(\?[^)]*)?$/;
 // Patterns that identify bundled output files (not individual source modules).
-const BUNDLE_CHUNK_RE = /chunk[-_.][0-9a-f]{6,}|\.chunk\.[0-9a-f]|webpack|_next\/(?:static\/chunks|dist)|rollup/i;
+const BUNDLE_CHUNK_RE =
+  /chunk[-_.][0-9a-f]{6,}|\.chunk\.[0-9a-f]|webpack|_next\/(?:static\/chunks|dist)|rollup/i;
 
 /**
  * Returns true when `url` points to an individual source module (not a bundle).
@@ -562,7 +630,10 @@ export function captureV8CallSites(err: Error): V8CallSite[] | null {
       captured = sites;
       // Return a readable string so .stack is cached as a string, not an array.
       return sites
-        .map(s => `    at ${s.getFunctionName() ?? "<anonymous>"} (${s.getFileName()}:${s.getLineNumber()}:${s.getColumnNumber()})`)
+        .map(
+          (s) =>
+            `    at ${s.getFunctionName() ?? "<anonymous>"} (${s.getFileName()}:${s.getLineNumber()}:${s.getColumnNumber()})`,
+        )
         .join("\n");
     };
     // Accessing .stack triggers the hook only if it hasn't been computed yet.
@@ -578,7 +649,8 @@ export function captureV8CallSites(err: Error): V8CallSite[] | null {
 // accessing .stack (preserves V8 lazy-compute window for captureV8CallSites).
 function getDebugStackError(el: Element): Error | null {
   const fiberKey = Object.keys(el).find(
-    k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
+    (k) =>
+      k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"),
   );
   if (!fiberKey) return null;
   const fiber = (el as any)[fiberKey];
@@ -615,9 +687,10 @@ export function resolveDirectSourceFromStack(
   }
 
   // String fallback: parse .stack for direct source URLs (all browsers).
-  const stack = typeof (stackErr as any).stack === "string"
-    ? (stackErr as any).stack as string
-    : null;
+  const stack =
+    typeof (stackErr as any).stack === "string"
+      ? ((stackErr as any).stack as string)
+      : null;
   if (!stack) return null;
 
   for (const raw of stack.split("\n")) {
@@ -653,13 +726,19 @@ export async function resolveSourceFromStack(
   // Source maps use 0-indexed lines/cols; stack traces use 1-indexed.
   const mapped = resolveInMap(map, frame.line - 1, frame.col - 1);
   if (!mapped) return null;
-  return { file: cleanSourcePath(mapped.source), line: mapped.line, col: mapped.col };
+  return {
+    file: cleanSourcePath(mapped.source),
+    line: mapped.line,
+    col: mapped.col,
+  };
 }
 
 // Async variant of buildSourcePointer that enriches the sync result with Tier 2b
 // (direct unbundled source) and Tier 2 (source map fetch) when Tier 1 didn't
 // yield a file/line.
-export async function buildSourcePointerAsync(element: Element): Promise<SourcePointer> {
+export async function buildSourcePointerAsync(
+  element: Element,
+): Promise<SourcePointer> {
   const pointer = buildSourcePointer(element);
   if (pointer.file) return pointer; // Tier 1 already had data
 
@@ -671,7 +750,8 @@ export async function buildSourcePointerAsync(element: Element): Promise<SourceP
     pointer.file = direct.file;
     pointer.line = direct.line;
     pointer.col = direct.col;
-    const fileName = direct.file.replace(/\\/g, "/").split("/").pop() ?? direct.file;
+    const fileName =
+      direct.file.replace(/\\/g, "/").split("/").pop() ?? direct.file;
     pointer.selector = `${direct.file}:${direct.line}`;
     pointer.display = `${fileName}:${direct.line}`;
     return pointer;
@@ -685,7 +765,8 @@ export async function buildSourcePointerAsync(element: Element): Promise<SourceP
   pointer.line = resolved.line;
   pointer.col = resolved.col;
 
-  const fileName = resolved.file.replace(/\\/g, "/").split("/").pop() ?? resolved.file;
+  const fileName =
+    resolved.file.replace(/\\/g, "/").split("/").pop() ?? resolved.file;
   pointer.selector = `${resolved.file}:${resolved.line}`;
   pointer.display = `${fileName}:${resolved.line}`;
 
@@ -711,5 +792,3 @@ export function formatSourcePointerForAgent(p: SourcePointer): string {
   lines.push(`Selector: ${p.selector}`);
   return lines.join("\n");
 }
-
-

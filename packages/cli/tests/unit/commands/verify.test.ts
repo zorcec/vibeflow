@@ -85,7 +85,6 @@ vi.mock("../../../src/core/comments.js", () => ({
 import * as tasksModule from "../../../src/core/tasks.js";
 import * as filesModule from "../../../src/core/files.js";
 import * as commentsModule from "../../../src/core/comments.js";
-import * as fs from "node:fs";
 import { verifyTask, runVerify } from "../../../src/commands/verify.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -122,22 +121,13 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     url: "http://localhost:5173/form",
     author: "alice",
     created: "2026-08-28T22:00:00.000Z",
+    baseline: makeBaseline(),
     ...overrides,
   };
 }
 
 function resetMocks() {
   vi.clearAllMocks();
-  vi.mocked(fs.existsSync).mockImplementation((p) => {
-    // Auth state file does not exist by default — avoids "Auth state corrupted"
-    if (String(p).includes("auth-state")) return false;
-    return true;
-  });
-  vi.mocked(fs.readFileSync).mockImplementation((p) => {
-    if (String(p).includes("baseline.json"))
-      return JSON.stringify(makeBaseline());
-    return JSON.stringify(makeBaseline());
-  });
   vi.mocked(tasksModule.findTaskFilePath).mockReturnValue("/some/path.json");
   vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask());
   vi.mocked(filesModule.saveFile).mockReturnValue(undefined);
@@ -185,11 +175,10 @@ describe("verifyTask — error paths (§9.4)", () => {
     });
   });
 
-  it("throws E_NO_BASELINE when baseline.json does not exist", async () => {
-    vi.mocked(fs.existsSync).mockImplementation((p) => {
-      if (String(p).includes("baseline.json")) return false;
-      return true;
-    });
+  it("throws E_NO_BASELINE when task has no baseline", async () => {
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ baseline: undefined }),
+    );
 
     await expect(verifyTask(tempDir, "test-task-123")).rejects.toMatchObject({
       code: "E_NO_BASELINE",
@@ -197,38 +186,20 @@ describe("verifyTask — error paths (§9.4)", () => {
     });
   });
 
-  it("throws E_BASELINE_CORRUPT when baseline is invalid JSON", async () => {
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (String(p).includes("baseline.json")) return "NOT JSON {{{";
-      return JSON.stringify(makeTask());
-    });
-
-    await expect(verifyTask(tempDir, "test-task-123")).rejects.toMatchObject({
-      code: "E_BASELINE_CORRUPT",
-    });
-  });
-
   it("throws E_AUTH_EXPIRED when auth state is expired", async () => {
     vi.mocked(tasksModule.readTaskFile).mockReturnValue(
-      makeTask({ author: "alice" }),
-    );
-    vi.mocked(fs.existsSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) return true;
-      return true;
-    });
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) {
-        return JSON.stringify({
+      makeTask({
+        author: "alice",
+        authStateEnc: JSON.stringify({
           version: 1,
           createdAt: "2026-01-01T00:00:00.000Z",
           expiresAt: "2026-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
           data: "0000000000000000",
-        });
-      }
-      return JSON.stringify(makeBaseline());
-    });
+        }),
+      }),
+    );
 
     const authModule = await import("../../../src/core/auth.js");
     vi.spyOn(authModule, "decryptAuthState").mockReturnValue(null);
@@ -240,25 +211,18 @@ describe("verifyTask — error paths (§9.4)", () => {
 
   it("throws E_AUTH_CORRUPT when auth state decryption throws", async () => {
     vi.mocked(tasksModule.readTaskFile).mockReturnValue(
-      makeTask({ author: "alice" }),
-    );
-    vi.mocked(fs.existsSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) return true;
-      return true;
-    });
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) {
-        return JSON.stringify({
+      makeTask({
+        author: "alice",
+        authStateEnc: JSON.stringify({
           version: 1,
           createdAt: "2026-08-28T22:00:00.000Z",
           expiresAt: "2099-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
           data: "invalid",
-        });
-      }
-      return JSON.stringify(makeBaseline());
-    });
+        }),
+      }),
+    );
 
     const authModule = await import("../../../src/core/auth.js");
     vi.spyOn(authModule, "decryptAuthState").mockImplementation(() => {
@@ -360,21 +324,18 @@ describe("verifyTask — happy paths", () => {
 
   it("verifies successfully with auth state", async () => {
     vi.mocked(tasksModule.readTaskFile).mockReturnValue(
-      makeTask({ author: "alice" }),
-    );
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) {
-        return JSON.stringify({
+      makeTask({
+        author: "alice",
+        authStateEnc: JSON.stringify({
           version: 1,
           createdAt: "2026-08-28T22:00:00.000Z",
           expiresAt: "2099-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
           data: "0000000000000000",
-        });
-      }
-      return JSON.stringify(makeBaseline());
-    });
+        }),
+      }),
+    );
 
     const authModule = await import("../../../src/core/auth.js");
     vi.spyOn(authModule, "decryptAuthState").mockReturnValue({
@@ -408,12 +369,8 @@ describe("verifyTask — happy paths", () => {
 
   it("verifies successfully without auth state", async () => {
     vi.mocked(tasksModule.readTaskFile).mockReturnValue(
-      makeTask({ author: undefined }),
+      makeTask({ author: undefined, authStateEnc: undefined }),
     );
-    vi.mocked(fs.existsSync).mockImplementation((p) => {
-      if (String(p).includes("auth-state")) return false;
-      return true;
-    });
 
     const result = await verifyTask(tempDir, "test-task-123");
 

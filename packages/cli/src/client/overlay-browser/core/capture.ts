@@ -6,9 +6,11 @@
  * Baseline and auth state are captured automatically when the user annotates an element.
  */
 
-import type { DomSnapshot } from "./types.js";
+import type { DomSnapshot, ProtoConfig } from "./types.js";
 import { captureAuthState } from "./auth.js";
 import { state } from "../state.js";
+
+declare const PROTO_CONFIG: ProtoConfig;
 
 // ── Send baseline to CLI server ──────────────────────────────────────────────
 
@@ -24,30 +26,25 @@ export async function sendBaselineToServer(
   baseline: DomSnapshot,
 ): Promise<void> {
   try {
-    // SAFETY: __PROTO_CONFIG is injected at runtime by the CLI server as a global variable.
-    const rawConfig = (window as unknown as Record<string, unknown>)
-      .__PROTO_CONFIG as unknown;
-    // SAFETY: narrows to the known PROTO_CONFIG shape used throughout the overlay (see api.ts).
-    const protoConfig = rawConfig as
-      | { boardId?: string; apiUrl?: string; overlayApiKey?: string }
-      | undefined;
+    // Use PROTO_CONFIG global set by the overlay injection script (same as api.ts).
+    const cfg = PROTO_CONFIG;
 
     // Construct the baseline API URL from the base API URL
     let apiUrl = `/api/tasks/${taskId}/baseline`;
-    if (protoConfig?.apiUrl) {
+    if (cfg?.apiUrl) {
       // Extract the base URL (origin + port) from the API URL
-      const baseUrl = protoConfig.apiUrl.replace(/\/api\/(overlay\/)?tasks$/, "");
+      const baseUrl = cfg.apiUrl.replace(/\/api\/(overlay\/)?tasks$/, "");
       apiUrl = `${baseUrl}/api/tasks/${taskId}/baseline`;
     }
-    if (protoConfig?.boardId) {
-      apiUrl += `?boardId=${encodeURIComponent(protoConfig.boardId)}`;
+    if (cfg?.boardId) {
+      apiUrl += `?boardId=${encodeURIComponent(cfg.boardId)}`;
     }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (protoConfig?.overlayApiKey) {
-      headers["X-Overlay-Api-Key"] = protoConfig.overlayApiKey;
+    if (cfg?.overlayApiKey) {
+      headers["X-Overlay-Api-Key"] = cfg.overlayApiKey;
     }
 
     await fetch(apiUrl, {
@@ -78,28 +75,25 @@ export async function captureAndStoreAuthState(
   const authState = captureAuthState();
 
   try {
-    // SAFETY: __PROTO_CONFIG is a global set by the overlay injection script — same pattern as api.ts
-    const protoConfig = (window as unknown as Record<string, unknown>)
-      .__PROTO_CONFIG as
-      | { boardId?: string; apiUrl?: string; overlayApiKey?: string }
-      | undefined;
+    // Use PROTO_CONFIG global set by the overlay injection script (same as api.ts).
+    const cfg = PROTO_CONFIG;
 
     // Construct the auth-state API URL from the base API URL
     let apiUrl = `/api/tasks/${taskId}/auth-state`;
-    if (protoConfig?.apiUrl) {
+    if (cfg?.apiUrl) {
       // Extract the base URL (origin + port) from the API URL
-      const baseUrl = protoConfig.apiUrl.replace(/\/api\/(overlay\/)?tasks$/, "");
+      const baseUrl = cfg.apiUrl.replace(/\/api\/(overlay\/)?tasks$/, "");
       apiUrl = `${baseUrl}/api/tasks/${taskId}/auth-state`;
     }
-    if (protoConfig?.boardId) {
-      apiUrl += `?boardId=${encodeURIComponent(protoConfig.boardId)}`;
+    if (cfg?.boardId) {
+      apiUrl += `?boardId=${encodeURIComponent(cfg.boardId)}`;
     }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (protoConfig?.overlayApiKey) {
-      headers["X-Overlay-Api-Key"] = protoConfig.overlayApiKey;
+    if (cfg?.overlayApiKey) {
+      headers["X-Overlay-Api-Key"] = cfg.overlayApiKey;
     }
 
     await fetch(apiUrl, {

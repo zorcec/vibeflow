@@ -1,8 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createTask, findTaskFilePath, readTaskFile } from "../../src/core/tasks.js";
+import {
+  createTask,
+  findTaskFilePath,
+  readTaskFile,
+} from "../../src/core/tasks.js";
 import { encryptAuthState, decryptAuthState } from "../../src/core/auth.js";
 import { PROTO_DIR, FILES_DIR } from "../../src/core/types.js";
 
@@ -26,7 +37,8 @@ describe("verification flow — end to end", () => {
       description: "The submit button should be blue, not red",
       status: "todo",
       selector: "#kanban-board",
-      cssSelector: "#kanban-board > section.board-column:nth-child(2) > div.column-scroll:nth-child(2)",
+      cssSelector:
+        "#kanban-board > section.board-column:nth-child(2) > div.column-scroll:nth-child(2)",
       url: "/kanban",
     });
 
@@ -74,8 +86,16 @@ describe("verification flow — end to end", () => {
     };
 
     // 3. Store baseline (simulating API call)
-    const baselinePath = join(tempDir, PROTO_DIR, FILES_DIR, task.id, "baseline.json");
-    mkdirSync(join(tempDir, PROTO_DIR, FILES_DIR, task.id), { recursive: true });
+    const baselinePath = join(
+      tempDir,
+      PROTO_DIR,
+      FILES_DIR,
+      task.id,
+      "baseline.json",
+    );
+    mkdirSync(join(tempDir, PROTO_DIR, FILES_DIR, task.id), {
+      recursive: true,
+    });
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     // 4. Verify baseline was stored
@@ -119,7 +139,9 @@ describe("verification flow — end to end", () => {
     const encrypted = encryptAuthState(authState, "test-author");
     const authStatePath = join(tempDir, PROTO_DIR, `auth-state.${task.id}.enc`);
     mkdirSync(join(tempDir, PROTO_DIR), { recursive: true });
-    writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+    writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), {
+      mode: 0o600,
+    });
 
     // 4. Verify auth state was stored
     expect(existsSync(authStatePath)).toBe(true);
@@ -150,7 +172,8 @@ describe("verification flow — end to end", () => {
 
     // 2. Capture baseline
     const baseline = {
-      outerHTML: '<button class="submit-btn" style="background: red">Submit</button>',
+      outerHTML:
+        '<button class="submit-btn" style="background: red">Submit</button>',
       computedStyles: { "background-color": "#EF4444", color: "#FFFFFF" },
       selector: ".submit-btn",
       position: {
@@ -164,20 +187,41 @@ describe("verification flow — end to end", () => {
       capturedAt: new Date().toISOString(),
     };
 
-    const baselinePath = join(tempDir, PROTO_DIR, FILES_DIR, task.id, "baseline.json");
-    mkdirSync(join(tempDir, PROTO_DIR, FILES_DIR, task.id), { recursive: true });
+    const baselinePath = join(
+      tempDir,
+      PROTO_DIR,
+      FILES_DIR,
+      task.id,
+      "baseline.json",
+    );
+    mkdirSync(join(tempDir, PROTO_DIR, FILES_DIR, task.id), {
+      recursive: true,
+    });
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     // 3. Capture auth state
     const authState = {
-      cookies: [{ name: "session", value: "abc123", domain: "localhost", path: "/", expires: Date.now() + 86400000, httpOnly: false, secure: false, sameSite: "Lax" as const }],
+      cookies: [
+        {
+          name: "session",
+          value: "abc123",
+          domain: "localhost",
+          path: "/",
+          expires: Date.now() + 86400000,
+          httpOnly: false,
+          secure: false,
+          sameSite: "Lax" as const,
+        },
+      ],
       localStorage: { token: "jwt-secret" },
       sessionStorage: {},
     };
 
     const encrypted = encryptAuthState(authState, "test-author");
     const authStatePath = join(tempDir, PROTO_DIR, `auth-state.${task.id}.enc`);
-    writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+    writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), {
+      mode: 0o600,
+    });
 
     // 4. Verify all files exist
     expect(existsSync(baselinePath)).toBe(true);
