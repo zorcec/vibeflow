@@ -16,7 +16,9 @@ vi.mock("node:fs", async () => {
 // ── Mock playwright with proper factory ───────────────────────────────────
 const mockElement = {
   evaluate: vi.fn().mockResolvedValue("<div>test</div>"),
-  boundingBox: vi.fn().mockResolvedValue({ x: 100, y: 200, width: 120, height: 40 }),
+  boundingBox: vi
+    .fn()
+    .mockResolvedValue({ x: 100, y: 200, width: 120, height: 40 }),
 };
 const mockLocatorObj = {
   first: vi.fn().mockReturnValue(mockElement),
@@ -31,8 +33,11 @@ const mockPage = {
   evaluate: vi.fn().mockImplementation((fn: Function) => {
     try {
       const result = fn({
-        scrollX: 0, scrollY: 0,
-        innerWidth: 1280, innerHeight: 720, devicePixelRatio: 2,
+        scrollX: 0,
+        scrollY: 0,
+        innerWidth: 1280,
+        innerHeight: 720,
+        devicePixelRatio: 2,
         localStorage: { setItem: vi.fn() },
         sessionStorage: { setItem: vi.fn() },
       });
@@ -65,9 +70,11 @@ vi.mock("../../../src/core/tasks.js", () => ({
 
 vi.mock("../../../src/core/files.js", () => ({
   saveFile: vi.fn(),
-  getFilesDir: vi.fn().mockImplementation((projectDir: string, taskId: string) =>
-    join(projectDir, ".vibeflow", "tasks", "files", taskId),
-  ),
+  getFilesDir: vi
+    .fn()
+    .mockImplementation((projectDir: string, taskId: string) =>
+      join(projectDir, ".vibeflow", "tasks", "files", taskId),
+    ),
 }));
 
 vi.mock("../../../src/core/comments.js", () => ({
@@ -127,7 +134,8 @@ function resetMocks() {
     return true;
   });
   vi.mocked(fs.readFileSync).mockImplementation((p) => {
-    if (String(p).includes("baseline.json")) return JSON.stringify(makeBaseline());
+    if (String(p).includes("baseline.json"))
+      return JSON.stringify(makeBaseline());
     return JSON.stringify(makeBaseline());
   });
   vi.mocked(tasksModule.findTaskFilePath).mockReturnValue("/some/path.json");
@@ -138,7 +146,12 @@ function resetMocks() {
   mockPage.waitForSelector.mockResolvedValue(undefined);
   mockLocatorObj.count.mockResolvedValue(1);
   mockElement.evaluate.mockResolvedValue("<div>test</div>");
-  mockElement.boundingBox.mockResolvedValue({ x: 100, y: 200, width: 120, height: 40 });
+  mockElement.boundingBox.mockResolvedValue({
+    x: 100,
+    y: 200,
+    width: 120,
+    height: 40,
+  });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -196,7 +209,9 @@ describe("verifyTask — error paths (§9.4)", () => {
   });
 
   it("throws E_AUTH_EXPIRED when auth state is expired", async () => {
-    vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask({ author: "alice" }));
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ author: "alice" }),
+    );
     vi.mocked(fs.existsSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) return true;
       return true;
@@ -204,7 +219,8 @@ describe("verifyTask — error paths (§9.4)", () => {
     vi.mocked(fs.readFileSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) {
         return JSON.stringify({
-          version: 1, createdAt: "2026-01-01T00:00:00.000Z",
+          version: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
           expiresAt: "2026-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
@@ -223,7 +239,9 @@ describe("verifyTask — error paths (§9.4)", () => {
   });
 
   it("throws E_AUTH_CORRUPT when auth state decryption throws", async () => {
-    vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask({ author: "alice" }));
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ author: "alice" }),
+    );
     vi.mocked(fs.existsSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) return true;
       return true;
@@ -231,7 +249,8 @@ describe("verifyTask — error paths (§9.4)", () => {
     vi.mocked(fs.readFileSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) {
         return JSON.stringify({
-          version: 1, createdAt: "2026-08-28T22:00:00.000Z",
+          version: 1,
+          createdAt: "2026-08-28T22:00:00.000Z",
           expiresAt: "2099-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
@@ -252,7 +271,9 @@ describe("verifyTask — error paths (§9.4)", () => {
   });
 
   it("throws E_NO_URL when task has no URL and no --url override", async () => {
-    vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask({ url: undefined }));
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ url: undefined }),
+    );
 
     await expect(verifyTask(tempDir, "test-task-123")).rejects.toMatchObject({
       code: "E_NO_URL",
@@ -282,7 +303,9 @@ describe("verifyTask — error paths (§9.4)", () => {
 
   it("throws E_PLAYWRIGHT_CRASH when browser launch fails", async () => {
     const pw = await import("playwright");
-    vi.mocked(pw.chromium.launch).mockRejectedValue(new Error("Browser crashed"));
+    vi.mocked(pw.chromium.launch).mockRejectedValue(
+      new Error("Browser crashed"),
+    );
 
     await expect(verifyTask(tempDir, "test-task-123")).rejects.toMatchObject({
       code: "E_PLAYWRIGHT_CRASH",
@@ -336,11 +359,14 @@ describe("verifyTask — happy paths", () => {
   });
 
   it("verifies successfully with auth state", async () => {
-    vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask({ author: "alice" }));
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ author: "alice" }),
+    );
     vi.mocked(fs.readFileSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) {
         return JSON.stringify({
-          version: 1, createdAt: "2026-08-28T22:00:00.000Z",
+          version: 1,
+          createdAt: "2026-08-28T22:00:00.000Z",
           expiresAt: "2099-01-01T00:00:00.000Z",
           iv: "00000000000000000000000000000000",
           tag: "00000000000000000000000000000000",
@@ -352,7 +378,18 @@ describe("verifyTask — happy paths", () => {
 
     const authModule = await import("../../../src/core/auth.js");
     vi.spyOn(authModule, "decryptAuthState").mockReturnValue({
-      cookies: [{ name: "session", value: "abc", domain: "localhost", path: "/", expires: -1, httpOnly: false, secure: false, sameSite: "Lax" }],
+      cookies: [
+        {
+          name: "session",
+          value: "abc",
+          domain: "localhost",
+          path: "/",
+          expires: -1,
+          httpOnly: false,
+          secure: false,
+          sameSite: "Lax",
+        },
+      ],
       localStorage: { token: "jwt" },
       sessionStorage: {},
     });
@@ -370,7 +407,9 @@ describe("verifyTask — happy paths", () => {
   });
 
   it("verifies successfully without auth state", async () => {
-    vi.mocked(tasksModule.readTaskFile).mockReturnValue(makeTask({ author: undefined }));
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ author: undefined }),
+    );
     vi.mocked(fs.existsSync).mockImplementation((p) => {
       if (String(p).includes("auth-state")) return false;
       return true;
@@ -399,7 +438,9 @@ describe("verifyTask — happy paths", () => {
   });
 
   it("returns selectorResolves: false when element not found", async () => {
-    mockPage.waitForSelector.mockRejectedValue(new Error("Timeout 10000ms exceeded"));
+    mockPage.waitForSelector.mockRejectedValue(
+      new Error("Timeout 10000ms exceeded"),
+    );
 
     const result = await verifyTask(tempDir, "test-task-123");
 
@@ -545,7 +586,9 @@ describe("runVerify — CLI entry point", () => {
     vi.mocked(tasksModule.findTaskFilePath).mockReturnValue(null);
 
     const originalExitCode = process.exitCode;
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     await runVerify(tempDir, "nonexistent", {});
 
@@ -558,7 +601,9 @@ describe("runVerify — CLI entry point", () => {
   it("outputs JSON error to stderr when --json and error occurs", async () => {
     vi.mocked(tasksModule.findTaskFilePath).mockReturnValue(null);
 
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     await runVerify(tempDir, "nonexistent", { json: true });
 
@@ -587,9 +632,15 @@ describe("verifyTask — evidence storage", () => {
     const result = await verifyTask(tempDir, "test-task-123");
 
     expect(result.evidenceFiles).toHaveLength(3);
-    expect(result.evidenceFiles.some((f) => f.includes("verify-after.json"))).toBe(true);
-    expect(result.evidenceFiles.some((f) => f.includes("verify-diff.json"))).toBe(true);
-    expect(result.evidenceFiles.some((f) => f.includes("verify-console.txt"))).toBe(true);
+    expect(
+      result.evidenceFiles.some((f) => f.includes("verify-after.json")),
+    ).toBe(true);
+    expect(
+      result.evidenceFiles.some((f) => f.includes("verify-diff.json")),
+    ).toBe(true);
+    expect(
+      result.evidenceFiles.some((f) => f.includes("verify-console.txt")),
+    ).toBe(true);
 
     expect(filesModule.saveFile).toHaveBeenCalledTimes(3);
   });
