@@ -22,6 +22,10 @@ export async function captureAndStoreBaseline(
    taskId: string,
    selector: string,
 ): Promise<void> {
+   // Skip baseline capture for invalid or placeholder selectors
+   if (!selector || selector === '/' || selector === 'body' || selector === 'html') {
+      return;
+   }
    try {
       const el = document.querySelector(selector) as HTMLElement | null;
       if (!el) {

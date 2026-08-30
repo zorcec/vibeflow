@@ -49,9 +49,12 @@ export interface V8CallSite {
 // Max depth: 6 levels. Excludes hashed class names. See spec §7.
 
 // Data attributes treated as stable unique identifiers (in priority order).
+// Note: data-task-id is excluded because it references task cards that may not
+// exist when the new task's baseline is captured (the selector would point to
+// a different task's card, not the annotated element).
 const STABLE_DATA_ATTRS = [
   "data-testid", "data-test", "data-cy", "data-test-id",
-  "data-task-id", "data-id",
+  "data-id",
 ];
 
 export function buildCssSelector(element: Element): string {
