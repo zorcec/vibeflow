@@ -20,6 +20,7 @@ import {
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
+import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 
 type ViewMode = "board" | "list";
 
@@ -983,6 +984,10 @@ export function App() {
         draft as Parameters<typeof api.createTask>[0],
       );
       await loadTasks();
+      // Capture baseline for the annotated element (fire-and-forget)
+      if (result?.task?.id && draft.selector) {
+        void captureAndStoreBaseline(result.task.id, draft.selector);
+      }
       return result?.task?.id;
     } catch {}
   }
