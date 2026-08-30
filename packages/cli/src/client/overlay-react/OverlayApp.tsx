@@ -6,11 +6,8 @@ import type { TaskType } from "../shared/task-types.js";
 import { getRecordedLogs } from "../overlay-browser/error-recorder.js";
 import { state } from "../overlay-browser/state.js";
 import { clampTriggerPos } from "./trigger-pos.js";
-import { captureDomSnapshot } from "../overlay-browser/core/baseline.js";
-import {
-  sendBaselineToServer,
-  captureAndStoreAuthState,
-} from "../overlay-browser/core/capture.js";
+import { captureAndStoreAuthState } from "../overlay-browser/core/capture.js";
+import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -567,20 +564,14 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
     // Capture baseline + auth state automatically at annotation time
     if (result.success && result.taskId) {
       const selector = opts.selector ?? location.pathname;
-      const cssSelector = opts.cssSelector ?? location.pathname;
-      const el = document.querySelector(selector) as HTMLElement | null;
-      if (el) {
-        const snapshot = captureDomSnapshot(
-          el,
-          cssSelector,
-          getRecordedLogs() ? ["console errors attached"] : [],
-        );
-        // Send baseline to server (fire-and-forget)
-        void sendBaselineToServer(result.taskId, snapshot);
-        // Capture and send auth state (fire-and-forget)
-        // Use task author from server response, fallback to "unknown"
-        void captureAndStoreAuthState(result.taskId, result.taskAuthor ?? "unknown");
-      }
+      // Capture baseline (fire-and-forget)
+      void captureAndStoreBaseline(result.taskId, selector);
+      // Capture and send auth state (fire-and-forget)
+      // Use task author from server response, fallback to "unknown"
+      void captureAndStoreAuthState(
+        result.taskId,
+        result.taskAuthor ?? "unknown",
+      );
     }
     onClose();
   }
