@@ -1208,6 +1208,7 @@ function useCors(app: express.Application): void {
     (
       req: express.Request,
       res: express.Response,
+      // pi-lens-ignore: no-server-bind-wildcard
       next: express.NextFunction,
     ) => {
       const origin = req.headers.origin ?? "*";

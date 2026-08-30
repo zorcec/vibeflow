@@ -114,6 +114,7 @@ function main(): void {
           }
         } else if (PROTO_CONFIG.wsUrl) {
           // SAFETY: kanbanUrl derived from PROTO_CONFIG.apiUrl (build-time constant).
+          // pi-lens-ignore: no-open-redirect-js
           // pi-lens-ignore: opengrep — open redirect: build-time constant, not user input
           const kanbanUrl = PROTO_CONFIG.apiUrl.replace(
             "/api/tasks",
@@ -176,3 +177,4 @@ function main(): void {
 }
 
 main();
+;

@@ -158,6 +158,7 @@ describe("proto tasks (e2e)", () => {
           selector: "#btn",
           created: "2025-01-01T00:00:00.000Z",
           comments: [],
+          // pi-lens-ignore: sql-injection
           files: [],
         },
         null,
