@@ -1,7 +1,7 @@
-import React from 'react';
-import { X, Download, FileText } from 'lucide-react';
-import { MarkdownPreview } from '../../MarkdownPreview';
-import { ModalBase } from './ModalBase';
+import React from "react";
+import { X, Download, FileText } from "lucide-react";
+import { MarkdownPreview } from "../../MarkdownPreview";
+import { ModalBase } from "./ModalBase";
 
 interface Props {
   open: boolean;
@@ -20,7 +20,10 @@ function isJson(name: string) {
   return /\.json$/i.test(name);
 }
 
-type JsonToken = { type: 'key' | 'string' | 'number' | 'bool' | 'null' | 'punct'; value: string };
+type JsonToken = {
+  type: "key" | "string" | "number" | "bool" | "null" | "punct";
+  value: string;
+};
 type TokenizedLine = JsonToken[];
 
 /** Tokenize a single line of formatted JSON for React rendering. */
@@ -30,53 +33,79 @@ function tokenizeLine(line: string): TokenizedLine {
   while (i < line.length) {
     // Whitespace
     const wsMatch = line.slice(i).match(/^(\s+)/);
-    if (wsMatch) { tokens.push({ type: 'punct', value: wsMatch[1] }); i += wsMatch[1].length; continue; }
+    if (wsMatch) {
+      tokens.push({ type: "punct", value: wsMatch[1] });
+      i += wsMatch[1].length;
+      continue;
+    }
     // Punctuation
     const punctMatch = line.slice(i).match(/^([{}[\]:,])/);
-    if (punctMatch) { tokens.push({ type: 'punct', value: punctMatch[1] }); i += 1; continue; }
+    if (punctMatch) {
+      tokens.push({ type: "punct", value: punctMatch[1] });
+      i += 1;
+      continue;
+    }
     // String (key or value)
     const strMatch = line.slice(i).match(/^"([^"\\]|\\.)*"/);
     if (strMatch) {
       const raw = strMatch[0];
-      const isKey = line[i + raw.length] === ':';
+      const isKey = line[i + raw.length] === ":";
       // Strip quotes for display
       const inner = raw.slice(1, -1);
       // Escape HTML entities for React text rendering
-      const escaped = inner.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      tokens.push({ type: isKey ? 'key' : 'string', value: escaped });
+      const escaped = inner
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+      tokens.push({ type: isKey ? "key" : "string", value: escaped });
       i += raw.length;
       continue;
     }
     // Number
     const numMatch = line.slice(i).match(/^(-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/);
-    if (numMatch) { tokens.push({ type: 'number', value: numMatch[1] }); i += numMatch[1].length; continue; }
+    if (numMatch) {
+      tokens.push({ type: "number", value: numMatch[1] });
+      i += numMatch[1].length;
+      continue;
+    }
     // Boolean
     const boolMatch = line.slice(i).match(/^(true|false)/);
-    if (boolMatch) { tokens.push({ type: 'bool', value: boolMatch[1] }); i += boolMatch[1].length; continue; }
+    if (boolMatch) {
+      tokens.push({ type: "bool", value: boolMatch[1] });
+      i += boolMatch[1].length;
+      continue;
+    }
     // Null
     const nullMatch = line.slice(i).match(/^(null)/);
-    if (nullMatch) { tokens.push({ type: 'null', value: nullMatch[1] }); i += 1; continue; }
+    if (nullMatch) {
+      tokens.push({ type: "null", value: nullMatch[1] });
+      i += 1;
+      continue;
+    }
     // Fallback: single char
-    tokens.push({ type: 'punct', value: line[i] });
+    tokens.push({ type: "punct", value: line[i] });
     i++;
   }
   return tokens;
 }
 
-const TOKEN_STYLES: Record<JsonToken['type'], React.CSSProperties> = {
-  key: { color: '#c084fc' },
-  string: { color: '#86efac' },
-  number: { color: '#67e8f9' },
-  bool: { color: '#fb923c' },
-  null: { color: '#f87171' },
-  punct: { color: 'inherit' },
+const TOKEN_STYLES: Record<JsonToken["type"], React.CSSProperties> = {
+  key: { color: "#c084fc" },
+  string: { color: "#86efac" },
+  number: { color: "#67e8f9" },
+  bool: { color: "#fb923c" },
+  null: { color: "#f87171" },
+  punct: { color: "inherit" },
 };
 
 function JsonLine({ tokens }: { tokens: TokenizedLine }) {
   return (
     <div>
       {tokens.map((tok, i) => (
-        <span key={i} style={TOKEN_STYLES[tok.type]}>{tok.value}</span>
+        <span key={i} style={TOKEN_STYLES[tok.type]}>
+          {tok.value}
+        </span>
       ))}
     </div>
   );
@@ -84,7 +113,9 @@ function JsonLine({ tokens }: { tokens: TokenizedLine }) {
 
 export function FilePreviewModal({ open, name, url, onClose }: Props) {
   const [mdContent, setMdContent] = React.useState<string | null>(null);
-  const [jsonLines, setJsonLines] = React.useState<TokenizedLine[] | null>(null);
+  const [jsonLines, setJsonLines] = React.useState<TokenizedLine[] | null>(
+    null,
+  );
   const [jsonError, setJsonError] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
 
@@ -95,26 +126,35 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       setLoading(true);
       setMdContent(null);
       fetch(url)
-        .then(r => r.text())
-        .then(text => { setMdContent(text); setLoading(false); })
-        .catch(() => { setMdContent('Error loading file.'); setLoading(false); });
+        .then((r) => r.text())
+        .then((text) => {
+          setMdContent(text);
+          setLoading(false);
+        })
+        .catch(() => {
+          setMdContent("Error loading file.");
+          setLoading(false);
+        });
     } else if (isJson(name)) {
       setLoading(true);
       setJsonLines(null);
       fetch(url)
-        .then(r => r.text())
-        .then(text => {
+        .then((r) => r.text())
+        .then((text) => {
           try {
             const parsed = JSON.parse(text);
             const formatted = JSON.stringify(parsed, null, 2);
-            const lines = formatted.split('\n').map(tokenizeLine);
+            const lines = formatted.split("\n").map(tokenizeLine);
             setJsonLines(lines);
           } catch {
             setJsonError(true);
           }
           setLoading(false);
         })
-        .catch(() => { setJsonError(true); setLoading(false); });
+        .catch(() => {
+          setJsonError(true);
+          setLoading(false);
+        });
     } else {
       setMdContent(null);
       setJsonLines(null);
@@ -128,7 +168,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       id="file-preview-modal"
       width="min(1100px, 95vw)"
       maxHeight="88vh"
-      boxStyle={{ display: 'flex', flexDirection: 'column' }}
+      boxStyle={{ display: "flex", flexDirection: "column" }}
       icon={<FileText className="w-4 h-4 text-slate-400" />}
       title={name}
       headerActions={
@@ -171,13 +211,30 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
         </>
       }
     >
-      <div className="flex-1 overflow-auto" style={{ minHeight: 0, padding: '16px 20px' }}>
+      <div
+        className="flex-1 overflow-auto"
+        style={{ minHeight: 0, padding: "16px 20px" }}
+      >
         {isImage(name) && (
-          <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--p-border)', background: 'var(--p-card)', display: 'inline-block', width: '100%' }}>
+          <div
+            style={{
+              borderRadius: 8,
+              overflow: "hidden",
+              border: "1px solid var(--p-border)",
+              background: "var(--p-card)",
+              display: "inline-block",
+              width: "100%",
+            }}
+          >
             <img
               src={url}
               alt={name}
-              style={{ maxWidth: '100%', display: 'block', margin: '0 auto', objectFit: 'contain' }}
+              style={{
+                maxWidth: "100%",
+                display: "block",
+                margin: "0 auto",
+                objectFit: "contain",
+              }}
             />
           </div>
         )}
@@ -187,7 +244,15 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
         {isMarkdown(name) && !loading && mdContent !== null && (
           <div
             id="file-preview-md"
-            style={{ background: 'var(--p-input)', border: '1px solid var(--p-border-s)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--p-text-sub)', lineHeight: 1.65 }}
+            style={{
+              background: "var(--p-input)",
+              border: "1px solid var(--p-border-s)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "var(--p-text-sub)",
+              lineHeight: 1.65,
+            }}
           >
             <MarkdownPreview markdown={mdContent} />
           </div>
@@ -196,22 +261,25 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <p className="text-xs text-slate-500 py-4">Loading…</p>
         )}
         {isJson(name) && !loading && jsonError && (
-          <p className="text-xs text-red-400 py-4">Error loading or parsing JSON file.</p>
+          <p className="text-xs text-red-400 py-4">
+            Error loading or parsing JSON file.
+          </p>
         )}
         {isJson(name) && !loading && jsonLines !== null && (
           <pre
             id="file-preview-json"
             style={{
-              background: 'var(--p-input)',
-              border: '1px solid var(--p-border-s)',
+              background: "var(--p-input)",
+              border: "1px solid var(--p-border-s)",
               borderRadius: 8,
-              padding: '12px 16px',
+              padding: "12px 16px",
               fontSize: 12,
               lineHeight: 1.6,
-              overflow: 'auto',
-              maxHeight: '70vh',
+              overflow: "auto",
+              maxHeight: "70vh",
               margin: 0,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
             }}
           >
             {jsonLines.map((tokens, i) => (
