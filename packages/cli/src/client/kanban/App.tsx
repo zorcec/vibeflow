@@ -861,12 +861,9 @@ export function App() {
     });
     ws.addEventListener("close", () => {
       setWsConnected(false);
-      // Retry WS connection with exponential backoff (max 10s)
+      // Retry WS connection every 2s
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
-      const attempt = wsRetryRef.current ? (wsRetryAttemptRef.current ?? 0) : 0;
-      const delay = Math.min(1500 * 2 ** attempt, 10_000);
-      wsRetryAttemptRef.current = attempt + 1;
-      wsRetryRef.current = setTimeout(connectWs, delay);
+      wsRetryRef.current = setTimeout(connectWs, 2000);
     });
     ws.addEventListener("error", () => {
       // On error, let 'close' handle reconnection
