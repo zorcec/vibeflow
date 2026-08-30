@@ -50,6 +50,7 @@ export const PREFS_KEY = 'vibeflow-studio-prefs';
 export const RECONNECT_BASE = 1000;
 export const RECONNECT_MAX = 30000;
 export const PING_INTERVAL = 25000;
+export const HEALTH_POLL_INTERVAL = 5000;
 
 export const HOVER_CLASS = 'vibeflow-hover-highlight';
 export const ANNOTATE_HIGHLIGHT_CLASS = 'vibeflow-annotate-highlight';

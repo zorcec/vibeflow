@@ -223,6 +223,11 @@ function registerTaskApi(
     });
   });
 
+  // Health check — used by overlay and kanban clients to poll connection status.
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true });
+  });
+
   app.get("/api/tasks", (req, res) => {
     let tasks = listTasks(projectDir);
     const remoteShas = getRemoteCommitShas(projectDir);
