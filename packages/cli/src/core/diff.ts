@@ -1,8 +1,16 @@
 // ── Structural diff engine (§10 — mechanical layer) ───────────────────────
 
-import type { PositionContext, DomSnapshot, DiffResult } from "./verification-types.js";
+import type {
+  PositionContext,
+  DomSnapshot,
+  DiffResult,
+} from "./verification-types.js";
 
-export type { PositionContext, DomSnapshot, DiffResult } from "./verification-types.js";
+export type {
+  PositionContext,
+  DomSnapshot,
+  DiffResult,
+} from "./verification-types.js";
 
 /** Tolerance in pixels for bounding box comparison (sub-pixel jitter). */
 const POSITION_TOLERANCE = 2;

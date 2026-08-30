@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  createTask,
-  listTasks,
-  updateTask,
-} from "../../src/core/tasks.js";
+import { createTask, listTasks, updateTask } from "../../src/core/tasks.js";
 import { canMoveToReview } from "../../src/core/gating.js";
 import { PROTO_DIR, FILES_DIR } from "../../src/core/types.js";
 
