@@ -433,7 +433,9 @@ async function storeEvidence(
     try {
       const screenshot = await page.screenshot({ fullPage: false });
       saveFile(projectDir, taskId, "verify-screenshot.png", screenshot);
-      files.push(join(getFilesDir(projectDir, taskId), "verify-screenshot.png"));
+      files.push(
+        join(getFilesDir(projectDir, taskId), "verify-screenshot.png"),
+      );
     } catch {
       // Capture failed — not fatal
     }
@@ -445,8 +447,15 @@ async function storeEvidence(
           .locator(selector)
           .first()
           .evaluate((el) => el.outerHTML);
-        saveFile(projectDir, taskId, "verify-element.html", Buffer.from(elementHtml));
-        files.push(join(getFilesDir(projectDir, taskId), "verify-element.html"));
+        saveFile(
+          projectDir,
+          taskId,
+          "verify-element.html",
+          Buffer.from(elementHtml),
+        );
+        files.push(
+          join(getFilesDir(projectDir, taskId), "verify-element.html"),
+        );
       } catch {
         // Capture failed — not fatal
       }
@@ -615,7 +624,11 @@ function printResult(result: VerifyResult): void {
     }
   }
   console.log();
-  console.log(chalk.cyan("  Check evidences with available tools, confirm task was implemented correctly."));
+  console.log(
+    chalk.cyan(
+      "  Check evidences with available tools, confirm task was implemented correctly.",
+    ),
+  );
   console.log(chalk.cyan("  If not, move it back to in-progress and debug."));
   console.log();
   if (!result.ok) {
