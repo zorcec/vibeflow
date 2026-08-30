@@ -1208,7 +1208,6 @@ function useCors(app: express.Application): void {
     (
       req: express.Request,
       res: express.Response,
-      // pi-lens-ignore: no-server-bind-wildcard
       next: express.NextFunction,
     ) => {
       const origin = req.headers.origin ?? "*";
@@ -1216,6 +1215,7 @@ function useCors(app: express.Application): void {
       const isLocal =
         /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
         /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin);
+      // pi-lens-ignore: no-server-bind-wildcard
       res.setHeader(
         "Access-Control-Allow-Origin",
         isLocal ? origin : "http://localhost:3700",
