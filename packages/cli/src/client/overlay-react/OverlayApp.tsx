@@ -6,8 +6,11 @@ import type { TaskType } from "../shared/task-types.js";
 import { getRecordedLogs } from "../overlay-browser/error-recorder.js";
 import { state } from "../overlay-browser/state.js";
 import { clampTriggerPos } from "./trigger-pos.js";
-import { captureAndStoreAuthState } from "../overlay-browser/core/capture.js";
-import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
+import {
+  captureAndStoreAuthState,
+  sendBaselineToServer,
+} from "../overlay-browser/core/capture.js";
+import { captureDomSnapshot } from "../overlay-browser/core/baseline.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -563,9 +566,22 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
     );
     // Capture baseline + auth state automatically at annotation time
     if (result.success && result.taskId) {
-      const selector = opts.selector ?? location.pathname;
-      // Capture baseline (fire-and-forget)
-      void captureAndStoreBaseline(result.taskId, selector);
+      // Baseline: resolve an element from the DOM-resolvable cssSelector first;
+      // opts.selector may be a source-pointer identity querySelector can't resolve.
+      // sendBaselineToServer builds an absolute URL from PROTO_CONFIG — required when
+      // the overlay runs cross-origin (relative /api would hit the host app, 404).
+      const baselineSelector = opts.cssSelector ?? opts.selector;
+      const targetEl = baselineSelector
+        ? (document.querySelector(baselineSelector) as HTMLElement | null)
+        : null;
+      if (targetEl && baselineSelector) {
+        try {
+          const snapshot = captureDomSnapshot(targetEl, baselineSelector);
+          void sendBaselineToServer(result.taskId, snapshot);
+        } catch (err) {
+          console.error("[Vibeflow] Failed to capture baseline:", err);
+        }
+      }
       // Capture and send auth state (fire-and-forget)
       // Use task author from server response, fallback to "unknown"
       void captureAndStoreAuthState(

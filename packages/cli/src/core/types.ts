@@ -16,11 +16,11 @@ export interface TaskComment {
   createdAt: string;
   updatedAt?: string;
   /** 'system' entries are auto-generated traces (file removed, comment deleted, etc.). */
-  type?: 'comment' | 'system';
+  type?: "comment" | "system";
   /** True when the original comment was soft-deleted (trace is kept for history). */
   deleted?: boolean;
   /** Origin of the comment: 'cli' for terminal, 'web' for browser UI. */
-  source?: 'cli' | 'web';
+  source?: "cli" | "web";
 }
 
 export interface TaskFileRef {
@@ -77,6 +77,10 @@ export interface Task {
   sortKey?: string;
   /** Git branch name created for this task (when createBranch setting is ON). */
   branchName?: string;
+  /** Baseline DOM snapshot captured at annotation time (§6). */
+  baseline?: import("./verification-types.js").DomSnapshot;
+  /** Encrypted auth state as a JSON string (§7), encrypted with task author's key. */
+  authStateEnc?: string;
 }
 
 export interface ProtoConfig {
@@ -103,9 +107,13 @@ export interface ServeOptions {
   /** @internal Testing only: inject a mock token to simulate SaaS online mode (undefined = read from ~/.vibeflow/token). */
   _testToken?: string | null;
   /** @internal Testing only: inject a mock workspace to simulate SaaS online mode (undefined = read from ~/.vibeflow/workspace). */
-  _testWorkspace?: { id: string; name: string; url: string; icon?: string | null; email?: string | null } | null;
+  _testWorkspace?: {
+    id: string;
+    name: string;
+    url: string;
+    icon?: string | null;
+    email?: string | null;
+  } | null;
   /** When true, suppress the "Press Ctrl+C to stop" hint from server startup output (caller will print it). */
   noCtrlCHint?: boolean;
 }
-
-

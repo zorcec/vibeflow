@@ -23,7 +23,12 @@ export async function captureAndStoreBaseline(
    selector: string,
 ): Promise<void> {
    // Skip baseline capture for invalid or placeholder selectors
-   if (!selector || selector === '/' || selector === 'body' || selector === 'html') {
+   if (
+      !selector ||
+      selector === "/" ||
+      selector === "body" ||
+      selector === "html"
+   ) {
       return;
    }
    try {

@@ -10,14 +10,15 @@ import {
 import { join, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Task, TaskStatus, TaskComment } from "./types.js";
-import {
-  PROTO_DIR,
-  TASKS_DIR,
-  FILES_DIR,
-  SCREENSHOTS_DIR,
-} from "./types.js";
+import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR } from "./types.js";
 import type { FileInfo } from "./files.js";
-const VALID_STATUSES: TaskStatus[] = ["backlog", "todo", "in-progress", "review", "done"];
+const VALID_STATUSES: TaskStatus[] = [
+  "backlog",
+  "todo",
+  "in-progress",
+  "review",
+  "done",
+];
 
 export function generateTaskId(): string {
   // 15 random bytes → 30-char lowercase hex, 120 bits of entropy — essentially zero collision probability
@@ -42,7 +43,11 @@ function migrateLegacyTaskAssetFolders(projectDir: string): void {
       const from = join(legacyFilesDir, entry);
       const to = join(nextFilesDir, entry);
       if (existsSync(to)) continue;
-      try { renameSync(from, to); } catch { /* ignore migration collisions */ }
+      try {
+        renameSync(from, to);
+      } catch {
+        /* ignore migration collisions */
+      }
     }
   }
 
@@ -52,7 +57,11 @@ function migrateLegacyTaskAssetFolders(projectDir: string): void {
       const from = join(legacyScreenshotsDir, entry);
       const to = join(nextScreenshotsDir, entry);
       if (existsSync(to)) continue;
-      try { renameSync(from, to); } catch { /* ignore migration collisions */ }
+      try {
+        renameSync(from, to);
+      } catch {
+        /* ignore migration collisions */
+      }
     }
   }
 }
@@ -75,7 +84,11 @@ function getDateSubdir(isoDate: string): string {
  * When `created` is provided, the file lives in a date subdirectory.
  * Falls back to the flat layout when no date is given (legacy lookup).
  */
-export function getTaskFilePath(projectDir: string, taskId: string, created?: string): string {
+export function getTaskFilePath(
+  projectDir: string,
+  taskId: string,
+  created?: string,
+): string {
   const tasksDir = getTasksDir(projectDir);
   if (created) {
     return join(tasksDir, getDateSubdir(created), `${taskId}.json`);
@@ -105,6 +118,16 @@ export function findTaskFilePath(
   return null;
 }
 
+function normalizeComment(c: Record<string, unknown>): TaskComment {
+  // SAFETY: raw comment JSON objects conform to TaskComment shape after normalization.
+  const raw = c as unknown as TaskComment;
+  return {
+    ...raw,
+    text:
+      (c.text as string | undefined) ?? (c.content as string | undefined) ?? "",
+  };
+}
+
 function normalizeTask(raw: Record<string, unknown>): Task {
   const normalizedType = (() => {
     if (typeof raw.type !== "string") return undefined;
@@ -117,7 +140,9 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     id: String(raw.id ?? ""),
     title: String(raw.title ?? "Untitled"),
     description: String(raw.description ?? ""),
-    status: (VALID_STATUSES.includes(raw.status as TaskStatus) ? raw.status : "todo") as TaskStatus,
+    status: (VALID_STATUSES.includes(raw.status as TaskStatus)
+      ? raw.status
+      : "todo") as TaskStatus,
     url: raw.url ? String(raw.url) : undefined,
     selector: (() => {
       const sel = String(raw.selector ?? "/");
@@ -129,8 +154,10 @@ function normalizeTask(raw: Record<string, unknown>): Task {
       }
       return sel;
     })(),
-    cssSelector: raw.cssSelector && String(raw.cssSelector) !== String(raw.selector ?? "/")
-      ? String(raw.cssSelector) : undefined,
+    cssSelector:
+      raw.cssSelector && String(raw.cssSelector) !== String(raw.selector ?? "/")
+        ? String(raw.cssSelector)
+        : undefined,
     file: raw.file ? String(raw.file) : undefined,
     line: raw.line != null ? Number(raw.line) : undefined,
     col: raw.col != null ? Number(raw.col) : undefined,
@@ -151,31 +178,41 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     created: String(raw.created ?? new Date().toISOString()),
     updated: raw.updated ? String(raw.updated) : undefined,
     comments: Array.isArray(raw.comments)
-      ? (raw.comments as Record<string, unknown>[]).map((c) => ({
-          ...(c as unknown as TaskComment),
-          // Normalize legacy 'content' field → 'text' (some older agent comments used 'content')
-          text: (c.text as string | undefined) ?? (c.content as string | undefined) ?? "",
-        }))
+      ? (raw.comments as Record<string, unknown>[]).map((c) =>
+          normalizeComment(c),
+        )
       : [],
     files: Array.isArray(raw.files)
-      ? (raw.files as Array<Record<string, unknown> | string>).map((f) => {
-          if (typeof f === "string") {
-            return { name: f, addedAt: new Date().toISOString() };
-          }
-          return {
-            name: String(f.name ?? ""),
-            addedAt: String(f.addedAt ?? new Date().toISOString()),
-            linkedPath: f.linkedPath ? String(f.linkedPath) : undefined,
-            mimeType: f.mimeType ? String(f.mimeType) : undefined,
-          };
-        }).filter((f) => f.name)
+      ? (raw.files as Array<Record<string, unknown> | string>)
+          .map((f) => {
+            if (typeof f === "string") {
+              return { name: f, addedAt: new Date().toISOString() };
+            }
+            return {
+              name: String(f.name ?? ""),
+              addedAt: String(f.addedAt ?? new Date().toISOString()),
+              linkedPath: f.linkedPath ? String(f.linkedPath) : undefined,
+              mimeType: f.mimeType ? String(f.mimeType) : undefined,
+            };
+          })
+          .filter((f) => f.name)
       : [],
     screenshot: raw.screenshot ? String(raw.screenshot) : undefined,
-    annotatedElementText: raw.annotatedElementText ? String(raw.annotatedElementText) : undefined,
+    annotatedElementText: raw.annotatedElementText
+      ? String(raw.annotatedElementText)
+      : undefined,
     tags: Array.isArray(raw.tags)
-      ? (raw.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.length > 0)
+      ? (raw.tags as unknown[]).filter(
+          (t): t is string => typeof t === "string" && t.length > 0,
+        )
       : undefined,
     sortKey: raw.sortKey ? String(raw.sortKey) : undefined,
+    branchName: raw.branchName ? String(raw.branchName) : undefined,
+    baseline:
+      raw.baseline && typeof raw.baseline === "object"
+        ? (raw.baseline as import("./verification-types.js").DomSnapshot)
+        : undefined,
+    authStateEnc: raw.authStateEnc ? String(raw.authStateEnc) : undefined,
   };
 }
 
@@ -203,11 +240,16 @@ function writeTaskJson(projectDir: string, task: Task): void {
 export function normalizeEscapeSequences(text: string): string {
   return text.replace(/\\(n|t|r|\\)/g, (_, c: string): string => {
     switch (c) {
-      case 'n': return '\n';
-      case 't': return '\t';
-      case 'r': return '\r';
-      case '\\': return '\\';
-      default: return c;
+      case "n":
+        return "\n";
+      case "t":
+        return "\t";
+      case "r":
+        return "\r";
+      case "\\":
+        return "\\";
+      default:
+        return c;
     }
   });
 }
@@ -253,7 +295,9 @@ export function readTaskFile(filePath: string): Task | null {
   }
 }
 
-function collectTaskFiles(projectDir: string): Array<{ task: Task; filePath: string }> {
+function collectTaskFiles(
+  projectDir: string,
+): Array<{ task: Task; filePath: string }> {
   const tasksDir = getTasksDir(projectDir);
   if (!existsSync(tasksDir)) return [];
 
@@ -284,7 +328,10 @@ export function listTasks(projectDir: string): Task[] {
 export function listTasksWithPaths(
   projectDir: string,
 ): Array<Task & { filePath: string }> {
-  return collectTaskFiles(projectDir).map(({ task, filePath }) => ({ ...task, filePath }));
+  return collectTaskFiles(projectDir).map(({ task, filePath }) => ({
+    ...task,
+    filePath,
+  }));
 }
 
 export function updateTask(
@@ -296,11 +343,22 @@ export function updateTask(
   const task = existingPath ? readTaskFile(existingPath) : null;
   if (!task) return null;
 
-  const updated: Task = { ...task, ...updates, updated: new Date().toISOString() };
+  const updated: Task = {
+    ...task,
+    ...updates,
+    updated: new Date().toISOString(),
+  };
   writeTaskJson(projectDir, updated);
   // If the task moved from flat layout to date-based, remove the old flat file
-  if (existingPath && existingPath !== getTaskFilePath(projectDir, taskId, updated.created)) {
-    try { unlinkSync(existingPath); } catch { /* ignore */ }
+  if (
+    existingPath &&
+    existingPath !== getTaskFilePath(projectDir, taskId, updated.created)
+  ) {
+    try {
+      unlinkSync(existingPath);
+    } catch {
+      /* ignore */
+    }
   }
   return updated;
 }
@@ -390,7 +448,9 @@ export function renderTaskForAgent(
   lines.push(`    file:     ${taskFilePath}`);
   if (task.file) {
     // Stryker disable once StringLiteral: display format for task rendering
-    lines.push(`    source:   ${task.file}${task.line != null ? `:${task.line}` : ""}${task.col != null ? `:${task.col}` : ""}`);
+    lines.push(
+      `    source:   ${task.file}${task.line != null ? `:${task.line}` : ""}${task.col != null ? `:${task.col}` : ""}`,
+    );
   }
   if (task.component) lines.push(`    component: ${task.component}`);
   // Stryker disable once StringLiteral: display format for task rendering
@@ -406,7 +466,9 @@ export function renderTaskForAgent(
       lines.push(`    commits (${task.commits.length}):`);
       for (const c of task.commits) {
         // Stryker disable once StringLiteral: display format for task rendering
-        lines.push(`      ${c.sha.slice(0, 8)}  ${c.timestamp}  ${c.message.slice(0, 60)}`);
+        lines.push(
+          `      ${c.sha.slice(0, 8)}  ${c.timestamp}  ${c.message.slice(0, 60)}`,
+        );
       }
     }
   }
@@ -418,7 +480,8 @@ export function renderTaskForAgent(
   if (task.description) {
     // Stryker disable once StringLiteral: display format for task rendering
     lines.push(`    description:`);
-    for (const line of task.description.split("\n")) lines.push(`      ${line}`);
+    for (const line of task.description.split("\n"))
+      lines.push(`      ${line}`);
   }
   if (task.annotatedElementText) {
     // Stryker disable once StringLiteral: display format for task rendering
@@ -440,16 +503,24 @@ export function renderTaskForAgent(
     for (const f of files) {
       // Stryker disable once StringLiteral: display format for task rendering
       lines.push(`      - ${f.name}  ${f.url}`);
-      const absPath = f.linkedPath ?? join(projectDir, ".vibeflow", "files", task.id, f.name);
-      if (/\.(md|txt)$/i.test(f.name) && f.size < 100_000 && existsSync(absPath)) {
+      const absPath =
+        f.linkedPath ?? join(projectDir, ".vibeflow", "files", task.id, f.name);
+      if (
+        /\.(md|txt)$/i.test(f.name) &&
+        f.size < 100_000 &&
+        existsSync(absPath)
+      ) {
         try {
           const content = readFileSync(absPath, "utf-8");
           // Stryker disable once StringLiteral: display format for task rendering
           lines.push(`        ┌── content ──`);
-          for (const line of content.split("\n")) lines.push(`        │  ${line}`);
+          for (const line of content.split("\n"))
+            lines.push(`        │  ${line}`);
           // Stryker disable once StringLiteral: display format for task rendering
           lines.push(`        └─────────────`);
-        } catch { /* file read failed – show URL only */ }
+        } catch {
+          /* file read failed – show URL only */
+        }
       }
     }
   }
@@ -477,13 +548,21 @@ export function renderAgentInstructions(opts: {
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("Agent instructions (concise):");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  Discover: vibeflow tasks --status todo   |  vibeflow tasks --type Research   |  vibeflow tasks --user <email>  |  vibeflow tasks --tag <tag>");
+  lines.push(
+    "  Discover: vibeflow tasks --status todo   |  vibeflow tasks --type Research   |  vibeflow tasks --user <email>  |  vibeflow tasks --tag <tag>",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  Auto-claim: vibeflow tasks --next  (picks highest-priority todo task and sets it in-progress automatically)");
+  lines.push(
+    "  Auto-claim: vibeflow tasks --next  (picks highest-priority todo task and sets it in-progress automatically)",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  Details:  vibeflow tasks --get <id>  (full task info with comments and files)");
+  lines.push(
+    "  Details:  vibeflow tasks --get <id>  (full task info with comments and files)",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  Create:   vibeflow tasks --add --title \"...\" --description \"...\"");
+  lines.push(
+    '  Create:   vibeflow tasks --add --title "..." --description "..."',
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -492,40 +571,68 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    ⚠ Create a branch FIRST, before any implementation:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    1. git checkout -b <short-name>  (e.g. fix/annotation-errors, feat/eye-toggle, chore/cleanup-extension)");
+    lines.push(
+      "    1. git checkout -b <short-name>  (e.g. fix/annotation-errors, feat/eye-toggle, chore/cleanup-extension)",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("       Branch name rules: lowercase, kebab-case, 2-5 words, prefix fix/feat/chore/docs.");
+    lines.push(
+      "       Branch name rules: lowercase, kebab-case, 2-5 words, prefix fix/feat/chore/docs.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("       Describe the WORK done (not dates). Bad: agent/2026-04-16. Good: fix/bug-errors-visibility.");
+    lines.push(
+      "       Describe the WORK done (not dates). Bad: agent/2026-04-16. Good: fix/bug-errors-visibility.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    2. vibeflow tasks --edit <id> --set-status in-progress  ← CLAIM TASK");
+    lines.push(
+      "    2. vibeflow tasks --edit <id> --set-status in-progress  ← CLAIM TASK",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    3. <implement the change>");
   } else {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:");
+    lines.push(
+      "    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST");
+    lines.push(
+      "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("       (if you used --next: task is already in-progress — skip to step 2)");
+    lines.push(
+      "       (if you used --next: task is already in-progress — skip to step 2)",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    2. <implement the change>");
   }
   if (autoCommit) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(createBranch ? "    4. git add <files>   (stage your changes first)" : "    3. git add <files>   (stage your changes first)");
+    lines.push(
+      createBranch
+        ? "    4. git add <files>   (stage your changes first)"
+        : "    3. git add <files>   (stage your changes first)",
+    );
     const reviewArgs = ["--set-status review"];
     if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
     if (autoComment) reviewArgs.push('--comment "<report>"');
-    lines.push(`    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
+    lines.push(
+      `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("       CLI will commit staged changes and link the commit SHA automatically.");
+    lines.push(
+      "       CLI will commit staged changes and link the commit SHA automatically.",
+    );
   } else {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(createBranch ? "    4. git add <files> && vibeflow tasks --commit --task <id> --message \"<one-line summary>\"" : "    3. git add <files> && vibeflow tasks --commit --task <id> --message \"<one-line summary>\"");
+    lines.push(
+      createBranch
+        ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
+        : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+    );
     const reviewArgs = ["--set-status review"];
     if (autoComment) reviewArgs.push('--comment "<report>"');
-    lines.push(`    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`);
+    lines.push(
+      `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+    );
   }
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -535,50 +642,78 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    · Plain text for concise one-liners.");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.");
+    lines.push(
+      "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    · Must cover: what changed, why, key decisions, anything future agents should know.");
+    lines.push(
+      "    · Must cover: what changed, why, key decisions, anything future agents should know.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    · For long reports, attach a .md file and reference it in the comment.");
+    lines.push(
+      "    · For long reports, attach a .md file and reference it in the comment.",
+    );
   }
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("");
 
   if (autoCommit) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  [setting] Auto-commit ON: provide --commit-message when setting status to review; CLI commits.");
+    lines.push(
+      "  [setting] Auto-commit ON: provide --commit-message when setting status to review; CLI commits.",
+    );
   }
   if (autoPush) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  [setting] Auto-push ON: CLI pushes after the commit automatically.");
+    lines.push(
+      "  [setting] Auto-push ON: CLI pushes after the commit automatically.",
+    );
   }
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  [setting] Auto-comment ON: --comment is required when setting status to review.");
+    lines.push(
+      "  [setting] Auto-comment ON: --comment is required when setting status to review.",
+    );
   }
   if (createBranch) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  [setting] Create branch ON: all work goes on a dedicated branch created before implementation.");
+    lines.push(
+      "  [setting] Create branch ON: all work goes on a dedicated branch created before implementation.",
+    );
   }
   if (opts.hasResearchTasks) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("  Research tasks: NEVER generate code — research only.");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Attach a .md report before marking Research tasks as review.");
+    lines.push(
+      "    Attach a .md report before marking Research tasks as review.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    CLI ENFORCES: cannot mark Research as review without an attached .md report.");
+    lines.push(
+      "    CLI ENFORCES: cannot mark Research as review without an attached .md report.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Create the report file locally first, then upload when marking as review:");
+    lines.push(
+      "    Create the report file locally first, then upload when marking as review:",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("      vibeflow tasks --edit <id> --set-status review --report-file ./report.md --comment \"...\"");
+    lines.push(
+      '      vibeflow tasks --edit <id> --set-status review --report-file ./report.md --comment "..."',
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    The file is saved next to the task and deleted from the original path automatically.");
+    lines.push(
+      "    The file is saved next to the task and deleted from the original path automatically.",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    Report must include: findings, options considered (with pros/cons), recommendation, sources.");
+    lines.push(
+      "    Report must include: findings, options considered (with pros/cons), recommendation, sources.",
+    );
   }
   if (opts.hasBugTasks) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  Bug tasks: Reproduce the bug first, then include in the comment:");
+    lines.push(
+      "  Bug tasks: Reproduce the bug first, then include in the comment:",
+    );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    · Symptom: what the user sees");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -588,34 +723,54 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    · Fix: what was changed and why it works");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    · Evidence: paste the relevant error message or stack trace");
+    lines.push(
+      "    · Evidence: paste the relevant error message or stack trace",
+    );
   }
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  BLOCKED? If a task is unclear or missing context:");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"");
+  lines.push(
+    '    vibeflow tasks --edit <id> --comment "Blocked: <reason>. Need: <what is needed>."',
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("    Then pick the next task: vibeflow tasks --next");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    Do not guess at unclear requirements — leave a comment and move on.");
+  lines.push(
+    "    Do not guess at unclear requirements — leave a comment and move on.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("  CRITICAL: NEVER edit .vibeflow/ task files directly.");
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    All task operations (status, comments, commits) must go through CLI commands.");
+  lines.push(
+    "    All task operations (status, comments, commits) must go through CLI commands.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.");
+  lines.push(
+    "  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.");
+  lines.push(
+    "    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.");
+  lines.push(
+    "    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  CRITICAL: NEVER set a task status to \"done\".");
+  lines.push('  CRITICAL: NEVER set a task status to "done".');
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    When your implementation is complete, set the status to \"review\" — not \"done\".");
+  lines.push(
+    '    When your implementation is complete, set the status to "review" — not "done".',
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    Only humans can mark tasks as done after reviewing the work.");
+  lines.push(
+    "    Only humans can mark tasks as done after reviewing the work.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    The CLI will warn you and still allow the change — but agents must not use it.");
+  lines.push(
+    "    The CLI will warn you and still allow the change — but agents must not use it.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("");
 
@@ -661,5 +816,3 @@ export function migrateFlatTasksToDateDirs(projectDir: string): number {
   }
   return moved;
 }
-
-

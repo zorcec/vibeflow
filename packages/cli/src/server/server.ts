@@ -657,7 +657,7 @@ function registerTaskApi(
 
   // ── Verification routes (spec §6, §7) ───────────────────────────────────
 
-  // POST /api/tasks/:id/auth-state — store encrypted auth state from overlay
+  // POST /api/tasks/:id/auth-state — store encrypted auth state in task.json (§7)
   app.post("/api/tasks/:id/auth-state", express.json(), async (req, res) => {
     const { id } = req.params;
     const { authState, taskAuthor } = req.body as {
@@ -666,24 +666,26 @@ function registerTaskApi(
     };
 
     // Validate task exists
-    if (!findTaskFilePath(projectDir, id)) {
+    const existing = findTaskFilePath(projectDir, id);
+    if (!existing) {
       res.status(404).json({ error: "Task not found" });
       return;
     }
 
     // Validate required fields
     if (!authState || !taskAuthor) {
-      res.status(400).json({ error: "Missing required fields: authState, taskAuthor" });
+      res
+        .status(400)
+        .json({ error: "Missing required fields: authState, taskAuthor" });
       return;
     }
 
     try {
       const encrypted = encryptAuthState(authState, taskAuthor);
-      const authStatePath = join(projectDir, PROTO_DIR, `auth-state.${id}.enc`);
-      mkdirSync(join(projectDir, PROTO_DIR), { recursive: true });
-      writeFileSync(authStatePath, JSON.stringify(encrypted, null, 2), {
-        mode: 0o600,
-      });
+      // Store the serialized encrypted auth state as a string in task.json.
+      updateTask(projectDir, id, {
+        authStateEnc: JSON.stringify(encrypted),
+      } as Partial<Task>);
       console.log(`[Vibeflow] Auth state stored for task ${id}`);
       res.json({ success: true });
     } catch (err) {
@@ -693,7 +695,7 @@ function registerTaskApi(
     }
   });
 
-  // POST /api/tasks/:id/baseline — store baseline snapshot from overlay
+  // POST /api/tasks/:id/baseline — store baseline snapshot in task.json (§6)
   app.post("/api/tasks/:id/baseline", express.json(), (req, res) => {
     const { id } = req.params;
     const { baseline } = req.body as {
@@ -708,13 +710,17 @@ function registerTaskApi(
 
     // Validate required fields
     if (!baseline || !baseline.selector || !baseline.outerHTML) {
-      res.status(400).json({ error: "Missing required fields: baseline.selector, baseline.outerHTML" });
+      res
+        .status(400)
+        .json({
+          error:
+            "Missing required fields: baseline.selector, baseline.outerHTML",
+        });
       return;
     }
 
     try {
-      const baselineJson = JSON.stringify(baseline, null, 2);
-      saveFile(projectDir, id, "baseline.json", Buffer.from(baselineJson));
+      updateTask(projectDir, id, { baseline } as Partial<Task>);
       console.log(`[Vibeflow] Baseline snapshot stored for task ${id}`);
       res.json({ success: true });
     } catch (err) {
@@ -798,7 +804,7 @@ function registerMetaApis(
 
   // ── SaaS push: import local tasks into a board ───────────────────────────────
   app.post("/api/push", express.json(), async (req, res) => {
-    const { workspaceId, keepLocalFiles } = req.body as {
+    const { workspaceId: _workspaceId, keepLocalFiles } = req.body as {
       workspaceId?: string;
       keepLocalFiles?: boolean;
     };

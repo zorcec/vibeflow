@@ -1,24 +1,14 @@
 import chalk from "chalk";
 import { resolve, join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
 import { findTaskFilePath, readTaskFile } from "../core/tasks.js";
 import { saveFile, getFilesDir } from "../core/files.js";
 import { addComment } from "../core/comments.js";
-import { decryptAuthState } from "../core/auth.js";
+import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
-import { PROTO_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 
-// ── Per-task encrypted auth state path (§7) ───────────────────────────────
-function getAuthStatePath(projectDir: string, taskId: string): string {
-  return join(projectDir, PROTO_DIR, `auth-state.${taskId}.enc`);
-}
-
-// ── Baseline snapshot path (§6) ───────────────────────────────────────────
-function getBaselinePath(projectDir: string, taskId: string): string {
-  return join(getFilesDir(projectDir, taskId), "baseline.json");
-}
+// Baseline and auth state are now stored in task.json (§6, §7).
 
 // ── Verify result shape (§9.3) ────────────────────────────────────────────
 export interface VerifyResult {
@@ -87,34 +77,24 @@ export async function verifyTask(
     throw new VerifyError("E_NOT_FOUND", `Task not found: ${taskId}`);
   }
 
-  // ── 2. Read baseline snapshot ─────────────────────────────────────────
-  const baselinePath = getBaselinePath(absProjectDir, taskId);
-  if (!existsSync(baselinePath)) {
+  // ── 2. Read baseline snapshot from task.json ──────────────────────────
+  if (!task.baseline) {
     throw new VerifyError(
       "E_NO_BASELINE",
       "Task has no baseline. Re-annotate to capture one.",
     );
   }
-  let baseline: DomSnapshot;
-  try {
-    baseline = JSON.parse(readFileSync(baselinePath, "utf-8")) as DomSnapshot;
-  } catch {
-    throw new VerifyError(
-      "E_BASELINE_CORRUPT",
-      "Baseline snapshot is corrupted. Re-annotate to capture a fresh baseline.",
-    );
-  }
+  const baseline: DomSnapshot = task.baseline;
 
-  // ── 3. Read & decrypt auth state (§7.5) ──────────────────────────────
-  const authStatePath = getAuthStatePath(absProjectDir, taskId);
+  // ── 3. Read & decrypt auth state from task.json (§7.5) ────────────────
   let cookies: import("../core/auth.js").AuthState["cookies"] = [];
   let localStorageData: Record<string, string> = {};
   let sessionStorageData: Record<string, string> = {};
 
-  if (existsSync(authStatePath) && task.author) {
+  if (task.authStateEnc && task.author) {
     try {
-      const encryptedRaw = JSON.parse(readFileSync(authStatePath, "utf-8"));
-      const authState = decryptAuthState(encryptedRaw, task.author);
+      const encrypted: EncryptedAuthState = JSON.parse(task.authStateEnc);
+      const authState = decryptAuthState(encrypted, task.author);
       if (!authState) {
         throw new VerifyError(
           "E_AUTH_EXPIRED",
@@ -132,7 +112,7 @@ export async function verifyTask(
       );
     }
   }
-  // If no auth state file exists, proceed without cookies (unauthenticated verification).
+  // If no auth state in task.json, proceed without cookies (unauthenticated verification).
 
   // ── 4. Resolve target URL ─────────────────────────────────────────────
   const targetUrl = opts.url ?? task.url;
