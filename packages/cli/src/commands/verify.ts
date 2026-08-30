@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { resolve, join } from "node:path";
+import { statSync } from "node:fs";
 import { findTaskFilePath, readTaskFile } from "../core/tasks.js";
 import { saveFile, getFilesDir } from "../core/files.js";
 import { addComment } from "../core/comments.js";
@@ -309,13 +310,15 @@ export async function verifyTask(
     const diff = computeDiff(baseline, afterSnapshot);
 
     // ── 13. Store evidence files ────────────────────────────────────────
-    const evidenceFiles = storeEvidence(
+    const evidenceFiles = await storeEvidence(
       absProjectDir,
       taskId,
       baseline,
       afterSnapshot,
       diff,
       consoleErrors,
+      page,
+      selector,
     );
 
     // ── 14. Build result ────────────────────────────────────────────────
@@ -387,14 +390,16 @@ async function captureSnapshot(
 }
 
 // ── Evidence storage (§13.1) ──────────────────────────────────────────────
-function storeEvidence(
+async function storeEvidence(
   projectDir: string,
   taskId: string,
   baseline: DomSnapshot,
   after: DomSnapshot,
   diff: DiffResult,
   consoleErrors: string[],
-): string[] {
+  page?: import("playwright").Page,
+  selector?: string,
+): Promise<string[]> {
   const files: string[] = [];
 
   // verify-after.json
@@ -412,6 +417,41 @@ function storeEvidence(
     consoleErrors.length > 0 ? consoleErrors.join("\n") : "(no console errors)";
   saveFile(projectDir, taskId, "verify-console.txt", Buffer.from(consoleText));
   files.push(join(getFilesDir(projectDir, taskId), "verify-console.txt"));
+
+  // Playwright artifacts (non-fatal if capture fails)
+  if (page) {
+    // verify-page.html
+    try {
+      const html = await page.content();
+      saveFile(projectDir, taskId, "verify-page.html", Buffer.from(html));
+      files.push(join(getFilesDir(projectDir, taskId), "verify-page.html"));
+    } catch {
+      // Capture failed — not fatal
+    }
+
+    // verify-screenshot.png
+    try {
+      const screenshot = await page.screenshot({ fullPage: false });
+      saveFile(projectDir, taskId, "verify-screenshot.png", screenshot);
+      files.push(join(getFilesDir(projectDir, taskId), "verify-screenshot.png"));
+    } catch {
+      // Capture failed — not fatal
+    }
+
+    // verify-element.html
+    if (selector) {
+      try {
+        const elementHtml = await page
+          .locator(selector)
+          .first()
+          .evaluate((el) => el.outerHTML);
+        saveFile(projectDir, taskId, "verify-element.html", Buffer.from(elementHtml));
+        files.push(join(getFilesDir(projectDir, taskId), "verify-element.html"));
+      } catch {
+        // Capture failed — not fatal
+      }
+    }
+  }
 
   return files;
 }
@@ -565,7 +605,13 @@ function printResult(result: VerifyResult): void {
     );
     for (const f of result.evidenceFiles) {
       const name = f.split("/").pop() ?? f;
-      console.log(chalk.dim(`    ${name}`));
+      try {
+        const stats = statSync(f);
+        const sizeKB = (stats.size / 1024).toFixed(1);
+        console.log(chalk.dim(`    ${name} (${sizeKB} KB)`));
+      } catch {
+        console.log(chalk.dim(`    ${name}`));
+      }
     }
   }
   console.log();
