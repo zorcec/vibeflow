@@ -167,7 +167,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
-    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries, sql-injection
     const output = run(
       `tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`,
     );
@@ -977,5 +977,8 @@ describe("proto tasks --comment normalization (e2e)", () => {
     // No literal \n should appear — text stays as-is
     expect(text).toBe("Plain line without escapes");
     expect(text).not.toContain("\\n");
+  });
+});
+ain("\\n");
   });
 });

@@ -68,7 +68,6 @@ const DONE_TITLE_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
       color: "var(--p-text-m)",
-      textDecoration: "line-through",
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap",
