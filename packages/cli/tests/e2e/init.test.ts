@@ -978,5 +978,3 @@ describe("proto tasks --comment normalization (e2e)", () => {
     expect(text).not.toContain("\\n");
   });
 });
-;
-;

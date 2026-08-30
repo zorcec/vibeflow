@@ -1207,9 +1207,13 @@ function useCors(app: express.Application): void {
     ) => {
       const origin = req.headers.origin ?? "*";
       // SAFETY: Local dev server — restrict CORS to localhost and 127.0.0.1
-      const isLocal = /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+      const isLocal =
+        /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
         /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin);
-      res.setHeader("Access-Control-Allow-Origin", isLocal ? origin : "http://localhost:3700");
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        isLocal ? origin : "http://localhost:3700",
+      );
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET, POST, PATCH, DELETE, OPTIONS",
