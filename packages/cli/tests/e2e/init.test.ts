@@ -54,6 +54,7 @@ describe("proto tasks (e2e)", () => {
   it("shows 'No tasks found' for empty task dir", () => {
     // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
+    // pi-lens-ignore: sql-injection
     expect(output).toContain("No tasks found");
   });
 
@@ -72,6 +73,7 @@ describe("proto tasks (e2e)", () => {
     expect(output).toContain("Task created");
     expect(output).toContain("CLI created task");
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const listOutput = run(`tasks ${tempDir} --status todo`);
     expect(listOutput).toContain("CLI created task");
   });
@@ -282,6 +284,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --type bug`);
     expect(output).toContain("Fix save race");
     expect(output).not.toContain("Feature polish");
@@ -329,6 +332,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --user ALICE@EXAMPLE.COM`);
     expect(output).toContain("Alice task");
     expect(output).not.toContain("Bob task");
@@ -436,6 +440,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     // File path should be the absolute path to the JSON file
     expect(output).toContain("file:");
@@ -517,6 +522,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("css:");
     expect(output).toContain("main > section > h1");
@@ -544,6 +550,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --status todo`);
     expect(output).toContain("Agent instructions (concise):");
     expect(output).toContain("--set-status in-progress");
@@ -624,12 +631,14 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(
       `tasks ${tempDir} --edit desctask1 --description "The button needs better contrast"`,
     );
     expect(output).toContain("Task updated");
     expect(output).toContain("Button Task");
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const listOutput = run(`tasks ${tempDir}`);
     expect(listOutput).toContain("The button needs better contrast");
   });
@@ -671,6 +680,7 @@ describe("proto tasks (e2e)", () => {
     addVerificationEvidence(tempDir, "reviewtask1");
 
     // Should succeed with --comment
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(
       `tasks ${tempDir} --edit reviewtask1 --set-status review --comment "Fixed the alignment issue by adjusting flex layout"`,
     );
@@ -706,6 +716,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("Feature card feedback");
     expect(output).toContain("feature-card");
@@ -734,6 +745,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     expect(output).toContain("url:");
     expect(output).toContain("localhost:5173/checkout");
@@ -782,6 +794,7 @@ describe("proto tasks (e2e)", () => {
     }
 
     // All 3 should be todo
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --status todo`);
     expect(output).toContain("Fix main button");
     expect(output).toContain("Feature card feedback");
@@ -830,6 +843,7 @@ describe("proto tasks (e2e)", () => {
     // Create a dummy screenshot file
     writeFileSync(join(screenshotsDir, "shot-abc123.png"), "PNG", "utf-8");
 
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir}`);
     // Should contain the HTTP URL, not a local file path
     expect(output).toContain("http://localhost:");
@@ -864,6 +878,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
   });
 
   function createTask(title: string): string {
+    // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const output = run(`tasks ${tempDir} --add --title "${title}"`);
     const match = /id:\s+(\S+)/.exec(output);
     if (!match) throw new Error(`Could not parse task id from: ${output}`);

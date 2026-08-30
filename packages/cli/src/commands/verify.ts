@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { resolve, join } from "node:path";
-import { statSync } from "node:fs";
+import { statSync, readdirSync, unlinkSync } from "node:fs";
 import { findTaskFilePath, readTaskFile, updateTask } from "../core/tasks.js";
 import { saveFile, getFilesDir } from "../core/files.js";
 import { addComment } from "../core/comments.js";
@@ -404,6 +404,19 @@ async function storeEvidence(
 ): Promise<string[]> {
   const files: string[] = [];
 
+  // Clean up old evidence files before storing new ones
+  const filesDir = getFilesDir(projectDir, taskId);
+  try {
+    const existing = readdirSync(filesDir);
+    for (const f of existing) {
+      if (f.startsWith("verify-") || f === "baseline.json") {
+        unlinkSync(join(filesDir, f));
+      }
+    }
+  } catch {
+    /* dir doesn't exist yet — skip */
+  }
+
   // verify-after.json
   const afterJson = JSON.stringify(after, null, 2);
   saveFile(projectDir, taskId, "verify-after.json", Buffer.from(afterJson));
@@ -462,6 +475,13 @@ async function storeEvidence(
         // Capture failed — not fatal
       }
     }
+  }
+
+  // baseline.json — the captured baseline snapshot
+  if (baseline) {
+    const baselineJson = JSON.stringify(baseline, null, 2);
+    saveFile(projectDir, taskId, "baseline.json", Buffer.from(baselineJson));
+    files.push(join(getFilesDir(projectDir, taskId), "baseline.json"));
   }
 
   return files;
@@ -627,13 +647,33 @@ function printResult(result: VerifyResult): void {
   }
   console.log();
   console.log(chalk.cyan("  Review evidences:"));
-  console.log(chalk.dim("    1. Check if the fix is confirmed (styles match expectations)"));
-  console.log(chalk.dim(`    2. If confirmed → vibeflow tasks --edit ${result.taskId} --set-status review --comment "Verified: <what you confirmed>"`));
-  console.log(chalk.dim("    3. If not sure → leave a comment explaining uncertainty"));
-  console.log(chalk.dim(`    4. If wrong → vibeflow tasks --edit ${result.taskId} --set-status in-progress`));
+  console.log(
+    chalk.dim(
+      "    1. Check if the fix is confirmed (styles match expectations)",
+    ),
+  );
+  console.log(
+    chalk.dim(
+      `    2. If confirmed → vibeflow tasks --edit ${result.taskId} --set-status review --comment "Verified: <what you confirmed>"`,
+    ),
+  );
+  console.log(
+    chalk.dim("    3. If not sure → leave a comment explaining uncertainty"),
+  );
+  console.log(
+    chalk.dim(
+      `    4. If wrong → vibeflow tasks --edit ${result.taskId} --set-status in-progress`,
+    ),
+  );
   console.log();
   if (!result.ok) {
-    console.log(chalk.yellow("  ⚠ Verification failed — move to in-progress and fix:"));
-    console.log(chalk.dim(`    vibeflow tasks --edit ${result.taskId} --set-status in-progress`));
+    console.log(
+      chalk.yellow("  ⚠ Verification failed — move to in-progress and fix:"),
+    );
+    console.log(
+      chalk.dim(
+        `    vibeflow tasks --edit ${result.taskId} --set-status in-progress`,
+      ),
+    );
   }
 }

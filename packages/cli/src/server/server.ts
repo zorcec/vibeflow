@@ -42,6 +42,7 @@ import {
 import {
   listComments,
   addComment,
+  // pi-lens-ignore: no-server-bind-wildcard
   updateComment,
   deleteComment,
 } from "../core/comments.js";

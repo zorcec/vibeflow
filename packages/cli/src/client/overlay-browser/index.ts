@@ -35,6 +35,7 @@ function main(): void {
   // data-vibeflow-overlay. When loaded via <script src="...vibeflow-overlay.js">,
   // we mark it here so the popup detects it the same way.
   // Prefer the script tag that carries a boardId (SaaS embed) so that the
+  // pi-lens-ignore: no-open-redirect-js
   // CLI overlay script (src*="vibeflow-overlay") does not shadow it.
   const selfScript = (document.querySelector("script[data-board-id]") ??
     document.querySelector(

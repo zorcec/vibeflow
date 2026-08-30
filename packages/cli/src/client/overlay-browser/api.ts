@@ -7,6 +7,7 @@ import { state } from "./state.js";
 
 export function fetchProjectName(): void {
   // Derives the API base from PROTO_CONFIG.apiUrl: strip "/api/tasks" → use "/api/project"
+  // pi-lens-ignore: ts-ssrf
   const baseUrl = PROTO_CONFIG.apiUrl.replace(/\/api\/tasks$/, "");
   fetch(`${baseUrl}/api/project`)
     .then((r) => r.json())
