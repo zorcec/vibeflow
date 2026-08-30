@@ -1209,6 +1209,7 @@ function useCors(app: express.Application): void {
       res.setHeader(
         "Access-Control-Allow-Methods",
         // pi-lens-ignore: opengrep
+        // pi-lens-ignore: opengrep
         "GET, POST, PATCH, DELETE, OPTIONS",
       );
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");

@@ -159,6 +159,7 @@ describe("proto tasks (e2e)", () => {
     );
 
     // pi-lens-ignore: opengrep
+    // pi-lens-ignore: opengrep
     const output = run(
       `tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`,
     );
@@ -969,4 +970,5 @@ describe("proto tasks --comment normalization (e2e)", () => {
     expect(text).not.toContain("\\n");
   });
 });
+;
 ;

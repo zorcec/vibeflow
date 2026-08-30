@@ -115,6 +115,7 @@ function main(): void {
             "/api/tasks",
             "/kanban",
           // pi-lens-ignore: opengrep
+          // pi-lens-ignore: opengrep
           );
           window.open(kanbanUrl, "_blank", "noopener");
         }
