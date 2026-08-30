@@ -40,7 +40,7 @@ export function resolveTaskCardBorderColor(
 }
 
 export function resolveTaskCardBgColor(typeColor: string): string {
-  return withHexAlpha(typeColor, 0.05) ?? 'transparent';
+  return withHexAlpha(typeColor, 0.10) ?? 'transparent';
 }
 
 // ── Static styles extracted to avoid per-render object allocation ──────────
