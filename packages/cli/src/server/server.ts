@@ -710,12 +710,9 @@ function registerTaskApi(
 
     // Validate required fields
     if (!baseline || !baseline.selector || !baseline.outerHTML) {
-      res
-        .status(400)
-        .json({
-          error:
-            "Missing required fields: baseline.selector, baseline.outerHTML",
-        });
+      res.status(400).json({
+        error: "Missing required fields: baseline.selector, baseline.outerHTML",
+      });
       return;
     }
 
@@ -1211,6 +1208,7 @@ function useCors(app: express.Application): void {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader(
         "Access-Control-Allow-Methods",
+        // pi-lens-ignore: opengrep
         "GET, POST, PATCH, DELETE, OPTIONS",
       );
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");

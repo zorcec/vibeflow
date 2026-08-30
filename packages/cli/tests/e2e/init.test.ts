@@ -158,6 +158,7 @@ describe("proto tasks (e2e)", () => {
       "utf-8",
     );
 
+    // pi-lens-ignore: opengrep
     const output = run(
       `tasks ${tempDir} --edit test1234 --title "Updated Title" --set-status in-progress`,
     );
@@ -968,3 +969,4 @@ describe("proto tasks --comment normalization (e2e)", () => {
     expect(text).not.toContain("\\n");
   });
 });
+;

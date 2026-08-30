@@ -53,6 +53,9 @@ export function submitTask(
   type?: string,
   annotatedElementText?: string,
 ): Promise<{ success: boolean; taskId?: string; taskAuthor?: string }> {
+  // SAFETY: PROTO_CONFIG.apiUrl is a build-time constant injected by the CLI bundler,
+  // always pointing to the local CLI server (e.g. http://localhost:3700/api/tasks).
+  // pi-lens-ignore: opengrep
   return fetch(PROTO_CONFIG.apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

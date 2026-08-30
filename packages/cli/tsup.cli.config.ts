@@ -21,18 +21,37 @@ export default defineConfig({
   external: ["playwright", "playwright-core"],
   esbuildOptions(options) {
     try {
-      const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { version: string };
-      options.define = { ...options.define, __VIBEFLOW_CLI_VERSION__: JSON.stringify(pkg.version) };
+      const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as {
+        version: string;
+      };
+      options.define = {
+        ...options.define,
+        __VIBEFLOW_CLI_VERSION__: JSON.stringify(pkg.version),
+      };
     } catch (err) {
       throw new Error(`Failed to read package.json: ${err}`);
     }
   },
   onSuccess: async () => {
-    const { copyFileSync, chmodSync, readdirSync: rds } = await import("node:fs");
+    const {
+      copyFileSync,
+      chmodSync,
+      readdirSync: rds,
+    } = await import("node:fs");
     copyFileSync("dist/cli/index.js", "dist/index.js");
-    try { copyFileSync("dist/cli/index.d.ts", "dist/index.d.ts"); } catch { /* optional */ }
-    for (const f of rds("dist/cli/").filter((n: string) => /^(chunk|workspace|files)-/.test(n))) {
-      try { copyFileSync(`dist/cli/${f}`, `dist/${f}`); } catch { /* ignore */ }
+    try {
+      copyFileSync("dist/cli/index.d.ts", "dist/index.d.ts");
+    } catch {
+      /* optional */
+    }
+    for (const f of rds("dist/cli/").filter((n: string) =>
+      /^(chunk|workspace|files)-/.test(n),
+    )) {
+      try {
+        copyFileSync(`dist/cli/${f}`, `dist/${f}`);
+      } catch {
+        /* ignore */
+      }
     }
     for (const dir of ["dist", "dist/cli"]) {
       try {
@@ -41,7 +60,9 @@ export default defineConfig({
           const { rmSync } = await import("node:fs");
           rmSync(`${dir}/${f}`, { force: true });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     chmodSync("dist/index.js", 0o755);
     console.log("[tsup] Synced dist/index.js ← dist/cli/index.js");

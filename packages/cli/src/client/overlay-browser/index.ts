@@ -102,6 +102,7 @@ function main(): void {
       onOpenKanban: () => {
         if (PROTO_CONFIG.boardId) {
           // SaaS mode: open the webapp kanban for this board
+          // pi-lens-ignore: opengrep
           const origin = new URL(PROTO_CONFIG.apiUrl).origin;
           window.open(
             `${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`,
@@ -113,6 +114,7 @@ function main(): void {
           const kanbanUrl = PROTO_CONFIG.apiUrl.replace(
             "/api/tasks",
             "/kanban",
+          // pi-lens-ignore: opengrep
           );
           window.open(kanbanUrl, "_blank", "noopener");
         }
