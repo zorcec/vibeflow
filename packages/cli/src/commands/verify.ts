@@ -115,14 +115,18 @@ export async function verifyTask(
   // If no auth state in task.json, proceed without cookies (unauthenticated verification).
 
   // ── 4. Resolve target URL ─────────────────────────────────────────────
-  const targetUrl = opts.url ?? task.url;
-  if (!targetUrl) {
+  const rawUrl = opts.url ?? task.url;
+  if (!rawUrl) {
     throw new VerifyError(
       "E_NO_URL",
       "Task has no URL. Cannot verify without a target URL.",
       "Re-annotate the element with a URL, or use --url to override.",
     );
   }
+  // Prepend origin for relative URLs (e.g. /kanban -> http://localhost:3700/kanban)
+  const targetUrl = rawUrl.startsWith("http")
+    ? rawUrl
+    : `http://localhost:3700${rawUrl.startsWith("/") ? rawUrl : "/" + rawUrl}`;
 
   // ── 5. Determine selector ─────────────────────────────────────────────
   const selector = task.cssSelector ?? task.selector;
