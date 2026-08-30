@@ -982,3 +982,9 @@ describe("proto tasks --comment normalization (e2e)", () => {
 ain("\\n");
   });
 });
+n");
+  });
+});
+ain("\\n");
+  });
+});

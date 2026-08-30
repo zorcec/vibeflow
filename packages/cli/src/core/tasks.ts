@@ -207,6 +207,7 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         )
       : undefined,
     sortKey: raw.sortKey ? String(raw.sortKey) : undefined,
+    verified: raw.verified === true,
     branchName: raw.branchName ? String(raw.branchName) : undefined,
     baseline:
       raw.baseline && typeof raw.baseline === "object"

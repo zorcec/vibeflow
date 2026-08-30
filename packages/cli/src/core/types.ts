@@ -51,6 +51,8 @@ export interface Task {
   component?: string;
   type?: string;
   priority?: string;
+  /** When true, the task was successfully verified. */
+  verified?: boolean;
   /** When true, the agent must add a comment with a report after completing the task. */
   reportBack?: boolean;
   /** Preferred coding agent name for this task. */

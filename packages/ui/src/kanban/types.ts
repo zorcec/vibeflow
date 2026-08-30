@@ -42,6 +42,8 @@ export interface Task {
   tags?: string[];
   /** Git branch name created for this task (when createBranch setting is ON). */
   branchName?: string;
+  /** When true, the task was successfully verified. */
+  verified?: boolean;
 }
 
 export interface Comment {

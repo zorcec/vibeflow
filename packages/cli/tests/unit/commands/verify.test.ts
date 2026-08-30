@@ -66,6 +66,7 @@ vi.mock("playwright", () => ({
 vi.mock("../../../src/core/tasks.js", () => ({
   findTaskFilePath: vi.fn(),
   readTaskFile: vi.fn(),
+  updateTask: vi.fn(),
 }));
 
 vi.mock("../../../src/core/files.js", () => ({

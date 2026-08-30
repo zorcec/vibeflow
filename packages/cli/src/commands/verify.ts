@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { resolve, join } from "node:path";
 import { statSync } from "node:fs";
-import { findTaskFilePath, readTaskFile } from "../core/tasks.js";
+import { findTaskFilePath, readTaskFile, updateTask } from "../core/tasks.js";
 import { saveFile, getFilesDir } from "../core/files.js";
 import { addComment } from "../core/comments.js";
 import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
@@ -322,6 +322,8 @@ export async function verifyTask(
     );
 
     // ── 14. Build result ────────────────────────────────────────────────
+    // Mark task as verified
+    updateTask(absProjectDir, taskId, { verified: true });
     return buildResult(
       task.id,
       task.description,

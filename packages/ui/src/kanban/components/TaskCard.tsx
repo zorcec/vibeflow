@@ -73,6 +73,18 @@ const DONE_TITLE_STYLE: React.CSSProperties = {
       whiteSpace: "nowrap",
       flex: 1,
 };
+const VERIFIED_BADGE_STYLE: React.CSSProperties = {
+    fontSize: 9,
+    fontWeight: 700,
+    color: "#22c55e",
+    background: "rgba(34,197,94,0.12)",
+    border: "1px solid rgba(34,197,94,0.3)",
+    borderRadius: 4,
+    padding: "1px 5px",
+    marginLeft: 6,
+    flexShrink: 0,
+    letterSpacing: 0.5,
+};
 
 const CARD_TITLE_ROW_STYLE: React.CSSProperties = {
       display: "flex",
@@ -189,6 +201,7 @@ export const TaskCard = React.memo(function TaskCard({
                         <div style={DONE_INNER_ROW_STYLE}>
                               <CheckCircle style={DONE_CHECK_ICON_STYLE} />
                               <span style={DONE_TITLE_STYLE}>{task.title}</span>
+                              {task.verified && <span style={VERIFIED_BADGE_STYLE}>✓ VERIFIED</span>}
                         </div>
                   </article>
             );
