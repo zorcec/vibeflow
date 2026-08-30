@@ -159,8 +159,8 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         ? String(raw.cssSelector)
         : undefined,
     file: raw.file ? String(raw.file) : undefined,
-    line: raw.line != null ? Number(raw.line) : undefined,
-    col: raw.col != null ? Number(raw.col) : undefined,
+    line: raw.line == null ? undefined : Number(raw.line),
+    col: raw.col == null ? undefined : Number(raw.col),
     component: raw.component ? String(raw.component) : undefined,
     type: normalizedType,
     priority: raw.priority ? String(raw.priority) : undefined,
@@ -449,7 +449,7 @@ export function renderTaskForAgent(
   if (task.file) {
     // Stryker disable once StringLiteral: display format for task rendering
     lines.push(
-      `    source:   ${task.file}${task.line != null ? `:${task.line}` : ""}${task.col != null ? `:${task.col}` : ""}`,
+      `    source:   ${task.file}${task.line == null ? "" : `:${task.line}`}${task.col == null ? "" : `:${task.col}`}`,
     );
   }
   if (task.component) lines.push(`    component: ${task.component}`);
@@ -634,6 +634,15 @@ export function renderAgentInstructions(opts: {
       `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
     );
   }
+  const verifyStep = createBranch ? "6" : "5";
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push(
+    `    ${verifyStep}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push(
+    "       If verification fails, set task back to in-progress and fix.",
+  );
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("");

@@ -24,9 +24,12 @@ import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 
 type ViewMode = "board" | "list";
 
+// SAFETY: __PORT__ is injected by the CLI dev server at build time.
 const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
+// SAFETY: __SAAS_MODE__ is injected by the CLI build to switch UI behavior.
 const SAAS_MODE =
   (window as unknown as { __SAAS_MODE__?: boolean }).__SAAS_MODE__ ?? false;
+// SAFETY: __BOARD_URL__ is injected by the CLI build to point to the target page.
 const BOARD_URL =
   (window as unknown as { __BOARD_URL__?: string }).__BOARD_URL__ ?? "";
 const BOARD_NAME =
@@ -420,7 +423,7 @@ interface StatusEntry {
 
 function buildTaskSummary(
   tasks: Task[],
-  visibleCols: TaskStatus[],
+  _visibleCols: TaskStatus[],
   search: string,
 ): string {
   const filtered = search

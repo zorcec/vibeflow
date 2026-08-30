@@ -512,10 +512,9 @@ function printResult(result: VerifyResult): void {
   const statusIcon = result.ok ? chalk.green("✅") : chalk.yellow("⚠️");
   console.log();
   console.log(
-    `  ${statusIcon} Verification ${result.ok ? "passed" : "completed with issues"}`,
+    `  ${statusIcon} Evidences collected for task ${result.taskId}`,
   );
   console.log(chalk.dim("─".repeat(60)));
-  console.log(chalk.dim(`  Task:    ${result.taskId}`));
   console.log(chalk.dim(`  Verdict: ${result.verdict}`));
   console.log();
 
@@ -563,9 +562,21 @@ function printResult(result: VerifyResult): void {
   }
 
   if (result.evidenceFiles.length > 0) {
-    console.log(
-      chalk.dim(`  Evidence: ${result.evidenceFiles.length} file(s) stored`),
-    );
+    console.log(chalk.cyan(`  Evidence files (${result.evidenceFiles.length}):`));
+    for (const f of result.evidenceFiles) {
+      const name = f.split("/").pop() ?? f;
+      console.log(chalk.dim(`    ${name}`));
+    }
+  }
+  console.log();
+  console.log(chalk.cyan("  Check evidences with available tools:"));
+  console.log(chalk.dim("    grep <property> verify-diff.json"));
+  console.log(chalk.dim("    ctx_index + ctx_search verify-page.html"));
+  console.log(chalk.dim("    read verify-screenshot.png"));
+  console.log();
+  if (!result.ok) {
+    console.log(chalk.yellow("  ⚠ If verification failed, set task back to in-progress and fix:"));
+    console.log(chalk.dim(`    vibeflow tasks --edit ${result.taskId} --set-status in-progress`));
   }
   console.log(chalk.dim("─".repeat(60)));
   console.log();

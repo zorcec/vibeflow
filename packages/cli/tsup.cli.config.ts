@@ -20,8 +20,12 @@ export default defineConfig({
   // resolved at runtime via node_modules.
   external: ["playwright", "playwright-core"],
   esbuildOptions(options) {
-    const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { version: string };
-    options.define = { ...options.define, __VIBEFLOW_CLI_VERSION__: JSON.stringify(pkg.version) };
+    try {
+      const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { version: string };
+      options.define = { ...options.define, __VIBEFLOW_CLI_VERSION__: JSON.stringify(pkg.version) };
+    } catch (err) {
+      throw new Error(`Failed to read package.json: ${err}`);
+    }
   },
   onSuccess: async () => {
     const { copyFileSync, chmodSync, readdirSync: rds } = await import("node:fs");
