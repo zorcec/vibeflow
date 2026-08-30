@@ -32,14 +32,11 @@ Raw Playwright is a commodity: agents already *can* screenshot. What they lack i
 │  ANNOTATION TIME (user's browser — overlay)             │
 │                                                         │
 │  1. User annotates element                              │
-│  2. Overlay captures:                                   │
+│  2. Overlay captures automatically:                     │
 │     - DOM snapshot (baseline)                           │
 │     - Element position (bounding box + context)         │
 │     - URL, selector, source location                    │
-│  3. User toggles "verify mode" ON (opt-in)              │
 │     - Cookies + storage state → encrypted file          │
-│     - Navigation locked (confirm to leave)              │
-│     - Visual indicator: "verify mode active"            │
 └─────────────────────────────────────────────────────────┘
                          │
                          ▼
@@ -48,7 +45,6 @@ Raw Playwright is a commodity: agents already *can* screenshot. What they lack i
 │                                                         │
 │  - Agents edit code, save files                         │
 │  - HMR fires in user's browser (side effect)            │
-│  - User stays on page (navigation locked)               │
 │  - Overlay does NOT verify — just waits                 │
 └─────────────────────────────────────────────────────────┘
                          │
@@ -56,13 +52,13 @@ Raw Playwright is a commodity: agents already *can* screenshot. What they lack i
 ┌─────────────────────────────────────────────────────────┐
 │  VERIFICATION TIME (Playwright — isolated)              │
 │                                                         │
-│  4. User asks agent to verify                           │
-│  5. Agent calls `vibeflow verify <id>`                  │
-│  6. Playwright: decrypt cookies → inject → navigate     │
-│  7. Wait for selector → capture after snapshot          │
-│  8. Diff baseline vs after (structural)                 │
-│  9. Return structured result to agent                   │
-│ 10. Agent judges semantically → reports to user         │
+│  3. User asks agent to verify                           │
+│  4. Agent calls `vibeflow verify <id>`                  │
+│  5. Playwright: decrypt cookies → inject → navigate     │
+│  6. Wait for selector → capture after snapshot          │
+│  7. Diff baseline vs after (structural)                 │
+│  8. Return structured result to agent                   │
+│  9. Agent judges semantically → reports to user         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -82,10 +78,9 @@ Raw Playwright is a commodity: agents already *can* screenshot. What they lack i
 | ------ | --------- |
 | **Baseline** | Immutable record of the element's state at annotation time: DOM snapshot + position context + structured metadata. |
 | **DOM snapshot** | `outerHTML` + computed styles + selector + position context + viewport + `devicePixelRatio` + browser/OS. The *primary* baseline. |
-| **Verify mode** | User-activated overlay state that locks browser navigation and captures auth state for Playwright verification. |
 | **Verification** | `vibeflow verify <id>` uses Playwright to re-render the target, re-capture the snapshot, diff against baseline, and produce an evidence bundle. |
 | **Evidence** | Verification artifacts (before snapshot, after snapshot, diff, console errors, task context) bundled for LLM judgment. |
-| **Auth state** | Encrypted cookies + localStorage + sessionStorage captured at verify mode activation, used to authenticate Playwright during verification. Per-task keyed. |
+| **Auth state** | Encrypted cookies + localStorage + sessionStorage captured automatically at annotation time, used to authenticate Playwright during verification. Per-task keyed. |
 
 ## 5. What We Already Capture
 
@@ -147,9 +142,9 @@ This answers: "where was the element and what was around it?" — useful for det
 
 > **Phase 2 additions:** `isVisible` (derivable from boundingBox + viewport at verification time) and `clipRect` (overflow clipping) are deferred to keep v1 simple.
 
-## 7. Auth State Capture (Overlay — at verify mode activation)
+## 7. Auth State Capture (Overlay — at annotation time)
 
-At annotation time, when verify mode is activated, the overlay captures the user's browser auth state and encrypts it for Playwright reuse.
+At annotation time, the overlay captures the user's browser auth state and encrypts it for Playwright reuse.
 
 ### 7.1 What to capture
 
@@ -269,81 +264,7 @@ function decryptAuthState(encrypted: EncryptedAuthState, taskAuthor: string): Au
 }
 ```
 
-## 8. Verify Mode (Overlay)
-
-When the user annotates an element, they can opt into **verify mode** — a state that captures auth state and locks navigation to preserve the page context for later verification.
-
-### 8.1 Activation
-
-- User annotates an element → overlay shows annotation UI
-- **Baseline snapshot is always captured at annotation time** (§6) — no user action needed
-- Overlay includes a **"Verify mode" toggle** (opt-in)
-- When toggled ON:
-  - Auth state is captured and encrypted (§7)
-  - Navigation lock is engaged (§8.2)
-  - Visual indicator appears in overlay: **"✓ Verify mode active"**
-
-**Key distinction:** baseline capture happens automatically at annotation. Verify mode adds auth capture + navigation lock on top of that. A task can have a baseline without verify mode (useful for manual verification later).
-
-### 8.2 Navigation lock
-
-When verify mode is active, the overlay prevents accidental navigation away from the page:
-
-```ts
-// Hard navigation (tab close, URL bar, refresh)
-window.addEventListener('beforeunload', (e) => {
-  if (verifyModeActive) {
-    e.preventDefault();
-    e.returnValue = 'Verify mode is active. Leaving will deactivate verification.';
-  }
-});
-
-// SPA navigation (React Router, Next.js, etc.)
-// Hook into history.pushState / history.replaceState / popstate
-const originalPushState = history.pushState;
-history.pushState = function (...args) {
-  if (verifyModeActive) {
-    const confirmed = window.confirm(
-      'Verify mode is active. Navigate away and deactivate verification?'
-    );
-    if (!confirmed) return;
-    deactivateVerifyMode();
-  }
-  return originalPushState.apply(this, args);
-};
-```
-
-**Deactivation conditions:**
-
-- User confirms navigation away
-- Task is moved to `review` status (verification complete)
-- Auth state expires (24h TTL)
-- User manually toggles verify mode OFF
-
-### 8.3 Visual indicator
-
-The overlay displays a persistent, non-intrusive indicator when verify mode is active:
-
-```text
-┌─────────────────────────────────────┐
-│  🟢 Verify mode active             │
-│  Task: Fix submit button color      │
-│  [Deactivate]                       │
-└─────────────────────────────────────┘
-```
-
-Positioned in the overlay corner. Clicking "Deactivate" disengages navigation lock and clears the per-task auth state file.
-
-### 8.4 What the overlay does NOT do
-
-- ❌ Does not monitor for HMR changes
-- ❌ Does not auto-verify when code changes
-- ❌ Does not capture "after" snapshots
-- ❌ Does not run diffs
-
-The overlay's role is **capture + guard only**. Verification is Playwright's job.
-
-## 9. Verification — `vibeflow verify <id>`
+## 8. Verification — `vibeflow verify <id>`
 
 A new CLI subcommand (CLI-first, consistent with `tasks`/`kanban`). Runs from the project root.
 
@@ -445,7 +366,7 @@ Or:
 
 > "The task asked for blue. The diff shows background-color changed from red to green. This does not match. ❌ Not verified — needs fix."
 
-## 10. Verification Layers
+## 9. Verification Layers
 
 | Layer | Who | What | Automated |
 | ------- | ----- | ------ | ----------- |
@@ -461,7 +382,7 @@ A structural diff proves *changed*, not *correct*. Correctness stays with the ag
 - Semantic layer uses the LLM's understanding of intent to judge correctness ("did it fix the right thing?").
 - Human layer is the final safety net. Verification evidence means the human isn't reviewing blind.
 
-## 11. Multiple Agents
+## 10. Multiple Agents
 
 Each `verify` run is an independent, point-in-time snapshot. This handles the multi-agent case correctly:
 
@@ -474,13 +395,13 @@ If multiple agents modify the same element, the last verify sees the combined re
 
 **No attribution needed.** The verification is about the *current state vs baseline*, not about tracking individual agent contributions.
 
-## 12. Workflow Gating
+## 11. Workflow Gating
 
 - **`review` status is blocked** until a verification evidence file exists on the task. This mirrors the existing rule that review requires a commit message + implementation report.
 - **`verify` may run at any status**, but its result is advisory until the task is `in-progress` or `review`.
 - When an agent attempts `tasks --edit <id> --set-status review`, the CLI checks for verification evidence. If missing: "Cannot move to review — run `vibeflow verify <id>` first."
 
-## 13. Data Model Changes
+## 12. Data Model Changes
 
 ### 13.1 CLI Task (types.ts)
 
@@ -493,7 +414,7 @@ No new fields needed on the Task type. All verification data lives in the `files
 | `verify-diff.json` | Structural diff result |
 | `verify-console.txt` | Console errors during verification |
 
-Verify mode state (whether user activated it) is stored as metadata inside `baseline.json` rather than as a separate Task field.
+Baseline metadata is stored inside `baseline.json`.
 
 ### 13.2 Web tasks (schema.ts)
 
@@ -503,7 +424,7 @@ No schema migration needed. Verification data flows through the existing `files`
 
 Stored separately from task files: `.vibeflow/auth-state.<taskId>.enc` (per-task keyed). Not part of `Task.files` — it's project-level, not task-level, and never syncs to SaaS.
 
-## 14. Screenshot Strategy — OPTIONAL (user-provided only, for now)
+## 13. Screenshot Strategy — OPTIONAL (user-provided only, for now)
 
 Screenshots remain **optional and user-provided**. No automatic screenshot capture in this phase.
 
@@ -523,7 +444,7 @@ Documented for future reference; **not** part of this phase. Recommended order:
 2. **`modern-screenshot`** — in-page fallback via SVG `foreignObject`.
 3. Avoid `html2canvas` — re-implements paint, breaks on modern CSS.
 
-## 15. CLI Commands
+## 14. CLI Commands
 
 ```bash
 # Verification
@@ -538,13 +459,13 @@ vibeflow auth --clear           # wipe all per-task stored auth cookies
 vibeflow tasks --edit <id> --set-status review  # now checks for verification evidence
 ```
 
-## 16. Implementation Phases
+## 15. Implementation Phases
 
 ### Phase 1 (this spec)
 
 - Baseline capture in overlay (DOM snapshot + position)
 - Auth state capture + encryption (per-task keyed)
-- Verify mode toggle + navigation lock
+- Baseline capture + auth capture (automatic at annotation time)
 - `vibeflow verify <id>` CLI command (Playwright, headless)
 - Structural diff engine
 - Evidence file storage via `Task.files` / `TaskFileRef[]`
@@ -559,10 +480,10 @@ vibeflow tasks --edit <id> --set-status review  # now checks for verification ev
 - User-journey capture (record multi-step clicks)
 - Chrome extension for full HttpOnly cookie access
 
-## 17. Open Questions
+## 16. Open Questions
 
 1. **Dev server lifecycle:** Should `verify` assume the app is running, or spin up a dev server? (Phase 1: assume it's already running. Document the assumption. Future: detect and start via `vibeflow dev`.)
 2. **SPA route changes:** How to handle cases where HMR changes routing and the annotated element moves to a different URL? (Current approach: Playwright navigates to the original URL. If the element isn't there, "target not found" is the correct signal — the route changed and the fix needs re-annotation.)
-3. **Overlay auto-navigation:** Should the overlay auto-navigate to the correct URL when verify mode is active? (Phase 1: no. User manually navigates. Future: could prompt "Navigate to /dashboard/users to verify task X".)
+3. **Overlay auto-navigation:** Should the overlay auto-navigate to the correct URL when annotating? (Phase 1: no. User manually navigates. Future: could prompt "Navigate to /dashboard/users to verify task X".)
 4. **Selective verification:** Should verify check only the annotated element, or also verify surrounding elements weren't regressed? (Phase 1: annotated element only. Future: configurable scope — "verify element + nearest siblings".)
 5. **SaaS push behavior:** Should verification evidence be auto-pushed to SaaS, or only on explicit `vibeflow push`? (Phase 1: only on explicit push. Future: auto-push on verify completion.)
