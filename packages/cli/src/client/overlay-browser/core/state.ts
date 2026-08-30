@@ -1,9 +1,9 @@
-import type { Task } from './types.js';
+import type { Task } from "./types.js";
 
 // Shared mutable state for the entire overlay runtime.
 export const state = {
   tasks: [] as Task[],
-  theme: 'dark' as 'dark',
+  theme: "dark" as "dark",
   annotationMode: false,
   sidebar: null as HTMLElement | null,
   popover: null as HTMLElement | null,
@@ -18,7 +18,7 @@ export const state = {
   tooltipPinned: false,
   hoverTarget: null as Element | null,
   annotateHighlightTarget: null as Element | null,
-  currentHref: '',
+  currentHref: "",
   host: null as HTMLElement | null,
   root: null as ShadowRoot | null,
   status: null as HTMLElement | null,
@@ -45,12 +45,12 @@ export const state = {
   onTasksUpdatedMessage: null as (() => void) | null,
 };
 
-export const PREFS_KEY = 'vibeflow-studio-prefs';
+export const PREFS_KEY = "vibeflow-studio-prefs";
 
 export const RECONNECT_BASE = 1000;
 export const RECONNECT_MAX = 30000;
 export const PING_INTERVAL = 25000;
 export const HEALTH_POLL_INTERVAL = 5000;
 
-export const HOVER_CLASS = 'vibeflow-hover-highlight';
-export const ANNOTATE_HIGHLIGHT_CLASS = 'vibeflow-annotate-highlight';
+export const HOVER_CLASS = "vibeflow-hover-highlight";
+export const ANNOTATE_HIGHLIGHT_CLASS = "vibeflow-annotate-highlight";

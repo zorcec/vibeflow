@@ -478,6 +478,7 @@ export function App() {
   const [appSettings, setAppSettings] = React.useState<AppSettings>({});
   const wsRef = React.useRef<WebSocket | null>(null);
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsRetryAttemptRef = React.useRef<number>(0);
   const pollIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -855,13 +856,17 @@ export function App() {
     ws.addEventListener("open", () => {
       setWsConnected(true);
       setHadWsConnection(true);
+      wsRetryAttemptRef.current = 0;
       void loadTasks();
     });
     ws.addEventListener("close", () => {
       setWsConnected(false);
       // Retry WS connection with exponential backoff (max 10s)
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
-      wsRetryRef.current = setTimeout(connectWs, 1500);
+      const attempt = wsRetryRef.current ? (wsRetryAttemptRef.current ?? 0) : 0;
+      const delay = Math.min(1500 * 2 ** attempt, 10_000);
+      wsRetryAttemptRef.current = attempt + 1;
+      wsRetryRef.current = setTimeout(connectWs, delay);
     });
     ws.addEventListener("error", () => {
       // On error, let 'close' handle reconnection
