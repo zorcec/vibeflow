@@ -33,12 +33,13 @@ function mkEvidenceDir(taskId: string, files: Record<string, string>) {
 
 // ── Tests ────────────────────────────────────────────────────────────────
 describe("VERIFY_TOOLS", () => {
-  it("contains all four tools", () => {
+  it("contains all five tools", () => {
     expect(VERIFY_TOOLS.has("style_query")).toBe(true);
     expect(VERIFY_TOOLS.has("style_diff")).toBe(true);
     expect(VERIFY_TOOLS.has("element_info")).toBe(true);
     expect(VERIFY_TOOLS.has("html_diff")).toBe(true);
-    expect(VERIFY_TOOLS.size).toBe(4);
+    expect(VERIFY_TOOLS.has("html_query")).toBe(true);
+    expect(VERIFY_TOOLS.size).toBe(5);
   });
 });
 

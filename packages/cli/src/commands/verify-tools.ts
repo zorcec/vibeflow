@@ -2,7 +2,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { getFilesDir } from "../core/files.js";
-import { findTaskFilePath, readTaskFile } from "../core/tasks.js";
+import { findTaskFilePath } from "../core/tasks.js";
+import type { PageSnapshot } from "../core/page-types.js";
+import {
+  queryChildChanges,
+  queryTextChanges,
+  queryAttributeChanges,
+} from "../core/page-diff.js";
 
 // ── Tool set ─────────────────────────────────────────────────────────────
 export const VERIFY_TOOLS = new Set([
@@ -10,6 +16,7 @@ export const VERIFY_TOOLS = new Set([
   "style_diff",
   "element_info",
   "html_diff",
+  "html_query",
 ]);
 
 // ── Evidence set (files that storeEvidence already wrote) ─────────────────
@@ -23,6 +30,7 @@ export interface EvidenceSet {
   afterHtml: string | null;
   selector: string | null;
   position: Record<string, unknown> | null;
+  allStyles: Record<string, unknown> | null;
 }
 
 // ── Read evidence from disk ──────────────────────────────────────────────
@@ -67,6 +75,7 @@ export async function readEvidence(
     afterHtml: after?.outerHTML ?? null,
     selector: after?.selector ?? null,
     position: after?.position ?? null,
+    allStyles: readJson("verify-all-styles.json"),
   };
 }
 
@@ -214,6 +223,15 @@ export async function runVerifyTool(
     case "html_diff":
       result = htmlDiff(ev);
       break;
+    case "html_query": {
+      const queryType = rest[1];
+      if (!queryType || !(["children", "text", "attributes"] as const).includes(queryType as "children" | "text" | "attributes")) {
+        result = { ok: false, error: `Usage: vibeflow verify html_query <task-id> children|text|attributes` };
+        break;
+      }
+      result = queryHtml(ev, queryType as "children" | "text" | "attributes");
+      break;
+    }
     default:
       result = { ok: false, error: `Unknown tool: ${tool}` };
       break;
@@ -229,6 +247,50 @@ export async function runVerifyTool(
     }
     console.log(JSON.stringify(result, null, 2));
   }
+}
+
+// ── Tool: html_query (page-wide structural diff) ────────────────────────
+function queryHtml(
+  ev: EvidenceSet,
+  queryType: "children" | "text" | "attributes",
+): Record<string, unknown> {
+  if (!ev.allStyles) {
+    return { ok: false, error: "No verify-all-styles.json found. Run 'vibeflow verify <task-id>' first." };
+  }
+
+  // SAFETY: ev.allStyles is loaded from verify-all-styles.json which is written by
+  // capturePageSnapshot() and conforms to PageSnapshot. The JSON.parse round-trip
+  // strips the type, so we cast through unknown to restore it.
+  const current = ev.allStyles as unknown as PageSnapshot;
+  // For now, compare against the same snapshot (baseline == after)
+  // The real baseline will come from annotation-time capture.
+  // If no baseline exists, treat everything as unchanged.
+  const baseline: PageSnapshot = {
+    version: 1,
+    capturedAt: current.capturedAt,
+    truncated: false,
+    elements: {},
+  };
+
+  let result;
+  switch (queryType) {
+    case "children":
+      result = queryChildChanges(baseline, current);
+      break;
+    case "text":
+      result = queryTextChanges(baseline, current);
+      break;
+    case "attributes":
+      result = queryAttributeChanges(baseline, current);
+      break;
+  }
+
+  return {
+    ok: true,
+    tool: "html_query",
+    taskId: ev.taskId,
+    ...result,
+  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

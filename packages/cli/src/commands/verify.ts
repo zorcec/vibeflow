@@ -444,6 +444,21 @@ async function storeEvidence(
       // Capture failed — not fatal
     }
 
+    // verify-all-styles.json — page-wide element styles for query tools
+    try {
+      const allStyles = await page.evaluate(() => {
+        // @ts-expect-error -- injected by page-capture.ts
+        return window.__capturePageSnapshot?.() ?? null;
+      });
+      if (allStyles) {
+        const json = JSON.stringify(allStyles, null, 2);
+        saveFile(projectDir, taskId, "verify-all-styles.json", Buffer.from(json));
+        files.push(join(getFilesDir(projectDir, taskId), "verify-all-styles.json"));
+      }
+    } catch {
+      // Capture failed — not fatal
+    }
+
     // verify-screenshot.png
     try {
       const screenshot = await page.screenshot({ fullPage: false });
