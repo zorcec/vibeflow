@@ -31,6 +31,7 @@ export interface EvidenceSet {
   selector: string | null;
   position: Record<string, unknown> | null;
   allStyles: Record<string, unknown> | null;
+  pageBaseline: Record<string, unknown> | null;
 }
 
 // ── Read evidence from disk ──────────────────────────────────────────────
@@ -65,6 +66,18 @@ export async function readEvidence(
   const diff = readJson("verify-diff.json");
   const consoleText = readText("verify-console.txt");
 
+  // Page-wide baseline for cross-element queries
+  let allStyles = readJson("verify-all-styles.json");
+  const baselinePage = readJson("baseline-page.json");
+  if (allStyles?.elements && baselinePage?.elements) {
+    for (const [key, el] of Object.entries(allStyles.elements)) {
+      const baselineEl = baselinePage.elements[key];
+      if (baselineEl?.after) {
+        (el as Record<string, unknown>).baseline = baselineEl.after;
+      }
+    }
+  }
+
   return {
     taskId,
     baseline: baseline?.computedStyles ?? null,
@@ -75,7 +88,8 @@ export async function readEvidence(
     afterHtml: after?.outerHTML ?? null,
     selector: after?.selector ?? null,
     position: after?.position ?? null,
-    allStyles: readJson("verify-all-styles.json"),
+    allStyles,
+    pageBaseline: baselinePage,
   };
 }
 
@@ -291,15 +305,13 @@ function queryHtml(
   // capturePageSnapshot() and conforms to PageSnapshot. The JSON.parse round-trip
   // strips the type, so we cast through unknown to restore it.
   const current = ev.allStyles as unknown as PageSnapshot;
-  // For now, compare against the same snapshot (baseline == after)
-  // The real baseline will come from annotation-time capture.
-  // If no baseline exists, treat everything as unchanged.
-  const baseline: PageSnapshot = {
-    version: 1,
-    capturedAt: current.capturedAt,
-    truncated: false,
-    elements: {},
-  };
+  // Use the page baseline from baseline-page.json if available.
+  // This is the annotation-time capture that serves as the ground truth.
+  // SAFETY: ev.pageBaseline is loaded from baseline-page.json which is written by
+  // capturePageSnapshot() in the overlay and conforms to PageSnapshot.
+  const baseline: PageSnapshot = ev.pageBaseline
+    ? (ev.pageBaseline as unknown as PageSnapshot)
+    : { version: 1, capturedAt: current.capturedAt, truncated: false, elements: {} };
 
   let result;
   switch (queryType) {

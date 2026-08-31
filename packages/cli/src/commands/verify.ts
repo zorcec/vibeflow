@@ -83,7 +83,8 @@ export async function verifyTask(
   let baseline: DomSnapshot | undefined;
 
   // Try file-based baseline first (new tasks)
-  const baselineElementFile = task.baselineElementFile || "baseline-element.json";
+  const baselineElementFile =
+    task.baselineElementFile || "baseline-element.json";
   const baselinePath = getFilePath(absProjectDir, taskId, baselineElementFile);
   if (baselinePath) {
     try {
@@ -325,9 +326,15 @@ export async function verifyTask(
     );
 
     // ── 12. Load page baseline and back-fill ─────────────────────────────
-    let pageBaseline: { elements: Record<string, { after: Record<string, string> }> } | null = null;
+    let pageBaseline: {
+      elements: Record<string, { after: Record<string, string> }>;
+    } | null = null;
     const pageBaselineFile = task.baselineFile || "baseline-page.json";
-    const pageBaselinePath = getFilePath(absProjectDir, taskId, pageBaselineFile);
+    const pageBaselinePath = getFilePath(
+      absProjectDir,
+      taskId,
+      pageBaselineFile,
+    );
     if (pageBaselinePath) {
       try {
         pageBaseline = JSON.parse(readFileSync(pageBaselinePath, "utf-8"));
@@ -353,21 +360,42 @@ export async function verifyTask(
 
     // ── 14. Back-fill page-wide baselines + generate page diff ──────────
     if (pageBaseline && pageBaseline.elements) {
-      const allStylesPath = getFilePath(absProjectDir, taskId, "verify-all-styles.json");
+      const allStylesPath = getFilePath(
+        absProjectDir,
+        taskId,
+        "verify-all-styles.json",
+      );
       if (allStylesPath) {
         try {
           const afterPage = JSON.parse(readFileSync(allStylesPath, "utf-8"));
           if (afterPage && afterPage.elements) {
-            const pageDiff: Record<string, Record<string, [string, string]>> = {};
-            const afterEntries = Object.entries(afterPage.elements) as Array<[string, { baseline: Record<string, string>; after: Record<string, string> }]>;
+            const pageDiff: Record<
+              string,
+              Record<string, [string, string]>
+            > = {};
+            const afterEntries = Object.entries(afterPage.elements) as Array<
+              [
+                string,
+                {
+                  baseline: Record<string, string>;
+                  after: Record<string, string>;
+                },
+              ]
+            >;
             for (const [key, element] of afterEntries) {
-              const baselineStyles = (pageBaseline!.elements[key] as { after: Record<string, string> })?.after;
+              const baselineStyles = (
+                pageBaseline!.elements[key] as { after: Record<string, string> }
+              )?.after;
               if (baselineStyles) {
                 element.baseline = baselineStyles;
                 // Compute per-property diff
                 const propDiff: Record<string, [string, string]> = {};
-                for (const [prop, afterVal] of Object.entries(element.after as Record<string, string>)) {
-                  const baseVal = (baselineStyles as Record<string, string>)[prop];
+                for (const [prop, afterVal] of Object.entries(
+                  element.after as Record<string, string>,
+                )) {
+                  const baseVal = (baselineStyles as Record<string, string>)[
+                    prop
+                  ];
                   if (baseVal !== afterVal) {
                     propDiff[prop] = [baseVal, afterVal as string];
                   }
@@ -378,11 +406,30 @@ export async function verifyTask(
               }
             }
             // Save updated allStyles with back-filled baselines
-            saveFile(absProjectDir, taskId, "verify-all-styles.json", Buffer.from(JSON.stringify(afterPage, null, 2)));
+            saveFile(
+              absProjectDir,
+              taskId,
+              "verify-all-styles.json",
+              Buffer.from(JSON.stringify(afterPage, null, 2)),
+            );
             // Save page diff
-            const pageDiffJson = JSON.stringify({ totalChanged: Object.keys(pageDiff).length, elements: pageDiff }, null, 2);
-            saveFile(absProjectDir, taskId, "verify-page-diff.json", Buffer.from(pageDiffJson));
-            evidenceFiles.push(join(getFilesDir(absProjectDir, taskId), "verify-page-diff.json"));
+            const pageDiffJson = JSON.stringify(
+              {
+                totalChanged: Object.keys(pageDiff).length,
+                elements: pageDiff,
+              },
+              null,
+              2,
+            );
+            saveFile(
+              absProjectDir,
+              taskId,
+              "verify-page-diff.json",
+              Buffer.from(pageDiffJson),
+            );
+            evidenceFiles.push(
+              join(getFilesDir(absProjectDir, taskId), "verify-page-diff.json"),
+            );
           }
         } catch {
           // Page diff generation failed — not fatal
@@ -516,18 +563,66 @@ async function storeEvidence(
     // verify-all-styles.json — page-wide element styles for query tools
     try {
       const RELEVANT_STYLES = [
-        "display","visibility","opacity","position",
-        "overflow","overflow-x","overflow-y",
-        "width","min-width","max-width","height","min-height","max-height",
-        "margin","margin-top","margin-right","margin-bottom","margin-left",
-        "padding","padding-top","padding-right","padding-bottom","padding-left",
-        "border","border-width","border-style","border-color","border-radius",
-        "background-color","background-image","color","font-size","font-weight",
-        "font-style","font-family","line-height","letter-spacing","text-align",
-        "text-decoration","text-overflow","white-space",
-        "flex-direction","flex-wrap","flex","justify-content","align-items",
-        "gap","row-gap","column-gap","z-index","box-shadow","transform","transition",
-        "cursor","user-select","pointer-events","top","left","right","bottom",
+        "display",
+        "visibility",
+        "opacity",
+        "position",
+        "overflow",
+        "overflow-x",
+        "overflow-y",
+        "width",
+        "min-width",
+        "max-width",
+        "height",
+        "min-height",
+        "max-height",
+        "margin",
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "border",
+        "border-width",
+        "border-style",
+        "border-color",
+        "border-radius",
+        "background-color",
+        "background-image",
+        "color",
+        "font-size",
+        "font-weight",
+        "font-style",
+        "font-family",
+        "line-height",
+        "letter-spacing",
+        "text-align",
+        "text-decoration",
+        "text-overflow",
+        "white-space",
+        "flex-direction",
+        "flex-wrap",
+        "flex",
+        "justify-content",
+        "align-items",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "z-index",
+        "box-shadow",
+        "transform",
+        "transition",
+        "cursor",
+        "user-select",
+        "pointer-events",
+        "top",
+        "left",
+        "right",
+        "bottom",
       ];
       const MAX_ELEMENTS = 1000;
       const allStyles = await page.evaluate((styles) => {
@@ -547,7 +642,8 @@ async function storeEvidence(
           const taskId = el.getAttribute("data-task-id");
           if (taskId) return `${tag}[data-task-id=${taskId}]`;
           const status = el.getAttribute("data-status");
-          if (status && el.classList.contains("column-scroll")) return `${tag}.column-scroll[data-status=${status}]`;
+          if (status && el.classList.contains("column-scroll"))
+            return `${tag}.column-scroll[data-status=${status}]`;
           const colId = el.getAttribute("data-column-id");
           if (colId) return `${tag}[data-column-id=${colId}]`;
           const classes = Array.from(el.classList).slice(0, 2);
@@ -555,7 +651,9 @@ async function storeEvidence(
           if (classes.length) sel += "." + classes.join(".");
           const parent = el.parentElement;
           if (parent) {
-            const sibs = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+            const sibs = Array.from(parent.children).filter(
+              (c) => c.tagName === el.tagName,
+            );
             if (sibs.length > 1) sel += `:nth-of-type(${sibs.indexOf(el) + 1})`;
           }
           return sel;
@@ -574,48 +672,95 @@ async function storeEvidence(
             const key = cls ? `${tag}.${cls}` : tag;
             counts.set(key, (counts.get(key) || 0) + 1);
           }
-          return Array.from(counts.entries()).map(([k, n]) => `${k} x${n}`).slice(0, 10);
+          return Array.from(counts.entries())
+            .map(([k, n]) => `${k} x${n}`)
+            .slice(0, 10);
         }
         const elements: Record<string, unknown> = {};
         let count = 0;
         let truncated = false;
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
-          acceptNode(node: Node) {
-            if (count >= MAX_ELEMENTS) return NodeFilter.FILTER_REJECT;
-            const el = node as HTMLElement;
-            if (el.classList.length > 0 || el.hasAttribute("data-task-id") || el.hasAttribute("data-status") || el.hasAttribute("data-column-id")) return NodeFilter.FILTER_ACCEPT;
-            return NodeFilter.FILTER_SKIP;
+        const walker = document.createTreeWalker(
+          document.body,
+          NodeFilter.SHOW_ELEMENT,
+          {
+            acceptNode(node: Node) {
+              if (count >= MAX_ELEMENTS) return NodeFilter.FILTER_REJECT;
+              const el = node as HTMLElement;
+              if (
+                el.classList.length > 0 ||
+                el.hasAttribute("data-task-id") ||
+                el.hasAttribute("data-status") ||
+                el.hasAttribute("data-column-id")
+              )
+                return NodeFilter.FILTER_ACCEPT;
+              return NodeFilter.FILTER_SKIP;
+            },
           },
-        });
+        );
         const queue: Element[] = [];
         let n: Node | null;
         while ((n = walker.nextNode())) queue.push(n as Element);
         for (const el of queue) {
-          if (count >= MAX_ELEMENTS) { truncated = true; break; }
+          if (count >= MAX_ELEMENTS) {
+            truncated = true;
+            break;
+          }
           const key = buildKey(el);
           const children = Array.from(el.children);
           const dataAttrs: Record<string, string> = {};
           for (const a of Array.from(el.attributes)) {
-            if (a.name.startsWith("data-")) dataAttrs[a.name.slice(5)] = a.value;
+            if (a.name.startsWith("data-"))
+              dataAttrs[a.name.slice(5)] = a.value;
           }
           let position = { x: 0, y: 0, width: 0, height: 0 };
-          try { const r = el.getBoundingClientRect(); position = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }; } catch { /* getBoundingClientRect can fail on hidden elements */ }
+          try {
+            const r = el.getBoundingClientRect();
+            position = {
+              x: Math.round(r.x),
+              y: Math.round(r.y),
+              width: Math.round(r.width),
+              height: Math.round(r.height),
+            };
+          } catch {
+            /* getBoundingClientRect can fail on hidden elements */
+          }
           elements[key] = {
-            key, selector: buildSelector(el), tag: el.tagName.toLowerCase(),
-            classes: Array.from(el.classList), dataAttrs,
+            key,
+            selector: buildSelector(el),
+            tag: el.tagName.toLowerCase(),
+            classes: Array.from(el.classList),
+            dataAttrs,
             parentKey: el.parentElement ? buildKey(el.parentElement) : "",
-            childCount: children.length, childSignature: childSig(children),
-            text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 200),
-            position, baseline: getStyles(el), after: getStyles(el),
+            childCount: children.length,
+            childSignature: childSig(children),
+            text: (el.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 200),
+            position,
+            baseline: getStyles(el),
+            after: getStyles(el),
           };
           count++;
         }
-        return { version: 1, capturedAt: new Date().toISOString(), truncated, elements };
+        return {
+          version: 1,
+          capturedAt: new Date().toISOString(),
+          truncated,
+          elements,
+        };
       }, RELEVANT_STYLES);
       if (allStyles) {
         const json = JSON.stringify(allStyles, null, 2);
-        saveFile(projectDir, taskId, "verify-all-styles.json", Buffer.from(json));
-        files.push(join(getFilesDir(projectDir, taskId), "verify-all-styles.json"));
+        saveFile(
+          projectDir,
+          taskId,
+          "verify-all-styles.json",
+          Buffer.from(json),
+        );
+        files.push(
+          join(getFilesDir(projectDir, taskId), "verify-all-styles.json"),
+        );
       }
     } catch {
       // Capture failed — not fatal
@@ -824,8 +969,14 @@ function printResult(result: VerifyResult): void {
   }
   console.log();
   console.log(chalk.cyan("  Explore evidence (agent tools):"));
-  console.log(chalk.dim(`    vibeflow verify style_query ${result.taskId} <property>`));
-  console.log(chalk.dim(`    vibeflow verify style_diff ${result.taskId} [--filter <pattern>]`));
+  console.log(
+    chalk.dim(`    vibeflow verify style_query ${result.taskId} <property>`),
+  );
+  console.log(
+    chalk.dim(
+      `    vibeflow verify style_diff ${result.taskId} [--filter <pattern>]`,
+    ),
+  );
   console.log(chalk.dim(`    vibeflow verify element_info ${result.taskId}`));
   console.log(chalk.dim(`    vibeflow verify html_diff ${result.taskId}`));
   console.log();
