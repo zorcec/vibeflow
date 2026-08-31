@@ -6,7 +6,7 @@
  * Baseline and auth state are captured automatically when the user annotates an element.
  */
 
-import type { DomSnapshot, ProtoConfig } from "./types.js";
+import type { DomSnapshot, ProtoConfig, PageSnapshot } from "./types.js";
 import { captureAuthState } from "./auth.js";
 import { state } from "../state.js";
 
@@ -68,6 +68,39 @@ export async function sendBaselineToServer(
  * @param taskId - The task ID
  * @param taskAuthor - The task author (for encryption key derivation)
  */
+export async function sendPageBaselineToServer(
+  taskId: string,
+  page: PageSnapshot,
+): Promise<void> {
+  try {
+    const cfg = PROTO_CONFIG;
+
+    let apiUrl = `/api/tasks/${taskId}/baseline-page`;
+    if (cfg?.apiUrl) {
+      const baseUrl = cfg.apiUrl.replace(/\/api\/(overlay\/)?tasks$/, "");
+      apiUrl = `${baseUrl}/api/tasks/${taskId}/baseline-page`;
+    }
+    if (cfg?.boardId) {
+      apiUrl += `?boardId=${encodeURIComponent(cfg.boardId)}`;
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (cfg?.overlayApiKey) {
+      headers["X-Overlay-Api-Key"] = cfg.overlayApiKey;
+    }
+
+    await fetch(apiUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ page }),
+    });
+  } catch (err) {
+    console.error("[Vibeflow] Failed to store page baseline:", err);
+  }
+}
+
 export async function captureAndStoreAuthState(
   taskId: string,
   taskAuthor: string,

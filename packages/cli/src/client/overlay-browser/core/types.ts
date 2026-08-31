@@ -39,3 +39,27 @@ export interface ProtoConfig {
   boardId?: string;
   overlayApiKey?: string;
 }
+
+/** Page-wide DOM snapshot for baseline capture. */
+export interface PageSnapshot {
+  version: 1;
+  capturedAt: string;
+  truncated: boolean;
+  elements: Record<string, PageElement>;
+}
+
+/** Single element in a page-wide snapshot. */
+export interface PageElement {
+  key: string;
+  selector: string;
+  tag: string;
+  classes: string[];
+  dataAttrs: Record<string, string>;
+  parentKey: string;
+  childCount: number;
+  childSignature: string[];
+  text: string;
+  position: { x: number; y: number; width: number; height: number };
+  baseline: Record<string, string>;
+  after: Record<string, string>;
+}

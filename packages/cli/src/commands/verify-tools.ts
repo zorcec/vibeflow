@@ -84,10 +84,39 @@ export function queryStyle(
   ev: EvidenceSet,
   property: string,
 ): Record<string, unknown> {
+  // Page-wide mode: search across all elements
+  if (ev.allStyles) {
+    // SAFETY: ev.allStyles is loaded from verify-all-styles.json which is written by
+    // the inline capturePageSnapshot() in verify.ts and conforms to PageSnapshot.
+    // The JSON.parse round-trip strips the type, so we cast through unknown to restore it.
+    const snap = ev.allStyles as unknown as { elements: Record<string, { selector: string; tag: string; childCount: number; baseline: Record<string, string> | null; after: Record<string, string> | null }> };
+    const matches: Array<{ selector: string; tag: string; childCount: number; from: string; to: string; isRelevant: boolean }> = [];
+    for (const [, el] of Object.entries(snap.elements)) {
+      const baseVal = el.baseline?.[property] ?? null;
+      const afterVal = el.after?.[property] ?? null;
+      if (baseVal !== afterVal && (baseVal !== null || afterVal !== null)) {
+        matches.push({
+          selector: el.selector,
+          tag: el.tag,
+          childCount: el.childCount,
+          from: baseVal ?? "(not set)",
+          to: afterVal ?? "(not set)",
+          isRelevant: Boolean(
+            (baseVal === "hidden" && afterVal === "auto") ||
+            (baseVal === "visible" && afterVal === "auto") ||
+            (baseVal === "line-through" && afterVal === "none") ||
+            (baseVal === "none" && afterVal && afterVal !== "none"),
+          ),
+        });
+      }
+    }
+    return { ok: true, tool: "style_query", taskId: ev.taskId, property, matches };
+  }
+
+  // Legacy single-element mode
   if (!ev.after) {
     return { ok: false, error: "No verify-after.json found. Run 'vibeflow verify <task-id>' first." };
   }
-  // Resolve kebab-case from camelCase (e.g. backgroundColor → background-color)
   const baselineVal = ev.baseline?.[property] ?? ev.baseline?.[toKebab(property)] ?? null;
   const afterVal = ev.after?.[property] ?? ev.after?.[toKebab(property)] ?? null;
   const changed =

@@ -79,8 +79,12 @@ export interface Task {
   sortKey?: string;
   /** Git branch name created for this task (when createBranch setting is ON). */
   branchName?: string;
-  /** Baseline DOM snapshot captured at annotation time (§6). */
+  /** Baseline DOM snapshot captured at annotation time (§6). @deprecated Use baselineElementFile for new tasks. */
   baseline?: import("./verification-types.js").DomSnapshot;
+  /** Single-element baseline snapshot file (annotation time). */
+  baselineElementFile?: string;
+  /** Page-wide baseline snapshot file (annotation time). */
+  baselineFile?: string;
   /** Encrypted auth state as a JSON string (§7), encrypted with task author's key. */
   authStateEnc?: string;
 }

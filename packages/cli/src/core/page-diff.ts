@@ -63,7 +63,9 @@ export function diffPageStyles(
 }
 
 /** Produce the compact summary for style_diff. */
-export function summarizeStyleDiff(changes: PageStyleChange[]): StyleDiffResult {
+export function summarizeStyleDiff(
+  changes: PageStyleChange[],
+): StyleDiffResult {
   const byProp = new Map<string, Set<string>>();
   for (const c of changes) {
     if (!byProp.has(c.prop)) byProp.set(c.prop, new Set());

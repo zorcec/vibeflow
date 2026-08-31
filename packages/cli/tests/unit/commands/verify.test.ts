@@ -76,6 +76,7 @@ vi.mock("../../../src/core/files.js", () => ({
     .mockImplementation((projectDir: string, taskId: string) =>
       join(projectDir, ".vibeflow", "tasks", "files", taskId),
     ),
+  getFilePath: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("../../../src/core/comments.js", () => ({

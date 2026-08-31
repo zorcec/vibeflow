@@ -719,7 +719,7 @@ function registerTaskApi(
     }
   });
 
-  // POST /api/tasks/:id/baseline — store baseline snapshot in task.json (§6)
+  // POST /api/tasks/:id/baseline — store baseline snapshot as file (§6)
   app.post("/api/tasks/:id/baseline", express.json(), (req, res) => {
     const { id } = req.params;
     const { baseline } = req.body as {
@@ -741,13 +741,49 @@ function registerTaskApi(
     }
 
     try {
-      updateTask(projectDir, id, { baseline } as Partial<Task>);
-      console.log(`[Vibeflow] Baseline snapshot stored for task ${id}`);
+      const filename = "baseline-element.json";
+      saveFile(projectDir, id, filename, Buffer.from(JSON.stringify(baseline, null, 2)));
+      updateTask(projectDir, id, { baselineElementFile: filename } as Partial<Task>);
+      console.log(`[Vibeflow] Baseline snapshot stored for task ${id} (${filename})`);
       res.json({ success: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Vibeflow] Failed to store baseline for ${id}: ${msg}`);
       res.status(500).json({ error: "Failed to store baseline" });
+    }
+  });
+
+  // POST /api/tasks/:id/baseline-page — store page-wide baseline snapshot as file
+  app.post("/api/tasks/:id/baseline-page", express.json({ limit: "10mb" }), (req, res) => {
+    const { id } = req.params;
+    const { page } = req.body as {
+      page?: { version: number; elements: Record<string, unknown>; capturedAt: string; truncated: boolean };
+    };
+
+    // Validate task exists
+    if (!findTaskFilePath(projectDir, id)) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+
+    // Validate required fields
+    if (!page || page.version !== 1 || !page.elements) {
+      res.status(400).json({
+        error: "Missing required fields: page.version, page.elements",
+      });
+      return;
+    }
+
+    try {
+      const filename = "baseline-page.json";
+      saveFile(projectDir, id, filename, Buffer.from(JSON.stringify(page, null, 2)));
+      updateTask(projectDir, id, { baselineFile: filename } as Partial<Task>);
+      console.log(`[Vibeflow] Page baseline stored for task ${id} (${filename})`);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Vibeflow] Failed to store page baseline for ${id}: ${msg}`);
+      res.status(500).json({ error: "Failed to store page baseline" });
     }
   });
 }

@@ -3,8 +3,8 @@ import { el } from "./dom.js";
 import { buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
 import { submitTask } from "./api.js";
 import { setAnnotateHighlight, clearAnnotateHighlight } from "./ui.js";
-import { captureDomSnapshot } from "./core/baseline.js";
-import { sendBaselineToServer } from "./core/capture.js";
+import { captureDomSnapshot, capturePageSnapshot } from "./core/baseline.js";
+import { sendBaselineToServer, sendPageBaselineToServer } from "./core/capture.js";
 import { buildTypePickerEl } from "./type-picker-el.js";
 import { flashOverlayTrigger } from "../overlay-react/OverlayApp.js";
 import { getRecordedLogs } from "./error-recorder.js";
@@ -297,6 +297,13 @@ export async function showPopover(
             cssSelector,
           );
           void sendBaselineToServer(result.taskId, snapshot);
+          // Also capture page-wide baseline (fire-and-forget)
+          try {
+            const pageSnapshot = capturePageSnapshot();
+            void sendPageBaselineToServer(result.taskId, pageSnapshot);
+          } catch (err) {
+            console.error("[Vibeflow] Failed to capture page baseline:", err);
+          }
         } catch (err) {
           console.error("[Vibeflow] Failed to capture baseline:", err);
         }

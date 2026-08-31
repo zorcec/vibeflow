@@ -1,8 +1,9 @@
 import chalk from "chalk";
 import { resolve, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { statSync, readdirSync, unlinkSync } from "node:fs";
 import { findTaskFilePath, readTaskFile, updateTask } from "../core/tasks.js";
-import { saveFile, getFilesDir } from "../core/files.js";
+import { saveFile, getFilesDir, getFilePath } from "../core/files.js";
 import { addComment } from "../core/comments.js";
 import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
@@ -78,14 +79,31 @@ export async function verifyTask(
     throw new VerifyError("E_NOT_FOUND", `Task not found: ${taskId}`);
   }
 
-  // ── 2. Read baseline snapshot from task.json ──────────────────────────
-  if (!task.baseline) {
+  // ── 2. Read baseline snapshot (file-based with legacy fallback) ────────
+  let baseline: DomSnapshot | undefined;
+
+  // Try file-based baseline first (new tasks)
+  const baselineElementFile = task.baselineElementFile || "baseline-element.json";
+  const baselinePath = getFilePath(absProjectDir, taskId, baselineElementFile);
+  if (baselinePath) {
+    try {
+      baseline = JSON.parse(readFileSync(baselinePath, "utf-8")) as DomSnapshot;
+    } catch {
+      // File corrupted, fall through to legacy
+    }
+  }
+
+  // Fallback: legacy inline baseline in task.json
+  if (!baseline && task.baseline) {
+    baseline = task.baseline;
+  }
+
+  if (!baseline) {
     throw new VerifyError(
       "E_NO_BASELINE",
       "Task has no baseline. Re-annotate to capture one.",
     );
   }
-  const baseline: DomSnapshot = task.baseline;
 
   // ── 3. Read & decrypt auth state from task.json (§7.5) ────────────────
   let cookies: import("../core/auth.js").AuthState["cookies"] = [];
@@ -306,7 +324,19 @@ export async function verifyTask(
       consoleErrors,
     );
 
-    // ── 12. Compute structural diff ─────────────────────────────────────
+    // ── 12. Load page baseline and back-fill ─────────────────────────────
+    let pageBaseline: { elements: Record<string, { after: Record<string, string> }> } | null = null;
+    const pageBaselineFile = task.baselineFile || "baseline-page.json";
+    const pageBaselinePath = getFilePath(absProjectDir, taskId, pageBaselineFile);
+    if (pageBaselinePath) {
+      try {
+        pageBaseline = JSON.parse(readFileSync(pageBaselinePath, "utf-8"));
+      } catch {
+        // File corrupted, skip page diff
+      }
+    }
+
+    // ── 13. Compute structural diff ─────────────────────────────────────
     const diff = computeDiff(baseline, afterSnapshot);
 
     // ── 13. Store evidence files ────────────────────────────────────────
@@ -321,7 +351,46 @@ export async function verifyTask(
       selector,
     );
 
-    // ── 14. Build result ────────────────────────────────────────────────
+    // ── 14. Back-fill page-wide baselines + generate page diff ──────────
+    if (pageBaseline && pageBaseline.elements) {
+      const allStylesPath = getFilePath(absProjectDir, taskId, "verify-all-styles.json");
+      if (allStylesPath) {
+        try {
+          const afterPage = JSON.parse(readFileSync(allStylesPath, "utf-8"));
+          if (afterPage && afterPage.elements) {
+            const pageDiff: Record<string, Record<string, [string, string]>> = {};
+            const afterEntries = Object.entries(afterPage.elements) as Array<[string, { baseline: Record<string, string>; after: Record<string, string> }]>;
+            for (const [key, element] of afterEntries) {
+              const baselineStyles = (pageBaseline!.elements[key] as { after: Record<string, string> })?.after;
+              if (baselineStyles) {
+                element.baseline = baselineStyles;
+                // Compute per-property diff
+                const propDiff: Record<string, [string, string]> = {};
+                for (const [prop, afterVal] of Object.entries(element.after as Record<string, string>)) {
+                  const baseVal = (baselineStyles as Record<string, string>)[prop];
+                  if (baseVal !== afterVal) {
+                    propDiff[prop] = [baseVal, afterVal as string];
+                  }
+                }
+                if (Object.keys(propDiff).length > 0) {
+                  pageDiff[key] = propDiff;
+                }
+              }
+            }
+            // Save updated allStyles with back-filled baselines
+            saveFile(absProjectDir, taskId, "verify-all-styles.json", Buffer.from(JSON.stringify(afterPage, null, 2)));
+            // Save page diff
+            const pageDiffJson = JSON.stringify({ totalChanged: Object.keys(pageDiff).length, elements: pageDiff }, null, 2);
+            saveFile(absProjectDir, taskId, "verify-page-diff.json", Buffer.from(pageDiffJson));
+            evidenceFiles.push(join(getFilesDir(absProjectDir, taskId), "verify-page-diff.json"));
+          }
+        } catch {
+          // Page diff generation failed — not fatal
+        }
+      }
+    }
+
+    // ── 15. Build result ────────────────────────────────────────────────
     // Mark task as verified
     updateTask(absProjectDir, taskId, { verified: true });
     return buildResult(
@@ -446,10 +515,103 @@ async function storeEvidence(
 
     // verify-all-styles.json — page-wide element styles for query tools
     try {
-      const allStyles = await page.evaluate(() => {
-        // @ts-expect-error -- injected by page-capture.ts
-        return window.__capturePageSnapshot?.() ?? null;
-      });
+      const RELEVANT_STYLES = [
+        "display","visibility","opacity","position",
+        "overflow","overflow-x","overflow-y",
+        "width","min-width","max-width","height","min-height","max-height",
+        "margin","margin-top","margin-right","margin-bottom","margin-left",
+        "padding","padding-top","padding-right","padding-bottom","padding-left",
+        "border","border-width","border-style","border-color","border-radius",
+        "background-color","background-image","color","font-size","font-weight",
+        "font-style","font-family","line-height","letter-spacing","text-align",
+        "text-decoration","text-overflow","white-space",
+        "flex-direction","flex-wrap","flex","justify-content","align-items",
+        "gap","row-gap","column-gap","z-index","box-shadow","transform","transition",
+        "cursor","user-select","pointer-events","top","left","right","bottom",
+      ];
+      const MAX_ELEMENTS = 1000;
+      const allStyles = await page.evaluate((styles) => {
+        function buildKey(el: Element): string {
+          const path: number[] = [];
+          let cur: Element | null = el;
+          while (cur && cur !== document.documentElement) {
+            const p: HTMLElement | null = cur.parentElement;
+            if (!p) break;
+            path.unshift(Array.from(p.children).indexOf(cur));
+            cur = p;
+          }
+          return path.join("/");
+        }
+        function buildSelector(el: Element): string {
+          const tag = el.tagName.toLowerCase();
+          const taskId = el.getAttribute("data-task-id");
+          if (taskId) return `${tag}[data-task-id=${taskId}]`;
+          const status = el.getAttribute("data-status");
+          if (status && el.classList.contains("column-scroll")) return `${tag}.column-scroll[data-status=${status}]`;
+          const colId = el.getAttribute("data-column-id");
+          if (colId) return `${tag}[data-column-id=${colId}]`;
+          const classes = Array.from(el.classList).slice(0, 2);
+          let sel = tag;
+          if (classes.length) sel += "." + classes.join(".");
+          const parent = el.parentElement;
+          if (parent) {
+            const sibs = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+            if (sibs.length > 1) sel += `:nth-of-type(${sibs.indexOf(el) + 1})`;
+          }
+          return sel;
+        }
+        function getStyles(el: Element): Record<string, string> {
+          const computed = window.getComputedStyle(el);
+          const r: Record<string, string> = {};
+          for (const prop of styles) r[prop] = computed.getPropertyValue(prop);
+          return r;
+        }
+        function childSig(children: Element[]): string[] {
+          const counts = new Map<string, number>();
+          for (const c of children) {
+            const tag = c.tagName.toLowerCase();
+            const cls = Array.from(c.classList).slice(0, 2).join(".");
+            const key = cls ? `${tag}.${cls}` : tag;
+            counts.set(key, (counts.get(key) || 0) + 1);
+          }
+          return Array.from(counts.entries()).map(([k, n]) => `${k} x${n}`).slice(0, 10);
+        }
+        const elements: Record<string, unknown> = {};
+        let count = 0;
+        let truncated = false;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+          acceptNode(node: Node) {
+            if (count >= MAX_ELEMENTS) return NodeFilter.FILTER_REJECT;
+            const el = node as HTMLElement;
+            if (el.classList.length > 0 || el.hasAttribute("data-task-id") || el.hasAttribute("data-status") || el.hasAttribute("data-column-id")) return NodeFilter.FILTER_ACCEPT;
+            return NodeFilter.FILTER_SKIP;
+          },
+        });
+        const queue: Element[] = [];
+        let n: Node | null;
+        while ((n = walker.nextNode())) queue.push(n as Element);
+        for (const el of queue) {
+          if (count >= MAX_ELEMENTS) { truncated = true; break; }
+          const key = buildKey(el);
+          const children = Array.from(el.children);
+          const dataAttrs: Record<string, string> = {};
+          for (const a of Array.from(el.attributes)) {
+            if (a.name.startsWith("data-")) dataAttrs[a.name.slice(5)] = a.value;
+          }
+          let position = { x: 0, y: 0, width: 0, height: 0 };
+          try { const r = el.getBoundingClientRect(); position = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }; } catch { /* getBoundingClientRect can fail on hidden elements */ }
+          elements[key] = {
+            key, selector: buildSelector(el), tag: el.tagName.toLowerCase(),
+            classes: Array.from(el.classList), dataAttrs,
+            parentKey: el.parentElement ? buildKey(el.parentElement) : "",
+            childCount: children.length, childSignature: childSig(children),
+            text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 200),
+            position, baseline: getStyles(el), after: getStyles(el),
+          };
+          count++;
+        }
+        return { version: 1, capturedAt: new Date().toISOString(), truncated, elements };
+      }, RELEVANT_STYLES);
       if (allStyles) {
         const json = JSON.stringify(allStyles, null, 2);
         saveFile(projectDir, taskId, "verify-all-styles.json", Buffer.from(json));
