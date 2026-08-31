@@ -25,6 +25,10 @@ import {
 } from "../client/overlay/index.js";
 import { getKanbanHtml, type KanbanOptions } from "./kanban-template.js";
 import {
+  buildChangelogResponse,
+  readChangelogContent,
+} from "../core/changelog.js";
+import {
   getProjectName,
   readConfig,
   getCurrentBranch,
@@ -154,6 +158,15 @@ type BroadcastFn = (data: Record<string, unknown>) => void;
 
 const _require = createRequire(import.meta.url);
 
+// Injected at build time by tsup; undefined in raw TypeScript runs.
+declare const __VIBEFLOW_CLI_VERSION__: string | undefined;
+
+/** Current CLI version for the kanban "What's New" modal; "" when unknown. */
+const CLI_VERSION =
+  typeof __VIBEFLOW_CLI_VERSION__ === "undefined"
+    ? ""
+    : __VIBEFLOW_CLI_VERSION__;
+
 /** Returns the first non-loopback IPv4 LAN address for display when bound to 0.0.0.0. */
 function getLanIp(): string | null {
   for (const ifaces of Object.values(networkInterfaces())) {
@@ -227,6 +240,11 @@ function registerTaskApi(
   // Health check — used by overlay and kanban clients to poll connection status.
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // CLI changelog — powers the kanban "What's New" modal and full-changelog view.
+  app.get("/api/changelog", (_req, res) => {
+    res.json(buildChangelogResponse(readChangelogContent()));
   });
 
   app.get("/api/tasks", (req, res) => {
@@ -1023,7 +1041,7 @@ function registerKanbanRoute(app: express.Application, port: number): void {
   app.get("/kanban", async (_req, res) => {
     const token = await readToken().catch(() => null);
     if (!token) {
-      res.type("html").send(getKanbanHtml({ port }));
+      res.type("html").send(getKanbanHtml({ port, cliVersion: CLI_VERSION }));
       return;
     }
     const workspace = await readWorkspace().catch(() => null);
@@ -1046,6 +1064,7 @@ function registerKanbanRoute(app: express.Application, port: number): void {
 
     const opts: KanbanOptions = {
       port,
+      cliVersion: CLI_VERSION,
       saasMode: true,
       boardUrl: workspace?.url ?? `${apiUrl}/kanban`,
       boardName: workspace?.name,

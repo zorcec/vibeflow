@@ -19,6 +19,8 @@ export interface KanbanOptions {
   boardUrl?: string;
   boardName?: string;
   isAdmin?: boolean;
+  /** Installed CLI version — drives the "What's New" modal; omitted when unknown. */
+  cliVersion?: string;
 }
 
 function getLegacyHtml(port: number): string {
@@ -48,7 +50,7 @@ function getReactShell(opts: KanbanOptions): string {
 </head>
 <body class="h-screen overflow-hidden flex flex-col" style="background:#020c1b;">
   <div id="root"></div>
-  <script>window.__PORT__ = ${opts.port}; ${getSaasModeScript(opts)}</script>
+  <script>window.__PORT__ = ${opts.port}; window.__CLI_VERSION__ = ${JSON.stringify(opts.cliVersion ?? "")}; ${getSaasModeScript(opts)}</script>
   <script>${KANBAN_BUNDLE}</script>
 </body>
 </html>`;

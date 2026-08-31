@@ -22,6 +22,8 @@ import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
 import { watch } from "./commands/watch.js";
+import { showChangelog } from "./commands/changelog.js";
+import { changelogText, readChangelogContent } from "./core/changelog.js";
 import { canMoveToReview } from "./core/gating.js";
 import { clearAuthState, listAuthStateFiles } from "./commands/auth.js";
 import { runVerify } from "./commands/verify.js";
@@ -62,12 +64,37 @@ function isNewerVersion(latest: string, current: string): boolean {
   return lc > cc;
 }
 
+/** Guards the inline changelog so it prints at most once per process. */
+let updateChangelogShown = false;
+
+/**
+ * Prints the latest CHANGELOG.md section below the update notice.
+ * Silently tolerates a missing or unparseable changelog — the update notice
+ * must never break because of it.
+ */
+function printUpdateChangelog(): void {
+  if (updateChangelogShown) return;
+  updateChangelogShown = true;
+  try {
+    const text = changelogText(readChangelogContent() ?? "");
+    if (text) {
+      console.log(text);
+      console.log();
+    }
+  } catch {
+    /* ignore — same never-throws contract as the update check */
+  }
+}
+
 /**
  * Non-blocking npm update check. Fires an HTTPS request to the npm registry
  * and prints a visible notice when a newer version is available.
  * Never throws; all errors are silently swallowed.
+ *
+ * When `showChangelog` is true (default) the latest changelog section is
+ * printed below the notice; pass false (via `--no-changelog`) to suppress it.
  */
-function checkForUpdates(): void {
+function checkForUpdates(showChangelog = true): void {
   const current =
     typeof __VIBEFLOW_CLI_VERSION__ === "undefined"
       ? null
@@ -102,6 +129,7 @@ function checkForUpdates(): void {
                     chalk.dim(" to update"),
                 );
                 console.log();
+                if (showChangelog) printUpdateChangelog();
               }
             } catch {
               /* ignore parse errors */
@@ -512,6 +540,7 @@ For coding agents — quick reference:
   vibeflow serve [target]              Start local server / prototype viewer
   vibeflow kanban                      Open the Kanban board in browser
   vibeflow watch [dir]                 Watch task store; print new + moved-to-todo tickets
+  vibeflow changelog [--all]           Show the changelog (latest version / all versions)
 
 Task statuses: backlog | todo | in-progress | review | done
 
@@ -575,10 +604,11 @@ program
     "Bind hostname (default: localhost; use 0.0.0.0 for LAN sharing)",
   )
   .option("--no-open", "Do not open browser automatically")
+  .option("--no-changelog", "Do not show the changelog with the update notice")
   .action(
     async (
       dir: string,
-      opts: { port: string; host?: string; open: boolean },
+      opts: { port: string; host?: string; open: boolean; changelog: boolean },
     ) => {
       capture("command_run", { command: "kanban" });
       await flushTelemetry();
@@ -615,7 +645,7 @@ program
           });
       }
       // Non-blocking update check — runs after all startup output is shown.
-      void checkForUpdates();
+      void checkForUpdates(opts.changelog !== false);
     },
   );
 
@@ -2701,6 +2731,16 @@ program
     capture("command_run", { command: "verify" });
     await runVerify(".", taskId, opts);
     await flushTelemetry();
+  });
+
+program
+  .command("changelog")
+  .description("Show the changelog — latest version by default")
+  .option("--all", "Show the full changelog for every version")
+  .action(async (opts: { all?: boolean }) => {
+    capture("command_run", { command: "changelog" });
+    await flushTelemetry();
+    showChangelog({ all: opts.all === true });
   });
 
 program.parse();

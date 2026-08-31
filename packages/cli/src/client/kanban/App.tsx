@@ -21,6 +21,14 @@ import {
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
+import { WhatsNewModal } from "./WhatsNewModal.js";
+import {
+  fetchChangelogSections,
+  markVersionSeen,
+  readStoredVersion,
+  shouldShowWhatsNew,
+  type ChangelogSection,
+} from "./whats-new.js";
 
 type ViewMode = "board" | "list";
 
@@ -32,10 +40,15 @@ const SAAS_MODE =
 // SAFETY: __BOARD_URL__ is injected by the CLI build to point to the target page.
 const BOARD_URL =
   (window as unknown as { __BOARD_URL__?: string }).__BOARD_URL__ ?? "";
+// SAFETY: __BOARD_NAME__ is injected by the CLI server into the kanban HTML.
 const BOARD_NAME =
   (window as unknown as { __BOARD_NAME__?: string }).__BOARD_NAME__ ?? "";
+// SAFETY: __IS_ADMIN__ is injected by the CLI server into the kanban HTML.
 const IS_ADMIN =
   (window as unknown as { __IS_ADMIN__?: boolean }).__IS_ADMIN__ ?? false;
+// SAFETY: __CLI_VERSION__ is injected by the CLI server into the kanban HTML.
+const CLI_VERSION =
+  (window as unknown as { __CLI_VERSION__?: string }).__CLI_VERSION__ ?? "";
 
 type PushState = "idle" | "pushing" | "done" | "error";
 
@@ -451,6 +464,12 @@ export function App() {
   });
   const [viewMode, setViewMode] = React.useState<ViewMode>("board");
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [whatsNew, setWhatsNew] = React.useState<{
+    open: boolean;
+    startMode: "whatsnew" | "full";
+    sections: ChangelogSection[];
+    version: string;
+  }>({ open: false, startMode: "whatsnew", sections: [], version: "" });
   const [filePreview, setFilePreview] = React.useState({
     open: false,
     name: "",
@@ -500,6 +519,7 @@ export function App() {
     void loadAppSettings();
     void loadCopilotStatus();
     void loadGithubUrl();
+    void checkWhatsNew();
     connectWs();
     return () => {
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
@@ -691,6 +711,7 @@ export function App() {
       tasksRef.current = data.tasks ?? [];
       setTasks(data.tasks ?? []);
     } catch {
+      /* keep the previous list — polling/WS fallback retries the load */
     } finally {
       setIsLoading(false);
     }
@@ -808,7 +829,9 @@ export function App() {
       const data = await api.getProject();
       if (data.name) setProjectName(data.name);
       if (data.gitUserName) setGitUserName(data.gitUserName);
-    } catch {}
+    } catch {
+      /* metadata is optional — display defaults stand */
+    }
   }
 
   async function loadGithubUrl() {
@@ -817,7 +840,54 @@ export function App() {
         githubUrl: string | null;
       };
       setGithubUrl(data.githubUrl ?? null);
-    } catch {}
+    } catch {
+      /* optional feature — no URL simply hides the repo link */
+    }
+  }
+
+  // Open the "What's New" modal once per CLI version after an update.
+  async function checkWhatsNew() {
+    const stored = readStoredVersion();
+    let version = CLI_VERSION;
+    let sections: ChangelogSection[] | null = null;
+    if (!version) {
+      // Dev/test builds have no injected version — the served changelog's
+      // newest entry is the running CLI version by construction.
+      sections = await fetchChangelogSections();
+      version = sections[0]?.version ?? "";
+    }
+    if (!version) return; // cannot determine current version
+    if (!stored) {
+      // First visit: baseline to the current version, nothing to announce.
+      markVersionSeen(version);
+      return;
+    }
+    if (!shouldShowWhatsNew(stored, version)) return;
+    const resolved = sections ?? (await fetchChangelogSections());
+    if (resolved.length === 0) {
+      // Nothing renderable — record the version so we do not refetch every load.
+      markVersionSeen(version);
+      return;
+    }
+    setWhatsNew({
+      open: true,
+      startMode: "whatsnew",
+      sections: resolved,
+      version,
+    });
+  }
+
+  async function openFullChangelog() {
+    const sections = whatsNew.sections.length
+      ? whatsNew.sections
+      : await fetchChangelogSections();
+    const version = CLI_VERSION || sections[0]?.version || whatsNew.version;
+    setWhatsNew({ open: true, startMode: "full", sections, version });
+  }
+
+  function closeWhatsNew() {
+    if (whatsNew.version) markVersionSeen(whatsNew.version);
+    setWhatsNew((p) => ({ ...p, open: false }));
   }
 
   async function loadAppSettings() {
@@ -834,7 +904,9 @@ export function App() {
       ) {
         setPanelWidth(settings.panelWidth);
       }
-    } catch {}
+    } catch {
+      /* built-in defaults apply when saved settings are unavailable */
+    }
   }
 
   async function loadCopilotStatus() {
@@ -845,7 +917,9 @@ export function App() {
       } else {
         setPremiumUsage("Copilot: not logged in");
       }
-    } catch {}
+    } catch {
+      /* usage badge is informational only */
+    }
   }
 
   function connectWs() {
@@ -895,7 +969,9 @@ export function App() {
             return next;
           });
         }
-      } catch {}
+      } catch {
+        /* ignore malformed WS frames — keep the connection alive */
+      }
     });
     // Keep-alive ping
     const pingInterval = setInterval(() => {
@@ -994,7 +1070,9 @@ export function App() {
         void captureAndStoreBaseline(result.task.id, draft.selector);
       }
       return result?.task?.id;
-    } catch {}
+    } catch {
+      /* request failed — caller treats a missing id as a no-op */
+    }
   }
 
   function openPanel(
@@ -1119,6 +1197,25 @@ export function App() {
         taskSummary={taskSummary}
         onSearchChange={setSearchQuery}
         onSettings={() => setSettingsOpen(true)}
+        extraActions={
+          <button
+            id="changelog-btn"
+            onClick={() => void openFullChangelog()}
+            title="View changelog"
+            style={{
+              fontSize: 12,
+              color: "var(--p-text-m)",
+              background: "transparent",
+              border: "1px solid var(--p-border)",
+              borderRadius: 8,
+              padding: "5px 10px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Changelog
+          </button>
+        }
       />
 
       <FilterBar
@@ -1341,6 +1438,14 @@ export function App() {
         name={filePreview.name}
         url={filePreview.url}
         onClose={() => setFilePreview((p) => ({ ...p, open: false }))}
+      />
+
+      <WhatsNewModal
+        open={whatsNew.open}
+        sections={whatsNew.sections}
+        version={whatsNew.version}
+        startMode={whatsNew.startMode}
+        onClose={closeWhatsNew}
       />
     </>
   );
