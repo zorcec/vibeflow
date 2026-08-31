@@ -646,6 +646,12 @@ function printResult(result: VerifyResult): void {
     }
   }
   console.log();
+  console.log(chalk.cyan("  Explore evidence (agent tools):"));
+  console.log(chalk.dim(`    vibeflow verify style_query ${result.taskId} <property>`));
+  console.log(chalk.dim(`    vibeflow verify style_diff ${result.taskId} [--filter <pattern>]`));
+  console.log(chalk.dim(`    vibeflow verify element_info ${result.taskId}`));
+  console.log(chalk.dim(`    vibeflow verify html_diff ${result.taskId}`));
+  console.log();
   console.log(chalk.cyan("  Review evidences:"));
   console.log(
     chalk.dim(

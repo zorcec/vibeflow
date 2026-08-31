@@ -27,6 +27,7 @@ import { changelogText, readChangelogContent } from "./core/changelog.js";
 import { canMoveToReview } from "./core/gating.js";
 import { clearAuthState, listAuthStateFiles } from "./commands/auth.js";
 import { runVerify } from "./commands/verify.js";
+import { runVerifyTool, VERIFY_TOOLS } from "./commands/verify-tools.js";
 import {
   fetchSaasTasks,
   fetchSaasTask,
@@ -2723,13 +2724,27 @@ program
 
 program
   .command("verify")
-  .description("Verify a task against its baseline snapshot using Playwright")
-  .argument("<task-id>", "Task ID to verify")
+  .description("Verify a task against its baseline snapshot, or explore captured evidence")
+  .argument("[args...]", "task-id, or a tool: style_query | style_diff | element_info | html_diff")
   .option("--json", "Output machine-readable JSON")
   .option("--url <url>", "Override target URL (same-origin port changes only)")
-  .action(async (taskId: string, opts: { json?: boolean; url?: string }) => {
+  .option("--filter <pattern>", "Filter style properties by substring (style_diff only)")
+  .action(async (args: string[], opts: { json?: boolean; url?: string; filter?: string }) => {
     capture("command_run", { command: "verify" });
-    await runVerify(".", taskId, opts);
+    const [head, ...rest] = args;
+    if (head && VERIFY_TOOLS.has(head)) {
+      await runVerifyTool(".", head, rest, opts);
+      await flushTelemetry();
+      return;
+    }
+    if (!head) {
+      process.stderr.write(chalk.red("✗ Task ID required.\n"));
+      process.stderr.write(chalk.dim("  Usage: vibeflow verify <task-id>\n"));
+      process.stderr.write(chalk.dim("  Tools: vibeflow verify <tool> <task-id> [...]\n"));
+      process.exitCode = 1;
+      return;
+    }
+    await runVerify(".", head, opts);
     await flushTelemetry();
   });
 
