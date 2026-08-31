@@ -134,12 +134,15 @@ body {
 }
 .column-scroll {
  flex: 1;
- overflow-y: hidden;
+ overflow-y: auto;
  min-height: 0;
  display: flex;
  flex-direction: column;
  gap: 5px;
  padding-bottom: 8px;
+}
+.column-scroll[data-status="done"] {
+ overflow-y: hidden;
 }
 
 /* ── Task card ── */
