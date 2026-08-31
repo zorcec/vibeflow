@@ -426,7 +426,7 @@ function KanbanColumn({
   const [addHovered, setAddHovered] = React.useState(false);
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
-  const DONE_LIMIT = 20;
+  const DONE_LIMIT = 10;
   const isDone = col.id === "done";
   const hiddenCount =
     isDone && tasks.length > DONE_LIMIT ? tasks.length - DONE_LIMIT : 0;
@@ -551,18 +551,19 @@ function KanbanColumn({
             {hiddenCount > 0 && (
               <div
                 style={{
-                  margin: "4px 0 2px",
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  border: "1px dashed var(--p-border-t)",
-                  fontSize: 11,
+                  background: "var(--p-card)",
+                  border: "2px dashed var(--p-border-t)",
+                  borderRadius: 10,
+                  padding: "11px 13px",
+                  fontSize: 12,
                   color: "var(--p-text-g)",
                   textAlign: "center",
                   lineHeight: 1.4,
+                  opacity: 0.7,
                 }}
               >
                 +{hiddenCount} older {hiddenCount === 1 ? "task" : "tasks"} not
-                shown
+                shown. Use search to find them.
               </div>
             )}
           </>
