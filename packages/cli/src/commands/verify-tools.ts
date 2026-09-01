@@ -67,7 +67,7 @@ export async function readEvidence(
   const consoleText = readText("verify-console.txt");
 
   // Page-wide baseline for cross-element queries
-  let allStyles = readJson("verify-all-styles.json");
+  const allStyles = readJson("verify-all-styles.json");
   const baselinePage = readJson("baseline-page.json");
   if (allStyles?.elements && baselinePage?.elements) {
     for (const [key, el] of Object.entries(allStyles.elements)) {

@@ -9,8 +9,23 @@ import { readToken } from "../auth/token.js";
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
 
+/**
+ * Resolve the SaaS API base URL from the environment. Validates that the value
+ * is a well-formed http(s) URL and falls back to the production default for
+ * anything else — Bearer tokens must never be sent to file://, custom schemes,
+ * or malformed hosts (SSRF/credential-leak guard). Also guarantees callers'
+ * `new URL(...)` never throws on a bad env value.
+ */
 function getApiUrl(): string {
-  return process.env.VIBEFLOW_API_URL ?? DEFAULT_API_URL;
+  const raw = process.env.VIBEFLOW_API_URL ?? DEFAULT_API_URL;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:")
+      return DEFAULT_API_URL;
+    return raw.replace(/\/+$/, "");
+  } catch {
+    return DEFAULT_API_URL;
+  }
 }
 
 /** Map CLI status values to SaaS DB enum values. */
@@ -62,7 +77,12 @@ export interface SaasTask {
   updatedAt: string;
   branchName?: string | null;
   comments?: SaasComment[];
-  files?: Array<{ name: string; size?: number; url?: string; content?: string }>;
+  files?: Array<{
+    name: string;
+    size?: number;
+    url?: string;
+    content?: string;
+  }>;
 }
 
 async function getBearerHeaders(): Promise<Record<string, string> | null> {
@@ -100,7 +120,7 @@ export async function fetchSaasTasks(
 export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
   const result = await fetchSaasTasks();
   if (!result) return null;
-  return result.tasks.find(t => t.id === taskId) ?? null;
+  return result.tasks.find((t) => t.id === taskId) ?? null;
 }
 
 /**
@@ -109,7 +129,13 @@ export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
  */
 export async function updateSaasTask(
   taskId: string,
-  patch: { status?: string; title?: string; description?: string; priority?: string; branchName?: string },
+  patch: {
+    status?: string;
+    title?: string;
+    description?: string;
+    priority?: string;
+    branchName?: string;
+  },
 ): Promise<{ task: SaasTask; warning?: string } | null> {
   const headers = await getBearerHeaders();
   if (!headers) return null;
@@ -131,7 +157,7 @@ export async function updateSaasTask(
       },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { task: SaasTask; warning?: string };
+    const data = (await res.json()) as { task: SaasTask; warning?: string };
     return { task: data.task, warning: data.warning };
   } catch {
     return null;
@@ -159,7 +185,7 @@ export async function addSaasComment(
       },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { comment: SaasComment };
+    const data = (await res.json()) as { comment: SaasComment };
     return data.comment;
   } catch {
     return null;
@@ -182,7 +208,7 @@ export async function fetchSaasComments(
       { headers },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { comments: SaasComment[] };
+    const data = (await res.json()) as { comments: SaasComment[] };
     return data.comments;
   } catch {
     return null;
@@ -193,9 +219,16 @@ export async function fetchSaasComments(
  * Create a new task in the SaaS.
  * Returns the created task or null on failure / not authenticated.
  */
-export async function createSaasTask(
-  params: { id?: string; title: string; description?: string; annotatedElementText?: string; status?: string; priority?: string; type?: string; boardId?: string },
-): Promise<SaasTask | null> {
+export async function createSaasTask(params: {
+  id?: string;
+  title: string;
+  description?: string;
+  annotatedElementText?: string;
+  status?: string;
+  priority?: string;
+  type?: string;
+  boardId?: string;
+}): Promise<SaasTask | null> {
   const headers = await getBearerHeaders();
   if (!headers) return null;
 
@@ -206,10 +239,9 @@ export async function createSaasTask(
       body: JSON.stringify(params),
     });
     if (!res.ok) return null;
-    const data = await res.json() as { task: SaasTask };
+    const data = (await res.json()) as { task: SaasTask };
     return data.task;
   } catch {
     return null;
   }
 }
-

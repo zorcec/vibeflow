@@ -11,7 +11,13 @@
  *   - Anonymous UUID stored in ~/.vibeflow/config.json.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+} from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import { PostHog } from "posthog-node";
@@ -36,7 +42,9 @@ interface TelemetryConfig {
 
 function readConfig(): TelemetryConfig {
   try {
-    return JSON.parse(readFileSync(getConfigPath(), "utf-8")) as TelemetryConfig;
+    return JSON.parse(
+      readFileSync(getConfigPath(), "utf-8"),
+    ) as TelemetryConfig;
   } catch {
     return {};
   }
@@ -46,7 +54,14 @@ function writeConfig(updates: Partial<TelemetryConfig>): void {
   const dir = getConfigDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const current = readConfig();
-  writeFileSync(getConfigPath(), JSON.stringify({ ...current, ...updates }, null, 2), "utf-8");
+  const target = getConfigPath();
+  const tmp = target + ".tmp";
+  writeFileSync(
+    tmp,
+    JSON.stringify({ ...current, ...updates }, null, 2),
+    "utf-8",
+  );
+  renameSync(tmp, target);
 }
 
 export function isTelemetryEnabled(): boolean {
@@ -58,7 +73,10 @@ export function setTelemetryEnabled(enabled: boolean): void {
   writeConfig({ disabled: !enabled });
 }
 
-export function getTelemetryStatus(): { enabled: boolean; anonymousId: string | null } {
+export function getTelemetryStatus(): {
+  enabled: boolean;
+  anonymousId: string | null;
+} {
   const enabled = isTelemetryEnabled();
   const config = readConfig();
   return { enabled, anonymousId: config.anonymousId ?? null };
@@ -91,7 +109,10 @@ function getClient(): PostHog | null {
   return client;
 }
 
-export function capture(event: string, properties?: Record<string, unknown>): void {
+export function capture(
+  event: string,
+  properties?: Record<string, unknown>,
+): void {
   const ph = getClient();
   if (!ph) return;
   const distinctId = getAnonymousId();

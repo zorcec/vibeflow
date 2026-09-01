@@ -333,6 +333,8 @@ body {
  width: 520px;
  max-width: 95vw;
  overflow: hidden;
+ display: flex;
+ flex-direction: column;
 }
 
 /* ── Type picker ── */

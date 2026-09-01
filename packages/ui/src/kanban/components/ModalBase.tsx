@@ -55,7 +55,9 @@ export function ModalBase({ open, onClose, icon, title, headerActions, width, ma
             {headerActions && <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>{headerActions}</div>}
           </div>
         )}
-        {children}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {children}
+        </div>
         {footer && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '10px 18px', borderTop: '1px solid var(--p-border)', flexShrink: 0 }}>
             {footer}

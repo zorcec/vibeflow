@@ -195,11 +195,18 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
   const apiUrl = getApiUrl();
   console.log(chalk.cyan("  Initiating device login flow..."));
 
-  // Step 1: Request device code
-  const initRes = await fetch(`${apiUrl}/api/cli/auth/device-init`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
+  let initRes: Response;
+  try {
+    // Step 1: Request device code
+    initRes = await fetch(`${apiUrl}/api/cli/auth/device-init`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error(chalk.red(`  Failed to connect to login server: ${err instanceof Error ? err.message : "Network error"}`));
+    process.exitCode = ExitCode.AUTH;
+    return;
+  }
 
   if (!initRes.ok) {
     console.error(
@@ -237,11 +244,17 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL);
 
-    const pollRes = await fetch(`${apiUrl}/api/cli/auth/device-poll`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceCode }),
-    });
+    let pollRes: Response | null = null;
+    try {
+      pollRes = await fetch(`${apiUrl}/api/cli/auth/device-poll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceCode }),
+      });
+    } catch {
+      console.error(chalk.red("  Poll request failed (network error). Retrying..."));
+      continue;
+    }
 
     if (!pollRes.ok) {
       console.error(chalk.red("  Poll request failed. Retrying..."));

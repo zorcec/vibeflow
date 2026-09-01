@@ -105,6 +105,9 @@ function main(): void {
           // SaaS mode: open the webapp kanban for this board
           try {
             const origin = new URL(PROTO_CONFIG.apiUrl).origin;
+            // SAFETY: target derived from PROTO_CONFIG.apiUrl (server-injected
+            // constant); boardId is URI-encoded — no user-controlled redirect.
+            // pi-lens-ignore: no-open-redirect, no-open-redirect-js
             window.open(
               `${origin}/kanban?board=${encodeURIComponent(PROTO_CONFIG.boardId)}`,
               "_blank",
@@ -115,12 +118,13 @@ function main(): void {
           }
         } else if (PROTO_CONFIG.wsUrl) {
           // SAFETY: kanbanUrl derived from PROTO_CONFIG.apiUrl (build-time constant).
-          // pi-lens-ignore: no-open-redirect-js
           // pi-lens-ignore: opengrep — open redirect: build-time constant, not user input
           const kanbanUrl = PROTO_CONFIG.apiUrl.replace(
             "/api/tasks",
             "/kanban",
           );
+          // SAFETY: target derived from PROTO_CONFIG.apiUrl (build-time constant).
+          // pi-lens-ignore: no-open-redirect, no-open-redirect-js
           window.open(kanbanUrl, "_blank", "noopener");
         }
       },

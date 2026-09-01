@@ -81,6 +81,8 @@ export function WhatsNewModal({ open, sections, version, startMode, onClose }: P
         style={{
           padding: "14px 18px",
           overflowY: "auto",
+          flex: 1,
+          minHeight: 0,
           fontSize: 13,
           color: "var(--p-text-f)",
         }}

@@ -1109,6 +1109,12 @@ export function App() {
   }
 
   function openFilePreview(name: string, url: string) {
+    // Only allow same-origin previews: reject absolute/external and non-http
+    // (e.g. javascript:) URLs so a crafted file entry cannot drive window.open.
+    const isSafeTarget =
+      (url.startsWith("/") && !url.startsWith("//")) ||
+      url.startsWith(window.location.origin + "/");
+    if (!isSafeTarget) return;
     // HTML files open in a new tab for sandboxed preview; all others use the modal.
     if (/\.html?$/i.test(name)) {
       window.open(url, "_blank", "noopener,noreferrer");

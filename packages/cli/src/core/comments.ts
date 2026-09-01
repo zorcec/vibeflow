@@ -1,11 +1,14 @@
-import {
-  mkdirSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TaskComment } from "./types.js";
-import { readTaskFile, updateTask, findTaskFilePath, getTaskFilePath, normalizeEscapeSequences } from "./tasks.js";
+import {
+  readTaskFile,
+  updateTask,
+  findTaskFilePath,
+  getTaskFilePath,
+  normalizeEscapeSequences,
+} from "./tasks.js";
 
 /**
  * Normalizes a raw comment loaded from JSON, handling legacy formats:
@@ -25,7 +28,10 @@ function normalizeComment(c: TaskComment): TaskComment {
   };
 }
 
-export function listComments(projectDir: string, taskId: string): TaskComment[] {
+export function listComments(
+  projectDir: string,
+  taskId: string,
+): TaskComment[] {
   const filePath = findTaskFilePath(projectDir, taskId);
   const task = filePath ? readTaskFile(filePath) : null;
   return (task?.comments ?? []).filter((c) => !c.deleted).map(normalizeComment);
@@ -61,18 +67,28 @@ export function addComment(
     author,
     text,
     ...(files && files.length > 0 ? { files } : {}),
-    ...(type && type !== 'comment' ? { type } : {}),
+    ...(type && type !== "comment" ? { type } : {}),
     createdAt: new Date().toISOString(),
-    source: source ?? 'cli',
+    source: source ?? "cli",
   };
   const updated = [...allComments, comment];
   // updateTask returns null when the task file doesn't exist yet;
   // in that case write a bare entry so comments still persist.
   const result = updateTask(projectDir, taskId, { comments: updated });
   if (!result) {
-    const targetPath = getTaskFilePath(projectDir, taskId, new Date().toISOString());
+    const targetPath = getTaskFilePath(
+      projectDir,
+      taskId,
+      new Date().toISOString(),
+    );
     mkdirSync(dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, JSON.stringify({ id: taskId, comments: updated }, null, 2), "utf-8");
+    const tmpPath = targetPath + ".tmp";
+    writeFileSync(
+      tmpPath,
+      JSON.stringify({ id: taskId, comments: updated }, null, 2),
+      "utf-8",
+    );
+    renameSync(tmpPath, targetPath);
   }
   return comment;
 }
@@ -110,7 +126,7 @@ export function deleteComment(
   allComments[idx] = {
     ...allComments[idx],
     deleted: true,
-    text: '[Comment deleted]',
+    text: "[Comment deleted]",
     updatedAt: new Date().toISOString(),
   };
   updateTask(projectDir, taskId, { comments: allComments });

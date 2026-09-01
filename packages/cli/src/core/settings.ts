@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  renameSync,
+} from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import { PROTO_DIR } from "./types.js";
@@ -26,7 +32,9 @@ function getSettingsPath(projectDir: string): string {
 
 function readGlobalSettings(): ProtoSettings {
   try {
-    return JSON.parse(readFileSync(getGlobalSettingsPath(), "utf-8")) as ProtoSettings;
+    return JSON.parse(
+      readFileSync(getGlobalSettingsPath(), "utf-8"),
+    ) as ProtoSettings;
   } catch {
     return {};
   }
@@ -37,7 +45,10 @@ export { readGlobalSettings };
 export function writeGlobalSettings(settings: ProtoSettings): void {
   const dir = join(os.homedir(), ".vibeflow");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getGlobalSettingsPath(), JSON.stringify(settings, null, 2), "utf-8");
+  const target = getGlobalSettingsPath();
+  const tmp = target + ".tmp";
+  writeFileSync(tmp, JSON.stringify(settings, null, 2), "utf-8");
+  renameSync(tmp, target);
 }
 
 export function loadSettings(projectDir: string): ProtoSettings {
@@ -45,7 +56,9 @@ export function loadSettings(projectDir: string): ProtoSettings {
   const settingsPath = getSettingsPath(projectDir);
   if (!existsSync(settingsPath)) return global;
   try {
-    const local = JSON.parse(readFileSync(settingsPath, "utf-8")) as ProtoSettings;
+    const local = JSON.parse(
+      readFileSync(settingsPath, "utf-8"),
+    ) as ProtoSettings;
     // Local project settings override global/SaaS settings
     return { ...global, ...local };
   } catch {
@@ -53,12 +66,17 @@ export function loadSettings(projectDir: string): ProtoSettings {
   }
 }
 
-export function saveSettings(projectDir: string, settings: ProtoSettings): ProtoSettings {
+export function saveSettings(
+  projectDir: string,
+  settings: ProtoSettings,
+): ProtoSettings {
   const protoDir = join(projectDir, PROTO_DIR);
   if (!existsSync(protoDir)) mkdirSync(protoDir, { recursive: true });
   const settingsPath = getSettingsPath(projectDir);
   const existing = loadSettings(projectDir);
   const merged = { ...existing, ...settings };
-  writeFileSync(settingsPath, JSON.stringify(merged, null, 2), "utf-8");
+  const tmp = settingsPath + ".tmp";
+  writeFileSync(tmp, JSON.stringify(merged, null, 2), "utf-8");
+  renameSync(tmp, settingsPath);
   return merged;
 }

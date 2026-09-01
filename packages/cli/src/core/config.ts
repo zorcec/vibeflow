@@ -25,17 +25,21 @@ export function readConfig(projectDir: string): ProtoConfig {
   if (!existsSync(configPath)) return { ...DEFAULT_CONFIG };
 
   const raw = readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(raw) as Partial<ProtoConfig>;
+  let parsed: Partial<ProtoConfig>;
+  try {
+    parsed = JSON.parse(raw) as Partial<ProtoConfig>;
+  } catch {
+    // Corrupted config file — treat like a missing config so callers keep
+    // working with defaults instead of crashing on an unrelated command.
+    return { ...DEFAULT_CONFIG };
+  }
   return {
     ...DEFAULT_CONFIG,
     ...parsed,
   };
 }
 
-export function writeConfig(
-  projectDir: string,
-  config: ProtoConfig,
-): void {
+export function writeConfig(projectDir: string, config: ProtoConfig): void {
   ensureProtoDir(projectDir);
   const configPath = getConfigPath(projectDir);
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -49,9 +53,13 @@ export function getProjectName(projectDir: string): string {
   const pkgPath = join(projectDir, "package.json");
   if (existsSync(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: string };
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+        name?: string;
+      };
       if (pkg.name) return pkg.name;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   return basename(projectDir);
 }

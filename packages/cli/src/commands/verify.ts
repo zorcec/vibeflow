@@ -9,6 +9,14 @@ import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
 import { ExitCode } from "../core/exit-codes.js";
+import {
+  buildKey,
+  buildDisplaySelector,
+  filterStyles,
+  childSignature,
+  normalizeText,
+  RELEVANT_STYLES,
+} from "../core/page-selector.js";
 
 // Baseline and auth state are now stored in task.json (§6, §7).
 
@@ -561,195 +569,108 @@ async function storeEvidence(
     }
 
     // verify-all-styles.json — page-wide element styles for query tools
+    // Uses shared helpers from page-selector.ts passed to page.evaluate()
     try {
-      const RELEVANT_STYLES = [
-        "display",
-        "visibility",
-        "opacity",
-        "position",
-        "overflow",
-        "overflow-x",
-        "overflow-y",
-        "width",
-        "min-width",
-        "max-width",
-        "height",
-        "min-height",
-        "max-height",
-        "margin",
-        "margin-top",
-        "margin-right",
-        "margin-bottom",
-        "margin-left",
-        "padding",
-        "padding-top",
-        "padding-right",
-        "padding-bottom",
-        "padding-left",
-        "border",
-        "border-width",
-        "border-style",
-        "border-color",
-        "border-radius",
-        "background-color",
-        "background-image",
-        "color",
-        "font-size",
-        "font-weight",
-        "font-style",
-        "font-family",
-        "line-height",
-        "letter-spacing",
-        "text-align",
-        "text-decoration",
-        "text-overflow",
-        "white-space",
-        "flex-direction",
-        "flex-wrap",
-        "flex",
-        "justify-content",
-        "align-items",
-        "gap",
-        "row-gap",
-        "column-gap",
-        "z-index",
-        "box-shadow",
-        "transform",
-        "transition",
-        "cursor",
-        "user-select",
-        "pointer-events",
-        "top",
-        "left",
-        "right",
-        "bottom",
-      ];
       const MAX_ELEMENTS = 1000;
-      const allStyles = await page.evaluate((styles) => {
-        function buildKey(el: Element): string {
-          const path: number[] = [];
-          let cur: Element | null = el;
-          while (cur && cur !== document.documentElement) {
-            const p: HTMLElement | null = cur.parentElement;
-            if (!p) break;
-            path.unshift(Array.from(p.children).indexOf(cur));
-            cur = p;
-          }
-          return path.join("/");
-        }
-        function buildSelector(el: Element): string {
-          const tag = el.tagName.toLowerCase();
-          const taskId = el.getAttribute("data-task-id");
-          if (taskId) return `${tag}[data-task-id=${taskId}]`;
-          const status = el.getAttribute("data-status");
-          if (status && el.classList.contains("column-scroll"))
-            return `${tag}.column-scroll[data-status=${status}]`;
-          const colId = el.getAttribute("data-column-id");
-          if (colId) return `${tag}[data-column-id=${colId}]`;
-          const classes = Array.from(el.classList).slice(0, 2);
-          let sel = tag;
-          if (classes.length) sel += "." + classes.join(".");
-          const parent = el.parentElement;
-          if (parent) {
-            const sibs = Array.from(parent.children).filter(
-              (c) => c.tagName === el.tagName,
-            );
-            if (sibs.length > 1) sel += `:nth-of-type(${sibs.indexOf(el) + 1})`;
-          }
-          return sel;
-        }
-        function getStyles(el: Element): Record<string, string> {
-          const computed = window.getComputedStyle(el);
-          const r: Record<string, string> = {};
-          for (const prop of styles) r[prop] = computed.getPropertyValue(prop);
-          return r;
-        }
-        function childSig(children: Element[]): string[] {
-          const counts = new Map<string, number>();
-          for (const c of children) {
-            const tag = c.tagName.toLowerCase();
-            const cls = Array.from(c.classList).slice(0, 2).join(".");
-            const key = cls ? `${tag}.${cls}` : tag;
-            counts.set(key, (counts.get(key) || 0) + 1);
-          }
-          return Array.from(counts.entries())
-            .map(([k, n]) => `${k} x${n}`)
-            .slice(0, 10);
-        }
-        const elements: Record<string, unknown> = {};
-        let count = 0;
-        let truncated = false;
-        const walker = document.createTreeWalker(
-          document.body,
-          NodeFilter.SHOW_ELEMENT,
-          {
-            acceptNode(node: Node) {
-              if (count >= MAX_ELEMENTS) return NodeFilter.FILTER_REJECT;
-              const el = node as HTMLElement;
-              if (
-                el.classList.length > 0 ||
-                el.hasAttribute("data-task-id") ||
-                el.hasAttribute("data-status") ||
-                el.hasAttribute("data-column-id")
-              )
-                return NodeFilter.FILTER_ACCEPT;
-              return NodeFilter.FILTER_SKIP;
+      const allStyles = await page.evaluate(
+        ({
+          buildKeyFn,
+          buildSelectorFn,
+          filterStylesFn,
+          childSignatureFn,
+          normalizeTextFn,
+          styles,
+          maxElements,
+        }: {
+          buildKeyFn: (el: Element) => string;
+          buildSelectorFn: (el: Element) => string;
+          filterStylesFn: (el: Element, s: string[]) => Record<string, string>;
+          childSignatureFn: (c: Element[]) => string[];
+          normalizeTextFn: (t: string) => string;
+          styles: string[];
+          maxElements: number;
+        }) => {
+          const elements: Record<string, unknown> = {};
+          let count = 0;
+          let truncated = false;
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_ELEMENT,
+            {
+              acceptNode(node: Node) {
+                if (count >= maxElements) return NodeFilter.FILTER_REJECT;
+                const el = node as HTMLElement;
+                if (
+                  el.classList.length > 0 ||
+                  el.hasAttribute("data-task-id") ||
+                  el.hasAttribute("data-status") ||
+                  el.hasAttribute("data-column-id")
+                )
+                  return NodeFilter.FILTER_ACCEPT;
+                return NodeFilter.FILTER_SKIP;
+              },
             },
-          },
-        );
-        const queue: Element[] = [];
-        let n: Node | null;
-        while ((n = walker.nextNode())) queue.push(n as Element);
-        for (const el of queue) {
-          if (count >= MAX_ELEMENTS) {
-            truncated = true;
-            break;
-          }
-          const key = buildKey(el);
-          const children = Array.from(el.children);
-          const dataAttrs: Record<string, string> = {};
-          for (const a of Array.from(el.attributes)) {
-            if (a.name.startsWith("data-"))
-              dataAttrs[a.name.slice(5)] = a.value;
-          }
-          let position = { x: 0, y: 0, width: 0, height: 0 };
-          try {
-            const r = el.getBoundingClientRect();
-            position = {
-              x: Math.round(r.x),
-              y: Math.round(r.y),
-              width: Math.round(r.width),
-              height: Math.round(r.height),
+          );
+          const queue: Element[] = [];
+          let n: Node | null;
+          while ((n = walker.nextNode())) queue.push(n as Element);
+          for (const el of queue) {
+            if (count >= maxElements) {
+              truncated = true;
+              break;
+            }
+            const key = buildKeyFn(el);
+            const children = Array.from(el.children);
+            const dataAttrs: Record<string, string> = {};
+            for (const a of Array.from(el.attributes)) {
+              if (a.name.startsWith("data-"))
+                dataAttrs[a.name.slice(5)] = a.value;
+            }
+            let position = { x: 0, y: 0, width: 0, height: 0 };
+            try {
+              const r = el.getBoundingClientRect();
+              position = {
+                x: Math.round(r.x),
+                y: Math.round(r.y),
+                width: Math.round(r.width),
+                height: Math.round(r.height),
+              };
+            } catch {
+              /* getBoundingClientRect can fail on hidden elements */
+            }
+            elements[key] = {
+              key,
+              selector: buildSelectorFn(el),
+              tag: el.tagName.toLowerCase(),
+              classes: Array.from(el.classList),
+              dataAttrs,
+              parentKey: el.parentElement ? buildKeyFn(el.parentElement) : "",
+              childCount: children.length,
+              childSignature: childSignatureFn(children),
+              text: normalizeTextFn(el.textContent ?? ""),
+              position,
+              baseline: filterStylesFn(el, styles),
+              after: filterStylesFn(el, styles),
             };
-          } catch {
-            /* getBoundingClientRect can fail on hidden elements */
+            count++;
           }
-          elements[key] = {
-            key,
-            selector: buildSelector(el),
-            tag: el.tagName.toLowerCase(),
-            classes: Array.from(el.classList),
-            dataAttrs,
-            parentKey: el.parentElement ? buildKey(el.parentElement) : "",
-            childCount: children.length,
-            childSignature: childSig(children),
-            text: (el.textContent || "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 200),
-            position,
-            baseline: getStyles(el),
-            after: getStyles(el),
+          return {
+            version: 1,
+            capturedAt: new Date().toISOString(),
+            truncated,
+            elements,
           };
-          count++;
-        }
-        return {
-          version: 1,
-          capturedAt: new Date().toISOString(),
-          truncated,
-          elements,
-        };
-      }, RELEVANT_STYLES);
+        },
+        {
+          buildKeyFn: buildKey,
+          buildSelectorFn: buildDisplaySelector,
+          filterStylesFn: filterStyles,
+          childSignatureFn: childSignature,
+          normalizeTextFn: normalizeText,
+          styles: RELEVANT_STYLES,
+          maxElements: MAX_ELEMENTS,
+        },
+      );
       if (allStyles) {
         const json = JSON.stringify(allStyles, null, 2);
         saveFile(

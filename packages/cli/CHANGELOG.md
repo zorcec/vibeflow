@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.11.0
+
+### Minor Changes
+
+- abbda12: feat(cli): startup banner always shows a localhost URL alongside the LAN IP
+
+  When the server is bound to 0.0.0.0, every user-facing URL in the serve and
+  kanban startup banners (Kanban board, Task API, /inject guide, overlay script
+  tag, File lines, "Kanban board ready") now prints an aligned localhost
+  continuation line. Fixes kanban "request timeouts" when the displayed LAN IP
+  is unreachable from the local browser. Output is unchanged when bound to a
+  single host.
+
+- 76d664c: feat(verify): page-wide baseline capture and diff
+
+  > ⚠️ The `verify` command is experimental and may change without notice.
+
+  - Capture page-wide baseline at annotation time, store as baseline-page.json
+  - Remove baseline from task.json (too large), use file reference instead
+  - Enable page-wide diff at verify time (verify-page-diff.json)
+  - Add html_query tool for structural HTML changes
+  - Back-fill baseline values in verify-all-styles.json for accurate diffs
+
+- c3c3fd7: Show the changelog after updates and add a `vibeflow changelog` command.
+
+  - The update notice in `vibeflow kanban` now prints the newest CHANGELOG section below it; suppress with `--no-changelog`.
+  - New `vibeflow changelog [--all]` command prints the latest (or full) changelog to the terminal.
+  - Kanban board shows a one-time "What's New" modal after a CLI update and a header **Changelog** button to browse the full changelog at any time.
+
+- adac672: feat(verify): page-wide query system with progressive exploration
+
+  > ⚠️ The `verify` command is experimental and may change without notice.
+
+  Adds page-wide element capture and query tools for agents to explore verify evidence:
+
+  - `vibeflow verify style_diff <id>` — summary of all style changes across the page
+  - `vibeflow verify style_query <id> <prop>` — ALL elements where a property changed
+  - `vibeflow verify html_query <id> children|text|attributes` — structural changes
+  - `vibeflow verify element_info <id>` — element details
+
+  Captures `verify-all-styles.json` with element tree, styles, and structure for every element with classes or data-attributes.
+
+### Patch Changes
+
+- 5881018: Add verified property to tasks with green VERIFIED badge in kanban UI.
+- 857d597: feat(verify): add agent evidence tools for targeted style/HTML queries
+
+  > ⚠️ The `verify` command is experimental and may change without notice.
+
+  Adds four new CLI tools that agents can call to explore verify evidence
+  without reading all files (~34K tokens → ~7K tokens):
+
+  - `vibeflow verify style_query <task-id> <property>` — query specific CSS property
+  - `vibeflow verify style_diff <task-id> [--filter <pattern>]` — get changed properties
+  - `vibeflow verify element_info <task-id>` — get element details
+  - `vibeflow verify html_diff <task-id>` — get HTML changes
+
+  Also adds tool hints in verify output so agents know what's available.
+
+- d0eceb5: fix(kanban): add vertical scrollbar to lanes except Done
+
+  Lanes now have `overflow-y: auto` so tasks are scrollable when they exceed the viewport height. The Done lane keeps `overflow-y: hidden` since it already limits visible cards to 20.
+
+- fix(kanban): What's New changelog modal scrollbar not working
+
+  The full changelog view (8000+ pixels of content) overflowed the modal without a scrollbar because the scrollable child wasn't constrained by the modal's maxHeight. Fixed by making modal-box a flex column container so children shrink within bounds.
+
+- 9085faf: Add Playwright page HTML, screenshot, and element HTML to verify evidence artifacts.
+
+  > ⚠️ The `verify` command is experimental and may change without notice.
+
+- fix(cli): security hardening — XSS, SSRF, open redirects, config crash protection
+
+  - Sanitize all user data in kanban-template.html with `esc()` and `safeHttpUrl()` helpers; replace `innerHTML=''` clears with `replaceChildren()`
+  - Add same-origin guard on kanban file preview to prevent open redirects
+  - Validate outbound URL scheme (http/https only) in SaaS client to prevent SSRF
+  - Wrap config JSON.parse in try/catch to prevent CLI crash on corrupted config
+  - Add SAFETY comments on verified-safe innerHTML usages (renderMarkdown, SVG namespaces)
+
+- 3405e3b: Improve verify command output: show evidence file paths and agent instructions instead of generic "Verification passed". Add verify step to agent workflow instructions.
+
+  > ⚠️ The `verify` command is experimental and may change without notice.
+
 ## 0.10.0
 
 ### Minor Changes
@@ -208,29 +291,26 @@
 
 ### Patch Changes
 
-- 9cd0d82: Write task files atomically via a .tmp file and renameSync to prevent torn JSON reads during concurrent writes (BUG-09).
-- 9cd0d82: Sanitize boardId before embedding in injected HTML/JS to prevent HTML injection via a malformed workspace ID (BUG-10).
-- 9cd0d82: Fix addComment, updateComment, and deleteComment to read raw task data so soft-deleted comments are preserved instead of silently dropped (B1).
-- 9cd0d82: Remove 2>/dev/null shell redirect from execSync calls in copilot-auth; it was passed as a literal argument without shell: true (BUG-04).
-- 9cd0d82: Fix logout to also delete the stored workspace file so the CLI fully returns to local mode (BUG-03).
-- 9cd0d82: Add status value validation to PATCH /api/tasks/:id to reject unknown status strings (BUG-05).
-- 9cd0d82: Pass projectDir to promptPushLocalTasks so it reads tasks from the correct project root instead of process.cwd() (BUG-07).
-- 9cd0d82: Key remoteCommitCache by projectDir to avoid cross-project SHA collisions when multiple projects are open (BUG-02).
-- 9cd0d82: Remove undeclared commit field from normalizeTask to prevent stale data from persisting in normalized task objects (B2).
-- 9cd0d82: Allowlist known keys in POST /api/settings to prevent writing arbitrary fields to the project settings file (BUG-08).
-- 9cd0d82: Replace hardcoded .vibeflow/tasks path in task watcher with PROTO_DIR and TASKS_DIR constants (BUG-06).
-- 9cd0d82: Escape double-quote characters in renderMarkdown to prevent XSS via attribute injection in link hrefs (BUG-01).
-- 9cd0d82: Use cryptographically random bytes for comment IDs instead of Date.now() to avoid collisions under concurrent writes (I5).
-- 9cd0d82: Replace process.exit(1) calls in login.ts with process.exitCode = 1; return to allow async cleanup handlers to run (I1).
-- 9cd0d82: Remove unused slugify function from tasks.ts; no production code imports it (F11).
-- 9cd0d82: Import PROTO_DIR constant from core/types in settings.ts instead of duplicating the hardcoded string (F13).
-- 9cd0d82: Compute commentCount and fileCount from embedded task arrays instead of reading from disk in the /api/tasks response (P3).
-- 9cd0d82: Write copilot config file with 0o600 permissions to prevent other users from reading the stored token (SEC-04).
-- 9cd0d82: Add file extension allowlist to the CLI file upload endpoint to reject unsupported MIME types (SEC-09).
-- 9cd0d82: Reject POST and DELETE mutation requests from cross-origin pages to prevent unauthorized agent-status and settings writes (SEC-02).
-- 9cd0d82: Validate workspace URL against an allowlist of production domains before using it as the SaaS API base URL, preventing SSRF (SEC-08).
-- 9cd0d82: Serve screenshots through a route handler that validates task ID format instead of an unauthenticated static directory (SEC-05).
-- 9cd0d82: Only trust X-Forwarded-For header for rate limiting when TRUSTED_PROXY=1 env var is set, preventing IP spoofing (SEC-01).
+- Fix task file corruption when multiple processes write simultaneously.
+- Fix potential HTML injection via malformed workspace ID.
+- Fix soft-deleted comments being permanently lost when edited.
+- Fix copilot auth failing silently on some systems.
+- Fix logout not fully clearing workspace data.
+- Reject invalid task status values instead of silently accepting.
+- Fix push command reading tasks from wrong directory in some cases.
+- Fix commit hash display showing wrong commits when multiple projects are open.
+- Fix stale commit data persisting in task objects.
+- Reject unknown settings keys to prevent accidental config corruption.
+- Fix XSS vulnerability in markdown link rendering.
+- Fix comment ID collisions when multiple users comment simultaneously.
+- Fix CLI not running cleanup handlers on login errors.
+- Faster task listing by computing counts from memory instead of disk.
+- Fix copilot config file readable by other users on shared systems.
+- Reject unsupported file types on upload.
+- Block cross-origin mutation requests for security.
+- Fix potential SSRF via malformed workspace URL.
+- Fix screenshots accessible without authentication.
+- Fix rate limiting bypass via spoofed X-Forwarded-For header.
 
 ## 0.4.1
 

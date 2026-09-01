@@ -15,9 +15,9 @@ describe("localhostAltLine (dual LAN + localhost banner rule)", () => {
   });
 
   it("builds an aligned localhost continuation line", () => {
-    expect(plain(localhostAltLine("http://localhost:3700", "/kanban", 18))).toBe(
-      " ".repeat(18) + "http://localhost:3700/kanban",
-    );
+    expect(
+      plain(localhostAltLine("http://localhost:3700", "/kanban", 18)),
+    ).toBe(" ".repeat(18) + "http://localhost:3700/kanban");
   });
 
   it("supports a label prefix (e.g. 'or: ')", () => {

@@ -62,6 +62,9 @@ export function showEditModal(task: Task): void {
   const previewPane = el("div", { className: "modal-preview-pane" });
   previewPane.style.display = "none";
 
+  // SAFETY: renderMarkdown escapes &, <, > and " before building HTML and
+  // restricts link hrefs to http(s) — output contains no raw user HTML.
+  // pi-lens-ignore: no-inner-html, ts-xss-dom-sink
   const refreshPreview = () => { previewPane.innerHTML = renderMarkdown(textarea.value); };
 
   const body = el("div", { className: "modal-body" }, editorPane, previewPane);
