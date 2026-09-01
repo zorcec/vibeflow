@@ -625,6 +625,11 @@ program
       console.log();
       console.log(chalk.green("  ✓ Kanban board ready"));
       console.log(chalk.dim("    ") + chalk.cyan(kanbanUrl));
+      if (instance.localUrl) {
+        console.log(
+          chalk.dim("    ") + chalk.cyan(`${instance.localUrl}/kanban`),
+        );
+      }
       console.log();
       console.log(chalk.bold("Agent prompt:"));
       console.log(

@@ -7,9 +7,7 @@ import {
   mkdirSync,
   unlinkSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { join, resolve, basename, extname, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { spawn, execSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
@@ -30,7 +28,6 @@ import {
 } from "../core/changelog.js";
 import {
   getProjectName,
-  readConfig,
   getCurrentBranch,
 } from "../core/config.js";
 import {
@@ -112,29 +109,6 @@ const VALID_CREATE_STATUSES = [
   "review",
   "done",
 ] as const;
-type CreateTaskStatus = (typeof VALID_CREATE_STATUSES)[number];
-
-/** Shape of the POST /api/tasks request body. */
-type CreateTaskBody = {
-  title?: string;
-  description?: string;
-  selector?: string;
-  cssSelector?: string;
-  url?: string;
-  type?: string;
-  priority?: string;
-  file?: string;
-  line?: number;
-  col?: number;
-  component?: string;
-  status?: string;
-  agent?: string;
-  model?: string;
-  screenshot?: string;
-  annotatedElementText?: string;
-  tags?: string[];
-  sortKey?: string;
-};
 
 const ALLOWED_WORKSPACE_ORIGINS = new Set(["https://app.vibeflow.tools"]);
 
@@ -151,12 +125,12 @@ function sanitizeWorkspaceOrigin(url: string | undefined): string | null {
 
 export interface ServeInstance {
   url: string;
+  /** Present (non-null) only when bound to 0.0.0.0 — localhost twin of `url`. */
+  localUrl?: string | null;
   close: () => Promise<void>;
 }
 
 type BroadcastFn = (data: Record<string, unknown>) => void;
-
-const _require = createRequire(import.meta.url);
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
 declare const __VIBEFLOW_CLI_VERSION__: string | undefined;
@@ -175,6 +149,36 @@ function getLanIp(): string | null {
     }
   }
   return null;
+}
+
+/** Startup-banner rule: when the server is bound to 0.0.0.0 every user-facing
+ * LAN-IP URL must also show its localhost equivalent ("always dual"). Returns
+ * the aligned continuation line, or null when bound to a single host so the
+ * banner output stays identical to the pre-dual behavior. */
+export function localhostAltLine(
+  localUrl: string | null,
+  path: string,
+  indentCols: number,
+  label = "",
+): string | null {
+  if (!localUrl) return null;
+  return (
+    chalk.dim(" ".repeat(indentCols) + label) + chalk.cyan(`${localUrl}${path}`)
+  );
+}
+
+/** Localhost equivalent of a yellow <script> tag banner line. */
+export function localhostScriptTagAltLine(
+  localUrl: string | null,
+  indentCols: number,
+): string | null {
+  if (!localUrl) return null;
+  return (
+    chalk.dim(" ".repeat(indentCols) + "or: ") +
+    chalk.yellow(
+      `<script src="${localUrl}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
+    )
+  );
 }
 
 /** Registers /api/pages — returns the list of HTML pages being served. */
@@ -1514,6 +1518,12 @@ async function serveApiOnly(
           chalk.dim("  Overlay script:  ") +
             chalk.cyan(`${url}/vibeflow-overlay.js`),
         );
+        const overlayAlt = localhostAltLine(
+          localUrl,
+          "/vibeflow-overlay.js",
+          19,
+        );
+        if (overlayAlt) console.log(overlayAlt);
         console.log();
         console.log(
           chalk.dim("  ┌─ Add to your HTML ") + chalk.dim("─".repeat(43) + "┐"),
@@ -1525,12 +1535,28 @@ async function serveApiOnly(
             ) +
             chalk.dim(" │"),
         );
+        if (localUrl) {
+          console.log(
+            chalk.dim("  │ or: ") +
+              chalk.yellow(
+                `<script src="${localUrl}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
+              ) +
+              chalk.dim(" │"),
+          );
+        }
         console.log(
           chalk.dim("  │ ") +
             chalk.dim("Or drag the bookmarklet: ") +
             chalk.cyan(`${url}/inject`) +
             chalk.dim("         │"),
         );
+        if (localUrl) {
+          console.log(
+            chalk.dim("  │ or: ") +
+              chalk.cyan(`${localUrl}/inject`) +
+              chalk.dim("         │"),
+          );
+        }
         console.log(chalk.dim("  └" + "─".repeat(63) + "┘"));
       } else {
         console.log(
@@ -1543,14 +1569,20 @@ async function serveApiOnly(
         console.log(
           chalk.dim("  Kanban board    ") + chalk.cyan(`${url}/kanban`),
         );
+        const kanbanAlt = localhostAltLine(localUrl, "/kanban", 18);
+        if (kanbanAlt) console.log(kanbanAlt);
         console.log(
           chalk.dim("  Task API        ") + chalk.cyan(`${url}/api/tasks`),
         );
+        const taskApiAlt = localhostAltLine(localUrl, "/api/tasks", 18);
+        if (taskApiAlt) console.log(taskApiAlt);
         console.log(divider);
         console.log(
           chalk.bold.white("  INTEGRATE INTO YOUR APP") +
             chalk.dim(`  (full guide: ${url}/inject)`),
         );
+        const guideAlt = localhostAltLine(localUrl, "/inject", 40);
+        if (guideAlt) console.log(guideAlt);
         console.log(chalk.dim("  1. Add this script tag to your HTML:"));
         console.log(
           chalk.dim("     ") +
@@ -1558,6 +1590,8 @@ async function serveApiOnly(
               `<script src="${url}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
             ),
         );
+        const scriptAlt = localhostScriptTagAltLine(localUrl, 5);
+        if (scriptAlt) console.log(scriptAlt);
         console.log(
           chalk.dim(
             "  2. Reload your page — the overlay appears automatically.",
@@ -1571,6 +1605,8 @@ async function serveApiOnly(
             chalk.cyan(`${url}/inject`) +
             chalk.dim(" to your bookmarks bar."),
         );
+        const injectAlt = localhostAltLine(localUrl, "/inject", 2, "or: ");
+        if (injectAlt) console.log(injectAlt);
       }
       console.log();
       if (!options.noCtrlCHint) {
@@ -1580,6 +1616,7 @@ async function serveApiOnly(
 
       resolvePromise({
         url,
+        localUrl,
         close: async () => {
           if (taskWatcher) await taskWatcher.close();
           wss.close();
@@ -1782,16 +1819,24 @@ li{margin:8px 0}</style></head>
             chalk.cyan(`${url}${route}`) +
             chalk.dim(`  (${basename(f)})`),
         );
+        const fileAlt = localhostAltLine(localUrl, route, 17);
+        if (fileAlt) console.log(fileAlt);
       }
       console.log(chalk.dim("  Kanban board:  ") + chalk.cyan(`${url}/kanban`));
+      const kanbanAlt = localhostAltLine(localUrl, "/kanban", 17);
+      if (kanbanAlt) console.log(kanbanAlt);
       console.log(
         chalk.dim("  Task API:      ") + chalk.cyan(`${url}/api/tasks`),
       );
+      const taskApiAlt = localhostAltLine(localUrl, "/api/tasks", 17);
+      if (taskApiAlt) console.log(taskApiAlt);
       console.log(divider);
       console.log(
         chalk.bold.white("  INTEGRATE INTO YOUR APP") +
           chalk.dim(`  (full guide: ${url}/inject)`),
       );
+      const guideAlt = localhostAltLine(localUrl, "/inject", 40);
+      if (guideAlt) console.log(guideAlt);
       console.log(chalk.dim("  1. Add this script tag to your HTML:"));
       console.log(
         chalk.dim("     ") +
@@ -1799,6 +1844,8 @@ li{margin:8px 0}</style></head>
             `<script src="${url}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
           ),
       );
+      const scriptAlt = localhostScriptTagAltLine(localUrl, 5);
+      if (scriptAlt) console.log(scriptAlt);
       console.log(
         chalk.dim("  2. Reload your page — the overlay appears automatically."),
       );
@@ -1813,6 +1860,7 @@ li{margin:8px 0}</style></head>
 
       resolvePromise({
         url,
+        localUrl,
         close: async () => {
           if (watcher) await watcher.close();
           await taskWatcher.close();
