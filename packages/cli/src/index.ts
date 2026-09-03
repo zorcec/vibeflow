@@ -11,6 +11,8 @@ import {
   renderAgentInstructions,
   generateTaskId,
   ensureTaskDirs,
+  findTaskFilePath,
+  readTaskFile,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
@@ -247,6 +249,7 @@ function printAgentInstructions(opts: {
   autoPush?: boolean;
   autoComment?: boolean;
   createBranch?: boolean;
+  requireVerifyBeforeReview?: boolean;
 }) {
   const text = renderAgentInstructions(opts);
   for (const line of text.split("\n")) {
@@ -728,6 +731,10 @@ program
     "Git branch name for the task (required when createBranch setting is ON and setting status to review)",
   )
   .option(
+    "--skip-verify",
+    "Skip the verify-before-review gate (for non-UI tasks, the gate is automatically skipped)",
+  )
+  .option(
     "--limit <n>",
     "Limit how many tasks are returned in list mode (default: 5; use 0 for unlimited)",
   )
@@ -765,6 +772,7 @@ program
         tag?: string[];
         dryRun?: boolean;
         fields?: string;
+        skipVerify?: boolean;
       },
     ) => {
       void (async () => {
@@ -875,6 +883,7 @@ program
               autoPush: saasGetSettings.autoPush,
               autoComment: saasGetSettings.autoComment,
               createBranch: saasGetSettings.createBranch,
+              requireVerifyBeforeReview: saasGetSettings.requireVerifyBeforeReview,
             });
             return;
           }
@@ -962,6 +971,7 @@ program
             autoPush: localGetSettings.autoPush,
             autoComment: localGetSettings.autoComment,
             createBranch: localGetSettings.createBranch,
+            requireVerifyBeforeReview: localGetSettings.requireVerifyBeforeReview,
           });
           return;
         }
@@ -1065,6 +1075,7 @@ program
               autoPush: nextSettings.autoPush,
               autoComment: nextSettings.autoComment,
               createBranch: nextSettings.createBranch,
+              requireVerifyBeforeReview: nextSettings.requireVerifyBeforeReview,
             });
 
             console.log(
@@ -1200,6 +1211,7 @@ program
             autoPush: nextLocalSettings.autoPush,
             autoComment: nextLocalSettings.autoComment,
             createBranch: nextLocalSettings.createBranch,
+            requireVerifyBeforeReview: nextLocalSettings.requireVerifyBeforeReview,
           });
 
           const config = readConfig(nextProjectDir);
@@ -1695,9 +1707,9 @@ program
 
           // ── Settings-based enforcement on review ─────────────────────────
           const editMode = await getMode();
+          const projectDir = resolve(dir);
+          const settings = loadSettings(projectDir);
           if (opts.setStatus === "review") {
-            const projectDir = resolve(dir);
-            const settings = loadSettings(projectDir);
 
             // Enforce --comment when autoComment is ON
             if (settings.autoComment && !opts.comment?.trim()) {
@@ -1768,6 +1780,7 @@ program
               process.exitCode = ExitCode.USAGE;
               return;
             }
+
           }
 
           // ── SaaS edit path (online mode) ────────────────────────────────
@@ -1878,6 +1891,39 @@ program
               (t) => t.id === taskId || t.id.startsWith(taskId),
             )?.id ?? taskId;
 
+          // Enforce verify before review when requireVerifyBeforeReview is ON.
+          // Only blocks when actually setting status to review, not other edits.
+          // Skip automatically for tasks without URL/selector (non-UI tasks).
+          if (opts.setStatus === "review" && settings.requireVerifyBeforeReview && !opts.skipVerify) {
+            const taskFilePath = findTaskFilePath(localProjectDir, resolvedTaskId);
+            const task = taskFilePath ? readTaskFile(taskFilePath) : null;
+            if (task) {
+              const hasSelector = task.cssSelector || (task.selector && task.selector !== "/");
+              const hasUrl = !!task.url;
+              const isUiTask = Boolean(hasSelector && hasUrl);
+
+              if (isUiTask && !task.verified) {
+                console.log(
+                  chalk.red(
+                    "✗ vibeflow verify is required before setting status to review",
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    `  Run: vibeflow verify ${resolvedTaskId}`,
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    `  Or skip: vibeflow tasks --edit ${resolvedTaskId} --set-status review --skip-verify`,
+                  ),
+                );
+                process.exitCode = ExitCode.USAGE;
+                return;
+              }
+            }
+          }
+
           if (opts.dryRun) {
             const dryUpdates: Record<string, unknown> = {};
             if (opts.title) dryUpdates.title = opts.title;
@@ -1925,7 +1971,7 @@ program
           }
 
           const updates: Partial<
-            Pick<Task, "status" | "title" | "description" | "branchName">
+            Pick<Task, "status" | "title" | "description" | "branchName" | "verified">
           > = {};
           if (opts.title) updates.title = opts.title;
           if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
@@ -2046,6 +2092,11 @@ program
                 }
               }
             }
+          }
+
+          // Reset verified flag when claiming a task for new work
+          if (opts.setStatus === "in-progress") {
+            updates.verified = false;
           }
 
           const updated = updateTask(dir, resolvedTaskId, updates);
@@ -2261,6 +2312,7 @@ program
             autoPush: saasSettings.autoPush,
             autoComment: saasSettings.autoComment,
             createBranch: saasSettings.createBranch,
+            requireVerifyBeforeReview: saasSettings.requireVerifyBeforeReview,
           });
 
           if (saasTasks.length === 0) {
@@ -2421,6 +2473,7 @@ program
           autoPush: settings.autoPush,
           autoComment: settings.autoComment,
           createBranch: settings.createBranch,
+          requireVerifyBeforeReview: settings.requireVerifyBeforeReview,
         });
 
         const config = readConfig(projectDir);

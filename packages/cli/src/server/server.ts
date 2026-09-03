@@ -842,6 +842,7 @@ function registerMetaApis(
       "autoComment",
       "autoPush",
       "createBranch",
+      "requireVerifyBeforeReview",
     ]);
     const filtered = Object.fromEntries(
       Object.entries(req.body as Record<string, unknown>).filter(([k]) =>

@@ -26,6 +26,7 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
   const [autoComment, setAutoComment] = React.useState(settings.autoComment ?? false);
   const [autoPush, setAutoPush] = React.useState(settings.autoPush ?? false);
   const [createBranch, setCreateBranch] = React.useState(settings.createBranch ?? false);
+  const [requireVerifyBeforeReview, setRequireVerifyBeforeReview] = React.useState(settings.requireVerifyBeforeReview ?? false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -36,12 +37,13 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
     setAutoComment(settings.autoComment ?? false);
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
+    setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
     setActiveTab('board');
   }, [open, visibleCols, settings]);
 
   function handleApply() {
     const newCols = COLUMNS.filter(c => colState[c.id]).map(c => c.id);
-    onSave(newCols, { autoCommit, autoComment, autoPush, createBranch });
+    onSave(newCols, { autoCommit, autoComment, autoPush, createBranch, requireVerifyBeforeReview });
     onClose();
   }
 
@@ -124,6 +126,13 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
       {/* Tab: Enforcement */}
       {activeTab === 'enforcement' && (
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <WorkflowToggle
+            id="settings-verify-before-review"
+            label="Require verify before review"
+            description="CLI enforces vibeflow verify before setting status to review (skipped for tasks without URL/selector). The 'verified' flag persists until the task is moved back to in-progress."
+            value={requireVerifyBeforeReview}
+            onChange={setRequireVerifyBeforeReview}
+          />
           <WorkflowToggle
             id="settings-auto-comment"
             label="Require comment on review"

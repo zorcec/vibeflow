@@ -113,4 +113,21 @@ describe("renderAgentInstructions", () => {
     expect(text).not.toContain("Create branch ON");
     expect(text).not.toContain("git checkout -b");
   });
+
+  it("includes verify gate setting when requireVerifyBeforeReview is true", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: true });
+    expect(text).toContain("Verify gate ON");
+    expect(text).toContain("vibeflow verify before setting status to review");
+    expect(text).toContain("skipped for tasks without URL/selector");
+  });
+
+  it("excludes verify gate setting when requireVerifyBeforeReview is false", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: false });
+    expect(text).not.toContain("Verify gate ON");
+  });
+
+  it("excludes verify gate setting when requireVerifyBeforeReview is undefined", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).not.toContain("Verify gate ON");
+  });
 });

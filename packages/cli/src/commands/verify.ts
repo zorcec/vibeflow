@@ -446,9 +446,7 @@ export async function verifyTask(
     }
 
     // ── 15. Build result ────────────────────────────────────────────────
-    // Mark task as verified
-    updateTask(absProjectDir, taskId, { verified: true });
-    return buildResult(
+    const result = buildResult(
       task.id,
       task.description,
       baseline,
@@ -457,6 +455,13 @@ export async function verifyTask(
       evidenceFiles,
       selector,
     );
+
+    // Mark task as verified only when verification passes (no selector issues, no console errors).
+    if (result.ok) {
+      updateTask(absProjectDir, taskId, { verified: true });
+    }
+
+    return result;
   } finally {
     await context?.close();
     await browser?.close();

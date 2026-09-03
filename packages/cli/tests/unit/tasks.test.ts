@@ -1364,6 +1364,17 @@ describe("renderAgentInstructions", () => {
     expect(output).toContain("Bug tasks:");
     expect(output).toContain("Comment format (--comment):");
   });
+
+  it("includes Verify gate setting when requireVerifyBeforeReview is true", () => {
+    const output = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: true });
+    expect(output).toContain("Verify gate ON");
+    expect(output).toContain("vibeflow verify before setting status to review");
+  });
+
+  it("excludes Verify gate setting when requireVerifyBeforeReview is false", () => {
+    const output = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: false });
+    expect(output).not.toContain("Verify gate ON");
+  });
 });
 
 // ── next_actions hints ──────────────────────────────────────────────────────

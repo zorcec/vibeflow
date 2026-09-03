@@ -120,6 +120,7 @@ export interface AppSettings {
   autoComment?: boolean;
   autoPush?: boolean;
   createBranch?: boolean;
+  requireVerifyBeforeReview?: boolean;
 }
 
 /** Abstract API interface for kanban operations – implemented differently by CLI (fetch) and web (tRPC). */

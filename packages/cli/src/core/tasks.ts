@@ -542,6 +542,7 @@ export function renderAgentInstructions(opts: {
   autoPush?: boolean;
   autoComment?: boolean;
   createBranch?: boolean;
+  requireVerifyBeforeReview?: boolean;
 }): string {
   const { autoCommit, autoPush, autoComment, createBranch } = opts;
   const lines: string[] = [];
@@ -605,45 +606,99 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    2. <implement the change>");
   }
-  if (autoCommit) {
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(
-      createBranch
-        ? "    4. git add <files>   (stage your changes first)"
-        : "    3. git add <files>   (stage your changes first)",
-    );
-    const reviewArgs = ["--set-status review"];
-    if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
-    if (autoComment) reviewArgs.push('--comment "<report>"');
-    lines.push(
-      `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
-    );
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(
-      "       CLI will commit staged changes and link the commit SHA automatically.",
-    );
+  // When requireVerifyBeforeReview is ON, verify comes BEFORE review.
+  // When OFF, verify comes after review (optional step).
+  const verifyBeforeReview = opts.requireVerifyBeforeReview;
+  if (verifyBeforeReview) {
+    // Verify gate ON: verify → review
+    if (autoCommit) {
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        createBranch
+          ? "    4. git add <files>   (stage your changes first)"
+          : "    3. git add <files>   (stage your changes first)",
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        "       If verification fails, set task back to in-progress and fix.",
+      );
+      const reviewArgs = ["--set-status review"];
+      if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
+      if (autoComment) reviewArgs.push('--comment "<report>"');
+      lines.push(
+        `    ${createBranch ? "6" : "5"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        "       CLI will commit staged changes and link the commit SHA automatically.",
+      );
+    } else {
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        createBranch
+          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
+          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        "       If verification fails, set task back to in-progress and fix.",
+      );
+      const reviewArgs = ["--set-status review"];
+      if (autoComment) reviewArgs.push('--comment "<report>"');
+      lines.push(
+        `    ${createBranch ? "6" : "5"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+      );
+    }
   } else {
+    // Verify gate OFF: review → verify (optional)
+    if (autoCommit) {
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        createBranch
+          ? "    4. git add <files>   (stage your changes first)"
+          : "    3. git add <files>   (stage your changes first)",
+      );
+      const reviewArgs = ["--set-status review"];
+      if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
+      if (autoComment) reviewArgs.push('--comment "<report>"');
+      lines.push(
+        `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+      );
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        "       CLI will commit staged changes and link the commit SHA automatically.",
+      );
+    } else {
+      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+      lines.push(
+        createBranch
+          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
+          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+      );
+      const reviewArgs = ["--set-status review"];
+      if (autoComment) reviewArgs.push('--comment "<report>"');
+      lines.push(
+        `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+      );
+    }
+    const verifyStep = createBranch ? "6" : "5";
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      createBranch
-        ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
-        : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+      `    ${verifyStep}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
     );
-    const reviewArgs = ["--set-status review"];
-    if (autoComment) reviewArgs.push('--comment "<report>"');
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      `    ${createBranch ? "5" : "4"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
+      "       If verification fails, set task back to in-progress and fix.",
     );
   }
-  const verifyStep = createBranch ? "6" : "5";
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    `    ${verifyStep}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    "       If verification fails, set task back to in-progress and fix.",
-  );
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("");
@@ -689,6 +744,12 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
       "  [setting] Create branch ON: all work goes on a dedicated branch created before implementation.",
+    );
+  }
+  if (opts.requireVerifyBeforeReview) {
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push(
+      "  [setting] Verify gate ON: run vibeflow verify before setting status to review (skipped for tasks without URL/selector).",
     );
   }
   if (opts.hasResearchTasks) {

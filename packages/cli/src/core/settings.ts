@@ -23,6 +23,7 @@ export interface ProtoSettings {
   autoComment?: boolean;
   autoPush?: boolean;
   createBranch?: boolean;
+  requireVerifyBeforeReview?: boolean;
   _settingsRefreshedAt?: number;
 }
 
