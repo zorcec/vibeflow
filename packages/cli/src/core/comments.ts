@@ -133,7 +133,3 @@ export function deleteComment(
   return true;
 }
 
-/** Returns the number of comments for a task (0 if none). */
-export function getCommentCount(projectDir: string, taskId: string): number {
-  return listComments(projectDir, taskId).length;
-}

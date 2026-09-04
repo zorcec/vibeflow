@@ -8,32 +8,30 @@ import type { Request, Response, NextFunction } from "express";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-
-// Token cache for performance
-let cachedToken: string | null = null;
-let tokenCacheTime = 0;
-const TOKEN_CACHE_TTL = 30_000; // 30 seconds
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /**
- * Reads the CLI auth token from ~/.vibeflow/auth.json
+ * Reads the CLI auth token from ~/.vibeflow/auth.json.
+ * No caching — per-request readFileSync of a small file is negligible,
+ * and avoids stale-token issues after `vibeflow login`.
  */
 function readAuthToken(): string | null {
-  const now = Date.now();
-  if (cachedToken && now - tokenCacheTime < TOKEN_CACHE_TTL) {
-    return cachedToken;
-  }
-
   try {
     const authPath = join(homedir(), ".vibeflow", "auth.json");
     if (!existsSync(authPath)) return null;
     const content = readFileSync(authPath, "utf-8");
     const auth = JSON.parse(content) as { token?: string };
-    cachedToken = auth.token ?? null;
-    tokenCacheTime = now;
-    return cachedToken;
+    return auth.token ?? null;
   } catch {
     return null;
   }
+}
+
+/** Constant-time token comparison via SHA-256 digest. */
+function tokensEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
 }
 
 /**
@@ -47,8 +45,7 @@ export function mcpAuth(req: Request, res: Response, next: NextFunction): void {
   const isLoopback =
     ip === "127.0.0.1" ||
     ip === "::1" ||
-    ip === "::ffff:127.0.0.1" ||
-    ip.includes("localhost");
+    ip === "::ffff:127.0.0.1";
 
   const token = readAuthToken();
 
@@ -76,7 +73,7 @@ export function mcpAuth(req: Request, res: Response, next: NextFunction): void {
   }
 
   const providedToken = authHeader.slice(7);
-  if (providedToken !== token) {
+  if (!tokensEqual(providedToken, token)) {
     res.status(403).json({
       error: "Forbidden",
       message: "Invalid authentication token",

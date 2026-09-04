@@ -587,25 +587,14 @@ export function App() {
       suppressHistoryPushRef.current = false;
     }
 
-    // Listen for task-ref clicks from MarkdownPreview so we can record history
-    // before the hash changes. This prevents the opened task from being added
-    // before we know the "from" task.
-    function onTaskRefClick() {
-      // The vibeflow-task-ref-click event fires synchronously before the hash change.
-      // The actual history push happens in openTaskFromHash via setPanelState.
-      // No extra action needed here — just let hashchange handle it.
-    }
-
     openTaskFromHash();
     const onHashChange = () => {
       consumedHashTaskRef.current = null;
       openTaskFromHash();
     };
     window.addEventListener("hashchange", onHashChange);
-    window.addEventListener("vibeflow-task-ref-click", onTaskRefClick);
     return () => {
       window.removeEventListener("hashchange", onHashChange);
-      window.removeEventListener("vibeflow-task-ref-click", onTaskRefClick);
     };
   }, [tasks]);
 

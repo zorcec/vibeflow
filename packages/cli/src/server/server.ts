@@ -60,6 +60,7 @@ import { appRouter } from "./trpc.js";
 import type { ServeOptions, Task } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { getGitUser } from "../core/git-user.js";
+import { isLoopbackOrigin } from "../core/loopback.js";
 import type { FSWatcher } from "chokidar";
 
 /** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings (30 chars, 15 random bytes). */
@@ -88,13 +89,14 @@ export function isValidFilename(name: string): boolean {
   return true;
 }
 
+
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
 function requireSameOrigin(
   req: express.Request,
   res: express.Response,
 ): boolean {
   const origin = req.headers.origin;
-  if (origin && !origin.startsWith("http://localhost")) {
+  if (origin && !isLoopbackOrigin(origin)) {
     res.status(403).json({ error: "Forbidden" });
     return false;
   }
@@ -238,6 +240,7 @@ function registerTaskApi(
       name: getProjectName(projectDir),
       projectDir,
       branch: getCurrentBranch(projectDir),
+      gitUserName: getGitUser(projectDir).name,
     });
   });
 
@@ -600,7 +603,7 @@ function registerTaskApi(
         res.status(400).json({ error: "Invalid filename" });
         return;
       }
-      const ext = extname(decodeURIComponent(rawFilename)).toLowerCase();
+      const ext = extname(rawFilename).toLowerCase();
       if (!ALLOWED_FILE_EXTENSIONS.has(ext)) {
         res.status(415).json({ error: "File type not allowed" });
         return;
@@ -613,7 +616,7 @@ function registerTaskApi(
       const info = saveFile(
         projectDir,
         id,
-        decodeURIComponent(rawFilename),
+        rawFilename,
         data,
       );
       broadcast({ type: "tasks-updated" });

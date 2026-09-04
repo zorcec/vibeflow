@@ -17,18 +17,18 @@ interface McpSession {
   server: ReturnType<typeof createMcpServer>;
   transport: StreamableHTTPServerTransport;
   createdAt: number;
+  lastSeen: number;
 }
 
 const sessions = new Map<string, McpSession>();
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
 
 let reaper: NodeJS.Timeout | null = null;
-let handlersRegistered = false;
 
 function reapStaleSessions(): void {
   const now = Date.now();
   for (const [id, session] of sessions) {
-    if (now - session.createdAt > SESSION_TTL) {
+    if (now - session.lastSeen > SESSION_TTL) {
       session.transport.close().catch(() => {});
       sessions.delete(id);
     }
@@ -40,6 +40,11 @@ function startSessionReaper(): void {
   reaper = setInterval(reapStaleSessions, 5 * 60 * 1000);
   // Do not keep one-shot CLI processes alive.
   reaper.unref();
+}
+
+function refreshSession(id: string): void {
+  const session = sessions.get(id);
+  if (session) session.lastSeen = Date.now();
 }
 
 // ── Express Mount ──────────────────────────────────────────────────────────
@@ -85,6 +90,7 @@ export function mountMcp(
             res.status(404).json({ error: "Session not found" });
             return;
           }
+          refreshSession(sessionId);
           await session.transport.handleRequest(req, res);
         } else {
           // Initialize new session
@@ -101,10 +107,12 @@ export function mountMcp(
             return;
           }
 
+          const now = Date.now();
           sessions.set(newSessionId, {
             server,
             transport,
-            createdAt: Date.now(),
+            createdAt: now,
+            lastSeen: now,
           });
 
           // Handle the initialization request
@@ -121,6 +129,7 @@ export function mountMcp(
           res.status(404).json({ error: "Session not found" });
           return;
         }
+        refreshSession(sessionId);
         await session.transport.handleRequest(req, res);
       } else if (req.method === "DELETE") {
         // Close session
@@ -145,31 +154,22 @@ export function mountMcp(
       }
     }
   });
+}
 
-  // Cleanup on server shutdown (only register once).
-  if (!handlersRegistered) {
-    handlersRegistered = true;
-    process.on("SIGTERM", async () => {
-      for (const [, session] of sessions) {
-        await session.transport.close().catch(() => {});
-      }
-      sessions.clear();
-      if (reaper) {
-        clearInterval(reaper);
-        reaper = null;
-      }
-    });
-    process.on("SIGINT", async () => {
-      for (const [, session] of sessions) {
-        await session.transport.close().catch(() => {});
-      }
-      sessions.clear();
-      if (reaper) {
-        clearInterval(reaper);
-        reaper = null;
-      }
-    });
+// ── Lifecycle ──────────────────────────────────────────────────────────────
+
+/**
+ * Dispose all MCP sessions and the reaper. Call from server shutdown paths.
+ */
+export function disposeMcp(): void {
+  if (reaper) {
+    clearInterval(reaper);
+    reaper = null;
   }
+  for (const [, session] of sessions) {
+    session.transport.close().catch(() => {});
+  }
+  sessions.clear();
 }
 
 // ── Exports for testing ────────────────────────────────────────────────────
@@ -184,10 +184,5 @@ export function clearSessions(): void {
 
 /** Teardown for tests — clears the reaper interval and all sessions. */
 export function stopMcpForTests(): void {
-  if (reaper) {
-    clearInterval(reaper);
-    reaper = null;
-  }
-  sessions.clear();
-  handlersRegistered = false;
+  disposeMcp();
 }

@@ -7,10 +7,10 @@ import {
   addComment,
   updateComment,
   deleteComment,
-  getCommentCount,
   normalizeCommentText,
 } from "../../src/core/comments.js";
 import type { TaskComment } from "../../src/core/types.js";
+// TaskComment is used for type assertions in tests below
 
 describe("listComments", () => {
   let tempDir: string;
@@ -136,29 +136,6 @@ describe("addComment", () => {
   });
 });
 
-describe("getCommentCount", () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "proto-comments-test-"));
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("returns 0 for task with no comments", () => {
-    expect(getCommentCount(tempDir, "no-comments")).toBe(0);
-  });
-
-  it("returns correct count after adding comments", () => {
-    addComment(tempDir, "task-x", "user", "a");
-    addComment(tempDir, "task-x", "agent", "b");
-    addComment(tempDir, "task-x", "user", "c");
-    expect(getCommentCount(tempDir, "task-x")).toBe(3);
-  });
-});
-
 describe("updateComment", () => {
   let tempDir: string;
 
@@ -248,7 +225,7 @@ describe("deleteComment", () => {
   });
 
   it("soft-deleted comments are not returned by listComments", () => {
-    const c1 = addComment(tempDir, "task-1", "user", "visible");
+    addComment(tempDir, "task-1", "user", "visible");
     const c2 = addComment(tempDir, "task-1", "user", "will be deleted");
     deleteComment(tempDir, "task-1", c2.id!);
     const comments = listComments(tempDir, "task-1");

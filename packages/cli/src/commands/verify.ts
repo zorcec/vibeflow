@@ -9,6 +9,7 @@ import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
 import { ExitCode } from "../core/exit-codes.js";
+import { readConfig } from "../core/config.js";
 import {
   buildKey,
   buildDisplaySelector,
@@ -152,9 +153,11 @@ export async function verifyTask(
     );
   }
   // Prepend origin for relative URLs (e.g. /kanban -> http://localhost:3700/kanban)
+  const config = readConfig(absProjectDir);
+  const port = config.port ?? 3700;
   const targetUrl = rawUrl.startsWith("http")
     ? rawUrl
-    : `http://localhost:3700${rawUrl.startsWith("/") ? rawUrl : "/" + rawUrl}`;
+    : `http://localhost:${port}${rawUrl.startsWith("/") ? rawUrl : "/" + rawUrl}`;
 
   // ── 5. Determine selector ─────────────────────────────────────────────
   const selector = task.cssSelector ?? task.selector;

@@ -7,6 +7,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getProjectName } from "../core/config.js";
+import { getGitUser } from "../core/git-user.js";
 import {
   createTask,
   listTasks,
@@ -64,7 +65,11 @@ export const appRouter = router({
   // ── Project ──────────────────────────────────────────────────────────────
 
   project: procedure.query(({ ctx }) => {
-    return { name: getProjectName(ctx.projectDir), projectDir: ctx.projectDir };
+    return {
+      name: getProjectName(ctx.projectDir),
+      projectDir: ctx.projectDir,
+      gitUserName: getGitUser(ctx.projectDir).name,
+    };
   }),
 
   // ── Tasks ─────────────────────────────────────────────────────────────────
