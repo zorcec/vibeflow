@@ -263,6 +263,7 @@ export const appRouter = router({
           message: "Comment not found",
         });
       }
+      ctx.broadcast({ type: "tasks-updated" });
       return { success: true, comment };
     }),
 

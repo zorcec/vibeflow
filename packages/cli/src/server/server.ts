@@ -114,6 +114,14 @@ export interface ServeInstance {
 
 type BroadcastFn = (data: Record<string, unknown>) => void;
 
+/** Broadcast a tasks-updated event, optionally scoped to a specific task. */
+function broadcastTaskUpdated(
+  broadcast: BroadcastFn,
+  taskId?: string,
+): void {
+  broadcast({ type: "tasks-updated", ...(taskId && { taskId }) });
+}
+
 // Injected at build time by tsup; undefined in raw TypeScript runs.
 declare const __VIBEFLOW_CLI_VERSION__: string | undefined;
 
@@ -504,7 +512,7 @@ function registerTaskApi(
       undefined,
       validSource,
     );
-    broadcast({ type: "tasks-updated" });
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true, comment });
   });
 
@@ -520,6 +528,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true, comment });
   });
 
@@ -530,7 +539,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcast({ type: "tasks-updated" });
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true });
   });
 
@@ -576,7 +585,7 @@ function registerTaskApi(
         return;
       }
       const info = saveFile(projectDir, id, rawFilename, data);
-      broadcast({ type: "tasks-updated" });
+      broadcastTaskUpdated(broadcast, id);
       res.json({ success: true, file: info });
     },
   );
@@ -602,7 +611,7 @@ function registerTaskApi(
       "system",
       "web",
     );
-    broadcast({ type: "tasks-updated" });
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true });
   });
 
@@ -627,7 +636,7 @@ function registerTaskApi(
       Buffer.from(screenshot, "base64"),
     );
     updateTask(projectDir, id, { screenshot: filename } as Partial<Task>);
-    broadcast({ type: "tasks-updated" });
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true, screenshot: filename });
   });
 
@@ -643,7 +652,7 @@ function registerTaskApi(
       unlinkSync(filePath);
     }
     updateTask(projectDir, id, { screenshot: undefined } as Partial<Task>);
-    broadcast({ type: "tasks-updated" });
+    broadcastTaskUpdated(broadcast, id);
     res.json({ success: true });
   });
 
@@ -908,7 +917,7 @@ function registerMetaApis(
             /* ignore — already removed */
           }
         }
-        broadcast?.({ type: "tasks-updated" });
+        if (broadcast) broadcastTaskUpdated(broadcast);
       }
       res.json({
         imported: result.imported,

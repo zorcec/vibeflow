@@ -93,7 +93,7 @@ describe("fetchSaasTasks", () => {
   it("returns tasks on success", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
     const result = await fetchSaasTasks();
-    expect(result).toEqual({ tasks: [SAMPLE_TASK], boardId: "board-1" });
+    expect(result).toEqual({ ok: true, data: { tasks: [SAMPLE_TASK], boardId: "board-1" } });
   });
 
   it("passes boardId query param when provided", async () => {
@@ -111,22 +111,24 @@ describe("fetchSaasTasks", () => {
     expect((fetchCall[0] as string)).toContain("custom-api:9000");
   });
 
-  it("returns null when not authenticated", async () => {
+  it("returns NOT_AUTHENTICATED when not authenticated", async () => {
     vi.mocked(tokenModule.readToken).mockResolvedValue(null);
     const result = await fetchSaasTasks();
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
-  it("returns null when response is not ok", async () => {
+  it("returns HTTP_ERROR when response is not ok", async () => {
     mockFetch(null, false);
     const result = await fetchSaasTasks();
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("HTTP_ERROR");
   });
 
-  it("returns null when fetch throws", async () => {
+  it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const result = await fetchSaasTasks();
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends Authorization header with Bearer token", async () => {
@@ -150,7 +152,7 @@ describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
     mockFetch({ task: SAMPLE_TASK });
     const result = await updateSaasTask("task-1", { status: "in-progress" });
-    expect(result).toEqual({ task: SAMPLE_TASK, warning: undefined });
+    expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: undefined } });
   });
 
   it("maps CLI status to SaaS status in request body", async () => {
@@ -163,25 +165,27 @@ describe("updateSaasTask", () => {
   it("returns warning when server provides one", async () => {
     mockFetch({ task: SAMPLE_TASK, warning: "Task is already in-progress by another user" });
     const result = await updateSaasTask("task-1", { status: "in-progress" });
-    expect(result).toEqual({ task: SAMPLE_TASK, warning: "Task is already in-progress by another user" });
+    expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: "Task is already in-progress by another user" } });
   });
 
-  it("returns null when not authenticated", async () => {
+  it("returns NOT_AUTHENTICATED when not authenticated", async () => {
     vi.mocked(tokenModule.readToken).mockResolvedValue(null);
     const result = await updateSaasTask("task-1", {});
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
-  it("returns null when response is not ok", async () => {
+  it("returns error when response is not ok", async () => {
     mockFetch(null, false);
     const result = await updateSaasTask("task-1", { title: "New Title" });
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
-  it("returns null when fetch throws", async () => {
+  it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const result = await updateSaasTask("task-1", {});
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends Authorization header with Bearer token", async () => {
@@ -213,25 +217,27 @@ describe("addSaasComment", () => {
   it("returns created comment on success", async () => {
     mockFetch({ comment: SAMPLE_COMMENT });
     const result = await addSaasComment("task-1", "Hello");
-    expect(result).toEqual(SAMPLE_COMMENT);
+    expect(result).toEqual({ ok: true, data: SAMPLE_COMMENT });
   });
 
-  it("returns null when not authenticated", async () => {
+  it("returns NOT_AUTHENTICATED when not authenticated", async () => {
     vi.mocked(tokenModule.readToken).mockResolvedValue(null);
     const result = await addSaasComment("task-1", "Hello");
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
-  it("returns null when response is not ok", async () => {
+  it("returns error when response is not ok", async () => {
     mockFetch(null, false);
     const result = await addSaasComment("task-1", "Hello");
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
-  it("returns null when fetch throws", async () => {
+  it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const result = await addSaasComment("task-1", "Hello");
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends POST request with Authorization header", async () => {
@@ -297,25 +303,27 @@ describe("createSaasTask", () => {
   it("returns created task on success", async () => {
     mockFetch({ task: SAMPLE_TASK });
     const result = await createSaasTask({ title: "New Task" });
-    expect(result).toEqual(SAMPLE_TASK);
+    expect(result).toEqual({ ok: true, data: SAMPLE_TASK });
   });
 
-  it("returns null when not authenticated", async () => {
+  it("returns NOT_AUTHENTICATED when not authenticated", async () => {
     vi.mocked(tokenModule.readToken).mockResolvedValue(null);
     const result = await createSaasTask({ title: "New Task" });
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
-  it("returns null when response is not ok", async () => {
+  it("returns error when response is not ok", async () => {
     mockFetch(null, false);
     const result = await createSaasTask({ title: "New Task" });
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
-  it("returns null when fetch throws", async () => {
+  it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
     const result = await createSaasTask({ title: "New Task" });
-    expect(result).toBeNull();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends POST request with Authorization header", async () => {

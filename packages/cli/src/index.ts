@@ -39,6 +39,7 @@ import {
   addSaasComment,
   createSaasTask,
   toCliStatus,
+  type SaasTask,
 } from "./saas/client.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
@@ -793,12 +794,12 @@ program
           if (getTaskMode === "saas") {
             const workspace = await readWorkspace();
             const saasData = await fetchSaasTasks(workspace?.id);
-            if (!saasData) {
+            if (!saasData.ok) {
               console.log(chalk.red("✗ Unable to reach the online backend."));
               process.exitCode = ExitCode.GENERAL;
               return;
             }
-            const saasTask = saasData.tasks.find(
+            const saasTask = saasData.data.tasks.find(
               (t) => t.id === opts.get || t.id.startsWith(opts.get!),
             );
             if (!saasTask) {
@@ -980,15 +981,15 @@ program
           if (nextMode === "saas") {
             const nextWorkspace = await readWorkspace();
             const saasData = await fetchSaasTasks(nextWorkspace?.id);
-            if (!saasData) {
+            if (!saasData.ok) {
               console.log(chalk.red("✗ Unable to reach the online backend."));
               process.exitCode = ExitCode.GENERAL;
               return;
             }
             if (opts.type && !validateTypeFilter(opts.type)) return;
-            let todoTasks = saasData.tasks
-              .map((t) => ({ ...t, status: toCliStatus(t.status) }))
-              .filter((t) => t.status === "todo");
+            let todoTasks = saasData.data.tasks
+              .map((t: SaasTask) => ({ ...t, status: toCliStatus(t.status) }))
+              .filter((t: { status: string }) => t.status === "todo");
             if (opts.type)
               todoTasks = todoTasks.filter(
                 (t) =>
@@ -1304,7 +1305,7 @@ program
               status: saasStatus,
               boardId: addWorkspace?.id,
             });
-            if (!saasCreated) {
+            if (!saasCreated.ok) {
               console.log(
                 chalk.red("✗ Failed to create task in online board."),
               );
@@ -1316,13 +1317,14 @@ program
               process.exitCode = ExitCode.GENERAL;
               return;
             }
-            const addNextActions = getNextActions("add", saasCreated.id);
+            const saasCreatedTask = saasCreated.data;
+            const addNextActions = getNextActions("add", saasCreatedTask.id);
             if (opts.json) {
               console.log(
                 JSON.stringify(
                   {
                     success: true,
-                    task: saasCreated,
+                    task: saasCreatedTask,
                     next_actions: addNextActions,
                   },
                   null,
@@ -1330,10 +1332,10 @@ program
                 ),
               );
             } else {
-              console.log(chalk.green(`✓ Task created: ${saasCreated.title}`));
+              console.log(chalk.green(`✓ Task created: ${saasCreatedTask.title}`));
               console.log(
                 chalk.dim(
-                  `  id: ${saasCreated.id} | status: ${toCliStatus(saasCreated.status)}`,
+                  `  id: ${saasCreatedTask.id} | status: ${toCliStatus(saasCreatedTask.status)}`,
                 ),
               );
               printNextHint(addNextActions);
@@ -1788,7 +1790,7 @@ program
             }
 
             const saasResult = await updateSaasTask(taskId, saasPatch);
-            if (!saasResult) {
+            if (!saasResult.ok) {
               console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
               console.log(
                 chalk.yellow(
@@ -1798,10 +1800,11 @@ program
               process.exitCode = ExitCode.GENERAL;
               return;
             }
+            const saasResultData = saasResult.data;
 
-            if (saasResult.warning) {
+            if (saasResultData.warning) {
               console.log(
-                chalk.yellow(`⚠  Server warning: ${saasResult.warning}`),
+                chalk.yellow(`⚠  Server warning: ${saasResultData.warning}`),
               );
             }
 
@@ -1810,7 +1813,7 @@ program
                 taskId,
                 opts.comment.trim(),
               );
-              if (commented) console.log(chalk.dim("  comment: added"));
+              if (commented.ok) console.log(chalk.dim("  comment: added"));
             }
 
             const saasEditNextActions = opts.setStatus
@@ -1826,7 +1829,7 @@ program
                 JSON.stringify(
                   {
                     success: true,
-                    task: saasResult.task,
+                    task: saasResultData.task,
                     next_actions: saasEditNextActions,
                   },
                   null,
@@ -1835,11 +1838,11 @@ program
               );
             } else {
               console.log(
-                chalk.green(`✓ Task updated: ${saasResult.task.title}`),
+                chalk.green(`✓ Task updated: ${saasResultData.task.title}`),
               );
               console.log(
                 chalk.dim(
-                  `  id: ${saasResult.task.id} | status: ${toCliStatus(saasResult.task.status)}`,
+                  `  id: ${saasResultData.task.id} | status: ${toCliStatus(saasResultData.task.status)}`,
                 ),
               );
               if (saasEditNextActions.length > 0)
@@ -2106,7 +2109,7 @@ program
         if (mode === "saas") {
           const workspace = await readWorkspace();
           const saasData = await fetchSaasTasks(workspace?.id);
-          if (!saasData) {
+          if (!saasData.ok) {
             console.log(chalk.red("✗ Unable to reach the online backend."));
             console.log(
               chalk.yellow(
@@ -2117,7 +2120,7 @@ program
             return;
           }
 
-          let saasTasks = saasData.tasks.map((t) => ({
+          let saasTasks = saasData.data.tasks.map((t: SaasTask) => ({
             ...t,
             status: toCliStatus(t.status),
           }));
@@ -2250,7 +2253,7 @@ program
               console.log();
             }
 
-            const allForCount = saasData.tasks.map((t) => ({
+            const allForCount = saasData.data.tasks.map((t: SaasTask) => ({
               ...t,
               status: toCliStatus(t.status),
             }));
@@ -2450,7 +2453,7 @@ program
     console.log();
 
     const saasData = await fetchSaasTasks(workspace?.id);
-    if (!saasData) {
+    if (!saasData.ok) {
       console.log(
         chalk.yellow(
           "  ⚠  Could not reach SaaS backend. Check your connection.",
@@ -2459,7 +2462,7 @@ program
       return;
     }
 
-    const all = saasData.tasks.map((t) => ({
+    const all = saasData.data.tasks.map((t: SaasTask) => ({
       ...t,
       status: toCliStatus(t.status),
     }));

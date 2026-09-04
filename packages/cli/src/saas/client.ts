@@ -6,6 +6,10 @@
  */
 import { readToken } from "../auth/token.js";
 
+export type SaasResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: string; message: string; status?: number } };
+
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
 
@@ -97,19 +101,23 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
  */
 export async function fetchSaasTasks(
   boardId?: string,
-): Promise<{ tasks: SaasTask[]; boardId: string } | null> {
+): Promise<SaasResult<{ tasks: SaasTask[]; boardId: string }>> {
   const headers = await getBearerHeaders();
-  if (!headers) return null;
+  if (!headers) return { ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } };
 
-  const url = new URL(`${getApiUrl()}/api/cli/tasks`);
+  const apiUrl = getApiUrl();
+  const url = new URL(`${apiUrl}/api/cli/tasks`);
   if (boardId) url.searchParams.set("boardId", boardId);
 
   try {
     const res = await fetch(url.toString(), { headers });
-    if (!res.ok) return null;
-    return res.json() as Promise<{ tasks: SaasTask[]; boardId: string }>;
-  } catch {
-    return null;
+    if (!res.ok) {
+      return { ok: false, error: { code: "HTTP_ERROR", message: `HTTP ${res.status}`, status: res.status } };
+    }
+    const data = (await res.json()) as { tasks: SaasTask[]; boardId: string };
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: { code: "NETWORK_ERROR", message: err instanceof Error ? err.message : String(err) } };
   }
 }
 
@@ -119,8 +127,8 @@ export async function fetchSaasTasks(
  */
 export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
   const result = await fetchSaasTasks();
-  if (!result) return null;
-  return result.tasks.find((t) => t.id === taskId) ?? null;
+  if (!result.ok) return null;
+  return result.data.tasks.find((t) => t.id === taskId) ?? null;
 }
 
 /**
@@ -136,9 +144,9 @@ export async function updateSaasTask(
     priority?: string;
     branchName?: string;
   },
-): Promise<{ task: SaasTask; warning?: string } | null> {
+): Promise<SaasResult<{ task: SaasTask; warning?: string }>> {
   const headers = await getBearerHeaders();
-  if (!headers) return null;
+  if (!headers) return { ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } };
 
   const body: Record<string, string> = {};
   if (patch.status !== undefined) body.status = toSaasStatus(patch.status);
@@ -156,11 +164,15 @@ export async function updateSaasTask(
         body: JSON.stringify(body),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const msg = (errBody.error as string) ?? `HTTP ${res.status}`;
+      return { ok: false, error: { code: "HTTP_ERROR", message: msg, status: res.status } };
+    }
     const data = (await res.json()) as { task: SaasTask; warning?: string };
-    return { task: data.task, warning: data.warning };
-  } catch {
-    return null;
+    return { ok: true, data: { task: data.task, warning: data.warning } };
+  } catch (err) {
+    return { ok: false, error: { code: "NETWORK_ERROR", message: err instanceof Error ? err.message : String(err) } };
   }
 }
 
@@ -171,9 +183,9 @@ export async function updateSaasTask(
 export async function addSaasComment(
   taskId: string,
   body: string,
-): Promise<SaasComment | null> {
+): Promise<SaasResult<SaasComment>> {
   const headers = await getBearerHeaders();
-  if (!headers) return null;
+  if (!headers) return { ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } };
 
   try {
     const res = await fetch(
@@ -184,11 +196,15 @@ export async function addSaasComment(
         body: JSON.stringify({ body }),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const msg = (errBody.error as string) ?? `HTTP ${res.status}`;
+      return { ok: false, error: { code: "HTTP_ERROR", message: msg, status: res.status } };
+    }
     const data = (await res.json()) as { comment: SaasComment };
-    return data.comment;
-  } catch {
-    return null;
+    return { ok: true, data: data.comment };
+  } catch (err) {
+    return { ok: false, error: { code: "NETWORK_ERROR", message: err instanceof Error ? err.message : String(err) } };
   }
 }
 
@@ -228,9 +244,9 @@ export async function createSaasTask(params: {
   priority?: string;
   type?: string;
   boardId?: string;
-}): Promise<SaasTask | null> {
+}): Promise<SaasResult<SaasTask>> {
   const headers = await getBearerHeaders();
-  if (!headers) return null;
+  if (!headers) return { ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } };
 
   try {
     const res = await fetch(`${getApiUrl()}/api/cli/tasks`, {
@@ -238,10 +254,14 @@ export async function createSaasTask(params: {
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const msg = (errBody.error as string) ?? `HTTP ${res.status}`;
+      return { ok: false, error: { code: "HTTP_ERROR", message: msg, status: res.status } };
+    }
     const data = (await res.json()) as { task: SaasTask };
-    return data.task;
-  } catch {
-    return null;
+    return { ok: true, data: data.task };
+  } catch (err) {
+    return { ok: false, error: { code: "NETWORK_ERROR", message: err instanceof Error ? err.message : String(err) } };
   }
 }
