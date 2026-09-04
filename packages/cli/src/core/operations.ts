@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import type { Task, TaskComment } from "../core/types.js";
+import { TASK_STATUSES, compareTasksByPriorityThenCreated, type TaskStatus } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ export interface OperationResult<T> {
 
 export const ListTasksInput = z.object({
   status: z
-    .enum(["backlog", "todo", "in-progress", "review", "done"])
+    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
     .optional(),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
@@ -59,7 +60,7 @@ export const CreateTaskInput = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   status: z
-    .enum(["backlog", "todo", "in-progress", "review", "done"])
+    .enum(TASK_STATUSES as unknown as [string, ...string[]])
     .default("todo"),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
@@ -75,7 +76,7 @@ export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 export const UpdateTaskInput = z.object({
   id: z.string().min(1),
   status: z
-    .enum(["backlog", "todo", "in-progress", "review", "done"])
+    .enum(TASK_STATUSES as unknown as [string, ...string[]])
     .optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -260,7 +261,7 @@ export async function createTask(
           id: "dry-run",
           title: input.title,
           description: input.description ?? "",
-          status: input.status,
+          status: input.status as TaskStatus,
           selector: input.selector,
           created: new Date().toISOString(),
         } as Task,
@@ -272,7 +273,7 @@ export async function createTask(
     const task = coreCreateTask(ctx.projectDir, {
       title: input.title,
       description: input.description ?? "",
-      status: input.status,
+      status: input.status as TaskStatus,
       type: input.type,
       priority: input.priority,
       tags: input.tags,
@@ -401,18 +402,7 @@ export async function claimNextTask(
       );
     }
 
-    // Sort by priority
-    const priorityOrder: Record<string, number> = {
-      Critical: 0,
-      High: 1,
-      Medium: 2,
-      Low: 3,
-    };
-    tasks.sort(
-      (a, b) =>
-        (priorityOrder[a.priority ?? "Medium"] ?? 2) -
-        (priorityOrder[b.priority ?? "Medium"] ?? 2),
-    );
+    tasks.sort(compareTasksByPriorityThenCreated);
 
     if (tasks.length === 0) {
       return {
@@ -458,7 +448,7 @@ export async function addComment(
 ): Promise<OperationResult<TaskComment>> {
   try {
     const { addComment: coreAddComment } = await import("../core/comments.js");
-    const comment = coreAddComment(
+    const comment = await coreAddComment(
       ctx.projectDir,
       input.id,
       input.author,

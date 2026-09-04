@@ -31,7 +31,32 @@ export interface TaskFileRef {
 }
 
 // ── Task system (.proto/tasks/{id}.json) ───────────────────────────────────
-export type TaskStatus = "backlog" | "todo" | "in-progress" | "review" | "done";
+export const TASK_STATUSES = ["backlog", "todo", "in-progress", "review", "done"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** Returns true if the value is a valid TaskStatus. */
+export function isTaskStatus(v: unknown): v is TaskStatus {
+  return (TASK_STATUSES as readonly string[]).includes(v as string);
+}
+
+/** Priority rank for sorting: critical=0, high=1, medium/default=2, low=3. Case-insensitive. */
+export function getPriorityRank(priority?: string): number {
+  const value = (priority ?? "Medium").trim().toLowerCase();
+  if (value === "critical") return 0;
+  if (value === "high") return 1;
+  if (value === "low") return 3;
+  return 2; // medium/default
+}
+
+/** Comparator: priority tier first (ascending), then created timestamp ascending (oldest first). */
+export function compareTasksByPriorityThenCreated<
+  T extends { priority?: string; created: string },
+>(a: T, b: T): number {
+  const pa = getPriorityRank(a.priority);
+  const pb = getPriorityRank(b.priority);
+  if (pa !== pb) return pa - pb;
+  return new Date(a.created).getTime() - new Date(b.created).getTime();
+}
 
 export interface Task {
   id: string;

@@ -6,19 +6,15 @@ import {
   readdirSync,
   unlinkSync,
   renameSync,
+  openSync,
+  statSync,
 } from "node:fs";
 import { join, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Task, TaskStatus, TaskComment } from "./types.js";
-import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR } from "./types.js";
+import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR, TASK_STATUSES } from "./types.js";
 import type { FileInfo } from "./files.js";
-const VALID_STATUSES: TaskStatus[] = [
-  "backlog",
-  "todo",
-  "in-progress",
-  "review",
-  "done",
-];
+import { taskLockPath } from "./lock.js";
 
 export function generateTaskId(): string {
   // 15 random bytes → 30-char lowercase hex, 120 bits of entropy — essentially zero collision probability
@@ -140,7 +136,7 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     id: String(raw.id ?? ""),
     title: String(raw.title ?? "Untitled"),
     description: String(raw.description ?? ""),
-    status: (VALID_STATUSES.includes(raw.status as TaskStatus)
+    status: ((TASK_STATUSES as readonly string[]).includes(raw.status as string)
       ? raw.status
       : "todo") as TaskStatus,
     url: raw.url ? String(raw.url) : undefined,
@@ -217,7 +213,7 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   };
 }
 
-function writeTaskJson(projectDir: string, task: Task): void {
+export function writeTaskJson(projectDir: string, task: Task): void {
   const dateDir = join(getTasksDir(projectDir), getDateSubdir(task.created));
   mkdirSync(dateDir, { recursive: true });
   const filePath = join(dateDir, `${task.id}.json`);
@@ -340,28 +336,53 @@ export function updateTask(
   taskId: string,
   updates: Partial<Omit<Task, "id" | "created">>,
 ): Task | null {
-  const existingPath = findTaskFilePath(projectDir, taskId);
-  const task = existingPath ? readTaskFile(existingPath) : null;
-  if (!task) return null;
-
-  const updated: Task = {
-    ...task,
-    ...updates,
-    updated: new Date().toISOString(),
-  };
-  writeTaskJson(projectDir, updated);
-  // If the task moved from flat layout to date-based, remove the old flat file
-  if (
-    existingPath &&
-    existingPath !== getTaskFilePath(projectDir, taskId, updated.created)
-  ) {
+  // Wrap the read-modify-write in a cross-process write lock to prevent
+  // lost updates from concurrent callers (e.g. two HTTP requests).
+  const lock = taskLockPath(projectDir, taskId);
+  // NOTE: withTaskLock is async but updateTask is sync — run the lock
+  // via a synchronous spin-wait for backward compatibility.
+  // For callers that can be async, prefer the async version below.
+  let result: Task | null = null;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     try {
-      unlinkSync(existingPath);
-    } catch {
-      /* ignore */
+      openSync(lock, "wx");
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      try {
+        const st = statSync(lock);
+        if (Date.now() - st.mtimeMs > 10_000) {
+          try { unlinkSync(lock); } catch { /* ignore */ }
+          continue;
+        }
+      } catch { continue; }
+      const spinStart = Date.now();
+      while (Date.now() - spinStart < 10 && Date.now() < deadline) { /* spin */ }
     }
   }
-  return updated;
+  try {
+    const existingPath = findTaskFilePath(projectDir, taskId);
+    const task = existingPath ? readTaskFile(existingPath) : null;
+    if (!task) return null;
+    const updated: Task = {
+      ...task,
+      ...updates,
+      updated: new Date().toISOString(),
+    };
+    writeTaskJson(projectDir, updated);
+    // If the task moved from flat layout to date-based, remove the old flat file
+    if (
+      existingPath &&
+      existingPath !== getTaskFilePath(projectDir, taskId, updated.created)
+    ) {
+      try { unlinkSync(existingPath); } catch { /* ignore */ }
+    }
+    result = updated;
+  } finally {
+    try { unlinkSync(lock); } catch { /* best-effort cleanup */ }
+  }
+  return result;
 }
 
 export function deleteTask(projectDir: string, taskId: string): boolean {

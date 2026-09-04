@@ -21,7 +21,8 @@ import {
   deleteComment,
 } from "../core/comments.js";
 import { listFiles, getFileCount } from "../core/files.js";
-import type { Task } from "../core/types.js";
+import type { Task, TaskStatus } from "../core/types.js";
+import { TASK_STATUSES } from "../core/types.js";
 
 export interface TrpcContext {
   projectDir: string;
@@ -35,13 +36,8 @@ const procedure = t.procedure;
 
 // ── Shared Zod schemas ─────────────────────────────────────────────────────
 
-const taskStatusSchema = z.enum([
-  "backlog",
-  "todo",
-  "in-progress",
-  "review",
-  "done",
-]);
+// SAFETY: TASK_STATUSES is the canonical readonly tuple; z.enum requires mutable [string, ...string[]]
+const taskStatusSchema = z.enum(TASK_STATUSES as unknown as [string, ...string[]]);
 
 /**
  * Task IDs are 30-char lowercase hex strings (15 random bytes from `generateTaskId`).
@@ -142,7 +138,7 @@ export const appRouter = router({
         selector: input.selector,
         cssSelector: input.cssSelector,
         url: input.url,
-        status: input.status ?? "todo",
+        status: (input.status ?? "todo") as TaskStatus,
         screenshot: undefined,
         file: input.file,
         line: input.line,
@@ -232,8 +228,8 @@ export const appRouter = router({
         source: z.enum(["cli", "web"]).optional().default("web"),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      const comment = addComment(
+    .mutation(async ({ ctx, input }) => {
+      const comment = await addComment(
         ctx.projectDir,
         input.taskId,
         input.author,
@@ -254,8 +250,8 @@ export const appRouter = router({
         text: z.string().min(1),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      const comment = updateComment(
+    .mutation(async ({ ctx, input }) => {
+      const comment = await updateComment(
         ctx.projectDir,
         input.taskId,
         input.commentId,
@@ -277,8 +273,8 @@ export const appRouter = router({
         commentId: commentIdSchema,
       }),
     )
-    .mutation(({ ctx, input }) => {
-      deleteComment(ctx.projectDir, input.taskId, input.commentId);
+    .mutation(async ({ ctx, input }) => {
+      await deleteComment(ctx.projectDir, input.taskId, input.commentId);
       ctx.broadcast({ type: "tasks-updated" });
       return { success: true };
     }),

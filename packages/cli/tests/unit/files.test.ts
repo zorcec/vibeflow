@@ -191,34 +191,30 @@ describe("legacy .linked.json migration", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("migrates entries from .linked.json into task refs on listFiles", () => {
+  it("migrates entries from .linked.json into task refs via saveFile", () => {
     const task = createTask(tempDir, { title: "Legacy linked task", description: "" });
     const externalPath = join(tempDir, "legacy-doc.md");
     writeFileSync(externalPath, "legacy content", "utf-8");
 
-    // Manually create the legacy .linked.json manifest.
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, JSON.stringify([{ name: "legacy-doc.md", path: externalPath }]), "utf-8");
 
-    const files = listFiles(tempDir, task.id);
-    expect(files).toHaveLength(1);
-    expect(files[0].name).toBe("legacy-doc.md");
-    expect(files[0].linkedPath).toBe(externalPath);
+    // saveFile triggers migration
+    saveFile(tempDir, task.id, "new.txt", Buffer.from("hello"));
 
-    // Manifest should be cleaned up after migration.
+    // Manifest should be cleaned up after migration
     expect(existsSync(manifestPath)).toBe(false);
   });
 
-  it("cleans up an empty .linked.json manifest without adding refs", () => {
+  it("cleans up an empty .linked.json manifest via saveFile", () => {
     const task = createTask(tempDir, { title: "Empty manifest task", description: "" });
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, JSON.stringify([]), "utf-8");
 
-    const files = listFiles(tempDir, task.id);
-    expect(files).toHaveLength(0);
-    // Empty manifest should be removed.
+    saveFile(tempDir, task.id, "test.txt", Buffer.from("data"));
+    // Empty manifest should be removed
     expect(existsSync(manifestPath)).toBe(false);
   });
 
@@ -233,19 +229,15 @@ describe("legacy .linked.json migration", () => {
     expect(files).toHaveLength(0);
   });
 
-  it("migrates legacy entry when linked file no longer exists on disk", () => {
+  it("migrates legacy entry when linked file no longer exists on disk via saveFile", () => {
     const task = createTask(tempDir, { title: "Missing linked file", description: "" });
     const missingPath = join(tempDir, "deleted-doc.md");
-    // Don't create the file — it's "missing"
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, JSON.stringify([{ name: "deleted-doc.md", path: missingPath }]), "utf-8");
 
-    const files = listFiles(tempDir, task.id);
-    // File doesn't exist on disk, so it shouldn't appear in list
-    expect(files).toHaveLength(0);
-    // But migration should still run and clean up manifest
+    saveFile(tempDir, task.id, "test.txt", Buffer.from("data"));
     expect(existsSync(manifestPath)).toBe(false);
   });
 
@@ -269,7 +261,7 @@ describe("legacy .linked.json migration", () => {
     expect(existsSync(externalPath)).toBe(true);
   });
 
-  it("getFilePath returns linked path when linked file exists", () => {
+  it("getFilePath does NOT migrate — manifest and task file untouched (pure read)", () => {
     const task = createTask(tempDir, { title: "Linked path task", description: "" });
     const externalPath = join(tempDir, "linked-get.md");
     writeFileSync(externalPath, "linked content", "utf-8");
@@ -278,11 +270,10 @@ describe("legacy .linked.json migration", () => {
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, JSON.stringify([{ name: "linked-get.md", path: externalPath }]), "utf-8");
 
-    // Trigger migration
-    listFiles(tempDir, task.id);
-
+    // getFilePath is pure — should NOT migrate the manifest
     const result = getFilePath(tempDir, task.id, "linked-get.md");
-    expect(result).toBe(externalPath);
+    expect(result).toBeNull(); // linked ref not yet in task file → returns null
+    expect(existsSync(manifestPath)).toBe(true); // manifest untouched
   });
 
   it("getFilePath returns null when linked ref exists but file is missing", () => {
@@ -314,7 +305,7 @@ describe("legacy .linked.json migration", () => {
     expect(files[0].linkedPath).toBeUndefined();
   });
 
-  it("listFiles deduplicates: linked ref takes precedence over orphan file with same name", () => {
+  it("listFiles is pure — manifest and task file untouched (no migration)", () => {
     const task = createTask(tempDir, { title: "Dedup task", description: "" });
     const externalPath = join(tempDir, "shared.md");
     writeFileSync(externalPath, "linked version", "utf-8");
@@ -327,34 +318,32 @@ describe("legacy .linked.json migration", () => {
     writeFileSync(join(getFilesDir(tempDir, task.id), "shared.md"), "orphan version", "utf-8");
 
     const files = listFiles(tempDir, task.id);
+    // listFiles is pure — only sees the orphan on disk (linked ref not in task file yet)
     expect(files).toHaveLength(1);
-    // Linked ref should win
-    expect(files[0].linkedPath).toBe(externalPath);
+    expect(files[0].name).toBe("shared.md");
+    expect(files[0].linkedPath).toBeUndefined(); // no linked path — pure read
+    // Manifest still intact (no migration triggered)
+    expect(existsSync(manifestPath)).toBe(true);
   });
 
-  it("migrateLegacyLinkedRefs skips entries already present in refs", () => {
-    const task = createTask(tempDir, { title: "Already migrated", description: "" });
-    const externalPath = join(tempDir, "already-linked.md");
-    writeFileSync(externalPath, "content", "utf-8");
+  it("saveFile triggers migration — manifest cleaned up after save", () => {
+    const task = createTask(tempDir, { title: "Save triggers migration", description: "" });
+    const externalPath = join(tempDir, "legacy-linked.md");
+    writeFileSync(externalPath, "legacy content", "utf-8");
 
-    // Find the task file and manually add a ref (simulating already-migrated state)
-    const taskPath = join(tempDir, ".vibeflow", "tasks");
-    const entries = readdirSync(taskPath, { withFileTypes: true });
-    const dateDir = entries.find((e) => e.isDirectory())?.name;
-    const taskFile = join(taskPath, dateDir!, `${task.id}.json`);
-    const taskData = JSON.parse(readFileSync(taskFile, "utf-8"));
-    taskData.files = [{ name: "already-linked.md", linkedPath: externalPath, addedAt: new Date().toISOString() }];
-    writeFileSync(taskFile, JSON.stringify(taskData, null, 2), "utf-8");
-
-    // Create legacy manifest with same entry
+    // Create legacy manifest
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "already-linked.md", path: externalPath }]), "utf-8");
+    writeFileSync(manifestPath, JSON.stringify([{ name: "legacy-linked.md", path: externalPath }]), "utf-8");
 
-    const files = listFiles(tempDir, task.id);
-    expect(files).toHaveLength(1);
-    expect(files[0].linkedPath).toBe(externalPath);
-    // Manifest should be cleaned up
+    // saveFile triggers migration (manifest cleaned up)
+    saveFile(tempDir, task.id, "new-file.txt", Buffer.from("new content"));
+
+    // Manifest should now be cleaned up by the migration
     expect(existsSync(manifestPath)).toBe(false);
+    // The linked ref should be in the task file now
+    const files = listFiles(tempDir, task.id);
+    const linked = files.find((f) => f.linkedPath === externalPath);
+    expect(linked).toBeDefined();
   });
 });

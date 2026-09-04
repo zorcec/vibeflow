@@ -4,11 +4,12 @@ import { randomBytes } from "node:crypto";
 import type { TaskComment } from "./types.js";
 import {
   readTaskFile,
-  updateTask,
+  writeTaskJson,
   findTaskFilePath,
   getTaskFilePath,
   normalizeEscapeSequences,
 } from "./tasks.js";
+import { withTaskLock, taskLockPath } from "./lock.js";
 
 /**
  * Normalizes a raw comment loaded from JSON, handling legacy formats:
@@ -48,7 +49,7 @@ export function normalizeCommentText(text: string): string {
   return normalizeEscapeSequences(text);
 }
 
-export function addComment(
+export async function addComment(
   projectDir: string,
   taskId: string,
   author: TaskComment["author"],
@@ -56,80 +57,78 @@ export function addComment(
   files?: string[],
   type?: TaskComment["type"],
   source?: TaskComment["source"],
-): TaskComment {
+): Promise<TaskComment> {
   text = normalizeCommentText(text);
-  // Read all comments including soft-deleted entries to preserve them on write.
-  const filePath = findTaskFilePath(projectDir, taskId);
-  const task = filePath ? readTaskFile(filePath) : null;
-  const allComments = task?.comments ?? [];
-  const comment: TaskComment = {
-    id: randomBytes(8).toString("hex"),
-    author,
-    text,
-    ...(files && files.length > 0 ? { files } : {}),
-    ...(type && type !== "comment" ? { type } : {}),
-    createdAt: new Date().toISOString(),
-    source: source ?? "cli",
-  };
-  const updated = [...allComments, comment];
-  // updateTask returns null when the task file doesn't exist yet;
-  // in that case write a bare entry so comments still persist.
-  const result = updateTask(projectDir, taskId, { comments: updated });
-  if (!result) {
-    const targetPath = getTaskFilePath(
-      projectDir,
-      taskId,
-      new Date().toISOString(),
-    );
-    mkdirSync(dirname(targetPath), { recursive: true });
-    const tmpPath = targetPath + ".tmp";
-    writeFileSync(
-      tmpPath,
-      JSON.stringify({ id: taskId, comments: updated }, null, 2),
-      "utf-8",
-    );
-    renameSync(tmpPath, targetPath);
-  }
-  return comment;
+  const lock = taskLockPath(projectDir, taskId);
+  return withTaskLock(lock, () => {
+    const filePath = findTaskFilePath(projectDir, taskId);
+    const task = filePath ? readTaskFile(filePath) : null;
+    const allComments = task?.comments ?? [];
+    const comment: TaskComment = {
+      id: randomBytes(8).toString("hex"),
+      author,
+      text,
+      ...(files && files.length > 0 ? { files } : {}),
+      ...(type && type !== "comment" ? { type } : {}),
+      createdAt: new Date().toISOString(),
+      source: source ?? "cli",
+    };
+    const updated = [...allComments, comment];
+    if (task) {
+      writeTaskJson(projectDir, { ...task, comments: updated });
+    } else {
+      // Task file doesn't exist yet — write a bare entry so comments still persist.
+      const targetPath = getTaskFilePath(projectDir, taskId, new Date().toISOString());
+      mkdirSync(dirname(targetPath), { recursive: true });
+      const tmpPath = targetPath + ".tmp";
+      writeFileSync(tmpPath, JSON.stringify({ id: taskId, comments: updated }, null, 2), "utf-8");
+      renameSync(tmpPath, targetPath);
+    }
+    return comment;
+  });
 }
 
-export function updateComment(
+export async function updateComment(
   projectDir: string,
   taskId: string,
   commentId: string,
   newText: string,
-): TaskComment | null {
-  // Read all comments including soft-deleted entries to preserve them on write.
-  const filePath = findTaskFilePath(projectDir, taskId);
-  const task = filePath ? readTaskFile(filePath) : null;
-  const allComments = task?.comments ?? [];
-  const comment = allComments.find((c) => c.id === commentId && !c.deleted);
-  if (!comment) return null;
-  comment.text = normalizeCommentText(newText);
-  comment.updatedAt = new Date().toISOString();
-  updateTask(projectDir, taskId, { comments: allComments });
-  return normalizeComment(comment);
+): Promise<TaskComment | null> {
+  const lock = taskLockPath(projectDir, taskId);
+  return withTaskLock(lock, () => {
+    const filePath = findTaskFilePath(projectDir, taskId);
+    const task = filePath ? readTaskFile(filePath) : null;
+    const allComments = task?.comments ?? [];
+    const comment = allComments.find((c) => c.id === commentId && !c.deleted);
+    if (!comment) return null;
+    comment.text = normalizeCommentText(newText);
+    comment.updatedAt = new Date().toISOString();
+    if (task) writeTaskJson(projectDir, { ...task, comments: allComments });
+    return normalizeComment(comment);
+  });
 }
 
-export function deleteComment(
+export async function deleteComment(
   projectDir: string,
   taskId: string,
   commentId: string,
-): boolean {
-  // Read all comments including soft-deleted entries to preserve them on write.
-  const filePath = findTaskFilePath(projectDir, taskId);
-  const task = filePath ? readTaskFile(filePath) : null;
-  const allComments = task?.comments ?? [];
-  const idx = allComments.findIndex((c) => c.id === commentId && !c.deleted);
-  if (idx === -1) return false;
-  // Soft-delete: keep entry so the activity trace is preserved.
-  allComments[idx] = {
-    ...allComments[idx],
-    deleted: true,
-    text: "[Comment deleted]",
-    updatedAt: new Date().toISOString(),
-  };
-  updateTask(projectDir, taskId, { comments: allComments });
-  return true;
+): Promise<boolean> {
+  const lock = taskLockPath(projectDir, taskId);
+  return withTaskLock(lock, () => {
+    const filePath = findTaskFilePath(projectDir, taskId);
+    const task = filePath ? readTaskFile(filePath) : null;
+    const allComments = task?.comments ?? [];
+    const idx = allComments.findIndex((c) => c.id === commentId && !c.deleted);
+    if (idx === -1) return false;
+    // Soft-delete: keep entry so the activity trace is preserved.
+    allComments[idx] = {
+      ...allComments[idx],
+      deleted: true,
+      text: "[Comment deleted]",
+      updatedAt: new Date().toISOString(),
+    };
+    if (task) writeTaskJson(projectDir, { ...task, comments: allComments });
+    return true;
+  });
 }
 

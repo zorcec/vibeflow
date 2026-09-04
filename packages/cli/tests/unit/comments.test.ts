@@ -45,93 +45,93 @@ describe("addComment", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("creates comments file and returns the new comment", () => {
-    const comment = addComment(tempDir, "task-123", "user", "This looks great");
+  it("creates comments file and returns the new comment", async () => {
+    const comment = await addComment(tempDir, "task-123", "user", "This looks great");
     expect(comment.author).toBe("user");
     expect(comment.text).toBe("This looks great");
     expect(comment.createdAt).toBeTruthy();
   });
 
-  it("appends to existing comments", () => {
-    addComment(tempDir, "task-abc", "user", "First comment");
-    addComment(tempDir, "task-abc", "agent", "Second comment");
+  it("appends to existing comments", async () => {
+    await addComment(tempDir, "task-abc", "user", "First comment");
+    await addComment(tempDir, "task-abc", "agent", "Second comment");
     const comments = listComments(tempDir, "task-abc");
     expect(comments).toHaveLength(2);
     expect(comments[0].text).toBe("First comment");
     expect(comments[1].text).toBe("Second comment");
   });
 
-  it("supports both user and agent authors", () => {
-    const userComment = addComment(tempDir, "t1", "user", "User msg");
-    const agentComment = addComment(tempDir, "t2", "agent", "Agent msg");
+  it("supports both user and agent authors", async () => {
+    const userComment = await addComment(tempDir, "t1", "user", "User msg");
+    const agentComment = await addComment(tempDir, "t2", "agent", "Agent msg");
     expect(userComment.author).toBe("user");
     expect(agentComment.author).toBe("agent");
   });
 
-  it("comments for different tasks are stored independently", () => {
-    addComment(tempDir, "task-A", "user", "For A");
-    addComment(tempDir, "task-B", "user", "For B");
+  it("comments for different tasks are stored independently", async () => {
+    await addComment(tempDir, "task-A", "user", "For A");
+    await addComment(tempDir, "task-B", "user", "For B");
     expect(listComments(tempDir, "task-A")).toHaveLength(1);
     expect(listComments(tempDir, "task-B")).toHaveLength(1);
     expect(listComments(tempDir, "task-A")[0].text).toBe("For A");
   });
 
-  it("comment has a valid ISO createdAt timestamp", () => {
-    const comment = addComment(tempDir, "t1", "user", "Hello");
+  it("comment has a valid ISO createdAt timestamp", async () => {
+    const comment = await addComment(tempDir, "t1", "user", "Hello");
     expect(() => new Date(comment.createdAt).toISOString()).not.toThrow();
   });
 
-  it("includes files attachment when provided", () => {
-    const comment = addComment(tempDir, "task-f", "user", "see attached", ["file.png"]);
+  it("includes files attachment when provided", async () => {
+    const comment = await addComment(tempDir, "task-f", "user", "see attached", ["file.png"]);
     expect(comment.files).toEqual(["file.png"]);
   });
 
-  it("includes type when a non-comment type is provided", () => {
-    const comment = addComment(tempDir, "task-t", "user", "system event", undefined, "system");
+  it("includes type when a non-comment type is provided", async () => {
+    const comment = await addComment(tempDir, "task-t", "user", "system event", undefined, "system");
     expect(comment.type).toBe("system");
   });
 
-  it("addComment for non-existent task still persists the comment", () => {
+  it("addComment for non-existent task still persists the comment", async () => {
     // This exercises the fallback branch in addComment when updateTask returns null.
     // The task file doesn't exist (no task was created in tempDir).
     const fakeTaskId = "non-existent-task-abc";
-    const comment = addComment(tempDir, fakeTaskId, "user", "orphan comment");
+    const comment = await addComment(tempDir, fakeTaskId, "user", "orphan comment");
     expect(comment.text).toBe("orphan comment");
     const retrieved = listComments(tempDir, fakeTaskId);
     expect(retrieved).toHaveLength(1);
     expect(retrieved[0].text).toBe("orphan comment");
   });
 
-  it("generates unique ids", () => {
-    const c1 = addComment(tempDir, "task-1", "user", "a");
-    const c2 = addComment(tempDir, "task-1", "user", "b");
+  it("generates unique ids", async () => {
+    const c1 = await addComment(tempDir, "task-1", "user", "a");
+    const c2 = await addComment(tempDir, "task-1", "user", "b");
     expect(c1.id).toBeTruthy();
     expect(c2.id).toBeTruthy();
     expect(c1.id).not.toBe(c2.id);
   });
 
-  it("does not include files field when empty array provided", () => {
-    const comment = addComment(tempDir, "task-empty-files", "user", "no files", []);
+  it("does not include files field when empty array provided", async () => {
+    const comment = await addComment(tempDir, "task-empty-files", "user", "no files", []);
     expect(comment.files).toBeUndefined();
   });
 
-  it("does not include type field when type is 'comment'", () => {
-    const comment = addComment(tempDir, "task-type-comment", "user", "normal comment", undefined, "comment");
+  it("does not include type field when type is .comment.", async () => {
+    const comment = await addComment(tempDir, "task-type-comment", "user", "normal comment", undefined, "comment");
     expect(comment.type).toBeUndefined();
   });
 
-  it("includes source field when explicitly provided", () => {
-    const comment = addComment(tempDir, "task-source", "user", "from saas", undefined, undefined, "saas");
+  it("includes source field when explicitly provided", async () => {
+    const comment = await addComment(tempDir, "task-source", "user", "from saas", undefined, undefined, "saas");
     expect(comment.source).toBe("saas");
   });
 
-  it("defaults source to 'cli' when not provided", () => {
-    const comment = addComment(tempDir, "task-default-source", "user", "default source");
+  it("defaults source to .cli. when not provided", async () => {
+    const comment = await addComment(tempDir, "task-default-source", "user", "default source");
     expect(comment.source).toBe("cli");
   });
 
-  it("handles empty text", () => {
-    const comment = addComment(tempDir, "task-empty-text", "user", "");
+  it("handles empty text", async () => {
+    const comment = await addComment(tempDir, "task-empty-text", "user", "");
     expect(comment.text).toBe("");
   });
 });
@@ -147,40 +147,40 @@ describe("updateComment", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("updates text of a comment with matching id", () => {
-    const comment = addComment(tempDir, "task-1", "user", "original text");
-    const updated = updateComment(tempDir, "task-1", comment.id!, "new text");
+  it("updates text of a comment with matching id", async () => {
+    const comment = await addComment(tempDir, "task-1", "user", "original text");
+    const updated = await updateComment(tempDir, "task-1", comment.id!, "new text");
     expect(updated).not.toBeNull();
     expect(updated!.text).toBe("new text");
     expect(updated!.updatedAt).toBeTruthy();
   });
 
-  it("persists update to disk", () => {
-    const comment = addComment(tempDir, "task-1", "user", "original");
-    updateComment(tempDir, "task-1", comment.id!, "updated");
+  it("persists update to disk", async () => {
+    const comment = await addComment(tempDir, "task-1", "user", "original");
+    await updateComment(tempDir, "task-1", comment.id!, "updated");
     const comments = listComments(tempDir, "task-1");
     expect(comments[0].text).toBe("updated");
   });
 
-  it("returns null when commentId does not exist", () => {
-    addComment(tempDir, "task-1", "user", "text");
-    const result = updateComment(tempDir, "task-1", "nonexistent-id", "new");
+  it("returns null when commentId does not exist", async () => {
+    await addComment(tempDir, "task-1", "user", "text");
+    const result = await updateComment(tempDir, "task-1", "nonexistent-id", "new");
     expect(result).toBeNull();
   });
 
-  it("does not modify other comments", () => {
-    const c1 = addComment(tempDir, "task-1", "user", "first");
-    const c2 = addComment(tempDir, "task-1", "user", "second");
-    updateComment(tempDir, "task-1", c1.id!, "updated first");
+  it("does not modify other comments", async () => {
+    const c1 = await addComment(tempDir, "task-1", "user", "first");
+    const c2 = await addComment(tempDir, "task-1", "user", "second");
+    await updateComment(tempDir, "task-1", c1.id!, "updated first");
     const comments = listComments(tempDir, "task-1");
     expect(comments[1].text).toBe("second");
     expect(comments[1].id).toBe(c2.id);
   });
 
-  it("returns null when trying to update a deleted comment", () => {
-    const comment = addComment(tempDir, "task-1", "user", "to delete");
-    deleteComment(tempDir, "task-1", comment.id!);
-    const result = updateComment(tempDir, "task-1", comment.id!, "new text");
+  it("returns null when trying to update a deleted comment", async () => {
+    const comment = await addComment(tempDir, "task-1", "user", "to delete");
+    await deleteComment(tempDir, "task-1", comment.id!);
+    const result = await updateComment(tempDir, "task-1", comment.id!, "new text");
     expect(result).toBeNull();
   });
 });
@@ -196,38 +196,38 @@ describe("deleteComment", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("removes comment with matching id and returns true", () => {
-    const comment = addComment(tempDir, "task-1", "user", "to delete");
-    const result = deleteComment(tempDir, "task-1", comment.id!);
+  it("removes comment with matching id and returns true", async () => {
+    const comment = await addComment(tempDir, "task-1", "user", "to delete");
+    const result = await deleteComment(tempDir, "task-1", comment.id!);
     expect(result).toBe(true);
     expect(listComments(tempDir, "task-1")).toHaveLength(0);
   });
 
-  it("returns false when commentId does not exist", () => {
-    addComment(tempDir, "task-1", "user", "text");
-    const result = deleteComment(tempDir, "task-1", "nonexistent-id");
+  it("returns false when commentId does not exist", async () => {
+    await addComment(tempDir, "task-1", "user", "text");
+    const result = await deleteComment(tempDir, "task-1", "nonexistent-id");
     expect(result).toBe(false);
   });
 
-  it("does not remove other comments", () => {
-    const c1 = addComment(tempDir, "task-1", "user", "keep");
-    const c2 = addComment(tempDir, "task-1", "user", "delete me");
-    deleteComment(tempDir, "task-1", c2.id!);
+  it("does not remove other comments", async () => {
+    const c1 = await addComment(tempDir, "task-1", "user", "keep");
+    const c2 = await addComment(tempDir, "task-1", "user", "delete me");
+    await deleteComment(tempDir, "task-1", c2.id!);
     const remaining = listComments(tempDir, "task-1");
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(c1.id);
   });
 
-  it("returns false when trying to delete an already-deleted comment", () => {
-    const comment = addComment(tempDir, "task-1", "user", "to delete");
-    expect(deleteComment(tempDir, "task-1", comment.id!)).toBe(true);
-    expect(deleteComment(tempDir, "task-1", comment.id!)).toBe(false);
+  it("returns false when trying to delete an already-deleted comment", async () => {
+    const comment = await addComment(tempDir, "task-1", "user", "to delete");
+    expect(await deleteComment(tempDir, "task-1", comment.id!)).toBe(true);
+    expect(await deleteComment(tempDir, "task-1", comment.id!)).toBe(false);
   });
 
-  it("soft-deleted comments are not returned by listComments", () => {
-    addComment(tempDir, "task-1", "user", "visible");
-    const c2 = addComment(tempDir, "task-1", "user", "will be deleted");
-    deleteComment(tempDir, "task-1", c2.id!);
+  it("soft-deleted comments are not returned by listComments", async () => {
+    await addComment(tempDir, "task-1", "user", "visible");
+    const c2 = await addComment(tempDir, "task-1", "user", "will be deleted");
+    await deleteComment(tempDir, "task-1", c2.id!);
     const comments = listComments(tempDir, "task-1");
     expect(comments).toHaveLength(1);
     expect(comments[0].text).toBe("visible");
@@ -312,29 +312,29 @@ describe("addComment text normalization", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("normalizes literal \\n in comment text on add", () => {
-    const comment = addComment(tempDir, "task-1", "agent", "line1\\nline2");
+  it("normalizes literal \\n in comment text on add", async () => {
+    const comment = await addComment(tempDir, "task-1", "agent", "line1\\nline2");
     expect(comment.text).toBe("line1\nline2");
     const persisted = listComments(tempDir, "task-1");
     expect(persisted[0].text).toBe("line1\nline2");
   });
 
-  it("normalizes agent-style markdown comment on add", () => {
+  it("normalizes agent-style markdown comment on add", async () => {
     const raw = "Implemented X:\\n\\n- Did A\\n- Did B";
-    const comment = addComment(tempDir, "task-2", "agent", raw);
+    const comment = await addComment(tempDir, "task-2", "agent", raw);
     expect(comment.text).toBe("Implemented X:\n\n- Did A\n- Did B");
   });
 
-  it("normalizes literal \\n in comment text on update", () => {
-    const comment = addComment(tempDir, "task-3", "user", "initial");
-    const updated = updateComment(tempDir, "task-3", comment.id!, "updated\\nline2");
+  it("normalizes literal \\n in comment text on update", async () => {
+    const comment = await addComment(tempDir, "task-3", "user", "initial");
+    const updated = await updateComment(tempDir, "task-3", comment.id!, "updated\\nline2");
     expect(updated!.text).toBe("updated\nline2");
     const persisted = listComments(tempDir, "task-3");
     expect(persisted[0].text).toBe("updated\nline2");
   });
 
-  it("plain text is stored as-is when no escape sequences present", () => {
-    const comment = addComment(tempDir, "task-4", "user", "just plain text");
+  it("plain text is stored as-is when no escape sequences present", async () => {
+    const comment = await addComment(tempDir, "task-4", "user", "just plain text");
     expect(comment.text).toBe("just plain text");
   });
 });

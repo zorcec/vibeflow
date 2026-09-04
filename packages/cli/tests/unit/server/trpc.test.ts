@@ -38,9 +38,10 @@ describe("appRouter tRPC", () => {
   describe("tasks", () => {
     it("returns tasks with comment and file counts", async () => {
       const task = createTask(tempDir, { title: "Task with meta", selector: "#a" });
-      addComment(tempDir, task.id, "user", "first");
-      addComment(tempDir, task.id, "user", "second");
-      deleteComment(tempDir, task.id, addComment(tempDir, task.id, "user", "deleted").id);
+      await addComment(tempDir, task.id, "user", "first");
+      await addComment(tempDir, task.id, "user", "second");
+      const deletedComment = await addComment(tempDir, task.id, "user", "deleted");
+      await deleteComment(tempDir, task.id, deletedComment.id!);
       saveFile(tempDir, task.id, "notes.md", Buffer.from("hello"));
 
       const { tasks } = await caller.tasks();
@@ -80,7 +81,7 @@ describe("appRouter tRPC", () => {
     it("filters by query and includes counts", async () => {
       createTask(tempDir, { title: "Alpha task", selector: "#a" });
       const beta = createTask(tempDir, { title: "Beta task", selector: "#b" });
-      addComment(tempDir, beta.id, "user", "note");
+      await addComment(tempDir, beta.id, "user", "note");
       saveFile(tempDir, beta.id, "img.png", Buffer.from("x"));
 
       const { results } = await caller.searchTasks({ query: "beta" });
@@ -173,7 +174,7 @@ describe("appRouter tRPC", () => {
   describe("comments", () => {
     it("lists comments for a task", async () => {
       const task = createTask(tempDir, { title: "Commented", selector: "#c" });
-      addComment(tempDir, task.id, "user", "hello");
+      await addComment(tempDir, task.id, "user", "hello");
 
       const { comments } = await caller.comments({ id: task.id });
       expect(comments).toHaveLength(1);
@@ -212,7 +213,7 @@ describe("appRouter tRPC", () => {
   describe("updateComment", () => {
     it("updates comment text", async () => {
       const task = createTask(tempDir, { title: "Update comment", selector: "#uc" });
-      const comment = addComment(tempDir, task.id, "user", "original");
+      const comment = await addComment(tempDir, task.id, "user", "original");
 
       const result = await caller.updateComment({
         taskId: task.id,
@@ -243,7 +244,7 @@ describe("appRouter tRPC", () => {
   describe("deleteComment", () => {
     it("deletes a comment and broadcasts", async () => {
       const task = createTask(tempDir, { title: "Delete comment", selector: "#dc" });
-      const comment = addComment(tempDir, task.id, "user", "bye");
+      const comment = await addComment(tempDir, task.id, "user", "bye");
 
       const result = await caller.deleteComment({ taskId: task.id, commentId: comment.id });
       expect(result.success).toBe(true);

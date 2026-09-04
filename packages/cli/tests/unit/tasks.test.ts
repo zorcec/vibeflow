@@ -1439,3 +1439,28 @@ describe("next_actions hints", () => {
   });
 });
 
+
+import { getPriorityRank, compareTasksByPriorityThenCreated } from "../../src/core/types.js";
+
+describe("compareTasksByPriorityThenCreated", () => {
+  it("critical beats high", () => {
+    const a = { priority: "Critical", created: "2026-01-01T00:00:00Z" };
+    const b = { priority: "High", created: "2026-01-01T00:00:00Z" };
+    expect(compareTasksByPriorityThenCreated(a, b)).toBeLessThan(0);
+  });
+
+  it("equal priority → older created first", () => {
+    const a = { priority: "Medium", created: "2026-01-01T00:00:00Z" };
+    const b = { priority: "Medium", created: "2026-06-01T00:00:00Z" };
+    expect(compareTasksByPriorityThenCreated(a, b)).toBeLessThan(0);
+  });
+
+  it("case-insensitive priority", () => {
+    expect(getPriorityRank("critical")).toBe(0);
+    expect(getPriorityRank("CRITICAL")).toBe(0);
+    expect(getPriorityRank("High")).toBe(1);
+    expect(getPriorityRank("medium")).toBe(2);
+    expect(getPriorityRank("low")).toBe(3);
+    expect(getPriorityRank(undefined)).toBe(2); // default = medium
+  });
+});

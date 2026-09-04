@@ -114,10 +114,10 @@ describe("Stress: comments under high volume", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("a single task can hold 200 comments and list them correctly", () => {
+  it("a single task can hold 200 comments and list them correctly", async () => {
     const task = createTask(tempDir, { title: "Heavy task", selector: "/" });
     for (let i = 0; i < 200; i++) {
-      addComment(tempDir, task.id, "user", `Comment ${i}`);
+      await addComment(tempDir, task.id, "user", `Comment ${i}`);
     }
     const comments = listComments(tempDir, task.id);
     expect(comments.length).toBe(200);
@@ -125,7 +125,7 @@ describe("Stress: comments under high volume", () => {
     expect(comments[199].text).toBe("Comment 199");
   });
 
-  it("many tasks each with comments perform well", () => {
+  it("many tasks each with comments perform well", async () => {
     const TASKS = 100;
     const COMMENTS_PER = 5;
     const ids: string[] = [];
@@ -138,7 +138,7 @@ describe("Stress: comments under high volume", () => {
     const start = Date.now();
     for (const id of ids) {
       for (let c = 0; c < COMMENTS_PER; c++) {
-        addComment(tempDir, id, "agent", `comment ${c}`);
+        await addComment(tempDir, id, "agent", `comment ${c}`);
       }
     }
     const elapsed = Date.now() - start;

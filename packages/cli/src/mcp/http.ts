@@ -91,7 +91,7 @@ export function mountMcp(
             return;
           }
           refreshSession(sessionId);
-          await session.transport.handleRequest(req, res);
+          await session.transport.handleRequest(req, res, req.body);
         } else {
           // Initialize new session
           const server = createMcpServer(projectDir, mode);
@@ -101,6 +101,9 @@ export function mountMcp(
           });
 
           await server.connect(transport);
+          // Handle the initialize request first — sessionId is set during handleRequest
+          await transport.handleRequest(req, res, req.body);
+
           const newSessionId = transport.sessionId;
           if (!newSessionId) {
             res.status(500).json({ error: "Failed to create session" });
@@ -114,9 +117,6 @@ export function mountMcp(
             createdAt: now,
             lastSeen: now,
           });
-
-          // Handle the initialization request
-          await transport.handleRequest(req, res);
         }
       } else if (req.method === "GET") {
         // SSE stream for notifications
@@ -130,7 +130,7 @@ export function mountMcp(
           return;
         }
         refreshSession(sessionId);
-        await session.transport.handleRequest(req, res);
+        await session.transport.handleRequest(req, res, req.body);
       } else if (req.method === "DELETE") {
         // Close session
         if (!sessionId) {

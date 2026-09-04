@@ -7,7 +7,7 @@ import {
   mkdirSync,
   existsSync,
 } from "node:fs";
-import { join, basename, isAbsolute } from "node:path";
+import { join, basename } from "node:path";
 import { PROTO_DIR, FILES_DIR } from "./types.js";
 import type { TaskFileRef } from "./types.js";
 import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
@@ -45,6 +45,11 @@ function getTaskFileRefs(projectDir: string, taskId: string): TaskFileRef[] {
   const task = filePath ? readTaskFile(filePath) : null;
   if (!task?.files || task.files.length === 0) return [];
   return task.files;
+}
+
+/** Pure read: returns file refs without triggering migration side-effects. */
+export function readTaskFileRefs(projectDir: string, taskId: string): TaskFileRef[] {
+  return getTaskFileRefs(projectDir, taskId);
 }
 
 function setTaskFileRefs(projectDir: string, taskId: string, refs: TaskFileRef[]): void {
@@ -89,7 +94,7 @@ function migrateLegacyLinkedRefs(projectDir: string, taskId: string): TaskFileRe
 
 export function listFiles(projectDir: string, taskId: string): FileInfo[] {
   const dir = getFilesDir(projectDir, taskId);
-  const refs = migrateLegacyLinkedRefs(projectDir, taskId);
+  const refs = readTaskFileRefs(projectDir, taskId);
   const byName = new Map<string, FileInfo>();
 
   for (const ref of refs) {
@@ -192,7 +197,7 @@ export function getFilePath(
 ): string | null {
   const safe = basename(filename);
 
-  const linkedRef = migrateLegacyLinkedRefs(projectDir, taskId).find((f) => f.name === safe && f.linkedPath);
+  const linkedRef = readTaskFileRefs(projectDir, taskId).find((f) => f.name === safe && f.linkedPath);
   if (linkedRef?.linkedPath && existsSync(linkedRef.linkedPath)) return linkedRef.linkedPath;
 
   const filePath = join(getFilesDir(projectDir, taskId), safe);
@@ -202,4 +207,22 @@ export function getFilePath(
 /** Returns the file count for a task (uploaded + linked). */
 export function getFileCount(projectDir: string, taskId: string): number {
   return listFiles(projectDir, taskId).length;
+}
+
+/** One-time migration sweep: run migrateLegacyLinkedRefs for all tasks. */
+export async function migrateAllLegacyLinkedRefs(projectDir: string): Promise<number> {
+  const { listTasks } = await import("./tasks.js");
+  const tasks = listTasks(projectDir);
+  let count = 0;
+  for (const task of tasks) {
+    try {
+      const before = readTaskFileRefs(projectDir, task.id);
+      migrateLegacyLinkedRefs(projectDir, task.id);
+      const after = getTaskFileRefs(projectDir, task.id);
+      if (after.length !== before.length) count++;
+    } catch {
+      /* skip tasks that fail migration */
+    }
+  }
+  return count;
 }

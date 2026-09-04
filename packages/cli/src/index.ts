@@ -19,6 +19,7 @@ import { listFiles } from "./core/files.js";
 import { readConfig } from "./core/config.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
+import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
@@ -164,14 +165,8 @@ const STATUS_COLORS: Record<string, (s: string) => string> = {
 
 const VALID_TASK_TYPES = new Set(["Task", "Bug", "Research"]);
 
-/** All valid task status values. */
-const VALID_STATUSES = [
-  "backlog",
-  "todo",
-  "in-progress",
-  "review",
-  "done",
-] as const;
+/** All valid task status values — single source from core/types.ts. */
+const VALID_STATUSES = TASK_STATUSES;
 
 /** Ascending comparator for objects with a `createdAt` ISO string field. */
 const sortByCreatedAt = <T extends { createdAt: string }>(a: T, b: T): number =>
@@ -196,13 +191,7 @@ function normalizeTaskType(
   return undefined;
 }
 
-function getPriorityRank(priority?: string): number {
-  const value = (priority ?? "Medium").trim().toLowerCase();
-  if (value === "critical") return 0;
-  if (value === "high") return 1;
-  if (value === "low") return 3;
-  return 2; // medium/default
-}
+// getPriorityRank is imported from core/types.ts (single source)
 
 // Matches Kanban column order: in-progress → review → todo → backlog → done
 const KANBAN_STATUS_ORDER = [

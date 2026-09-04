@@ -58,6 +58,7 @@ import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { appRouter } from "./trpc.js";
 import type { ServeOptions, Task } from "../core/types.js";
+import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { getGitUser } from "../core/git-user.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
@@ -103,13 +104,7 @@ function requireSameOrigin(
 }
 
 /** Valid status values accepted when creating a task via POST /api/tasks. */
-const VALID_CREATE_STATUSES = [
-  "backlog",
-  "todo",
-  "in-progress",
-  "review",
-  "done",
-] as const;
+const VALID_CREATE_STATUSES = TASK_STATUSES;
 
 const ALLOWED_WORKSPACE_ORIGINS = new Set(["https://app.vibeflow.tools"]);
 
@@ -439,18 +434,9 @@ function registerTaskApi(
       >
     >;
 
-    const VALID_PATCH_STATUSES = [
-      "backlog",
-      "todo",
-      "in-progress",
-      "review",
-      "done",
-    ] as const;
     if (
       updates.status !== undefined &&
-      !VALID_PATCH_STATUSES.includes(
-        updates.status as (typeof VALID_PATCH_STATUSES)[number],
-      )
+      !(TASK_STATUSES as readonly string[]).includes(updates.status)
     ) {
       res.status(400).json({ error: `Invalid status: ${updates.status}` });
       return;
