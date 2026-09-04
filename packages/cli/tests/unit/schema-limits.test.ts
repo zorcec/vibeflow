@@ -45,12 +45,18 @@ describe("schema string-length limits", () => {
     });
 
     it("accepts url at exactly 2 000 chars", () => {
-      const input = { ...base, url: "https://example.com/" + "a".repeat(2000 - 20) };
+      const input = {
+        ...base,
+        url: "https://example.com/" + "a".repeat(2000 - 20),
+      };
       expect(createTaskSchema.safeParse(input).success).toBe(true);
     });
 
     it("rejects url exceeding 2 000 chars", () => {
-      const input = { ...base, url: "https://example.com/" + "a".repeat(2000 - 20 + 1) };
+      const input = {
+        ...base,
+        url: "https://example.com/" + "a".repeat(2000 - 20 + 1),
+      };
       expect(createTaskSchema.safeParse(input).success).toBe(false);
     });
 
@@ -105,7 +111,11 @@ describe("schema string-length limits", () => {
     it("accepts commit message at exactly 2 000 chars", () => {
       const input = {
         ...base,
-        patch: { commits: [{ sha: "abc", message: "a".repeat(2_000), timestamp: "2026-01-01" }] },
+        patch: {
+          commits: [
+            { sha: "abc", message: "a".repeat(2_000), timestamp: "2026-01-01" },
+          ],
+        },
       };
       expect(updateTaskSchema.safeParse(input).success).toBe(true);
     });
@@ -113,7 +123,11 @@ describe("schema string-length limits", () => {
     it("rejects commit message exceeding 2 000 chars", () => {
       const input = {
         ...base,
-        patch: { commits: [{ sha: "abc", message: "a".repeat(2_001), timestamp: "2026-01-01" }] },
+        patch: {
+          commits: [
+            { sha: "abc", message: "a".repeat(2_001), timestamp: "2026-01-01" },
+          ],
+        },
       };
       expect(updateTaskSchema.safeParse(input).success).toBe(false);
     });
@@ -121,12 +135,20 @@ describe("schema string-length limits", () => {
 
   describe("createCommentSchema", () => {
     it("accepts body at exactly 10 000 chars", () => {
-      const input = { workspaceId: "ws1", taskId: "t1", body: "a".repeat(10_000) };
+      const input = {
+        workspaceId: "ws1",
+        taskId: "t1",
+        body: "a".repeat(10_000),
+      };
       expect(createCommentSchema.safeParse(input).success).toBe(true);
     });
 
     it("rejects body exceeding 10 000 chars", () => {
-      const input = { workspaceId: "ws1", taskId: "t1", body: "a".repeat(10_001) };
+      const input = {
+        workspaceId: "ws1",
+        taskId: "t1",
+        body: "a".repeat(10_001),
+      };
       expect(createCommentSchema.safeParse(input).success).toBe(false);
     });
 
@@ -138,12 +160,20 @@ describe("schema string-length limits", () => {
 
   describe("updateCommentSchema", () => {
     it("accepts body at exactly 10 000 chars", () => {
-      const input = { workspaceId: "ws1", commentId: "c1", body: "a".repeat(10_000) };
+      const input = {
+        workspaceId: "ws1",
+        commentId: "c1",
+        body: "a".repeat(10_000),
+      };
       expect(updateCommentSchema.safeParse(input).success).toBe(true);
     });
 
     it("rejects body exceeding 10 000 chars", () => {
-      const input = { workspaceId: "ws1", commentId: "c1", body: "a".repeat(10_001) };
+      const input = {
+        workspaceId: "ws1",
+        commentId: "c1",
+        body: "a".repeat(10_001),
+      };
       expect(updateCommentSchema.safeParse(input).success).toBe(false);
     });
   });

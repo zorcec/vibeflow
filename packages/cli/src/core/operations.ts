@@ -7,7 +7,11 @@
  */
 import { z } from "zod";
 import type { Task, TaskComment } from "../core/types.js";
-import { TASK_STATUSES, compareTasksByPriorityThenCreated, type TaskStatus } from "../core/types.js";
+import {
+  TASK_STATUSES,
+  compareTasksByPriorityThenCreated,
+  type TaskStatus,
+} from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -391,14 +395,15 @@ export async function claimNextTask(
     }
 
     // Delegate to the atomic claim primitive for serialized, race-safe claiming.
-    const claimed = (
-      await import("../core/tasks.js")
-    ).claimNextTaskAtomic(ctx.projectDir, {
-      type: input.type,
-      user: input.user,
-      tag: input.tag,
-      author: ctx.userId,
-    });
+    const claimed = (await import("../core/tasks.js")).claimNextTaskAtomic(
+      ctx.projectDir,
+      {
+        type: input.type,
+        user: input.user,
+        tag: input.tag,
+        author: ctx.userId,
+      },
+    );
 
     if (!claimed) {
       return {
@@ -451,14 +456,15 @@ export async function attachFile(
   input: AttachFileInputType,
 ): Promise<OperationResult<FileInfo>> {
   try {
-    const { saveFile, validateFilename } = await import(
-      "../core/files.js"
-    );
+    const { saveFile, validateFilename } = await import("../core/files.js");
     const buffer = Buffer.from(input.contentB64, "base64");
     // Gate BEFORE saveFile — reject manifest files, invalid extensions, oversized uploads
     const validation = validateFilename(input.filename, buffer.length);
     if (!validation.valid) {
-      return { ok: false, error: { code: validation.errorCode, message: validation.errorMessage } };
+      return {
+        ok: false,
+        error: { code: validation.errorCode, message: validation.errorMessage },
+      };
     }
     const info = saveFile(ctx.projectDir, input.id, input.filename, buffer);
     return { ok: true, data: info };
@@ -575,8 +581,9 @@ export async function verifyTaskOp(
 ): Promise<OperationResult<unknown>> {
   return withVerifySemaphore(async () => {
     try {
-      const { verifyTask, addVerifySystemComment } =
-        await import("../commands/verify.js");
+      const { verifyTask, addVerifySystemComment } = await import(
+        "../commands/verify.js"
+      );
 
       // Enforce timeoutMs
       const timeoutMs = input.timeoutMs ?? 60_000;
@@ -584,9 +591,7 @@ export async function verifyTaskOp(
         verifyTask(ctx.projectDir, input.id, { url: input.url }),
         new Promise<never>((_, reject) => {
           setTimeout(() => {
-            reject(
-              new Error("VERIFY_TIMEOUT"),
-            );
+            reject(new Error("VERIFY_TIMEOUT"));
           }, timeoutMs).unref?.();
         }),
       ]);
@@ -602,7 +607,11 @@ export async function verifyTaskOp(
         "code" in err &&
         typeof (err as { code?: string }).code === "string"
       ) {
-        const ve = err as { code: string; message: string; suggestion?: string };
+        const ve = err as {
+          code: string;
+          message: string;
+          suggestion?: string;
+        };
         return {
           ok: false,
           error: {

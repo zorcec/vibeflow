@@ -121,11 +121,17 @@ export function ensureFilesDir(projectDir: string, taskId: string): void {
   mkdirSync(getFilesDir(projectDir, taskId), { recursive: true });
 }
 
-function readLinked(projectDir: string, taskId: string): Array<{ name: string; path: string }> {
+function readLinked(
+  projectDir: string,
+  taskId: string,
+): Array<{ name: string; path: string }> {
   const manifestPath = join(getFilesDir(projectDir, taskId), LINKED_MANIFEST);
   if (!existsSync(manifestPath)) return [];
   try {
-    return JSON.parse(readFileSync(manifestPath, "utf-8")) as Array<{ name: string; path: string }>;
+    return JSON.parse(readFileSync(manifestPath, "utf-8")) as Array<{
+      name: string;
+      path: string;
+    }>;
   } catch {
     return [];
   }
@@ -139,15 +145,25 @@ function getTaskFileRefs(projectDir: string, taskId: string): TaskFileRef[] {
 }
 
 /** Pure read: returns file refs without triggering migration side-effects. */
-export function readTaskFileRefs(projectDir: string, taskId: string): TaskFileRef[] {
+export function readTaskFileRefs(
+  projectDir: string,
+  taskId: string,
+): TaskFileRef[] {
   return getTaskFileRefs(projectDir, taskId);
 }
 
-function setTaskFileRefs(projectDir: string, taskId: string, refs: TaskFileRef[]): void {
+function setTaskFileRefs(
+  projectDir: string,
+  taskId: string,
+  refs: TaskFileRef[],
+): void {
   updateTask(projectDir, taskId, { files: refs });
 }
 
-function migrateLegacyLinkedRefs(projectDir: string, taskId: string): TaskFileRef[] {
+function migrateLegacyLinkedRefs(
+  projectDir: string,
+  taskId: string,
+): TaskFileRef[] {
   const refs = getTaskFileRefs(projectDir, taskId);
   const manifestPath = join(getFilesDir(projectDir, taskId), LINKED_MANIFEST);
   if (!existsSync(manifestPath)) return refs;
@@ -155,14 +171,24 @@ function migrateLegacyLinkedRefs(projectDir: string, taskId: string): TaskFileRe
   const legacy = readLinked(projectDir, taskId);
   if (legacy.length === 0) {
     // Empty legacy file — remove it so this branch never runs again.
-    try { unlinkSync(manifestPath); } catch { /* ignore */ }
+    try {
+      unlinkSync(manifestPath);
+    } catch {
+      /* ignore */
+    }
     return refs;
   }
 
   const next = refs.slice();
   let added = false;
   for (const entry of legacy) {
-    if (!next.find((f) => f.linkedPath === entry.path || (f.name === entry.name && f.linkedPath))) {
+    if (
+      !next.find(
+        (f) =>
+          f.linkedPath === entry.path ||
+          (f.name === entry.name && f.linkedPath),
+      )
+    ) {
       next.push({
         name: entry.name,
         linkedPath: entry.path,
@@ -178,7 +204,11 @@ function migrateLegacyLinkedRefs(projectDir: string, taskId: string): TaskFileRe
   }
 
   // Remove the legacy manifest file so this migration never runs again for this task.
-  try { unlinkSync(manifestPath); } catch { /* ignore */ }
+  try {
+    unlinkSync(manifestPath);
+  } catch {
+    /* ignore */
+  }
 
   return next;
 }
@@ -216,7 +246,12 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
   // Backward compatibility for uploaded files that predate refs in task JSON.
   if (existsSync(dir)) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || entry.name === LINKED_MANIFEST || byName.has(entry.name)) continue;
+      if (
+        !entry.isFile() ||
+        entry.name === LINKED_MANIFEST ||
+        byName.has(entry.name)
+      )
+        continue;
       const fullPath = join(dir, entry.name);
       const stat = statSync(fullPath);
       byName.set(entry.name, {
@@ -288,8 +323,11 @@ export function getFilePath(
 ): string | null {
   const safe = basename(filename);
 
-  const linkedRef = readTaskFileRefs(projectDir, taskId).find((f) => f.name === safe && f.linkedPath);
-  if (linkedRef?.linkedPath && existsSync(linkedRef.linkedPath)) return linkedRef.linkedPath;
+  const linkedRef = readTaskFileRefs(projectDir, taskId).find(
+    (f) => f.name === safe && f.linkedPath,
+  );
+  if (linkedRef?.linkedPath && existsSync(linkedRef.linkedPath))
+    return linkedRef.linkedPath;
 
   const filePath = join(getFilesDir(projectDir, taskId), safe);
   return existsSync(filePath) ? filePath : null;
@@ -301,7 +339,9 @@ export function getFileCount(projectDir: string, taskId: string): number {
 }
 
 /** One-time migration sweep: run migrateLegacyLinkedRefs for all tasks. */
-export async function migrateAllLegacyLinkedRefs(projectDir: string): Promise<number> {
+export async function migrateAllLegacyLinkedRefs(
+  projectDir: string,
+): Promise<number> {
   const { listTasks } = await import("./tasks.js");
   const tasks = listTasks(projectDir);
   let count = 0;
