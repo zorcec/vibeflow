@@ -89,7 +89,6 @@ export function isValidFilename(name: string): boolean {
   return true;
 }
 
-
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
 function requireSameOrigin(
   req: express.Request,
@@ -613,12 +612,7 @@ function registerTaskApi(
         res.status(400).json({ error: "Empty file body" });
         return;
       }
-      const info = saveFile(
-        projectDir,
-        id,
-        rawFilename,
-        data,
-      );
+      const info = saveFile(projectDir, id, rawFilename, data);
       broadcast({ type: "tasks-updated" });
       res.json({ success: true, file: info });
     },

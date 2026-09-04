@@ -43,9 +43,7 @@ export function mcpAuth(req: Request, res: Response, next: NextFunction): void {
   // Check if request is from loopback
   const ip = req.ip ?? req.socket.remoteAddress ?? "";
   const isLoopback =
-    ip === "127.0.0.1" ||
-    ip === "::1" ||
-    ip === "::ffff:127.0.0.1";
+    ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 
   const token = readAuthToken();
 
