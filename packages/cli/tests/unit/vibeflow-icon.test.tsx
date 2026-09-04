@@ -7,8 +7,7 @@ function parseSvg(html: string): { rects: DOMRect[]; viewBox: string } {
   const viewBoxMatch = html.match(/viewBox="([^"]+)"/);
   const viewBox = viewBoxMatch?.[1] ?? "";
   const rects: DOMRect[] = [];
-  const rectRegex =
-    /<rect\s+([^>]*?)(?:\/\s*>|>\s*<\/rect>)/g;
+  const rectRegex = /<rect\s+([^>]*?)(?:\/\s*>|>\s*<\/rect>)/g;
   let m: RegExpExecArray | null;
   while ((m = rectRegex.exec(html)) !== null) {
     const attrs = m[1];
