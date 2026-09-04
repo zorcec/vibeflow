@@ -7,7 +7,7 @@ import {
   mkdirSync,
   existsSync,
 } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, extname } from "node:path";
 import { PROTO_DIR, FILES_DIR } from "./types.js";
 import type { TaskFileRef } from "./types.js";
 import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
@@ -20,6 +20,97 @@ export interface FileInfo {
   createdAt?: string;
 }
 
+// ── File validation ───────────────────────────────────────────────────────────
+
+/** Maximum filename length in characters. */
+export const MAX_FILENAME_LENGTH = 255;
+
+/** Maximum decoded file size: 50 MB in bytes (≈ base64 encoded size). */
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+/** Extensions allowed for uploaded files (lowercase, includes leading dot). */
+export const ALLOWED_FILE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".pdf",
+  ".txt",
+  ".md",
+  ".json",
+  ".csv",
+  ".svg",
+  ".mp4",
+  ".mov",
+  ".zip",
+]);
+
+/**
+ * Validates a filename for upload.
+ * Returns false for: empty names, path separators, null bytes, control chars,
+ * ".." segments, leading dots (hidden files / .linked.json), and names exceeding
+ * MAX_FILENAME_LENGTH characters.
+ */
+export function isValidFilename(name: string): boolean {
+  if (!name || name.length === 0) return false;
+  if (name.length > MAX_FILENAME_LENGTH) return false;
+  if (name.startsWith(".")) return false; // rejects .linked.json, .env, etc.
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (name === "." || name === ".." || name.includes("..")) return false;
+  if (name.includes("\0")) return false;
+  for (let i = 0; i < name.length; i++) {
+    if (name.charCodeAt(i) < 0x20) return false;
+  }
+  return true;
+}
+
+/** Returns true when the file extension (lowercased) is in ALLOWED_FILE_EXTENSIONS. */
+export function isAllowedFileExtension(filename: string): boolean {
+  const ext = extname(filename).toLowerCase();
+  return ALLOWED_FILE_EXTENSIONS.has(ext);
+}
+
+export type FileValidationResult =
+  | { valid: true }
+  | { valid: false; errorCode: string; errorMessage: string };
+
+/**
+ * Full validation for an uploaded filename + optional buffer size.
+ * Returns a tagged union so callers can distinguish the error type.
+ */
+export function validateFilename(
+  filename: string,
+  bufferSize?: number,
+): FileValidationResult {
+  if (!isValidFilename(filename)) {
+    return {
+      valid: false,
+      errorCode: "INVALID_FILENAME",
+      errorMessage: `Invalid filename: empty, too long (>${MAX_FILENAME_LENGTH} chars), path separator, control character, or hidden file`,
+    };
+  }
+  if (!isAllowedFileExtension(filename)) {
+    const ext = extname(filename).toLowerCase();
+    return {
+      valid: false,
+      errorCode: "UNSUPPORTED_FILE_TYPE",
+      errorMessage: `Unsupported file type "${ext}". Allowed: ${[...ALLOWED_FILE_EXTENSIONS].join(", ")}`,
+    };
+  }
+  if (bufferSize !== undefined && bufferSize > MAX_FILE_SIZE) {
+    return {
+      valid: false,
+      errorCode: "VALIDATION",
+      errorMessage: `File too large: ${bufferSize} bytes (max ${MAX_FILE_SIZE})`,
+    };
+  }
+  return { valid: true };
+}
+
+// ── Internal constants ─────────────────────────────────────────────────────────
+
+/** Reserved manifest filename — must not be uploaded. */
 const LINKED_MANIFEST = ".linked.json";
 
 export function getFilesDir(projectDir: string, taskId: string): string {

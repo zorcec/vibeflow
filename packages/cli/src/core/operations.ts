@@ -451,8 +451,15 @@ export async function attachFile(
   input: AttachFileInputType,
 ): Promise<OperationResult<FileInfo>> {
   try {
-    const { saveFile } = await import("../core/files.js");
+    const { saveFile, validateFilename } = await import(
+      "../core/files.js"
+    );
     const buffer = Buffer.from(input.contentB64, "base64");
+    // Gate BEFORE saveFile — reject manifest files, invalid extensions, oversized uploads
+    const validation = validateFilename(input.filename, buffer.length);
+    if (!validation.valid) {
+      return { ok: false, error: { code: validation.errorCode, message: validation.errorMessage } };
+    }
     const info = saveFile(ctx.projectDir, input.id, input.filename, buffer);
     return { ok: true, data: info };
   } catch (err) {

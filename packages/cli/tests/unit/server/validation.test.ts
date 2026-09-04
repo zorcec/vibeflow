@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isValidTaskId, isValidCommentId, isValidFilename } from "../../../src/server/server.js";
+import { isValidTaskId, isValidCommentId } from "../../../src/server/server.js";
+import { isValidFilename, isAllowedFileExtension, validateFilename, MAX_FILENAME_LENGTH, ALLOWED_FILE_EXTENSIONS } from "../../../src/core/files.js";
 
 describe("isValidTaskId", () => {
   it("accepts a 30-character hex string", () => {

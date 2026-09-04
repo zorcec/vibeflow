@@ -51,6 +51,8 @@ import {
   deleteFile,
   getFilePath,
   getFileCount,
+  isValidFilename,
+  isAllowedFileExtension,
 } from "../core/files.js";
 import { encryptAuthState } from "../core/auth.js";
 import { loadSettings, saveSettings } from "../core/settings.js";
@@ -72,22 +74,6 @@ export function isValidTaskId(id: string): boolean {
 /** Validates comment IDs to prevent path traversal attacks. Comment IDs are hex strings (16 chars, 8 random bytes). */
 export function isValidCommentId(id: string): boolean {
   return /^[a-f0-9]{16}$/.test(id);
-}
-
-/**
- * Validates upload filenames to prevent path traversal, null-byte injection,
- * and control-character abuse. Rejects path separators, `..`, null bytes,
- * and any byte below 0x20 (ASCII control characters).
- */
-export function isValidFilename(name: string): boolean {
-  if (!name) return false;
-  if (name.includes("/") || name.includes("\\")) return false;
-  if (name === "." || name === ".." || name.includes("..")) return false;
-  if (name.includes("\0")) return false;
-  for (let i = 0; i < name.length; i++) {
-    if (name.charCodeAt(i) < 0x20) return false;
-  }
-  return true;
 }
 
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
@@ -561,35 +547,16 @@ function registerTaskApi(
     res.sendFile(filePath); // nosemgrep
   });
 
-  const ALLOWED_FILE_EXTENSIONS = new Set([
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".pdf",
-    ".txt",
-    ".md",
-    ".json",
-    ".csv",
-    ".svg",
-    ".mp4",
-    ".mov",
-    ".zip",
-  ]);
-
   app.post(
     "/api/tasks/:id/files/:filename",
     express.raw({ type: "*/*", limit: "50mb" }),
     (req, res) => {
       const { id, filename: rawFilename } = req.params;
-      // Reject path-traversal, null-byte, and control-character filenames
       if (!isValidFilename(rawFilename)) {
         res.status(400).json({ error: "Invalid filename" });
         return;
       }
-      const ext = extname(rawFilename).toLowerCase();
-      if (!ALLOWED_FILE_EXTENSIONS.has(ext)) {
+      if (!isAllowedFileExtension(rawFilename)) {
         res.status(415).json({ error: "File type not allowed" });
         return;
       }
