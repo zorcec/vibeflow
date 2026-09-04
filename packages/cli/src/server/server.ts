@@ -15,6 +15,7 @@ import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import chalk from "chalk";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { mountMcp } from "../mcp/http.js";
 import { injectScript } from "../core/html-parser.js";
 import { createFileWatcher, createTaskWatcher } from "./watcher.js";
 import {
@@ -1474,6 +1475,9 @@ async function serveApiOnly(
     registerTaskApi(app, projectDir, broadcast);
     registerTrpcApi(app, projectDir, broadcast);
     registerMetaApis(app, projectDir, broadcast);
+
+    // Mount MCP server (StreamableHTTP transport)
+    mountMcp(app, projectDir, "local");
   }
 
   registerKanbanRoute(app, options.port);

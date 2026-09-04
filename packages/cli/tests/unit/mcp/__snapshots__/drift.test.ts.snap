@@ -1,0 +1,16 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MCP drift test > snapshot of tool names matches fixture 1`] = `
+[
+  "add_comment",
+  "attach_file",
+  "claim_next_task",
+  "create_task",
+  "export_prompt",
+  "get_task",
+  "list_tasks",
+  "push_tasks",
+  "update_task",
+  "verify_task",
+]
+`;
