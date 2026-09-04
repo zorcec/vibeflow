@@ -20,10 +20,6 @@ import {
   deleteComment,
 } from "../core/comments.js";
 import { listFiles, getFileCount } from "../core/files.js";
-import {
-  getCopilotAuthStatus,
-  isGhCliAvailable,
-} from "../core/copilot-auth.js";
 import type { Task } from "../core/types.js";
 
 export interface TrpcContext {
@@ -69,15 +65,6 @@ export const appRouter = router({
 
   project: procedure.query(({ ctx }) => {
     return { name: getProjectName(ctx.projectDir), projectDir: ctx.projectDir };
-  }),
-
-  copilotStatus: procedure.query(async ({ ctx }) => {
-    const ghAvailable = await isGhCliAvailable();
-    if (!ghAvailable) {
-      return { authenticated: false, reason: "gh CLI not found" };
-    }
-    const result = await getCopilotAuthStatus(ctx.projectDir);
-    return result;
   }),
 
   // ── Tasks ─────────────────────────────────────────────────────────────────

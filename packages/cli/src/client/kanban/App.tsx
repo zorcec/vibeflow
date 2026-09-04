@@ -494,7 +494,6 @@ export function App() {
   const [hadWsConnection, setHadWsConnection] = React.useState(false);
   const [gitUserName, setGitUserName] = React.useState("You");
   const [githubUrl, setGithubUrl] = React.useState<string | null>(null);
-  const [premiumUsage, setPremiumUsage] = React.useState("");
   const [appSettings, setAppSettings] = React.useState<AppSettings>({});
   const wsRef = React.useRef<WebSocket | null>(null);
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -518,7 +517,6 @@ export function App() {
     void loadTasks();
     void loadMeta();
     void loadAppSettings();
-    void loadCopilotStatus();
     void loadGithubUrl();
     void checkWhatsNew();
     connectWs();
@@ -915,19 +913,6 @@ export function App() {
     }
   }
 
-  async function loadCopilotStatus() {
-    try {
-      const data = await api.getCopilotStatus();
-      if (data?.authenticated && data?.username) {
-        setPremiumUsage(`Copilot: ${data.username}`);
-      } else {
-        setPremiumUsage("Copilot: not logged in");
-      }
-    } catch {
-      /* usage badge is informational only */
-    }
-  }
-
   function connectWs() {
     const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsScheme}//${window.location.host}`;
@@ -1204,7 +1189,6 @@ export function App() {
             : [...current, tag];
           setFilterState((prev) => ({ ...prev, tags: next }));
         }}
-        premiumUsage={premiumUsage}
         isLoading={isLoading}
         taskSummary={taskSummary}
         onSearchChange={setSearchQuery}

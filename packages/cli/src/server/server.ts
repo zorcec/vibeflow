@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join, resolve, basename, extname, dirname } from "node:path";
 import { createServer } from "node:http";
-import { spawn, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
@@ -53,10 +53,6 @@ import {
   getFileCount,
 } from "../core/files.js";
 import { encryptAuthState } from "../core/auth.js";
-import {
-  getCopilotAuthStatus,
-  isGhCliAvailable,
-} from "../core/copilot-auth.js";
 import { loadSettings, saveSettings } from "../core/settings.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
@@ -827,7 +823,7 @@ function registerTaskApi(
   );
 }
 
-/** Registers /api/copilot/status, /api/user, /api/settings, and related meta endpoints. */
+/** Registers /api/user, /api/settings, and related meta endpoints. */
 function registerMetaApis(
   app: express.Application,
   projectDir: string,
@@ -967,114 +963,6 @@ function registerMetaApis(
         .status(502)
         .json({ error: `Network error contacting SaaS API: ${msg}` });
     }
-  });
-
-  // Returns GitHub Copilot authentication status.
-  app.get("/api/copilot/status", (_req, res) => {
-    getCopilotAuthStatus(projectDir)
-      .then((status) => res.json(status))
-      .catch((e: unknown) => {
-        console.error(
-          `[Vibeflow] GET /api/copilot/status error: ${e instanceof Error ? e.message : String(e)}`,
-        );
-        res.json({
-          authenticated: false,
-          source: null,
-          tokenHint: null,
-          username: null,
-        });
-      });
-  });
-
-  app.post("/api/copilot/login", async (req, res) => {
-    if (!requireSameOrigin(req, res)) return;
-    try {
-      const status = await getCopilotAuthStatus(projectDir);
-      if (status.authenticated) {
-        res.json({
-          launched: false,
-          alreadyAuthenticated: true,
-          username: status.username ?? null,
-        });
-        return;
-      }
-      if (!isGhCliAvailable()) {
-        res.status(400).json({
-          launched: false,
-          error:
-            "GitHub CLI is not installed. Install gh and authenticate with 'gh auth login'.",
-        });
-        return;
-      }
-
-      const child = spawn(
-        "gh",
-        [
-          "auth",
-          "login",
-          "--web",
-          "--hostname",
-          "github.com",
-          "--git-protocol",
-          "https",
-          "--scopes",
-          "read:user,copilot",
-        ],
-        {
-          cwd: projectDir,
-          detached: true,
-          stdio: "ignore",
-        },
-      );
-      child.unref();
-      res.json({ launched: true });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[Vibeflow] POST /api/copilot/login error: ${msg}`);
-      res.status(500).json({
-        launched: false,
-        error: msg,
-      });
-    }
-  });
-
-  // Agent status: lightweight single-value store so the GH Copilot CLI agent
-  // can push its current activity and the Kanban board can display it.
-  let agentStatus: {
-    message: string;
-    active: boolean;
-    updatedAt: string;
-  } | null = null;
-
-  app.get("/api/agent-status", (_req, res) => {
-    res.json(agentStatus ?? { message: "", active: false, updatedAt: null });
-  });
-
-  app.post("/api/agent-status", (req, res) => {
-    if (!requireSameOrigin(req, res)) return;
-    const { message, active } = req.body as {
-      message?: string;
-      active?: boolean;
-    };
-    agentStatus = {
-      message: (message ?? "").slice(0, 200),
-      active: active !== false,
-      updatedAt: new Date().toISOString(),
-    };
-    broadcast?.({ type: "agent-status", ...agentStatus });
-    res.json({ ok: true });
-  });
-
-  app.delete("/api/agent-status", (req, res) => {
-    if (!requireSameOrigin(req, res)) return;
-    agentStatus = null;
-    broadcast?.({
-      type: "agent-status",
-      message: "",
-      active: false,
-      updatedAt: null,
-    });
-    res.json({ ok: true });
   });
 
   // Returns the GitHub commit URL base for this repo (parsed from git remote origin).

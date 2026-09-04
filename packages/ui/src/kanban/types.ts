@@ -137,8 +137,6 @@ export interface KanbanApi {
   uploadFile(taskId: string, file: File): Promise<void>;
   deleteFile(taskId: string, filename: string): Promise<void>;
   getProject(): Promise<{ name?: string; gitUserName?: string; branch?: string | null }>;
-  getCopilotStatus(): Promise<{ authenticated: boolean; username?: string }>;
-  copilotLogin(): Promise<{ launched?: boolean }>;
   getSettings(): Promise<Record<string, unknown>>;
   saveSettings(settings: Record<string, unknown>): Promise<void>;
   /** Optional WebSocket URL for real-time updates (CLI only). */

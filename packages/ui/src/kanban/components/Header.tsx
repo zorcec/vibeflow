@@ -14,7 +14,6 @@ interface Props {
   filterTags?: string[];
   allTags?: string[];
   onToggleTag?: (tag: string) => void;
-  premiumUsage?: string;
   isLoading?: boolean;
   backHref?: string;
   backLabel?: string;
@@ -25,7 +24,7 @@ interface Props {
 }
 
 export function Header({
-  projectName, projectIcon, missingProjectIconStyle = 'initial', wsConnected, port, searchQuery, premiumUsage, isLoading,
+  projectName, projectIcon, missingProjectIconStyle = 'initial', wsConnected, port, searchQuery, isLoading,
   filterTags, allTags, onToggleTag,
   backHref, backLabel,
   onSearchChange, onSettings, extraActions, taskSummary,
@@ -41,9 +40,9 @@ export function Header({
 
   const activeFilterTags = filterTags ?? [];
   const availableTags = (allTags ?? []).filter(t => !activeFilterTags.includes(t));
-  const dropdownTags = hashQuery !== null
-    ? availableTags.filter(t => t.toLowerCase().includes(hashQuery.toLowerCase()))
-    : [];
+  const dropdownTags = hashQuery === null
+    ? []
+    : availableTags.filter(t => t.toLowerCase().includes(hashQuery.toLowerCase()));
 
   // Reset keyboard index when dropdown list changes
   React.useEffect(() => { setDropdownIdx(0); }, [dropdownTags.length]);
