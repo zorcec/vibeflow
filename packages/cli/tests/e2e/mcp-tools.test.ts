@@ -95,9 +95,15 @@ describe("MCP tools happy paths", () => {
   // ── 2. list_tasks ───────────────────────────────────────────────────────
 
   it("2: list_tasks — returns all tasks", async () => {
-    const r1 = await callTool(client, "create_task", { title: "Task A", priority: "Low" });
+    const r1 = await callTool(client, "create_task", {
+      title: "Task A",
+      priority: "Low",
+    });
     const p1 = await assertJsonTextContent(r1);
-    const r2 = await callTool(client, "create_task", { title: "Task B", priority: "High" });
+    const r2 = await callTool(client, "create_task", {
+      title: "Task B",
+      priority: "High",
+    });
     const p2 = await assertJsonTextContent(r2);
 
     const res = await callTool(client, "list_tasks", { limit: 0 });
@@ -113,7 +119,10 @@ describe("MCP tools happy paths", () => {
 
   it("3: list_tasks filtered by tag", async () => {
     await callTool(client, "create_task", { title: "UI fix", tags: ["ui"] });
-    const r = await callTool(client, "create_task", { title: "Backend fix", tags: ["api"] });
+    const r = await callTool(client, "create_task", {
+      title: "Backend fix",
+      tags: ["api"],
+    });
     const p = await assertJsonTextContent(r);
 
     const res = await callTool(client, "list_tasks", { tag: ["api"] });
@@ -136,7 +145,10 @@ describe("MCP tools happy paths", () => {
   // ── 5. update_task (title + description + branch) ───────────────────────
 
   it("5: update_task — title, description, branch", async () => {
-    const r = await callTool(client, "create_task", { title: "Old title", description: "Old desc" });
+    const r = await callTool(client, "create_task", {
+      title: "Old title",
+      description: "Old desc",
+    });
     const p = await assertJsonTextContent(r);
 
     const res = await callTool(client, "update_task", {
@@ -161,7 +173,9 @@ describe("MCP tools happy paths", () => {
   // ── 6. update_task + comment (status change) ────────────────────────────
 
   it("6: update_task with comment and status change", async () => {
-    const r = await callTool(client, "create_task", { title: "Commented task" });
+    const r = await callTool(client, "create_task", {
+      title: "Commented task",
+    });
     const p = await assertJsonTextContent(r);
 
     const res = await callTool(client, "update_task", {
@@ -177,7 +191,9 @@ describe("MCP tools happy paths", () => {
     expect(taskFile).not.toBeNull();
     const disk = JSON.parse(readFileSync(taskFile!, "utf-8"));
     expect(disk.comments.length).toBeGreaterThanOrEqual(1);
-    const comment = disk.comments.find((c: any) => c.text?.includes("started work"));
+    const comment = disk.comments.find((c: any) =>
+      c.text?.includes("started work"),
+    );
     expect(comment).toBeDefined();
   });
 
@@ -186,8 +202,14 @@ describe("MCP tools happy paths", () => {
   it("7: claim_next_task — claims highest priority, sets author", async () => {
     seedGitUser(env.projectDir);
 
-    await callTool(client, "create_task", { title: "Low task", priority: "Low" });
-    const r = await callTool(client, "create_task", { title: "High task", priority: "High" });
+    await callTool(client, "create_task", {
+      title: "Low task",
+      priority: "Low",
+    });
+    const r = await callTool(client, "create_task", {
+      title: "High task",
+      priority: "High",
+    });
     const highP = await assertJsonTextContent(r);
 
     const claim = await callTool(client, "claim_next_task", { dryRun: false });
@@ -255,7 +277,14 @@ describe("MCP tools happy paths", () => {
     expect(parsed.url).toContain("/files/");
 
     // On-disk: file exists with exact bytes
-    const filePath = join(env.projectDir, ".vibeflow", "tasks", "files", p.id, "report.md");
+    const filePath = join(
+      env.projectDir,
+      ".vibeflow",
+      "tasks",
+      "files",
+      p.id,
+      "report.md",
+    );
     expect(existsSync(filePath)).toBe(true);
     expect(readFileSync(filePath, "utf-8")).toBe(content);
 
@@ -349,14 +378,25 @@ describe("MCP tools happy paths", () => {
 
   it("16: list_tasks final — statuses consistent with mutations", async () => {
     seedGitUser(env.projectDir);
-    await callTool(client, "create_task", { title: "Claimed task", priority: "High" });
-    await callTool(client, "create_task", { title: "Untouched task", priority: "Low" });
+    await callTool(client, "create_task", {
+      title: "Claimed task",
+      priority: "High",
+    });
+    await callTool(client, "create_task", {
+      title: "Untouched task",
+      priority: "Low",
+    });
 
     await callTool(client, "claim_next_task", { dryRun: false });
 
-    const res = await callTool(client, "list_tasks", { limit: 0, fields: ["id", "status"] });
+    const res = await callTool(client, "list_tasks", {
+      limit: 0,
+      fields: ["id", "status"],
+    });
     const parsed = await assertJsonTextContent(res);
-    const inProgress = parsed.tasks.filter((t: any) => t.status === "in-progress");
+    const inProgress = parsed.tasks.filter(
+      (t: any) => t.status === "in-progress",
+    );
     const todos = parsed.tasks.filter((t: any) => t.status === "todo");
     expect(inProgress.length).toBe(1);
     expect(todos.length).toBe(1);

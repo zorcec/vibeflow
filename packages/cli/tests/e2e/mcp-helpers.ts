@@ -24,7 +24,9 @@ import { expect } from "vitest";
 process.env.VIBEFLOW_TELEMETRY = "0";
 
 const { serve } = await import("../../src/server/server.js");
-const { stopMcpForTests, getSessionCount } = await import("../../src/mcp/http.js");
+const { stopMcpForTests, getSessionCount } = await import(
+  "../../src/mcp/http.js"
+);
 type ServeInstance = Awaited<ReturnType<typeof serve>>;
 
 // ── Port allocation ──────────────────────────────────────────────────────────
@@ -78,7 +80,11 @@ export async function bootMcpServer(projectDir?: string): Promise<McpTestEnv> {
 
 export const PROTOCOL_VERSION = "2025-06-18";
 
-export function jsonRpcBody(id: number | null, method: string, params?: unknown): unknown {
+export function jsonRpcBody(
+  id: number | null,
+  method: string,
+  params?: unknown,
+): unknown {
   const body: Record<string, unknown> = { jsonrpc: "2.0", id, method };
   if (params !== undefined) body.params = params;
   return body;
@@ -91,7 +97,11 @@ export interface McpClient {
   nextId: number;
 }
 
-async function mcpFetch(c: McpClient, body: unknown, init: RequestInit = {}): Promise<Response> {
+async function mcpFetch(
+  c: McpClient,
+  body: unknown,
+  init: RequestInit = {},
+): Promise<Response> {
   // Allowlist: only localhost URLs — all test clients use bootMcpServer/spawnApiServer
   const url = new URL(c.mcpUrl);
   if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
@@ -111,7 +121,10 @@ async function mcpFetch(c: McpClient, body: unknown, init: RequestInit = {}): Pr
   });
 }
 
-export async function initialize(c: McpClient, protocolVersion = PROTOCOL_VERSION): Promise<Response> {
+export async function initialize(
+  c: McpClient,
+  protocolVersion = PROTOCOL_VERSION,
+): Promise<Response> {
   const res = await mcpFetch(
     c,
     jsonRpcBody(1, "initialize", {
@@ -123,8 +136,12 @@ export async function initialize(c: McpClient, protocolVersion = PROTOCOL_VERSIO
   if (res.ok) {
     c.sessionId = res.headers.get("mcp-session-id") ?? undefined;
     // Step 2: send initialized notification (JSON-RPC notification: NO id field)
-    const res2 = await mcpFetch(c, { jsonrpc: "2.0", method: "notifications/initialized" });
-    if (res2.status !== 202) throw new Error(`notifications/initialized returned ${res2.status}`);
+    const res2 = await mcpFetch(c, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    if (res2.status !== 202)
+      throw new Error(`notifications/initialized returned ${res2.status}`);
   }
   return res;
 }
@@ -133,8 +150,15 @@ export async function listTools(c: McpClient): Promise<Response> {
   return mcpFetch(c, jsonRpcBody(++c.nextId, "tools/list", {}));
 }
 
-export async function callTool(c: McpClient, name: string, args: Record<string, unknown>): Promise<Response> {
-  return mcpFetch(c, jsonRpcBody(++c.nextId, "tools/call", { name, arguments: args }));
+export async function callTool(
+  c: McpClient,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Response> {
+  return mcpFetch(
+    c,
+    jsonRpcBody(++c.nextId, "tools/call", { name, arguments: args }),
+  );
 }
 
 /** Assert the TextContent contract: HTTP 200, content[0].text is a string that parses as JSON. */
@@ -167,7 +191,13 @@ export function isolatedEnv(tmpHome: string): NodeJS.ProcessEnv {
 export async function runCli(
   args: string[],
   opts: { cwd: string; home: string; timeoutMs?: number },
-): Promise<{ stdout: string; stderr: string; code: number | null; signal: string | null; elapsedMs: number }> {
+): Promise<{
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  signal: string | null;
+  elapsedMs: number;
+}> {
   const start = Date.now();
   return new Promise((resolve) => {
     execFile(
@@ -181,8 +211,18 @@ export async function runCli(
       },
       (err, stdout, stderr) => {
         const code =
-          err && typeof (err as any).code === "number" ? (err as any).code : err ? 1 : 0;
-        resolve({ stdout, stderr, code, signal: null, elapsedMs: Date.now() - start });
+          err && typeof (err as any).code === "number"
+            ? (err as any).code
+            : err
+              ? 1
+              : 0;
+        resolve({
+          stdout,
+          stderr,
+          code,
+          signal: null,
+          elapsedMs: Date.now() - start,
+        });
       },
     );
   });
@@ -193,10 +233,14 @@ export function spawnApiServer(opts: {
   home: string;
   port: number;
 }): { child: ChildProcess; mcpUrl: string; waitReady: Promise<void> } {
-  const child = spawn("node", [CLI_PATH, "serve", "--no-open", "-p", String(opts.port)], {
-    cwd: opts.cwd,
-    env: isolatedEnv(opts.home),
-  });
+  const child = spawn(
+    "node",
+    [CLI_PATH, "serve", "--no-open", "-p", String(opts.port)],
+    {
+      cwd: opts.cwd,
+      env: isolatedEnv(opts.home),
+    },
+  );
   const mcpUrl = `http://127.0.0.1:${opts.port}/api/mcp`;
   const waitReady = new Promise<void>((resolve, reject) => {
     const start = Date.now();
@@ -219,7 +263,8 @@ export function spawnApiServer(opts: {
     poll();
     child.on("error", reject);
     child.on("exit", (code) => {
-      if (code !== null && code !== 0) reject(new Error(`spawnApiServer exited ${code}`));
+      if (code !== null && code !== 0)
+        reject(new Error(`spawnApiServer exited ${code}`));
     });
   });
   return { child, mcpUrl, waitReady };
@@ -229,12 +274,23 @@ export function spawnApiServer(opts: {
 
 export function ensureTaskDirs(projectDir: string): void {
   mkdirSync(join(projectDir, ".vibeflow", "tasks"), { recursive: true });
-  mkdirSync(join(projectDir, ".vibeflow", "tasks", "files"), { recursive: true });
+  mkdirSync(join(projectDir, ".vibeflow", "tasks", "files"), {
+    recursive: true,
+  });
 }
 
 export function seedTask(
   projectDir: string,
-  task: { id: string; title: string; status: string; priority?: string; type?: string; created?: string; description?: string; tags?: string[] },
+  task: {
+    id: string;
+    title: string;
+    status: string;
+    priority?: string;
+    type?: string;
+    created?: string;
+    description?: string;
+    tags?: string[];
+  },
 ): void {
   ensureTaskDirs(projectDir);
   const data = {
@@ -249,15 +305,21 @@ export function seedTask(
     comments: [],
     files: [],
   };
-  writeFileSync(join(projectDir, ".vibeflow", "tasks", `${task.id}.json`), JSON.stringify(data, null, 2));
+  writeFileSync(
+    join(projectDir, ".vibeflow", "tasks", `${task.id}.json`),
+    JSON.stringify(data, null, 2),
+  );
 }
 
 export function seedGitUser(projectDir: string): void {
   const { execSync } = require("node:child_process");
-  execSync("git init && git config user.name 'E2E User' && git config user.email 'e2e@test.local'", {
-    cwd: projectDir,
-    stdio: "ignore",
-  });
+  execSync(
+    "git init && git config user.name 'E2E User' && git config user.email 'e2e@test.local'",
+    {
+      cwd: projectDir,
+      stdio: "ignore",
+    },
+  );
 }
 
 export type { expect };

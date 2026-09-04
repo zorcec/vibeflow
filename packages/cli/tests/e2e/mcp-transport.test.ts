@@ -99,11 +99,13 @@ describe("MCP transport/session lifecycle", () => {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
       },
-      body: JSON.stringify(jsonRpcBody(1, "initialize", {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "test", version: "0.0.0" },
-      })),
+      body: JSON.stringify(
+        jsonRpcBody(1, "initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "test", version: "0.0.0" },
+        }),
+      ),
     });
     expect(res.ok).toBe(true);
     const sid = res.headers.get("mcp-session-id");
@@ -218,7 +220,11 @@ describe("MCP transport/session lifecycle", () => {
     const port2 = await getFreePort();
     const tmpDir = mkdtempSync(join(tmpdir(), "mcp-xinst-"));
     ensureTaskDirs(tmpDir);
-    const { child, mcpUrl: mcpUrl2, waitReady } = spawnApiServer({ cwd: tmpDir, home: tmpDir, port: port2 });
+    const {
+      child,
+      mcpUrl: mcpUrl2,
+      waitReady,
+    } = spawnApiServer({ cwd: tmpDir, home: tmpDir, port: port2 });
 
     try {
       await waitReady;
@@ -247,7 +253,9 @@ describe("MCP transport/session lifecycle", () => {
     // server.ts CORS middleware runs first and sets allow-origin + allow-headers;
     // the MCP handler's CORS (which adds mcp-session-id/authorization) never
     // runs for OPTIONS because server.ts short-circuits with 204.
-    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3700");
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:3700",
+    );
     const allowHeaders = res.headers.get("access-control-allow-headers") ?? "";
     expect(allowHeaders.toLowerCase()).toContain("content-type");
   });
