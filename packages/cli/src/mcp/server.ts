@@ -19,6 +19,7 @@ import {
   type OperationResult,
 } from "../core/operations.js";
 import { z } from "zod";
+import { getGitUser } from "../core/git-user.js";
 
 // ── Tool Registration ──────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export function createMcpServer(
     version: "0.1.0",
   });
 
-  const ctx: OperationContext = { projectDir, mode };
+  const ctx: OperationContext = { projectDir, mode, userId: getGitUser(projectDir).name };
 
   // ── list_tasks ─────────────────────────────────────────────────────
   server.tool(

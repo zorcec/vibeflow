@@ -13,6 +13,7 @@ import {
   ensureTaskDirs,
   findTaskFilePath,
   readTaskFile,
+  claimNextTaskAtomic,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
@@ -21,6 +22,7 @@ import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
+import { getGitUser } from "./core/git-user.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
@@ -1122,33 +1124,17 @@ program
 
           // ── Local next mode ──────────────────────────────────────────────
           const nextProjectDir = resolve(dir);
-          const allTasks = listTasksWithPaths(nextProjectDir);
           if (opts.type && !validateTypeFilter(opts.type)) return;
-          let todoList = allTasks.filter((t) => t.status === "todo");
-          if (opts.type)
-            todoList = todoList.filter(
-              (t) =>
-                (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
-            );
-          if (opts.user && !validateUserFilter(opts.user, todoList)) return;
-          if (opts.user)
-            todoList = todoList.filter((t) =>
-              matchesUserFilter(t.author, opts.user!),
-            );
-          if (opts.tag && opts.tag.length > 0)
-            todoList = todoList.filter((t) =>
-              opts.tag!.every((tag) => (t.tags ?? []).includes(tag)),
-            );
-          todoList = todoList.sort((a, b) => {
-            const byPriority =
-              getPriorityRank(a.priority) - getPriorityRank(b.priority);
-            if (byPriority !== 0) return byPriority;
-            return (
-              new Date(a.created).getTime() - new Date(b.created).getTime()
-            );
+          if (opts.user && !validateUserFilter(opts.user, [])) return;
+
+          const nextUpdated = claimNextTaskAtomic(nextProjectDir, {
+            type: opts.type,
+            user: opts.user,
+            tag: opts.tag,
+            author: getGitUser(nextProjectDir).name,
           });
 
-          if (todoList.length === 0) {
+          if (!nextUpdated) {
             const filterHints = [
               opts.type && `type=${opts.type}`,
               opts.user && `user=${opts.user}`,
@@ -1164,18 +1150,6 @@ program
             return;
           }
 
-          const nextLocalTask = todoList[0];
-          const nextUpdated = updateTask(nextProjectDir, nextLocalTask.id, {
-            status: "in-progress",
-          });
-          if (!nextUpdated) {
-            console.log(
-              chalk.red(`✗ Failed to update task: ${nextLocalTask.id}`),
-            );
-            process.exitCode = ExitCode.GENERAL;
-            return;
-          }
-
           const nextLocalNextActions = getNextActions(
             "set-status:in-progress",
             nextUpdated.id,
@@ -1185,7 +1159,7 @@ program
               JSON.stringify(
                 {
                   success: true,
-                  task: { ...nextUpdated, filePath: nextLocalTask.filePath },
+                  task: nextUpdated,
                   next_actions: nextLocalNextActions,
                 },
                 null,
@@ -1222,9 +1196,11 @@ program
               url: `http://localhost:${config.port}${f.url}`,
             }),
           );
+          const nextLocalFilePath =
+            findTaskFilePath(nextProjectDir, nextUpdated.id) ?? "";
           const agentMessage = renderTaskForAgent(
             nextUpdated,
-            nextLocalTask.filePath,
+            nextLocalFilePath,
             structuredComments,
             linkedFiles,
             nextProjectDir,
@@ -2582,7 +2558,7 @@ program
     if (workspace) {
       console.log(
         chalk.dim(
-          `  Board:   ${workspace.icon ? workspace.icon + " " : ""}${workspace.name}`,
+          `  Board:   ${workspace.icon ? `${workspace.icon} ` : ""}${workspace.name}`,
         ),
       );
       if (workspace.email)

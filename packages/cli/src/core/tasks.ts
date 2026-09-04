@@ -12,7 +12,7 @@ import {
 import { join, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Task, TaskStatus, TaskComment } from "./types.js";
-import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR, TASK_STATUSES } from "./types.js";
+import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR, TASK_STATUSES, compareTasksByPriorityThenCreated } from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath } from "./lock.js";
 
@@ -223,6 +223,17 @@ export function writeTaskJson(projectDir: string, task: Task): void {
   renameSync(tmp, filePath);
 }
 
+/**
+ * Atomic task-file writer that writes to an exact pre-determined path.
+ * Used by claimNextTaskAtomic to update the EXACT file that was read,
+ * avoiding shadow-file creation when tasks live in the flat legacy layout.
+ */
+export function writeTaskJsonAt(filePath: string, task: Task): void {
+  const tmp = filePath + ".tmp";
+  writeFileSync(tmp, JSON.stringify(task, null, 2), "utf-8");
+  renameSync(tmp, filePath);
+}
+
 // ── CRUD operations ────────────────────────────────────────────────────────
 
 /**
@@ -390,6 +401,93 @@ export function deleteTask(projectDir: string, taskId: string): boolean {
   if (!filePath) return false;
   unlinkSync(filePath);
   return true;
+}
+
+// ── Atomic task claiming ──────────────────────────────────────────────────
+
+/**
+ * Atomically claim the next todo task (highest priority, oldest created).
+ *
+ * Runs inside a GLOBAL claim lock (one claim at a time across processes) so
+ * candidate selection is serialized. Each candidate is re-read inside the
+ * lock to guard against a concurrent writer that already claimed it.
+ *
+ * Returns the claimed Task, or null when nothing is claimable.
+ *
+ * **Re-entrancy contract:** This function uses `withTaskLock` internally;
+ * callers must not call `withTaskLock` on the same lockPath from within `fn`.
+ */
+export function claimNextTaskAtomic(
+  projectDir: string,
+  opts: {
+    type?: string;
+    user?: string;
+    tag?: string[];
+    author?: string;
+  } = {},
+): Task | null {
+  const lock = taskLockPath(projectDir, "claim");
+  let result: Task | null = null;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      openSync(lock, "wx");
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      try {
+        const st = statSync(lock);
+        if (Date.now() - st.mtimeMs > 10_000) {
+          try { unlinkSync(lock); } catch { /* ignore */ }
+          continue;
+        }
+      } catch { continue; }
+      const spinStart = Date.now();
+      while (Date.now() - spinStart < 10 && Date.now() < deadline) { /* spin */ }
+    }
+  }
+  try {
+    // 1. Snapshot all tasks on disk.
+    const candidates = listTasksWithPaths(projectDir);
+    // 2. Filter to claimable tasks.
+    let filtered = candidates.filter((t) => t.status === "todo");
+    if (opts.type) {
+      filtered = filtered.filter((t) => t.type === opts.type);
+    }
+    if (opts.user) {
+      filtered = filtered.filter((t) => t.author === opts.user);
+    }
+    if (opts.tag && opts.tag.length > 0) {
+      filtered = filtered.filter(
+        (t) => t.tags && opts.tag!.every((tag) => t.tags!.includes(tag)),
+      );
+    }
+    // 3. Sort by priority then created ascending.
+    filtered.sort(compareTasksByPriorityThenCreated);
+    // 4. Iterate candidates, re-read each inside the lock to verify it is
+    //    still 'todo' (a concurrent writer may have claimed it).
+    for (const candidate of filtered) {
+      const reRead = readTaskFile(candidate.filePath);
+      if (!reRead || reRead.status !== "todo") continue; // already taken
+      // 5. Write the claimed task — set author ONLY when defined (never
+      //    author: undefined which would overwrite through the spread).
+      const now = new Date().toISOString();
+      const updates: Partial<Task> = {
+        status: "in-progress" as TaskStatus,
+        updated: now,
+      };
+      if (opts.author) {
+        updates.author = opts.author;
+      }
+      const claimedTask: Task = { ...reRead, ...updates };
+      writeTaskJsonAt(candidate.filePath, claimedTask);
+      result = claimedTask;
+      break;
+    }
+  } finally {
+    try { unlinkSync(lock); } catch { /* best-effort cleanup */ }
+  }
+  return result;
 }
 
 /**

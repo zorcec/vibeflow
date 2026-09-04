@@ -60,7 +60,7 @@ export const CreateTaskInput = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]])
+    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
     .default("todo"),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
@@ -76,7 +76,7 @@ export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 export const UpdateTaskInput = z.object({
   id: z.string().min(1),
   status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]])
+    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
     .optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -390,21 +390,17 @@ export async function claimNextTask(
       };
     }
 
-    // Find highest-priority todo task
-    const { listTasks: coreListTasks, updateTask: coreUpdateTask } =
-      await import("../core/tasks.js");
-    let tasks = coreListTasks(ctx.projectDir);
-    tasks = tasks.filter((t) => t.status === "todo");
-    if (input.type) tasks = tasks.filter((t) => t.type === input.type);
-    if (input.tag && input.tag.length > 0) {
-      tasks = tasks.filter(
-        (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
-      );
-    }
+    // Delegate to the atomic claim primitive for serialized, race-safe claiming.
+    const claimed = (
+      await import("../core/tasks.js")
+    ).claimNextTaskAtomic(ctx.projectDir, {
+      type: input.type,
+      user: input.user,
+      tag: input.tag,
+      author: ctx.userId,
+    });
 
-    tasks.sort(compareTasksByPriorityThenCreated);
-
-    if (tasks.length === 0) {
+    if (!claimed) {
       return {
         ok: false,
         error: {
@@ -414,23 +410,7 @@ export async function claimNextTask(
       };
     }
 
-    const taskToClaim = tasks[0];
-    const updated = coreUpdateTask(ctx.projectDir, taskToClaim.id, {
-      status: "in-progress",
-      author: ctx.userId,
-    });
-
-    if (!updated) {
-      return {
-        ok: false,
-        error: {
-          code: "CLAIM_TASK_ERROR",
-          message: "Failed to update claimed task",
-        },
-      };
-    }
-
-    return { ok: true, data: updated };
+    return { ok: true, data: claimed };
   } catch (err) {
     return {
       ok: false,
