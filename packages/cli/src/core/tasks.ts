@@ -12,7 +12,14 @@ import {
 import { join, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Task, TaskStatus, TaskComment } from "./types.js";
-import { PROTO_DIR, TASKS_DIR, FILES_DIR, SCREENSHOTS_DIR, TASK_STATUSES, compareTasksByPriorityThenCreated } from "./types.js";
+import {
+  PROTO_DIR,
+  TASKS_DIR,
+  FILES_DIR,
+  SCREENSHOTS_DIR,
+  TASK_STATUSES,
+  compareTasksByPriorityThenCreated,
+} from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath } from "./lock.js";
 
@@ -364,12 +371,20 @@ export function updateTask(
       try {
         const st = statSync(lock);
         if (Date.now() - st.mtimeMs > 10_000) {
-          try { unlinkSync(lock); } catch { /* ignore */ }
+          try {
+            unlinkSync(lock);
+          } catch {
+            /* ignore */
+          }
           continue;
         }
-      } catch { continue; }
+      } catch {
+        continue;
+      }
       const spinStart = Date.now();
-      while (Date.now() - spinStart < 10 && Date.now() < deadline) { /* spin */ }
+      while (Date.now() - spinStart < 10 && Date.now() < deadline) {
+        /* spin */
+      }
     }
   }
   try {
@@ -387,11 +402,19 @@ export function updateTask(
       existingPath &&
       existingPath !== getTaskFilePath(projectDir, taskId, updated.created)
     ) {
-      try { unlinkSync(existingPath); } catch { /* ignore */ }
+      try {
+        unlinkSync(existingPath);
+      } catch {
+        /* ignore */
+      }
     }
     result = updated;
   } finally {
-    try { unlinkSync(lock); } catch { /* best-effort cleanup */ }
+    try {
+      unlinkSync(lock);
+    } catch {
+      /* best-effort cleanup */
+    }
   }
   return result;
 }
@@ -438,12 +461,20 @@ export function claimNextTaskAtomic(
       try {
         const st = statSync(lock);
         if (Date.now() - st.mtimeMs > 10_000) {
-          try { unlinkSync(lock); } catch { /* ignore */ }
+          try {
+            unlinkSync(lock);
+          } catch {
+            /* ignore */
+          }
           continue;
         }
-      } catch { continue; }
+      } catch {
+        continue;
+      }
       const spinStart = Date.now();
-      while (Date.now() - spinStart < 10 && Date.now() < deadline) { /* spin */ }
+      while (Date.now() - spinStart < 10 && Date.now() < deadline) {
+        /* spin */
+      }
     }
   }
   try {
@@ -485,7 +516,11 @@ export function claimNextTaskAtomic(
       break;
     }
   } finally {
-    try { unlinkSync(lock); } catch { /* best-effort cleanup */ }
+    try {
+      unlinkSync(lock);
+    } catch {
+      /* best-effort cleanup */
+    }
   }
   return result;
 }
