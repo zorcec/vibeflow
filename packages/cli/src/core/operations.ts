@@ -584,26 +584,77 @@ export async function exportPrompt(
 }
 
 // Verify task uses the CLI verify command
+// Semaphore ensures only one verify runs at a time (spec §5.9)
+let verifyTail: Promise<unknown> = Promise.resolve();
+function withVerifySemaphore<T>(fn: () => Promise<T>): Promise<T> {
+  const run = verifyTail.then(fn, fn);
+  verifyTail = run.catch(() => undefined);
+  return run;
+}
+
 export async function verifyTaskOp(
   ctx: OperationContext,
   input: VerifyTaskInputType,
 ): Promise<OperationResult<unknown>> {
-  try {
-    const { runVerify } = await import("../commands/verify.js");
-    const result = await runVerify(ctx.projectDir, input.id, {
-      json: true,
-      url: input.url,
-    });
-    return { ok: true, data: result };
-  } catch (err) {
-    return {
-      ok: false,
-      error: {
-        code: "VERIFY_TASK_ERROR",
-        message: err instanceof Error ? err.message : "Failed to verify task",
-      },
-    };
-  }
+  return withVerifySemaphore(async () => {
+    try {
+      const { verifyTask, addVerifySystemComment } =
+        await import("../commands/verify.js");
+
+      // Enforce timeoutMs
+      const timeoutMs = input.timeoutMs ?? 60_000;
+      const result = await Promise.race([
+        verifyTask(ctx.projectDir, input.id, { url: input.url }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error("VERIFY_TIMEOUT"),
+            );
+          }, timeoutMs).unref?.();
+        }),
+      ]);
+
+      // Write system comment
+      await addVerifySystemComment(ctx.projectDir, input.id, result);
+
+      return { ok: true, data: result };
+    } catch (err) {
+      // Check if it's a VerifyError from the verify module
+      if (
+        err instanceof Error &&
+        "code" in err &&
+        typeof (err as { code?: string }).code === "string"
+      ) {
+        const ve = err as { code: string; message: string; suggestion?: string };
+        return {
+          ok: false,
+          error: {
+            code: ve.code,
+            message: ve.message,
+            suggestion: ve.suggestion,
+          },
+        };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "VERIFY_TIMEOUT") {
+        return {
+          ok: false,
+          error: {
+            code: "VERIFY_TIMEOUT",
+            message: `Verification timed out after ${input.timeoutMs}ms`,
+            suggestion: "Increase timeoutMs or check that the app is running.",
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: {
+          code: "VERIFY_TASK_ERROR",
+          message: msg,
+        },
+      };
+    }
+  });
 }
 
 export async function pushTasks(

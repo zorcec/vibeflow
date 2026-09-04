@@ -17,7 +17,7 @@ import {
   pushTasks,
   type OperationContext,
   type OperationResult,
-} from "./operations.js";
+} from "../core/operations.js";
 import { z } from "zod";
 
 // ── Tool Registration ──────────────────────────────────────────────────────

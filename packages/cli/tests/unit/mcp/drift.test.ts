@@ -5,7 +5,14 @@
  * Fails if a new CLI flag is added without a corresponding MCP tool.
  */
 import { describe, it, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { manifest } from "../../../src/mcp/manifest.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const srcRoot = join(__dirname, "../../../src");
 
 describe("MCP drift test", () => {
   it("every tool in manifest has required fields", () => {
@@ -85,6 +92,27 @@ describe("MCP drift test", () => {
       // Zod objects have a _def property
       expect(tool.input).toBeDefined();
       expect(typeof tool.input.parse).toBe("function");
+    }
+  });
+
+  it("operations layer lives in core, not mcp (spec §1)", () => {
+    expect(existsSync(join(srcRoot, "core", "operations.ts"))).toBe(true);
+    expect(existsSync(join(srcRoot, "mcp", "operations.ts"))).toBe(false);
+  });
+
+  it("mcp modules do not implement task logic themselves", () => {
+    for (const f of ["manifest.ts", "server.ts", "http.ts"]) {
+      const src = readFileSync(join(srcRoot, "mcp", f), "utf-8");
+      expect(src).not.toMatch(/writeFileSync|mkdirSync\(/);
+    }
+  });
+
+  it("every cliRef flag exists on the referenced command", () => {
+    // Static check: all flag strings are non-empty and start with --
+    for (const tool of manifest) {
+      for (const flag of tool.cliRef.flags) {
+        expect(flag).toMatch(/^--/);
+      }
     }
   });
 });

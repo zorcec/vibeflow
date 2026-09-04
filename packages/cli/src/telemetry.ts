@@ -128,8 +128,10 @@ export function capture(
 
 export async function flushTelemetry(): Promise<void> {
   if (!client) return;
+  const active = client;
+  client = null; // idempotent: second call is a no-op
   try {
-    await client.shutdown();
+    await active.shutdown(2_000);
   } catch {
     // Silently ignore telemetry flush errors — never block the CLI
   }

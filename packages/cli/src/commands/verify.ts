@@ -41,7 +41,7 @@ export interface VerifyResult {
 }
 
 // ── Error types (§9.4) ────────────────────────────────────────────────────
-class VerifyError extends Error {
+export class VerifyError extends Error {
   constructor(
     public readonly code: string,
     message: string,
@@ -457,9 +457,9 @@ export async function verifyTask(
     );
 
     // Mark task as verified only when verification passes (no selector issues, no console errors).
-    if (result.ok) {
-      updateTask(absProjectDir, taskId, { verified: true });
-    }
+    // Persist the actual verdict: a failed re-verify must clear a stale pass,
+    // otherwise the review gate accepts a task whose latest verification failed.
+    updateTask(absProjectDir, taskId, { verified: result.ok });
 
     return result;
   } finally {
@@ -780,9 +780,8 @@ export async function runVerify(
   try {
     const result = await verifyTask(projectDir, taskId, opts);
 
-    // Write system comment (§9.2 step 14).
-    const commentText = `**Verification ${result.ok ? "✅ passed" : "⚠️ issues detected"}**\n\n${result.verdict}`;
-    addComment(projectDir, taskId, "agent", commentText, undefined, "system");
+    // Write system comment via the shared helper.
+    await addVerifySystemComment(projectDir, taskId, result);
 
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -824,6 +823,19 @@ export async function runVerify(
       process.exitCode = ExitCode.GENERAL;
     }
   }
+}
+
+/**
+ * Write a system comment recording the verification result.
+ * Extracted so the MCP path can call it without going through runVerify.
+ */
+export async function addVerifySystemComment(
+  projectDir: string,
+  taskId: string,
+  result: VerifyResult,
+): Promise<void> {
+  const commentText = `**Verification ${result.ok ? "✅ passed" : "⚠️ issues detected"}**\n\n${result.verdict}`;
+  addComment(projectDir, taskId, "agent", commentText, undefined, "system");
 }
 
 // ── Human-readable output ─────────────────────────────────────────────────

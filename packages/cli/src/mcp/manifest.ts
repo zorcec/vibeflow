@@ -5,7 +5,7 @@
  * Maps CLI commands/flags to MCP tool definitions.
  */
 import type { z } from "zod";
-import type { OperationContext, OperationResult } from "./operations.js";
+import type { OperationContext, OperationResult } from "../core/operations.js";
 import {
   ListTasksInput,
   GetTaskInput,
@@ -27,7 +27,7 @@ import {
   exportPrompt,
   verifyTaskOp,
   pushTasks,
-} from "./operations.js";
+} from "../core/operations.js";
 
 // ── Manifest Types ─────────────────────────────────────────────────────────
 

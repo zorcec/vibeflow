@@ -17,7 +17,7 @@ import {
   attachFile,
   exportPrompt,
   type OperationContext,
-} from "../../../src/mcp/operations.js";
+} from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
 
 // ── Test Setup ─────────────────────────────────────────────────────────────

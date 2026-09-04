@@ -746,6 +746,10 @@ program
     "--fields <fields>",
     "Comma-separated list of fields to include in output (list/get modes)",
   )
+  .option(
+    "--priority <priority>",
+    "Task priority (Critical, High, Medium, Low) — use with --add",
+  )
   .action(
     (
       dir: string,
@@ -773,9 +777,10 @@ program
         dryRun?: boolean;
         fields?: string;
         skipVerify?: boolean;
+        priority?: string;
       },
     ) => {
-      void (async () => {
+      async function runTasks() {
         // Determine sub-command for telemetry before async operations
         const taskSubcommand = opts.add
           ? "add"
@@ -1421,6 +1426,9 @@ program
             description: opts.description?.trim() ?? "",
             status,
             selector: "/",
+            ...(opts.type ? { type: opts.type } : {}),
+            ...(opts.priority ? { priority: opts.priority } : {}),
+            ...(opts.tag?.length ? { tags: opts.tag } : {}),
           });
 
           const localAddNextActions = getNextActions("add", created.id);
@@ -2500,8 +2508,15 @@ program
               )
             : "";
         console.log(chalk.dim(formatStatusSummary(all)) + limitSuffix);
-        await flushTelemetry();
-      })();
+      }
+      async function runTasksAndFlush() {
+        try {
+          await runTasks();
+        } finally {
+          await flushTelemetry();
+        }
+      }
+      void runTasksAndFlush();
     },
   );
 

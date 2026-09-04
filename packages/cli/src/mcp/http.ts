@@ -20,24 +20,35 @@ interface McpSession {
 }
 
 const sessions = new Map<string, McpSession>();
-
-// Cleanup stale sessions every 5 minutes
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
-setInterval(() => {
+
+let reaper: NodeJS.Timeout | null = null;
+let handlersRegistered = false;
+
+function reapStaleSessions(): void {
   const now = Date.now();
   for (const [id, session] of sessions) {
     if (now - session.createdAt > SESSION_TTL) {
-      session.transport.close().catch(() => {
-        // Ignore close errors for stale sessions
-      });
+      session.transport.close().catch(() => {});
       sessions.delete(id);
     }
   }
-}, 5 * 60 * 1000);
+}
+
+function startSessionReaper(): void {
+  if (reaper) return;
+  reaper = setInterval(reapStaleSessions, 5 * 60 * 1000);
+  // Do not keep one-shot CLI processes alive.
+  reaper.unref();
+}
 
 // ── Express Mount ──────────────────────────────────────────────────────────
 
 export function mountMcp(app: Express, projectDir: string, mode: "local" | "saas" = "local"): void {
+  // Start the session reaper if not already running.
+  // This must be lazy (not module-scope) to avoid hanging one-shot CLI commands.
+  startSessionReaper();
+
   // CORS exemption for /api/mcp (prevent credential leakage)
   app.use("/api/mcp", (req: Request, res: Response, next) => {
     // Do not reflect Origin header for MCP endpoint
@@ -128,16 +139,30 @@ export function mountMcp(app: Express, projectDir: string, mode: "local" | "saas
     }
   });
 
-  // Cleanup on server shutdown
-  const cleanup = async () => {
-    for (const [, session] of sessions) {
-      await session.transport.close().catch(() => {});
-    }
-    sessions.clear();
-  };
-
-  process.on("SIGTERM", cleanup);
-  process.on("SIGINT", cleanup);
+  // Cleanup on server shutdown (only register once).
+  if (!handlersRegistered) {
+    handlersRegistered = true;
+    process.on("SIGTERM", async () => {
+      for (const [, session] of sessions) {
+        await session.transport.close().catch(() => {});
+      }
+      sessions.clear();
+      if (reaper) {
+        clearInterval(reaper);
+        reaper = null;
+      }
+    });
+    process.on("SIGINT", async () => {
+      for (const [, session] of sessions) {
+        await session.transport.close().catch(() => {});
+      }
+      sessions.clear();
+      if (reaper) {
+        clearInterval(reaper);
+        reaper = null;
+      }
+    });
+  }
 }
 
 // ── Exports for testing ────────────────────────────────────────────────────
@@ -148,4 +173,14 @@ export function getSessionCount(): number {
 
 export function clearSessions(): void {
   sessions.clear();
+}
+
+/** Teardown for tests — clears the reaper interval and all sessions. */
+export function stopMcpForTests(): void {
+  if (reaper) {
+    clearInterval(reaper);
+    reaper = null;
+  }
+  sessions.clear();
+  handlersRegistered = false;
 }
