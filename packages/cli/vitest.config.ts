@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
     testTimeout: 20000,
