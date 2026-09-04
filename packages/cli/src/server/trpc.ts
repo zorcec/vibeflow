@@ -37,7 +37,9 @@ const procedure = t.procedure;
 // ── Shared Zod schemas ─────────────────────────────────────────────────────
 
 // SAFETY: TASK_STATUSES is the canonical readonly tuple; z.enum requires mutable [string, ...string[]]
-const taskStatusSchema = z.enum(TASK_STATUSES as unknown as [string, ...string[]]);
+const taskStatusSchema = z.enum(
+  TASK_STATUSES as unknown as [string, ...string[]],
+);
 
 /**
  * Task IDs are 30-char lowercase hex strings (15 random bytes from `generateTaskId`).

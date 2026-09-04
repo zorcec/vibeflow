@@ -115,10 +115,7 @@ export interface ServeInstance {
 type BroadcastFn = (data: Record<string, unknown>) => void;
 
 /** Broadcast a tasks-updated event, optionally scoped to a specific task. */
-function broadcastTaskUpdated(
-  broadcast: BroadcastFn,
-  taskId?: string,
-): void {
+function broadcastTaskUpdated(broadcast: BroadcastFn, taskId?: string): void {
   broadcast({ type: "tasks-updated", ...(taskId && { taskId }) });
 }
 
@@ -415,8 +412,16 @@ function registerTaskApi(
     // Runtime whitelist: PATCH is the human/UI path — only safe fields allowed.
     // Comment/commit/verify gates are enforced at CLI/MCP surfaces only.
     const ALLOWED_PATCH_KEYS = new Set([
-      "status", "title", "description", "type", "priority",
-      "reportBack", "agent", "model", "tags", "sortKey",
+      "status",
+      "title",
+      "description",
+      "type",
+      "priority",
+      "reportBack",
+      "agent",
+      "model",
+      "tags",
+      "sortKey",
       "branchName",
     ]);
     const updates = Object.fromEntries(
