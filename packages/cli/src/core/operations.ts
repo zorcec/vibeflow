@@ -632,49 +632,30 @@ export async function verifyTaskOp(
   input: VerifyTaskInputType,
 ): Promise<OperationResult<unknown>> {
   return withVerifySemaphore(async () => {
+    const { verifyTask, addVerifySystemComment } = await import(
+      "../commands/verify.js"
+    );
+    const timeoutMs = input.timeoutMs ?? 60_000;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    timer.unref?.();
+
     try {
-      const { verifyTask, addVerifySystemComment } = await import(
-        "../commands/verify.js"
-      );
-
-      // Enforce timeoutMs
-      const timeoutMs = input.timeoutMs ?? 60_000;
-      const result = await Promise.race([
-        verifyTask(ctx.projectDir, input.id, { url: input.url }),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error("VERIFY_TIMEOUT"));
-          }, timeoutMs).unref?.();
-        }),
-      ]);
-
-      // Write system comment
+      const result = await verifyTask(ctx.projectDir, input.id, {
+        url: input.url,
+        signal: ac.signal,
+      } as { json?: boolean; url?: string; signal?: AbortSignal });
       await addVerifySystemComment(ctx.projectDir, input.id, result);
-
       return { ok: true, data: result };
     } catch (err) {
-      // Check if it's a VerifyError from the verify module
-      if (
-        err instanceof Error &&
-        "code" in err &&
-        typeof (err as { code?: string }).code === "string"
-      ) {
-        const ve = err as {
-          code: string;
-          message: string;
-          suggestion?: string;
-        };
-        return {
-          ok: false,
-          error: {
-            code: ve.code,
-            message: ve.message,
-            suggestion: ve.suggestion,
-          },
-        };
+      const ve = err instanceof Error && "code" in err
+        ? err as { code: string; message: string; suggestion?: string }
+        : null;
+      if (ve) {
+        return { ok: false, error: { code: ve.code, message: ve.message, suggestion: ve.suggestion } };
       }
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "VERIFY_TIMEOUT") {
+      if (msg === "VERIFY_TIMEOUT" || ac.signal.aborted) {
         return {
           ok: false,
           error: {
@@ -684,13 +665,9 @@ export async function verifyTaskOp(
           },
         };
       }
-      return {
-        ok: false,
-        error: {
-          code: "VERIFY_TASK_ERROR",
-          message: msg,
-        },
-      };
+      return { ok: false, error: { code: "VERIFY_TASK_ERROR", message: msg } };
+    } finally {
+      clearTimeout(timer);
     }
   });
 }
@@ -704,7 +681,8 @@ export async function pushTasks(
     const result = await push(ctx.projectDir, {
       workspace: input.workspace,
       keepLocalFiles: input.keepLocalFiles,
-    } as { workspace?: string; keepLocalFiles?: boolean; json?: boolean });
+      dryRun: input.dryRun,
+    });
     return { ok: true, data: result };
   } catch (err) {
     return {

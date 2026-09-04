@@ -87,11 +87,14 @@ describe("MCP drift test", () => {
     expect(toolNames).toMatchSnapshot();
   });
 
-  it("all input schemas are zod objects", () => {
+  it("all input schemas are zod raw shapes", () => {
     for (const tool of manifest) {
-      // Zod objects have a _def property
+      // ZodRawShape is a plain object of { key: ZodType }
       expect(tool.input).toBeDefined();
-      expect(typeof tool.input.parse).toBe("function");
+      expect(typeof tool.input).toBe("object");
+      for (const val of Object.values(tool.input)) {
+        expect(typeof (val as { parse?: unknown }).parse).toBe("function");
+      }
     }
   });
 

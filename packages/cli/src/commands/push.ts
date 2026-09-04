@@ -1,12 +1,12 @@
 import chalk from "chalk";
-import { unlinkSync, readFileSync, existsSync, statSync } from "node:fs";
+import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { login } from "../auth/login.js";
-import { PROTO_DIR, FILES_DIR } from "../core/types.js";
+import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
@@ -110,9 +110,52 @@ async function uploadTaskFiles(
   return { uploaded, failed, failedFiles };
 }
 
-export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean }): Promise<void> {
+export interface PushResult {
+  dryRun: boolean;
+  tasks: number;
+  files: number;
+  board?: string;
+  steps: string[];
+}
+
+export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
+  const taskList = listTasksWithPaths(projectDir);
+  if (taskList.length === 0) {
+    // Stryker disable once StringLiteral: display message for no tasks
+    console.log(chalk.dim("  No local tasks found. Nothing to push."));
+    return { dryRun: !!opts.dryRun, tasks: 0, files: 0, steps: ["No tasks"] };
+  }
+
+  // Count files that would be uploaded
+  let fileCount = 0;
+  for (const task of taskList) {
+    const files = listFiles(projectDir, task.id!);
+    fileCount += files.length;
+  }
+
+  let workspaceId = opts.workspace;
+  if (!workspaceId) {
+    const saved = await readWorkspace().catch(() => null);
+    if (saved) workspaceId = saved.id;
+  }
+  const boardLabel = workspaceId ? ((await readWorkspace().catch(() => null))?.name ?? workspaceId) : "(no board selected)";
+
+  // ── Dry-run: preview only, no network calls, no deletions ─────────────
+  if (opts.dryRun) {
+    // Stryker disable once StringLiteral: display message for dry-run
+    console.log(chalk.cyan(`  Dry run: ${taskList.length} task(s), ${fileCount} file(s), board: ${boardLabel}`));
+    return {
+      dryRun: true,
+      tasks: taskList.length,
+      files: fileCount,
+      board: boardLabel,
+      steps: ["Dry run: no changes made"],
+    };
+  }
+
+  // Auth check: only required for live (non-dry-run) push
   let token = await readToken();
   if (!token) {
     // Stryker disable once StringLiteral: display message for login flow
@@ -127,26 +170,10 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     }
   }
 
-  const taskList = listTasksWithPaths(projectDir);
-  if (taskList.length === 0) {
-    // Stryker disable once StringLiteral: display message for no tasks
-    console.log(chalk.dim("  No local tasks found. Nothing to push."));
-    return;
-  }
-
   // Stryker disable once StringLiteral: display message for task count
   console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing to SaaS...`));
 
   const apiUrl = getApiUrl();
-  let workspaceId = opts.workspace;
-  if (!workspaceId) {
-    const saved = await readWorkspace();
-    if (saved) {
-      workspaceId = saved.id;
-      // Stryker disable once StringLiteral: display message for workspace selection
-      console.log(chalk.dim(`  Using board: ${saved.icon ?? ""} ${saved.name}`));
-    }
-  }
   const requestBody: { tasks: unknown[]; workspaceId?: string } = { tasks: taskList };
   if (workspaceId) requestBody.workspaceId = workspaceId;
 
@@ -184,8 +211,6 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // Stryker disable once StringLiteral: display message for skipped tasks
     console.log(chalk.dim(`  Skipped ${result.skipped} already-imported task(s).`));
   }
-  const boardLabel = (await readWorkspace())?.name ?? result.workspaceId;
-  // Stryker disable once StringLiteral: display message for board label
   console.log(chalk.dim(`  Board: ${boardLabel}`));
 
   // Upload local files for each pushed task (idMap: cliId → saasId)
@@ -212,6 +237,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
 
   let deleted = 0;
+  let orphanDirsRemoved = 0;
   for (const task of taskList) {
     try {
       unlinkSync(task.filePath);
@@ -219,9 +245,31 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     } catch {
       // ignore — file may have already been removed
     }
+    // ── I5: Orphan cleanup — remove task asset dirs ────────────────────
+    try {
+      const filesDir = getFilesDir(projectDir, task.id!);
+      if (existsSync(filesDir)) {
+        const { rmSync } = await import("node:fs");
+        rmSync(filesDir, { recursive: true, force: true });
+        orphanDirsRemoved++;
+      }
+    } catch { /* best-effort */ }
+    try {
+      const screenshotsDir = join(projectDir, PROTO_DIR, SCREENSHOTS_DIR);
+      const screenshotPath = join(screenshotsDir, `${task.id}.png`);
+      if (existsSync(screenshotPath)) {
+        unlinkSync(screenshotPath);
+        orphanDirsRemoved++;
+      }
+    } catch { /* best-effort */ }
   }
 
   // Stryker disable once StringLiteral: display message for deleted files
   console.log(chalk.dim(`  Deleted ${deleted} local task file(s).`));
+  if (orphanDirsRemoved > 0) {
+    console.log(chalk.dim(`  Cleaned ${orphanDirsRemoved} orphaned asset dir(s).`));
+  }
+
+  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, steps: ["Push completed"] };
 }
 

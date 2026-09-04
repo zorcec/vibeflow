@@ -46,7 +46,7 @@ export interface ToolManifest {
     idempotentHint: boolean;
     openWorldHint: boolean;
   };
-  input: z.ZodType;
+  input: z.ZodRawShape;
   run: (
     ctx: OperationContext,
     input: unknown,
@@ -72,7 +72,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: true,
       openWorldHint: false,
     },
-    input: ListTasksInput,
+    input: ListTasksInput.shape,
     run: (ctx, input) => listTasks(ctx, input as z.infer<typeof ListTasksInput>),
   },
   {
@@ -90,7 +90,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: true,
       openWorldHint: false,
     },
-    input: GetTaskInput,
+    input: GetTaskInput.shape,
     run: (ctx, input) => getTask(ctx, input as z.infer<typeof GetTaskInput>),
   },
   {
@@ -108,7 +108,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: CreateTaskInput,
+    input: CreateTaskInput.shape,
     run: (ctx, input) => createTask(ctx, input as z.infer<typeof CreateTaskInput>),
   },
   {
@@ -136,7 +136,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: UpdateTaskInput,
+    input: UpdateTaskInput.shape,
     run: (ctx, input) => updateTask(ctx, input as z.infer<typeof UpdateTaskInput>),
   },
   {
@@ -154,7 +154,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: ClaimNextTaskInput,
+    input: ClaimNextTaskInput.shape,
     run: (ctx, input) => claimNextTask(ctx, input as z.infer<typeof ClaimNextTaskInput>),
   },
   {
@@ -172,7 +172,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: AddCommentInput,
+    input: AddCommentInput.shape,
     run: (ctx, input) => addComment(ctx, input as z.infer<typeof AddCommentInput>),
   },
   {
@@ -190,7 +190,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: AttachFileInput,
+    input: AttachFileInput.shape,
     run: (ctx, input) => attachFile(ctx, input as z.infer<typeof AttachFileInput>),
   },
   {
@@ -208,7 +208,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: true,
       openWorldHint: false,
     },
-    input: ExportPromptInput,
+    input: ExportPromptInput.shape,
     run: (ctx, input) => exportPrompt(ctx, input as z.infer<typeof ExportPromptInput>),
   },
   {
@@ -227,7 +227,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: VerifyTaskInput,
+    input: VerifyTaskInput.shape,
     run: (ctx, input) => verifyTaskOp(ctx, input as z.infer<typeof VerifyTaskInput>),
   },
   {
@@ -245,7 +245,7 @@ export const manifest: ToolManifest[] = [
       idempotentHint: false,
       openWorldHint: false,
     },
-    input: PushTasksInput,
+    input: PushTasksInput.shape,
     run: (ctx, input) => pushTasks(ctx, input as z.infer<typeof PushTasksInput>),
   },
 ];

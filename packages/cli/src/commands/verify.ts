@@ -70,7 +70,7 @@ async function loadPlaywright(): Promise<typeof import("playwright")> {
 export async function verifyTask(
   projectDir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string } = {},
+  opts: { json?: boolean; url?: string; signal?: AbortSignal } = {},
 ): Promise<VerifyResult> {
   const absProjectDir = resolve(projectDir);
 
@@ -169,6 +169,7 @@ export async function verifyTask(
   }
 
   // ── 6. Launch Playwright ──────────────────────────────────────────────
+  if (opts.signal?.aborted) throw new VerifyError("E_CANCELLED", "Verification cancelled.");
   const pw = await loadPlaywright();
 
   let browser: import("playwright").Browser | undefined;

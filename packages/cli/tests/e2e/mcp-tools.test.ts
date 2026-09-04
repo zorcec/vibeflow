@@ -364,14 +364,11 @@ describe("MCP tools happy paths", () => {
     const res = await callTool(client, "push_tasks", { keepLocalFiles: true });
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Known envelope bug: push() returns void → JSON.stringify(undefined) → text is undefined.
-    // Pin current behavior. [Phase 5] flip: text should be a valid JSON string.
+    // [Phase 5] flip active: push() now returns PushResult → formatResult produces valid JSON
     const text = body.result?.content?.[0]?.text;
-    // Accept both the current bug (text is undefined) and the fixed behavior (string parseable as JSON)
-    if (text !== undefined) {
-      expect(typeof text).toBe("string");
-      expect(() => JSON.parse(text)).not.toThrow();
-    }
+    expect(text, "push_tasks should return a result envelope").toBeDefined();
+    expect(typeof text).toBe("string");
+    expect(() => JSON.parse(text!)).not.toThrow();
   });
 
   // ── 16. list_tasks final — statuses consistent ──────────────────────────

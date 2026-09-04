@@ -105,8 +105,8 @@ describe("MCP-from-manifest parity", () => {
     for (const m of manifest) {
       const tool = byName.get(m.name)!;
       const listedKeys = Object.keys(tool.inputSchema?.properties ?? {}).sort();
-      // manifest input is a zod object at runtime
-      const shape = (m.input as unknown as { shape?: Record<string, unknown> }).shape ?? {};
+      // manifest input is a ZodRawShape (plain object) after Phase 5
+      const shape = (m.input as Record<string, unknown>) ?? {};
       const manifestKeys = Object.keys(shape).sort();
       expect(listedKeys, m.name).toEqual(manifestKeys);
     }

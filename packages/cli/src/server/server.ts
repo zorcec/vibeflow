@@ -15,7 +15,7 @@ import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import chalk from "chalk";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { mountMcp } from "../mcp/http.js";
+import { mountMcp, disposeMcp } from "../mcp/http.js";
 import { injectScript } from "../core/html-parser.js";
 import { createFileWatcher, createTaskWatcher } from "./watcher.js";
 import {
@@ -1251,6 +1251,34 @@ function useSecurityHeaders(app: express.Application): void {
  * Intended for use with existing hosted/served projects — the Chrome extension
  * connects to this server to read and write tasks while you browse your app.
  */
+/** Shared Express app + HTTP server + WebSocket setup used by both serve modes.
+ * Extracted to eliminate ~20 lines of duplication between serveApiOnly and serve (S3). */
+function createBaseServer(): { app: express.Express; httpServer: import("node:http").Server; wss: import("ws").WebSocketServer; broadcast: (data: Record<string, unknown>) => void } {
+  const app = express();
+  useCors(app);
+  useSecurityHeaders(app);
+  app.use(express.json({ limit: "10mb" }));
+  const httpServer = createServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
+  const broadcast = (data: Record<string, unknown>) => {
+    const msg = JSON.stringify(data);
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    }
+  };
+  wss.on("connection", (ws) => {
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
+      } catch { /* ignore non-JSON */ }
+    });
+  });
+  return { app, httpServer, wss, broadcast };
+}
+
 async function serveApiOnly(
   projectDir: string,
   options: ServeOptions,
@@ -1268,34 +1296,7 @@ async function serveApiOnly(
       : options._testWorkspace;
   const isOnline = !!(token && workspace);
 
-  const app = express();
-  useCors(app);
-  useSecurityHeaders(app);
-  app.use(express.json({ limit: "10mb" }));
-  const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer });
-
-  const broadcast = (data: Record<string, unknown>) => {
-    const msg = JSON.stringify(data);
-    for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-      }
-    }
-  };
-
-  wss.on("connection", (ws) => {
-    ws.on("message", (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type === "ping") {
-          ws.send(JSON.stringify({ type: "pong" }));
-        }
-      } catch {
-        /* ignore non-JSON */
-      }
-    });
-  });
+  const { app, httpServer, wss, broadcast } = createBaseServer();
 
   // Derive SaaS base URL from workspace.url origin — validated against known production domains to prevent SSRF.
   // Falls back to VIBEFLOW_API_URL env var for custom servers or testing.
@@ -1520,6 +1521,7 @@ async function serveApiOnly(
         localUrl,
         close: async () => {
           if (taskWatcher) await taskWatcher.close();
+          disposeMcp();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -1565,35 +1567,7 @@ export async function serve(
   const projectDir = isDir ? absTarget : dirname(absTarget);
   ensureTaskDirs(projectDir);
 
-  const app = express();
-  useCors(app);
-  useSecurityHeaders(app);
-  app.use(express.json({ limit: "10mb" }));
-  const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer });
-
-  const broadcast = (data: Record<string, unknown>) => {
-    const msg = JSON.stringify(data);
-    for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-      }
-    }
-  };
-
-  // Respond to ping from overlay/extension to keep connection alive
-  wss.on("connection", (ws) => {
-    ws.on("message", (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type === "ping") {
-          ws.send(JSON.stringify({ type: "pong" }));
-        }
-      } catch {
-        /* ignore non-JSON */
-      }
-    });
-  });
+  const { app, httpServer, wss, broadcast } = createBaseServer();
 
   const overlayScript = options.noOverlay
     ? null
@@ -1763,6 +1737,7 @@ li{margin:8px 0}</style></head>
         url,
         localUrl,
         close: async () => {
+          disposeMcp();
           if (watcher) await watcher.close();
           await taskWatcher.close();
           wss.close();

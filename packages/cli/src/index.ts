@@ -2498,10 +2498,14 @@ program
     "--keep-local-files",
     "Keep local task files after pushing (do not delete them)",
   )
+  .option(
+    "--dry-run",
+    "Preview what would be pushed without making any changes",
+  )
   .action(
     async (
       dir: string,
-      opts: { workspace?: string; keepLocalFiles?: boolean },
+      opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean },
     ) => {
       capture("command_run", { command: "push" });
       await push(dir, opts);
