@@ -1685,73 +1685,66 @@ program
           const editMode = await getMode();
           const projectDir = resolve(dir);
           const settings = loadSettings(projectDir);
+          // ── Research report upload (CLI side-effect — must run before gate)
+          if (opts.setStatus === "review" && opts.reportFile) {
+            const tasks = listTasks(projectDir);
+            const editedTask = tasks.find(
+              (t) => t.id === taskId || t.id.startsWith(taskId),
+            );
+            if (
+              editedTask &&
+              (editedTask.type ?? "").toLowerCase() === "research"
+            ) {
+              const reportPath = resolve(opts.reportFile);
+              if (!existsSync(reportPath)) {
+                console.log(
+                  chalk.red(`✗ Report file not found: ${reportPath}`),
+                );
+                process.exitCode = ExitCode.NOT_FOUND;
+                return;
+              }
+              if (!/\.md$/i.test(reportPath)) {
+                console.log(
+                  chalk.red("✗ Report file must be a Markdown (.md) file"),
+                );
+                process.exitCode = ExitCode.USAGE;
+                return;
+              }
+              const content = readFileSync(reportPath);
+              const { saveFile: saveTaskFile } = await import(
+                "./core/files.js"
+              );
+              saveTaskFile(
+                projectDir,
+                editedTask.id,
+                basename(reportPath),
+                content,
+              );
+              unlinkSync(reportPath);
+              console.log(
+                chalk.green(
+                  `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
+                ),
+              );
+            }
+          }
+          // ── Unified review gate (shared with MCP + PATCH) ──────────────
           if (opts.setStatus === "review") {
-            // Enforce --comment when autoComment is ON
-            if (settings.autoComment && !opts.comment?.trim()) {
-              console.log(
-                chalk.red(
-                  "✗ --comment is required (auto-comment setting is ON)",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Provide: what changed, why, key decisions, anything future agents should know.",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Plain text for short notes; Markdown for multi-section reports.",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  `  Example: vibeflow tasks --edit ${taskId} --set-status review --comment "Implemented X by doing Y."`,
-                ),
-              );
-              process.exitCode = ExitCode.USAGE;
-              return;
-            }
-
-            // Validate --commit-message presence when autoCommit is ON.
-            // The actual git commit runs after task status + comment are saved so that
-            // a commit failure never prevents the comment from being persisted.
-            if (settings.autoCommit && !opts.commitMessage?.trim()) {
-              console.log(
-                chalk.red(
-                  "✗ --commit-message is required (auto-commit setting is ON)",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Stage your changes first, then provide a one-line commit summary.",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  `  Example: vibeflow tasks --edit ${taskId} --set-status review --commit-message "fix: add hover effect" --comment "..."`,
-                ),
-              );
-              process.exitCode = ExitCode.USAGE;
-              return;
-            }
-
-            // Enforce --branch when createBranch is ON.
-            if (settings.createBranch && !opts.branch?.trim()) {
-              console.log(
-                chalk.red(
-                  "✗ --branch is required (create-branch setting is ON)",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Provide the git branch name created for this task.",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  `  Example: vibeflow tasks --edit ${taskId} --set-status review --branch feat/add-hover-effect --comment "..."`,
-                ),
-              );
+            const { checkReviewTransition } = await import("./core/review-gate.js");
+            const gate = checkReviewTransition(
+              projectDir,
+              taskId,
+              {
+                comment: opts.comment,
+                commitMessage: opts.commitMessage,
+                branch: opts.branch,
+                skipVerify: opts.skipVerify,
+              },
+              { projectDir, settings },
+            );
+            if (!gate.ok) {
+              console.log(chalk.red(`✗ ${gate.message}`));
+              if (gate.suggestion) console.log(chalk.dim(`  ${gate.suggestion}`));
               process.exitCode = ExitCode.USAGE;
               return;
             }
@@ -1865,44 +1858,7 @@ program
               (t) => t.id === taskId || t.id.startsWith(taskId),
             )?.id ?? taskId;
 
-          // Enforce verify before review when requireVerifyBeforeReview is ON.
-          // Only blocks when actually setting status to review, not other edits.
-          // Skip automatically for tasks without URL/selector (non-UI tasks).
-          if (
-            opts.setStatus === "review" &&
-            settings.requireVerifyBeforeReview &&
-            !opts.skipVerify
-          ) {
-            const taskFilePath = findTaskFilePath(
-              localProjectDir,
-              resolvedTaskId,
-            );
-            const task = taskFilePath ? readTaskFile(taskFilePath) : null;
-            if (task) {
-              const hasSelector =
-                task.cssSelector || (task.selector && task.selector !== "/");
-              const hasUrl = !!task.url;
-              const isUiTask = Boolean(hasSelector && hasUrl);
-
-              if (isUiTask && !task.verified) {
-                console.log(
-                  chalk.red(
-                    "✗ vibeflow verify is required before setting status to review",
-                  ),
-                );
-                console.log(
-                  chalk.dim(`  Run: vibeflow verify ${resolvedTaskId}`),
-                );
-                console.log(
-                  chalk.dim(
-                    `  Or skip: vibeflow tasks --edit ${resolvedTaskId} --set-status review --skip-verify`,
-                  ),
-                );
-                process.exitCode = ExitCode.USAGE;
-                return;
-              }
-            }
-          }
+          // Verify gate already checked above via checkReviewTransition
 
           if (opts.dryRun) {
             const dryUpdates: Record<string, unknown> = {};
@@ -2008,74 +1964,7 @@ program
             }
           }
 
-          // Enforce Research type rules before marking as review.
-          if (opts.setStatus === "review") {
-            const projectDir = resolve(dir);
-            const tasks = listTasks(projectDir);
-            const editedTask = tasks.find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            );
-            if (
-              editedTask &&
-              (editedTask.type ?? "").toLowerCase() === "research"
-            ) {
-              // Check if a --report-file was provided to upload now
-              if (opts.reportFile) {
-                const reportPath = resolve(opts.reportFile);
-                if (!existsSync(reportPath)) {
-                  console.log(
-                    chalk.red(`✗ Report file not found: ${reportPath}`),
-                  );
-                  process.exitCode = ExitCode.NOT_FOUND;
-                  return;
-                }
-                if (!/\.md$/i.test(reportPath)) {
-                  console.log(
-                    chalk.red("✗ Report file must be a Markdown (.md) file"),
-                  );
-                  process.exitCode = ExitCode.USAGE;
-                  return;
-                }
-                const content = readFileSync(reportPath);
-                const { saveFile: saveTaskFile } = await import(
-                  "./core/files.js"
-                );
-                saveTaskFile(
-                  projectDir,
-                  editedTask.id,
-                  basename(reportPath),
-                  content,
-                );
-                unlinkSync(reportPath);
-                console.log(
-                  chalk.green(
-                    `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
-                  ),
-                );
-              } else {
-                // No --report-file: check if at least one .md file is already attached
-                const attachedFiles = listFiles(projectDir, editedTask.id);
-                const hasMdFile = attachedFiles.some((f) =>
-                  /\.md$/i.test(f.name),
-                );
-                if (!hasMdFile) {
-                  console.log(
-                    chalk.red(
-                      "✗ Cannot mark Research task as review: no .md report file attached.",
-                    ),
-                  );
-                  console.log(chalk.dim("  Provide a research report:"));
-                  console.log(
-                    chalk.dim(
-                      `    vibeflow tasks --edit ${taskId} --set-status review --report-file ./my-research.md --comment "..."`,
-                    ),
-                  );
-                  process.exitCode = ExitCode.USAGE;
-                  return;
-                }
-              }
-            }
-          }
+          // Research report upload + gate already handled above (before SaaS path)
 
           // Reset verified flag when claiming a task for new work
           if (opts.setStatus === "in-progress") {
@@ -2145,26 +2034,19 @@ program
                 (t) => t.id === taskId || t.id.startsWith(taskId),
               );
               if (taskForCommit) {
-                const commitMsg = `${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`;
-                try {
-                  execFileSync("git", ["commit", "-m", commitMsg], {
-                    cwd: autoDir,
-                    stdio: "inherit",
-                  });
-                  const sha = execSync("git rev-parse HEAD", { cwd: autoDir })
-                    .toString()
-                    .trim();
-                  const commitRecord = {
-                    sha,
-                    message: opts.commitMessage.trim(),
-                    timestamp: new Date().toISOString(),
-                  };
-                  const existingCommits = taskForCommit.commits ?? [];
-                  updateTask(autoDir, taskForCommit.id, {
-                    commits: [...existingCommits, commitRecord],
-                  });
-                  console.log(chalk.green(`✓ Committed: ${commitMsg}`));
-                  console.log(chalk.dim(`  sha: ${sha}`));
+                const { commitTaskChanges } = await import("./core/git.js");
+                const commitResult = commitTaskChanges(
+                  autoDir,
+                  taskForCommit.id,
+                  opts.commitMessage.trim(),
+                );
+                if (commitResult.ok) {
+                  console.log(
+                    chalk.green(
+                      `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                    ),
+                  );
+                  console.log(chalk.dim(`  sha: ${commitResult.sha}`));
 
                   if (autoSettings.autoPush) {
                     console.log(chalk.dim("  pushing..."));
@@ -2179,7 +2061,7 @@ program
                         console.log(chalk.dim(`  reason: ${pushed.error}`));
                     }
                   }
-                } catch {
+                } else {
                   // Task status and comment are already saved — only the commit failed.
                   console.log(
                     chalk.red(

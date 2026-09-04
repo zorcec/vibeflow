@@ -370,7 +370,7 @@ describe("MCP update_task gates", () => {
   // [Phase 3] Gate assertions — flip to the gated expectations when Phase 3
   // lands. Feature-detect: a Phase-3 update_task will reject review+no-comment
   // with a REVIEW_COMMENT_REQUIRED-style envelope. Until then the call succeeds.
-  const GATED = false; // flip to true in Phase 3
+  const GATED = true; // Phase 3 landed — gates active
 
   it("1: status review without comment", async () => {
     const task = await assertJsonTextContent(

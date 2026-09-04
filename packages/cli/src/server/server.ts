@@ -404,28 +404,38 @@ function registerTaskApi(
 
   app.patch("/api/tasks/:id", (req, res) => {
     const { id } = req.params;
-    const updates = req.body as Partial<
-      Pick<
-        Task,
-        | "status"
-        | "title"
-        | "description"
-        | "type"
-        | "priority"
-        | "reportBack"
-        | "agent"
-        | "model"
-        | "tags"
-        | "sortKey"
-      >
-    >;
+    // Runtime whitelist: PATCH is the human/UI path — only safe fields allowed.
+    // Comment/commit/verify gates are enforced at CLI/MCP surfaces only.
+    const ALLOWED_PATCH_KEYS = new Set([
+      "status", "title", "description", "type", "priority",
+      "reportBack", "agent", "model", "tags", "sortKey",
+      "branchName",
+    ]);
+    const updates = Object.fromEntries(
+      Object.entries(req.body as Record<string, unknown>).filter(([k]) =>
+        ALLOWED_PATCH_KEYS.has(k),
+      ),
+    );
 
     if (
       updates.status !== undefined &&
-      !(TASK_STATUSES as readonly string[]).includes(updates.status)
+      !(TASK_STATUSES as readonly string[]).includes(updates.status as string)
     ) {
       res.status(400).json({ error: `Invalid status: ${updates.status}` });
       return;
+    }
+
+    // Research gate: research tasks need a .md report to move to review
+    if (updates.status === "review") {
+      const task = readTaskFile(findTaskFilePath(projectDir, id) ?? "");
+      if (task && (task.type ?? "").toLowerCase() === "research") {
+        const files = listFiles(projectDir, id);
+        const hasMdFile = files.some((f) => /\.md$/i.test(f.name));
+        if (!hasMdFile) {
+          res.status(422).json({ error: "RESEARCH_REPORT_REQUIRED" });
+          return;
+        }
+      }
     }
 
     const updated = updateTask(projectDir, id, updates);

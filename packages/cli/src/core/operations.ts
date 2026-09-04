@@ -41,8 +41,9 @@ export interface OperationResult<T> {
 // ── Schemas ────────────────────────────────────────────────────────────────
 
 export const ListTasksInput = z.object({
+  // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
   status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
+    .enum(TASK_STATUSES as unknown as [string, ...string[]])
     .optional(),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
@@ -63,8 +64,9 @@ export type GetTaskInputType = z.infer<typeof GetTaskInput>;
 export const CreateTaskInput = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
+  // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
   status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
+    .enum(TASK_STATUSES as unknown as [string, ...string[]])
     .default("todo"),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
@@ -79,8 +81,9 @@ export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = z.object({
   id: z.string().min(1),
+  // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
   status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]]) // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
+    .enum(TASK_STATUSES as unknown as [string, ...string[]])
     .optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -303,24 +306,49 @@ export async function updateTask(
   input: UpdateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    if (ctx.dryRun) {
-      const { findTaskFilePath, readTaskFile } = await import(
-        "../core/tasks.js"
+    const { findTaskFilePath, readTaskFile } = await import(
+      "../core/tasks.js"
+    );
+    const filePath = findTaskFilePath(ctx.projectDir, input.id);
+    const existingTask = filePath ? readTaskFile(filePath) : null;
+    if (!existingTask) {
+      return {
+        ok: false,
+        error: {
+          code: "TASK_NOT_FOUND",
+          message: `Task not found: ${input.id}`,
+        },
+      };
+    }
+
+    // Gate: review transition check (runs before any writes, including dry-run)
+    if (input.status === "review") {
+      const { loadSettings } = await import("../core/settings.js");
+      const { checkReviewTransition } = await import("../core/review-gate.js");
+      const settings = loadSettings(ctx.projectDir);
+      const gate = checkReviewTransition(
+        ctx.projectDir,
+        input.id,
+        {
+          comment: input.comment,
+          commitMessage: input.commitMessage,
+          skipVerify: input.skipVerify,
+        },
+        { projectDir: ctx.projectDir, settings },
       );
-      const filePath = findTaskFilePath(ctx.projectDir, input.id);
-      const task = filePath ? readTaskFile(filePath) : null;
-      if (!task) {
+      if (!gate.ok) {
         return {
           ok: false,
-          error: {
-            code: "TASK_NOT_FOUND",
-            message: `Task not found: ${input.id}`,
-          },
+          error: { code: gate.code, message: gate.message, suggestion: gate.suggestion },
         };
       }
+    }
+
+    // Dry-run: return preview (after gate check so would-be failures are reported)
+    if (ctx.dryRun) {
       return {
         ok: true,
-        data: task,
+        data: existingTask,
         steps: ["Dry run: task would be updated"],
       };
     }
@@ -333,8 +361,12 @@ export async function updateTask(
       updates.description = input.description;
     if (input.branch) updates.branchName = input.branch;
 
+    // Verified reset on in-progress (parity with CLI edit path)
+    if (input.status === "in-progress") {
+      updates.verified = false;
+    }
+
     const task = coreUpdateTask(ctx.projectDir, input.id, updates);
-    // SAFETY: coreUpdateTask returns null only when task doesn't exist; we check below
     if (!task) {
       return {
         ok: false,
@@ -345,13 +377,33 @@ export async function updateTask(
       };
     }
 
-    // Add comment if provided
+    // Comment is added only after all gates pass (same ordering as CLI)
     if (input.comment) {
       const { addComment } = await import("../core/comments.js");
       addComment(ctx.projectDir, input.id, "agent", input.comment);
     }
 
-    return { ok: true, data: task };
+    // Auto-commit after review transition (parity with CLI auto-commit path)
+    const steps: string[] = [];
+    if (input.status === "review" && input.commitMessage) {
+      const { loadSettings } = await import("../core/settings.js");
+      const { commitTaskChanges } = await import("../core/git.js");
+      const settings = loadSettings(ctx.projectDir);
+      if (settings.autoCommit) {
+        const commitResult = commitTaskChanges(
+          ctx.projectDir,
+          task.id,
+          input.commitMessage,
+        );
+        if (commitResult.ok) {
+          steps.push(`Committed: ${commitResult.sha}`);
+        } else {
+          steps.push(`Commit failed: ${commitResult.error}`);
+        }
+      }
+    }
+
+    return { ok: true, data: task, steps: steps.length > 0 ? steps : undefined };
   } catch (err) {
     return {
       ok: false,

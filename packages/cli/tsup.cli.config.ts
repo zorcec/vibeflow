@@ -45,7 +45,8 @@ export default defineConfig({
       /* optional */
     }
     for (const f of rds("dist/cli/").filter((n: string) =>
-      /^(chunk|workspace|files)-/.test(n),
+      /^(chunk|workspace|files|review-gate|git)-/.test(n) &&
+      !n.endsWith(".d.ts"),
     )) {
       try {
         copyFileSync(`dist/cli/${f}`, `dist/${f}`);
