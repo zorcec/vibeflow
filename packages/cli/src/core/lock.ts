@@ -9,7 +9,7 @@
  * same `lockPath`. There is no re-entrancy guard — nested calls will deadlock.
  */
 import { openSync, statSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PROTO_DIR } from "./types.js";
 
 // ── In-process serialization ───────────────────────────────────────────────
@@ -38,7 +38,6 @@ function acquireFileLock(
   staleMs: number,
 ): void {
   const deadline = Date.now() + timeoutMs;
-  const { dirname } = require("node:path");
 
   while (true) {
     try {

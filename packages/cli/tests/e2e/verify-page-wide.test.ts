@@ -1,9 +1,20 @@
+/**
+ * verify page-wide (e2e) — ORPHANED, SKIPPED.
+ *
+ * This spec has never been loadable: it uses CJS `__dirname` (throws at
+ * collection in ESM) and its beforeAll runs `execSync` on the never-exiting
+ * `kanban` server on a hardcoded port (3750–3790 e2e exclusion range).
+ * Making it pass requires a verify-with-browser harness (random port, task
+ * with url+selector, evidence assertions) — tracked as a follow-up task.
+ * Skipped so the e2e suite can be honestly green; do not unskip without
+ * implementing the harness.
+ */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-const CLI = join(__dirname, "../../dist/cli/index.js");
+const CLI = join(process.cwd(), "dist", "index.js");
 const TASK_ID = "e2e-page-wide-test";
 const PROJECT = "/tmp/vibeflow-e2e-page-wide";
 const FILES_DIR = join(PROJECT, ".vibeflow/tasks/files", TASK_ID);
@@ -13,7 +24,7 @@ function run(cmd: string): string {
   return execSync(cmd, { cwd: PROJECT, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
-describe("verify page-wide (e2e)", () => {
+describe.skip("verify page-wide (e2e) — orphaned, needs verify+browser harness", () => {
   beforeAll(() => {
     rmSync(PROJECT, { recursive: true, force: true });
     run(`node ${CLI} kanban --port 3778 --no-open`);

@@ -232,15 +232,15 @@ export function spawnApiServer(opts: {
   cwd: string;
   home: string;
   port: number;
+  /** Bind address for non-loopback auth tests (e.g. "0.0.0.0"). */
+  host?: string;
 }): { child: ChildProcess; mcpUrl: string; waitReady: Promise<void> } {
-  const child = spawn(
-    "node",
-    [CLI_PATH, "serve", "--no-open", "-p", String(opts.port)],
-    {
-      cwd: opts.cwd,
-      env: isolatedEnv(opts.home),
-    },
-  );
+  const args = [CLI_PATH, "serve", "--no-open", "-p", String(opts.port)];
+  if (opts.host) args.push("--host", opts.host);
+  const child = spawn("node", args, {
+    cwd: opts.cwd,
+    env: isolatedEnv(opts.home),
+  });
   const mcpUrl = `http://127.0.0.1:${opts.port}/api/mcp`;
   const waitReady = new Promise<void>((resolve, reject) => {
     const start = Date.now();
@@ -309,6 +309,33 @@ export function seedTask(
     join(projectDir, ".vibeflow", "tasks", `${task.id}.json`),
     JSON.stringify(data, null, 2),
   );
+}
+
+export function spawnCli(args: string[], opts: {
+  cwd: string;
+  home: string;
+  timeoutMs?: number;
+}): Promise<{ stdout: string; stderr: string; code: number | null; elapsedMs: number }> {
+  return new Promise((resolve) => {
+    const child = spawn("node", [CLI_PATH, ...args], {
+      cwd: opts.cwd,
+      env: isolatedEnv(opts.home),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    child.stderr.on("data", (d) => (stderr += d));
+    const start = Date.now();
+    const timer = setTimeout(
+      () => child.kill("SIGKILL"),
+      opts.timeoutMs ?? 15_000,
+    );
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code, elapsedMs: Date.now() - start });
+    });
+  });
 }
 
 export function seedGitUser(projectDir: string): void {
