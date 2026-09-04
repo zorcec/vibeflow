@@ -37,10 +37,18 @@ describe("appRouter tRPC", () => {
 
   describe("tasks", () => {
     it("returns tasks with comment and file counts", async () => {
-      const task = createTask(tempDir, { title: "Task with meta", selector: "#a" });
+      const task = createTask(tempDir, {
+        title: "Task with meta",
+        selector: "#a",
+      });
       await addComment(tempDir, task.id, "user", "first");
       await addComment(tempDir, task.id, "user", "second");
-      const deletedComment = await addComment(tempDir, task.id, "user", "deleted");
+      const deletedComment = await addComment(
+        tempDir,
+        task.id,
+        "user",
+        "deleted",
+      );
       await deleteComment(tempDir, task.id, deletedComment.id!);
       saveFile(tempDir, task.id, "notes.md", Buffer.from("hello"));
 
@@ -55,10 +63,16 @@ describe("appRouter tRPC", () => {
       // Regression: the card badge used task.files.length (refs only) while the
       // files tab listed unregistered files on disk, so a task with 5 files
       // showed a badge count of 2.
-      const task = createTask(tempDir, { title: "Task with orphan file", selector: "#a" });
+      const task = createTask(tempDir, {
+        title: "Task with orphan file",
+        selector: "#a",
+      });
       saveFile(tempDir, task.id, "registered.md", Buffer.from("registered"));
       // Simulate a legacy/manual file: on disk but never registered in refs.
-      writeFileSync(join(getFilesDir(tempDir, task.id), "orphan.txt"), "orphan");
+      writeFileSync(
+        join(getFilesDir(tempDir, task.id), "orphan.txt"),
+        "orphan",
+      );
 
       const { tasks } = await caller.tasks();
       const found = tasks.find((t) => t.id === task.id);
@@ -114,7 +128,10 @@ describe("appRouter tRPC", () => {
     });
 
     it("defaults status to todo", async () => {
-      const result = await caller.createTask({ title: "Default status", selector: "#x" });
+      const result = await caller.createTask({
+        title: "Default status",
+        selector: "#x",
+      });
       expect(result.task.status).toBe("todo");
     });
   });
@@ -163,11 +180,15 @@ describe("appRouter tRPC", () => {
     });
 
     it("throws NOT_FOUND for missing task", async () => {
-      await expect(caller.deleteTask({ id: "a".repeat(30) })).rejects.toThrow("Task not found");
+      await expect(caller.deleteTask({ id: "a".repeat(30) })).rejects.toThrow(
+        "Task not found",
+      );
     });
 
     it("rejects invalid task ID format", async () => {
-      await expect(caller.deleteTask({ id: "../../etc/passwd" })).rejects.toThrow();
+      await expect(
+        caller.deleteTask({ id: "../../etc/passwd" }),
+      ).rejects.toThrow();
     });
   });
 
@@ -182,14 +203,22 @@ describe("appRouter tRPC", () => {
     });
 
     it("rejects invalid task ID format", async () => {
-      await expect(caller.comments({ id: "../../etc/passwd" })).rejects.toThrow();
+      await expect(
+        caller.comments({ id: "../../etc/passwd" }),
+      ).rejects.toThrow();
     });
   });
 
   describe("addComment", () => {
     it("adds a comment and broadcasts", async () => {
-      const task = createTask(tempDir, { title: "Add comment", selector: "#ac" });
-      const result = await caller.addComment({ taskId: task.id, text: "  note  " });
+      const task = createTask(tempDir, {
+        title: "Add comment",
+        selector: "#ac",
+      });
+      const result = await caller.addComment({
+        taskId: task.id,
+        text: "  note  ",
+      });
 
       expect(result.success).toBe(true);
       expect(result.comment.text).toBe("note");
@@ -212,7 +241,10 @@ describe("appRouter tRPC", () => {
 
   describe("updateComment", () => {
     it("updates comment text", async () => {
-      const task = createTask(tempDir, { title: "Update comment", selector: "#uc" });
+      const task = createTask(tempDir, {
+        title: "Update comment",
+        selector: "#uc",
+      });
       const comment = await addComment(tempDir, task.id, "user", "original");
 
       const result = await caller.updateComment({
@@ -236,17 +268,27 @@ describe("appRouter tRPC", () => {
     it("rejects invalid comment ID format", async () => {
       const task = createTask(tempDir, { title: "x", selector: "#x" });
       await expect(
-        caller.updateComment({ taskId: task.id, commentId: "../../etc/passwd", text: "x" }),
+        caller.updateComment({
+          taskId: task.id,
+          commentId: "../../etc/passwd",
+          text: "x",
+        }),
       ).rejects.toThrow();
     });
   });
 
   describe("deleteComment", () => {
     it("deletes a comment and broadcasts", async () => {
-      const task = createTask(tempDir, { title: "Delete comment", selector: "#dc" });
+      const task = createTask(tempDir, {
+        title: "Delete comment",
+        selector: "#dc",
+      });
       const comment = await addComment(tempDir, task.id, "user", "bye");
 
-      const result = await caller.deleteComment({ taskId: task.id, commentId: comment.id });
+      const result = await caller.deleteComment({
+        taskId: task.id,
+        commentId: comment.id,
+      });
       expect(result.success).toBe(true);
       expect(broadcast).toHaveBeenCalledWith({ type: "tasks-updated" });
     });

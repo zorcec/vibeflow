@@ -31,7 +31,6 @@ describe("listComments", () => {
     // No ensureCommentsDir call — directory doesn't exist
     expect(listComments(tempDir, "task-id")).toEqual([]);
   });
-
 });
 
 describe("addComment", () => {
@@ -46,7 +45,12 @@ describe("addComment", () => {
   });
 
   it("creates comments file and returns the new comment", async () => {
-    const comment = await addComment(tempDir, "task-123", "user", "This looks great");
+    const comment = await addComment(
+      tempDir,
+      "task-123",
+      "user",
+      "This looks great",
+    );
     expect(comment.author).toBe("user");
     expect(comment.text).toBe("This looks great");
     expect(comment.createdAt).toBeTruthy();
@@ -82,12 +86,25 @@ describe("addComment", () => {
   });
 
   it("includes files attachment when provided", async () => {
-    const comment = await addComment(tempDir, "task-f", "user", "see attached", ["file.png"]);
+    const comment = await addComment(
+      tempDir,
+      "task-f",
+      "user",
+      "see attached",
+      ["file.png"],
+    );
     expect(comment.files).toEqual(["file.png"]);
   });
 
   it("includes type when a non-comment type is provided", async () => {
-    const comment = await addComment(tempDir, "task-t", "user", "system event", undefined, "system");
+    const comment = await addComment(
+      tempDir,
+      "task-t",
+      "user",
+      "system event",
+      undefined,
+      "system",
+    );
     expect(comment.type).toBe("system");
   });
 
@@ -95,7 +112,12 @@ describe("addComment", () => {
     // This exercises the fallback branch in addComment when updateTask returns null.
     // The task file doesn't exist (no task was created in tempDir).
     const fakeTaskId = "non-existent-task-abc";
-    const comment = await addComment(tempDir, fakeTaskId, "user", "orphan comment");
+    const comment = await addComment(
+      tempDir,
+      fakeTaskId,
+      "user",
+      "orphan comment",
+    );
     expect(comment.text).toBe("orphan comment");
     const retrieved = listComments(tempDir, fakeTaskId);
     expect(retrieved).toHaveLength(1);
@@ -111,22 +133,48 @@ describe("addComment", () => {
   });
 
   it("does not include files field when empty array provided", async () => {
-    const comment = await addComment(tempDir, "task-empty-files", "user", "no files", []);
+    const comment = await addComment(
+      tempDir,
+      "task-empty-files",
+      "user",
+      "no files",
+      [],
+    );
     expect(comment.files).toBeUndefined();
   });
 
   it("does not include type field when type is .comment.", async () => {
-    const comment = await addComment(tempDir, "task-type-comment", "user", "normal comment", undefined, "comment");
+    const comment = await addComment(
+      tempDir,
+      "task-type-comment",
+      "user",
+      "normal comment",
+      undefined,
+      "comment",
+    );
     expect(comment.type).toBeUndefined();
   });
 
   it("includes source field when explicitly provided", async () => {
-    const comment = await addComment(tempDir, "task-source", "user", "from saas", undefined, undefined, "saas");
+    const comment = await addComment(
+      tempDir,
+      "task-source",
+      "user",
+      "from saas",
+      undefined,
+      undefined,
+      "saas",
+    );
     expect(comment.source).toBe("saas");
   });
 
   it("defaults source to .cli. when not provided", async () => {
-    const comment = await addComment(tempDir, "task-default-source", "user", "default source");
+    const comment = await addComment(
+      tempDir,
+      "task-default-source",
+      "user",
+      "default source",
+    );
     expect(comment.source).toBe("cli");
   });
 
@@ -148,8 +196,18 @@ describe("updateComment", () => {
   });
 
   it("updates text of a comment with matching id", async () => {
-    const comment = await addComment(tempDir, "task-1", "user", "original text");
-    const updated = await updateComment(tempDir, "task-1", comment.id!, "new text");
+    const comment = await addComment(
+      tempDir,
+      "task-1",
+      "user",
+      "original text",
+    );
+    const updated = await updateComment(
+      tempDir,
+      "task-1",
+      comment.id!,
+      "new text",
+    );
     expect(updated).not.toBeNull();
     expect(updated!.text).toBe("new text");
     expect(updated!.updatedAt).toBeTruthy();
@@ -164,7 +222,12 @@ describe("updateComment", () => {
 
   it("returns null when commentId does not exist", async () => {
     await addComment(tempDir, "task-1", "user", "text");
-    const result = await updateComment(tempDir, "task-1", "nonexistent-id", "new");
+    const result = await updateComment(
+      tempDir,
+      "task-1",
+      "nonexistent-id",
+      "new",
+    );
     expect(result).toBeNull();
   });
 
@@ -180,7 +243,12 @@ describe("updateComment", () => {
   it("returns null when trying to update a deleted comment", async () => {
     const comment = await addComment(tempDir, "task-1", "user", "to delete");
     await deleteComment(tempDir, "task-1", comment.id!);
-    const result = await updateComment(tempDir, "task-1", comment.id!, "new text");
+    const result = await updateComment(
+      tempDir,
+      "task-1",
+      comment.id!,
+      "new text",
+    );
     expect(result).toBeNull();
   });
 });
@@ -275,7 +343,9 @@ describe("normalizeCommentText", () => {
 
   it("handles mixed actual newlines and literal \\n sequences", () => {
     // real newline + literal \n -> real newline + real newline
-    expect(normalizeCommentText("real\n" + "literal\\n")).toBe("real\nliteral\n");
+    expect(normalizeCommentText("real\n" + "literal\\n")).toBe(
+      "real\nliteral\n",
+    );
   });
 
   it("handles typical agent markdown comment with \\n\\n bullets", () => {
@@ -313,7 +383,12 @@ describe("addComment text normalization", () => {
   });
 
   it("normalizes literal \\n in comment text on add", async () => {
-    const comment = await addComment(tempDir, "task-1", "agent", "line1\\nline2");
+    const comment = await addComment(
+      tempDir,
+      "task-1",
+      "agent",
+      "line1\\nline2",
+    );
     expect(comment.text).toBe("line1\nline2");
     const persisted = listComments(tempDir, "task-1");
     expect(persisted[0].text).toBe("line1\nline2");
@@ -327,14 +402,24 @@ describe("addComment text normalization", () => {
 
   it("normalizes literal \\n in comment text on update", async () => {
     const comment = await addComment(tempDir, "task-3", "user", "initial");
-    const updated = await updateComment(tempDir, "task-3", comment.id!, "updated\\nline2");
+    const updated = await updateComment(
+      tempDir,
+      "task-3",
+      comment.id!,
+      "updated\\nline2",
+    );
     expect(updated!.text).toBe("updated\nline2");
     const persisted = listComments(tempDir, "task-3");
     expect(persisted[0].text).toBe("updated\nline2");
   });
 
   it("plain text is stored as-is when no escape sequences present", async () => {
-    const comment = await addComment(tempDir, "task-4", "user", "just plain text");
+    const comment = await addComment(
+      tempDir,
+      "task-4",
+      "user",
+      "just plain text",
+    );
     expect(comment.text).toBe("just plain text");
   });
 });
@@ -347,7 +432,9 @@ describe("listComments: legacy comment normalization", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-comments-legacy-test-"));
-    mkdirSync(join(tempDir, ".vibeflow", "tasks", "2026-04-10"), { recursive: true });
+    mkdirSync(join(tempDir, ".vibeflow", "tasks", "2026-04-10"), {
+      recursive: true,
+    });
   });
 
   afterEach(() => {
@@ -357,14 +444,27 @@ describe("listComments: legacy comment normalization", () => {
   const writeTask = (id: string, comments: object[]) => {
     writeFileSync(
       join(tempDir, ".vibeflow", "tasks", "2026-04-10", `${id}.json`),
-      JSON.stringify({ id, title: "Test", description: "", status: "todo", selector: "/", created: "2026-04-10T10:00:00.000Z", comments }),
+      JSON.stringify({
+        id,
+        title: "Test",
+        description: "",
+        status: "todo",
+        selector: "/",
+        created: "2026-04-10T10:00:00.000Z",
+        comments,
+      }),
       "utf-8",
     );
   };
 
   it("normalizes legacy body field to text when text is empty", () => {
     writeTask("task-legacy-body", [
-      { id: "c1", body: "Content from body field", createdAt: "2026-04-10T10:00:00.000Z", text: "" },
+      {
+        id: "c1",
+        body: "Content from body field",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        text: "",
+      },
     ]);
     const comments = listComments(tempDir, "task-legacy-body");
     expect(comments).toHaveLength(1);
@@ -373,7 +473,12 @@ describe("listComments: legacy comment normalization", () => {
 
   it("prefers text over body when both are present", () => {
     writeTask("task-prefer-text", [
-      { id: "c1", body: "body value", text: "text value", createdAt: "2026-04-10T10:00:00.000Z" },
+      {
+        id: "c1",
+        body: "body value",
+        text: "text value",
+        createdAt: "2026-04-10T10:00:00.000Z",
+      },
     ]);
     const comments = listComments(tempDir, "task-prefer-text");
     expect(comments[0].text).toBe("text value");
@@ -389,7 +494,12 @@ describe("listComments: legacy comment normalization", () => {
 
   it("preserves existing author when present", () => {
     writeTask("task-has-author", [
-      { id: "c1", author: "user", text: "user comment", createdAt: "2026-04-10T10:00:00.000Z" },
+      {
+        id: "c1",
+        author: "user",
+        text: "user comment",
+        createdAt: "2026-04-10T10:00:00.000Z",
+      },
     ]);
     const comments = listComments(tempDir, "task-has-author");
     expect(comments[0].author).toBe("user");
@@ -397,11 +507,15 @@ describe("listComments: legacy comment normalization", () => {
 
   it("handles comment with both missing author and body field", () => {
     writeTask("task-both-missing", [
-      { id: "c1", body: "legacy content", createdAt: "2026-04-10T10:00:00.000Z", text: "" },
+      {
+        id: "c1",
+        body: "legacy content",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        text: "",
+      },
     ]);
     const comments = listComments(tempDir, "task-both-missing");
     expect(comments[0].text).toBe("legacy content");
     expect(comments[0].author).toBe("agent");
   });
 });
-

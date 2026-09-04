@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -119,7 +126,6 @@ describe("files core", () => {
     deleteFile(tempDir, "task1", "a.md");
     expect(getFileCount(tempDir, "task1")).toBe(1);
   });
-
 });
 
 // ── Uploaded-file paths require task JSON to exist for full ref coverage ──────
@@ -150,7 +156,10 @@ describe("files with task JSON (ref-based paths)", () => {
   });
 
   it("deleteFile removes uploaded file via ref path (covers lines 204-206)", () => {
-    const task = createTask(tempDir, { title: "Delete ref task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Delete ref task",
+      description: "",
+    });
     saveFile(tempDir, task.id, "upload.txt", Buffer.from("data"));
 
     // Verify file ref was persisted and file exists on disk.
@@ -160,7 +169,9 @@ describe("files with task JSON (ref-based paths)", () => {
     expect(removed).toBe(true);
     expect(listFiles(tempDir, task.id)).toHaveLength(0);
     // Physical file must also be gone (directory may still exist).
-    expect(existsSync(join(getFilesDir(tempDir, task.id), "upload.txt"))).toBe(false);
+    expect(existsSync(join(getFilesDir(tempDir, task.id), "upload.txt"))).toBe(
+      false,
+    );
   });
 
   it("getFileCount returns correct count when task JSON tracks refs", () => {
@@ -192,13 +203,20 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("migrates entries from .linked.json into task refs via saveFile", () => {
-    const task = createTask(tempDir, { title: "Legacy linked task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Legacy linked task",
+      description: "",
+    });
     const externalPath = join(tempDir, "legacy-doc.md");
     writeFileSync(externalPath, "legacy content", "utf-8");
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "legacy-doc.md", path: externalPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "legacy-doc.md", path: externalPath }]),
+      "utf-8",
+    );
 
     // saveFile triggers migration
     saveFile(tempDir, task.id, "new.txt", Buffer.from("hello"));
@@ -208,7 +226,10 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("cleans up an empty .linked.json manifest via saveFile", () => {
-    const task = createTask(tempDir, { title: "Empty manifest task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Empty manifest task",
+      description: "",
+    });
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, JSON.stringify([]), "utf-8");
@@ -219,7 +240,10 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("handles corrupted .linked.json gracefully (returns empty)", () => {
-    const task = createTask(tempDir, { title: "Corrupt manifest task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Corrupt manifest task",
+      description: "",
+    });
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
     writeFileSync(manifestPath, "not valid json {{", "utf-8");
@@ -230,25 +254,39 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("migrates legacy entry when linked file no longer exists on disk via saveFile", () => {
-    const task = createTask(tempDir, { title: "Missing linked file", description: "" });
+    const task = createTask(tempDir, {
+      title: "Missing linked file",
+      description: "",
+    });
     const missingPath = join(tempDir, "deleted-doc.md");
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "deleted-doc.md", path: missingPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "deleted-doc.md", path: missingPath }]),
+      "utf-8",
+    );
 
     saveFile(tempDir, task.id, "test.txt", Buffer.from("data"));
     expect(existsSync(manifestPath)).toBe(false);
   });
 
   it("deleteFile does not delete physical file for linked refs", () => {
-    const task = createTask(tempDir, { title: "Linked delete task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Linked delete task",
+      description: "",
+    });
     const externalPath = join(tempDir, "linked-keep.md");
     writeFileSync(externalPath, "linked content", "utf-8");
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "linked-keep.md", path: externalPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "linked-keep.md", path: externalPath }]),
+      "utf-8",
+    );
 
     // Trigger migration
     listFiles(tempDir, task.id);
@@ -262,13 +300,20 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("getFilePath does NOT migrate — manifest and task file untouched (pure read)", () => {
-    const task = createTask(tempDir, { title: "Linked path task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Linked path task",
+      description: "",
+    });
     const externalPath = join(tempDir, "linked-get.md");
     writeFileSync(externalPath, "linked content", "utf-8");
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "linked-get.md", path: externalPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "linked-get.md", path: externalPath }]),
+      "utf-8",
+    );
 
     // getFilePath is pure — should NOT migrate the manifest
     const result = getFilePath(tempDir, task.id, "linked-get.md");
@@ -277,12 +322,19 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("getFilePath returns null when linked ref exists but file is missing", () => {
-    const task = createTask(tempDir, { title: "Missing linked path", description: "" });
+    const task = createTask(tempDir, {
+      title: "Missing linked path",
+      description: "",
+    });
     const missingPath = join(tempDir, "gone.md");
 
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "gone.md", path: missingPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "gone.md", path: missingPath }]),
+      "utf-8",
+    );
 
     // Trigger migration
     listFiles(tempDir, task.id);
@@ -292,7 +344,10 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("listFiles includes files on disk that have no refs (backward compat)", () => {
-    const task = createTask(tempDir, { title: "Orphan file task", description: "" });
+    const task = createTask(tempDir, {
+      title: "Orphan file task",
+      description: "",
+    });
     ensureFilesDir(tempDir, task.id);
 
     // Write a file directly without using saveFile (no ref)
@@ -313,9 +368,17 @@ describe("legacy .linked.json migration", () => {
     ensureFilesDir(tempDir, task.id);
     // Create legacy manifest
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "shared.md", path: externalPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "shared.md", path: externalPath }]),
+      "utf-8",
+    );
     // Also create an orphan file with same name
-    writeFileSync(join(getFilesDir(tempDir, task.id), "shared.md"), "orphan version", "utf-8");
+    writeFileSync(
+      join(getFilesDir(tempDir, task.id), "shared.md"),
+      "orphan version",
+      "utf-8",
+    );
 
     const files = listFiles(tempDir, task.id);
     // listFiles is pure — only sees the orphan on disk (linked ref not in task file yet)
@@ -327,14 +390,21 @@ describe("legacy .linked.json migration", () => {
   });
 
   it("saveFile triggers migration — manifest cleaned up after save", () => {
-    const task = createTask(tempDir, { title: "Save triggers migration", description: "" });
+    const task = createTask(tempDir, {
+      title: "Save triggers migration",
+      description: "",
+    });
     const externalPath = join(tempDir, "legacy-linked.md");
     writeFileSync(externalPath, "legacy content", "utf-8");
 
     // Create legacy manifest
     ensureFilesDir(tempDir, task.id);
     const manifestPath = join(getFilesDir(tempDir, task.id), ".linked.json");
-    writeFileSync(manifestPath, JSON.stringify([{ name: "legacy-linked.md", path: externalPath }]), "utf-8");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify([{ name: "legacy-linked.md", path: externalPath }]),
+      "utf-8",
+    );
 
     // saveFile triggers migration (manifest cleaned up)
     saveFile(tempDir, task.id, "new-file.txt", Buffer.from("new content"));
