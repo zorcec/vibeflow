@@ -9,7 +9,8 @@ vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }));
 import { addComment, deleteComment } from "../../../src/core/comments.js";
-import { saveFile } from "../../../src/core/files.js";
+import { saveFile, getFilesDir } from "../../../src/core/files.js";
+import { writeFileSync } from "node:fs";
 
 describe("appRouter tRPC", () => {
   let tempDir: string;
@@ -47,6 +48,26 @@ describe("appRouter tRPC", () => {
       expect(found).toBeDefined();
       expect(found?.commentCount).toBe(2);
       expect(found?.fileCount).toBe(1);
+    });
+
+    it("counts files on disk that are missing from the task JSON refs", async () => {
+      // Regression: the card badge used task.files.length (refs only) while the
+      // files tab listed unregistered files on disk, so a task with 5 files
+      // showed a badge count of 2.
+      const task = createTask(tempDir, { title: "Task with orphan file", selector: "#a" });
+      saveFile(tempDir, task.id, "registered.md", Buffer.from("registered"));
+      // Simulate a legacy/manual file: on disk but never registered in refs.
+      writeFileSync(join(getFilesDir(tempDir, task.id), "orphan.txt"), "orphan");
+
+      const { tasks } = await caller.tasks();
+      const found = tasks.find((t) => t.id === task.id);
+      expect(found?.fileCount).toBe(2);
+    });
+
+    it("returns 0 fileCount for tasks without files", async () => {
+      createTask(tempDir, { title: "No files", selector: "#a" });
+      const { tasks } = await caller.tasks();
+      expect(tasks[0]?.fileCount).toBe(0);
     });
 
     it("returns empty list when no tasks exist", async () => {

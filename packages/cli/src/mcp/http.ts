@@ -44,7 +44,11 @@ function startSessionReaper(): void {
 
 // ── Express Mount ──────────────────────────────────────────────────────────
 
-export function mountMcp(app: Express, projectDir: string, mode: "local" | "saas" = "local"): void {
+export function mountMcp(
+  app: Express,
+  projectDir: string,
+  mode: "local" | "saas" = "local",
+): void {
   // Start the session reaper if not already running.
   // This must be lazy (not module-scope) to avoid hanging one-shot CLI commands.
   startSessionReaper();
@@ -54,7 +58,10 @@ export function mountMcp(app: Express, projectDir: string, mode: "local" | "saas
     // Do not reflect Origin header for MCP endpoint
     res.setHeader("Access-Control-Allow-Origin", "http://localhost:3700");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, mcp-session-id");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, mcp-session-id",
+    );
     if (req.method === "OPTIONS") {
       res.status(204).end();
       return;

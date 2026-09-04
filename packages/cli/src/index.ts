@@ -888,7 +888,8 @@ program
               autoPush: saasGetSettings.autoPush,
               autoComment: saasGetSettings.autoComment,
               createBranch: saasGetSettings.createBranch,
-              requireVerifyBeforeReview: saasGetSettings.requireVerifyBeforeReview,
+              requireVerifyBeforeReview:
+                saasGetSettings.requireVerifyBeforeReview,
             });
             return;
           }
@@ -976,7 +977,8 @@ program
             autoPush: localGetSettings.autoPush,
             autoComment: localGetSettings.autoComment,
             createBranch: localGetSettings.createBranch,
-            requireVerifyBeforeReview: localGetSettings.requireVerifyBeforeReview,
+            requireVerifyBeforeReview:
+              localGetSettings.requireVerifyBeforeReview,
           });
           return;
         }
@@ -1216,7 +1218,8 @@ program
             autoPush: nextLocalSettings.autoPush,
             autoComment: nextLocalSettings.autoComment,
             createBranch: nextLocalSettings.createBranch,
-            requireVerifyBeforeReview: nextLocalSettings.requireVerifyBeforeReview,
+            requireVerifyBeforeReview:
+              nextLocalSettings.requireVerifyBeforeReview,
           });
 
           const config = readConfig(nextProjectDir);
@@ -1718,7 +1721,6 @@ program
           const projectDir = resolve(dir);
           const settings = loadSettings(projectDir);
           if (opts.setStatus === "review") {
-
             // Enforce --comment when autoComment is ON
             if (settings.autoComment && !opts.comment?.trim()) {
               console.log(
@@ -1788,7 +1790,6 @@ program
               process.exitCode = ExitCode.USAGE;
               return;
             }
-
           }
 
           // ── SaaS edit path (online mode) ────────────────────────────────
@@ -1902,11 +1903,19 @@ program
           // Enforce verify before review when requireVerifyBeforeReview is ON.
           // Only blocks when actually setting status to review, not other edits.
           // Skip automatically for tasks without URL/selector (non-UI tasks).
-          if (opts.setStatus === "review" && settings.requireVerifyBeforeReview && !opts.skipVerify) {
-            const taskFilePath = findTaskFilePath(localProjectDir, resolvedTaskId);
+          if (
+            opts.setStatus === "review" &&
+            settings.requireVerifyBeforeReview &&
+            !opts.skipVerify
+          ) {
+            const taskFilePath = findTaskFilePath(
+              localProjectDir,
+              resolvedTaskId,
+            );
             const task = taskFilePath ? readTaskFile(taskFilePath) : null;
             if (task) {
-              const hasSelector = task.cssSelector || (task.selector && task.selector !== "/");
+              const hasSelector =
+                task.cssSelector || (task.selector && task.selector !== "/");
               const hasUrl = !!task.url;
               const isUiTask = Boolean(hasSelector && hasUrl);
 
@@ -1917,9 +1926,7 @@ program
                   ),
                 );
                 console.log(
-                  chalk.dim(
-                    `  Run: vibeflow verify ${resolvedTaskId}`,
-                  ),
+                  chalk.dim(`  Run: vibeflow verify ${resolvedTaskId}`),
                 );
                 console.log(
                   chalk.dim(
@@ -1979,7 +1986,10 @@ program
           }
 
           const updates: Partial<
-            Pick<Task, "status" | "title" | "description" | "branchName" | "verified">
+            Pick<
+              Task,
+              "status" | "title" | "description" | "branchName" | "verified"
+            >
           > = {};
           if (opts.title) updates.title = opts.title;
           if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;

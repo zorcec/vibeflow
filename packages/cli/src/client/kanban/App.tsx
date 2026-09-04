@@ -17,6 +17,7 @@ import {
   FilePreviewModal,
   computeReorder,
   compareTaskOrder,
+  HeaderActionButton,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -732,9 +733,14 @@ export function App() {
             (c) => !c.deleted,
           ).length
         : undefined;
-      const fileCount = Array.isArray(incoming.files)
-        ? incoming.files.length
-        : undefined;
+      // Prefer the server-computed fileCount (listFiles source, includes
+      // unregistered files on disk) over the refs-only files array length.
+      const fileCount =
+        typeof incoming.fileCount === "number"
+          ? incoming.fileCount
+          : Array.isArray(incoming.files)
+            ? incoming.files.length
+            : undefined;
       const newStatus = incoming.status
         ? (String(incoming.status) as TaskStatus)
         : undefined;
@@ -1204,23 +1210,12 @@ export function App() {
         onSearchChange={setSearchQuery}
         onSettings={() => setSettingsOpen(true)}
         extraActions={
-          <button
+          <HeaderActionButton
             id="changelog-btn"
-            onClick={() => void openFullChangelog()}
             title="View changelog"
-            style={{
-              fontSize: 12,
-              color: "var(--p-text-m)",
-              background: "transparent",
-              border: "1px solid var(--p-border)",
-              borderRadius: 8,
-              padding: "5px 10px",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Changelog
-          </button>
+            onClick={() => void openFullChangelog()}
+            label="Changelog"
+          />
         }
       />
 

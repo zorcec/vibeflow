@@ -19,7 +19,7 @@ import {
   updateComment,
   deleteComment,
 } from "../core/comments.js";
-import { listFiles } from "../core/files.js";
+import { listFiles, getFileCount } from "../core/files.js";
 import {
   getCopilotAuthStatus,
   isGhCliAvailable,
@@ -88,7 +88,9 @@ export const appRouter = router({
       ...task,
       createdAt: task.created,
       commentCount: (task.comments ?? []).filter((c) => !c.deleted).length,
-      fileCount: task.files?.length ?? 0,
+      // Same source as the files tab (listFiles) so the card badge also counts
+      // files on disk that are missing from the task JSON refs.
+      fileCount: getFileCount(ctx.projectDir, task.id),
     }));
     return { tasks: tasksWithMeta };
   }),
@@ -115,7 +117,7 @@ export const appRouter = router({
           score: 1,
           task,
           commentCount: (task.comments ?? []).filter((c) => !c.deleted).length,
-          fileCount: task.files?.length ?? 0,
+          fileCount: getFileCount(ctx.projectDir, task.id),
         }));
       return { results: matches };
     }),

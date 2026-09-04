@@ -45,7 +45,13 @@ import {
   updateComment,
   deleteComment,
 } from "../core/comments.js";
-import { listFiles, saveFile, deleteFile, getFilePath } from "../core/files.js";
+import {
+  listFiles,
+  saveFile,
+  deleteFile,
+  getFilePath,
+  getFileCount,
+} from "../core/files.js";
 import { encryptAuthState } from "../core/auth.js";
 import {
   getCopilotAuthStatus,
@@ -270,6 +276,8 @@ function registerTaskApi(
 
     // commentCount and fileCount are included for the kanban UI badge without
     // exposing the full embedded arrays in the list response.
+    // fileCount uses the same source as the files tab (listFiles) so the badge
+    // also counts files on disk that are missing from the task JSON refs.
     const tasksWithMeta = tasks.map((t) => {
       const lastSha = t.commits?.length
         ? t.commits[t.commits.length - 1].sha
@@ -278,7 +286,7 @@ function registerTaskApi(
         ...t,
         createdAt: t.created,
         commentCount: (t.comments ?? []).filter((c) => !c.deleted).length,
-        fileCount: t.files?.length ?? 0,
+        fileCount: getFileCount(projectDir, t.id),
         commitPushed: isCommitPushed(lastSha, remoteShas),
       };
     });
@@ -461,11 +469,13 @@ function registerTaskApi(
     );
     // Broadcast task-changed with the full payload so clients can apply surgical
     // state updates without re-fetching all tasks (avoids full-list re-render).
+    // fileCount is computed from the same source as the list endpoints so the
+    // live update does not clobber the badge with a refs-only undercount.
     broadcast({
       type: "task-changed",
       taskId: updated.id,
       action: "update",
-      task: updated,
+      task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
     });
     res.json({ success: true, task: updated });
   });
