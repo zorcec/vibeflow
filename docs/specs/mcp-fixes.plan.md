@@ -5,7 +5,6 @@
 > **Spec:** `docs/specs/mcp-implementation.spec.md`
 > **Date:** 2026-09-03 (spec date) · plan authored against current `src/` state
 > **Status:** Ready for worker implementation — no open questions.
-
 > **Note on file placement:** this artifact was requested at `docs/specs/mcp-fixes.plan.md`.
 > The runtime forced output to this path instead. Content is drop-in — copy as-is.
 
@@ -332,7 +331,7 @@ Use `...(cond ? {k:v} : {})` rather than unconditional keys: `normalizeTask` tre
 
 **Step 3.2.5 — Output echo:** in both human and JSON Add output, print the persisted fields so the caller can confirm the write:
 
-```
+```text
 ✓ Task created: Fix CTA spacing
   id: abc… | status: todo | type: Bug | priority: High | tags: urgent, frontend
 ```
@@ -480,7 +479,7 @@ Minimum cases (all deterministic, no browser, no network):
 
 ## Implementation order
 
-```
+```text
 1. Fix 1.2.1  unref/move setInterval                 [30 min, no deps]      ← unblocks everything
 2. Fix 1      telemetry finally + async action + spawn regression test  [deps: 1]
 3. Fix 4.2.1  verifyTaskOp → verifyTask (+ VerifyError/addVerifySystemComment export, semaphore, timeout)
@@ -492,7 +491,7 @@ Minimum cases (all deterministic, no browser, no network):
 7. Fix 4.2.3  MCP tool tests for verify_task / push_tasks / parity           [deps: 3, 5, 6]
 ```
 
-**Why this order**
+### Why this order
 
 - **Item 1 first.** It is a two-line, zero-risk change that converts "hangs forever" into "works", and *every* acceptance criterion below is expressed as a spawned-CLI test — which cannot be written at all while RC-A is live. It also unblocks Vitest workers that import `mcp/http.ts`.
 - **Fix 1 before Fix 2.** The `try/finally { await flushTelemetry() }` wrapper touches the `tasks` action; doing the ops extraction afterwards keeps the two diffs from colliding in the same 1400-line region.
@@ -501,7 +500,7 @@ Minimum cases (all deterministic, no browser, no network):
 - **Fix 2.4 (gate extraction) last-but-one** because it is the largest behavioural change and needs the spawn harness (item 2) and the corrected `verified` semantics (item 3) to be verifiable.
 - **Tests (item 7) last** so they exercise the final wiring; the parity test is only meaningful once both surfaces share one implementation.
 
-**Dependency notes / conflict risks**
+### Dependency notes / conflict risks
 
 - Items 5+6 are the only steps that touch four files simultaneously (`core/operations.ts`, `mcp/manifest.ts`, `mcp/server.ts`, `index.ts`, `tests/unit/mcp/tools.test.ts`). Keep them as one commit per step so `git revert` is clean.
 - `tests/unit/mcp/drift.test.ts` has a `toMatchSnapshot()` case — moving files does not change it, but adding/removing tools will require `vitest -u`.

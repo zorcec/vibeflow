@@ -8,7 +8,7 @@
 
 ## 1. Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  CLI (Commander)                                                │
 │  packages/cli/src/index.ts                                      │
@@ -43,7 +43,7 @@
 
 ### New Files
 
-```
+```txt
 packages/cli/src/core/operations.ts       # Shared operations layer
 packages/cli/src/mcp/http.ts              # Express mount
 packages/cli/src/mcp/server.ts            # McpServer factory
@@ -57,7 +57,7 @@ packages/cli/tests/unit/mcp/tools.test.ts # Tool unit tests
 
 ### Modified Files
 
-```
+```txt
 packages/cli/src/index.ts                 # Refactor to use operations.ts
 packages/cli/src/server/server.ts         # Mount /api/mcp
 packages/cli/package.json                 # Add @modelcontextprotocol/sdk

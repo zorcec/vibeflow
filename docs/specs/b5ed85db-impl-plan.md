@@ -187,7 +187,7 @@ Unit (`tests/unit/`, flat pattern like `tests/unit/tasks.test.ts`):
 
 ### Worker prompt — Phase 0 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 0 of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli).
 
 Workflow: claim a task first (`vibeflow tasks --next` from vibeflow-private/), implement, run the full checklist (build, unit tests, changeset), commit, submit as review. NEVER edit .vibeflow/ files directly; never set status done.
@@ -298,7 +298,7 @@ Current: `migrateLegacyLinkedRefs` (unlinks `.linked.json`, calls `setTaskFileRe
 
 ### Worker prompt — Phase 1 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 1 of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli). Phase 0 is already committed — build on it, don't re-do it.
 
 Workflow: claim a task (`vibeflow tasks --next`), implement, run build + full unit suite, changeset, commit, submit review. NEVER edit .vibeflow/ directly. One writer: do not touch files outside the listed set unless tsc forces a trivial import fix.
@@ -393,7 +393,7 @@ Current SaaS `--next`: `updateSaasTask(nextTask.id, { status: "in-progress" })` 
 
 ### Worker prompt — Phase 2 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 2 of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli). Phases 0-1 are committed — the write lock (core/lock.ts), TASK_STATUSES, and the shared priority comparator exist.
 
 Workflow: claim a task (`vibeflow tasks --next`), implement, build + unit tests (+ e2e), changeset, commit, submit review.
@@ -492,7 +492,7 @@ const updates = Object.fromEntries(Object.entries(req.body as Record<string, unk
 
 ### Worker prompt — Phase 3 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 3 of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli). Phases 0-2 are committed (write lock, TASK_STATUSES, claimNextTaskAtomic).
 
 Workflow: claim a task, implement, build + unit tests, changeset, commit, submit review.
@@ -562,7 +562,7 @@ export type SaasResult<T> = { ok: true; data: T } | { ok: false; error: { code: 
 
 ### Worker prompt — Phase 4 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 4 of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli). Phases 0-3 are committed (review gate, commit helper, PATCH whitelist).
 
 Workflow: claim a task, implement, build + tests, changeset, commit, submit review.
@@ -640,7 +640,7 @@ Both `serveApiOnly` and `serve` call it; route registration and mode-specific ba
 
 ### Worker prompt — Phase 5 (copy-pasteable)
 
-```
+```bash
 You are implementing Phase 5 (final phase) of the vibeflow audit plan (/tmp/b5ed85db-impl-plan.md, repo /home/zorcec/workspace/vibeflow-workspace/vibeflow, package packages/cli). Phases 0-4 are committed.
 
 Workflow: claim a task, implement, build + unit + e2e tests, changeset, commit, submit review.
