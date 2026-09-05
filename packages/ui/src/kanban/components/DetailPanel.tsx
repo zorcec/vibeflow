@@ -21,7 +21,7 @@ function PasteHintBanner({ storageKey = PASTE_HINT_KEY }: { storageKey?: string 
   if (!visible) return null;
 
   function dismiss() {
-    try { localStorage.setItem(storageKey, '1'); } catch {}
+    try { localStorage.setItem(storageKey, '1'); } catch { /* storage may be unavailable */ }
     setVisible(false);
   }
 
@@ -337,7 +337,7 @@ export function DetailPanel({
       ]);
       setCommentCount(cd.comments?.length ?? 0);
       setFileCount(fd.files?.length ?? 0);
-    } catch {}
+    } catch { /* network error — badge counts stay stale */ }
   }
 
   async function loadComments(taskId: string) {
@@ -813,6 +813,7 @@ export function DetailPanel({
             allTags={allTags}
             overrideTags={isAdd ? draftTags : undefined}
             onTagsChange={isAdd ? setDraftTags : undefined}
+            isAdd={isAdd}
           />
           </div>
           {!isAdd && task && (
