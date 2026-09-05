@@ -1,5 +1,12 @@
 # @vibeflow-tools/ui
 
+## 0.3.0
+
+### Minor Changes
+
+- 5489c28: Split FilesList into user attachments and system-captured files groups. System files (baselines, screenshots) are collapsed by default with a "Captured by Vibeflow" label.
+- 1753223: Add collapsed Advanced section in add-task overlay for tags and priority
+
 ## 0.2.0
 
 ### Minor Changes
