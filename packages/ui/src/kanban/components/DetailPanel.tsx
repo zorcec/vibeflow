@@ -865,6 +865,7 @@ export function DetailPanel({
             loading={filesLoading}
             error={filesError}
             baseUrl={baseUrl}
+            taskId={task?.id}
             onPreview={(f) => onFilePreview(f.name, f.linkedPath ? `${baseUrl}/api/tasks/${task?.id}/files/${encodeURIComponent(f.name)}` : `${baseUrl}${f.url}`)}
             onDelete={remoteLocked ? undefined : handleDeleteFile}
           />
