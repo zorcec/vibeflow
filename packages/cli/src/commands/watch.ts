@@ -19,11 +19,7 @@ import {
   buildTaskSnapshot,
   diffTaskSnapshots,
 } from "../core/watch-events.js";
-import {
-  getEventsForConsumer,
-  readWatchState,
-  writeWatchState,
-} from "../core/watch-state.js";
+import { readWatchState, writeWatchState } from "../core/watch-state.js";
 import { createSink } from "../core/watch-sinks.js";
 
 export interface WatchOptions {
@@ -78,12 +74,19 @@ function buildAllSnapshots(
     try {
       const comments = listComments(projectDir, task.id);
       const files = listFiles(projectDir, task.id);
-      const lastCommentAt = comments.length > 0
-        ? comments[comments.length - 1].createdAt
-        : undefined;
+      const lastCommentAt =
+        comments.length > 0
+          ? comments[comments.length - 1].createdAt
+          : undefined;
       snapshots.set(
         task.id,
-        buildTaskSnapshot(task, comments.length, lastCommentAt, files.length, now),
+        buildTaskSnapshot(
+          task,
+          comments.length,
+          lastCommentAt,
+          files.length,
+          now,
+        ),
       );
     } catch {
       // Skip tasks that fail to snapshot
@@ -95,7 +98,10 @@ function buildAllSnapshots(
 /**
  * Emit gap event for events older than 1 minute that were not delivered.
  */
-function emitGapEvent(sink: ReturnType<typeof createSink>, missed: number): void {
+function emitGapEvent(
+  sink: ReturnType<typeof createSink>,
+  missed: number,
+): void {
   if (missed === 0) return;
   const now = new Date().toISOString();
   const event: WatchEvent = {
@@ -111,10 +117,7 @@ function emitGapEvent(sink: ReturnType<typeof createSink>, missed: number): void
 }
 
 /** Daemon mode: watch for changes and emit events as they happen. */
-function watchDaemon(
-  projectDir: string,
-  opts: WatchOptions,
-): void {
+function watchDaemon(projectDir: string, opts: WatchOptions): void {
   const tasksDir = join(projectDir, PROTO_DIR, TASKS_DIR);
   const sink = createSink(opts);
 
@@ -154,8 +157,16 @@ function watchDaemon(
         const comments = listComments(projectDir, task.id);
         const files = listFiles(projectDir, task.id);
         const lastCommentAt =
-          comments.length > 0 ? comments[comments.length - 1].createdAt : undefined;
-        const next = buildTaskSnapshot(task, comments.length, lastCommentAt, files.length, ts);
+          comments.length > 0
+            ? comments[comments.length - 1].createdAt
+            : undefined;
+        const next = buildTaskSnapshot(
+          task,
+          comments.length,
+          lastCommentAt,
+          files.length,
+          ts,
+        );
 
         // Emit events
         const events = diffTaskSnapshots(task, prev, next);
@@ -163,12 +174,18 @@ function watchDaemon(
 
         for (const event of events) {
           sink.emit(event);
-          if (!opts.json && (event.type === "new" || event.type === "moved-to-todo")) {
+          if (
+            !opts.json &&
+            (event.type === "new" || event.type === "moved-to-todo")
+          ) {
             announce(event.type, event.taskId);
           }
         }
       } catch (err) {
-        console.error(chalk.red(`  Error processing ${basename(filePath)}:`), err);
+        console.error(
+          chalk.red(`  Error processing ${basename(filePath)}:`),
+          err,
+        );
       }
     },
     onDeleted: (filePath) => {
@@ -189,12 +206,28 @@ function watchDaemon(
 
   process.once("SIGINT", () => {
     void watcher.close().then(
-      () => { sink.close?.(); console.log(chalk.dim("\n  Watch stopped.")); process.exit(0); },
-      () => { sink.close?.(); process.exit(0); },
+      () => {
+        sink.close?.();
+        console.log(chalk.dim("\n  Watch stopped."));
+        process.exit(0);
+      },
+      () => {
+        sink.close?.();
+        process.exit(0);
+      },
     );
   });
   process.once("SIGTERM", () => {
-    void watcher.close().then(() => { sink.close?.(); process.exit(0); }, () => { sink.close?.(); process.exit(0); });
+    void watcher.close().then(
+      () => {
+        sink.close?.();
+        process.exit(0);
+      },
+      () => {
+        sink.close?.();
+        process.exit(0);
+      },
+    );
   });
 }
 
@@ -203,39 +236,42 @@ function watchOnce(projectDir: string, opts: WatchOptions): void {
   const sink = createSink(opts);
   const now = new Date().toISOString();
 
-  // Build current snapshots
+  // Build current snapshots of all tasks
   const currentSnapshots = buildAllSnapshots(projectDir, now);
 
-  // Append current snapshots to the journal (for other consumers)
+  // Read existing state: previousSnapshots holds the last-known snapshot per task
+  const state = readWatchState(projectDir);
+  const prevSnapshots: Map<string, TaskSnapshot> = new Map(
+    Object.entries(state.previousSnapshots ?? {}),
+  );
+
+  // Emit events for all tasks by diffing current against previous
   for (const [taskId, snapshot] of currentSnapshots) {
-    const state = readWatchState(projectDir);
-    state.journal.push({ taskId, snapshot, recordedAt: now });
-    // Cap journal at 1 min
-    const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
-    state.journal = state.journal.filter((e: { recordedAt: string }) => e.recordedAt > cutoff);
-    writeWatchState(projectDir, state);
-  }
-
-  // Get events for this consumer
-  const { events, missed } = getEventsForConsumer(projectDir, "cli-once");
-
-  // Emit gap event if there are missed events
-  if (missed > 0) {
-    emitGapEvent(sink, missed);
-  }
-
-  // Emit events from the journal
-  for (const { snapshot } of events) {
-    // Reconstruct the task for diffing
-    const task = listTasksWithPaths(projectDir).find((t) => t.id === snapshot.taskId);
+    const task = listTasksWithPaths(projectDir).find((t) => t.id === taskId);
     if (!task) continue;
 
-    const currentSnapshot = currentSnapshots.get(snapshot.taskId);
-    const events2 = diffTaskSnapshots(task, snapshot, currentSnapshot ?? snapshot);
-    for (const event of events2) {
+    const prev = prevSnapshots.get(taskId);
+
+    // "new" event: task has no previous snapshot
+    if (prev === undefined) {
+      sink.emit({ type: "new", taskId: task.id, timestamp: snapshot.takenAt });
+      continue;
+    }
+
+    // Diff: detect status changes, moved-to-todo, comments, files, etc.
+    const events = diffTaskSnapshots(task, prev, snapshot);
+    for (const event of events) {
       sink.emit(event);
     }
   }
+
+  // Persist current snapshots as the new "previous" state for next run
+  const nextPrevSnapshots: Record<string, TaskSnapshot> = {};
+  for (const [taskId, snapshot] of currentSnapshots) {
+    nextPrevSnapshots[taskId] = snapshot;
+  }
+  state.previousSnapshots = nextPrevSnapshots;
+  writeWatchState(projectDir, state);
 
   sink.close?.();
   process.exit(0);
@@ -256,7 +292,9 @@ export function watch(dir: string, opts: WatchOptions = {}): void {
   const projectDir = resolve(dir);
 
   if (!existsSync(projectDir)) {
-    console.error(chalk.red(`  Error: directory does not exist: ${projectDir}`));
+    console.error(
+      chalk.red(`  Error: directory does not exist: ${projectDir}`),
+    );
     process.exitCode = ExitCode.USAGE;
     return;
   }
@@ -274,5 +312,3 @@ export function watch(dir: string, opts: WatchOptions = {}): void {
     watchDaemon(projectDir, opts);
   }
 }
-
-

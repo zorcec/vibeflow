@@ -1,4 +1,10 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TaskSnapshot } from "./watch-events.js";
@@ -10,6 +16,8 @@ export interface WatchState {
   journal: WatchStateEvent[];
   /** Per-consumer read cursors (keyed by consumer name). */
   cursors: Record<string, string>; // consumer -> ISO timestamp
+  /** Previous snapshot per task (for --once diff mode). */
+  previousSnapshots: Record<string, TaskSnapshot>;
   /** Version for future migrations. */
   version: number;
 }
@@ -37,7 +45,12 @@ function atomicWrite(filePath: string, data: string): void {
 export function readWatchState(projectDir: string): WatchState {
   const path = join(projectDir, STATE_FILENAME);
   if (!existsSync(path)) {
-    return { journal: [], cursors: {}, version: STATE_VERSION };
+    return {
+      journal: [],
+      cursors: {},
+      previousSnapshots: {},
+      version: STATE_VERSION,
+    };
   }
   try {
     const raw = readFileSync(path, "utf8");
@@ -47,10 +60,16 @@ export function readWatchState(projectDir: string): WatchState {
       version: parsed.version ?? STATE_VERSION,
       journal: Array.isArray(parsed.journal) ? parsed.journal : [],
       cursors: parsed.cursors ?? {},
+      previousSnapshots: parsed.previousSnapshots ?? {},
     };
   } catch {
     // Corrupted state — reset gracefully
-    return { journal: [], cursors: {}, version: STATE_VERSION };
+    return {
+      journal: [],
+      cursors: {},
+      previousSnapshots: {},
+      version: STATE_VERSION,
+    };
   }
 }
 
@@ -82,27 +101,40 @@ export function appendToJournal(
 /**
  * Get events for a consumer since their last cursor.
  * Advances the cursor to now.
+ * @param tsField - which timestamp field to filter by: 'recordedAt' (default) or 'takenAt'.
+ *                 Use 'takenAt' when journal entries have stable snapshot timestamps
+ *                 and you want to compare against a cursor that may have been set
+ *                 during the same invocation (avoids the "same-run cursor" bug).
  */
 export function getEventsForConsumer(
   projectDir: string,
   consumer: string,
+  tsField: "recordedAt" | "takenAt" = "recordedAt",
+  /**
+   * Optional timestamp to use as "now". When provided, must be the same timestamp
+   * passed to buildAllSnapshots so that entries appended with recordedAt=now
+   * pass the filter (ts <= now) on the same poll cycle.
+   */
+  now?: string,
 ): { events: WatchStateEvent[]; missed: number } {
   const state = readWatchState(projectDir);
   const cursor = state.cursors[consumer] ?? "1970-01-01T00:00:00.000Z";
-  const now = new Date().toISOString();
+  const tsNow = now ?? new Date().toISOString();
 
-  const newEvents = state.journal.filter(
-    (e) => e.recordedAt > cursor && e.recordedAt <= now,
-  );
+  const newEvents = state.journal.filter((e) => {
+    const ts = tsField === "takenAt" ? e.snapshot?.takenAt : e.recordedAt;
+    return ts !== undefined && ts > cursor && ts <= tsNow;
+  });
 
   // Count missed events (older than 1 minute from now)
   const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
-  const missed = state.journal.filter(
-    (e) => e.recordedAt > cursor && e.recordedAt <= cutoff,
-  ).length;
+  const missed = state.journal.filter((e) => {
+    const ts = tsField === "takenAt" ? e.snapshot?.takenAt : e.recordedAt;
+    return ts !== undefined && ts > cursor && ts <= cutoff;
+  }).length;
 
   // Advance cursor
-  state.cursors[consumer] = now;
+  state.cursors[consumer] = tsNow;
   writeWatchState(projectDir, state);
 
   return { events: newEvents, missed };
