@@ -8,6 +8,8 @@
 import type { ProtoSettings } from "./settings.js";
 import { findTaskFilePath, readTaskFile } from "./tasks.js";
 import { listFiles } from "./files.js";
+import { join } from "path";
+import { existsSync } from "fs";
 
 export interface ReviewGateContext {
   projectDir: string;
@@ -64,8 +66,7 @@ export function checkReviewTransition(
     return {
       ok: false,
       code: "COMMIT_MESSAGE_REQUIRED",
-      message:
-        "--commit-message is required (auto-commit setting is ON)",
+      message: "--commit-message is required (auto-commit setting is ON)",
       suggestion:
         'Stage your changes first, then provide a one-line commit summary with --commit-message "fix: description"',
     };
@@ -83,10 +84,7 @@ export function checkReviewTransition(
   }
 
   // Gate 4: verify gate for UI tasks
-  if (
-    ctx.settings.requireVerifyBeforeReview &&
-    !opts.skipVerify
-  ) {
+  if (ctx.settings.requireVerifyBeforeReview && !opts.skipVerify) {
     const taskFilePath = findTaskFilePath(projectDir, taskId);
     const task = taskFilePath ? readTaskFile(taskFilePath) : null;
     if (task) {
@@ -96,13 +94,18 @@ export function checkReviewTransition(
       const isUiTask = Boolean(hasSelector && hasUrl);
 
       if (isUiTask && !task.verified) {
-        return {
-          ok: false,
-          code: "VERIFY_REQUIRED",
-          message:
-            "vibeflow verify is required before setting status to review",
-          suggestion: `Run: vibeflow verify ${taskId}`,
-        };
+        // Skip gate if no baseline.json exists — task was auto-created without annotation
+        const filesDir = join(projectDir, ".vibeflow", "files", taskId);
+        const hasBaseline = existsSync(join(filesDir, "baseline.json"));
+        if (hasBaseline) {
+          return {
+            ok: false,
+            code: "VERIFY_REQUIRED",
+            message:
+              "vibeflow verify is required before setting status to review",
+            suggestion: `Run: vibeflow verify ${taskId}`,
+          };
+        }
       }
     }
   }

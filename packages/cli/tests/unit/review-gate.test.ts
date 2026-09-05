@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { checkReviewTransition } from "../../src/core/review-gate.js";
 import type { ProtoSettings } from "../../src/core/settings.js";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 function makeSettings(overrides: Partial<ProtoSettings> = {}): ProtoSettings {
@@ -139,12 +139,16 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("VERIFY_REQUIRED for UI task when requireVerifyBeforeReview ON", () => {
+  it("VERIFY_REQUIRED for UI task when requireVerifyBeforeReview ON and baseline exists", () => {
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
       verified: false,
     });
+    // Create baseline.json so verify gate fires
+    const baselineDir = join(tmpDir, ".vibeflow", "files", "task-123");
+    mkdirSync(baselineDir, { recursive: true });
+    writeFileSync(join(baselineDir, "baseline.json"), "{}");
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
