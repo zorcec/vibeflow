@@ -12,7 +12,7 @@ interface Props {
       task: Task;
       col: Column;
       liveActivity?: LiveActivity;
-      condensed?: boolean;
+      compact?: boolean;
       onOpen: (task: Task, tab?: "details" | "comments" | "files") => void;
       onDragStart: (e: React.DragEvent, taskId: string) => void;
 }
@@ -144,7 +144,7 @@ export const TaskCard = React.memo(function TaskCard({
       task,
       col,
       liveActivity,
-      condensed,
+      compact,
       onOpen,
       onDragStart,
 }: Props) {
@@ -186,13 +186,16 @@ export const TaskCard = React.memo(function TaskCard({
             onOpen(task);
       }
 
-      // Done column: minimal strikethrough card
-      if (isDone) {
+      // Compact view (any lane) or done column: single-row card
+      if (compact || isDone) {
+            const dotClass =
+                  col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
             return (
                   <article
                         className="task-card"
                         draggable
                         data-task-id={task.id}
+                        data-compact={compact ? "true" : undefined}
                         style={{
                               ...DONE_ARTICLE_STYLE,
                         }}
@@ -201,9 +204,41 @@ export const TaskCard = React.memo(function TaskCard({
                         onClick={handleClick}
                   >
                         <div style={DONE_INNER_ROW_STYLE}>
-                              <CheckCircle style={DONE_CHECK_ICON_STYLE} />
-                              <span style={DONE_TITLE_STYLE}>{task.title}</span>
-                              {task.verified && (
+                              {isDone ? (
+                                    <CheckCircle style={DONE_CHECK_ICON_STYLE} />
+                              ) : (
+                                    <span
+                                          className={dotClass}
+                                          style={{ flexShrink: 0 }}
+                                    />
+                              )}
+                              <span
+                                    style={{
+                                          ...DONE_TITLE_STYLE,
+                                          ...(isDone
+                                                ? {}
+                                                : { color: "var(--p-text)" }),
+                                    }}
+                              >
+                                    {task.title}
+                              </span>
+                              {task.tags && task.tags.length > 0 && (
+                                    <TagPills tags={task.tags} size="xs" />
+                              )}
+                              {(commentCount > 0 || fileCount > 0) && (
+                                    <span
+                                          style={{
+                                                fontSize: 9,
+                                                color: "var(--p-text-m)",
+                                                flexShrink: 0,
+                                          }}
+                                    >
+                                          {commentCount > 0 && `💬${commentCount}`}
+                                          {commentCount > 0 && fileCount > 0 && " "}
+                                          {fileCount > 0 && `📎${fileCount}`}
+                                    </span>
+                              )}
+                              {isDone && task.verified && (
                                     <span style={VERIFIED_BADGE_STYLE}>
                                           ✓ VERIFIED
                                     </span>
@@ -212,7 +247,6 @@ export const TaskCard = React.memo(function TaskCard({
                   </article>
             );
       }
-
       return (
             <article
                   className={`task-card${liveActivity ? " task-live-edit" : ""}`}

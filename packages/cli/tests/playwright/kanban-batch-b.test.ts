@@ -1,5 +1,5 @@
 /**
- * Playwright e2e tests for Batch B UI features: condensed kanban view (B2)
+ * Playwright e2e tests for Batch B UI features: compact kanban view (B2)
  * and fit-screen +N more indicator (B3).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -33,7 +33,7 @@ async function seedTask(
   expect(res.ok).toBe(true);
 }
 
-describe("Batch B — view modes + fit-screen (condensed view removed)", () => {
+describe("Batch B — view modes + fit-screen (compact view)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
@@ -61,22 +61,44 @@ describe("Batch B — view modes + fit-screen (condensed view removed)", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("condensed view mode is gone — board/list only, standard cards", async () => {
-    await seedTask("NOCOND-desc-task", "todo", "NOCOND-MARKER-DESCRIPTION-XYZ");
+  it("compact view: three switches, one-line done-style rows, no strikethrough on open lanes", async () => {
+    await seedTask("COMPACT-desc-task", "todo", "COMPACT-MARKER-DESCRIPTION-XYZ");
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
-    // No condensed toggle or condensed cards anywhere
-    expect(await page.locator('[title="Condensed view"]').count()).toBe(0);
-    expect(await page.locator("article.condensed-card").count()).toBe(0);
+    // Three view switches: board | compact | list
+    expect(await page.locator('[title="Board view"]').count()).toBe(1);
+    expect(await page.locator('[title="Compact view"]').count()).toBe(1);
+    expect(await page.locator('[title="List view"]').count()).toBe(1);
     // Board view renders full cards with descriptions
     await page.click('[title="Board view"]');
     await page.waitForFunction(
       () =>
         (document.body.textContent ?? "").includes(
-          "NOCOND-MARKER-DESCRIPTION-XYZ",
+          "COMPACT-MARKER-DESCRIPTION-XYZ",
         ),
       { timeout: 5_000 },
     );
+    // Compact view: one-line rows, description hidden
+    await page.click('[title="Compact view"]');
+    await page.waitForSelector("article.task-card[data-compact]");
+    await page.waitForFunction(
+      () =>
+        !(document.body.textContent ?? "").includes(
+          "COMPACT-MARKER-DESCRIPTION-XYZ",
+        ),
+      { timeout: 5_000 },
+    );
+    // Open-lane compact rows must not be struck through
+    const struck = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll(
+          "article.task-card[data-compact] span",
+        ),
+      ).filter((el) =>
+        getComputedStyle(el).textDecorationLine.includes("line-through"),
+      ).length,
+    );
+    expect(struck).toBe(0);
   });
 
   // Owner rule: fit-to-screen applies to the DONE lane only. Other lanes

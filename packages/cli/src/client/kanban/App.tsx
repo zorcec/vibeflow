@@ -31,7 +31,7 @@ import {
   type ChangelogSection,
 } from "./whats-new.js";
 
-type ViewMode = "board" | "list";
+type ViewMode = "board" | "compact" | "list";
 
 // SAFETY: __PORT__ is injected by the CLI dev server at build time.
 const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
@@ -889,11 +889,11 @@ export function App() {
       const settings = settingsData as AppSettings;
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
-      // Stale persisted "condensed" (pre-removal) falls back to board.
+      // Stale persisted "condensed" (pre-compact) maps to compact.
       if (settings.viewMode)
         setViewMode(
           (settings.viewMode as string) === "condensed"
-            ? "board"
+            ? "compact"
             : settings.viewMode,
         );
       if (
@@ -1229,6 +1229,7 @@ export function App() {
             visibleCols={visibleCols}
             searchQuery={searchQuery}
             isLoading={isLoading}
+            compact={viewMode === "compact"}
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
             onReorder={handleReorder}

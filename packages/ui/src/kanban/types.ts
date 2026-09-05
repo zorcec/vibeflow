@@ -110,7 +110,7 @@ export interface FilePreviewState {
   url: string;
 }
 
-export type ViewMode = 'board' | 'list';
+export type ViewMode = 'board' | 'compact' | 'list';
 
 export interface AppSettings {
   visibleCols?: TaskStatus[];

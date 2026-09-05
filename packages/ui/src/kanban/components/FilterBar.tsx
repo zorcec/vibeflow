@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, List, Tag, ChevronDown, X, User } from 'lucide-react';
+import { LayoutDashboard, List, Rows3, Tag, ChevronDown, X, User } from 'lucide-react';
 import type { Task, TaskStatus, TaskType } from '../types';
 import { getTagColors } from '../tag-colors';
 
@@ -31,8 +31,8 @@ interface Props {
   tasks: Task[];
   filter: FilterState;
   onFilter: (f: FilterState) => void;
-  view?: 'board' | 'list';
-  onViewChange?: (view: 'board' | 'list') => void;
+  view?: 'board' | 'compact' | 'list';
+  onViewChange?: (view: 'board' | 'compact' | 'list') => void;
   activityCounter?: React.ReactNode;
 }
 
@@ -294,6 +294,13 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           onClick={(e) => { e.stopPropagation(); onViewChange?.('board'); }}
         >
           <LayoutDashboard style={{ width:13, height:13 }} />
+        </button>
+        <button
+          title="Compact view"
+          style={{ padding:'4px 7px', borderRadius:5, background: view === 'compact' ? 'var(--p-surface)' : 'none', color: view === 'compact' ? 'var(--p-text-sub)' : 'var(--p-text-g)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
+          onClick={(e) => { e.stopPropagation(); onViewChange?.('compact'); }}
+        >
+          <Rows3 style={{ width:13, height:13 }} />
         </button>
         <button
           title="List view"

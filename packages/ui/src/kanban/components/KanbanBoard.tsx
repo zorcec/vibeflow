@@ -111,6 +111,8 @@ interface Props {
     columnId?: TaskStatus,
   ) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
+  /** Compact view: one-line done-style rows across all lanes. */
+  compact?: boolean;
   /** Called when a task is dropped at a specific position within/across columns. */
   onReorder?: (
     taskId: string,
@@ -127,6 +129,7 @@ export function KanbanBoard({
   searchQuery,
   isLoading,
   liveActivities,
+  compact,
   onOpenPanel,
   onDrop,
   onReorder,
@@ -313,6 +316,7 @@ export function KanbanBoard({
               tasks={displayTasks}
               isLoading={isLoading}
               liveActivities={liveActivities}
+              compact={compact}
               isDragOver={dragOver === col.id && !cardDropTarget}
               onDragOver={(e) => handleDragOver(e, col.id)}
               onDrop={(e) => handleDrop(e, col.id, colTasks)}
@@ -406,6 +410,8 @@ interface ColumnProps {
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
   cardDropTarget: DropTarget | null;
+  /** Compact view: one-line done-style rows. */
+  compact?: boolean;
   /** True while a card drag is active — fit-screen hiding is suspended. */
   isDragging?: boolean;
 }
@@ -425,6 +431,7 @@ function KanbanColumn({
   onDragStart,
   onCardDragOver,
   cardDropTarget,
+  compact,
   isDragging,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
@@ -593,6 +600,7 @@ function KanbanColumn({
                   task={task}
                   col={col}
                   liveActivity={liveActivities?.get(task.id)}
+                  compact={compact}
                   onOpen={onOpenTask}
                   onDragStart={onDragStart}
                 />
