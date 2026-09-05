@@ -18,7 +18,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   Critical: 'var(--p-red)', High: 'var(--p-amber-300)', Medium: 'var(--p-text-m)', Low: 'var(--p-text-f)',
 };
 
-const STATUS_ORDER: TaskStatus[] = ['in-progress', 'review', 'todo', 'backlog', 'done'];
+const STATUS_ORDER: TaskStatus[] = ['todo', 'in-progress', 'review', 'backlog', 'done'];
 
 interface Props {
   tasks: Task[];
