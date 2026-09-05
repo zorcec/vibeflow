@@ -205,7 +205,9 @@ export const TaskCard = React.memo(function TaskCard({
                   >
                         <div style={DONE_INNER_ROW_STYLE}>
                               {isDone ? (
-                                    <CheckCircle style={DONE_CHECK_ICON_STYLE} />
+                                    <CheckCircle
+                                          style={DONE_CHECK_ICON_STYLE}
+                                    />
                               ) : (
                                     <span
                                           className={dotClass}
@@ -223,23 +225,34 @@ export const TaskCard = React.memo(function TaskCard({
                                     {task.title}
                               </span>
                               {/* Compact/done: title only — no tags, no counts */}
-                              {!compact && !isDone && task.tags && task.tags.length > 0 && (
-                                    <TagPills tags={task.tags} size="xs" />
-                              )}
-                              {!compact && !isDone &&
+                              {!compact &&
+                                    !isDone &&
+                                    task.tags &&
+                                    task.tags.length > 0 && (
+                                          <TagPills
+                                                tags={task.tags}
+                                                size="xs"
+                                          />
+                                    )}
+                              {!compact &&
+                                    !isDone &&
                                     (commentCount > 0 || fileCount > 0) && (
-                                    <span
-                                          style={{
-                                                fontSize: 9,
-                                                color: "var(--p-text-m)",
-                                                flexShrink: 0,
-                                          }}
-                                    >
-                                          {commentCount > 0 && `💬${commentCount}`}
-                                          {commentCount > 0 && fileCount > 0 && " "}
-                                          {fileCount > 0 && `📎${fileCount}`}
-                                    </span>
-                              )}
+                                          <span
+                                                style={{
+                                                      fontSize: 9,
+                                                      color: "var(--p-text-m)",
+                                                      flexShrink: 0,
+                                                }}
+                                          >
+                                                {commentCount > 0 &&
+                                                      `💬${commentCount}`}
+                                                {commentCount > 0 &&
+                                                      fileCount > 0 &&
+                                                      " "}
+                                                {fileCount > 0 &&
+                                                      `📎${fileCount}`}
+                                          </span>
+                                    )}
                               {isDone && task.verified && (
                                     <span style={VERIFIED_BADGE_STYLE}>
                                           ✓ VERIFIED

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.0
+
+### Minor Changes
+
+- 148cd3c: Kanban: new Compact view mode (Board | Compact | List). Compact shows one-line rows across all lanes — no tags, no comment/file counts. Done lane fits cards to screen height with "+N more" indicator. Overlay: add-task dialog now has an Advanced section with tag chips and priority selector.
+- c57b423: Verify gate: optional enforcement in Settings > Enforcement. When ON, agents must run `vibeflow verify` before setting status to review. Auto-skips for non-UI tasks. `--skip-verify` flag available as bypass.
+
+### Patch Changes
+
+- ef67d56: Comment edits now broadcast to live UI. File uploads reject reserved filenames (.env, .git\*, .linked.json). Task schema limits enforced (titles 500 chars, descriptions 10K, URLs 2K).
+- 7f96921: File upload validation hardened: rejects filenames with leading dots, enforces max length (255 chars), and validates extensions against an allowlist. 24 new tests.
+- 074e376: Concurrent task writes now safely serialized via cross-process lock. GET endpoints are side-effect-free. Unified priority sorting across CLI and API.
+- 16112b3: Atomic task claim: `--next` now re-checks status inside a lock, preventing double-claims under concurrent access.
+- 803ca05: Review gate shared between CLI and REST. PATCH route now filters unexpected fields. Comment and verify requirements enforced.
+- cf9dc82: Push dry-run mode, orphan task cleanup, verify cancellation via AbortSignal, serve deduplication.
+- 1c3385d: Schema validation now enforces max lengths on task titles, descriptions, URLs, and selectors. Oversized fields are rejected with a clear error instead of being silently stored.
+- 405b3f8: Fix file count badge display and changelog button styling in the kanban UI.
+
 ## 0.11.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @vibeflow-tools/ui
 
+## 0.2.0
+
+### Minor Changes
+
+- 148cd3c: Kanban: new Compact view mode (Board | Compact | List). Compact shows one-line rows across all lanes — no tags, no comment/file counts. Done lane fits cards to screen height with "+N more" indicator. Overlay: add-task dialog now has an Advanced section with tag chips and priority selector.
+- c57b423: Verify gate: optional enforcement in Settings > Enforcement. When ON, agents must run `vibeflow verify` before setting status to review. Auto-skips for non-UI tasks. `--skip-verify` flag available as bypass.
+
+### Patch Changes
+
+- dbff0c7: fix(ui): align VibeflowIcon bar geometry with brand mark (centered bars, uniform width)
+
 ## 0.1.3
 
 ### Patch Changes
