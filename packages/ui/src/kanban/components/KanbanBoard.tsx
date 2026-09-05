@@ -434,47 +434,58 @@ function KanbanColumn({
   isDragging,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
-  // B3: fit-screen — hide cards that overflow the visible column height.
+  // B3: fit-screen — stable declarative overflow handling. The scroll
+  // container height is observed; cards are never mutated imperatively.
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  const [fitHidden, setFitHidden] = React.useState(0);
+  const [colHeight, setColHeight] = React.useState(0);
+  const [cardH, setCardH] = React.useState(0);
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const applyFit = () => {
-      const kids = Array.from(el.children) as HTMLElement[];
-      if (isDragging || isLoading) {
-        for (const k of kids) k.style.display = "";
-        setFitHidden(0);
-        return;
-      }
-      const limit = el.getBoundingClientRect().bottom - 34;
-      let shown = 0;
-      let hidden = 0;
-      for (const k of kids) {
-        if (k.hasAttribute("data-fit-chip") || k.hasAttribute("data-older-chip")) continue;
-        if (!k.querySelector("[data-task-id]")) continue;
-        if (shown >= 1 && k.getBoundingClientRect().bottom > limit) {
-          k.style.display = "none";
-          hidden += 1;
-        } else {
-          k.style.display = "";
-          shown += 1;
-        }
-      }
-      setFitHidden((prev) => (prev === hidden ? prev : hidden));
-    };
-    applyFit();
-    const ro = new ResizeObserver(applyFit);
+    setColHeight((prev) => (prev === el.clientHeight ? prev : el.clientHeight));
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setColHeight((prev) =>
+          prev === el.clientHeight ? prev : el.clientHeight,
+        );
+      });
+    });
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [tasks, condensed, isDragging, isLoading]);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+  React.useEffect(() => {
+    if (isDragging || isLoading || tasks.length === 0) return;
+    const raf = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const first = el.querySelector("[data-task-id]") as HTMLElement | null;
+      if (!first || first.offsetHeight <= 0) return;
+      setCardH((prev) =>
+        prev === first.offsetHeight ? prev : first.offsetHeight,
+      );
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [tasks.length, condensed, isDragging, isLoading]);
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
   const DONE_LIMIT = 10;
   const isDone = col.id === "done";
-  const hiddenCount =
-    isDone && tasks.length > DONE_LIMIT ? tasks.length - DONE_LIMIT : 0;
-  const visibleTasks = isDone ? tasks.slice(0, DONE_LIMIT) : tasks;
+  const CHIP_H = 34;
+  const COLUMN_GAP = 5;
+  const availableForCards = Math.max(0, colHeight - CHIP_H + COLUMN_GAP);
+  const perCard = cardH + COLUMN_GAP;
+  const fitCount =
+    cardH > 0 && colHeight > 0 && !isDragging && !isLoading
+      ? Math.max(1, Math.floor(availableForCards / perCard))
+      : tasks.length;
+  const doneCapped = isDone ? Math.min(DONE_LIMIT, fitCount) : fitCount;
+  const visibleTasks = tasks.slice(0, doneCapped);
+  const overflow = tasks.length - visibleTasks.length;
 
   return (
     <section
@@ -593,26 +604,7 @@ function KanbanColumn({
                   )}
               </div>
             ))}
-            {hiddenCount > 0 && (
-              <div
-                data-older-chip
-                style={{
-                  background: "var(--p-card)",
-                  border: "2px dashed var(--p-border-t)",
-                  borderRadius: 10,
-                  padding: "11px 13px",
-                  fontSize: 12,
-                  color: "var(--p-text-g)",
-                  textAlign: "center",
-                  lineHeight: 1.4,
-                  opacity: 0.7,
-                }}
-              >
-                +{hiddenCount} older {hiddenCount === 1 ? "task" : "tasks"} not
-                shown. Use search to find them.
-              </div>
-            )}
-            {fitHidden > 0 && (
+            {overflow > 0 && (
               <div
                 data-fit-chip
                 style={{
@@ -627,7 +619,7 @@ function KanbanColumn({
                   opacity: 0.7,
                 }}
               >
-                +{fitHidden} more
+                +{overflow} more
               </div>
             )}
           </>

@@ -94,13 +94,13 @@ describe("Batch B — condensed view + fit-screen", () => {
     await page.setViewportSize({ width: 1440, height: 640 });
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll(
-          "[data-column-id='todo'] article.task-card",
-        ).length >= 10,
-      { timeout: 10_000 },
-    );
+    await page.waitForFunction(() => {
+      const column = document.querySelector("[data-column-id='todo']");
+      const cards = column?.querySelectorAll("article.task-card").length ?? 0;
+      const chip = column?.querySelector("[data-fit-chip]");
+      const hidden = Number(chip?.textContent?.match(/\+(\d+) more/)?.[1] ?? 0);
+      return cards >= 1 && cards + hidden >= 15;
+    }, { timeout: 10_000 });
     // Allow the fit-screen effect + ResizeObserver to settle
     await page.waitForTimeout(600);
 
@@ -118,6 +118,46 @@ describe("Batch B — condensed view + fit-screen", () => {
           .length,
     );
     expect(hiddenBefore).toBe(1);
+
+    // Five data updates must not imperatively mutate card display styles.
+    let displayFlips = 0;
+    for (let i = 0; i < 5; i++) {
+      await seedTask(`STABILITY-${i}`, "todo");
+      await page.reload();
+      await page.waitForSelector("#kanban-board");
+      displayFlips += await page.evaluate(
+        () =>
+          new Promise<number>((resolve) => {
+            const snapshot = new Map<string, string>();
+            let flips = 0;
+            const recordDisplays = () => {
+              document
+                .querySelectorAll<HTMLElement>("[data-task-id]")
+                .forEach((card) => {
+                  const key = card.getAttribute("data-task-id") ?? "";
+                  const display = card.style.display;
+                  if (snapshot.has(key) && snapshot.get(key) !== display) {
+                    flips += 1;
+                  }
+                  snapshot.set(key, display);
+                });
+            };
+            recordDisplays();
+            const observer = new MutationObserver(recordDisplays);
+            observer.observe(document.body, {
+              attributes: true,
+              attributeFilter: ["style"],
+              childList: true,
+              subtree: true,
+            });
+            window.setTimeout(() => {
+              observer.disconnect();
+              resolve(flips);
+            }, 800);
+          }),
+      );
+    }
+    expect(displayFlips).toBe(0);
 
     // Taller viewport → fewer hidden cards (chip shrinks or disappears)
     await page.setViewportSize({ width: 1440, height: 1400 });
