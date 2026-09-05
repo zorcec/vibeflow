@@ -19,7 +19,8 @@ async function seedTask(
   title: string,
   status: string,
   description?: string,
-): Promise<void> {
+  tags?: string[],
+): Promise<string> {
   const res = await fetch(API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -28,9 +29,12 @@ async function seedTask(
       description: description ?? `Description of ${title}`,
       selector: "/",
       status,
+      ...(tags ? { tags } : {}),
     }),
   });
   expect(res.ok).toBe(true);
+  const body = (await res.json()) as { id?: string; task?: { id?: string } };
+  return body.id ?? body.task?.id ?? "";
 }
 
 describe("Batch B — view modes + fit-screen (compact view)", () => {
@@ -62,7 +66,18 @@ describe("Batch B — view modes + fit-screen (compact view)", () => {
   });
 
   it("compact view: three switches, one-line done-style rows, no strikethrough on open lanes", async () => {
-    await seedTask("COMPACT-desc-task", "todo", "COMPACT-MARKER-DESCRIPTION-XYZ");
+    const taggedId = await seedTask(
+      "COMPACT-desc-task",
+      "todo",
+      "COMPACT-MARKER-DESCRIPTION-XYZ",
+      ["COMPACT-TAG-XYZ"],
+    );
+    // One comment → comment count badge in board view.
+    await fetch(`${API}/${encodeURIComponent(taggedId)}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author: "pw", text: "compact count probe" }),
+    });
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
     // Three view switches: board | compact | list
@@ -88,6 +103,20 @@ describe("Batch B — view modes + fit-screen (compact view)", () => {
         ),
       { timeout: 5_000 },
     );
+    // Compact rows: title only — no tags, no comment/file counts.
+    const compactMeta = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll("article.task-card[data-compact]"),
+      ).some((card) => {
+        const text = card.textContent ?? "";
+        return (
+          text.includes("COMPACT-TAG-XYZ") ||
+          text.includes("\uD83D\uDCAC") ||
+          text.includes("\uD83D\uDCCE")
+        );
+      }),
+    );
+    expect(compactMeta).toBe(false);
     // Open-lane compact rows must not be struck through
     const struck = await page.evaluate(() =>
       Array.from(
