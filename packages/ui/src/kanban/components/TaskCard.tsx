@@ -222,11 +222,11 @@ export const TaskCard = React.memo(function TaskCard({
                               >
                                     {task.title}
                               </span>
-                              {/* Compact view: title only — no tags, no counts */}
-                              {!compact && task.tags && task.tags.length > 0 && (
+                              {/* Compact/done: title only — no tags, no counts */}
+                              {!compact && !isDone && task.tags && task.tags.length > 0 && (
                                     <TagPills tags={task.tags} size="xs" />
                               )}
-                              {!compact &&
+                              {!compact && !isDone &&
                                     (commentCount > 0 || fileCount > 0) && (
                                     <span
                                           style={{
