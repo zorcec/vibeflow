@@ -2516,13 +2516,27 @@ program
 program
   .command("watch")
   .description(
-    "Watch the task store and print ticket details for important updates (new tasks, tasks moved to todo)",
+    "Watch the task store for task updates (new, moved-to-todo, status, comments, files, priority, description).\n" +
+    "  Daemon mode (default): watch continuously and print ticket details.\n" +
+    "  --once mode: one-shot poll, emit events, exit.\n" +
+    "  --json: emit JSONL to stdout.\n" +
+    "  --output <file>: append JSONL to file.\n" +
+    "  --webhook <url>: POST each event to URL.\n" +
+    "  State: .vibeflow/watch-state.json (append-only journal, per-consumer cursors).\n" +
+    "  Gap rule: events older than 1 min that were not delivered trigger a gap event.",
   )
   .argument("[dir]", "Project root directory", ".")
-  .action(async (dir: string) => {
+  .option("--json", "Emit events as JSONL lines to stdout")
+  .option("--output <file>", "Append JSONL events to a file")
+  .option("--webhook <url>", "POST each event as JSON to a webhook URL")
+  .option("--once", "One-shot poll: diff against state, emit events, exit")
+  .action(async (
+    dir: string,
+    opts: { json?: boolean; output?: string; webhook?: string; once?: boolean },
+  ) => {
     capture("command_run", { command: "watch" });
     await flushTelemetry();
-    watch(dir);
+    watch(dir, opts);
   });
 
 program

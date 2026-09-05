@@ -13,6 +13,25 @@ import { readConfig } from "../core/config.js";
 import { createTaskWatcher } from "../server/watcher.js";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
+import {
+  type WatchEvent,
+  type TaskSnapshot,
+  buildTaskSnapshot,
+  diffTaskSnapshots,
+} from "../core/watch-events.js";
+import {
+  getEventsForConsumer,
+  readWatchState,
+  writeWatchState,
+} from "../core/watch-state.js";
+import { createSink } from "../core/watch-sinks.js";
+
+export interface WatchOptions {
+  json?: boolean;
+  output?: string;
+  webhook?: string;
+  once?: boolean;
+}
 
 /**
  * Classifies a task update into an "important" event or nothing.
@@ -49,36 +68,59 @@ function renderTicket(projectDir: string, taskId: string): string | null {
   }
 }
 
-/**
- * Watches the local task store for important updates and prints the full ticket
- * details whenever a task is newly created or moved back to `todo`.
- * Runs until the process is interrupted (Ctrl+C).
- */
-export function watch(dir: string): void {
-  const projectDir = resolve(dir);
-
-  // Validate the directory exists and is actually a directory.
-  if (!existsSync(projectDir)) {
-    console.error(chalk.red(`  Error: directory does not exist: ${projectDir}`));
-    process.exitCode = ExitCode.USAGE;
-    return;
-  }
-  if (!statSync(projectDir).isDirectory()) {
-    console.error(chalk.red(`  Error: not a directory: ${projectDir}`));
-    process.exitCode = ExitCode.USAGE;
-    return;
-  }
-
-  // Ensure the task store exists before watching — chokidar does not detect
-  // creation of a previously non-existent watch root.
-  ensureTaskDirs(projectDir);
-  const tasksDir = join(projectDir, PROTO_DIR, TASKS_DIR);
-
-  // Baseline snapshot of statuses, used to distinguish "new" from "status change".
-  const statusById = new Map<string, string>();
+/** Build a full snapshot of all tasks at the current moment. */
+function buildAllSnapshots(
+  projectDir: string,
+  now: string,
+): Map<string, TaskSnapshot> {
+  const snapshots = new Map<string, TaskSnapshot>();
   for (const task of listTasksWithPaths(projectDir)) {
-    statusById.set(task.id, task.status);
+    try {
+      const comments = listComments(projectDir, task.id);
+      const files = listFiles(projectDir, task.id);
+      const lastCommentAt = comments.length > 0
+        ? comments[comments.length - 1].createdAt
+        : undefined;
+      snapshots.set(
+        task.id,
+        buildTaskSnapshot(task, comments.length, lastCommentAt, files.length, now),
+      );
+    } catch {
+      // Skip tasks that fail to snapshot
+    }
   }
+  return snapshots;
+}
+
+/**
+ * Emit gap event for events older than 1 minute that were not delivered.
+ */
+function emitGapEvent(sink: ReturnType<typeof createSink>, missed: number): void {
+  if (missed === 0) return;
+  const now = new Date().toISOString();
+  const event: WatchEvent = {
+    type: "gap",
+    taskId: "",
+    timestamp: now,
+    missedMinutes: missed,
+    message:
+      `Many changes detected (${missed} events older than 1 min) — run ` +
+      `tasks --status todo to catch up. Future events will be returned with --once.`,
+  };
+  sink.emit(event);
+}
+
+/** Daemon mode: watch for changes and emit events as they happen. */
+function watchDaemon(
+  projectDir: string,
+  opts: WatchOptions,
+): void {
+  const tasksDir = join(projectDir, PROTO_DIR, TASKS_DIR);
+  const sink = createSink(opts);
+
+  // Baseline snapshots
+  const now = new Date().toISOString();
+  const snapshots = buildAllSnapshots(projectDir, now);
 
   const announce = (kind: "new" | "moved-to-todo", taskId: string): void => {
     try {
@@ -105,16 +147,32 @@ export function watch(dir: string): void {
       try {
         const task = readTaskFile(filePath);
         if (!task) return;
-        const prev = statusById.get(task.id);
-        const kind = classifyTaskUpdate(prev, task.status);
-        statusById.set(task.id, task.status);
-        if (kind) announce(kind, task.id);
+        const prev = snapshots.get(task.id);
+        const ts = new Date().toISOString();
+
+        // Rebuild snapshot for this task
+        const comments = listComments(projectDir, task.id);
+        const files = listFiles(projectDir, task.id);
+        const lastCommentAt =
+          comments.length > 0 ? comments[comments.length - 1].createdAt : undefined;
+        const next = buildTaskSnapshot(task, comments.length, lastCommentAt, files.length, ts);
+
+        // Emit events
+        const events = diffTaskSnapshots(task, prev, next);
+        snapshots.set(task.id, next);
+
+        for (const event of events) {
+          sink.emit(event);
+          if (!opts.json && (event.type === "new" || event.type === "moved-to-todo")) {
+            announce(event.type, event.taskId);
+          }
+        }
       } catch (err) {
         console.error(chalk.red(`  Error processing ${basename(filePath)}:`), err);
       }
     },
     onDeleted: (filePath) => {
-      statusById.delete(basename(filePath, ".json"));
+      snapshots.delete(basename(filePath, ".json"));
     },
   });
 
@@ -129,17 +187,92 @@ export function watch(dir: string): void {
   console.log(chalk.dim("  Press Ctrl+C to stop."));
   console.log();
 
-  // chokidar keeps the event loop alive; close cleanly on interrupt.
   process.once("SIGINT", () => {
     void watcher.close().then(
-      () => {
-        console.log(chalk.dim("\n  Watch stopped."));
-        process.exit(0);
-      },
-      () => process.exit(0),
+      () => { sink.close?.(); console.log(chalk.dim("\n  Watch stopped.")); process.exit(0); },
+      () => { sink.close?.(); process.exit(0); },
     );
   });
   process.once("SIGTERM", () => {
-    void watcher.close().then(() => process.exit(0), () => process.exit(0));
+    void watcher.close().then(() => { sink.close?.(); process.exit(0); }, () => { sink.close?.(); process.exit(0); });
   });
 }
+
+/** --once mode: one-shot poll, diff against state, emit events, exit. */
+function watchOnce(projectDir: string, opts: WatchOptions): void {
+  const sink = createSink(opts);
+  const now = new Date().toISOString();
+
+  // Build current snapshots
+  const currentSnapshots = buildAllSnapshots(projectDir, now);
+
+  // Append current snapshots to the journal (for other consumers)
+  for (const [taskId, snapshot] of currentSnapshots) {
+    const state = readWatchState(projectDir);
+    state.journal.push({ taskId, snapshot, recordedAt: now });
+    // Cap journal at 1 min
+    const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
+    state.journal = state.journal.filter((e: { recordedAt: string }) => e.recordedAt > cutoff);
+    writeWatchState(projectDir, state);
+  }
+
+  // Get events for this consumer
+  const { events, missed } = getEventsForConsumer(projectDir, "cli-once");
+
+  // Emit gap event if there are missed events
+  if (missed > 0) {
+    emitGapEvent(sink, missed);
+  }
+
+  // Emit events from the journal
+  for (const { snapshot } of events) {
+    // Reconstruct the task for diffing
+    const task = listTasksWithPaths(projectDir).find((t) => t.id === snapshot.taskId);
+    if (!task) continue;
+
+    const currentSnapshot = currentSnapshots.get(snapshot.taskId);
+    const events2 = diffTaskSnapshots(task, snapshot, currentSnapshot ?? snapshot);
+    for (const event of events2) {
+      sink.emit(event);
+    }
+  }
+
+  sink.close?.();
+  process.exit(0);
+}
+
+/**
+ * Watches the local task store for important updates.
+ *
+ * Default (daemon): runs until interrupted, notifies on new/moved-to-todo.
+ * --once: one-shot poll, diff against state, emit events, exit.
+ *
+ * Output modes:
+ * --json       emit JSONL to stdout
+ * --output <f> append JSONL to file
+ * --webhook <u> POST each event to URL
+ */
+export function watch(dir: string, opts: WatchOptions = {}): void {
+  const projectDir = resolve(dir);
+
+  if (!existsSync(projectDir)) {
+    console.error(chalk.red(`  Error: directory does not exist: ${projectDir}`));
+    process.exitCode = ExitCode.USAGE;
+    return;
+  }
+  if (!statSync(projectDir).isDirectory()) {
+    console.error(chalk.red(`  Error: not a directory: ${projectDir}`));
+    process.exitCode = ExitCode.USAGE;
+    return;
+  }
+
+  ensureTaskDirs(projectDir);
+
+  if (opts.once) {
+    watchOnce(projectDir, opts);
+  } else {
+    watchDaemon(projectDir, opts);
+  }
+}
+
+
