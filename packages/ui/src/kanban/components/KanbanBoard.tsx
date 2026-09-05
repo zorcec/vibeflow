@@ -111,8 +111,6 @@ interface Props {
     columnId?: TaskStatus,
   ) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
-  /** Condensed 2-line card variant (B2 view mode). */
-  condensed?: boolean;
   /** Called when a task is dropped at a specific position within/across columns. */
   onReorder?: (
     taskId: string,
@@ -131,7 +129,6 @@ export function KanbanBoard({
   liveActivities,
   onOpenPanel,
   onDrop,
-  condensed,
   onReorder,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
@@ -341,7 +338,6 @@ export function KanbanBoard({
               onDragStart={handleDragStart}
               onCardDragOver={handleCardDragOver}
               cardDropTarget={cardDropTarget}
-              condensed={condensed}
               isDragging={dragTaskId !== null}
             />
           );
@@ -410,7 +406,6 @@ interface ColumnProps {
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
   cardDropTarget: DropTarget | null;
-  condensed?: boolean;
   /** True while a card drag is active — fit-screen hiding is suspended. */
   isDragging?: boolean;
 }
@@ -430,7 +425,6 @@ function KanbanColumn({
   onDragStart,
   onCardDragOver,
   cardDropTarget,
-  condensed,
   isDragging,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
@@ -474,7 +468,7 @@ function KanbanColumn({
       );
     });
     return () => cancelAnimationFrame(raf);
-  }, [tasks.length, condensed, isDragging, isLoading]);
+  }, [tasks.length, isDragging, isLoading]);
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
   // DONE_LIMIT is only a fallback cap for the done lane before measurement
@@ -599,7 +593,6 @@ function KanbanColumn({
                   task={task}
                   col={col}
                   liveActivity={liveActivities?.get(task.id)}
-                  condensed={condensed}
                   onOpen={onOpenTask}
                   onDragStart={onDragStart}
                 />

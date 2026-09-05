@@ -33,7 +33,7 @@ async function seedTask(
   expect(res.ok).toBe(true);
 }
 
-describe("Batch B — condensed view + fit-screen", () => {
+describe("Batch B — view modes + fit-screen (condensed view removed)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
@@ -61,27 +61,19 @@ describe("Batch B — condensed view + fit-screen", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("condensed toggle renders 2-line cards without descriptions", async () => {
-    await seedTask("COND-desc-task", "todo", "CONDENSED-MARKER-DESCRIPTION-XYZ");
+  it("condensed view mode is gone — board/list only, standard cards", async () => {
+    await seedTask("NOCOND-desc-task", "todo", "NOCOND-MARKER-DESCRIPTION-XYZ");
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
-
-    await page.click('[title="Condensed view"]');
-    await page.waitForSelector("article.condensed-card");
-
-    const condensedCount = await page.evaluate(
-      () => document.querySelectorAll("article.condensed-card").length,
-    );
-    expect(condensedCount).toBeGreaterThan(0);
-    // Description text must not leak into the condensed card
-    const bodyText = await page.evaluate(() => document.body.textContent ?? "");
-    expect(bodyText).not.toContain("CONDENSED-MARKER-DESCRIPTION-XYZ");
-    // Full board view restores the description
+    // No condensed toggle or condensed cards anywhere
+    expect(await page.locator('[title="Condensed view"]').count()).toBe(0);
+    expect(await page.locator("article.condensed-card").count()).toBe(0);
+    // Board view renders full cards with descriptions
     await page.click('[title="Board view"]');
     await page.waitForFunction(
       () =>
         (document.body.textContent ?? "").includes(
-          "CONDENSED-MARKER-DESCRIPTION-XYZ",
+          "NOCOND-MARKER-DESCRIPTION-XYZ",
         ),
       { timeout: 5_000 },
     );

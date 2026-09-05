@@ -31,7 +31,7 @@ import {
   type ChangelogSection,
 } from "./whats-new.js";
 
-type ViewMode = "board" | "list" | "condensed";
+type ViewMode = "board" | "list";
 
 // SAFETY: __PORT__ is injected by the CLI dev server at build time.
 const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
@@ -889,7 +889,13 @@ export function App() {
       const settings = settingsData as AppSettings;
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
-      if (settings.viewMode) setViewMode(settings.viewMode);
+      // Stale persisted "condensed" (pre-removal) falls back to board.
+      if (settings.viewMode)
+        setViewMode(
+          (settings.viewMode as string) === "condensed"
+            ? "board"
+            : settings.viewMode,
+        );
       if (
         settings.panelWidth &&
         settings.panelWidth >= 280 &&
@@ -1226,7 +1232,6 @@ export function App() {
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
             onReorder={handleReorder}
-            condensed={viewMode === "condensed"}
           />
         )}
 
