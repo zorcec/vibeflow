@@ -44,6 +44,46 @@ export interface SubmitTaskSource {
   component?: string;
 }
 
+export interface SubmitTaskAdvanced {
+  tags?: string[];
+  priority?: string;
+}
+
+export function buildTaskPayload(args: {
+  selector: string;
+  cssSelector: string;
+  title: string;
+  description: string;
+  status?: string;
+  source?: SubmitTaskSource;
+  type?: string;
+  annotatedElementText?: string;
+  boardId?: string;
+  advanced?: SubmitTaskAdvanced;
+}): Record<string, unknown> {
+  const tags =
+    Array.isArray(args.advanced?.tags) && args.advanced.tags.length > 0
+      ? args.advanced.tags
+      : undefined;
+  return {
+    title: args.title,
+    description: args.description,
+    selector: args.selector,
+    cssSelector: args.cssSelector || null,
+    url: typeof location !== "undefined" ? location.pathname : undefined,
+    status: args.status || undefined,
+    file: args.source?.file ?? null,
+    line: args.source?.line ?? null,
+    col: args.source?.col ?? null,
+    component: args.source?.component ?? null,
+    type: args.type || null,
+    annotatedElementText: args.annotatedElementText || null,
+    priority: args.advanced?.priority || undefined,
+    tags,
+    ...(args.boardId ? { boardId: args.boardId } : {}),
+  };
+}
+
 export function submitTask(
   selector: string,
   cssSelector: string,
@@ -53,6 +93,7 @@ export function submitTask(
   source?: SubmitTaskSource,
   type?: string,
   annotatedElementText?: string,
+  advanced?: SubmitTaskAdvanced,
 ): Promise<{ success: boolean; taskId?: string; taskAuthor?: string }> {
   // SAFETY: PROTO_CONFIG.apiUrl is a build-time constant injected by the CLI bundler,
   // always pointing to the local CLI server (e.g. http://localhost:3700/api/tasks).
@@ -74,21 +115,20 @@ export function submitTask(
   return fetch(fetchUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title,
-      description,
-      selector,
-      cssSelector: cssSelector || null,
-      url: location.pathname,
-      status: status || undefined,
-      file: source?.file ?? null,
-      line: source?.line ?? null,
-      col: source?.col ?? null,
-      component: source?.component ?? null,
-      type: type || null,
-      annotatedElementText: annotatedElementText || null,
-      ...(PROTO_CONFIG.boardId ? { boardId: PROTO_CONFIG.boardId } : {}),
-    }),
+    body: JSON.stringify(
+      buildTaskPayload({
+        selector,
+        cssSelector,
+        title,
+        description,
+        status,
+        source,
+        type,
+        annotatedElementText,
+        advanced,
+        boardId: PROTO_CONFIG.boardId,
+      }),
+    ),
   })
     .then((r) => r.json())
     .then(

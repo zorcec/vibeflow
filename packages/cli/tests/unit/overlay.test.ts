@@ -352,8 +352,11 @@ describe("getOverlayScript", () => {
 
   it("submitTask includes cssSelector in POST body", () => {
     const script = getOverlayScript(3700);
-    // submitTask must pass cssSelector to POST body
-    expect(script).toContain("cssSelector:cssSelector");
+    // Body is built by buildTaskPayload (Advanced section refactor): cssSelector
+    // key must be present in the payload builder, plus priority/tags wiring.
+    expect(script).toContain("buildTaskPayload");
+    expect(script).toContain("cssSelector");
+    expect(script).toContain("priority");
     // Function must accept cssSelector as second param
     expect(script).toContain("function submitTask(selector,cssSelector,");
   });

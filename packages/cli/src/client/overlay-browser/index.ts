@@ -136,6 +136,7 @@ function main(): void {
         status,
         type,
         meta,
+        advanced,
       ) => {
         return submitTask(
           selector,
@@ -145,6 +146,8 @@ function main(): void {
           status,
           meta,
           type,
+          undefined,
+          advanced,
         );
       },
     }),

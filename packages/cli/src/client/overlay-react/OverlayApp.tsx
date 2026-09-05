@@ -467,8 +467,34 @@ interface AddModalProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
+    advanced: { tags: string[]; priority?: string },
   ) => Promise<{ success: boolean; taskId?: string; taskAuthor?: string }>;
 }
+
+type PriorityOption = "Critical" | "High" | "Medium" | "Low";
+
+const PRIORITY_ACTIVE: Record<PriorityOption, React.CSSProperties> = {
+  Critical: {
+    background: "rgba(239,68,68,0.15)",
+    borderColor: "rgba(239,68,68,0.4)",
+    color: "#fca5a5",
+  },
+  High: {
+    background: "rgba(245,158,11,0.15)",
+    borderColor: "rgba(245,158,11,0.4)",
+    color: "#fcd34d",
+  },
+  Medium: {
+    background: "rgba(100,116,139,0.2)",
+    borderColor: "rgba(100,116,139,0.5)",
+    color: "#94a3b8",
+  },
+  Low: {
+    background: "transparent",
+    borderColor: "var(--vibeflow-border-strong)",
+    color: "var(--vibeflow-text-muted)",
+  },
+};
 
 function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
   const [title, setTitle] = React.useState(opts.initialTitle ?? "");
@@ -476,6 +502,21 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
     opts.initialDescription ?? "",
   );
   const [status, setStatus] = React.useState<StatusOption>("todo");
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [tags, setTags] = React.useState<string[]>([]);
+  const [tagDraft, setTagDraft] = React.useState("");
+  const [priority, setPriority] = React.useState<PriorityOption | "">("");
+
+  function commitTagDraft() {
+    const parts = tagDraft
+      .split(/[,\n]/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (parts.length) {
+      setTags((prev) => [...prev, ...parts.filter((p) => !prev.includes(p))]);
+    }
+    setTagDraft("");
+  }
   const [type, setType] = React.useState<TaskType>("Task");
   const [showPreview, setShowPreview] = React.useState(false);
   const [titleError, setTitleError] = React.useState(false);
@@ -563,6 +604,7 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         col: opts.col,
         component: opts.component,
       },
+      { tags, priority: priority || undefined },
     );
     // Capture baseline + auth state automatically at annotation time
     if (result.success && result.taskId) {
@@ -924,6 +966,173 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
           </div>
         )}
 
+        {/* ── Advanced (collapsed): tags + priority ── */}
+        <div
+          style={{
+            borderTop: "1px solid var(--vibeflow-border-subtle)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              width: "100%",
+              padding: "6px 16px",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--vibeflow-text-muted)",
+              fontFamily: "inherit",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                fontSize: 9,
+                transition: "transform .12s",
+                transform: showAdvanced ? "rotate(90deg)" : "none",
+              }}
+            >
+              ▶
+            </span>
+            Advanced
+          </button>
+          {showAdvanced && (
+            <div
+              style={{
+                padding: "2px 16px 10px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--vibeflow-text-muted)",
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    flexShrink: 0,
+                  }}
+                >
+                  Tags
+                </span>
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "1px 4px 1px 8px",
+                      borderRadius: 100,
+                      background: "rgba(59,130,246,0.12)",
+                      border: "1px solid rgba(59,130,246,0.3)",
+                      fontSize: 10,
+                      color: "#93c5fd",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTags((prev) => prev.filter((x) => x !== tag))
+                      }
+                      style={{
+                        display: "flex",
+                        background: "none",
+                        border: "none",
+                        color: "#93c5fd",
+                        cursor: "pointer",
+                        padding: 0,
+                        lineHeight: 1,
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                <input
+                  value={tagDraft}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      commitTagDraft();
+                    }
+                  }}
+                  onBlur={commitTagDraft}
+                  placeholder="Add tag…"
+                  style={{
+                    flex: "1 1 90px",
+                    minWidth: 90,
+                    background: "transparent",
+                    border: "1px dashed var(--vibeflow-border-strong)",
+                    borderRadius: 4,
+                    padding: "2px 6px",
+                    fontSize: 11,
+                    color: "var(--vibeflow-text-secondary)",
+                    fontFamily: "inherit",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--vibeflow-text-muted)",
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    flexShrink: 0,
+                  }}
+                >
+                  Priority
+                </span>
+                {(
+                  ["Critical", "High", "Medium", "Low"] as const
+                ).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    style={{
+                      ...statusBtnBase,
+                      ...(p === priority ? PRIORITY_ACTIVE[p] : {}),
+                    }}
+                    onClick={() =>
+                      setPriority((prev) => (prev === p ? "" : p))
+                    }
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── Footer ── */}
         <div className="modal-footer">
           <div className="modal-footer-left">
@@ -975,6 +1184,7 @@ interface OverlayAppProps {
     status: string,
     type: string,
     meta: { file?: string; line?: number; col?: number; component?: string },
+    advanced: { tags: string[]; priority?: string },
   ) => Promise<{ success: boolean; taskId?: string; taskAuthor?: string }>;
 }
 
@@ -1071,6 +1281,7 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
             status,
             type,
             meta,
+            advanced,
           ) => {
             const result = await onSubmitTask(
               selector,
@@ -1080,6 +1291,7 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
               status,
               type,
               meta,
+              advanced,
             );
             setAddModalOpts(null);
             return result;
