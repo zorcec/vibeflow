@@ -111,6 +111,8 @@ interface Props {
     columnId?: TaskStatus,
   ) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
+  /** Condensed 2-line card variant (B2 view mode). */
+  condensed?: boolean;
   /** Called when a task is dropped at a specific position within/across columns. */
   onReorder?: (
     taskId: string,
@@ -129,11 +131,12 @@ export function KanbanBoard({
   liveActivities,
   onOpenPanel,
   onDrop,
+  condensed,
   onReorder,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
-  const [, setDragTaskId] = React.useState<string | null>(null);
+  const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState<string | null>(null);
   const [cardDropTarget, setCardDropTarget] = React.useState<DropTarget | null>(
     null,
@@ -338,6 +341,8 @@ export function KanbanBoard({
               onDragStart={handleDragStart}
               onCardDragOver={handleCardDragOver}
               cardDropTarget={cardDropTarget}
+              condensed={condensed}
+              isDragging={dragTaskId !== null}
             />
           );
         })}
@@ -405,6 +410,9 @@ interface ColumnProps {
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
   cardDropTarget: DropTarget | null;
+  condensed?: boolean;
+  /** True while a card drag is active — fit-screen hiding is suspended. */
+  isDragging?: boolean;
 }
 
 function KanbanColumn({
@@ -422,8 +430,44 @@ function KanbanColumn({
   onDragStart,
   onCardDragOver,
   cardDropTarget,
+  condensed,
+  isDragging,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
+  // B3: fit-screen — hide cards that overflow the visible column height.
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [fitHidden, setFitHidden] = React.useState(0);
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const applyFit = () => {
+      const kids = Array.from(el.children) as HTMLElement[];
+      if (isDragging || isLoading) {
+        for (const k of kids) k.style.display = "";
+        setFitHidden(0);
+        return;
+      }
+      const limit = el.getBoundingClientRect().bottom - 34;
+      let shown = 0;
+      let hidden = 0;
+      for (const k of kids) {
+        if (k.hasAttribute("data-fit-chip") || k.hasAttribute("data-older-chip")) continue;
+        if (!k.querySelector("[data-task-id]")) continue;
+        if (shown >= 1 && k.getBoundingClientRect().bottom > limit) {
+          k.style.display = "none";
+          hidden += 1;
+        } else {
+          k.style.display = "";
+          shown += 1;
+        }
+      }
+      setFitHidden((prev) => (prev === hidden ? prev : hidden));
+    };
+    applyFit();
+    const ro = new ResizeObserver(applyFit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tasks, condensed, isDragging, isLoading]);
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
   const DONE_LIMIT = 10;
@@ -491,7 +535,7 @@ function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="column-scroll" data-status={col.id}>
+      <div className="column-scroll" data-status={col.id} ref={scrollRef}>
         {isLoading ? (
           Array.from({ length: SKELETON_COUNT }).map((_, i) => (
             <SkeletonCard key={i} />
@@ -532,6 +576,7 @@ function KanbanColumn({
                   task={task}
                   col={col}
                   liveActivity={liveActivities?.get(task.id)}
+                  condensed={condensed}
                   onOpen={onOpenTask}
                   onDragStart={onDragStart}
                 />
@@ -550,6 +595,7 @@ function KanbanColumn({
             ))}
             {hiddenCount > 0 && (
               <div
+                data-older-chip
                 style={{
                   background: "var(--p-card)",
                   border: "2px dashed var(--p-border-t)",
@@ -564,6 +610,24 @@ function KanbanColumn({
               >
                 +{hiddenCount} older {hiddenCount === 1 ? "task" : "tasks"} not
                 shown. Use search to find them.
+              </div>
+            )}
+            {fitHidden > 0 && (
+              <div
+                data-fit-chip
+                style={{
+                  background: "var(--p-card)",
+                  border: "2px dashed var(--p-border-t)",
+                  borderRadius: 10,
+                  padding: "11px 13px",
+                  fontSize: 12,
+                  color: "var(--p-text-g)",
+                  textAlign: "center",
+                  lineHeight: 1.4,
+                  opacity: 0.7,
+                }}
+              >
+                +{fitHidden} more
               </div>
             )}
           </>
