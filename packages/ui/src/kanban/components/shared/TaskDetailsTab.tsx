@@ -45,7 +45,6 @@ export function TaskDetailsTab({
   priority, setPriority, onDescriptionBlur, onDescriptionDiscard, originalDescription, onPriorityChange, githubUrl, onFilePreview, onPatch,
   onDeleteScreenshot, liveFiles, allTags = [], overrideTags, onTagsChange, isAdd = false,
 }: Props) {
-  const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const taskFiles = task?.files ?? [];
   const fileList: Array<{ name: string; linkedPath?: string; addedAt?: string; url?: string }> = liveFiles
     ? liveFiles.map(f => ({ name: f.name, linkedPath: f.linkedPath, addedAt: f.createdAt, url: f.url }))
@@ -143,69 +142,7 @@ export function TaskDetailsTab({
         </div>
       )}
 
-      {/* Advanced section (add mode only) */}
-      {isAdd && (
-        <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 8 }}>
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen(!advancedOpen)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '4px 0', background: 'none', border: 'none',
-              cursor: 'pointer', fontSize: 11, color: 'var(--p-text-g)',
-              fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em',
-              width: '100%', textAlign: 'left',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--p-text-m)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--p-text-g)'; }}
-          >
-            <span style={{ fontSize: 10, transform: advancedOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .15s' }}>▶</span>
-            Advanced
-          </button>
-          {advancedOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
-              {/* Tags */}
-              <div>
-                <div className="dp-meta-label">Tags</div>
-                <TagInput
-                  tags={overrideTags ?? task?.tags ?? []}
-                  allTags={allTags}
-                  disabled={!task && !onTagsChange}
-                  onChange={(newTags) => {
-                    if (onTagsChange) {
-                      onTagsChange(newTags);
-                    } else if (task) {
-                      onPatch(task.id, { tags: newTags });
-                    }
-                  }}
-                />
-              </div>
 
-              {/* Priority */}
-              <div>
-                <div className="dp-meta-label">Priority</div>
-                <select
-                  id="dp-priority"
-                  className="dp-input"
-                  value={priority}
-                  onChange={(e) => {
-                    const v = e.target.value as Priority | '';
-                    setPriority(v);
-                    onPriorityChange?.(v);
-                  }}
-                  style={{ padding: '5px 8px', fontSize: 12, cursor: 'pointer', width: 'auto' }}
-                >
-                  <option value="">—</option>
-                  <option value="Critical">Critical</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Tags + Priority (edit mode) */}
       {!isAdd && (
