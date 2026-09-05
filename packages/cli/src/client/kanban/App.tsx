@@ -31,7 +31,7 @@ import {
   type ChangelogSection,
 } from "./whats-new.js";
 
-type ViewMode = "board" | "list";
+type ViewMode = "board" | "list" | "condensed";
 
 // SAFETY: __PORT__ is injected by the CLI dev server at build time.
 const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
@@ -1226,6 +1226,7 @@ export function App() {
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
             onReorder={handleReorder}
+            condensed={viewMode === "condensed"}
           />
         )}
 

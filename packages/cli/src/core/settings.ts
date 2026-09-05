@@ -17,7 +17,7 @@ function getGlobalSettingsPath(): string {
 
 export interface ProtoSettings {
   visibleCols?: string[];
-  viewMode?: "board" | "list";
+  viewMode?: "board" | "list" | "condensed";
   panelWidth?: number;
   autoCommit?: boolean;
   autoComment?: boolean;

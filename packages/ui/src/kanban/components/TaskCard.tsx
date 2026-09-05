@@ -5,13 +5,14 @@ import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
-import { getTaskTypeColor } from "../../task-types";
+import { getTaskTypeColor, TASK_TYPE_ICONS } from "../../task-types";
 import { TagPills } from "./shared/TagPills";
 
 interface Props {
       task: Task;
       col: Column;
       liveActivity?: LiveActivity;
+      condensed?: boolean;
       onOpen: (task: Task, tab?: "details" | "comments" | "files") => void;
       onDragStart: (e: React.DragEvent, taskId: string) => void;
 }
@@ -143,6 +144,7 @@ export const TaskCard = React.memo(function TaskCard({
       task,
       col,
       liveActivity,
+      condensed,
       onOpen,
       onDragStart,
 }: Props) {
@@ -182,6 +184,91 @@ export const TaskCard = React.memo(function TaskCard({
 
       function handleClick() {
             onOpen(task);
+      }
+
+      // Condensed view: compact 2-line card (type glyph + title / tags + counts)
+      if (condensed) {
+            const commentCount = task.commentCount ?? 0;
+            const fileCount = task.fileCount ?? 0;
+            return (
+                  <article
+                        className="task-card condensed-card"
+                        draggable
+                        data-task-id={task.id}
+                        style={{
+                              ...DONE_ARTICLE_STYLE,
+                        }}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        onClick={handleClick}
+                  >
+                        <div style={DONE_INNER_ROW_STYLE}>
+                              <span
+                                    style={{
+                                          fontSize: 10,
+                                          flexShrink: 0,
+                                          lineHeight: 1,
+                                    }}
+                              >
+                                    {TASK_TYPE_ICONS[task.type ?? "Task"] ??
+                                          "☑"}
+                              </span>
+                              <span
+                                    style={{
+                                          fontSize: 11.5,
+                                          fontWeight: 600,
+                                          color: "var(--p-text)",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                    }}
+                              >
+                                    {task.title}
+                              </span>
+                        </div>
+                        <div
+                              style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                              }}
+                        >
+                              {task.tags && task.tags.length > 0 && (
+                                    <TagPills tags={task.tags} size="xs" />
+                              )}
+                              <span
+                                    style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 2,
+                                          fontSize: 9,
+                                          color:
+                                                commentCount > 0
+                                                      ? "var(--p-text-m)"
+                                                      : "var(--p-border-t)",
+                                    }}
+                              >
+                                    <MessageCircle style={{ width: 9, height: 9 }} />
+                                    {commentCount > 0 ? String(commentCount) : ""}
+                              </span>
+                              <span
+                                    style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 2,
+                                          fontSize: 9,
+                                          color:
+                                                fileCount > 0
+                                                      ? "var(--p-blue-300)"
+                                                      : "var(--p-border-t)",
+                                    }}
+                              >
+                                    <Paperclip style={{ width: 9, height: 9 }} />
+                                    {fileCount > 0 ? String(fileCount) : ""}
+                              </span>
+                        </div>
+                  </article>
+            );
       }
 
       // Done column: minimal strikethrough card
