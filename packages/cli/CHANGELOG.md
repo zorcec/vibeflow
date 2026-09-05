@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1
+
+### Patch Changes
+
+- 6881de6: Fix verify gate: skip enforcement when no baseline.json exists
+
+  Auto-created log-cluster tasks have selector+url but no baseline screenshot. The verify gate now checks baseline.json existence before blocking review.
+
 ## 0.12.0
 
 ### Minor Changes

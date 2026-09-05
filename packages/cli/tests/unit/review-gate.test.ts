@@ -16,12 +16,24 @@ function makeSettings(overrides: Partial<ProtoSettings> = {}): ProtoSettings {
 }
 
 function createTmpDir(): string {
-  const dir = join(tmpdir(), `review-gate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `review-gate-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function createTaskFile(dir: string, taskId: string, opts: { type?: string; verified?: boolean; selector?: string; url?: string } = {}) {
+function createTaskFile(
+  dir: string,
+  taskId: string,
+  opts: {
+    type?: string;
+    verified?: boolean;
+    selector?: string;
+    url?: string;
+  } = {},
+) {
   const tasksDir = join(dir, ".vibeflow", "tasks");
   mkdirSync(tasksDir, { recursive: true });
   const task = {
@@ -153,7 +165,10 @@ describe("checkReviewTransition", () => {
       tmpDir,
       "task-123",
       { comment: "done", commitMessage: "fix: x", skipVerify: false },
-      { projectDir: tmpDir, settings: makeSettings({ requireVerifyBeforeReview: true }) },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({ requireVerifyBeforeReview: true }),
+      },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -171,7 +186,13 @@ describe("checkReviewTransition", () => {
       tmpDir,
       "task-123",
       { comment: "done", skipVerify: true },
-      { projectDir: tmpDir, settings: makeSettings({ requireVerifyBeforeReview: true, autoCommit: false }) },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
     );
     expect(result.ok).toBe(true);
   });
@@ -186,7 +207,13 @@ describe("checkReviewTransition", () => {
       tmpDir,
       "task-123",
       { comment: "done" },
-      { projectDir: tmpDir, settings: makeSettings({ requireVerifyBeforeReview: true, autoCommit: false }) },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
     );
     expect(result.ok).toBe(true);
   });
@@ -201,7 +228,13 @@ describe("checkReviewTransition", () => {
       tmpDir,
       "task-123",
       { comment: "done" },
-      { projectDir: tmpDir, settings: makeSettings({ requireVerifyBeforeReview: true, autoCommit: false }) },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
     );
     expect(result.ok).toBe(true);
   });
@@ -241,7 +274,14 @@ describe("checkReviewTransition", () => {
       tmpDir,
       "task-123",
       { comment: undefined },
-      { projectDir: tmpDir, settings: makeSettings({ autoCommit: true, createBranch: true, requireVerifyBeforeReview: true }) },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          autoCommit: true,
+          createBranch: true,
+          requireVerifyBeforeReview: true,
+        }),
+      },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
