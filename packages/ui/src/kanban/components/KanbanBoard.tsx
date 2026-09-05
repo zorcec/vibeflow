@@ -440,6 +440,9 @@ function KanbanColumn({
   const [colHeight, setColHeight] = React.useState(0);
   const [cardH, setCardH] = React.useState(0);
   React.useEffect(() => {
+    // Owner rule: fit-to-screen applies to the done lane only. Other lanes
+    // render all tasks with native scrolling and need no measurement.
+    if (col.id !== "done") return;
     const el = scrollRef.current;
     if (!el) return;
     setColHeight((prev) => (prev === el.clientHeight ? prev : el.clientHeight));
@@ -459,6 +462,7 @@ function KanbanColumn({
     };
   }, []);
   React.useEffect(() => {
+    if (col.id !== "done") return;
     if (isDragging || isLoading || tasks.length === 0) return;
     const raf = requestAnimationFrame(() => {
       const el = scrollRef.current;
@@ -473,18 +477,26 @@ function KanbanColumn({
   }, [tasks.length, condensed, isDragging, isLoading]);
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
+  // DONE_LIMIT is only a fallback cap for the done lane before measurement
+  // arrives. Once measured, the done lane fits to the real screen height.
   const DONE_LIMIT = 10;
   const isDone = col.id === "done";
   const CHIP_H = 34;
   const COLUMN_GAP = 5;
-  const availableForCards = Math.max(0, colHeight - CHIP_H + COLUMN_GAP);
-  const perCard = cardH + COLUMN_GAP;
-  const fitCount =
-    cardH > 0 && colHeight > 0 && !isDragging && !isLoading
-      ? Math.max(1, Math.floor(availableForCards / perCard))
-      : tasks.length;
-  const doneCapped = isDone ? Math.min(DONE_LIMIT, fitCount) : fitCount;
-  const visibleTasks = tasks.slice(0, doneCapped);
+  const measured =
+    isDone && cardH > 0 && colHeight > 0 && !isDragging && !isLoading;
+  const fitCount = measured
+    ? Math.max(
+        1,
+        Math.floor(
+          Math.max(0, colHeight - CHIP_H + COLUMN_GAP) /
+            (cardH + COLUMN_GAP),
+        ),
+      )
+    : DONE_LIMIT;
+  // Owner rule: only the done lane fits to screen; every other lane renders
+  // all tasks with normal scrolling.
+  const visibleTasks = isDone ? tasks.slice(0, fitCount) : tasks;
   const overflow = tasks.length - visibleTasks.length;
 
   return (

@@ -87,26 +87,28 @@ describe("Batch B — condensed view + fit-screen", () => {
     );
   });
 
-  it("fit-screen hides overflowing cards behind a +N more chip", async () => {
+  // Owner rule: fit-to-screen applies to the DONE lane only. Other lanes
+  // render every card with normal scrolling.
+  it("fit-screen hides overflowing DONE cards behind a +N more chip", async () => {
     for (let i = 0; i < 14; i++) {
-      await seedTask(`FITSCREEN-${i}`, "todo");
+      await seedTask(`FITSCREEN-DONE-${i}`, "done");
     }
     await page.setViewportSize({ width: 1440, height: 640 });
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
     await page.waitForFunction(() => {
-      const column = document.querySelector("[data-column-id='todo']");
+      const column = document.querySelector("[data-column-id='done']");
       const cards = column?.querySelectorAll("article.task-card").length ?? 0;
       const chip = column?.querySelector("[data-fit-chip]");
       const hidden = Number(chip?.textContent?.match(/\+(\d+) more/)?.[1] ?? 0);
-      return cards >= 1 && cards + hidden >= 15;
+      return cards >= 1 && cards + hidden >= 14;
     }, { timeout: 10_000 });
     // Allow the fit-screen effect + ResizeObserver to settle
     await page.waitForTimeout(600);
 
     const chipText = await page.evaluate(() => {
       const chip = document.querySelector(
-        "[data-column-id='todo'] [data-fit-chip]",
+        "[data-column-id='done'] [data-fit-chip]",
       );
       return chip?.textContent ?? null;
     });
@@ -114,7 +116,7 @@ describe("Batch B — condensed view + fit-screen", () => {
 
     const hiddenBefore = await page.evaluate(
       () =>
-        document.querySelectorAll("[data-column-id='todo'] [data-fit-chip]")
+        document.querySelectorAll("[data-column-id='done'] [data-fit-chip]")
           .length,
     );
     expect(hiddenBefore).toBe(1);
@@ -164,7 +166,7 @@ describe("Batch B — condensed view + fit-screen", () => {
     await page.waitForTimeout(600);
     const chipAfter = await page.evaluate(() => {
       const chip = document.querySelector(
-        "[data-column-id='todo'] [data-fit-chip]",
+        "[data-column-id='done'] [data-fit-chip]",
       );
       return chip?.textContent ?? null;
     });
@@ -172,5 +174,36 @@ describe("Batch B — condensed view + fit-screen", () => {
       const n = (s: string) => Number(s.match(/\+(\d+) more/)?.[1] ?? 0);
       expect(n(chipAfter)).toBeLessThanOrEqual(n(chipText));
     }
+  });
+
+  it("non-done lanes render ALL cards and keep scrolling (no chip)", async () => {
+    for (let i = 0; i < 20; i++) {
+      await seedTask(`FULLRENDER-${i}`, "todo");
+    }
+    await page.setViewportSize({ width: 1440, height: 640 });
+    await page.goto(`${BASE}/kanban`);
+    await page.waitForSelector("#kanban-board");
+    await page.waitForTimeout(800);
+    // Seeded so far in todo: COND-desc-task (1) + STABILITY-* (5) + FULLRENDER-* (20)
+    const report = await page.evaluate(() => {
+      const column = document.querySelector<HTMLElement>(
+        "[data-column-id='todo'] .column-scroll",
+      );
+      const cards = document.querySelectorAll(
+        "[data-column-id='todo'] [data-task-id]",
+      ).length;
+      const chip = document.querySelector(
+        "[data-column-id='todo'] [data-fit-chip]",
+      );
+      let scrolled = false;
+      if (column && column.scrollHeight > column.clientHeight + 1) {
+        column.scrollTop = column.scrollHeight;
+        scrolled = column.scrollTop > 0;
+      }
+      return { cards, chip: !!chip, scrolled };
+    });
+    expect(report.cards).toBe(26);
+    expect(report.chip).toBe(false);
+    expect(report.scrolled).toBe(true);
   });
 });
