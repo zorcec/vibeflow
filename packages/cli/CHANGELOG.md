@@ -4,6 +4,9 @@
 
 ### Minor Changes
 
+> ⚠️ The `MCP server` is experimental and may change without notice.
+
+- 405b3f8: MCP server: streamable HTTP endpoint at `/api/mcp` exposing 10 task tools (list_tasks, get_task, create_task, update_task, claim_next_task, add_comment, attach_file, export_prompt, verify_task, push_tasks). Manifest-driven — new CLI commands are auto-discovered. Auth: loopback-only locally, Bearer token for SaaS. Session management with 30-min TTL.
 - 148cd3c: Kanban: new Compact view mode (Board | Compact | List). Compact shows one-line rows across all lanes — no tags, no comment/file counts. Done lane fits cards to screen height with "+N more" indicator. Overlay: add-task dialog now has an Advanced section with tag chips and priority selector.
 - c57b423: Verify gate: optional enforcement in Settings > Enforcement. When ON, agents must run `vibeflow verify` before setting status to review. Auto-skips for non-UI tasks. `--skip-verify` flag available as bypass.
 
