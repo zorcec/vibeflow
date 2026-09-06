@@ -254,52 +254,49 @@ export function TaskDetailsTab({
         </div>
       )}
 
-      {/* Tags + Priority (edit mode) */}
-      {!isAdd && (
-        <>
-          <div>
-            <div className="dp-meta-label">Tags</div>
-            <TagInput
-              tags={overrideTags ?? task?.tags ?? []}
-              allTags={allTags}
-              disabled={!task && !onTagsChange}
-              onChange={(newTags) => {
-                if (onTagsChange) {
-                  onTagsChange(newTags);
-                } else if (task) {
-                  onPatch(task.id, { tags: newTags });
-                }
-              }}
-            />
-          </div>
+      {/* Tags */}
+      <div>
+        <div className="dp-meta-label">Tags</div>
+        <TagInput
+          tags={overrideTags ?? task?.tags ?? []}
+          allTags={allTags}
+          disabled={!task && !onTagsChange}
+          onChange={(newTags) => {
+            if (onTagsChange) {
+              onTagsChange(newTags);
+            } else if (task) {
+              onPatch(task.id, { tags: newTags });
+            }
+          }}
+        />
+      </div>
 
-          <div>
-            <div className="dp-meta-label">Priority</div>
-            <select
-              id="dp-priority"
-              className="dp-input"
-              value={priority}
-              onChange={(e) => {
-                const v = e.target.value as Priority | "";
-                setPriority(v);
-                onPriorityChange?.(v);
-              }}
-              style={{
-                padding: "5px 8px",
-                fontSize: 12,
-                cursor: "pointer",
-                width: "auto",
-              }}
-            >
-              <option value="">—</option>
-              <option value="Critical">Critical</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
-          </div>
-        </>
-      )}
+      {/* Priority */}
+      <div>
+        <div className="dp-meta-label">Priority</div>
+        <select
+          id="dp-priority"
+          className="dp-input"
+          value={priority}
+          onChange={(e) => {
+            const v = e.target.value as Priority | "";
+            setPriority(v);
+            onPriorityChange?.(v);
+          }}
+          style={{
+            padding: "5px 8px",
+            fontSize: 12,
+            cursor: "pointer",
+            width: "auto",
+          }}
+        >
+          <option value="">—</option>
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
 
       {/* Metadata tiles (read-only summary stays at the bottom) */}
       {task && (
