@@ -301,6 +301,40 @@
   .vibeflow-popover button.btn-primary:hover { background: #1d4ed8; }
   .vibeflow-popover button.btn-ghost    { background: transparent; border-color: #334155; color: #64748b; font-size: 12px; }
   .vibeflow-popover button.btn-ghost:hover  { background: #1e293b; color: #94a3b8; }
+
+  /* Advanced section */
+  .popover-adv-section { margin-top: 8px; }
+  .popover-adv-toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #64748b; cursor: pointer; user-select: none;
+    padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .popover-adv-toggle:hover { color: #94a3b8; }
+  .popover-adv-chevron { font-size: 9px; width: 12px; text-align: center; }
+  .popover-adv-content { padding-top: 8px; display: none; }
+  .popover-adv-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .popover-adv-label { font-size: 11px; color: #64748b; min-width: 52px; text-align: right; }
+  .popover-adv-field { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; }
+  .popover-adv-select {
+    width: 100%; padding: 5px 8px; background: #0a1628; border: 1px solid #1e293b;
+    border-radius: 6px; color: #e2e8f0; font-size: 12px; outline: none;
+  }
+  .popover-adv-select:focus { border-color: #2563eb; }
+  .popover-adv-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .popover-adv-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 4px; font-size: 11px; color: #60a5fa;
+  }
+  .popover-adv-tag-rm { cursor: pointer; opacity: 0.6; font-size: 13px; }
+  .popover-adv-tag-rm:hover { opacity: 1; }
+  .popover-adv-tag-input {
+    flex: 1; min-width: 80px; padding: 4px 8px; background: #0a1628;
+    border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; font-size: 12px;
+    outline: none;
+  }
+  .popover-adv-tag-input:focus { border-color: #2563eb; }
+  .popover-adv-tag-input::placeholder { color: #475569; }
   .vibeflow-popover button.btn-capture,
   .vibeflow-popover button.btn-screenshot  { background: transparent; border-color: #334155; color: #64748b; font-size: 12px; padding: 6px 10px; }
   .vibeflow-popover button.btn-capture:hover,

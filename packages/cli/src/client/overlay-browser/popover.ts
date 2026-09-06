@@ -153,7 +153,72 @@ export async function showPopover(
     typePicker.el,
     titleInput,
   );
-  const body = el("div", { className: "popover-body" }, titleRow, textarea);
+
+  // ── Advanced section (collapsible): tags + priority ─────────────────────
+  const advTags: string[] = [];
+  const advTagContainer = el("div", { className: "popover-adv-tags" }) as HTMLDivElement;
+  const advTagInput = el("input", {
+    type: "text",
+    placeholder: "Add tag...",
+    className: "popover-adv-tag-input",
+  }) as HTMLInputElement;
+  const advPriority = el("select", { className: "popover-adv-select" }) as HTMLSelectElement;
+  for (const p of ["", "Critical", "High", "Medium", "Low"]) {
+    const opt = el("option", { value: p }, p || "Priority...");
+    advPriority.appendChild(opt);
+  }
+  const renderAdvTags = () => {
+    advTagContainer.innerHTML = "";
+    for (const t of advTags) {
+      const chip = el("span", { className: "popover-adv-tag" }, t);
+      const rm = el("span", { className: "popover-adv-tag-rm" }, "×");
+      rm.addEventListener("click", () => {
+        const idx = advTags.indexOf(t);
+        if (idx >= 0) advTags.splice(idx, 1);
+        renderAdvTags();
+      });
+      chip.appendChild(rm);
+      advTagContainer.appendChild(chip);
+    }
+  };
+  advTagInput.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const val = advTagInput.value.trim().replace(/,$/, "");
+      if (val && !advTags.includes(val)) {
+        advTags.push(val);
+        renderAdvTags();
+      }
+      advTagInput.value = "";
+    }
+  });
+  const advToggle = el(
+    "div",
+    { className: "popover-adv-toggle" },
+    el("span", { className: "popover-adv-chevron" }, "▶"),
+    "Advanced",
+  );
+  const advContent = el(
+    "div",
+    { className: "popover-adv-content" },
+    el("div", { className: "popover-adv-row" },
+      el("div", { className: "popover-adv-label" }, "Tags"),
+      el("div", { className: "popover-adv-field" }, advTagContainer, advTagInput),
+    ),
+    el("div", { className: "popover-adv-row" },
+      el("div", { className: "popover-adv-label" }, "Priority"),
+      el("div", { className: "popover-adv-field" }, advPriority),
+    ),
+  );
+  advContent.style.display = "none";
+  advToggle.addEventListener("click", () => {
+    const open = advContent.style.display !== "none";
+    advContent.style.display = open ? "none" : "block";
+    advToggle.querySelector(".popover-adv-chevron")!.textContent = open ? "▶" : "▼";
+  });
+  const advSection = el("div", { className: "popover-adv-section" }, advToggle, advContent);
+
+  const body = el("div", { className: "popover-body" }, titleRow, textarea, advSection);
 
   // ── Footer: actions ───────────────────────────────────────────────────────
   const btnSave = el("button", { className: "btn-primary" }, "Save");
@@ -284,6 +349,10 @@ export async function showPopover(
       },
       selectedType || undefined,
       capturedHtmlText,
+      {
+        tags: advTags.length > 0 ? [...advTags] : undefined,
+        priority: advPriority.value || undefined,
+      },
     ).then((result) => {
       // Capture baseline for the annotated element (fire-and-forget).
       // Use the live element reference + cssSelector (always DOM-resolvable);
