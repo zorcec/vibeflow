@@ -1,5 +1,11 @@
 # @vibeflow-tools/ui
 
+## 0.3.1
+
+### Patch Changes
+
+- Kanban and overlay annotate task now has Advanced collapsible area where label and priority can be set
+
 ## 0.3.0
 
 ### Minor Changes

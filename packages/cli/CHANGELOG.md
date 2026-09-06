@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.13.0
+
+### Minor Changes
+
+- 7437017: Expand watch notifications + output modes
+
+  - New event types: status, comment, file, priority, description changes
+  - New output modes: --json (JSONL stdout), --output <file> (append to file), --webhook <url> (POST events)
+  - New --once mode: one-shot poll with gap detection (>1 min old events trigger gap event)
+  - State: .vibeflow/watch-state.json (append-only journal, per-consumer cursors, 1-min cap)
+  - New modules: watch-events.ts, watch-state.ts, watch-sinks.ts
+  - All existing new/moved-to-todo semantics preserved for backward compat
+
+### Patch Changes
+
+- Kanban and overlay annotate task now has Advanced collapsible area where label and priority can be set
+
 ## 0.12.1
 
 ### Patch Changes

@@ -4,7 +4,10 @@ import { buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
 import { submitTask } from "./api.js";
 import { setAnnotateHighlight, clearAnnotateHighlight } from "./ui.js";
 import { captureDomSnapshot, capturePageSnapshot } from "./core/baseline.js";
-import { sendBaselineToServer, sendPageBaselineToServer } from "./core/capture.js";
+import {
+  sendBaselineToServer,
+  sendPageBaselineToServer,
+} from "./core/capture.js";
 import { buildTypePickerEl } from "./type-picker-el.js";
 import { flashOverlayTrigger } from "../overlay-react/OverlayApp.js";
 import { getRecordedLogs } from "./error-recorder.js";
@@ -156,13 +159,17 @@ export async function showPopover(
 
   // ── Advanced section (collapsible): tags + priority ─────────────────────
   const advTags: string[] = [];
-  const advTagContainer = el("div", { className: "popover-adv-tags" }) as HTMLDivElement;
+  const advTagContainer = el("div", {
+    className: "popover-adv-tags",
+  }) as HTMLDivElement;
   const advTagInput = el("input", {
     type: "text",
     placeholder: "Add tag...",
     className: "popover-adv-tag-input",
   }) as HTMLInputElement;
-  const advPriority = el("select", { className: "popover-adv-select" }) as HTMLSelectElement;
+  const advPriority = el("select", {
+    className: "popover-adv-select",
+  }) as HTMLSelectElement;
   for (const p of ["", "Critical", "High", "Medium", "Low"]) {
     const opt = el("option", { value: p }, p || "Priority...");
     advPriority.appendChild(opt);
@@ -201,11 +208,20 @@ export async function showPopover(
   const advContent = el(
     "div",
     { className: "popover-adv-content" },
-    el("div", { className: "popover-adv-row" },
+    el(
+      "div",
+      { className: "popover-adv-row" },
       el("div", { className: "popover-adv-label" }, "Tags"),
-      el("div", { className: "popover-adv-field" }, advTagContainer, advTagInput),
+      el(
+        "div",
+        { className: "popover-adv-field" },
+        advTagContainer,
+        advTagInput,
+      ),
     ),
-    el("div", { className: "popover-adv-row" },
+    el(
+      "div",
+      { className: "popover-adv-row" },
       el("div", { className: "popover-adv-label" }, "Priority"),
       el("div", { className: "popover-adv-field" }, advPriority),
     ),
@@ -214,11 +230,24 @@ export async function showPopover(
   advToggle.addEventListener("click", () => {
     const open = advContent.style.display !== "none";
     advContent.style.display = open ? "none" : "block";
-    advToggle.querySelector(".popover-adv-chevron")!.textContent = open ? "▶" : "▼";
+    advToggle.querySelector(".popover-adv-chevron")!.textContent = open
+      ? "▶"
+      : "▼";
   });
-  const advSection = el("div", { className: "popover-adv-section" }, advToggle, advContent);
+  const advSection = el(
+    "div",
+    { className: "popover-adv-section" },
+    advToggle,
+    advContent,
+  );
 
-  const body = el("div", { className: "popover-body" }, titleRow, textarea, advSection);
+  const body = el(
+    "div",
+    { className: "popover-body" },
+    titleRow,
+    textarea,
+    advSection,
+  );
 
   // ── Footer: actions ───────────────────────────────────────────────────────
   const btnSave = el("button", { className: "btn-primary" }, "Save");
