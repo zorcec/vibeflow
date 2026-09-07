@@ -505,8 +505,17 @@ function KanbanColumn({
       className="board-column"
       data-column-id={col.id}
       style={{
-        outline: isDragOver ? `2px dashed ${col.color}66` : undefined,
-        outlineOffset: -2,
+        ...(isDragOver
+          ? {
+              outline: `2px solid ${col.color}55`,
+              outlineOffset: -2,
+              background: col.accent,
+              boxShadow: `0 0 12px ${col.color}22`,
+              transition: 'background 0.15s, box-shadow 0.15s, outline 0.15s',
+            }
+          : {
+              transition: 'background 0.15s, box-shadow 0.15s, outline 0.15s',
+            }),
         borderRadius: 8,
       }}
       onDragOver={onDragOver}
