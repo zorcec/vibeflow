@@ -470,7 +470,8 @@ export function App() {
     startMode: "whatsnew" | "full";
     sections: ChangelogSection[];
     version: string;
-  }>({ open: false, startMode: "whatsnew", sections: [], version: "" });
+    sinceVersion: string | null;
+  }>({ open: false, startMode: "whatsnew", sections: [], version: "", sinceVersion: null });
   const [filePreview, setFilePreview] = React.useState({
     open: false,
     name: "",
@@ -867,6 +868,7 @@ export function App() {
       startMode: "whatsnew",
       sections: resolved,
       version,
+      sinceVersion: stored,
     });
   }
 
@@ -875,7 +877,7 @@ export function App() {
       ? whatsNew.sections
       : await fetchChangelogSections();
     const version = CLI_VERSION || sections[0]?.version || whatsNew.version;
-    setWhatsNew({ open: true, startMode: "full", sections, version });
+    setWhatsNew({ open: true, startMode: "full", sections, version, sinceVersion: null });
   }
 
   function closeWhatsNew() {
@@ -1426,6 +1428,7 @@ export function App() {
         sections={whatsNew.sections}
         version={whatsNew.version}
         startMode={whatsNew.startMode}
+        sinceVersion={whatsNew.sinceVersion}
         onClose={closeWhatsNew}
       />
     </>

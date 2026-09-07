@@ -5,6 +5,7 @@ import {
   readStoredVersion,
   markVersionSeen,
   pickWhatsNewSection,
+  sectionsSince,
   whatsNewMarkdown,
   fullChangelogMarkdown,
   LAST_SEEN_VERSION_KEY,
@@ -100,5 +101,53 @@ describe("markdown builders", () => {
 
   it("fullChangelogMarkdown of no sections is empty", () => {
     expect(fullChangelogMarkdown([])).toBe("");
+  });
+});
+
+describe("sectionsSince", () => {
+  const fourSections: ChangelogSection[] = [
+    { version: "0.4.0", markdown: "v0.4" },
+    { version: "0.3.0", markdown: "v0.3" },
+    { version: "0.2.0", markdown: "v0.2" },
+    { version: "0.1.0", markdown: "v0.1" },
+  ];
+
+  it("returns all sections when sinceVersion is null", () => {
+    expect(sectionsSince(fourSections, null)).toHaveLength(4);
+  });
+
+  it("returns sections strictly newer than sinceVersion", () => {
+    const result = sectionsSince(fourSections, "0.2.0");
+    expect(result.map((s) => s.version)).toEqual(["0.4.0", "0.3.0"]);
+  });
+
+  it("excludes the exact sinceVersion (strictly newer only)", () => {
+    const result = sectionsSince(fourSections, "0.3.0");
+    expect(result.map((s) => s.version)).toEqual(["0.4.0"]);
+  });
+
+  it("returns empty array when sinceVersion equals newest", () => {
+    expect(sectionsSince(fourSections, "0.4.0")).toHaveLength(0);
+  });
+
+  it("handles multi-jump (user skipped 0.1.0 -> 0.4.0)", () => {
+    const result = sectionsSince(fourSections, "0.1.0");
+    expect(result.map((s) => s.version)).toEqual(["0.4.0", "0.3.0", "0.2.0"]);
+  });
+
+  it("returns all sections when sinceVersion is empty string", () => {
+    expect(sectionsSince(fourSections, "")).toHaveLength(4);
+  });
+
+  it("returns empty array when sections are empty", () => {
+    expect(sectionsSince([], "0.2.0")).toHaveLength(0);
+  });
+
+  it("returns empty for unknown stored version newer than all sections", () => {
+    expect(sectionsSince(fourSections, "9.9.9")).toHaveLength(0);
+  });
+
+  it("returns all for unknown old stored version", () => {
+    expect(sectionsSince(fourSections, "0.0.0")).toHaveLength(4);
   });
 });

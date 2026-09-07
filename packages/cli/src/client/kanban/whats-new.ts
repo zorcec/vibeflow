@@ -83,6 +83,19 @@ export function fullChangelogMarkdown(
   return sections.map((s) => whatsNewMarkdown(s)).join("\n\n");
 }
 
+/**
+ * Returns every section strictly newer than `sinceVersion`, preserving the
+ * file order (newest first). When sinceVersion is null/empty all sections
+ * are returned; an unknown stored version simply yields nothing newer.
+ */
+export function sectionsSince(
+  sections: ChangelogSection[],
+  sinceVersion: string | null,
+): ChangelogSection[] {
+  if (!sinceVersion) return sections;
+  return sections.filter((s) => isVersionNewer(s.version, sinceVersion));
+}
+
 /** Fetches changelog sections from the server; empty array on any failure. */
 export async function fetchChangelogSections(): Promise<ChangelogSection[]> {
   try {

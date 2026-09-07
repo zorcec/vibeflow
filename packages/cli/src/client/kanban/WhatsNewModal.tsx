@@ -3,6 +3,7 @@ import { ModalBase, MarkdownPreview } from "@vibeflow-tools/ui/kanban";
 import {
   fullChangelogMarkdown,
   pickWhatsNewSection,
+  sectionsSince,
   whatsNewMarkdown,
   type ChangelogSection,
 } from "./whats-new.js";
@@ -14,6 +15,8 @@ interface Props {
   version: string;
   /** Which view to show when the modal opens. */
   startMode: "whatsnew" | "full";
+  /** Stored version to filter sections since; null shows all (full mode). */
+  sinceVersion?: string | null;
   onClose: () => void;
 }
 
@@ -21,18 +24,26 @@ interface Props {
  * "What's New" changelog modal. Shows the changelog section for the version
  * the user just updated to, with a toggle to browse the full changelog.
  */
-export function WhatsNewModal({ open, sections, version, startMode, onClose }: Props) {
+export function WhatsNewModal({ open, sections, version, startMode, sinceVersion = null, onClose }: Props) {
   const [mode, setMode] = React.useState<"whatsnew" | "full">(startMode);
   React.useEffect(() => {
     if (open) setMode(startMode);
   }, [open, startMode]);
 
-  const section = React.useMemo(
-    () => pickWhatsNewSection(sections, version),
-    [sections, version],
+  const filteredSections = React.useMemo(
+    () => (mode === "full" ? sections : sectionsSince(sections, sinceVersion)),
+    [sections, mode, sinceVersion],
   );
   const markdown =
-    mode === "full" ? fullChangelogMarkdown(sections) : whatsNewMarkdown(section);
+    mode === "full"
+      ? fullChangelogMarkdown(sections)
+      : fullChangelogMarkdown(filteredSections);
+  const title =
+    mode === "full"
+      ? "Changelog"
+      : sinceVersion
+        ? `What's new since ${sinceVersion}`
+        : "What's new in Vibeflow";
 
   return (
     <ModalBase
