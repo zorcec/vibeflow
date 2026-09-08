@@ -1137,11 +1137,11 @@ body.proto-resizing-panel {
 }
 .child-link-dot--on-line {
  position: absolute;
- left: -3px;
+ left: -9px;
  top: 50%;
  transform: translateY(-50%);
- width: 6px;
- height: 6px;
+ width: 8px;
+ height: 8px;
  border-radius: 50%;
  box-shadow: 0 0 0 2px var(--p-card);
  z-index: 1;
@@ -1151,7 +1151,7 @@ body.proto-resizing-panel {
  border: 1px solid var(--p-blue-300, #60a5fa);
  width: 3px;
  height: 3px;
- left: -1.5px;
+ left: -9px;
  box-shadow: 0 0 0 1px var(--p-card);
 }
 .child-link-id {
@@ -1186,7 +1186,7 @@ body.proto-resizing-panel {
 }
 .child-link-row--detail {
  position: relative;
- padding: 3px 8px 3px 12px;
+ padding: 3px 8px 3px 4px;
  gap: 8px;
 }
 .child-link-info {
@@ -1329,16 +1329,23 @@ body.proto-resizing-panel {
  min-height: 0;
 }
 
-/* ── Container spine (card + detail panel) ── */
-.child-tree {
- display: flex;
- flex-direction: column;
- border-left: 1px solid var(--p-blue-300, #60a5fa);
- margin-left: 12px;
+/* ── Per-row tree spine (card + detail panel) ──
+   Each row draws its own vertical segment; top/bottom -3px overlap makes
+   segments form a continuous line per depth column. Dots (left -9px)
+   straddle the line at -7px. .child-tree-nested is structural only —
+   indentation comes from the per-node wrapper padding. */
+.child-link-row--inline,
+.child-link-row--detail {
+ position: relative;
 }
-.child-tree-nested {
+.child-link-row--inline::before,
+.child-link-row--detail::before {
+ content: "";
+ position: absolute;
+ left: -7px;
+ top: -3px;
+ bottom: -3px;
  border-left: 1px solid var(--p-blue-300, #60a5fa);
- margin-left: 20px;
 }
 /* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
 .card-children-zone[data-expanded="true"] {
@@ -1351,10 +1358,9 @@ body.proto-resizing-panel {
  max-height: 480px;
  overflow-y: auto;
 }
-/* Inline variant: dot rides the container spine */
+/* Inline variant: dot rides the per-row spine */
 .child-link-row--inline {
- position: relative;
- padding: 3px 8px 3px 12px;
+ padding: 3px 8px 3px 28px;
  border: none;
  border-radius: 3px;
  gap: 8px;

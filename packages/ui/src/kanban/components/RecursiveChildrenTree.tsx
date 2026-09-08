@@ -99,19 +99,34 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
             data-role="recursive-tree-node"
             data-depth={depth + 1}
           >
-            <ChildRow
-              child={child}
-              variant={variant}
-              depth={depth + 1}
-              onOpen={() => onOpen?.(child)}
-              isOrphan={isOrphan}
-              childCount={childCount}
-              onRemove={onRemove}
-            />
+            {/* Indent wrapper — also the anchor for the opacity-ramp
+                selectors (`.recursive-children-tree-node … > div > .child-link-row`) */}
+            <div
+              style={
+                variant === "inline"
+                  ? { paddingLeft: (depth + 1) * TREE_INDENT_PX }
+                  : undefined
+              }
+            >
+              <ChildRow
+                child={child}
+                variant={variant}
+                depth={depth + 1}
+                onOpen={() => onOpen?.(child)}
+                isOrphan={isOrphan}
+                childCount={childCount}
+                onRemove={onRemove}
+              />
+            </div>
             {childHasChildren && atMaxDepth && (
               <div
                 className="tree-depth-limit"
                 data-role="tree-depth-limit"
+                style={
+                  variant === "inline"
+                    ? { paddingLeft: (depth + 2) * TREE_INDENT_PX }
+                    : undefined
+                }
               >
                 … {getDescendants(allTasks, child.id).length} more
               </div>
