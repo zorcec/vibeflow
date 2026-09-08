@@ -16,6 +16,7 @@ import { FilesList } from "./shared/FilesList";
 import { TaskDetailsTab } from "./shared/TaskDetailsTab";
 import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
+import RelationsSection from "./RelationsSection";
 
 import { getTaskTypeColor } from "../../task-types";
 
@@ -129,6 +130,8 @@ interface Props {
   allTasks?: Task[];
   /** Called when the user clicks the back button. Shown only when defined. */
   onGoBack?: () => void;
+  /** Navigate to a different task in the detail panel (e.g., click a child). */
+  onOpenTask?: (task: Task) => void;
   externalLocalChanges?: LocalChange[];
   /** Label shown in the back button tooltip (the previous task title). */
   navBackLabel?: string;
@@ -194,6 +197,7 @@ export function DetailPanel({
   showLockIndicator = true,
   lockedByUser,
   onGoBack,
+  onOpenTask,
   navBackLabel,
   commentVersion,
   allTasks = [],
@@ -251,6 +255,8 @@ export function DetailPanel({
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [localChanges, setLocalChanges] = React.useState<LocalChange[]>([]);
   const [draftTags, setDraftTags] = React.useState<string[]>([]);
+  const [linksSaving, setLinksSaving] = React.useState(false);
+  const [linksError, setLinksError] = React.useState<string | null>(null);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const autoSaveRef = React.useRef<() => void>(() => {});
   const commentInputRef = React.useRef("");
@@ -1250,6 +1256,43 @@ export function DetailPanel({
                 <DpMetaRow task={task} />
               </div>
             )}
+            {!isAdd && task && (
+              <div style={{ marginTop: 8 }}>
+                <RelationsSection
+                  task={task}
+                  allTasks={allTasks}
+                  onOpenTask={onOpenTask}
+                  onUpdateLinks={async (links) => {
+                    if (!task) return;
+                    setLinksSaving(true);
+                    setLinksError(null);
+                    try {
+                      await onPatch(task.id, {
+                        links: links ?? [],
+                      });
+                    } catch (err: unknown) {
+                      const msg =
+                        err instanceof Error ? err.message : String(err);
+                      setLinksError(msg);
+                    } finally {
+                      setLinksSaving(false);
+                    }
+                  }}
+                />
+                {linksError && (
+                  <div
+                    className="relations-error"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--p-red, #f87171)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {linksError}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Activity pane ── */}
@@ -1435,7 +1478,7 @@ export function DetailPanel({
                   }}
                 >
                   📎 {pendingPasteFiles.length} screenshot
-                  {pendingPasteFiles.length !== 1 ? "s" : ""} will attach on
+                  {pendingPasteFiles.length === 1 ? "" : "s"} will attach on
                   save
                 </span>
               )}

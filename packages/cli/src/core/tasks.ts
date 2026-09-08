@@ -217,6 +217,26 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         ? (raw.baseline as import("./verification-types.js").DomSnapshot)
         : undefined,
     authStateEnc: raw.authStateEnc ? String(raw.authStateEnc) : undefined,
+    links: (() => {
+      if (!Array.isArray(raw.links)) return undefined;
+      const result = (raw.links as Record<string, unknown>[])
+        .filter((l) => {
+          if (!l || typeof l !== "object") return false;
+          const taskId = l.taskId;
+          const type = l.type;
+          return (
+            typeof taskId === "string" &&
+            taskId.length > 0 &&
+            typeof type === "string" &&
+            ("parent" === type || "relates" === type || "blocks" === type)
+          );
+        })
+        .map((l) => ({
+          taskId: String(l.taskId),
+          type: String(l.type) as import("./types.js").TaskLinkType,
+        }));
+      return result.length > 0 ? result : undefined;
+    })(),
   };
 }
 

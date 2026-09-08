@@ -38,6 +38,7 @@ export const ALLOWED_FILE_EXTENSIONS = new Set([
   ".pdf",
   ".txt",
   ".md",
+  ".html",
   ".json",
   ".csv",
   ".svg",

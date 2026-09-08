@@ -22,6 +22,7 @@ import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
+import { taskRelations, formatRelationsSummary } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
@@ -418,6 +419,7 @@ function printTaskDetails(
   idx: number,
   port: number,
   projectDir: string,
+  allTasks: Task[] = [],
 ): void {
   const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
   console.log(
@@ -462,6 +464,12 @@ function printTaskDetails(
   console.log(chalk.dim(`    created:  ${agent.created}`));
   if (agent.type) console.log(chalk.dim(`    type:     ${agent.type}`));
   if (agent.priority) console.log(chalk.dim(`    priority: ${agent.priority}`));
+  // Derived relations (parent / children / other links)
+  if (allTasks.length > 0) {
+    const view = taskRelations(allTasks, task.id);
+    const relLines = formatRelationsSummary(view);
+    for (const line of relLines) console.log(chalk.dim(`    ${line}`));
+  }
   if (agent.description) {
     console.log(chalk.dim(`    description:`));
     for (const line of agent.description.split("\n"))
@@ -2363,7 +2371,7 @@ program
             structuredComments,
             linkedFiles,
           );
-          printTaskDetails(task, agent, idx, config.port, projectDir);
+          printTaskDetails(task, agent, idx, config.port, projectDir, all);
         }
 
         const limitSuffix =

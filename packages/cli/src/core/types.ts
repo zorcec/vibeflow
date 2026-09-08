@@ -1,6 +1,17 @@
 // ── Task comments ──────────────────────────────────────────────────────────
 export type CommentAuthor = "user" | "agent";
 
+// ── Task links (parent / relates / blocks) ──────────────────────────────
+export const TASK_LINK_TYPES = ["parent", "relates", "blocks"] as const;
+export type TaskLinkType = (typeof TASK_LINK_TYPES)[number];
+
+export interface TaskLink {
+  /** ID of the linked task (target of the link from this task). */
+  taskId: string;
+  /** Relationship direction: this task --[type]--> taskId. */
+  type: TaskLinkType;
+}
+
 export interface TaskCommit {
   sha: string;
   message: string;
@@ -31,7 +42,13 @@ export interface TaskFileRef {
 }
 
 // ── Task system (.proto/tasks/{id}.json) ───────────────────────────────────
-export const TASK_STATUSES = ["backlog", "todo", "in-progress", "review", "done"] as const;
+export const TASK_STATUSES = [
+  "backlog",
+  "todo",
+  "in-progress",
+  "review",
+  "done",
+] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** Returns true if the value is a valid TaskStatus. */
@@ -112,6 +129,8 @@ export interface Task {
   baselineFile?: string;
   /** Encrypted auth state as a JSON string (§7), encrypted with task author's key. */
   authStateEnc?: string;
+  /** Links to other tasks (parent, relates, blocks). Child stores {taskId: parentId, type: 'parent'}. */
+  links?: TaskLink[];
 }
 
 export interface ProtoConfig {

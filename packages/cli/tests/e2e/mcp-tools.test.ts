@@ -398,4 +398,144 @@ describe("MCP tools happy paths", () => {
     expect(inProgress.length).toBe(1);
     expect(todos.length).toBe(1);
   });
+
+  // ── 11. get_task — relations (parent/children/others) ─────────────────
+
+  describe("get_task relations (parent/children/others)", () => {
+    it("11a: get_task on child → parent populated", async () => {
+      const rParent = await callTool(client, "create_task", {
+        title: "MCP Parent",
+      });
+      const parent = await assertJsonTextContent(rParent);
+
+      const rChild = await callTool(client, "create_task", {
+        title: "MCP Child",
+      });
+      const child = await assertJsonTextContent(rChild);
+
+      await callTool(client, "update_task", {
+        id: child.id,
+        links: [{ taskId: parent.id, type: "parent" }],
+      });
+
+      const res = await callTool(client, "get_task", { id: child.id });
+      const parsed = await assertJsonTextContent(res);
+
+      expect(parsed.parent).toBeDefined();
+      expect(parsed.parent.id).toBe(parent.id);
+      expect(parsed.parent.title).toBe("MCP Parent");
+    });
+
+    it("11b: get_task on parent → children array populated", async () => {
+      const rParent = await callTool(client, "create_task", {
+        title: "MCP Parent 2",
+      });
+      const parent = await assertJsonTextContent(rParent);
+
+      const rC1 = await callTool(client, "create_task", {
+        title: "Child A",
+      });
+      const c1 = await assertJsonTextContent(rC1);
+
+      const rC2 = await callTool(client, "create_task", {
+        title: "Child B",
+      });
+      const c2 = await assertJsonTextContent(rC2);
+
+      await callTool(client, "update_task", {
+        id: c1.id,
+        links: [{ taskId: parent.id, type: "parent" }],
+      });
+      await callTool(client, "update_task", {
+        id: c2.id,
+        links: [{ taskId: parent.id, type: "parent" }],
+      });
+
+      const res = await callTool(client, "get_task", { id: parent.id });
+      const parsed = await assertJsonTextContent(res);
+
+      expect(parsed.children).toBeDefined();
+      expect(Array.isArray(parsed.children)).toBe(true);
+      const childIds = parsed.children.map((c: any) => c.id);
+      expect(childIds).toContain(c1.id);
+      expect(childIds).toContain(c2.id);
+    });
+
+    it("11c: get_task with relates → others populated", async () => {
+      const rA = await callTool(client, "create_task", {
+        title: "Task A",
+      });
+      const a = await assertJsonTextContent(rA);
+
+      const rB = await callTool(client, "create_task", {
+        title: "Task B",
+      });
+      const b = await assertJsonTextContent(rB);
+
+      await callTool(client, "update_task", {
+        id: a.id,
+        links: [{ taskId: b.id, type: "relates" }],
+      });
+
+      const res = await callTool(client, "get_task", { id: a.id });
+      const parsed = await assertJsonTextContent(res);
+
+      expect(parsed.others).toBeDefined();
+      expect(Array.isArray(parsed.others)).toBe(true);
+      expect(parsed.others.length).toBeGreaterThanOrEqual(1);
+      const other = parsed.others.find((o: any) => o.id === b.id);
+      expect(other).toBeDefined();
+      expect(other.type).toBe("relates");
+      expect(other.title).toBe("Task B");
+    });
+
+    it("11d: get_task with no links → parent null, children empty, others empty", async () => {
+      const r = await callTool(client, "create_task", {
+        title: "No links task",
+      });
+      const task = await assertJsonTextContent(r);
+
+      const res = await callTool(client, "get_task", { id: task.id });
+      const parsed = await assertJsonTextContent(res);
+
+      expect(parsed.parent).toBeNull();
+      expect(parsed.children).toEqual([]);
+      expect(parsed.others).toEqual([]);
+    });
+
+    it("11e: get_task on child with blocks → parent + others populated", async () => {
+      const rParent = await callTool(client, "create_task", {
+        title: "Parent for blocks test",
+      });
+      const parent = await assertJsonTextContent(rParent);
+
+      const rBlocker = await callTool(client, "create_task", {
+        title: "Blocker task",
+      });
+      const blocker = await assertJsonTextContent(rBlocker);
+
+      const rChild = await callTool(client, "create_task", {
+        title: "Blocked child",
+      });
+      const child = await assertJsonTextContent(rChild);
+
+      await callTool(client, "update_task", {
+        id: child.id,
+        links: [
+          { taskId: parent.id, type: "parent" },
+          { taskId: blocker.id, type: "blocks" },
+        ],
+      });
+
+      const res = await callTool(client, "get_task", { id: child.id });
+      const parsed = await assertJsonTextContent(res);
+
+      expect(parsed.parent).toBeDefined();
+      expect(parsed.parent.id).toBe(parent.id);
+      expect(parsed.others.length).toBeGreaterThanOrEqual(1);
+      const blocksLink = parsed.others.find((o: any) => o.id === blocker.id);
+      expect(blocksLink).toBeDefined();
+      expect(blocksLink.type).toBe("blocks");
+    });
+  });
 });

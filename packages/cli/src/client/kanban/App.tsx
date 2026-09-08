@@ -471,7 +471,13 @@ export function App() {
     sections: ChangelogSection[];
     version: string;
     sinceVersion: string | null;
-  }>({ open: false, startMode: "whatsnew", sections: [], version: "", sinceVersion: null });
+  }>({
+    open: false,
+    startMode: "whatsnew",
+    sections: [],
+    version: "",
+    sinceVersion: null,
+  });
   const [filePreview, setFilePreview] = React.useState({
     open: false,
     name: "",
@@ -877,7 +883,13 @@ export function App() {
       ? whatsNew.sections
       : await fetchChangelogSections();
     const version = CLI_VERSION || sections[0]?.version || whatsNew.version;
-    setWhatsNew({ open: true, startMode: "full", sections, version, sinceVersion: null });
+    setWhatsNew({
+      open: true,
+      startMode: "full",
+      sections,
+      version,
+      sinceVersion: null,
+    });
   }
 
   function closeWhatsNew() {
@@ -994,6 +1006,44 @@ export function App() {
         });
     } catch {
       void loadTasks();
+    }
+  }
+
+  /** Link draggedId as a child of parentId — optimistic PATCH. */
+  async function linkChild(draggedId: string, parentId: string) {
+    const task = tasksRef.current.find((t) => t.id === draggedId);
+    const existingLinks = task?.links ?? [];
+    const newLink = { taskId: parentId, type: "parent" as const };
+    // Snapshot for revert on failure
+    const snapshot = [...existingLinks];
+    // Optimistic: set links locally immediately
+    setTasks((prev) => {
+      const next = prev.map((t) =>
+        t.id === draggedId ? { ...t, links: [...existingLinks, newLink] } : t,
+      );
+      tasksRef.current = next;
+      return next;
+    });
+    try {
+      const data = await api.updateTask(draggedId, {
+        links: [...existingLinks, newLink],
+      });
+      if (data.task) {
+        setTasks((prev) => {
+          const next = prev.map((t) => (t.id === draggedId ? data.task! : t));
+          tasksRef.current = next;
+          return next;
+        });
+      }
+    } catch {
+      // Revert optimistic update
+      setTasks((prev) => {
+        const next = prev.map((t) =>
+          t.id === draggedId ? { ...t, links: snapshot } : t,
+        );
+        tasksRef.current = next;
+        return next;
+      });
     }
   }
 
@@ -1235,6 +1285,7 @@ export function App() {
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
             onReorder={handleReorder}
+            onLinkChild={linkChild}
           />
         )}
 

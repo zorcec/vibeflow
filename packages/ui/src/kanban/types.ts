@@ -1,8 +1,17 @@
-export type { TaskType } from '../task-types';
-import type { TaskType } from '../task-types';
+export type { TaskType } from "../task-types";
+import type { TaskType } from "../task-types";
 
-export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done';
-export type Priority = 'Critical' | 'High' | 'Medium' | 'Low';
+export type TaskStatus = "backlog" | "todo" | "in-progress" | "review" | "done";
+export type Priority = "Critical" | "High" | "Medium" | "Low";
+
+// ── Task links (mirrors CLI types.ts) ──────────────────────────────────
+export const TASK_LINK_TYPES = ["parent", "relates", "blocks"] as const;
+export type TaskLinkType = (typeof TASK_LINK_TYPES)[number];
+
+export interface TaskLink {
+  taskId: string;
+  type: TaskLinkType;
+}
 
 export interface Task {
   id: string;
@@ -44,6 +53,8 @@ export interface Task {
   branchName?: string;
   /** When true, the task was successfully verified. */
   verified?: boolean;
+  /** Links to other tasks (parent, relates, blocks). */
+  links?: TaskLink[];
 }
 
 export interface Comment {
@@ -54,13 +65,13 @@ export interface Comment {
   createdAt: string;
   updatedAt?: string;
   /** 'system' = auto-generated trace entry; 'comment' (default) = normal message. */
-  type?: 'comment' | 'system';
+  type?: "comment" | "system";
   /** True when a comment was soft-deleted — its text is replaced by a placeholder. */
   deleted?: boolean;
   /** True when the current user is the author of this comment (enables edit/delete UI). */
   isOwnComment?: boolean;
   /** Origin platform of this comment or activity: 'cli' = from CLI command (likely agent), 'web' = from web app. */
-  source?: 'cli' | 'web';
+  source?: "cli" | "web";
 }
 
 export interface FileEntry {
@@ -73,7 +84,7 @@ export interface FileEntry {
   createdAt?: string;
 }
 
-export type LiveActivityState = 'viewing' | 'editing' | 'locked';
+export type LiveActivityState = "viewing" | "editing" | "locked";
 
 export interface LiveActivity {
   taskId: string;
@@ -94,7 +105,7 @@ export interface Column {
 export interface PanelState {
   open: boolean;
   task: Task | null;
-  tab: 'details' | 'comments' | 'files';
+  tab: "details" | "comments" | "files";
   addColumnId?: TaskStatus;
 }
 
@@ -110,7 +121,7 @@ export interface FilePreviewState {
   url: string;
 }
 
-export type ViewMode = 'board' | 'compact' | 'list';
+export type ViewMode = "board" | "compact" | "list";
 
 export interface AppSettings {
   visibleCols?: TaskStatus[];
@@ -127,7 +138,10 @@ export interface AppSettings {
 export interface KanbanApi {
   getTasks(): Promise<{ tasks: Task[] }>;
   createTask(data: Partial<Task>): Promise<{ success: boolean; task?: Task }>;
-  updateTask(id: string, data: Partial<Task>): Promise<{ success: boolean; task?: Task }>;
+  updateTask(
+    id: string,
+    data: Partial<Task>,
+  ): Promise<{ success: boolean; task?: Task }>;
   deleteTask(id: string): Promise<void>;
   getComments(taskId: string): Promise<{ comments: Comment[] }>;
   addComment(taskId: string, text: string): Promise<void>;
@@ -136,7 +150,11 @@ export interface KanbanApi {
   getFiles(taskId: string): Promise<{ files: FileEntry[] }>;
   uploadFile(taskId: string, file: File): Promise<void>;
   deleteFile(taskId: string, filename: string): Promise<void>;
-  getProject(): Promise<{ name?: string; gitUserName?: string; branch?: string | null }>;
+  getProject(): Promise<{
+    name?: string;
+    gitUserName?: string;
+    branch?: string | null;
+  }>;
   getSettings(): Promise<Record<string, unknown>>;
   saveSettings(settings: Record<string, unknown>): Promise<void>;
   /** Optional WebSocket URL for real-time updates (CLI only). */

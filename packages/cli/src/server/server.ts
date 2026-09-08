@@ -28,6 +28,7 @@ import {
   readChangelogContent,
 } from "../core/changelog.js";
 import { getProjectName, getCurrentBranch } from "../core/config.js";
+import { validateLinkAddition } from "../core/task-links.js";
 import {
   createTask,
   listTasks,
@@ -330,6 +331,7 @@ function registerTaskApi(
       annotatedElementText,
       tags,
       sortKey,
+      links,
     } = req.body as {
       title?: string;
       description?: string;
@@ -349,6 +351,7 @@ function registerTaskApi(
       annotatedElementText?: string;
       tags?: string[];
       sortKey?: string;
+      links?: Array<{ taskId: string; type: string }>;
     };
 
     if (!title || !selector) {
@@ -364,6 +367,21 @@ function registerTaskApi(
       description: description || "",
       selector,
       cssSelector: cssSelector || undefined,
+      links: Array.isArray(links)
+        ? links
+            .filter(
+              (l) =>
+                l &&
+                typeof l.taskId === "string" &&
+                l.taskId.length > 0 &&
+                typeof l.type === "string" &&
+                ["parent", "relates", "blocks"].includes(l.type),
+            )
+            .map((l) => ({
+              taskId: String(l.taskId),
+              type: String(l.type) as import("../core/types.js").TaskLinkType,
+            }))
+        : undefined,
       url: url || undefined,
       status: (VALID_CREATE_STATUSES.includes(
         reqStatus as (typeof VALID_CREATE_STATUSES)[number],
@@ -423,6 +441,7 @@ function registerTaskApi(
       "tags",
       "sortKey",
       "branchName",
+      "links",
     ]);
     const updates = Object.fromEntries(
       Object.entries(req.body as Record<string, unknown>).filter(([k]) =>
@@ -447,6 +466,60 @@ function registerTaskApi(
         if (!hasMdFile) {
           res.status(422).json({ error: "RESEARCH_REPORT_REQUIRED" });
           return;
+        }
+      }
+    }
+
+    // Validate links if provided
+    if (Array.isArray(updates.links)) {
+      const linksArr = updates.links as Array<Record<string, unknown>>;
+      for (const link of linksArr) {
+        if (
+          !link ||
+          typeof link.taskId !== "string" ||
+          link.taskId.length === 0 ||
+          typeof link.type !== "string"
+        ) {
+          res.status(400).json({
+            error:
+              "Invalid link: each link needs taskId (string) and type (parent|relates|blocks)",
+          });
+          return;
+        }
+        if (
+          link.type !== "parent" &&
+          link.type !== "relates" &&
+          link.type !== "blocks"
+        ) {
+          res.status(400).json({ error: `Invalid link type: ${link.type}` });
+          return;
+        }
+        // Validate self-link
+        if (link.type === "parent" && link.taskId === id) {
+          res.status(400).json({ error: "Cannot link a task to itself" });
+          return;
+        }
+      }
+      // Cycle detection + duplicate parent validation via task-links module.
+      // Validate against the PRE-merge state: duplicate/self checks read the
+      // task's existing links, and cycle detection walks existing parent chains
+      // from the proposed parent up (if it reaches the patched task → cycle).
+      // Merging the PATCH payload into the task before validation would make
+      // every proposed link appear as an existing duplicate.
+      const currentTask = readTaskFile(findTaskFilePath(projectDir, id) ?? "");
+      if (currentTask) {
+        const allTasks = listTasks(projectDir);
+        for (const link of linksArr) {
+          const result = validateLinkAddition({
+            allTasks,
+            fromId: id,
+            toId: String(link.taskId),
+            type: String(link.type) as import("../core/types.js").TaskLinkType,
+          });
+          if (!result.ok) {
+            res.status(409).json({ error: result.reason });
+            return;
+          }
         }
       }
     }
@@ -1253,7 +1326,12 @@ function useSecurityHeaders(app: express.Application): void {
  */
 /** Shared Express app + HTTP server + WebSocket setup used by both serve modes.
  * Extracted to eliminate ~20 lines of duplication between serveApiOnly and serve (S3). */
-function createBaseServer(): { app: express.Express; httpServer: import("node:http").Server; wss: import("ws").WebSocketServer; broadcast: (data: Record<string, unknown>) => void } {
+function createBaseServer(): {
+  app: express.Express;
+  httpServer: import("node:http").Server;
+  wss: import("ws").WebSocketServer;
+  broadcast: (data: Record<string, unknown>) => void;
+} {
   const app = express();
   useCors(app);
   useSecurityHeaders(app);
@@ -1273,7 +1351,9 @@ function createBaseServer(): { app: express.Express; httpServer: import("node:ht
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
-      } catch { /* ignore non-JSON */ }
+      } catch {
+        /* ignore non-JSON */
+      }
     });
   });
   return { app, httpServer, wss, broadcast };

@@ -42,9 +42,7 @@ export interface OperationResult<T> {
 
 export const ListTasksInput = z.object({
   // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
-  status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]])
-    .optional(),
+  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
     .optional(),
@@ -82,9 +80,7 @@ export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 export const UpdateTaskInput = z.object({
   id: z.string().min(1),
   // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
-  status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]])
-    .optional(),
+  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   branch: z.string().optional(),
@@ -230,21 +226,28 @@ export async function getTask(
       };
     }
 
+    // Derive relations (parent/children/other) for ergonomic MCP access.
+    const { taskRelations } = await import("../core/task-links.js");
+    const { listTasks: coreListTasks } = await import("../core/tasks.js");
+    const allTasks = coreListTasks(ctx.projectDir);
+    const relations = taskRelations(allTasks, task.id);
+    const data: Record<string, unknown> = { ...task, ...relations };
+
     // Apply field selection
     if (input.fields && input.fields.length > 0) {
       const fieldSet = new Set(input.fields);
       const filtered: Record<string, unknown> = {};
-      for (const key of Object.keys(task)) {
+      for (const key of Object.keys(data)) {
         if (fieldSet.has(key)) {
-          // SAFETY: Task is a plain JSON object; runtime keys match the type's properties
-          filtered[key] = (task as unknown as Record<string, unknown>)[key];
+          filtered[key] = data[key];
         }
       }
-      // SAFETY: filtered contains a subset of Task's keys; partial Task is still structurally valid for JSON serialization
+      // SAFETY: filtered contains a subset of keys; partial Task is still structurally valid for JSON serialization
       return { ok: true, data: filtered as unknown as Task };
     }
 
-    return { ok: true, data: task };
+    // SAFETY: data is a Task with added derived relation fields; structurally compatible for JSON serialization
+    return { ok: true, data: data as unknown as Task };
   } catch (err) {
     return {
       ok: false,
@@ -306,9 +309,7 @@ export async function updateTask(
   input: UpdateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { findTaskFilePath, readTaskFile } = await import(
-      "../core/tasks.js"
-    );
+    const { findTaskFilePath, readTaskFile } = await import("../core/tasks.js");
     const filePath = findTaskFilePath(ctx.projectDir, input.id);
     const existingTask = filePath ? readTaskFile(filePath) : null;
     if (!existingTask) {
@@ -339,7 +340,11 @@ export async function updateTask(
       if (!gate.ok) {
         return {
           ok: false,
-          error: { code: gate.code, message: gate.message, suggestion: gate.suggestion },
+          error: {
+            code: gate.code,
+            message: gate.message,
+            suggestion: gate.suggestion,
+          },
         };
       }
     }
@@ -403,7 +408,11 @@ export async function updateTask(
       }
     }
 
-    return { ok: true, data: task, steps: steps.length > 0 ? steps : undefined };
+    return {
+      ok: true,
+      data: task,
+      steps: steps.length > 0 ? steps : undefined,
+    };
   } catch (err) {
     return {
       ok: false,
@@ -648,11 +657,19 @@ export async function verifyTaskOp(
       await addVerifySystemComment(ctx.projectDir, input.id, result);
       return { ok: true, data: result };
     } catch (err) {
-      const ve = err instanceof Error && "code" in err
-        ? err as { code: string; message: string; suggestion?: string }
-        : null;
+      const ve =
+        err instanceof Error && "code" in err
+          ? (err as { code: string; message: string; suggestion?: string })
+          : null;
       if (ve) {
-        return { ok: false, error: { code: ve.code, message: ve.message, suggestion: ve.suggestion } };
+        return {
+          ok: false,
+          error: {
+            code: ve.code,
+            message: ve.message,
+            suggestion: ve.suggestion,
+          },
+        };
       }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg === "VERIFY_TIMEOUT" || ac.signal.aborted) {

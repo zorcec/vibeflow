@@ -2,7 +2,8 @@ import React from "react";
 import { Plus } from "lucide-react";
 import type { Task, Column, TaskStatus, LiveActivity } from "../types";
 import { TaskCard } from "./TaskCard";
-import { compareTaskOrder, computeReorder } from "../utils";
+import { groupTasksByRoot, classifyDropZone, targetValid } from "../task-links";
+import { compareTaskOrder } from "../utils";
 
 const COLUMNS: Column[] = [
   {
@@ -97,6 +98,12 @@ function SkeletonCard() {
 interface DropTarget {
   taskId: string;
   position: "before" | "after";
+  zone: "top" | "center" | "bottom";
+}
+
+/** Extended DropTarget for children-zone drops (stores the parent id). */
+interface ZoneDropTarget {
+  parentId: string;
 }
 
 interface Props {
@@ -121,6 +128,8 @@ interface Props {
     afterId: string | null,
     explicitSortKey?: string,
   ) => void;
+  /** Link a task as a child of another task (optimistic PATCH). */
+  onLinkChild?: (draggedId: string, parentId: string) => void;
 }
 
 export function KanbanBoard({
@@ -133,6 +142,7 @@ export function KanbanBoard({
   onOpenPanel,
   onDrop,
   onReorder,
+  onLinkChild,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
@@ -141,11 +151,23 @@ export function KanbanBoard({
   const [cardDropTarget, setCardDropTarget] = React.useState<DropTarget | null>(
     null,
   );
+  const [zoneDropTarget, setZoneDropTarget] =
+    React.useState<ZoneDropTarget | null>(null);
+  /** Pill shown when hovering a card center or children zone while dragging. */
+  const [makeChildTarget, setMakeChildTarget] = React.useState<{
+    taskId: string;
+    title: string;
+    isZone: boolean;
+  } | null>(null);
+  const [dropBlocked, setDropBlocked] = React.useState(false);
   // Refs mirror the above states so handleDrop always reads the latest value synchronously.
   // React state updates are async; reading from a stale closure causes cardDropTarget to be null
   // at drop time when dragleave briefly clears it while moving between cards through the gap.
   const dragTaskIdRef = React.useRef<string | null>(null);
   const cardDropTargetRef = React.useRef<DropTarget | null>(null);
+  const zoneDropTargetRef = React.useRef<ZoneDropTarget | null>(null);
+  const makeChildTargetRef = React.useRef<typeof makeChildTarget>(null);
+  const dropBlockedRef = React.useRef(false);
 
   const filtered = searchQuery
     ? tasks.filter(
@@ -237,38 +259,144 @@ export function KanbanBoard({
   function handleCardDragOver(e: React.DragEvent, taskId: string) {
     e.preventDefault();
     e.stopPropagation(); // prevent column-level dragover from overriding
+    const dragging = dragTaskIdRef.current;
+    if (!dragging) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const position: "before" | "after" =
-      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-    const newTarget = { taskId, position };
-    cardDropTargetRef.current = newTarget;
-    setCardDropTarget((prev) =>
-      prev?.taskId === taskId && prev.position === position ? prev : newTarget,
-    );
+    const zone = classifyDropZone(rect, e.clientY);
+    const valid = targetValid(filtered, dragging, taskId);
+    const isCenter = zone === "center";
+
+    if (isCenter && valid) {
+      // Center drop → make-child affordance, suppress reorder line
+      const task = filtered.find((t) => t.id === taskId);
+      const target = { taskId, position: "before" as const, zone };
+      cardDropTargetRef.current = target;
+      setCardDropTarget(target);
+      const pill = { taskId, title: task?.title ?? "", isZone: false };
+      makeChildTargetRef.current = pill;
+      setMakeChildTarget(pill);
+      setDropBlocked(false);
+      dropBlockedRef.current = false;
+      zoneDropTargetRef.current = null;
+      setZoneDropTarget(null);
+    } else if (isCenter && !valid) {
+      // Center but invalid → blocked visual, no pill
+      const target = { taskId, position: "before" as const, zone };
+      cardDropTargetRef.current = target;
+      setCardDropTarget(target);
+      makeChildTargetRef.current = null;
+      setMakeChildTarget(null);
+      setDropBlocked(true);
+      dropBlockedRef.current = true;
+      zoneDropTargetRef.current = null;
+      setZoneDropTarget(null);
+    } else {
+      // Edge → reorder as before
+      const position: "before" | "after" = zone === "top" ? "before" : "after";
+      const newTarget = { taskId, position, zone };
+      cardDropTargetRef.current = newTarget;
+      setCardDropTarget((prev) =>
+        prev?.taskId === taskId && prev.position === position
+          ? prev
+          : newTarget,
+      );
+      makeChildTargetRef.current = null;
+      setMakeChildTarget(null);
+      setDropBlocked(false);
+      dropBlockedRef.current = false;
+      zoneDropTargetRef.current = null;
+      setZoneDropTarget(null);
+    }
+  }
+
+  function handleChildrenZoneDragOver(e: React.DragEvent, parentId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dragging = dragTaskIdRef.current;
+    if (!dragging) return;
+    const valid = targetValid(filtered, dragging, parentId);
+    const task = filtered.find((t) => t.id === parentId);
+    zoneDropTargetRef.current = { parentId };
+    setZoneDropTarget({ parentId });
+    if (valid) {
+      makeChildTargetRef.current = {
+        taskId: parentId,
+        title: task?.title ?? "",
+        isZone: true,
+      };
+      setMakeChildTarget({
+        taskId: parentId,
+        title: task?.title ?? "",
+        isZone: true,
+      });
+      setDropBlocked(false);
+      dropBlockedRef.current = false;
+    } else {
+      makeChildTargetRef.current = null;
+      setMakeChildTarget(null);
+      setDropBlocked(true);
+      dropBlockedRef.current = true;
+    }
+    // Suppress card-level target
+    cardDropTargetRef.current = null;
+    setCardDropTarget(null);
+  }
+
+  function handleChildrenZoneDragLeave(e: React.DragEvent) {
+    // Only clear if leaving the zone entirely
+    const related = e.relatedTarget as Node | null;
+    if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+    zoneDropTargetRef.current = null;
+    setZoneDropTarget(null);
+    makeChildTargetRef.current = null;
+    setMakeChildTarget(null);
+    setDropBlocked(false);
+    dropBlockedRef.current = false;
   }
 
   function handleDrop(e: React.DragEvent, colId: TaskStatus, colTasks: Task[]) {
     e.preventDefault();
     setDragOver(null);
-    // Read from ref — always current even if React state update from dragleave briefly cleared state
-    const target = cardDropTargetRef.current;
+    // Read from refs — always current even if React state update from dragleave briefly cleared state
+    const cardTarget = cardDropTargetRef.current;
+    const zoneTarget = zoneDropTargetRef.current;
     cardDropTargetRef.current = null;
     setCardDropTarget(null);
+    zoneDropTargetRef.current = null;
+    setZoneDropTarget(null);
+    makeChildTargetRef.current = null;
+    setMakeChildTarget(null);
+    setDropBlocked(false);
+    dropBlockedRef.current = false;
     const dragging = dragTaskIdRef.current;
     dragTaskIdRef.current = null;
     setDragTaskId(null);
     if (!dragging) return;
 
-    if (onReorder && target) {
-      // Dropped onto a specific card — compute before/after neighbours
-      const targetIndex = colTasks.findIndex((t) => t.id === target.taskId);
+    // 1. Children zone drop → make-child
+    if (zoneTarget && onLinkChild) {
+      const freshValid = targetValid(filtered, dragging, zoneTarget.parentId);
+      if (freshValid) onLinkChild(dragging, zoneTarget.parentId);
+      return;
+    }
+
+    // 2. Card center drop → make-child (re-validate at drop time)
+    if (cardTarget?.zone === "center" && onLinkChild) {
+      const freshValid = targetValid(filtered, dragging, cardTarget.taskId);
+      if (freshValid) onLinkChild(dragging, cardTarget.taskId);
+      return;
+    }
+
+    // 3. Edge drop → reorder
+    if (onReorder && cardTarget && cardTarget.zone !== "center") {
+      const targetIndex = colTasks.findIndex((t) => t.id === cardTarget.taskId);
       let beforeId: string | null = null;
       let afterId: string | null = null;
-      if (target.position === "before") {
-        afterId = target.taskId;
+      if (cardTarget.position === "before") {
+        afterId = cardTarget.taskId;
         beforeId = targetIndex > 0 ? colTasks[targetIndex - 1].id : null;
       } else {
-        beforeId = target.taskId;
+        beforeId = cardTarget.taskId;
         afterId =
           targetIndex < colTasks.length - 1
             ? colTasks[targetIndex + 1].id
@@ -287,7 +415,21 @@ export function KanbanBoard({
     setDragOver(null);
     cardDropTargetRef.current = null;
     setCardDropTarget(null);
+    zoneDropTargetRef.current = null;
+    setZoneDropTarget(null);
+    makeChildTargetRef.current = null;
+    setMakeChildTarget(null);
+    setDropBlocked(false);
+    dropBlockedRef.current = false;
   }
+
+  {
+    /* Group all tasks by root: children are rendered under their parent, not as standalone cards */
+  }
+  const { standalone: allStandalone } = React.useMemo(
+    () => groupTasksByRoot(filtered, compareTaskOrder),
+    [filtered],
+  );
 
   return (
     <>
@@ -301,9 +443,7 @@ export function KanbanBoard({
         {cols.map((col) => {
           const colTasks = isLoading
             ? []
-            : filtered
-                .filter((t) => t.status === col.id)
-                .sort(compareTaskOrder);
+            : allStandalone.filter((t) => t.status === col.id);
 
           // Done column: show latest modified tasks first (reverse order)
           const displayTasks =
@@ -314,6 +454,7 @@ export function KanbanBoard({
               key={col.id}
               col={col}
               tasks={displayTasks}
+              allTasks={filtered}
               isLoading={isLoading}
               liveActivities={liveActivities}
               compact={compact}
@@ -341,7 +482,12 @@ export function KanbanBoard({
               onOpenTask={onOpenPanel}
               onDragStart={handleDragStart}
               onCardDragOver={handleCardDragOver}
+              onChildrenZoneDragOver={handleChildrenZoneDragOver}
+              onChildrenZoneDragLeave={handleChildrenZoneDragLeave}
               cardDropTarget={cardDropTarget}
+              zoneDropTarget={zoneDropTarget}
+              makeChildTarget={makeChildTarget}
+              dropBlocked={dropBlocked}
               isDragging={dragTaskId !== null}
             />
           );
@@ -398,6 +544,7 @@ export function KanbanBoard({
 interface ColumnProps {
   col: Column;
   tasks: Task[];
+  allTasks: Task[];
   isLoading?: boolean;
   liveActivities?: Map<string, LiveActivity>;
   isDragOver: boolean;
@@ -409,7 +556,12 @@ interface ColumnProps {
   onOpenTask: (task: Task, tab?: "details" | "comments" | "files") => void;
   onDragStart: (e: React.DragEvent, taskId: string) => void;
   onCardDragOver: (e: React.DragEvent, taskId: string) => void;
+  onChildrenZoneDragOver: (e: React.DragEvent, parentId: string) => void;
+  onChildrenZoneDragLeave: (e: React.DragEvent) => void;
   cardDropTarget: DropTarget | null;
+  zoneDropTarget: ZoneDropTarget | null;
+  makeChildTarget: { taskId: string; title: string; isZone: boolean } | null;
+  dropBlocked: boolean;
   /** Compact view: one-line done-style rows. */
   compact?: boolean;
   /** True while a card drag is active — fit-screen hiding is suspended. */
@@ -419,6 +571,7 @@ interface ColumnProps {
 function KanbanColumn({
   col,
   tasks,
+  allTasks,
   isLoading,
   liveActivities,
   isDragOver,
@@ -430,7 +583,12 @@ function KanbanColumn({
   onOpenTask,
   onDragStart,
   onCardDragOver,
+  onChildrenZoneDragOver,
+  onChildrenZoneDragLeave,
   cardDropTarget,
+  zoneDropTarget,
+  makeChildTarget,
+  dropBlocked,
   compact,
   isDragging,
 }: ColumnProps) {
@@ -476,6 +634,7 @@ function KanbanColumn({
     });
     return () => cancelAnimationFrame(raf);
   }, [tasks.length, isDragging, isLoading]);
+
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
   // DONE_LIMIT is only a fallback cap for the done lane before measurement
@@ -490,8 +649,7 @@ function KanbanColumn({
     ? Math.max(
         1,
         Math.floor(
-          Math.max(0, colHeight - CHIP_H + COLUMN_GAP) /
-            (cardH + COLUMN_GAP),
+          Math.max(0, colHeight - CHIP_H + COLUMN_GAP) / (cardH + COLUMN_GAP),
         ),
       )
     : DONE_LIMIT;
@@ -511,10 +669,10 @@ function KanbanColumn({
               outlineOffset: -2,
               background: col.accent,
               boxShadow: `0 0 12px ${col.color}22`,
-              transition: 'background 0.15s, box-shadow 0.15s, outline 0.15s',
+              transition: "background 0.15s, box-shadow 0.15s, outline 0.15s",
             }
           : {
-              transition: 'background 0.15s, box-shadow 0.15s, outline 0.15s',
+              transition: "background 0.15s, box-shadow 0.15s, outline 0.15s",
             }),
         borderRadius: 8,
       }}
@@ -588,44 +746,82 @@ function KanbanColumn({
           </div>
         ) : (
           <>
-            {visibleTasks.map((task) => (
-              <div
-                key={task.id}
-                style={{ position: "relative" }}
-                onDragOver={(e) => onCardDragOver(e, task.id)}
-              >
-                {cardDropTarget?.taskId === task.id &&
-                  cardDropTarget.position === "before" && (
+            {visibleTasks.map((task) => {
+              const isCenterTarget =
+                makeChildTarget?.taskId === task.id && !makeChildTarget.isZone;
+              const isBlockedTarget =
+                dropBlocked && cardDropTarget?.taskId === task.id;
+              const isZoneTarget = zoneDropTarget?.parentId === task.id;
+              return (
+                <div
+                  key={task.id}
+                  style={{ position: "relative" }}
+                  onDragOver={(e) => onCardDragOver(e, task.id)}
+                  className={
+                    isCenterTarget
+                      ? "dnd-drop-center"
+                      : isBlockedTarget
+                        ? "dnd-drop-blocked"
+                        : isZoneTarget
+                          ? "dnd-zone-hover"
+                          : undefined
+                  }
+                >
+                  {cardDropTarget?.taskId === task.id &&
+                    cardDropTarget.position === "before" &&
+                    cardDropTarget.zone !== "center" && (
+                      <div
+                        style={{
+                          height: 2,
+                          borderRadius: 1,
+                          background: col.color,
+                          margin: "2px 0",
+                        }}
+                      />
+                    )}
+                  <TaskCard
+                    task={task}
+                    col={col}
+                    liveActivity={liveActivities?.get(task.id)}
+                    compact={compact}
+                    allTasks={allTasks}
+                    onOpen={onOpenTask}
+                    onOpenChild={onOpenTask}
+                    onDragStart={onDragStart}
+                    onChildrenZoneDragOver={
+                      isDragging
+                        ? (e) => onChildrenZoneDragOver(e, task.id)
+                        : undefined
+                    }
+                    onChildrenZoneDragLeave={
+                      isDragging ? onChildrenZoneDragLeave : undefined
+                    }
+                  />
+                  {cardDropTarget?.taskId === task.id &&
+                    cardDropTarget.position === "after" &&
+                    cardDropTarget.zone !== "center" && (
+                      <div
+                        style={{
+                          height: 2,
+                          borderRadius: 1,
+                          background: col.color,
+                          margin: "2px 0",
+                        }}
+                      />
+                    )}
+                  {/* Make-child pill — appears below the card */}
+                  {isCenterTarget && (
                     <div
-                      style={{
-                        height: 2,
-                        borderRadius: 1,
-                        background: col.color,
-                        margin: "2px 0",
-                      }}
-                    />
+                      className="dnd-make-child-pill"
+                      role="status"
+                      aria-label={`Make child of ${makeChildTarget!.title}`}
+                    >
+                      ↳ Make child of &ldquo;{makeChildTarget!.title}&rdquo;
+                    </div>
                   )}
-                <TaskCard
-                  task={task}
-                  col={col}
-                  liveActivity={liveActivities?.get(task.id)}
-                  compact={compact}
-                  onOpen={onOpenTask}
-                  onDragStart={onDragStart}
-                />
-                {cardDropTarget?.taskId === task.id &&
-                  cardDropTarget.position === "after" && (
-                    <div
-                      style={{
-                        height: 2,
-                        borderRadius: 1,
-                        background: col.color,
-                        margin: "2px 0",
-                      }}
-                    />
-                  )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
             {overflow > 0 && (
               <div
                 data-fit-chip
