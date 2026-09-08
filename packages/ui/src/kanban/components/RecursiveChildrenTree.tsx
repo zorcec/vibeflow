@@ -80,7 +80,8 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
   return (
     <div className="recursive-children-tree" data-role="recursive-tree">
       {validChildren.map((child) => {
-        const childHasChildren = getChildren(allTasks, child.id).length > 0;
+        const childCount = getChildren(allTasks, child.id).length;
+        const childHasChildren = childCount > 0;
         const atMaxDepth = depth + 1 >= maxDepth;
 
         // Orphan detection: parent link points at a task not in allTasks
@@ -108,6 +109,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                 variant={variant}
                 onOpen={() => onOpen?.(child)}
                 isOrphan={isOrphan}
+                childCount={childCount}
               />
             </div>
             {childHasChildren && atMaxDepth && (

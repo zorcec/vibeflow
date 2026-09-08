@@ -1152,6 +1152,20 @@ body.proto-resizing-panel {
  flex: 1;
  min-width: 0;
 }
+/* Small chip showing direct-child count on parent rows */
+.parent-count-chip {
+ font-size: 10px;
+ line-height: 1;
+ color: #6b7280;
+ background: rgba(107, 114, 128, 0.08);
+ border: 1px solid rgba(107, 114, 128, 0.18);
+ border-radius: 4px;
+ padding: 1px 4px;
+ margin-left: 4px;
+ flex-shrink: 0;
+ white-space: nowrap;
+ font-family: monospace;
+}
 .child-link-row--popover {
  padding: 4px 10px;
 }
@@ -1161,26 +1175,68 @@ body.proto-resizing-panel {
 
 /* ── Modern tree depth styling (Option A) ─────────────────────────── */
 /* L2+ dots: hollow 3px circle with 1px blue border (detail variant) */
-.recursive-children-tree-node[data-depth="2"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="3"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="4"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="5"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="6"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="7"] > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node[data-depth="8"] > div > .child-link-row--detail .child-link-dot {
+.recursive-children-tree-node[data-depth="2"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="3"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="4"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="5"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="6"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="7"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node[data-depth="8"]
+ > div
+ > .child-link-row--detail
+ .child-link-dot {
  background: transparent !important;
  border: 1px solid #60a5fa;
  width: 3px;
  height: 3px;
 }
 /* L2+ dots: hollow circle with blue border (inline variant on spine) */
-.recursive-children-tree-node[data-depth="2"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="3"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="4"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="5"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="6"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="7"] > div > .child-link-row--inline .child-link-dot--on-line,
-.recursive-children-tree-node[data-depth="8"] > div > .child-link-row--inline .child-link-dot--on-line {
+.recursive-children-tree-node[data-depth="2"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="3"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="4"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="5"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="6"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="7"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="8"]
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line {
  background: transparent !important;
  border: 1px solid #60a5fa;
  width: 5px;
@@ -1188,13 +1244,17 @@ body.proto-resizing-panel {
  box-shadow: 0 0 0 1px var(--p-card);
 }
 /* Opacity ramp: depth 2 = 0.7, depth 3+ = 0.5 (child-combinator prevents subtree bleed) */
-.recursive-children-tree-node[data-depth="2"] > div > .child-link-row { opacity: 0.7; }
+.recursive-children-tree-node[data-depth="2"] > div > .child-link-row {
+ opacity: 0.7;
+}
 .recursive-children-tree-node[data-depth="3"] > div > .child-link-row,
 .recursive-children-tree-node[data-depth="4"] > div > .child-link-row,
 .recursive-children-tree-node[data-depth="5"] > div > .child-link-row,
 .recursive-children-tree-node[data-depth="6"] > div > .child-link-row,
 .recursive-children-tree-node[data-depth="7"] > div > .child-link-row,
-.recursive-children-tree-node[data-depth="8"] > div > .child-link-row { opacity: 0.5; }
+.recursive-children-tree-node[data-depth="8"] > div > .child-link-row {
+ opacity: 0.5;
+}
 
 /* ── Orphan row: parent link points at a deleted/missing task ── */
 .child-row--orphan {

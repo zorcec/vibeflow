@@ -8,9 +8,11 @@ interface ChildRowProps {
     variant: "popover" | "detail" | "inline";
     /** True when the parent link in this child's `links` points at a task not present in allTasks. */
     isOrphan?: boolean;
+    /** Direct children count — when > 0 a small ⊃ N chip is shown after the title. */
+    childCount?: number;
 }
 
-export function ChildRow({ child, onOpen, variant, isOrphan }: ChildRowProps) {
+export function ChildRow({ child, onOpen, variant, isOrphan, childCount }: ChildRowProps) {
     const isInline = variant === "inline";
     return (
         <button
@@ -42,6 +44,11 @@ export function ChildRow({ child, onOpen, variant, isOrphan }: ChildRowProps) {
             )}
             <span className="child-link-id">{shortId(child.id)}</span>
             <span className="child-link-title">{child.title}</span>
+            {childCount && childCount > 0 ? (
+                <span className="parent-count-chip" title={`${childCount} direct children`}>
+                    ⊃ {childCount}
+                </span>
+            ) : null}
             {isOrphan && (
                 <span className="child-orphan-label">⚠ missing parent</span>
             )}
