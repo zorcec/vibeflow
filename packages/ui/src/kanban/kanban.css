@@ -979,7 +979,10 @@ body.proto-resizing-panel {
  cursor: pointer;
  flex-shrink: 0;
  line-height: 1;
- transition: opacity .12s ease, color .1s ease, background .1s ease;
+ transition:
+  opacity 0.12s ease,
+  color 0.1s ease,
+  background 0.1s ease;
 }
 .relation-row:hover .relation-remove,
 .child-link-row:hover .relation-remove {
@@ -988,12 +991,12 @@ body.proto-resizing-panel {
 }
 .relation-remove:hover {
  color: #f87171;
- background: rgba(248, 113, 113, .10);
+ background: rgba(248, 113, 113, 0.1);
 }
 .relation-remove:focus-visible {
  opacity: 1;
  pointer-events: auto;
- outline: 1px solid rgba(248, 113, 113, .5);
+ outline: 1px solid rgba(248, 113, 113, 0.5);
 }
 
 /* ── Add panel ── */
@@ -1204,12 +1207,26 @@ body.proto-resizing-panel {
  letter-spacing: 0.5px;
  flex-shrink: 0;
 }
-.status-badge--todo        { background: rgba(148, 163, 184, .10); color: #94a3b8; }
-.status-badge--backlog     { background: rgba(148, 163, 184, .10); color: #94a3b8; }
-.status-badge--in-progress { background: rgba(250, 204, 21, .12);  color: #facc15; }
-.status-badge--review      { background: rgba(59, 130, 246, .12);  color: #60a5fa; }
-.status-badge--done        { background: rgba(74, 222, 128, .12);  color: #4ade80; }
-
+.status-badge--todo {
+ background: rgba(148, 163, 184, 0.1);
+ color: #94a3b8;
+}
+.status-badge--backlog {
+ background: rgba(148, 163, 184, 0.1);
+ color: #94a3b8;
+}
+.status-badge--in-progress {
+ background: rgba(250, 204, 21, 0.12);
+ color: #facc15;
+}
+.status-badge--review {
+ background: rgba(59, 130, 246, 0.12);
+ color: #60a5fa;
+}
+.status-badge--done {
+ background: rgba(74, 222, 128, 0.12);
+ color: #4ade80;
+}
 
 /* Opacity ramp: depth 2 = 0.7, depth 3+ = 0.5 */
 .recursive-children-tree-node[data-depth="2"] > div > .child-link-row {
@@ -1253,12 +1270,18 @@ body.proto-resizing-panel {
  font-weight: 600;
  padding: 2px 8px;
  border-radius: 999px;
- background: var(--p-hover, rgba(255, 255, 255, .05));
+ background: var(--p-hover, rgba(255, 255, 255, 0.05));
  color: var(--p-text-m, #94a3b8);
  flex-shrink: 0;
 }
-.relation-chip--children { color: #60a5fa; background: rgba(59, 130, 246, .10); }
-.relation-chip--parent   { color: #a5b4fc; background: rgba(165, 180, 252, .10); }
+.relation-chip--children {
+ color: #60a5fa;
+ background: rgba(59, 130, 246, 0.1);
+}
+.relation-chip--parent {
+ color: #a5b4fc;
+ background: rgba(165, 180, 252, 0.1);
+}
 
 /* ── Card children toggle row (collapsed state) ── */
 .card-children-toggle {
@@ -1273,12 +1296,12 @@ body.proto-resizing-panel {
  font-size: 11px;
  cursor: pointer;
  border-radius: 6px;
- transition: background .1s;
+ transition: background 0.1s;
  width: 100%;
  text-align: left;
 }
 .card-children-toggle:hover {
- background: var(--p-hover, rgba(255, 255, 255, .05));
+ background: var(--p-hover, rgba(255, 255, 255, 0.05));
 }
 .card-children-toggle-label {
  flex: 1;

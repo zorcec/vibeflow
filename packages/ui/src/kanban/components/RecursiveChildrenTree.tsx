@@ -99,46 +99,36 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
             data-role="recursive-tree-node"
             data-depth={depth + 1}
           >
-            <div
-              style={
-                variant === "inline"
-                  ? { paddingLeft: (depth + 1) * TREE_INDENT_PX }
-                  : undefined
-              }
-            >
-              <ChildRow
-                child={child}
-                variant={variant}
-                onOpen={() => onOpen?.(child)}
-                isOrphan={isOrphan}
-                childCount={childCount}
-                onRemove={onRemove}
-              />
-            </div>
+            <ChildRow
+              child={child}
+              variant={variant}
+              depth={depth + 1}
+              onOpen={() => onOpen?.(child)}
+              isOrphan={isOrphan}
+              childCount={childCount}
+              onRemove={onRemove}
+            />
             {childHasChildren && atMaxDepth && (
               <div
                 className="tree-depth-limit"
                 data-role="tree-depth-limit"
-                style={
-                  variant === "inline"
-                    ? { paddingLeft: (depth + 2) * TREE_INDENT_PX }
-                    : undefined
-                }
               >
                 … {getDescendants(allTasks, child.id).length} more
               </div>
             )}
             {childHasChildren && !atMaxDepth && (
-              <RecursiveChildrenTree
-                parentId={child.id}
-                allTasks={allTasks}
-                depth={depth + 1}
-                visited={childVisited}
-                variant={variant}
-                onOpen={onOpen}
-                onRemove={onRemove}
-                maxDepth={maxDepth}
-              />
+              <div className="child-tree-nested">
+                <RecursiveChildrenTree
+                  parentId={child.id}
+                  allTasks={allTasks}
+                  depth={depth + 1}
+                  visited={childVisited}
+                  variant={variant}
+                  onOpen={onOpen}
+                  onRemove={onRemove}
+                  maxDepth={maxDepth}
+                />
+              </div>
             )}
           </div>
         );

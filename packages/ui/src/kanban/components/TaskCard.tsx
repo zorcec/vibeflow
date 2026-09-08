@@ -7,7 +7,7 @@ import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
 import { getTaskTypeColor, TASK_TYPE_ICONS } from "../../task-types";
 import { TagPills } from "./shared/TagPills";
-import { getBlockers, getChildren, getLeafDescendants } from "../task-links";
+import { getBlockers, getChildren, getDescendants, getLeafDescendants } from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 
@@ -460,7 +460,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     className="child-count-chip"
                                     tabIndex={0}
                                     aria-expanded={expanded}
-                                    title={`${childCount} direct child${childCount === 1 ? "" : "ren"} — click to expand`}
+                                    title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree`}
                                     onMouseEnter={() => {
                                           if (childHoverTimeout.current)
                                                 clearTimeout(
@@ -595,6 +595,22 @@ export const TaskCard = React.memo(function TaskCard({
                               }}
                         />
                   </div>
+
+                  {/* Collapsed children toggle row */}
+                  {childCount > 0 && !expanded && (
+                        <button className="card-children-toggle" onClick={(e) => {
+                              e.stopPropagation();
+                              setExpanded(true);
+                        }}>
+                              <span className="child-count-chip" style={{ fontSize: 10 }}>
+                                    ⊃ {childCount}
+                              </span>
+                              <span className="card-children-toggle-label">
+                                    {childCount} {childCount === 1 ? "child" : "children"}
+                              </span>
+                              <span className="block-chevron">▾</span>
+                        </button>
+                  )}
 
                   {/* Children zone — INSIDE the card, animated via CSS grid rows */}
                   {(() => {

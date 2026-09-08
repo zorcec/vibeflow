@@ -11,16 +11,21 @@
     "./kanban.css": "./src/kanban/kanban.css"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "react": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.0",
-    "typescript": "^5.6.0"
+    "jsdom": "^29.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "react": "^18.3.0",
