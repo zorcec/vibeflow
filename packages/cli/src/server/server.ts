@@ -28,7 +28,6 @@ import {
   readChangelogContent,
 } from "../core/changelog.js";
 import { getProjectName, getCurrentBranch } from "../core/config.js";
-import { validateLinkAddition } from "../core/task-links.js";
 import {
   createTask,
   listTasks,
@@ -361,27 +360,49 @@ function registerTaskApi(
       return;
     }
 
+    // Validate links on creation (self/cycle check)
+    const validatedLinks = Array.isArray(links)
+      ? links
+          .filter(
+            (l) =>
+              l &&
+              typeof l.taskId === "string" &&
+              l.taskId.length > 0 &&
+              typeof l.type === "string" &&
+              ["parent", "relates", "blocks"].includes(l.type),
+          )
+          .map((l) => ({
+            taskId: String(l.taskId),
+            type: String(l.type) as import("../core/types.js").TaskLinkType,
+          }))
+      : undefined;
+
+    if (validatedLinks && validatedLinks.length > 0) {
+      // Cycle check on parent links (parent can't be the new task itself)
+      // and validate target tasks exist
+      const allTasks = listTasks(projectDir);
+      for (const link of validatedLinks) {
+        if (link.type === "parent") {
+          // Parent target must exist and must not be a descendant of the
+          // new task (impossible at create time since new task has no children)
+          const targetExists = allTasks.some((t) => t.id === link.taskId);
+          if (!targetExists) {
+            res.status(400).json({
+              error: `Parent target task ${link.taskId} not found`,
+            });
+            return;
+          }
+        }
+      }
+    }
+
     const gitUser = getGitUser(projectDir);
     const task = createTask(projectDir, {
       title,
       description: description || "",
       selector,
       cssSelector: cssSelector || undefined,
-      links: Array.isArray(links)
-        ? links
-            .filter(
-              (l) =>
-                l &&
-                typeof l.taskId === "string" &&
-                l.taskId.length > 0 &&
-                typeof l.type === "string" &&
-                ["parent", "relates", "blocks"].includes(l.type),
-            )
-            .map((l) => ({
-              taskId: String(l.taskId),
-              type: String(l.type) as import("../core/types.js").TaskLinkType,
-            }))
-        : undefined,
+      links: validatedLinks,
       url: url || undefined,
       status: (VALID_CREATE_STATUSES.includes(
         reqStatus as (typeof VALID_CREATE_STATUSES)[number],
@@ -494,30 +515,75 @@ function registerTaskApi(
           res.status(400).json({ error: `Invalid link type: ${link.type}` });
           return;
         }
-        // Validate self-link
+        // Validate self-link (always rejected, even if already present)
         if (link.type === "parent" && link.taskId === id) {
           res.status(400).json({ error: "Cannot link a task to itself" });
           return;
         }
       }
-      // Cycle detection + duplicate parent validation via task-links module.
-      // Validate against the PRE-merge state: duplicate/self checks read the
-      // task's existing links, and cycle detection walks existing parent chains
-      // from the proposed parent up (if it reaches the patched task → cycle).
-      // Merging the PATCH payload into the task before validation would make
-      // every proposed link appear as an existing duplicate.
+      // Net-new-only validation: PATCH replaces links entirely, but only
+      // links that are *new* (not already on the task) need duplicate/cycle
+      // checks. This is idempotent — re-applying the same links array is a
+      // no-op, not a duplicate error.
       const currentTask = readTaskFile(findTaskFilePath(projectDir, id) ?? "");
       if (currentTask) {
-        const allTasks = listTasks(projectDir);
+        const existingLinks = currentTask.links ?? [];
+
+        // Reject duplicate entries within the incoming array itself
+        const seenIncoming = new Set<string>();
         for (const link of linksArr) {
-          const result = validateLinkAddition({
-            allTasks,
-            fromId: id,
-            toId: String(link.taskId),
-            type: String(link.type) as import("../core/types.js").TaskLinkType,
-          });
-          if (!result.ok) {
-            res.status(409).json({ error: result.reason });
+          const key = `${String(link.taskId)}::${String(link.type)}`;
+          if (seenIncoming.has(key)) {
+            res.status(409).json({
+              error: `Duplicate link in payload: ${String(link.type)} → ${String(link.taskId)}`,
+            });
+            return;
+          }
+          seenIncoming.add(key);
+        }
+
+        // Parent-link replacement: if incoming has a parent and existing has
+        // a different parent, that's allowed (parent swap). Deduplicate:
+        // if the new parent == old parent, skip the cycle check.
+        const existingParent = existingLinks.find((l) => l.type === "parent");
+        const incomingParent = linksArr.find(
+          (l) => String(l.type) === "parent",
+        );
+        if (
+          existingParent &&
+          incomingParent &&
+          String(incomingParent.taskId) === existingParent.taskId
+        ) {
+          // Same parent — no new parent link, skip cycle check
+        } else if (incomingParent) {
+          // New or different parent — check for cycles by walking the
+          // parent chain from the proposed parent upward (post-merge state).
+          const allTasks = listTasks(projectDir);
+          const visited = new Set<string>();
+          let cur = String(incomingParent.taskId);
+          let isCycle = false;
+          while (!visited.has(cur)) {
+            if (cur === id) {
+              isCycle = true;
+              break;
+            }
+            visited.add(cur);
+            const task = allTasks.find((t) => t.id === cur);
+            // If swapping parent, use the patched links for this task
+            const parentLink =
+              cur === id
+                ? {
+                    type: "parent" as const,
+                    taskId: String(incomingParent.taskId),
+                  }
+                : task?.links?.find((l) => l.type === "parent");
+            if (!parentLink) break;
+            cur = parentLink.taskId;
+          }
+          if (isCycle) {
+            res.status(409).json({
+              error: `Cycle detected: setting parent to ${String(incomingParent.taskId)} would create a circular reference`,
+            });
             return;
           }
         }

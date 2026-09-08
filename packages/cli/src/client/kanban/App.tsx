@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type {
   Task,
   TaskStatus,
+  TaskLink,
   PanelState,
   AppSettings,
 } from "@vibeflow-tools/ui/kanban";
@@ -806,6 +807,9 @@ export function App() {
           sortKey: incoming.sortKey
             ? String(incoming.sortKey)
             : existing?.sortKey,
+          links: Array.isArray(incoming.links)
+            ? (incoming.links as TaskLink[])
+            : (existing?.links ?? []),
         };
 
         const next = prev.filter((t) => t.id !== id);
@@ -1035,7 +1039,10 @@ export function App() {
           return next;
         });
       }
-    } catch {
+    } catch (err) {
+      console.warn(
+        `[Vibeflow] Failed to link child: ${err instanceof Error ? err.message : String(err)}`,
+      );
       // Revert optimistic update
       setTasks((prev) => {
         const next = prev.map((t) =>
@@ -1122,6 +1129,17 @@ export function App() {
     // the user is starting a new navigation context.
     setNavHistory([]);
     setPanelState({ open: true, task, tab, addColumnId });
+  }
+
+  /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
+   *  Pushes the current task to nav history so the back button works. */
+  function navigateToTask(nextTask: Task) {
+    setPanelState((prev) => {
+      if (prev.task && prev.task.id !== nextTask.id) {
+        setNavHistory((h) => [...h, prev.task!]);
+      }
+      return { ...prev, open: true, task: nextTask, tab: "details" };
+    });
   }
 
   /** Navigate back through the task-ref history stack. */
@@ -1369,6 +1387,7 @@ export function App() {
               }
               externalLocalChanges={panelStatusChanges}
               allTasks={tasks}
+              onOpenTask={navigateToTask}
               createBranch={appSettings.createBranch}
             />
           </div>

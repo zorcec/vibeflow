@@ -1,5 +1,20 @@
 // ── Task link helpers (pure, no I/O) ─────────────────────────────────────
-import type { Task, TaskLink, TaskLinkType } from "./types.js";
+import type { Task, TaskLinkType } from "./types.js";
+
+/** Canonical status colors — single source of truth for dots/badges.
+ * Matches the UI dp-status-btn.active-* text colors in kanban.css. */
+export const STATUS_COLORS: Record<string, string> = {
+  backlog: "#94a3b8",
+  todo: "#f59e0b",
+  "in-progress": "#60a5fa",
+  review: "#a855f7",
+  done: "#22c55e",
+};
+
+/** Status → color mapping for dots/badges. */
+export function getStatusColor(status?: string): string {
+  return STATUS_COLORS[status ?? ""] ?? STATUS_COLORS.todo;
+}
 
 /** Return all children of a task (tasks that have a 'parent' link pointing to this task). */
 export function getChildren(tasks: Task[], parentId: string): Task[] {
@@ -194,7 +209,8 @@ export function groupTasksByRoot(tasks: Task[]): TaskGrouping {
 }
 
 /** Check whether dragging draggedId onto targetId as a child is valid.
- * Rejects self-links and cycles (target is a descendant of dragged). */
+ * Rejects self-links, cycles (target is a descendant of dragged),
+ * and already-parented tasks (dragged task already has a parent link). */
 export function targetValid(
   allTasks: Task[],
   draggedId: string,
@@ -202,7 +218,11 @@ export function targetValid(
 ): boolean {
   if (draggedId === targetId) return false;
   const descendants = getDescendants(allTasks, draggedId);
-  return !descendants.includes(targetId);
+  if (descendants.includes(targetId)) return false;
+  // Reject if dragged task already has a parent (single-parent rule)
+  const draggedTask = allTasks.find((t) => t.id === draggedId);
+  if (draggedTask?.links?.some((l) => l.type === "parent")) return false;
+  return true;
 }
 
 // ── Derived relations view (CLI display + MCP ergonomics) ────────────────

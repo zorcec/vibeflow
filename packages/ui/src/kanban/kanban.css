@@ -211,13 +211,13 @@ body {
  flex-shrink: 0;
 }
 .sd-backlog {
- background: #475569;
+ background: #94a3b8;
 }
 .sd-todo {
  background: #f59e0b;
 }
 .sd-inprogress {
- background: #3b82f6;
+ background: #60a5fa;
  animation: pulse-prog 2s ease-in-out infinite;
 }
 .sd-review {
@@ -229,10 +229,10 @@ body {
 @keyframes pulse-prog {
  0%,
  100% {
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.5);
  }
  50% {
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0);
  }
 }
 
@@ -788,51 +788,37 @@ body.proto-resizing-panel {
  color: var(--p-text-f);
 }
 
-/* Relations section in detail panel */
+/* Relations section in detail panel — unified collapsible area */
 .relations-section {
  border-top: 1px solid var(--p-border);
  padding-top: 10px;
  margin-top: 10px;
 }
-.relations-header {
+
+/* ── Area header (single toggle for all relations) ── */
+.relations-area-header {
  display: flex;
  align-items: center;
- justify-content: space-between;
  gap: 6px;
- margin-bottom: 6px;
+ justify-content: flex-start; /* FIXED: was space-between, count now left-aligned */
+ width: 100%;
+ text-align: left;
  border: none;
  background: transparent;
  cursor: pointer;
  padding: 2px 2px;
  font: inherit;
  color: var(--p-text-sub);
- width: 100%;
- text-align: left;
  transition: color 0.1s;
 }
-.relations-header:hover {
+.relations-area-header:hover {
  color: var(--p-text);
 }
-.relations-header-btn {
- display: flex;
- align-items: center;
- gap: 4px;
- border: none;
- background: transparent;
- cursor: pointer;
- padding: 0;
- font: inherit;
- color: var(--p-text-sub);
- transition: color 0.1s;
-}
-.relations-header-btn:hover {
- color: var(--p-text);
-}
-.relations-title {
+.relations-area-title {
  font-size: 12px;
  font-weight: 600;
 }
-.relations-count {
+.relations-area-count {
  font-size: 9px;
  font-weight: 700;
  color: var(--p-text-m);
@@ -842,41 +828,89 @@ body.proto-resizing-panel {
  padding: 0 5px;
  line-height: 1.4;
 }
-.relations-add-btn {
- border: none;
- background: transparent;
- color: var(--p-text-m);
- font-size: 11px;
- cursor: pointer;
- padding: 2px 6px;
- border-radius: 4px;
- transition:
-  color 0.1s,
-  background 0.1s;
-}
-.relations-add-btn:hover {
- color: var(--p-text);
- background: var(--p-hover);
-}
-.relations-cancel-btn {
- border: none;
- background: transparent;
- color: var(--p-text-f);
- font-size: 11px;
- cursor: pointer;
- padding: 2px 6px;
- border-radius: 4px;
- margin-top: 4px;
-}
-.relations-cancel-btn:hover {
- color: var(--p-text);
- background: var(--p-hover);
-}
-.relations-list {
+
+/* ── Expanded body ── */
+.relations-area-body {
  display: flex;
  flex-direction: column;
- gap: 4px;
+ gap: 8px;
+ padding-top: 6px;
+ animation: relationsAreaIn 0.12s ease both;
 }
+@keyframes relationsAreaIn {
+ from {
+  opacity: 0;
+  transform: translateY(-2px);
+ }
+ to {
+  opacity: 1;
+  transform: translateY(0);
+ }
+}
+.relations-area-empty {
+ font-size: 11px;
+ color: var(--p-text-f);
+ padding: 2px 0;
+}
+
+/* ── Relation groups (Children / Blocks / Related) ── */
+.relation-group {
+ display: flex;
+ flex-direction: column;
+ gap: 3px;
+}
+.relation-group-header {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ padding: 0 2px;
+}
+.relation-group-dot {
+ width: 6px;
+ height: 6px;
+ border-radius: 50%;
+ flex-shrink: 0;
+}
+.relation-group-label {
+ font-size: 10px;
+ font-weight: 600;
+ text-transform: uppercase;
+ letter-spacing: 0.08em;
+}
+
+/* Color modifiers per group */
+.relation-group--children .relation-group-dot {
+ background: #60a5fa;
+}
+.relation-group--children .relation-group-label {
+ color: #60a5fa;
+}
+.relation-group--parent .relation-group-dot {
+ background: #60a5fa;
+}
+.relation-group--parent .relation-group-label {
+ color: #60a5fa;
+}
+.relation-group--blocks .relation-group-dot {
+ background: #f87171;
+}
+.relation-group--blocks .relation-group-label {
+ color: #f87171;
+}
+.relation-group--relates .relation-group-dot {
+ background: #a78bfa;
+}
+.relation-group--relates .relation-group-label {
+ color: #a78bfa;
+}
+
+.relation-group-rows {
+ display: flex;
+ flex-direction: column;
+ gap: 3px;
+}
+
+/* ── Relation rows (inside groups) ── */
 .relation-row {
  display: flex;
  align-items: center;
@@ -887,6 +921,10 @@ body.proto-resizing-panel {
 }
 .relation-row--clickable:hover {
  background: var(--p-border);
+}
+.relation-row--clickable:focus-visible {
+ outline: 2px solid var(--p-blue);
+ outline-offset: -2px;
 }
 .relation-type-badge {
  font-size: 9px;
@@ -934,6 +972,39 @@ body.proto-resizing-panel {
 }
 .relation-remove:hover {
  color: #f87171;
+}
+
+/* ── Add panel ── */
+.relations-add-btn {
+ border: none;
+ background: transparent;
+ color: var(--p-text-m);
+ font-size: 11px;
+ cursor: pointer;
+ padding: 2px 6px;
+ border-radius: 4px;
+ transition:
+  color 0.1s,
+  background 0.1s;
+ align-self: flex-start;
+}
+.relations-add-btn:hover {
+ color: var(--p-text);
+ background: var(--p-hover);
+}
+.relations-cancel-btn {
+ border: none;
+ background: transparent;
+ color: var(--p-text-f);
+ font-size: 11px;
+ cursor: pointer;
+ padding: 2px 6px;
+ border-radius: 4px;
+ margin-top: 4px;
+}
+.relations-cancel-btn:hover {
+ color: var(--p-text);
+ background: var(--p-hover);
 }
 .relations-add-panel {
  margin-top: 6px;
@@ -1008,11 +1079,6 @@ body.proto-resizing-panel {
 .relation-result-row:hover {
  background: var(--p-card);
 }
-.relations-empty {
- font-size: 11px;
- color: var(--p-text-f);
- padding: 2px 0;
-}
 .relations-error {
  font-size: 11px;
  color: var(--p-red, #f87171);
@@ -1078,9 +1144,21 @@ body.proto-resizing-panel {
  padding: 4px 10px;
 }
 .child-link-row--detail {
- padding: 5px 8px;
- border-left: 2px dotted #60a5fa;
- padding-left: 8px;
+ padding: 5px 8px 5px 4px;
+}
+
+/* ── Orphan row: parent link points at a deleted/missing task ── */
+.child-row--orphan {
+ border-left: 2px dashed var(--p-text-f, #64748b) !important;
+ margin-left: 2px;
+}
+.child-orphan-label {
+ font-size: 10px;
+ color: var(--p-text-f, #64748b);
+ font-style: italic;
+ white-space: nowrap;
+ margin-left: auto;
+ flex-shrink: 0;
 }
 
 /* ── Block chevron (shared by children + relations headers) ── */
@@ -1092,67 +1170,6 @@ body.proto-resizing-panel {
 }
 [aria-expanded="true"] > .block-chevron {
  transform: rotate(90deg);
-}
-/* ── Children block in detail panel ── */
-.children-block-header {
- display: flex;
- align-items: center;
- gap: 6px;
- border: none;
- background: transparent;
- cursor: pointer;
- padding: 2px 2px;
- font: inherit;
- color: var(--p-text-sub);
- width: 100%;
- text-align: left;
- transition: color 0.1s;
- margin-bottom: 4px;
-}
-.children-block-header:hover {
- color: var(--p-text);
-}
-.children-block-title {
- font-size: 11px;
- font-weight: 600;
- color: #60a5fa;
-}
-.children-block-count {
- font-size: 9px;
- font-weight: 700;
- color: #60a5fa;
- background: rgba(96, 165, 250, 0.12);
- border: 1px solid rgba(96, 165, 250, 0.25);
- border-radius: 4px;
- padding: 0 5px;
- line-height: 1.4;
-}
-.children-block-hint {
- font-size: 9px;
- color: var(--p-text-f);
- margin-left: auto;
-}
-.children-block-rows {
- display: flex;
- flex-direction: column;
- gap: 2px;
-}
-/* ── +N more row (inline expansion cap) ── */
-.child-more-row {
- background: none;
- border: 1px dashed var(--p-border-t);
- color: var(--p-text-sub);
- font-size: 11px;
- border-radius: 6px;
- padding: 3px 8px;
- cursor: pointer;
- transition:
-  color 0.1s,
-  border-color 0.1s;
-}
-.child-more-row:hover {
- color: var(--p-blue-300);
- border-color: var(--p-blue-300);
 }
 
 /* ── Card children zone (inside the article) ── */
@@ -1168,6 +1185,8 @@ body.proto-resizing-panel {
 .card-children-zone[data-expanded="true"] {
  grid-template-rows: 1fr;
  opacity: 1;
+ max-height: 480px;
+ overflow-y: auto;
 }
 .card-children-zone-inner {
  overflow: hidden;
@@ -1181,6 +1200,8 @@ body.proto-resizing-panel {
  margin: 4px -8px -7px -8px;
  border-radius: 0 0 10px 10px;
  position: relative;
+ max-height: 480px;
+ overflow-y: auto;
 }
 /* Spine: vertical dotted line inside the zone */
 .card-children-zone[data-expanded="true"]::before {
@@ -1206,6 +1227,13 @@ body.proto-resizing-panel {
 }
 .child-link-row--inline .child-link-connector {
  display: none;
+}
+/* Depth-limit truncation marker */
+.tree-depth-limit {
+ padding: 2px 0;
+ font-size: 11px;
+ color: var(--p-fg-3, #9ca3af);
+ font-style: italic;
 }
 
 /* ── Drag-into-children drop zones ── */

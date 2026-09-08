@@ -1,11 +1,68 @@
 // ── Task link helpers (pure, mirrors CLI task-links.ts) ──────────────────
-import type { Task, TaskLink, TaskLinkType } from "./types";
+import type { Task, TaskLinkType } from "./types";
+
+/** Canonical status colors — single source of truth for dots/badges.
+ * Values match the DetailPanel dp-status-btn.active-* text colors. */
+export const STATUS_COLORS: Record<string, string> = {
+  backlog: "#94a3b8",
+  todo: "#f59e0b",
+  "in-progress": "#60a5fa",
+  review: "#a855f7",
+  done: "#22c55e",
+};
 
 /** Return all children of a task. */
 export function getChildren(tasks: Task[], parentId: string): Task[] {
   return tasks.filter((t) =>
     t.links?.some((l) => l.type === "parent" && l.taskId === parentId),
   );
+}
+
+/** Relation row as it appears in a detail-group with original link index for removal. */
+export interface DetailRelationRow {
+  target: Task | undefined;
+  link: { taskId: string; type: TaskLinkType };
+  linkIndex: number;
+  isDerived: boolean;
+}
+
+export interface DetailRelationsGroups {
+  children: Task[];
+  parentLinks: DetailRelationRow[];
+  blocksLinks: DetailRelationRow[];
+  relatesLinks: DetailRelationRow[];
+}
+
+/**
+ * Pure helper: split a task's relations into typed groups.
+ * - children: derived via getChildren (no link index)
+ * - parentLinks/blocksLinks/relatesLinks: explicit links with original indices.
+ */
+export function groupDetailRelations(
+  task: Task,
+  allTasks: Task[],
+): DetailRelationsGroups {
+  const links = task.links ?? [];
+  const children = getChildren(allTasks, task.id);
+
+  const parentLinks: DetailRelationRow[] = [];
+  const blocksLinks: DetailRelationRow[] = [];
+  const relatesLinks: DetailRelationRow[] = [];
+
+  links.forEach((link, idx) => {
+    const target = allTasks.find((t) => t.id === link.taskId);
+    const row: DetailRelationRow = {
+      target,
+      link,
+      linkIndex: idx,
+      isDerived: false,
+    };
+    if (link.type === "parent") parentLinks.push(row);
+    else if (link.type === "blocks") blocksLinks.push(row);
+    else relatesLinks.push(row);
+  });
+
+  return { children, parentLinks, blocksLinks, relatesLinks };
 }
 
 /** Return the parent task, or undefined. */
@@ -23,20 +80,7 @@ export function shortId(id: string): string {
 
 /** Status → color mapping for dots/badges. */
 export function getStatusColor(status?: string): string {
-  switch (status) {
-    case "done":
-      return "#22c55e";
-    case "review":
-      return "#f59e0b";
-    case "in-progress":
-      return "#3b82f6";
-    case "todo":
-      return "#64748b";
-    case "backlog":
-      return "#475569";
-    default:
-      return "#64748b";
-  }
+  return STATUS_COLORS[status ?? ""] ?? STATUS_COLORS.todo;
 }
 
 /** Return all tasks that block this task via a 'blocks' link on the blocked task.
@@ -155,24 +199,77 @@ export function groupTasksByRoot(
   return { standalone, groups };
 }
 
+/** Reorder-band geometry constants — exported for unit testing and reuse. */
+export const DROP_BAND_RATIO = 0.28;
+export const DROP_BAND_MIN_PX = 32;
+export const DROP_BAND_MAX_PX = 56;
+
 /** Classify a drop position within a card into top/bottom/center bands.
- * Top and bottom bands are 22% of height, clamped to [26px, 48px].
+ * Top and bottom bands are 28% of height, clamped to [32px, 56px].
  * The remainder is center. */
 export function classifyDropZone(
   rect: { top: number; height: number },
   clientY: number,
 ): "top" | "center" | "bottom" {
-  const minBand = 26;
-  const maxBand = 48;
-  const rawBand = Math.floor(rect.height * 0.22);
-  const band = Math.max(minBand, Math.min(maxBand, rawBand));
+  const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
+  const band = Math.max(DROP_BAND_MIN_PX, Math.min(DROP_BAND_MAX_PX, rawBand));
   if (clientY < rect.top + band) return "top";
   if (clientY > rect.top + rect.height - band) return "bottom";
   return "center";
 }
 
+/** Drop-intent kind tag — single discriminator for the single-ref architecture. */
+export type DropIntentKind = "card" | "zone" | "column";
+
+/** Unified drop intent — one ref replaces 4+ scattered refs/states. */
+export interface DropIntent {
+  kind: DropIntentKind;
+  /** Card target: the hovered card's task id. */
+  taskId?: string;
+  /** Column target: the hovered column id. */
+  colId?: string;
+  /** Zone target: the hovered children-zone parent task id. */
+  parentId?: string;
+  /** Edge position when kind=card and zone≠center. */
+  position?: "before" | "after";
+  /** Edge zone when kind=card and zone≠center. */
+  edgeZone?: "top" | "bottom";
+}
+
+/** Classify a drop position against a card's article element (not the
+ * outer wrapper, which may contain pill/indicator children that distort
+ * the bounding rect).
+ *
+ * When the make-child pill is currently visible for this card (`pillVisible`),
+ * any dragover within the wrapper is pinned to "center" — dropping on the
+ * pill behaves as a center drop. This prevents the zone-flip edge case
+ * where the pill mount/unmount shifts the rect and toggles between
+ * center/edge classification.
+ *
+ * Returns `{ zone, rect }` where `rect` is the article rect used for
+ * classification (for callers that need to compute positions from it). */
+export function classifyForDropIntent(
+  wrapperEl: HTMLElement,
+  clientY: number,
+  pillVisible: boolean,
+): { zone: "top" | "center" | "bottom"; rect: DOMRect } {
+  // Prefer the article element inside the wrapper — the pill/indicator
+  // mounts inside the wrapper but outside the article, so the article
+  // rect is immune to pill presence.
+  const articleEl = wrapperEl.querySelector("article") as HTMLElement | null;
+  const rect = articleEl
+    ? articleEl.getBoundingClientRect()
+    : wrapperEl.getBoundingClientRect();
+
+  if (pillVisible) {
+    return { zone: "center", rect };
+  }
+  return { zone: classifyDropZone(rect, clientY), rect };
+}
+
 /** Check whether dragging draggedId onto targetId as a child is valid.
- * Rejects self-links and cycles (target is a descendant of dragged). */
+ * Rejects self-links, cycles (target is a descendant of dragged),
+ * and already-parented tasks (dragged task already has a parent link). */
 export function targetValid(
   allTasks: Task[],
   draggedId: string,
@@ -180,7 +277,11 @@ export function targetValid(
 ): boolean {
   if (draggedId === targetId) return false;
   const descendants = getDescendants(allTasks, draggedId);
-  return !descendants.includes(targetId);
+  if (descendants.includes(targetId)) return false;
+  // Reject if dragged task already has a parent (single-parent rule)
+  const draggedTask = allTasks.find((t) => t.id === draggedId);
+  if (draggedTask?.links?.some((l) => l.type === "parent")) return false;
+  return true;
 }
 
 /** Position for a child popover anchored to a DOMRect. */

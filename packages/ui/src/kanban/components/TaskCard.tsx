@@ -8,7 +8,7 @@ import { PriorityBadge } from "../../PriorityBadge";
 import { getTaskTypeColor, TASK_TYPE_ICONS } from "../../task-types";
 import { TagPills } from "./shared/TagPills";
 import { getBlockers, getChildren, getLeafDescendants } from "../task-links";
-import { ChildRow } from "./ChildRow";
+import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 
 interface Props {
@@ -172,7 +172,6 @@ export const TaskCard = React.memo(function TaskCard({
             right: number;
       } | null>(null);
       const [showChildPopover, setShowChildPopover] = React.useState(false);
-      const [childPopoverPinned, setChildPopoverPinned] = React.useState(false);
       const [childChipRect, setChildChipRect] = React.useState<DOMRect | null>(
             null,
       );
@@ -183,14 +182,13 @@ export const TaskCard = React.memo(function TaskCard({
             typeof setTimeout
       > | null>(null);
 
-      const leafChildren = getLeafDescendants(allTasks, task.id);
-      const childCount = leafChildren.length;
+      const directChildren = getChildren(allTasks, task.id);
+      const childCount = directChildren.length;
 
       // Listen for scroll-close signal from ChildPopover
       React.useEffect(() => {
             const handler = () => {
                   setShowChildPopover(false);
-                  setChildPopoverPinned(false);
             };
             document.addEventListener("child-popover-close", handler);
             return () =>
@@ -326,14 +324,19 @@ export const TaskCard = React.memo(function TaskCard({
                               : cardBorderColor
                                 ? `1px solid ${cardBorderColor}`
                                 : undefined,
-                        ...(blockers.length > 0
+                        ...(blockers.length > 0 || liveActivity
                               ? {
-                                      boxShadow:
-                                            "inset 3px 0 0 0 var(--p-red, #f87171)",
+                                      boxShadow: [
+                                            blockers.length > 0
+                                                  ? "inset 3px 0 0 0 var(--p-red, #f87171)"
+                                                  : null,
+                                            liveActivity
+                                                  ? "0 0 0 2px rgba(59,130,246,0.14)"
+                                                  : null,
+                                      ]
+                                            .filter(Boolean)
+                                            .join(", "),
                                 }
-                              : {}),
-                        ...(liveActivity
-                              ? { boxShadow: "0 0 0 2px rgba(59,130,246,0.14)" }
                               : {}),
                   }}
                   onDragStart={handleDragStart}
@@ -456,8 +459,8 @@ export const TaskCard = React.memo(function TaskCard({
                                     ref={childChipRef}
                                     className="child-count-chip"
                                     tabIndex={0}
-                                    aria-expanded={expanded ?? false}
-                                    title={`${childCount} child task${childCount === 1 ? "" : "s"} — click to expand inline`}
+                                    aria-expanded={expanded}
+                                    title={`${childCount} direct child${childCount === 1 ? "" : "ren"} — click to expand`}
                                     onMouseEnter={() => {
                                           if (childHoverTimeout.current)
                                                 clearTimeout(
@@ -470,7 +473,7 @@ export const TaskCard = React.memo(function TaskCard({
                                                 );
                                           }
                                           // Hover shows popover preview only when not expanded inline
-                                          if (!childPopoverPinned) {
+                                          if (!expanded) {
                                                 childHoverTimeout.current =
                                                       setTimeout(
                                                             () =>
@@ -487,14 +490,13 @@ export const TaskCard = React.memo(function TaskCard({
                                                       childHoverTimeout.current,
                                                 );
                                           // Hover close only when not pinned (pinned = in-flow expanded)
-                                          if (!childPopoverPinned)
+                                          if (!expanded)
                                                 setShowChildPopover(false);
                                     }}
                                     onClick={(e) => {
                                           e.stopPropagation();
                                           const next = !expanded;
                                           setExpanded(next);
-                                          setChildPopoverPinned(next);
                                           setShowChildPopover(false);
                                     }}
                                     onKeyDown={(e) => {
@@ -505,11 +507,9 @@ export const TaskCard = React.memo(function TaskCard({
                                                 e.stopPropagation();
                                                 const next = !expanded;
                                                 setExpanded(next);
-                                                setChildPopoverPinned(next);
                                                 setShowChildPopover(false);
                                           } else if (e.key === "Escape") {
                                                 setExpanded(false);
-                                                setChildPopoverPinned(false);
                                                 setShowChildPopover(false);
                                           }
                                     }}
@@ -598,7 +598,7 @@ export const TaskCard = React.memo(function TaskCard({
 
                   {/* Children zone — INSIDE the card, animated via CSS grid rows */}
                   {(() => {
-                        const children = getChildren(allTasks, task.id);
+                        const children = getLeafDescendants(allTasks, task.id);
                         if (children.length === 0) return null;
                         return (
                               <div
@@ -619,43 +619,42 @@ export const TaskCard = React.memo(function TaskCard({
                                     }}
                                     onDrop={(e) => {
                                           e.preventDefault();
-                                          e.stopPropagation();
+                                          // Intentionally NOT stopping propagation —
+                                          // the column's handleDrop reads zoneDropTargetRef
+                                          // to process the make-child action.
                                     }}
                               >
                                     <div className="card-children-zone-inner">
-                                          {children.map((child) => (
-                                                <ChildRow
-                                                      key={child.id}
-                                                      child={child}
-                                                      variant="inline"
-                                                      onOpen={() => {
-                                                            if (onOpenChild)
-                                                                  onOpenChild(
-                                                                        child,
-                                                                  );
-                                                            else onOpen(child);
-                                                      }}
-                                                />
-                                          ))}
+                                          <RecursiveChildrenTree
+                                                parentId={task.id}
+                                                allTasks={allTasks}
+                                                variant="inline"
+                                                onOpen={(child) => {
+                                                      if (onOpenChild)
+                                                            onOpenChild(child);
+                                                      else onOpen(child);
+                                                }}
+                                          />
                                     </div>
                               </div>
                         );
                   })()}
 
                   {/* Child popover — suppressed while expanded */}
-                  {showChildPopover && childCount > 0 && !expanded && (
-                        <ChildPopover
-                              task={task}
-                              allTasks={allTasks}
-                              anchorRect={childChipRect}
-                              onOpenTask={(child) => {
-                                    setShowChildPopover(false);
-                                    setChildPopoverPinned(false);
-                                    if (onOpenTask) onOpenTask(child);
-                                    else onOpen(child);
-                              }}
-                        />
-                  )}
+                  {showChildPopover &&
+                        directChildren.length > 0 &&
+                        !expanded && (
+                              <ChildPopover
+                                    task={task}
+                                    allTasks={allTasks}
+                                    anchorRect={childChipRect}
+                                    onOpenTask={(child) => {
+                                          setShowChildPopover(false);
+                                          if (onOpenTask) onOpenTask(child);
+                                          else onOpen(child);
+                                    }}
+                              />
+                        )}
             </article>
       );
 });

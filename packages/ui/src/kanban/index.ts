@@ -3,6 +3,7 @@ export type {
   TaskType,
   Task,
   TaskStatus,
+  TaskLink,
   Priority,
   Comment,
   FileEntry,
@@ -15,7 +16,7 @@ export type {
   KanbanApi,
   LiveActivity,
   LiveActivityState,
-} from './types';
+} from "./types";
 
 // Kanban shared utilities
 export {
@@ -28,33 +29,58 @@ export {
   initialSortKeys,
   compareTaskOrder,
   computeReorder,
-} from './utils';
-export type { ReorderPatch, ReorderResult } from './utils';
+} from "./utils";
+export type { ReorderPatch, ReorderResult } from "./utils";
 
 // Kanban components
-export { KanbanBoard, COLUMNS } from './components/KanbanBoard';
-export { KanbanListView } from './components/KanbanListView';
-export { Header as KanbanHeader } from './components/Header';
-export { DetailPanel } from './components/DetailPanel';
-export { TaskCard as KanbanTaskCard, resolveTaskCardBorderColor } from './components/TaskCard';
-export { FilterBar } from './components/FilterBar';
-export type { FilterState } from './components/FilterBar';
-export { SettingsModal } from './components/SettingsModal';
-export { ConfirmModal } from './components/ConfirmModal';
-export { FilePreviewModal } from './components/FilePreviewModal';
-export { ModalBase } from './components/ModalBase';
-
+export { KanbanBoard, COLUMNS } from "./components/KanbanBoard";
+export { KanbanListView } from "./components/KanbanListView";
+export { Header as KanbanHeader } from "./components/Header";
+export { DetailPanel } from "./components/DetailPanel";
+export {
+  TaskCard as KanbanTaskCard,
+  resolveTaskCardBorderColor,
+} from "./components/TaskCard";
+export { FilterBar } from "./components/FilterBar";
+export type { FilterState } from "./components/FilterBar";
+export { SettingsModal } from "./components/SettingsModal";
+export { ConfirmModal } from "./components/ConfirmModal";
+export { FilePreviewModal } from "./components/FilePreviewModal";
+export { ModalBase } from "./components/ModalBase";
 
 // Shared sub-components
-export { HeaderActionButton } from './components/shared/HeaderActionButton';
-export { TaskDetailsTab } from './components/shared/TaskDetailsTab';
-export { CommentsList } from './components/shared/CommentsList';
-export { CommentsInputArea } from './components/shared/CommentsInputArea';
-export { FilesList } from './components/shared/FilesList';
-export { MarkdownEditableField } from './components/shared/MarkdownEditableField';
-export { AutoExpandTextarea } from './components/shared/AutoExpandTextarea';
-export { MarkdownPreview } from './components/shared/MarkdownPreview';
-export { TypePicker } from './components/shared/TypePicker';
-export { TagPills } from './components/shared/TagPills';
-export { TagInput } from './components/shared/TagInput';
-export { getTagColors } from './tag-colors';
+export { HeaderActionButton } from "./components/shared/HeaderActionButton";
+export { TaskDetailsTab } from "./components/shared/TaskDetailsTab";
+export { CommentsList } from "./components/shared/CommentsList";
+export { CommentsInputArea } from "./components/shared/CommentsInputArea";
+export { FilesList } from "./components/shared/FilesList";
+export { MarkdownEditableField } from "./components/shared/MarkdownEditableField";
+export { AutoExpandTextarea } from "./components/shared/AutoExpandTextarea";
+export { MarkdownPreview } from "./components/shared/MarkdownPreview";
+export { TypePicker } from "./components/shared/TypePicker";
+export { TagPills } from "./components/shared/TagPills";
+export { TagInput } from "./components/shared/TagInput";
+export { getTagColors } from "./tag-colors";
+
+export {
+  RecursiveChildrenTree,
+  MAX_TREE_DEPTH,
+  TREE_INDENT_PX,
+} from "./components/RecursiveChildrenTree";
+
+export {
+  STATUS_COLORS,
+  getStatusColor,
+  groupDetailRelations,
+  classifyDropZone,
+  classifyForDropIntent,
+  DROP_BAND_RATIO,
+  DROP_BAND_MIN_PX,
+  DROP_BAND_MAX_PX,
+} from "./task-links";
+export type {
+  DetailRelationRow,
+  DetailRelationsGroups,
+  DropIntent,
+  DropIntentKind,
+} from "./task-links";

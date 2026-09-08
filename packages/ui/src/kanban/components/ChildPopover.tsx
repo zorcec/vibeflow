@@ -20,7 +20,27 @@ export default function ChildPopover({
   anchorRect,
 }: ChildPopoverProps) {
   const children = getChildren(allTasks, task.id);
+
+  // ── Hooks MUST be called before any early returns (rules of hooks) ──
+
+  // Close on scroll or resize to prevent detached popover (S5: merged)
+  useEffect(() => {
+    if (!anchorRect) return;
+    const close = () => {
+      document.dispatchEvent(new CustomEvent("child-popover-close"));
+    };
+    window.addEventListener("scroll", close, { capture: true, once: true });
+    window.addEventListener("resize", close, { once: true });
+    return () => {
+      window.removeEventListener("scroll", close, { capture: true });
+      window.removeEventListener("resize", close);
+    };
+  }, [anchorRect]);
+
+  // ── Early returns (after all hooks) ──
+
   if (children.length === 0) return null;
+  if (!anchorRect) return null;
 
   const visible = children.slice(0, MAX_VISIBLE);
   const remaining = children.length - MAX_VISIBLE;
@@ -28,41 +48,12 @@ export default function ChildPopover({
   const EST_ROW_H = 28;
   const EST_H = 30 + children.length * EST_ROW_H;
 
-  let pos: { top: number; left: number; width: number } = {
-    top: 0,
-    left: 0,
-    width: 240,
-  };
-  if (anchorRect) {
-    pos = computePopoverPosition(
-      anchorRect,
-      EST_H,
-      window.innerHeight,
-      window.innerWidth,
-    );
-  }
-
-  // Close on scroll to prevent detached popover
-  useEffect(() => {
-    if (!anchorRect) return;
-    const close = () => {
-      document.dispatchEvent(new CustomEvent("child-popover-close"));
-    };
-    window.addEventListener("scroll", close, { capture: true, once: true });
-    return () => window.removeEventListener("scroll", close, { capture: true });
-  }, [anchorRect]);
-
-  // Also close on window resize
-  useEffect(() => {
-    if (!anchorRect) return;
-    const close = () => {
-      document.dispatchEvent(new CustomEvent("child-popover-close"));
-    };
-    window.addEventListener("resize", close, { once: true });
-    return () => window.removeEventListener("resize", close);
-  }, [anchorRect]);
-
-  if (!anchorRect) return null;
+  const pos = computePopoverPosition(
+    anchorRect,
+    EST_H,
+    window.innerHeight,
+    window.innerWidth,
+  );
 
   const popover = (
     <div

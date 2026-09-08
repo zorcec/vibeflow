@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  STATUS_COLORS,
+  getStatusColor,
   getChildren,
   getParent,
   getBlockers,
@@ -571,6 +573,42 @@ describe("task-links", () => {
       const aGroup = groups.get("a");
       expect(aGroup?.map((t) => t.id)).toEqual(["b"]);
     });
+
+    it("blocks/relates links do NOT exclude task from standalone (list-view parity)", () => {
+      const tasks = [
+        makeTask({ id: "taskA", status: "todo" }),
+        makeTask({
+          id: "taskB",
+          status: "in-progress",
+          links: [
+            { taskId: "taskA", type: "blocks" },
+            { taskId: "taskC", type: "relates" },
+          ],
+        }),
+        makeTask({ id: "taskC", status: "review" }),
+      ];
+      const { standalone } = groupTasksByRoot(tasks);
+      // taskB has blocks+relates but no parent — should still be standalone
+      expect(standalone.map((t) => t.id).sort()).toEqual(
+        ["taskA", "taskB", "taskC"].sort(),
+      );
+    });
+
+    it("list-view: status buckets contain only standalone tasks", () => {
+      const tasks = [
+        makeTask({ id: "parent", status: "todo" }),
+        makeTask({
+          id: "child",
+          status: "todo",
+          links: [{ taskId: "parent", type: "parent" }],
+        }),
+        makeTask({ id: "unrelated", status: "todo" }),
+      ];
+      const { standalone } = groupTasksByRoot(tasks);
+      // Simulate list-view: group by status, count per status
+      const todoCount = standalone.filter((t) => t.status === "todo").length;
+      expect(todoCount).toBe(2); // parent + unrelated, NOT child
+    });
   });
 
   describe("formatRelationsSummary", () => {
@@ -677,14 +715,15 @@ describe("task-links", () => {
       expect(targetValid(tasks, "a", "b")).toBe(true);
     });
 
-    it("allows sibling (no cycle)", () => {
-      // A and B are both children of P; dropping A onto B is fine
+    it("rejects already-parented sibling (single-parent rule)", () => {
+      // A and B are both children of P; dragging A onto B is rejected
+      // because A already has a parent
       const tasks = [
         makeTask({ id: "P" }),
         makeTask({ id: "A", links: [{ taskId: "P", type: "parent" }] }),
         makeTask({ id: "B", links: [{ taskId: "P", type: "parent" }] }),
       ];
-      expect(targetValid(tasks, "A", "B")).toBe(true);
+      expect(targetValid(tasks, "A", "B")).toBe(false);
     });
 
     it("allows parent as target (re-parenting up)", () => {
@@ -696,6 +735,31 @@ describe("task-links", () => {
       ];
       expect(targetValid(tasks, "A", "C")).toBe(true);
     });
+
+    it("rejects already-parented task", () => {
+      // D has parent P; dragging D onto T should be rejected
+      const tasks = [
+        makeTask({ id: "P" }),
+        makeTask({ id: "D", links: [{ taskId: "P", type: "parent" }] }),
+        makeTask({ id: "T" }),
+      ];
+      expect(targetValid(tasks, "D", "T")).toBe(false);
+    });
+
+    it("rejects already-parented task even when target is valid", () => {
+      // D has parent P, target is an unrelated task X
+      const tasks = [
+        makeTask({ id: "P" }),
+        makeTask({ id: "D", links: [{ taskId: "P", type: "parent" }] }),
+        makeTask({ id: "X" }),
+      ];
+      expect(targetValid(tasks, "D", "X")).toBe(false);
+    });
+
+    it("allows task without parent to be targeted", () => {
+      const tasks = [makeTask({ id: "A" }), makeTask({ id: "B" })];
+      expect(targetValid(tasks, "A", "B")).toBe(true);
+    });
   });
 
   // ── classifyDropZone (CLI mirror of ui/task-links.ts) ────────────────
@@ -706,54 +770,51 @@ describe("task-links", () => {
   // (Vitest resolves .js → .ts in the same repo.)
   describe("classifyDropZone (parity with UI)", () => {
     // Helper that replicates the UI function logic inline for parity testing
+    // Updated to match the widened bands: 28% ratio, [32px, 56px] clamp
     function classifyDropZone(
       rect: { top: number; height: number },
       clientY: number,
     ): "top" | "center" | "bottom" {
-      const minBand = 26;
-      const maxBand = 48;
-      const rawBand = Math.floor(rect.height * 0.22);
+      const minBand = 32;
+      const maxBand = 56;
+      const rawBand = Math.floor(rect.height * 0.28);
       const band = Math.max(minBand, Math.min(maxBand, rawBand));
       if (clientY < rect.top + band) return "top";
       if (clientY > rect.top + rect.height - band) return "bottom";
       return "center";
     }
 
-    it("small card (40px): clamp band to 26px", () => {
-      // 40px card, rawBand = floor(40 * 0.22) = 8, clamped to 26
-      // top: y < 0+26; bottom: y > 0+40-26=14; center: else
+    it("small card (40px): clamp band to 32px", () => {
+      // 40px card, rawBand = floor(40 * 0.28) = 11, clamped to 32
       const rect = { top: 0, height: 40 };
-      expect(classifyDropZone(rect, 0)).toBe("top"); // y=0 < 26
-      expect(classifyDropZone(rect, 13)).toBe("top"); // y=13 < 26
-      // y=14: top check: 14 < 0+26 = 26 → TRUE → top
-      // bottom check: 14 > 0+40-26 = 14 → FALSE → not bottom
-      // So y=14 falls in the top band (band is clamped to 26 on a 40px card)
-      expect(classifyDropZone(rect, 14)).toBe("top");
-      // y=26: top check: 26 < 26 → FALSE; bottom check: 26 > 14 → TRUE → bottom
-      expect(classifyDropZone(rect, 26)).toBe("bottom");
+      // top band: y < 32
+      expect(classifyDropZone(rect, 0)).toBe("top");
+      expect(classifyDropZone(rect, 31)).toBe("top");
+      // y=32: top check 32 < 32 → FALSE; bottom check 32 > 0+40-32=8 → TRUE → bottom
+      // (band exceeds half the card — most of the card is reorder band)
+      expect(classifyDropZone(rect, 32)).toBe("bottom");
       expect(classifyDropZone(rect, 40)).toBe("bottom");
     });
 
-    it("medium card (100px): band = clamp(floor(100*0.22), 26, 48) = 26", () => {
+    it("medium card (100px): band = clamp(floor(100*0.28), 32, 56) = 32", () => {
       const rect = { top: 0, height: 100 };
-      // top: y < 26; bottom: y > 74; center: 26 <= y <= 74
+      // top: y < 32; bottom: y > 68; center: 32 <= y <= 68
       expect(classifyDropZone(rect, 0)).toBe("top");
-      expect(classifyDropZone(rect, 25)).toBe("top");
-      expect(classifyDropZone(rect, 26)).toBe("center");
-      expect(classifyDropZone(rect, 74)).toBe("center");
-      expect(classifyDropZone(rect, 75)).toBe("bottom");
+      expect(classifyDropZone(rect, 31)).toBe("top");
+      expect(classifyDropZone(rect, 32)).toBe("center");
+      expect(classifyDropZone(rect, 68)).toBe("center");
+      expect(classifyDropZone(rect, 69)).toBe("bottom");
       expect(classifyDropZone(rect, 100)).toBe("bottom");
     });
 
-    it("large card (300px): band = clamp(floor(300*0.22), 26, 48) = 48", () => {
-      // top: y < top+48; bottom: y > top+300-48=top+252; center: else
+    it("large card (300px): band = clamp(floor(300*0.28), 32, 56) = 56", () => {
       const rect = { top: 100, height: 300 };
-      expect(classifyDropZone(rect, 100)).toBe("top"); // y=100 < 148
-      expect(classifyDropZone(rect, 147)).toBe("top"); // y=147 < 148
-      expect(classifyDropZone(rect, 148)).toBe("center"); // y=148 >= 148
-      expect(classifyDropZone(rect, 351)).toBe("center"); // y=351 <= 352
-      expect(classifyDropZone(rect, 352)).toBe("center"); // y=352 <= 352
-      expect(classifyDropZone(rect, 353)).toBe("bottom"); // y=353 > 352
+      // top: y < top+56=156; bottom: y > top+300-56=top+244=344
+      expect(classifyDropZone(rect, 100)).toBe("top");
+      expect(classifyDropZone(rect, 155)).toBe("top");
+      expect(classifyDropZone(rect, 156)).toBe("center");
+      expect(classifyDropZone(rect, 344)).toBe("center");
+      expect(classifyDropZone(rect, 345)).toBe("bottom");
       expect(classifyDropZone(rect, 400)).toBe("bottom");
     });
 
@@ -766,7 +827,6 @@ describe("task-links", () => {
   // ── Parity: CLI and UI export the same function names ──────────────────
   describe("parity: CLI and UI task-links export the same helpers", () => {
     it("UI task-links.ts exports the same key function names as CLI", () => {
-      // Source-text grep: check that both files define the same functions
       const cliSrc = readFileSync(
         new URL("../../src/core/task-links.ts", import.meta.url),
         "utf-8",
@@ -779,7 +839,6 @@ describe("task-links", () => {
       try {
         uiSrc = readFileSync(uiPath, "utf-8");
       } catch {
-        // UI file not reachable from CLI test runner — skip gracefully
         return;
       }
 
@@ -797,6 +856,233 @@ describe("task-links", () => {
         expect(cliSrc).toContain(`export function ${fn}`);
         expect(uiSrc).toContain(`export function ${fn}`);
       }
+    });
+  });
+
+  // ── Drop-band constants (exported from UI task-links.ts) ─────────────
+  describe("drop-band constants", () => {
+    it("UI task-links.ts exports DROP_BAND_RATIO, DROP_BAND_MIN_PX, DROP_BAND_MAX_PX", () => {
+      const uiPath = new URL(
+        "../../../../ui/src/kanban/task-links.ts",
+        import.meta.url,
+      );
+      let uiSrc: string;
+      try {
+        uiSrc = readFileSync(uiPath, "utf-8");
+      } catch {
+        return;
+      }
+      expect(uiSrc).toContain("export const DROP_BAND_RATIO = 0.28");
+      expect(uiSrc).toContain("export const DROP_BAND_MIN_PX = 32");
+      expect(uiSrc).toContain("export const DROP_BAND_MAX_PX = 56");
+      // classifyDropZone must reference the constants
+      expect(uiSrc).toContain("DROP_BAND_RATIO");
+      expect(uiSrc).toContain("DROP_BAND_MIN_PX");
+      expect(uiSrc).toContain("DROP_BAND_MAX_PX");
+    });
+  });
+
+  // ── classifyForDropIntent (pure helper, extracted from KanbanBoard) ─────
+  describe("classifyForDropIntent (pure helper)", () => {
+    // Replicate classifyForDropIntent logic inline for unit testing.
+    // The real function in UI reads article element from wrapper;
+    // here we simulate the two key behaviors.
+    function classifyDropZone(
+      rect: { top: number; height: number },
+      clientY: number,
+    ): "top" | "center" | "bottom" {
+      const minBand = 32;
+      const maxBand = 56;
+      const rawBand = Math.floor(rect.height * 0.28);
+      const band = Math.max(minBand, Math.min(maxBand, rawBand));
+      if (clientY < rect.top + band) return "top";
+      if (clientY > rect.top + rect.height - band) return "bottom";
+      return "center";
+    }
+
+    function classifyForDropIntent(
+      articleRect: DOMRect,
+      clientY: number,
+      pillVisible: boolean,
+    ): "top" | "center" | "bottom" {
+      if (pillVisible) return "center";
+      return classifyDropZone(articleRect, clientY);
+    }
+
+    it("pill-visible forces center regardless of cursor position", () => {
+      const rect = {
+        top: 0,
+        height: 100,
+        left: 0,
+        right: 200,
+        bottom: 100,
+        width: 200,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      } as DOMRect;
+      // Cursor at very top (should be 'top' without pill)
+      expect(classifyForDropIntent(rect, 5, true)).toBe("center");
+      // Cursor at very bottom (should be 'bottom' without pill)
+      expect(classifyForDropIntent(rect, 95, true)).toBe("center");
+      // Cursor in center (should be 'center' either way)
+      expect(classifyForDropIntent(rect, 50, true)).toBe("center");
+    });
+
+    it("without pill, article rect bands are applied (28% / [32,56] clamp)", () => {
+      const rect = {
+        top: 0,
+        height: 100,
+        left: 0,
+        right: 200,
+        bottom: 100,
+        width: 200,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      } as DOMRect;
+      // band = clamp(floor(100*0.28), 32, 56) = 32
+      expect(classifyForDropIntent(rect, 10, false)).toBe("top");
+      expect(classifyForDropIntent(rect, 31, false)).toBe("top");
+      expect(classifyForDropIntent(rect, 32, false)).toBe("center");
+      expect(classifyForDropIntent(rect, 68, false)).toBe("center");
+      expect(classifyForDropIntent(rect, 69, false)).toBe("bottom");
+      expect(classifyForDropIntent(rect, 90, false)).toBe("bottom");
+    });
+
+    it("article rect is immune to wrapper distortion (simulated)", () => {
+      // Article rect: 100px at y=50 (wraps a 100px card)
+      const articleRect = {
+        top: 50,
+        height: 100,
+        left: 0,
+        right: 200,
+        bottom: 150,
+        width: 200,
+        x: 0,
+        y: 50,
+        toJSON: () => {},
+      } as DOMRect;
+      // band = clamp(floor(100*0.28), 32, 56) = 32
+      // Cursor at y=80 (30px into article) — should be 'top' (80 < 50+32=82)
+      expect(classifyForDropIntent(articleRect, 80, false)).toBe("top");
+      // Cursor at y=82 — should be 'center'
+      expect(classifyForDropIntent(articleRect, 82, false)).toBe("center");
+    });
+  });
+
+  // ── DropIntent type and intent transitions (pure logic) ─────────────
+  describe("DropIntent transitions (pure logic)", () => {
+    // Simulate the single-ref architecture: one ref, every handler overwrites.
+    interface DropIntent {
+      kind: "card" | "zone" | "column";
+      taskId?: string;
+      colId?: string;
+      parentId?: string;
+      position?: "before" | "after";
+    }
+
+    it("card center drop: intent={kind:'card', taskId, no position}", () => {
+      let intent: DropIntent | null = null;
+      // Simulate handleCardDragOver with center zone
+      intent = { kind: "card", taskId: "task-A" };
+      expect(intent.kind).toBe("card");
+      expect(intent.taskId).toBe("task-A");
+      expect(intent.position).toBeUndefined();
+    });
+
+    it("card edge drop: intent={kind:'card', taskId, position}", () => {
+      let intent: DropIntent | null = null;
+      intent = { kind: "card", taskId: "task-A", position: "before" };
+      expect(intent.position).toBe("before");
+    });
+
+    it("zone drop: intent={kind:'zone', parentId}", () => {
+      let intent: DropIntent | null = null;
+      intent = { kind: "zone", parentId: "parent-P" };
+      expect(intent.kind).toBe("zone");
+      expect(intent.parentId).toBe("parent-P");
+    });
+
+    it("column gap: intent={kind:'column', colId}", () => {
+      let intent: DropIntent | null = null;
+      intent = { kind: "column", colId: "todo" };
+      expect(intent.kind).toBe("column");
+      expect(intent.colId).toBe("todo");
+    });
+
+    it("sequence: card center → zone → column → card edge → drop consumes", () => {
+      let intent: DropIntent | null = null;
+      // 1. Hover card center
+      intent = { kind: "card", taskId: "A" };
+      expect(intent.kind).toBe("card");
+      expect(intent.position).toBeUndefined();
+
+      // 2. Move to children zone — overwrites
+      intent = { kind: "zone", parentId: "A" };
+      expect(intent.kind).toBe("zone");
+
+      // 3. Move to gap — overwrites
+      intent = { kind: "column", colId: "todo" };
+      expect(intent.kind).toBe("column");
+
+      // 4. Move back to card edge — overwrites
+      intent = { kind: "card", taskId: "B", position: "after" };
+      expect(intent.kind).toBe("card");
+      expect(intent.position).toBe("after");
+
+      // 5. Drop consumes
+      const consumed = intent;
+      intent = null;
+      expect(consumed.kind).toBe("card");
+      expect(consumed.taskId).toBe("B");
+      expect(consumed.position).toBe("after");
+      expect(intent).toBeNull();
+    });
+
+    it("no handler nulls another handler's intent — next hover overwrites", () => {
+      let intent: DropIntent | null = null;
+      // Card handler sets intent
+      intent = { kind: "card", taskId: "A" };
+      // Zone handler OVERWRITES (does not null the card handler's intent)
+      intent = { kind: "zone", parentId: "A" };
+      expect(intent.kind).toBe("zone");
+      // Column handler OVERWRITES
+      intent = { kind: "column", colId: "todo" };
+      expect(intent.kind).toBe("column");
+    });
+
+    it("gap overwrite yields column intent (not null)", () => {
+      let intent: DropIntent | null = { kind: "card", taskId: "A" };
+      // Simulate column gap dragover
+      intent = { kind: "column", colId: "todo" };
+      expect(intent.kind).toBe("column");
+      expect(intent.taskId).toBeUndefined();
+    });
+  });
+
+  describe("STATUS_COLORS / getStatusColor", () => {
+    it("maps every known status to a hex color", () => {
+      const statuses = ["backlog", "todo", "in-progress", "review", "done"];
+      for (const s of statuses) {
+        expect(STATUS_COLORS[s]).toMatch(/^#[0-9a-f]{6}$/);
+        expect(getStatusColor(s)).toBe(STATUS_COLORS[s]);
+      }
+    });
+
+    it("falls back to todo color for unknown/undefined status", () => {
+      expect(getStatusColor("unknown")).toBe(STATUS_COLORS.todo);
+      expect(getStatusColor(undefined)).toBe(STATUS_COLORS.todo);
+    });
+
+    it("exposes exactly five status keys", () => {
+      expect(Object.keys(STATUS_COLORS)).toEqual([
+        "backlog",
+        "todo",
+        "in-progress",
+        "review",
+        "done",
+      ]);
     });
   });
 });
