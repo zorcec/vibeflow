@@ -24,6 +24,7 @@ import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog.js";
 import {
   fetchChangelogSections,
   markVersionSeen,
@@ -515,6 +516,12 @@ export function App() {
   const suppressHistoryPushRef = React.useRef(false);
   // Keep a ref to latest tasks that WS handlers can read without stale closure.
   const tasksRef = React.useRef<Task[]>([]);
+  // Delete confirmation dialog state
+  const [deleteConfirm, setDeleteConfirm] = React.useState<{
+    taskId: string;
+    taskTitle: string;
+    childCount: number;
+  } | null>(null);
   // In-session log of status changes for the detail panel activity tab.
   const [statusChangeLog, setStatusChangeLog] = React.useState<StatusEntry[]>(
     [],
@@ -1091,14 +1098,21 @@ export function App() {
       });
   }
 
-  async function deleteTaskById(id: string) {
+  async function deleteTaskById(id: string, unlinkChildren?: boolean) {
     setTasks((prev) => {
       const next = prev.filter((t) => t.id !== id);
       tasksRef.current = next;
       return next;
     });
     try {
-      await api.deleteTask(id);
+      if (unlinkChildren) {
+        await fetch(
+          `${window.location.origin}/api/tasks/${encodeURIComponent(id)}?unlinkChildren=true`,
+          { method: "DELETE" },
+        );
+      } else {
+        await api.deleteTask(id);
+      }
     } catch {
       void loadTasks();
     }
@@ -1374,8 +1388,23 @@ export function App() {
                 return taskId;
               }}
               onDelete={async (id) => {
-                await deleteTaskById(id);
-                setPanelState((p) => ({ ...p, open: false }));
+                const task = tasksRef.current.find((t) => t.id === id);
+                const childCount = tasksRef.current.filter(
+                  (t) =>
+                    t.links?.some(
+                      (l) => l.type === "parent" && l.taskId === id,
+                    ),
+                ).length;
+                if (childCount > 0) {
+                  setDeleteConfirm({
+                    taskId: id,
+                    taskTitle: task?.title ?? id,
+                    childCount,
+                  });
+                } else {
+                  await deleteTaskById(id);
+                  setPanelState((p) => ({ ...p, open: false }));
+                }
               }}
               onPatch={patchTask}
               onFilePreview={openFilePreview}
@@ -1500,6 +1529,27 @@ export function App() {
         startMode={whatsNew.startMode}
         sinceVersion={whatsNew.sinceVersion}
         onClose={closeWhatsNew}
+      />
+
+      <DeleteConfirmDialog
+        open={deleteConfirm !== null}
+        taskTitle={deleteConfirm?.taskTitle ?? ""}
+        childCount={deleteConfirm?.childCount ?? 0}
+        onCancel={() => setDeleteConfirm(null)}
+        onDeleteOnly={async () => {
+          if (!deleteConfirm) return;
+          const id = deleteConfirm.taskId;
+          setDeleteConfirm(null);
+          await deleteTaskById(id);
+          setPanelState((p) => ({ ...p, open: false }));
+        }}
+        onDeleteAndUnlink={async () => {
+          if (!deleteConfirm) return;
+          const id = deleteConfirm.taskId;
+          setDeleteConfirm(null);
+          await deleteTaskById(id, true);
+          setPanelState((p) => ({ ...p, open: false }));
+        }}
       />
     </>
   );

@@ -614,6 +614,31 @@ function registerTaskApi(
 
   app.delete("/api/tasks/:id", (req, res) => {
     const { id } = req.params;
+    const unlinkChildren = req.query.unlinkChildren === "true";
+
+    // When unlinkChildren is requested, remove the parent link from all
+    // children before deleting so they become root tasks instead of orphans.
+    if (unlinkChildren) {
+      const allTasks = listTasks(projectDir);
+      const children = allTasks.filter((t) =>
+        t.links?.some((l) => l.type === "parent" && l.taskId === id),
+      );
+      for (const child of children) {
+        const newLinks = (child.links ?? []).filter(
+          (l) => !(l.type === "parent" && l.taskId === id),
+        );
+        const updated = updateTask(projectDir, child.id, { links: newLinks });
+        if (updated) {
+          broadcast({
+            type: "task-changed",
+            taskId: updated.id,
+            action: "update",
+            task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
+          });
+        }
+      }
+    }
+
     const deleted = deleteTask(projectDir, id);
     if (!deleted) {
       res.status(404).json({ error: "Task not found" });

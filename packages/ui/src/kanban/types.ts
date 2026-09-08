@@ -142,7 +142,7 @@ export interface KanbanApi {
     id: string,
     data: Partial<Task>,
   ): Promise<{ success: boolean; task?: Task }>;
-  deleteTask(id: string): Promise<void>;
+  deleteTask(id: string, unlinkChildren?: boolean): Promise<void>;
   getComments(taskId: string): Promise<{ comments: Comment[] }>;
   addComment(taskId: string, text: string): Promise<void>;
   updateComment(taskId: string, commentId: string, text: string): Promise<void>;
