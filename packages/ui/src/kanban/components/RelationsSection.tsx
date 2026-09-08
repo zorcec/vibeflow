@@ -103,6 +103,16 @@ export default function RelationsSection({
                 [links, onUpdateLinks],
         );
 
+        const handleRemoveChildLink = useCallback(
+                (childId: string) => {
+                        const idx = links.findIndex(
+                                (l) => l.type === "parent" && l.taskId === childId,
+                        );
+                        if (idx >= 0) handleRemove(idx);
+                },
+                [links, handleRemove],
+        );
+
         const allGroupsEmpty =
                 groups.children.length === 0 &&
                 groups.parentLinks.length === 0 &&
@@ -166,6 +176,9 @@ export default function RelationsSection({
                                                                                 onOpenTask?.(
                                                                                         child,
                                                                                 )
+                                                                        }
+                                                                        onRemove={
+                                                                                handleRemoveChildLink
                                                                         }
                                                                 />
                                                         </div>

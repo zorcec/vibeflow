@@ -68,6 +68,8 @@ export {
   TREE_INDENT_PX,
 } from "./components/RecursiveChildrenTree";
 
+export { ChildRow } from "./components/ChildRow";
+
 export {
   STATUS_COLORS,
   getStatusColor,

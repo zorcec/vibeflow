@@ -1180,8 +1180,14 @@ body.proto-resizing-panel {
 /* Modern tree depth styling (Option A)
    L2+ dots: hollow 3px circle with 1px blue border. */
 /* Detail variant: hollow dots with left:-7px to match group spine */
-.recursive-children-tree-node:not([data-depth="1"]) > div > .child-link-row--detail .child-link-dot,
-.recursive-children-tree-node:not([data-depth="1"]) > div > .child-link-row--detail .child-link-dot--on-line {
+.recursive-children-tree-node:not([data-depth="1"])
+ > div
+ > .child-link-row--detail
+ .child-link-dot,
+.recursive-children-tree-node:not([data-depth="1"])
+ > div
+ > .child-link-row--detail
+ .child-link-dot--on-line {
  background: transparent !important;
  border: 1px solid #60a5fa;
  width: 5px;
@@ -1190,7 +1196,10 @@ body.proto-resizing-panel {
  box-shadow: 0 0 0 1px var(--p-card);
 }
 /* Inline variant: hollow dots with left:-9px (spine offset) */
-.recursive-children-tree-node:not([data-depth="1"]) > div > .child-link-row--inline .child-link-dot--on-line {
+.recursive-children-tree-node:not([data-depth="1"])
+ > div
+ > .child-link-row--inline
+ .child-link-dot--on-line {
  background: transparent !important;
  border: 1px solid #60a5fa;
  width: 5px;
@@ -1201,7 +1210,9 @@ body.proto-resizing-panel {
 .recursive-children-tree-node[data-depth="2"] > div > .child-link-row {
  opacity: 0.7;
 }
-.recursive-children-tree-node:not([data-depth="1"]):not([data-depth="2"]) > div > .child-link-row {
+.recursive-children-tree-node:not([data-depth="1"]):not([data-depth="2"])
+ > div
+ > .child-link-row {
  opacity: 0.5;
 }
 
