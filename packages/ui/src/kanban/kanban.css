@@ -1115,6 +1115,7 @@ body.proto-resizing-panel {
  height: 6px;
  border-radius: 50%;
  flex-shrink: 0;
+ margin-left: -2px;
 }
 .child-link-dot--on-line {
  position: absolute;
