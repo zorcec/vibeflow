@@ -28,13 +28,16 @@
  --p-blue-200: #93c5fd;
  --p-purple: #a78bfa;
  --p-purple-300: #c4b5fd;
+ --p-cyan: #22d3ee;
  --p-cyan-300: #7dd3fc;
+ --p-teal: #2dd4bf;
  --p-amber: #f59e0b;
  --p-amber-300: #fcd34d;
  --p-green: #22c55e;
  --p-green-300: #6ee7b7;
  --p-red: #f87171;
  --p-red-500: #ef4444;
+ --p-fg-3: #9ca3af;
  --p-bg-2: #0f172a;
  --p-bg-3: #1e293b;
  --p-shadow-lg: 0 8px 24px rgba(2, 6, 23, 0.28);
@@ -966,16 +969,17 @@ body.proto-resizing-panel {
 .relation-remove {
  border: none;
  background: transparent;
- color: var(--p-text-f);
- cursor: pointer;
- font-size: 14px;
- line-height: 1;
- padding: 0 2px;
+ color: var(--p-text-f, #6b7280);
+ font-size: 11px;
+ font-weight: 500;
+ padding: 2px 8px;
+ border-radius: 6px;
  opacity: 0;
  pointer-events: none;
- transition:
-  opacity 0.12s,
-  color 0.1s;
+ cursor: pointer;
+ flex-shrink: 0;
+ line-height: 1;
+ transition: opacity .12s ease, color .1s ease, background .1s ease;
 }
 .relation-row:hover .relation-remove,
 .child-link-row:hover .relation-remove {
@@ -984,6 +988,12 @@ body.proto-resizing-panel {
 }
 .relation-remove:hover {
  color: #f87171;
+ background: rgba(248, 113, 113, .10);
+}
+.relation-remove:focus-visible {
+ opacity: 1;
+ pointer-events: auto;
+ outline: 1px solid rgba(248, 113, 113, .5);
 }
 
 /* ── Add panel ── */
@@ -1124,14 +1134,22 @@ body.proto-resizing-panel {
 }
 .child-link-dot--on-line {
  position: absolute;
- left: -9px;
+ left: -3px;
  top: 50%;
  transform: translateY(-50%);
- width: 8px;
- height: 8px;
+ width: 6px;
+ height: 6px;
  border-radius: 50%;
  box-shadow: 0 0 0 2px var(--p-card);
  z-index: 1;
+}
+.child-link-dot--hollow {
+ background: transparent !important;
+ border: 1px solid var(--p-blue-300, #60a5fa);
+ width: 3px;
+ height: 3px;
+ left: -1.5px;
+ box-shadow: 0 0 0 1px var(--p-card);
 }
 .child-link-id {
  font-family: monospace;
@@ -1164,48 +1182,35 @@ body.proto-resizing-panel {
  padding: 4px 10px;
 }
 .child-link-row--detail {
- padding: 5px 8px 5px 4px;
  position: relative;
+ padding: 3px 8px 3px 12px;
+ gap: 8px;
 }
-.child-link-row--detail .child-link-connector {
- display: none;
+.child-link-info {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ flex: 1;
+ min-width: 0;
 }
-.child-link-row--detail .child-link-dot {
- position: absolute;
- left: -9px;
- box-shadow: 0 0 0 2px var(--p-card);
- z-index: 1;
+.status-badge {
+ display: inline-flex;
+ align-items: center;
+ padding: 1px 6px;
+ border-radius: 4px;
+ font-size: 9px;
+ font-weight: 600;
+ text-transform: uppercase;
+ letter-spacing: 0.5px;
+ flex-shrink: 0;
 }
+.status-badge--todo        { background: rgba(148, 163, 184, .10); color: #94a3b8; }
+.status-badge--backlog     { background: rgba(148, 163, 184, .10); color: #94a3b8; }
+.status-badge--in-progress { background: rgba(250, 204, 21, .12);  color: #facc15; }
+.status-badge--review      { background: rgba(59, 130, 246, .12);  color: #60a5fa; }
+.status-badge--done        { background: rgba(74, 222, 128, .12);  color: #4ade80; }
 
-/* Modern tree depth styling (Option A)
-   L2+ dots: hollow 3px circle with 1px blue border. */
-/* Detail variant: hollow dots with left:-7px to match group spine */
-.recursive-children-tree-node:not([data-depth="1"])
- > div
- > .child-link-row--detail
- .child-link-dot,
-.recursive-children-tree-node:not([data-depth="1"])
- > div
- > .child-link-row--detail
- .child-link-dot--on-line {
- background: transparent !important;
- border: 1px solid #60a5fa;
- width: 5px;
- height: 5px;
- left: -7px;
- box-shadow: 0 0 0 1px var(--p-card);
-}
-/* Inline variant: hollow dots with left:-9px (spine offset) */
-.recursive-children-tree-node:not([data-depth="1"])
- > div
- > .child-link-row--inline
- .child-link-dot--on-line {
- background: transparent !important;
- border: 1px solid #60a5fa;
- width: 5px;
- height: 5px;
- box-shadow: 0 0 0 1px var(--p-card);
-}
+
 /* Opacity ramp: depth 2 = 0.7, depth 3+ = 0.5 */
 .recursive-children-tree-node[data-depth="2"] > div > .child-link-row {
  opacity: 0.7;
@@ -1237,8 +1242,47 @@ body.proto-resizing-panel {
  transition: transform 0.15s;
  line-height: 1;
 }
-[aria-expanded="true"] > .block-chevron {
+[aria-expanded="true"] > .block-chevron,
+.block-chevron[data-open] {
  transform: rotate(90deg);
+}
+
+/* ── Relation summary chips ── */
+.relation-chip {
+ font-size: 10px;
+ font-weight: 600;
+ padding: 2px 8px;
+ border-radius: 999px;
+ background: var(--p-hover, rgba(255, 255, 255, .05));
+ color: var(--p-text-m, #94a3b8);
+ flex-shrink: 0;
+}
+.relation-chip--children { color: #60a5fa; background: rgba(59, 130, 246, .10); }
+.relation-chip--parent   { color: #a5b4fc; background: rgba(165, 180, 252, .10); }
+
+/* ── Card children toggle row (collapsed state) ── */
+.card-children-toggle {
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ margin-top: 10px;
+ padding: 4px 8px;
+ border: none;
+ background: transparent;
+ color: var(--p-text-m, #94a3b8);
+ font-size: 11px;
+ cursor: pointer;
+ border-radius: 6px;
+ transition: background .1s;
+ width: 100%;
+ text-align: left;
+}
+.card-children-toggle:hover {
+ background: var(--p-hover, rgba(255, 255, 255, .05));
+}
+.card-children-toggle-label {
+ flex: 1;
+ min-width: 0;
 }
 
 /* ── Card children zone (inside the article) ── */
@@ -1261,6 +1305,18 @@ body.proto-resizing-panel {
  overflow: hidden;
  min-height: 0;
 }
+
+/* ── Container spine (card + detail panel) ── */
+.child-tree {
+ display: flex;
+ flex-direction: column;
+ border-left: 1px solid var(--p-blue-300, #60a5fa);
+ margin-left: 12px;
+}
+.child-tree-nested {
+ border-left: 1px solid var(--p-blue-300, #60a5fa);
+ margin-left: 20px;
+}
 /* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
 .card-children-zone[data-expanded="true"] {
  background: color-mix(in srgb, var(--p-card) 88%, #000);
@@ -1272,26 +1328,13 @@ body.proto-resizing-panel {
  max-height: 480px;
  overflow-y: auto;
 }
-/* Per-row spine: vertical line segment at each tree row */
-.child-link-row--inline,
-.child-link-row--detail {
- position: relative;
-}
-.child-link-row--inline::before,
-.child-link-row--detail::before {
- content: "";
- position: absolute;
- left: -7px;
- top: -3px;
- bottom: -3px;
- border-left: 1px solid #60a5fa;
-}
-/* Inline variant: dot rides the spine */
+/* Inline variant: dot rides the container spine */
 .child-link-row--inline {
- padding: 3px 8px 3px 28px;
+ position: relative;
+ padding: 3px 8px 3px 12px;
  border: none;
  border-radius: 3px;
- gap: 6px;
+ gap: 8px;
  animation: child-row-in 180ms ease both;
 }
 /* Depth-limit truncation marker */

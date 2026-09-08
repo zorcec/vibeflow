@@ -7,19 +7,32 @@
  * Uses tailwindcss CLI to scan TSX files for class names and emit production CSS.
  */
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, writeFileSync as wf } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const inputCss = resolve(root, 'src/client/kanban/kanban.css');
 const outputCss = resolve(root, 'dist/client/kanban.css');
 const outputTs = resolve(root, 'src/server/kanban-css.gen.ts');
 
+// Prepend themes.css (semantic tokens + data-theme switching) before kanban.css
+// so the Tailwind CLI includes it in the generated output.
+const themesCss = resolve(root, '../../packages/ui/src/kanban/themes.css');
+const tmpInput = resolve(tmpdir(), `kanban-combined-${randomBytes(8).toString('hex')}.css`);
+const themesContent = readFileSync(themesCss, 'utf-8');
+const kanbanContent = readFileSync(inputCss, 'utf-8');
+wf(tmpInput, themesContent + '\n' + kanbanContent, 'utf-8');
+
 execSync(
-  `npx tailwindcss -c tailwind.config.cjs -i "${inputCss}" -o "${outputCss}" --minify`,
+  `npx tailwindcss -c tailwind.config.cjs -i "${tmpInput}" -o "${outputCss}" --minify`,
   { cwd: root, stdio: 'inherit' },
 );
+
+// Clean up temp file
+try { import('node:fs').then(fs => fs.unlinkSync(tmpInput)); } catch {}
 
 const css = readFileSync(outputCss, 'utf-8');
 const esc = (s) => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');

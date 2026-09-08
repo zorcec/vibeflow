@@ -31,9 +31,7 @@ function makeChild(overrides: Partial<Task> & { id: string }): Task {
 describe("ChildRow — remove button", () => {
   it("does NOT render .relation-remove when onRemove is omitted", () => {
     const child = makeChild({ id: "child-aaaaaaaaaaaa" });
-    const html = renderToString(
-      <ChildRow child={child} variant="detail" />,
-    );
+    const html = renderToString(<ChildRow child={child} variant="detail" />);
     expect(html).not.toContain("relation-remove");
   });
 
@@ -44,7 +42,7 @@ describe("ChildRow — remove button", () => {
       <ChildRow child={child} variant="detail" onRemove={onRemove} />,
     );
     expect(html).toContain("relation-remove");
-    expect(html).toContain("×");
+    expect(html).toContain("Remove");
     expect(html).toContain('title="Remove link"');
   });
 
