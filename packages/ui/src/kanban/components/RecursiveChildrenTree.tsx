@@ -22,7 +22,8 @@ interface RecursiveChildrenTreeProps {
   variant?: "inline" | "detail";
   /** Callback when a child row is clicked. */
   onOpen?: (task: Task) => void;
-  /** Max depth — stops recursion beyond this level (0 = no limit). */
+  /** Callback to remove the parent link for a child. When provided, ChildRow renders a hover × button. */
+  onRemove?: (taskId: string) => void;
   /** Max depth — cycle/pathology failsafe. Defaults to MAX_TREE_DEPTH. */
   maxDepth?: number;
 }
@@ -30,7 +31,7 @@ interface RecursiveChildrenTreeProps {
 /**
  * Recursively renders the full subtree under a parent task.
  * Each child that itself has children renders its own nested sub-zone
- * (indented, with its own dotted spine segment and status dots).
+ * (indented, with its own spine segment and status dots).
  *
  * Cycle-safe (visited set), dangling-safe (skip missing tasks),
  * memoized per parent+allTasks for performance.
@@ -42,6 +43,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
   visited,
   variant = "inline",
   onOpen,
+  onRemove,
   maxDepth = MAX_TREE_DEPTH,
 }: RecursiveChildrenTreeProps) {
   const children = useMemo(
@@ -110,6 +112,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                 onOpen={() => onOpen?.(child)}
                 isOrphan={isOrphan}
                 childCount={childCount}
+                onRemove={onRemove}
               />
             </div>
             {childHasChildren && atMaxDepth && (
@@ -133,29 +136,9 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                 visited={childVisited}
                 variant={variant}
                 onOpen={onOpen}
+                onRemove={onRemove}
                 maxDepth={maxDepth}
               />
-            )}
-            {childHasChildren && atMaxDepth && (
-              <div
-                className="recursive-tree-overflow"
-                data-role="recursive-tree-overflow"
-                data-depth={depth + 2}
-                style={{
-                  paddingLeft: (depth + 2) * TREE_INDENT_PX,
-                  fontSize: 12,
-                  color: "var(--p-text-f, #64748b)",
-                  fontStyle: "italic",
-                  padding: `3px 0 3px ${(depth + 2) * TREE_INDENT_PX}px`,
-                }}
-              >
-                … {(() => {
-                  const remaining = getDescendants(allTasks, child.id).length;
-                  return remaining > 0
-                    ? `${remaining} more items`
-                    : "deeper levels";
-                })()}
-              </div>
             )}
           </div>
         );

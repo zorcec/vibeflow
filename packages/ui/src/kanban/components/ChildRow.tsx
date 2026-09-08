@@ -10,9 +10,18 @@ interface ChildRowProps {
     isOrphan?: boolean;
     /** Direct children count — when > 0 a small ⊃ N chip is shown after the title. */
     childCount?: number;
+    /** Callback to remove the parent link for this child. When provided, a hover × button is rendered. */
+    onRemove?: (taskId: string) => void;
 }
 
-export function ChildRow({ child, onOpen, variant, isOrphan, childCount }: ChildRowProps) {
+export function ChildRow({
+    child,
+    onOpen,
+    variant,
+    isOrphan,
+    childCount,
+    onRemove,
+}: ChildRowProps) {
     const isInline = variant === "inline";
     return (
         <button
@@ -28,13 +37,11 @@ export function ChildRow({ child, onOpen, variant, isOrphan, childCount }: Child
                 onOpen?.();
             }}
         >
-            {/* Inline: status dot positioned ON the wrapper's dotted borderLeft */}
-            {isInline && (
-                <span
-                    className="child-link-dot child-link-dot--on-line"
-                    style={{ backgroundColor: getStatusColor(child.status) }}
-                />
-            )}
+            {/* Shared dot-on-spine markup for both inline and detail variants */}
+            <span
+                className="child-link-dot child-link-dot--on-line"
+                style={{ backgroundColor: getStatusColor(child.status) }}
+            />
             {!isInline && <span className="child-link-connector" />}
             {!isInline && (
                 <span
@@ -45,12 +52,28 @@ export function ChildRow({ child, onOpen, variant, isOrphan, childCount }: Child
             <span className="child-link-id">{shortId(child.id)}</span>
             <span className="child-link-title">{child.title}</span>
             {childCount && childCount > 0 ? (
-                <span className="parent-count-chip" title={`${childCount} direct children`}>
+                <span
+                    className="parent-count-chip"
+                    title={`${childCount} direct children`}
+                >
                     ⊃ {childCount}
                 </span>
             ) : null}
             {isOrphan && (
                 <span className="child-orphan-label">⚠ missing parent</span>
+            )}
+            {onRemove && (
+                <button
+                    className="relation-remove"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onRemove(child.id);
+                    }}
+                    title="Remove link"
+                    type="button"
+                >
+                    ×
+                </button>
             )}
         </button>
     );
