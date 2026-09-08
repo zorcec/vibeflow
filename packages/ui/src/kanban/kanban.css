@@ -908,6 +908,9 @@ body.proto-resizing-panel {
  display: flex;
  flex-direction: column;
  gap: 3px;
+ border-left: 2px dotted #60a5fa;
+ margin-left: 4px;
+ padding-left: 8px;
 }
 
 /* ── Relation rows (inside groups) ── */
@@ -968,7 +971,15 @@ body.proto-resizing-panel {
  font-size: 14px;
  line-height: 1;
  padding: 0 2px;
- transition: color 0.1s;
+ opacity: 0;
+ pointer-events: none;
+ transition:
+  opacity 0.12s,
+  color 0.1s;
+}
+.relation-row:hover .relation-remove {
+ opacity: 1;
+ pointer-events: auto;
 }
 .relation-remove:hover {
  color: #f87171;
