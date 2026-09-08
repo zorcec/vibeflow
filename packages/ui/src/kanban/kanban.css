@@ -908,7 +908,7 @@ body.proto-resizing-panel {
  display: flex;
  flex-direction: column;
  gap: 3px;
- border-left: 2px dotted #60a5fa;
+ border-left: 1px solid #60a5fa;
  margin-left: 4px;
  padding-left: 8px;
 }
@@ -1117,7 +1117,7 @@ body.proto-resizing-panel {
 .child-link-connector {
  width: 2px;
  height: 16px;
- border-left: 2px dotted #60a5fa;
+ border-left: 1px solid #60a5fa;
  flex-shrink: 0;
  margin-right: -4px;
 }
@@ -1158,6 +1158,43 @@ body.proto-resizing-panel {
 .child-link-row--detail {
  padding: 5px 8px 5px 4px;
 }
+
+/* ── Modern tree depth styling (Option A) ─────────────────────────── */
+/* L2+ dots: hollow 3px circle with 1px blue border (detail variant) */
+.recursive-children-tree-node[data-depth="2"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="3"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="4"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="5"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="6"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="7"] > div > .child-link-row--detail .child-link-dot,
+.recursive-children-tree-node[data-depth="8"] > div > .child-link-row--detail .child-link-dot {
+ background: transparent !important;
+ border: 1px solid #60a5fa;
+ width: 3px;
+ height: 3px;
+}
+/* L2+ dots: hollow circle with blue border (inline variant on spine) */
+.recursive-children-tree-node[data-depth="2"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="3"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="4"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="5"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="6"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="7"] > div > .child-link-row--inline .child-link-dot--on-line,
+.recursive-children-tree-node[data-depth="8"] > div > .child-link-row--inline .child-link-dot--on-line {
+ background: transparent !important;
+ border: 1px solid #60a5fa;
+ width: 5px;
+ height: 5px;
+ box-shadow: 0 0 0 1px var(--p-card);
+}
+/* Opacity ramp: depth 2 = 0.7, depth 3+ = 0.5 (child-combinator prevents subtree bleed) */
+.recursive-children-tree-node[data-depth="2"] > div > .child-link-row { opacity: 0.7; }
+.recursive-children-tree-node[data-depth="3"] > div > .child-link-row,
+.recursive-children-tree-node[data-depth="4"] > div > .child-link-row,
+.recursive-children-tree-node[data-depth="5"] > div > .child-link-row,
+.recursive-children-tree-node[data-depth="6"] > div > .child-link-row,
+.recursive-children-tree-node[data-depth="7"] > div > .child-link-row,
+.recursive-children-tree-node[data-depth="8"] > div > .child-link-row { opacity: 0.5; }
 
 /* ── Orphan row: parent link points at a deleted/missing task ── */
 .child-row--orphan {
@@ -1222,7 +1259,7 @@ body.proto-resizing-panel {
  left: 17px;
  top: 6px;
  bottom: 8px;
- border-left: 2px dotted #60a5fa;
+ border-left: 1px solid #60a5fa;
  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
  -webkit-mask-image: linear-gradient(
   to bottom,
