@@ -182,7 +182,7 @@ export const TaskCard = React.memo(function TaskCard({
       );
       const [expanded, setExpanded] = React.useState(false);
       const thumbRef = React.useRef<HTMLImageElement>(null);
-      const childChipRef = React.useRef<HTMLButtonElement>(null);
+      const childChipRef = React.useRef<HTMLSpanElement>(null);
       const childHoverTimeout = React.useRef<ReturnType<
             typeof setTimeout
       > | null>(null);
@@ -462,12 +462,18 @@ export const TaskCard = React.memo(function TaskCard({
                         )}
                         <div style={SPACER_STYLE} />
                         {childCount > 0 && (
-                              <button
+                              <span
                                     ref={childChipRef}
-                                    className="child-count-chip"
+                                    role="button"
                                     tabIndex={0}
                                     aria-expanded={expanded}
                                     title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree`}
+                                    style={{
+                                          fontSize: 9,
+                                          color: "var(--p-text-m)",
+                                          cursor: "pointer",
+                                          flexShrink: 0,
+                                    }}
                                     onMouseEnter={() => {
                                           if (childHoverTimeout.current)
                                                 clearTimeout(
@@ -521,22 +527,8 @@ export const TaskCard = React.memo(function TaskCard({
                                           }
                                     }}
                               >
-                                    <svg
-                                          width="10"
-                                          height="10"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2.5"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                    >
-                                          <path d="M15 3h6v6" />
-                                          <path d="M10 14 21 3" />
-                                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                                    </svg>
-                                    <span>{childCount}</span>
-                              </button>
+                                    {`⤷${childCount}`}
+                              </span>
                         )}
                         {liveActivity && (
                               <LiveActivityBadge activity={liveActivity} />

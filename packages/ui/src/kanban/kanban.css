@@ -694,33 +694,6 @@ body.proto-resizing-panel {
 /* ══════════════════════════════════════════════
    TASK LINKS — child-count chip, popover, relations
    ══════════════════════════════════════════════ */
-.child-count-chip {
- display: inline-flex;
- align-items: center;
- gap: 3px;
- padding: 1px 5px;
- border-radius: 4px;
- border: 1px solid var(--p-border-t);
- background: transparent;
- color: var(--p-text-g);
- font-size: 9px;
- font-weight: 600;
- cursor: pointer;
- transition:
-  color 0.15s,
-  border-color 0.15s,
-  background 0.15s;
- line-height: 1;
- flex-shrink: 0;
-}
-.child-count-chip:hover,
-.child-count-chip:focus-visible {
- color: #a78bfa;
- border-color: #a78bfa;
- background: rgba(167, 139, 250, 0.08);
- outline: none;
-}
-
 /* Child popover */
 .child-popover {
  position: fixed;
