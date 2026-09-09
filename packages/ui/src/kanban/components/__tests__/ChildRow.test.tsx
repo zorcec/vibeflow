@@ -78,18 +78,38 @@ describe("ChildRow", () => {
     expect(parentClick).not.toHaveBeenCalled();
   });
 
-  it("depth 2+ renders hollow dot class", () => {
+  it("tree variants render status-colored chevron, no dot", () => {
     const { unmount } = render(
-      <ChildRow child={makeTask()} variant="inline" depth={2} />,
+      <ChildRow
+        child={makeTask({ status: "in-progress" })}
+        variant="inline"
+        depth={1}
+      />,
     );
-    const dot = document.querySelector(".child-link-dot--hollow");
-    expect(dot).toBeInTheDocument();
+    const chevron = document.querySelector(".child-link-chevron");
+    expect(chevron).toBeInTheDocument();
+    expect(chevron!.textContent).toBe("›");
+    expect(document.querySelector(".child-link-dot")).not.toBeInTheDocument();
     unmount();
 
-    // depth 1 should NOT have hollow dot
-    render(<ChildRow child={makeTask()} variant="inline" depth={1} />);
-    const dot2 = document.querySelector(".child-link-dot--hollow");
-    expect(dot2).not.toBeInTheDocument();
+    render(
+      <ChildRow
+        child={makeTask({ status: "done" })}
+        variant="detail"
+        depth={2}
+      />,
+    );
+    const chevron2 = document.querySelector(".child-link-chevron");
+    expect(chevron2).toBeInTheDocument();
+    expect(document.querySelector(".child-link-dot")).not.toBeInTheDocument();
+  });
+
+  it("popover retains dot, renders no chevron", () => {
+    render(<ChildRow child={makeTask()} variant="popover" />);
+    expect(document.querySelector(".child-link-dot")).toBeInTheDocument();
+    expect(
+      document.querySelector(".child-link-chevron"),
+    ).not.toBeInTheDocument();
   });
 
   it("depth 1 renders one full-height guide, no elbow", () => {

@@ -1308,15 +1308,13 @@ body.proto-resizing-panel {
    (see ChildRow .tree-guides). Slots draw a full-height left border;
    the row's own level draws only the top half (elbow) when last.
    Indentation comes from the guides, so inline/detail rows use a
-   small fixed left padding. The dot overlaps the final slot so its
-   center straddles the row's own level line (row gap 8px + dot
-   margin-left -2px → -24px pull-back for the 8px dot).
+   small fixed left padding. The chevron sits in-flow right after
+   the guides, vertically centered with the title.
    Slot width must stay in sync with TREE_INDENT_PX (14). */
 .tree-guides {
  display: inline-flex;
  align-self: stretch;
  flex-shrink: 0;
- margin-right: -24px;
 }
 .tree-guide,
 .tree-guide--last {
@@ -1327,16 +1325,13 @@ body.proto-resizing-panel {
 .tree-guide--last {
  clip-path: inset(0 0 50% 0);
 }
-/* Inline/detail dots sit in-flow after the guides (popover keeps the
-   legacy absolute dot). The 5px hollow box recenters on the line. */
-.child-link-row--inline .child-link-dot--on-line,
-.child-link-row--detail .child-link-dot--on-line {
- position: static;
- transform: none;
-}
-.child-link-row--inline .child-link-dot--hollow,
-.child-link-row--detail .child-link-dot--hollow {
- margin-left: -0.5px;
+/* Tree chevron: status-colored › in-flow after the guides.
+   Depth-2+ dimming comes from the opacity ramp on the row. */
+.child-link-chevron {
+ font-size: 13px;
+ line-height: 1;
+ font-weight: 700;
+ flex-shrink: 0;
 }
 .recursive-children-tree-node {
  position: relative;
