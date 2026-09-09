@@ -120,8 +120,8 @@ describe("ChildRow", () => {
     expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
     expect(document.querySelector(".tree-guide")).not.toBeInTheDocument();
     expect(document.querySelector(".tree-guide--last")).not.toBeInTheDocument();
-    // Minimal (inline) base 4px + 1 level × 14px
-    expect(row).toHaveStyle({ paddingLeft: "18px" });
+    // Minimal (inline) base 2px + 1 level × 14px
+    expect(row).toHaveStyle({ paddingLeft: "16px" });
     unmount();
 
     const rerender = render(
@@ -131,8 +131,8 @@ describe("ChildRow", () => {
       "[data-role='child-link-row']",
     );
     expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
-    // Detail base 4px + 3 levels × 14px
-    expect(deepRow).toHaveStyle({ paddingLeft: "46px" });
+    // Detail base 2px + 3 levels × 14px
+    expect(deepRow).toHaveStyle({ paddingLeft: "44px" });
   });
 
   it("renders no guides when depth is absent (popover)", () => {

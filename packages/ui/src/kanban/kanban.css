@@ -155,6 +155,7 @@ body {
  border-radius: 10px;
  padding: 11px 13px;
  cursor: grab;
+ position: relative;
  transition:
   border-color 0.12s,
   background 0.12s,
@@ -176,6 +177,38 @@ body {
 }
 .task-card.dragging {
  opacity: 0.4;
+}
+/* ── Card bottom expand chevron (hover-only, toggles children zone) ── */
+.card-expand-chevron {
+ position: absolute;
+ left: 50%;
+ bottom: 0;
+ transform: translateX(-50%);
+ min-width: 36px;
+ min-height: 16px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ padding: 0 8px;
+ border: none;
+ border-radius: 6px 6px 0 0;
+ background: color-mix(in srgb, var(--p-card) 85%, transparent);
+ color: var(--p-text-m);
+ opacity: 0;
+ cursor: pointer;
+ transition: opacity 150ms ease;
+ z-index: 1;
+}
+.task-card:hover .card-expand-chevron,
+.card-expand-chevron:focus-visible,
+.card-expand-chevron[aria-expanded="true"] {
+ opacity: 1;
+}
+.card-expand-chevron svg {
+ transition: transform 150ms ease;
+}
+.card-expand-chevron[aria-expanded="true"] svg {
+ transform: rotate(90deg);
 }
 .drag-over {
  outline: 2px dashed rgba(59, 130, 246, 0.5);

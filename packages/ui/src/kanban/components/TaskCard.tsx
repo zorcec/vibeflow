@@ -1,6 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, CheckCircle, Eye, Lock } from "lucide-react";
+import {
+      MessageCircle,
+      Paperclip,
+      CheckCircle,
+      Eye,
+      Lock,
+      ChevronDown,
+} from "lucide-react";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
@@ -333,6 +340,7 @@ export const TaskCard = React.memo(function TaskCard({
                         padding: "7px 8px",
                         gap: 4,
                         userSelect: "none",
+                        position: "relative",
                         background: liveActivity
                               ? "rgba(59,130,246,0.08)"
                               : cardBgColor,
@@ -669,6 +677,48 @@ export const TaskCard = React.memo(function TaskCard({
                                     }}
                               />
                         )}
+
+                  {/* Bottom-edge expand chevron — same leaf-descendant condition as
+                      the children zone above (never a chevron without a zone).
+                      Toggles the same expanded state; the ⤷N chip is untouched. */}
+                  {(() => {
+                        const zoneChildren = getLeafDescendants(
+                              allTasks,
+                              task.id,
+                        );
+                        if (zoneChildren.length === 0) return null;
+                        return (
+                              <button
+                                    type="button"
+                                    className="card-expand-chevron"
+                                    data-role="card-expand-chevron"
+                                    draggable={false}
+                                    aria-expanded={expanded}
+                                    aria-label={
+                                          expanded
+                                                ? "Collapse children"
+                                                : "Expand children"
+                                    }
+                                    title={
+                                          expanded
+                                                ? "Collapse children"
+                                                : "Expand children"
+                                    }
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onDragStart={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                          e.stopPropagation();
+                                          const next = !expanded;
+                                          setExpanded(next);
+                                          setShowChildPopover(false);
+                                    }}
+                              >
+                                    <ChevronDown
+                                          style={{ width: 10, height: 10 }}
+                                    />
+                              </button>
+                        );
+                  })()}
             </article>
       );
 });
