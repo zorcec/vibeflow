@@ -73,9 +73,19 @@ export function isValidTaskId(id: string): boolean {
   return /^[a-f0-9]{8}$/.test(id) || /^[a-f0-9]{30}$/.test(id);
 }
 
-/** Validates comment IDs to prevent path traversal attacks. Comment IDs are hex strings (16 chars, 8 random bytes). */
+/** Validates comment IDs to prevent path traversal attacks. Comment IDs are
+ * 16 hex chars (8 random bytes, current `addComment` format) or legacy formats
+ * still present in real projects: 10–14 lowercase alphanumerics (SaaS-era IDs
+ * such as `mnrrhpi0f9mxv`, including 10-digit numeric ones like `3839427352`)
+ * and hand-written slugs containing `-`/`_` (e.g. `fix-comment-1`, `align_impl`).
+ * Comment IDs are only JSON lookup keys, never filesystem paths, so the guard
+ * only needs to reject separators, dots, and encoding tricks. */
 export function isValidCommentId(id: string): boolean {
-  return /^[a-f0-9]{16}$/.test(id);
+  return (
+    /^[a-f0-9]{16}$/.test(id) ||
+    /^[a-z0-9]{10,14}$/.test(id) ||
+    /^(?=.*[-_])[A-Za-z0-9_-]{1,64}$/.test(id)
+  );
 }
 
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */

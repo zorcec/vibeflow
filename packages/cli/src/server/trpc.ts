@@ -52,11 +52,17 @@ const taskIdSchema = z
   .regex(/^([a-f0-9]{8}|[a-f0-9]{30})$/, "Invalid task ID");
 
 /**
- * Comment IDs are 16-char lowercase hex strings (8 random bytes from `addComment`).
+ * Comment IDs are 16-char lowercase hex (8 random bytes from `addComment`) or
+ * legacy formats still on disk: 10–14 lowercase alphanumerics (SaaS-era IDs
+ * such as `mnrrhpi0f9mxv`) and `-`/`_` slugs (e.g. `fix-comment-1`).
+ * Same shape as the REST API's `isValidCommentId` guard — keep them in sync.
  */
 const commentIdSchema = z
   .string()
-  .regex(/^[a-f0-9]{16}$/, "Invalid comment ID");
+  .regex(
+    /^([a-f0-9]{16}|[a-z0-9]{10,14}|(?=.*[-_])[A-Za-z0-9_-]{1,64})$/,
+    "Invalid comment ID",
+  );
 
 const taskIdInput = z.object({ id: taskIdSchema });
 

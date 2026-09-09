@@ -275,6 +275,26 @@ describe("appRouter tRPC", () => {
         }),
       ).rejects.toThrow();
     });
+
+    it("accepts legacy comment IDs (passes validation, fails lookup)", async () => {
+      // Real legacy ID from vibeflow-private — must reach the store lookup
+      // ("Comment not found") instead of failing zod validation.
+      const task = createTask(tempDir, { title: "x", selector: "#x" });
+      await expect(
+        caller.updateComment({
+          taskId: task.id,
+          commentId: "mnrrhpi0f9mxv",
+          text: "x",
+        }),
+      ).rejects.toThrow("Comment not found");
+      await expect(
+        caller.updateComment({
+          taskId: task.id,
+          commentId: "fix-comment-1",
+          text: "x",
+        }),
+      ).rejects.toThrow("Comment not found");
+    });
   });
 
   describe("deleteComment", () => {

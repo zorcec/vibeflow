@@ -54,6 +54,34 @@ describe("isValidCommentId", () => {
 
   it("rejects path traversal attempts", () => {
     expect(isValidCommentId("..%2F..%2Fetc%2Fpas")).toBe(false);
+    expect(isValidCommentId("../etc/passwd")).toBe(false);
+    expect(isValidCommentId("..\\..\\windows")).toBe(false);
+  });
+
+  it("accepts legacy SaaS-era IDs (regression: 400 on comment PATCH/DELETE)", () => {
+    // Real legacy comment IDs from vibeflow-private — PATCH/DELETE
+    // /api/tasks/130ed97a/comments/mnrrhpi0f9mxv returned 400
+    // "Invalid comment id" before the validator accepted this format.
+    expect(isValidCommentId("mnrrhpi0f9mxv")).toBe(true);
+    expect(isValidCommentId("mntcmygmsrclz")).toBe(true);
+    expect(isValidCommentId("mntdgjypsaxpy")).toBe(true);
+    expect(isValidCommentId("3839427352")).toBe(true);
+    expect(isValidCommentId("d0r4230cfc")).toBe(true);
+    expect(isValidCommentId("mn12veccleanup")).toBe(true);
+  });
+
+  it("accepts legacy hand-written slug IDs", () => {
+    // Agents wrote these IDs straight into task JSON (against policy),
+    // but they are real stored IDs — the server must not 400 them.
+    expect(isValidCommentId("fix-comment-1")).toBe(true);
+    expect(isValidCommentId("align_impl")).toBe(true);
+    expect(isValidCommentId("liveview-research-v2")).toBe(true);
+    expect(isValidCommentId("selector-review-1773840898311")).toBe(true);
+  });
+
+  it("still rejects empty and over-long slug IDs", () => {
+    expect(isValidCommentId("")).toBe(false);
+    expect(isValidCommentId(`${"a".repeat(64)}-x`)).toBe(false);
   });
 });
 
