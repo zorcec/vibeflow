@@ -805,114 +805,6 @@ body.proto-resizing-panel {
  line-height: 1.4;
 }
 
-/* ── Expanded body ── */
-.relations-area-body {
- display: flex;
- flex-direction: column;
- gap: 8px;
- padding-top: 6px;
- animation: relationsAreaIn 0.12s ease both;
-}
-@keyframes relationsAreaIn {
- from {
-  opacity: 0;
-  transform: translateY(-2px);
- }
- to {
-  opacity: 1;
-  transform: translateY(0);
- }
-}
-.relations-area-empty {
- font-size: 11px;
- color: var(--p-text-f);
- padding: 2px 0;
-}
-
-/* ── Relation groups (Children / Blocks / Related) ── */
-.relation-group {
- display: flex;
- flex-direction: column;
- gap: 3px;
-}
-.relation-group-header {
- display: flex;
- align-items: center;
- gap: 6px;
- padding: 0 2px;
-}
-.relation-group-dot {
- width: 6px;
- height: 6px;
- border-radius: 50%;
- flex-shrink: 0;
-}
-.relation-group-label {
- font-size: 10px;
- font-weight: 600;
- text-transform: uppercase;
- letter-spacing: 0.08em;
-}
-
-/* Color modifiers per group */
-.relation-group--children .relation-group-dot {
- background: #60a5fa;
-}
-.relation-group--children .relation-group-label {
- color: #60a5fa;
-}
-.relation-group--parent .relation-group-dot {
- background: #60a5fa;
-}
-.relation-group--parent .relation-group-label {
- color: #60a5fa;
-}
-.relation-group--blocks .relation-group-dot {
- background: #f87171;
-}
-.relation-group--blocks .relation-group-label {
- color: #f87171;
-}
-.relation-group--relates .relation-group-dot {
- background: #a78bfa;
-}
-.relation-group--relates .relation-group-label {
- color: #a78bfa;
-}
-
-.relation-group-rows {
- display: flex;
- flex-direction: column;
- gap: 3px;
- border-left: 1px solid #60a5fa;
- margin-left: 4px;
- padding-left: 8px;
-}
-
-/* ── Relation rows (inside groups) ── */
-.relation-row {
- display: flex;
- align-items: center;
- gap: 6px;
- padding: 4px 6px;
- border-radius: 4px;
- background: var(--p-hover);
-}
-.relation-row--clickable:hover {
- background: var(--p-border);
-}
-.relation-row--clickable:focus-visible {
- outline: 2px solid var(--p-blue);
- outline-offset: -2px;
-}
-.relation-type-badge {
- font-size: 9px;
- font-weight: 600;
- padding: 1px 5px;
- border-radius: 3px;
- text-transform: uppercase;
- letter-spacing: 0.3;
-}
 .relation-status-dot {
  width: 6px;
  height: 6px;
@@ -934,11 +826,6 @@ body.proto-resizing-panel {
  flex: 1;
  min-width: 0;
 }
-.relation-dangling {
- font-size: 10px;
- color: var(--p-text-f);
- font-style: italic;
-}
 .relation-remove {
  border: none;
  background: transparent;
@@ -957,7 +844,6 @@ body.proto-resizing-panel {
   color 0.1s ease,
   background 0.1s ease;
 }
-.relation-row:hover .relation-remove,
 .child-link-row:hover .relation-remove {
  opacity: 1;
  pointer-events: auto;
@@ -1303,29 +1189,8 @@ body.proto-resizing-panel {
  min-height: 0;
 }
 
-/* ── VS Code-style indent guides ──
-   Each tree row renders one in-flow 14px slot per depth level
-   (see ChildRow .tree-guides). Slots draw a full-height left border;
-   the row's own level draws only the top half (elbow) when last.
-   Indentation comes from the guides, so inline/detail rows use a
-   small fixed left padding. The chevron sits in-flow right after
-   the guides, vertically centered with the title.
-   Slot width must stay in sync with TREE_INDENT_PX (14). */
-.tree-guides {
- display: inline-flex;
- align-self: stretch;
- flex-shrink: 0;
-}
-.tree-guide,
-.tree-guide--last {
- width: 14px;
- border-left: 1px solid var(--p-blue-300, #60a5fa);
- flex-shrink: 0;
-}
-.tree-guide--last {
- clip-path: inset(0 0 50% 0);
-}
-/* Tree chevron: status-colored › in-flow after the guides.
+/* Tree chevron: status-colored › in-flow. Indentation comes from the flat
+   per-depth left padding in ChildRow (no guide lines).
    Depth-2+ dimming comes from the opacity ramp on the row. */
 .child-link-chevron {
  font-size: 13px;
@@ -1335,14 +1200,6 @@ body.proto-resizing-panel {
 }
 .recursive-children-tree-node {
  position: relative;
-}
-/* Detail Relations: children group uses in-row guides, not the outer
-   border. Gap is zeroed so guide lines run continuously across rows. */
-.relation-group--children .relation-group-rows {
- border-left: none;
- margin-left: 0;
- padding-left: 0;
- gap: 0;
 }
 /* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
 .card-children-zone[data-expanded="true"] {

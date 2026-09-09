@@ -112,24 +112,27 @@ describe("ChildRow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("depth 1 renders one full-height guide, no elbow", () => {
-    render(
+  it("renders no guide lines at any depth, indents via flat left padding", () => {
+    const { container, unmount } = render(
       <ChildRow child={makeTask()} variant="inline" depth={1} isLast={false} />,
     );
-    const guides = document.querySelector(".tree-guides");
-    expect(guides).toBeInTheDocument();
-    expect(guides!.querySelectorAll(".tree-guide")).toHaveLength(1);
-    expect(guides!.querySelector(".tree-guide--last")).not.toBeInTheDocument();
-  });
+    const row = container.querySelector("[data-role='child-link-row']");
+    expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
+    expect(document.querySelector(".tree-guide")).not.toBeInTheDocument();
+    expect(document.querySelector(".tree-guide--last")).not.toBeInTheDocument();
+    // Minimal (inline) base 8px + 1 level × 14px
+    expect(row).toHaveStyle({ paddingLeft: "22px" });
+    unmount();
 
-  it("last child renders elbow on own level, full guides above", () => {
-    render(<ChildRow child={makeTask()} variant="detail" depth={3} isLast />);
-    const guides = document.querySelector(".tree-guides");
-    expect(guides!.querySelectorAll(".tree-guide")).toHaveLength(2);
-    const last = guides!.querySelectorAll(".tree-guide--last");
-    expect(last).toHaveLength(1);
-    // Elbow is the final slot (own level)
-    expect(guides!.lastElementChild).toHaveClass("tree-guide--last");
+    const rerender = render(
+      <ChildRow child={makeTask()} variant="detail" depth={3} isLast />,
+    );
+    const deepRow = rerender.container.querySelector(
+      "[data-role='child-link-row']",
+    );
+    expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
+    // Detail base 8px + 3 levels × 14px
+    expect(deepRow).toHaveStyle({ paddingLeft: "50px" });
   });
 
   it("renders no guides when depth is absent (popover)", () => {

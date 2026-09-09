@@ -8,7 +8,7 @@ function makeTask(id: string, title: string, links?: Task["links"]): Task {
   return { id, title, status: "todo", links };
 }
 
-// Fresh import per test so the collapsed-by-default initial state is asserted cleanly
+// Fresh import per test so module state is asserted cleanly
 let RelationsSection: typeof import("../RelationsSection").default;
 
 describe("RelationsSection", () => {
@@ -18,7 +18,7 @@ describe("RelationsSection", () => {
     RelationsSection = mod.default;
   });
 
-  it("collapsed header renders summary chips for children count", () => {
+  it("collapsed-always header renders summary chips for children count", () => {
     const task = makeTask("p1", "Parent");
     const child = makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]);
     render(
@@ -29,8 +29,13 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 child")).toBeInTheDocument();
-    // Body (tree) stays hidden until the user expands it
-    expect(screen.queryByText("+ Add")).not.toBeInTheDocument();
+    // No tree body and no toggle affordance in collapsed-always mode
+    expect(
+      screen.queryByRole("button", { name: /relations/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-role="relations-area-body"]'),
+    ).not.toBeInTheDocument();
   });
 
   it("collapsed header renders parent chips", () => {
@@ -48,7 +53,33 @@ describe("RelationsSection", () => {
     expect(screen.getByText("1 parent")).toBeInTheDocument();
   });
 
-  it("re-collapses when a different task is opened", async () => {
+  it("header is not a toggle: no toggle button, chevron stays collapsed", () => {
+    const task = makeTask("p1", "Parent");
+    const child = makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]);
+    render(
+      <RelationsSection
+        task={task}
+        allTasks={[task, child]}
+        onUpdateLinks={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /relations/i }),
+    ).not.toBeInTheDocument();
+    const header = document.querySelector(
+      '[data-role="relations-area-header"]',
+    );
+    expect(header).not.toBeNull();
+    expect(header?.tagName).not.toBe("BUTTON");
+    const chevron = header?.querySelector(".block-chevron");
+    expect(chevron).not.toBeNull();
+    expect(chevron).not.toHaveAttribute("data-open");
+    expect(
+      document.querySelector('[data-role="relations-area-body"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("stays collapsed when a different task is opened", () => {
     const task1 = makeTask("p1", "Parent 1");
     const child1 = makeTask("c1", "Child 1", [
       { taskId: "p1", type: "parent" },
@@ -60,10 +91,7 @@ describe("RelationsSection", () => {
         onUpdateLinks={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /relations/i }));
-    await waitFor(() => {
-      expect(screen.getByText("+ Add")).toBeInTheDocument();
-    });
+    expect(screen.getByText("1 child")).toBeInTheDocument();
 
     const task2 = makeTask("p2", "Parent 2");
     const child2 = makeTask("c2", "Child 2", [
@@ -76,13 +104,13 @@ describe("RelationsSection", () => {
         onUpdateLinks={vi.fn()}
       />,
     );
-    await waitFor(() => {
-      expect(screen.queryByText("+ Add")).not.toBeInTheDocument();
-    });
     expect(screen.getByText("1 child")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-role="relations-area-body"]'),
+    ).not.toBeInTheDocument();
   });
 
-  it("clicking toggle opens body", async () => {
+  it("+ Add opens the relation search/add UI", async () => {
     const task = makeTask("p1", "Parent");
     render(
       <RelationsSection
@@ -91,56 +119,38 @@ describe("RelationsSection", () => {
         onUpdateLinks={vi.fn()}
       />,
     );
-    const toggle = screen.getByRole("button", { name: /relations/i });
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: /\+ add/i }));
     await waitFor(() => {
-      expect(screen.getByText("+ Add")).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("Search by id or title..."),
+      ).toBeInTheDocument();
     });
   });
 
-  it("RelationRow renders Remove text button", async () => {
-    const task = makeTask("p1", "Parent", [{ taskId: "r1", type: "relates" }]);
-    const related = makeTask("r1", "Related task");
+  it("adding a relation calls onUpdateLinks", async () => {
+    const task = makeTask("p1", "Parent");
+    const other = makeTask("r1", "Related task");
     const onUpdateLinks = vi.fn();
 
     render(
       <RelationsSection
         task={task}
-        allTasks={[task, related]}
+        allTasks={[task, other]}
         onUpdateLinks={onUpdateLinks}
       />,
     );
 
-    // Open the section
-    fireEvent.click(screen.getByRole("button", { name: /relations/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText("+ Add")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /\+ add/i }));
+    fireEvent.change(screen.getByPlaceholderText("Search by id or title..."), {
+      target: { value: "Related" },
     });
 
-    const removeButtons = screen.getAllByText("Remove");
-    expect(removeButtons.length).toBeGreaterThanOrEqual(1);
-
-    fireEvent.click(removeButtons[0]);
-    expect(onUpdateLinks).toHaveBeenCalled();
-  });
-
-  it("header shows chevron with data-open when expanded", async () => {
-    const task = makeTask("p1", "Parent");
-    render(
-      <RelationsSection
-        task={task}
-        allTasks={[task]}
-        onUpdateLinks={vi.fn()}
-      />,
-    );
-    const toggle = screen.getByRole("button", { name: /relations/i });
-    const chevron = toggle.querySelector(".block-chevron");
-    expect(chevron).not.toHaveAttribute("data-open");
-
-    fireEvent.click(toggle);
     await waitFor(() => {
-      expect(chevron).toHaveAttribute("data-open");
+      expect(screen.getByText("Related task")).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByText("Related task"));
+    expect(onUpdateLinks).toHaveBeenCalledWith([
+      { taskId: "r1", type: "relates" },
+    ]);
   });
 });

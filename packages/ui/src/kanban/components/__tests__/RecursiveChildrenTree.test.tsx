@@ -80,7 +80,7 @@ describe("RecursiveChildrenTree", () => {
     expect(limit!.textContent).toContain("more");
   });
 
-  it("last sibling gets elbow guide, earlier siblings get full guides", () => {
+  it("renders no guide lines in any row", () => {
     const tasks = [
       makeTask("p1", "Parent"),
       makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]),
@@ -91,11 +91,15 @@ describe("RecursiveChildrenTree", () => {
     );
     const rows = container.querySelectorAll("[data-role='child-link-row']");
     expect(rows).toHaveLength(2);
-    // First sibling: full-height guide only
-    expect(rows[0].querySelector(".tree-guide--last")).not.toBeInTheDocument();
-    expect(rows[0].querySelector(".tree-guide")).toBeInTheDocument();
-    // Last sibling: elbow on its own (only) level
-    expect(rows[1].querySelector(".tree-guide--last")).toBeInTheDocument();
+    // Zero vertical guide lines anywhere — chevron+title rows only
+    expect(container.querySelector(".tree-guides")).not.toBeInTheDocument();
+    expect(container.querySelector(".tree-guide")).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".tree-guide--last"),
+    ).not.toBeInTheDocument();
+    rows.forEach((row) => {
+      expect(row.querySelector(".child-link-chevron")).toBeInTheDocument();
+    });
   });
 
   it("passes depth prop to ChildRow (depth 1 for direct children)", () => {

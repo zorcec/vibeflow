@@ -207,8 +207,8 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
               data-drop-target={showCenterHighlight || undefined}
             >
               {/* Indent wrapper — kept plain (no padding): indentation now comes
-                from the in-flow .tree-guides inside ChildRow. The wrapper is
-                retained as the anchor for the opacity-ramp selectors
+                from the flat per-depth left padding inside ChildRow. The wrapper
+                is retained as the anchor for the opacity-ramp selectors
                 (`.recursive-children-tree-node … > div > .child-link-row`) */}
               <div>
                 <ChildRow
