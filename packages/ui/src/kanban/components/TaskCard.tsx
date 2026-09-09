@@ -31,6 +31,13 @@ interface Props {
       onChildrenZoneDragOver?: (e: React.DragEvent) => void;
       /** When a drag leaves this card's children zone, forward the event. */
       onChildrenZoneDragLeave?: (e: React.DragEvent) => void;
+      /** Tree-row intent — same single ref as the board, forwarded to the card tree. */
+      treeIntent?: import("../task-links").DropIntent | null;
+      onTreeIntent?: (
+            intent: import("../task-links").DropIntent | null,
+      ) => void;
+      /** Row dragstart mirror — sets the board drag source for tree-row drags. */
+      onTreeRowDragStart?: (e: React.DragEvent, childId: string) => void;
 }
 
 function isImageFileName(name: string): boolean {
@@ -168,6 +175,9 @@ export const TaskCard = React.memo(function TaskCard({
       onDragStart,
       onChildrenZoneDragOver,
       onChildrenZoneDragLeave,
+      treeIntent,
+      onTreeIntent,
+      onTreeRowDragStart,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -628,6 +638,11 @@ export const TaskCard = React.memo(function TaskCard({
                                                 parentId={task.id}
                                                 allTasks={allTasks}
                                                 variant="inline"
+                                                dragIntent={treeIntent}
+                                                onTreeIntent={onTreeIntent}
+                                                onRowDragStart={
+                                                      onTreeRowDragStart
+                                                }
                                                 onOpen={(child) => {
                                                       if (onOpenChild)
                                                             onOpenChild(child);

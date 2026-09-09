@@ -8,6 +8,9 @@ import {
   groupDetailRelations,
   groupTasksByRoot,
   resolveRootTask,
+  classifyTreeRowIntent,
+  canReparent,
+  dragSession,
 } from "../task-links";
 import type { Task } from "../types";
 
@@ -95,5 +98,100 @@ describe("task-links null-entry safety (P0 board-blank regression)", () => {
     const blockers = [null, makeTask()] as unknown as Task[];
     const label = blockers.map((b) => b?.title ?? "Untitled").join(", ");
     expect(label).toBe("Untitled, Test task");
+  });
+});
+
+describe("classifyTreeRowIntent (tree-row DnD bands)", () => {
+  // 200px row → 28% band = 56px (max clamp). Top band [0,56), bottom (144,200].
+  const rect = { top: 100, height: 200 };
+  const child = { id: "c1" };
+
+  it("top band → tree-row before", () => {
+    expect(classifyTreeRowIntent(rect, 110, child, "p1")).toEqual({
+      kind: "tree-row",
+      targetId: "c1",
+      parentId: "p1",
+      position: "before",
+    });
+  });
+
+  it("bottom band → tree-row after", () => {
+    expect(classifyTreeRowIntent(rect, 290, child, "p1")).toEqual({
+      kind: "tree-row",
+      targetId: "c1",
+      parentId: "p1",
+      position: "after",
+    });
+  });
+
+  it("center → zone intent (make-child of the row's task)", () => {
+    expect(classifyTreeRowIntent(rect, 200, child, "p1")).toEqual({
+      kind: "zone",
+      parentId: "c1",
+    });
+  });
+
+  it("returns null when the row task has no id (null-safe)", () => {
+    expect(classifyTreeRowIntent(rect, 200, null, "p1")).toBeNull();
+    expect(
+      classifyTreeRowIntent(rect, 200, {} as { id?: string }, "p1"),
+    ).toBeNull();
+  });
+
+  it("clamps small-row bands to 32px min", () => {
+    // 100px row → raw band 28px → clamped to 32px: y=top+31 is top,
+    // y=top+33 is center (bottom band starts at top+68).
+    const small = { top: 0, height: 100 };
+    expect(classifyTreeRowIntent(small, 31, child, "p1")?.position).toBe(
+      "before",
+    );
+    expect(classifyTreeRowIntent(small, 33, child, "p1")?.kind).toBe("zone");
+  });
+});
+
+describe("canReparent (self/descendant checks only)", () => {
+  const tasks = [
+    makeTask({ id: "root" }),
+    makeTask({ id: "a", links: [{ taskId: "root", type: "parent" }] }),
+    makeTask({ id: "b", links: [{ taskId: "a", type: "parent" }] }),
+    makeTask({ id: "free" }),
+  ];
+
+  it("rejects self-parenting", () => {
+    expect(canReparent(tasks, "a", "a")).toBe(false);
+  });
+
+  it("rejects reparenting under a descendant (cycle)", () => {
+    expect(canReparent(tasks, "a", "b")).toBe(false);
+    expect(canReparent(tasks, "root", "b")).toBe(false);
+  });
+
+  it("allows reparenting an already-parented task (replace, not duplicate)", () => {
+    expect(canReparent(tasks, "a", "free")).toBe(true);
+    expect(canReparent(tasks, "b", "root")).toBe(true);
+  });
+
+  it("rejects empty ids (null-safe)", () => {
+    expect(canReparent(tasks, "", "root")).toBe(false);
+    expect(canReparent(tasks, "a", "")).toBe(false);
+  });
+});
+
+describe("dragSession singleton", () => {
+  it("get() starts null, begin(id) sets, end() clears", () => {
+    dragSession.end();
+    expect(dragSession.get()).toBeNull();
+    dragSession.begin("drag-1");
+    expect(dragSession.get()).toBe("drag-1");
+    dragSession.begin("drag-2");
+    expect(dragSession.get()).toBe("drag-2");
+    dragSession.end();
+    expect(dragSession.get()).toBeNull();
+  });
+
+  it('begin("") is ignored (null-safe)', () => {
+    dragSession.end();
+    dragSession.begin("");
+    expect(dragSession.get()).toBeNull();
   });
 });

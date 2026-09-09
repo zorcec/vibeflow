@@ -139,6 +139,20 @@ interface Props {
   commentVersion?: number;
   /** When true, enforce branch name input when setting status to review. */
   createBranch?: boolean;
+  /** Sibling reorder inside one parent (detail-panel tree drops). */
+  onTreeReorder?: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+    parentId: string,
+  ) => void;
+  /** Move under a different parent (detail-panel tree drops). */
+  onTreeReparent?: (
+    draggedId: string,
+    newParentId: string,
+    targetId?: string,
+    position?: "before" | "after",
+  ) => void;
 }
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit
@@ -202,6 +216,8 @@ export function DetailPanel({
   commentVersion,
   allTasks = [],
   createBranch,
+  onTreeReorder,
+  onTreeReparent,
 }: Props) {
   const isAdd = !task;
   const typeColor = task
@@ -1262,6 +1278,8 @@ export function DetailPanel({
                   task={task}
                   allTasks={allTasks}
                   onOpenTask={onOpenTask}
+                  onTreeReorder={onTreeReorder}
+                  onTreeReparent={onTreeReparent}
                   onUpdateLinks={async (links) => {
                     if (!task) return;
                     setLinksSaving(true);

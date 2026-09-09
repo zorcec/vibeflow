@@ -1,8 +1,17 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import type { Task, TaskLinkType } from "../types";
-import { shortId, groupDetailRelations, getStatusColor } from "../task-links";
-import type { DetailRelationRow } from "../task-links";
+import {
+  shortId,
+  groupDetailRelations,
+  getStatusColor,
+  getChildren,
+  getParent,
+  canReparent,
+  dragSession,
+} from "../task-links";
+import type { DetailRelationRow, DropIntent } from "../task-links";
 import { TASK_LINK_TYPES } from "../types";
+import { compareTaskOrder } from "../utils";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 
 interface RelationsSectionProps {
@@ -10,17 +19,24 @@ interface RelationsSectionProps {
   allTasks: Task[];
   onUpdateLinks: (links: Task["links"]) => void;
   onOpenTask?: (task: Task) => void;
+  /** Sibling reorder inside one parent (tree-row intent, same parent). */
+  onTreeReorder?: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+    parentId: string,
+  ) => void;
+  /** Move under a different parent (tree-row across parents, or zone drop). */
+  onTreeReparent?: (
+    draggedId: string,
+    newParentId: string,
+    targetId?: string,
+    position?: "before" | "after",
+  ) => void;
 }
 
 const TYPE_LABELS: Record<TaskLinkType, string> = {
   parent: "Child of →",
-  relates: "related",
-  blocks: "blocks",
-};
-
-/** Badge labels for existing relation rows (distinct from picker labels). */
-const TYPE_BADGE_LABELS: Record<TaskLinkType, string> = {
-  parent: "↑ parent",
   relates: "related",
   blocks: "blocks",
 };
@@ -39,6 +55,8 @@ export default function RelationsSection({
   allTasks,
   onUpdateLinks,
   onOpenTask,
+  onTreeReorder,
+  onTreeReparent,
 }: RelationsSectionProps) {
   // Collapsed by default: opening a task's detail panel shows the Relations
   // header with summary chips; the tree stays hidden until expanded.
@@ -46,6 +64,12 @@ export default function RelationsSection({
   const [adding, setAdding] = useState(false);
   const [linkType, setLinkType] = useState<TaskLinkType>("relates");
   const [search, setSearch] = useState("");
+
+  // Tree DnD intent — shared by all four group trees in this section.
+  // The dragged id travels via the dragSession singleton (no prop-drilling).
+  const [treeIntent, setTreeIntent] = useState<DropIntent | null>(null);
+  const treeIntentRef = useRef<DropIntent | null>(null);
+  const safeTasks = allTasks ?? [];
 
   // Re-collapse whenever a different task is opened (the detail panel reuses
   // one component instance across selections, so state would otherwise persist).
@@ -63,13 +87,13 @@ export default function RelationsSection({
 
   const links = task.links ?? [];
 
-  const groups = groupDetailRelations(task, allTasks);
+  const groups = groupDetailRelations(task, safeTasks);
   const totalCount = groups.children.length + links.length;
 
   const searchResults = search.trim()
-    ? allTasks.filter(
+    ? safeTasks.filter(
         (t) =>
-          t.id !== task.id &&
+          t?.id !== task.id &&
           (t.id.toLowerCase().includes(search.toLowerCase()) ||
             (t.title ?? "").toLowerCase().includes(search.toLowerCase())),
       )
@@ -96,12 +120,81 @@ export default function RelationsSection({
   const handleRemoveChildLink = useCallback(
     (childId: string) => {
       const idx = links.findIndex(
-        (l) => l.type === "parent" && l.taskId === childId,
+        (l) => l?.type === "parent" && l?.taskId === childId,
       );
       if (idx >= 0) handleRemove(idx);
     },
     [links, handleRemove],
   );
+
+  /** Removal for a flat group: resolve the link index by target task id. */
+  const makeRemoveByTaskId = useCallback(
+    (rows: DetailRelationRow[]) => (taskId: string) => {
+      const row = rows.find((r) => r?.link?.taskId === taskId);
+      if (row) handleRemove(row.linkIndex);
+    },
+    [handleRemove],
+  );
+
+  const handleTreeIntent = useCallback((intent: DropIntent | null) => {
+    treeIntentRef.current = intent;
+    setTreeIntent(intent);
+  }, []);
+
+  /** Section-level drop: row drops bubble here (outside the board columns). */
+  const handleTreeDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const draggedId = dragSession.get();
+      const intent = treeIntentRef.current;
+      if (!draggedId || !intent) return;
+      if (intent.kind === "tree-row" && intent.targetId && intent.parentId) {
+        if (draggedId === intent.targetId) return;
+        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+        const cur = getParent(safeTasks, draggedId)?.id ?? null;
+        if (cur === intent.parentId) {
+          onTreeReorder?.(
+            draggedId,
+            intent.targetId,
+            intent.position ?? "after",
+            intent.parentId,
+          );
+        } else {
+          onTreeReparent?.(
+            draggedId,
+            intent.parentId,
+            intent.targetId,
+            intent.position,
+          );
+        }
+      } else if (intent.kind === "zone" && intent.parentId) {
+        if (draggedId === intent.parentId) return;
+        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+        const cur = getParent(safeTasks, draggedId)?.id ?? null;
+        if (cur === intent.parentId) {
+          // Gap drop within the same parent → append-last reorder.
+          const sibs = getChildren(safeTasks, intent.parentId)
+            .filter((t) => t?.id && t.id !== draggedId)
+            .sort(compareTaskOrder);
+          const last = sibs[sibs.length - 1];
+          if (!last?.id) return;
+          onTreeReorder?.(draggedId, last.id, "after", intent.parentId);
+        } else {
+          onTreeReparent?.(draggedId, intent.parentId);
+        }
+      }
+      dragSession.end();
+      treeIntentRef.current = null;
+      setTreeIntent(null);
+    },
+    [safeTasks, onTreeReorder, onTreeReparent],
+  );
+
+  const handleTreeDragEnd = useCallback(() => {
+    dragSession.end();
+    treeIntentRef.current = null;
+    setTreeIntent(null);
+  }, []);
 
   const allGroupsEmpty =
     groups.children.length === 0 &&
@@ -148,7 +241,12 @@ export default function RelationsSection({
 
       {/* ── Expanded body ── */}
       {open && (
-        <div className="relations-area-body" data-role="relations-area-body">
+        <div
+          className="relations-area-body"
+          data-role="relations-area-body"
+          onDrop={handleTreeDrop}
+          onDragEnd={handleTreeDragEnd}
+        >
           {/* ── CHILDREN group ── */}
           {groups.children.length > 0 && (
             <div
@@ -164,10 +262,12 @@ export default function RelationsSection({
               <div className="relation-group-rows">
                 <RecursiveChildrenTree
                   parentId={task.id}
-                  allTasks={allTasks}
+                  allTasks={safeTasks}
                   variant="detail"
                   onOpen={(child) => onOpenTask?.(child)}
                   onRemove={handleRemoveChildLink}
+                  dragIntent={treeIntent}
+                  onTreeIntent={handleTreeIntent}
                 />
               </div>
             </div>
@@ -191,14 +291,16 @@ export default function RelationsSection({
                 </span>
               </div>
               <div className="relation-group-rows">
-                {groups.parentLinks.map((row) => (
-                  <RelationRow
-                    key={`${row.link.taskId}-${row.linkIndex}`}
-                    row={row}
-                    onOpen={onOpenTask}
-                    onRemove={() => handleRemove(row.linkIndex)}
-                  />
-                ))}
+                <RecursiveChildrenTree
+                  parentId={task.id}
+                  allTasks={safeTasks}
+                  variant="detail"
+                  nodes={toTreeNodes(groups.parentLinks)}
+                  onOpen={(child) => onOpenTask?.(child)}
+                  onRemove={makeRemoveByTaskId(groups.parentLinks)}
+                  dragIntent={treeIntent}
+                  onTreeIntent={handleTreeIntent}
+                />
               </div>
             </div>
           )}
@@ -216,14 +318,16 @@ export default function RelationsSection({
                 </span>
               </div>
               <div className="relation-group-rows">
-                {groups.blocksLinks.map((row) => (
-                  <RelationRow
-                    key={`${row.link.taskId}-${row.linkIndex}`}
-                    row={row}
-                    onOpen={onOpenTask}
-                    onRemove={() => handleRemove(row.linkIndex)}
-                  />
-                ))}
+                <RecursiveChildrenTree
+                  parentId={task.id}
+                  allTasks={safeTasks}
+                  variant="detail"
+                  nodes={toTreeNodes(groups.blocksLinks)}
+                  onOpen={(child) => onOpenTask?.(child)}
+                  onRemove={makeRemoveByTaskId(groups.blocksLinks)}
+                  dragIntent={treeIntent}
+                  onTreeIntent={handleTreeIntent}
+                />
               </div>
             </div>
           )}
@@ -241,14 +345,16 @@ export default function RelationsSection({
                 </span>
               </div>
               <div className="relation-group-rows">
-                {groups.relatesLinks.map((row) => (
-                  <RelationRow
-                    key={`${row.link.taskId}-${row.linkIndex}`}
-                    row={row}
-                    onOpen={onOpenTask}
-                    onRemove={() => handleRemove(row.linkIndex)}
-                  />
-                ))}
+                <RecursiveChildrenTree
+                  parentId={task.id}
+                  allTasks={safeTasks}
+                  variant="detail"
+                  nodes={toTreeNodes(groups.relatesLinks)}
+                  onOpen={(child) => onOpenTask?.(child)}
+                  onRemove={makeRemoveByTaskId(groups.relatesLinks)}
+                  dragIntent={treeIntent}
+                  onTreeIntent={handleTreeIntent}
+                />
               </div>
             </div>
           )}
@@ -345,80 +451,20 @@ export default function RelationsSection({
 
 /* ── Inline helpers ───────────────────────────────────────────────────────── */
 
-function RelationRow({
-  row,
-  onOpen,
-  onRemove,
-}: {
-  row: DetailRelationRow;
-  onOpen?: (task: Task) => void;
-  onRemove: () => void;
-}) {
-  const { target, link } = row;
-  return (
-    <div
-      className={`relation-row${target ? " relation-row--clickable" : ""}`}
-      data-role="relation-row"
-      data-task-id={target ? link.taskId : undefined}
-      role={target ? "button" : undefined}
-      tabIndex={target ? 0 : undefined}
-      style={target ? { cursor: "pointer" } : undefined}
-      onClick={
-        target
-          ? (e) => {
-              e.stopPropagation();
-              onOpen?.(target);
-            }
-          : undefined
-      }
-      onKeyDown={
-        target
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onOpen?.(target);
-              }
-            }
-          : undefined
-      }
-    >
-      <span
-        className="relation-type-badge"
-        style={{
-          backgroundColor: TYPE_COLORS[link.type as TaskLinkType] + "22",
-          color: TYPE_COLORS[link.type as TaskLinkType],
-        }}
-      >
-        {TYPE_BADGE_LABELS[link.type as TaskLinkType]}
-      </span>
-      {target ? (
-        <>
-          <span
-            className="relation-status-dot"
-            style={{
-              backgroundColor: getStatusColor(target.status),
-            }}
-          />
-          <span className="relation-id">{shortId(target.id)}</span>
-          <span className="relation-title">{target.title}</span>
-        </>
-      ) : (
-        <span className="relation-dangling">
-          not found ({shortId(link.taskId)})
-        </span>
-      )}
-      <button
-        className="relation-remove"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        title="Remove link"
-        type="button"
-      >
-        Remove
-      </button>
-    </div>
-  );
+/**
+ * Map flat relation rows to tree nodes. Resolved targets render as rows
+ * (with guides/dots/DnD like every other group); dangling links render as
+ * "(untitled)" placeholder rows so the Remove action stays reachable.
+ */
+function toTreeNodes(rows: DetailRelationRow[]): Task[] {
+  return (rows ?? [])
+    .filter((r) => r?.link?.taskId)
+    .map(
+      (r) =>
+        r.target ?? {
+          id: r.link.taskId,
+          title: "(untitled)",
+          status: "todo",
+        },
+    );
 }

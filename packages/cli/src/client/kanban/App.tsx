@@ -18,6 +18,7 @@ import {
   FilePreviewModal,
   computeReorder,
   compareTaskOrder,
+  generateSortKeyBetween,
   HeaderActionButton,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
@@ -1061,6 +1062,157 @@ export function App() {
     }
   }
 
+  /** Tree sibling reorder — compute the sortKey between the sorted siblings
+   * under parentId and persist it with a single patchTask. */
+  async function handleTreeReorder(
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+    parentId: string,
+  ) {
+    if (!draggedId || !targetId || !parentId) return;
+    if (draggedId === targetId) return;
+    const siblings = tasksRef.current
+      .filter((t) =>
+        t?.links?.some((l) => l?.type === "parent" && l?.taskId === parentId),
+      )
+      .filter((t) => t.id !== draggedId)
+      .sort(compareTaskOrder);
+    const targetIndex = siblings.findIndex((t) => t.id === targetId);
+    if (targetIndex < 0) return;
+    let beforeId: string | null = null;
+    let afterId: string | null = null;
+    if (position === "before") {
+      afterId = targetId;
+      beforeId = targetIndex > 0 ? siblings[targetIndex - 1].id : null;
+    } else {
+      beforeId = targetId;
+      afterId =
+        targetIndex < siblings.length - 1 ? siblings[targetIndex + 1].id : null;
+    }
+    // Reuse the column-reorder key math on the sibling list.
+    const { newSortKey } = computeReorder(
+      siblings.map((t) => ({ id: t.id, sortKey: t.sortKey })),
+      draggedId,
+      beforeId,
+      afterId,
+    );
+    await patchTask(draggedId, { sortKey: newSortKey });
+  }
+
+  /** Tree reparent — replace the parent link and assign an order sortKey
+   * in ONE PATCH, with snapshot revert on failure (mirrors linkChild). */
+  async function handleTreeReparent(
+    draggedId: string,
+    newParentId: string,
+    targetId?: string,
+    position?: "before" | "after",
+  ) {
+    if (!draggedId || !newParentId) return;
+    if (draggedId === newParentId) return;
+    const task = tasksRef.current.find((t) => t.id === draggedId);
+    const existingLinks = task?.links ?? [];
+    const snapshot = [...existingLinks];
+    const newLink = { taskId: newParentId, type: "parent" as const };
+    const nextLinks = [
+      ...existingLinks.filter((l) => l?.type !== "parent"),
+      newLink,
+    ];
+    // Order among the new siblings: around the drop target, else append-last.
+    const siblings = tasksRef.current
+      .filter((t) =>
+        t?.links?.some(
+          (l) => l?.type === "parent" && l?.taskId === newParentId,
+        ),
+      )
+      .filter((t) => t.id !== draggedId)
+      .sort(compareTaskOrder);
+    let beforeId: string | null = null;
+    let afterId: string | null = null;
+    if (targetId) {
+      const targetIndex = siblings.findIndex((t) => t.id === targetId);
+      if (targetIndex >= 0) {
+        if ((position ?? "after") === "before") {
+          afterId = targetId;
+          beforeId = targetIndex > 0 ? siblings[targetIndex - 1].id : null;
+        } else {
+          beforeId = targetId;
+          afterId =
+            targetIndex < siblings.length - 1
+              ? siblings[targetIndex + 1].id
+              : null;
+        }
+      } else {
+        beforeId =
+          siblings.length > 0 ? siblings[siblings.length - 1].id : null;
+      }
+    } else {
+      beforeId = siblings.length > 0 ? siblings[siblings.length - 1].id : null;
+    }
+    const { newSortKey } = computeReorder(
+      siblings.map((t) => ({ id: t.id, sortKey: t.sortKey })),
+      draggedId,
+      beforeId,
+      afterId,
+    );
+    setTasks((prev) => {
+      const next = prev.map((t) =>
+        t.id === draggedId
+          ? { ...t, links: nextLinks, sortKey: newSortKey }
+          : t,
+      );
+      tasksRef.current = next;
+      return next;
+    });
+    try {
+      const data = await api.updateTask(draggedId, {
+        links: nextLinks,
+        sortKey: newSortKey,
+      });
+      if (data.task) {
+        setTasks((prev) => {
+          const next = prev.map((t) => (t.id === draggedId ? data.task! : t));
+          tasksRef.current = next;
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[Vibeflow] Failed to reparent: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      setTasks((prev) => {
+        const next = prev.map((t) =>
+          t.id === draggedId ? { ...t, links: snapshot } : t,
+        );
+        tasksRef.current = next;
+        return next;
+      });
+    }
+  }
+
+  /** Column drop of a parented task (drag-out): strip the parent link and
+   * move status + sortKey in one full-replace PATCH — the links array
+   * replace IS the unlink primitive, no server change needed. */
+  async function handleColumnDrop(taskId: string, status: TaskStatus) {
+    const task = tasksRef.current.find((t) => t.id === taskId);
+    const links = task?.links ?? [];
+    const hasParent = links.some((l) => l?.type === "parent");
+    if (!hasParent) {
+      await patchTask(taskId, { status });
+      return;
+    }
+    const nextLinks = links.filter((l) => l?.type !== "parent");
+    const colTasks = tasksRef.current
+      .filter((t) => t?.status === status && t.id !== taskId)
+      .sort(compareTaskOrder);
+    const lastKey =
+      colTasks.length > 0
+        ? (colTasks[colTasks.length - 1].sortKey ?? null)
+        : null;
+    const sortKey = generateSortKeyBetween(lastKey, null);
+    await patchTask(taskId, { status, links: nextLinks, sortKey });
+  }
+
   async function handleReorder(
     taskId: string,
     newStatus: TaskStatus,
@@ -1308,9 +1460,11 @@ export function App() {
             isLoading={isLoading}
             compact={viewMode === "compact"}
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
-            onDrop={(taskId, status) => patchTask(taskId, { status })}
+            onDrop={handleColumnDrop}
             onReorder={handleReorder}
             onLinkChild={linkChild}
+            onTreeReorder={handleTreeReorder}
+            onTreeReparent={handleTreeReparent}
           />
         )}
 
@@ -1397,6 +1551,8 @@ export function App() {
                 }
               }}
               onPatch={patchTask}
+              onTreeReorder={handleTreeReorder}
+              onTreeReparent={handleTreeReparent}
               onFilePreview={openFilePreview}
               onGoBack={navHistory.length > 0 ? goBack : undefined}
               navBackLabel={

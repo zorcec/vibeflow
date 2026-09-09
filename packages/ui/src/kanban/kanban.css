@@ -1367,6 +1367,21 @@ body.proto-resizing-panel {
  gap: 8px;
  animation: child-row-in 180ms ease both;
 }
+/* Continuous spine: inline/detail rows carry NO vertical padding, so the
+   stretched in-flow guide spans touch across row boundaries instead of
+   leaving split gaps. The 3px breathing room moves to inner content
+   margins, which the stretched guides vertically cover. Popover rows
+   keep their padding (they render no guides). */
+.child-link-row--inline,
+.child-link-row--detail {
+ padding-top: 0;
+ padding-bottom: 0;
+}
+.child-link-row--inline .child-link-info,
+.child-link-row--detail .child-link-info {
+ margin-top: 3px;
+ margin-bottom: 3px;
+}
 /* Depth-limit truncation marker */
 .tree-depth-limit {
  padding: 2px 0;
@@ -1398,6 +1413,24 @@ body.proto-resizing-panel {
  background: #60a5fa14;
  outline: 1px dashed #60a5fa66;
  outline-offset: -1px;
+}
+
+/* Tree-row insertion line — sibling BETWEEN nodes, never inside rows
+   (keeps the row geometry used for band classification intact). */
+.tree-drop-line {
+ height: 2px;
+ border-radius: 1px;
+ background: var(--p-blue, #60a5fa);
+ margin: 2px 0 2px 10px;
+ box-shadow: 0 0 6px color-mix(in srgb, var(--p-blue, #60a5fa) 55%, transparent);
+ animation: pill-fade-in 100ms ease both;
+}
+/* Center-intent row highlight — hovered node is the make-child target. */
+.tree-node--drop-target > div > .child-link-row {
+ background: color-mix(in srgb, #60a5fa 14%, transparent);
+ outline: 1px dashed color-mix(in srgb, #60a5fa 60%, transparent);
+ outline-offset: -1px;
+ border-radius: 3px;
 }
 
 /* Make-child pill */

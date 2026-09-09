@@ -226,7 +226,7 @@ export function classifyDropZone(
 }
 
 /** Drop-intent kind tag — single discriminator for the single-ref architecture. */
-export type DropIntentKind = "card" | "zone" | "column";
+export type DropIntentKind = "card" | "zone" | "column" | "tree-row";
 
 /** Unified drop intent — one ref replaces 4+ scattered refs/states. */
 export interface DropIntent {
@@ -241,6 +241,8 @@ export interface DropIntent {
   position?: "before" | "after";
   /** Edge zone when kind=card and zone≠center. */
   edgeZone?: "top" | "bottom";
+  /** Tree-row target: the hovered child row's task id (kind=tree-row). */
+  targetId?: string;
 }
 
 /** Classify a drop position against a card's article element (not the
@@ -273,6 +275,73 @@ export function classifyForDropIntent(
   }
   return { zone: classifyDropZone(rect, clientY), rect };
 }
+
+/**
+ * Classify a dragover position within a tree child row.
+ * Reuses the classifyDropZone 28% bands (clamped 32–56px): top/bottom
+ * bands → tree-row before/after (sibling reorder within parentId),
+ * center → zone intent (make-child of that row's task).
+ *
+ * Null-safe: returns null when the row's task has no id.
+ */
+export function classifyTreeRowIntent(
+  rowRect: { top: number; height: number },
+  clientY: number,
+  child: { id?: string | null } | null | undefined,
+  parentId: string,
+): DropIntent | null {
+  const childId = child?.id;
+  if (!childId) return null;
+  const zone = classifyDropZone(rowRect, clientY);
+  if (zone === "top")
+    return {
+      kind: "tree-row",
+      targetId: childId,
+      parentId,
+      position: "before",
+    };
+  if (zone === "bottom")
+    return { kind: "tree-row", targetId: childId, parentId, position: "after" };
+  return { kind: "zone", parentId: childId };
+}
+
+/**
+ * Check whether draggedId may be reparented under targetId.
+ * Self/descendant checks only — unlike targetValid this deliberately
+ * allows reparenting tasks that already have a parent (the old parent
+ * link is replaced, not duplicated).
+ */
+export function canReparent(
+  allTasks: Task[],
+  draggedId: string,
+  targetId: string,
+): boolean {
+  if (!draggedId || !targetId) return false;
+  if (draggedId === targetId) return false;
+  const descendants = getDescendants(allTasks ?? [], draggedId);
+  if (descendants.includes(targetId)) return false;
+  return true;
+}
+
+/**
+ * Module-level drag session singleton — shared drag-source state for tree
+ * rows without prop-drilling. The board mirrors its card-drag ref here
+ * (begin on dragstart, end on drop/dragend); the detail panel reads get()
+ * to resolve the dragged id for drops outside the board columns.
+ */
+let dragSessionId: string | null = null;
+export const dragSession = {
+  get(): string | null {
+    return dragSessionId;
+  },
+  begin(id: string): void {
+    if (!id) return;
+    dragSessionId = id;
+  },
+  end(): void {
+    dragSessionId = null;
+  },
+};
 
 /** Check whether dragging draggedId onto targetId as a child is valid.
  * Rejects self-links, cycles (target is a descendant of dragged),

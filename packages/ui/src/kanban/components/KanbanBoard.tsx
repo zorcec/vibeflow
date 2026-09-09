@@ -6,6 +6,9 @@ import {
   groupTasksByRoot,
   classifyForDropIntent,
   targetValid,
+  canReparent,
+  getParent,
+  dragSession,
 } from "../task-links";
 import type { DropIntent } from "../task-links";
 import { compareTaskOrder } from "../utils";
@@ -126,6 +129,20 @@ interface Props {
   ) => void;
   /** Link a task as a child of another task (optimistic PATCH). */
   onLinkChild?: (draggedId: string, parentId: string) => void;
+  /** Sibling reorder inside one parent (tree-row intent, same parent). */
+  onTreeReorder?: (
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after",
+    parentId: string,
+  ) => void;
+  /** Move under a different parent (tree-row intent across parents). */
+  onTreeReparent?: (
+    draggedId: string,
+    newParentId: string,
+    targetId?: string,
+    position?: "before" | "after",
+  ) => void;
 }
 
 export function KanbanBoard({
@@ -139,6 +156,8 @@ export function KanbanBoard({
   onDrop,
   onReorder,
   onLinkChild,
+  onTreeReorder,
+  onTreeReparent,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
@@ -236,8 +255,10 @@ export function KanbanBoard({
   }, [cols.length]);
 
   function handleDragStart(e: React.DragEvent, taskId: string) {
+    if (!taskId) return;
     dragTaskIdRef.current = taskId;
     setDragTaskId(taskId);
+    dragSession.begin(taskId);
     // Reset drop intent — fresh start for each drag session
     dropIntentRef.current = null;
     setDropIntent(null);
@@ -334,10 +355,37 @@ export function KanbanBoard({
     dropIntentRef.current = null;
     setDropIntent(null);
     setMakeChildTarget(null);
-    const dragging = dragTaskIdRef.current;
+    // Tree rows begin the dragSession without touching the card ref —
+    // prefer the ref, fall back to the session so row drags resolve.
+    const dragging = dragTaskIdRef.current ?? dragSession.get();
     dragTaskIdRef.current = null;
     setDragTaskId(null);
+    dragSession.end();
     if (!dragging) return;
+
+    if (intent?.kind === "tree-row" && intent.targetId && intent.parentId) {
+      if (dragging === intent.targetId) return;
+      // Self/descendant guard — mirrors the detail-panel drop handler.
+      // Same-parent reorder always passes (parent is neither self nor child).
+      if (!canReparent(tasks, dragging, intent.parentId)) return;
+      const curParent = getParent(tasks, dragging)?.id ?? null;
+      if (curParent === intent.parentId) {
+        onTreeReorder?.(
+          dragging,
+          intent.targetId,
+          intent.position ?? "after",
+          intent.parentId,
+        );
+      } else {
+        onTreeReparent?.(
+          dragging,
+          intent.parentId,
+          intent.targetId,
+          intent.position,
+        );
+      }
+      return;
+    }
 
     if (intent?.kind === "zone" && intent.parentId && onLinkChild) {
       const freshValid = targetValid(tasks, dragging, intent.parentId);
@@ -383,6 +431,30 @@ export function KanbanBoard({
     dropIntentRef.current = null;
     setDropIntent(null);
     setMakeChildTarget(null);
+    dragSession.end();
+  }
+
+  /** Tree-row intent writer — overwrites the single ref; row/tree handlers
+   * stopPropagation so handleCardDragOver never fights the tree intent.
+   * The card pill is suppressed while a tree intent is active (the tree
+   * shows its own insertion line / row highlight instead). */
+  function handleTreeIntent(intent: DropIntent | null) {
+    dropIntentRef.current = intent;
+    setDropIntent(intent);
+    setMakeChildTarget(null);
+  }
+
+  /** Row dragstart mirror — tree rows are not cards, so they set the board
+   * drag source explicitly (ref + state + session). */
+  function handleTreeRowDragStart(e: React.DragEvent, childId: string) {
+    if (!childId) return;
+    dragTaskIdRef.current = childId;
+    setDragTaskId(childId);
+    dragSession.begin(childId);
+    dropIntentRef.current = null;
+    setDropIntent(null);
+    setMakeChildTarget(null);
+    e.dataTransfer.effectAllowed = "move";
   }
 
   {
@@ -454,6 +526,9 @@ export function KanbanBoard({
               dropIntent={dropIntent}
               makeChildTarget={makeChildTarget}
               isDragging={dragTaskId !== null}
+              treeIntent={dropIntent}
+              onTreeIntent={handleTreeIntent}
+              onTreeRowDragStart={handleTreeRowDragStart}
             />
           );
         })}
@@ -525,6 +600,10 @@ interface ColumnProps {
   onChildrenZoneDragLeave: (e: React.DragEvent) => void;
   /** Single drop-intent — all visual states derived from this. */
   dropIntent: DropIntent | null;
+  /** Tree-row intent — same single ref, forwarded to card trees. */
+  treeIntent: DropIntent | null;
+  onTreeIntent: (intent: DropIntent | null) => void;
+  onTreeRowDragStart: (e: React.DragEvent, childId: string) => void;
   makeChildTarget: { taskId: string; title: string; isZone: boolean } | null;
   /** Compact view: one-line done-style rows. */
   compact?: boolean;
@@ -550,6 +629,9 @@ function KanbanColumn({
   onChildrenZoneDragOver,
   onChildrenZoneDragLeave,
   dropIntent,
+  treeIntent,
+  onTreeIntent,
+  onTreeRowDragStart,
   makeChildTarget,
   compact,
   isDragging,
@@ -758,6 +840,9 @@ function KanbanColumn({
                     onChildrenZoneDragLeave={
                       isDragging ? onChildrenZoneDragLeave : undefined
                     }
+                    treeIntent={treeIntent}
+                    onTreeIntent={onTreeIntent}
+                    onTreeRowDragStart={onTreeRowDragStart}
                   />
                   {isReorderTarget && dropIntent!.position === "after" && (
                     <div
@@ -769,16 +854,21 @@ function KanbanColumn({
                       }}
                     />
                   )}
-                  {/* Make-child pill — appears below the card */}
-                  {isCenterTarget && (
-                    <div
-                      className="dnd-make-child-pill"
-                      role="status"
-                      aria-label={`Make child of ${makeChildTarget!.title}`}
-                    >
-                      ↳ Make child of &ldquo;{makeChildTarget!.title}&rdquo;
-                    </div>
-                  )}
+                  {/* Make-child pill — appears below the card. Suppressed
+                      while a tree intent is active (the tree shows its own
+                      insertion line / row highlight) and null-guarded so an
+                      invalid center target can never crash the render. */}
+                  {isCenterTarget &&
+                    makeChildTarget &&
+                    dropIntent?.kind !== "tree-row" && (
+                      <div
+                        className="dnd-make-child-pill"
+                        role="status"
+                        aria-label={`Make child of ${makeChildTarget.title}`}
+                      >
+                        ↳ Make child of &ldquo;{makeChildTarget.title}&rdquo;
+                      </div>
+                    )}
                 </div>
               );
             })}
