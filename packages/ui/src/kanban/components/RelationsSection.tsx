@@ -1,7 +1,18 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { Task, TaskLinkType } from "../types";
-import { shortId, groupDetailRelations, getStatusColor } from "../task-links";
+import {
+  shortId,
+  groupDetailRelations,
+  getStatusColor,
+  getChildren,
+  getParent,
+  canReparent,
+  dragSession,
+} from "../task-links";
+import type { DropIntent } from "../task-links";
 import { TASK_LINK_TYPES } from "../types";
+import { compareTaskOrder } from "../utils";
+import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 
 interface RelationsSectionProps {
   task: Task;
@@ -40,20 +51,27 @@ const TYPE_COLORS: Record<TaskLinkType, string> = {
 /* ── Component ────────────────────────────────────────────────────────────── */
 
 /**
- * Detail-panel Relations section — collapsed-always. Renders the header row
- * (title + flat count chips + collapsed chevron, no toggle) plus the
- * relation search/add UI. The detail tree display was removed; card-zone
- * trees in TaskCard are untouched.
+ * Detail-panel Relations section — always expanded, non-collapsible.
+ * Renders the header row (title + flat count chips, no toggle/chevron),
+ * the CHILDREN group tree (same chevron + title + flat-indent row
+ * rendering as the card zone), plus the relation search/add UI.
  */
 export default function RelationsSection({
   task,
   allTasks,
   onUpdateLinks,
+  onOpenTask,
+  onTreeReorder,
+  onTreeReparent,
 }: RelationsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [linkType, setLinkType] = useState<TaskLinkType>("relates");
   const [search, setSearch] = useState("");
 
+  // Tree DnD intent — shared by the children tree in this section.
+  // The dragged id travels via the dragSession singleton (no prop-drilling).
+  const [treeIntent, setTreeIntent] = useState<DropIntent | null>(null);
+  const treeIntentRef = useRef<DropIntent | null>(null);
   const safeTasks = allTasks ?? [];
 
   const links = task.links ?? [];
@@ -79,9 +97,87 @@ export default function RelationsSection({
     [links, linkType, onUpdateLinks],
   );
 
+  const handleRemove = useCallback(
+    (idx: number) => {
+      const newLinks = links.filter((_, i) => i !== idx);
+      onUpdateLinks(newLinks);
+    },
+    [links, onUpdateLinks],
+  );
+
+  const handleRemoveChildLink = useCallback(
+    (childId: string) => {
+      const idx = links.findIndex(
+        (l) => l?.type === "parent" && l?.taskId === childId,
+      );
+      if (idx >= 0) handleRemove(idx);
+    },
+    [links, handleRemove],
+  );
+
+  const handleTreeIntent = useCallback((intent: DropIntent | null) => {
+    treeIntentRef.current = intent;
+    setTreeIntent(intent);
+  }, []);
+
+  /** Section-level drop: row drops bubble here (outside the board columns). */
+  const handleTreeDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const draggedId = dragSession.get();
+      const intent = treeIntentRef.current;
+      if (!draggedId || !intent) return;
+      if (intent.kind === "tree-row" && intent.targetId && intent.parentId) {
+        if (draggedId === intent.targetId) return;
+        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+        const cur = getParent(safeTasks, draggedId)?.id ?? null;
+        if (cur === intent.parentId) {
+          onTreeReorder?.(
+            draggedId,
+            intent.targetId,
+            intent.position ?? "after",
+            intent.parentId,
+          );
+        } else {
+          onTreeReparent?.(
+            draggedId,
+            intent.parentId,
+            intent.targetId,
+            intent.position,
+          );
+        }
+      } else if (intent.kind === "zone" && intent.parentId) {
+        if (draggedId === intent.parentId) return;
+        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+        const cur = getParent(safeTasks, draggedId)?.id ?? null;
+        if (cur === intent.parentId) {
+          // Gap drop within the same parent → append-last reorder.
+          const sibs = getChildren(safeTasks, intent.parentId)
+            .filter((t) => t?.id && t.id !== draggedId)
+            .sort(compareTaskOrder);
+          const last = sibs[sibs.length - 1];
+          if (!last?.id) return;
+          onTreeReorder?.(draggedId, last.id, "after", intent.parentId);
+        } else {
+          onTreeReparent?.(draggedId, intent.parentId);
+        }
+      }
+      dragSession.end();
+      treeIntentRef.current = null;
+      setTreeIntent(null);
+    },
+    [safeTasks, onTreeReorder, onTreeReparent],
+  );
+
+  const handleTreeDragEnd = useCallback(() => {
+    dragSession.end();
+    treeIntentRef.current = null;
+    setTreeIntent(null);
+  }, []);
+
   return (
     <div className="relations-section" data-role="relations-area">
-      {/* ── Header (collapsed-always, no toggle) with summary chips ── */}
+      {/* ── Header (no toggle, no chevron) with summary chips ── */}
       <div className="relations-area-header" data-role="relations-area-header">
         <span className="relations-area-title">Relations</span>
         {groups.children.length > 0 && (
@@ -106,8 +202,35 @@ export default function RelationsSection({
             {groups.relatesLinks.length} related
           </span>
         )}
-        <span className="block-chevron">▾</span>
       </div>
+
+      {/* ── CHILDREN group — always visible, non-collapsible ── */}
+      {groups.children.length > 0 && (
+        <div
+          className="relation-group relation-group--children"
+          data-role="relation-group-children"
+          onDrop={handleTreeDrop}
+          onDragEnd={handleTreeDragEnd}
+        >
+          <div className="relation-group-header">
+            <span className="relation-group-dot" />
+            <span className="relation-group-label">
+              CHILDREN · {groups.children.length}
+            </span>
+          </div>
+          <div className="relation-group-rows">
+            <RecursiveChildrenTree
+              parentId={task.id}
+              allTasks={safeTasks}
+              variant="detail"
+              onOpen={(child) => onOpenTask?.(child)}
+              onRemove={handleRemoveChildLink}
+              dragIntent={treeIntent}
+              onTreeIntent={handleTreeIntent}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── + Add relation ── */}
       {!adding && (

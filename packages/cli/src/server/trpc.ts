@@ -42,11 +42,14 @@ const taskStatusSchema = z.enum(
 );
 
 /**
- * Task IDs are 30-char lowercase hex strings (15 random bytes from `generateTaskId`).
+ * Task IDs are lowercase hex strings: 30 chars (15 random bytes from
+ * `generateTaskId`) or 8 chars (legacy format predating the validator).
  * Enforcing this shape blocks path traversal via crafted IDs in file/comment endpoints,
  * mirroring the REST API's `isValidTaskId` guard.
  */
-const taskIdSchema = z.string().regex(/^[a-f0-9]{30}$/, "Invalid task ID");
+const taskIdSchema = z
+  .string()
+  .regex(/^([a-f0-9]{8}|[a-f0-9]{30})$/, "Invalid task ID");
 
 /**
  * Comment IDs are 16-char lowercase hex strings (8 random bytes from `addComment`).

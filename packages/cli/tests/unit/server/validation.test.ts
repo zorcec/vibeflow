@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { isValidTaskId, isValidCommentId } from "../../../src/server/server.js";
-import { isValidFilename, isAllowedFileExtension, validateFilename, MAX_FILENAME_LENGTH, ALLOWED_FILE_EXTENSIONS } from "../../../src/core/files.js";
+import {
+  isValidFilename,
+  isAllowedFileExtension,
+  validateFilename,
+  MAX_FILENAME_LENGTH,
+  ALLOWED_FILE_EXTENSIONS,
+} from "../../../src/core/files.js";
 
 describe("isValidTaskId", () => {
   it("accepts a 30-character hex string", () => {
@@ -14,8 +20,18 @@ describe("isValidTaskId", () => {
   });
 
   it("rejects wrong lengths", () => {
+    expect(isValidTaskId("a".repeat(7))).toBe(false);
+    expect(isValidTaskId("a".repeat(9))).toBe(false);
     expect(isValidTaskId("a".repeat(29))).toBe(false);
     expect(isValidTaskId("a".repeat(31))).toBe(false);
+    expect(isValidTaskId("")).toBe(false);
+  });
+
+  it("accepts legacy 8-character hex IDs (regression: 400 on files API)", () => {
+    // Real legacy task from vibeflow-private — GET /api/tasks/130ed97a/files
+    // returned 400 "Invalid task id" before the validator accepted this format.
+    expect(isValidTaskId("130ed97a")).toBe(true);
+    expect(isValidTaskId("02ac47ce")).toBe(true);
   });
 });
 

@@ -18,7 +18,7 @@ describe("RelationsSection", () => {
     RelationsSection = mod.default;
   });
 
-  it("collapsed-always header renders summary chips for children count", () => {
+  it("header renders summary chips plus the always-visible children tree", () => {
     const task = makeTask("p1", "Parent");
     const child = makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]);
     render(
@@ -29,13 +29,14 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 child")).toBeInTheDocument();
-    // No tree body and no toggle affordance in collapsed-always mode
-    expect(
-      screen.queryByRole("button", { name: /relations/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      document.querySelector('[data-role="relations-area-body"]'),
-    ).not.toBeInTheDocument();
+    // Children tree is always rendered — chevron + title rows, flat indent
+    const group = document.querySelector(
+      '[data-role="relation-group-children"]',
+    );
+    expect(group).not.toBeNull();
+    expect(screen.getByText("Child 1")).toBeInTheDocument();
+    expect(group!.querySelector("[data-role='child-link-row']")).not.toBeNull();
+    expect(group!.querySelector(".child-link-chevron")).not.toBeNull();
   });
 
   it("collapsed header renders parent chips", () => {
@@ -53,7 +54,7 @@ describe("RelationsSection", () => {
     expect(screen.getByText("1 parent")).toBeInTheDocument();
   });
 
-  it("header is not a toggle: no toggle button, chevron stays collapsed", () => {
+  it("header is not a toggle: no toggle button, zero chevrons", () => {
     const task = makeTask("p1", "Parent");
     const child = makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]);
     render(
@@ -71,15 +72,18 @@ describe("RelationsSection", () => {
     );
     expect(header).not.toBeNull();
     expect(header?.tagName).not.toBe("BUTTON");
-    const chevron = header?.querySelector(".block-chevron");
-    expect(chevron).not.toBeNull();
-    expect(chevron).not.toHaveAttribute("data-open");
+    // No collapse affordance anywhere in the section
+    expect(header?.querySelector(".block-chevron")).toBeNull();
     expect(
-      document.querySelector('[data-role="relations-area-body"]'),
-    ).not.toBeInTheDocument();
+      document.querySelector('[data-role="relations-area-toggle"]'),
+    ).toBeNull();
+    // ...but the children group stays visible
+    expect(
+      document.querySelector('[data-role="relation-group-children"]'),
+    ).not.toBeNull();
   });
 
-  it("stays collapsed when a different task is opened", () => {
+  it("tree follows the opened task (no collapsed state persists)", () => {
     const task1 = makeTask("p1", "Parent 1");
     const child1 = makeTask("c1", "Child 1", [
       { taskId: "p1", type: "parent" },
@@ -92,6 +96,7 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 child")).toBeInTheDocument();
+    expect(screen.getByText("Child 1")).toBeInTheDocument();
 
     const task2 = makeTask("p2", "Parent 2");
     const child2 = makeTask("c2", "Child 2", [
@@ -105,9 +110,11 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 child")).toBeInTheDocument();
+    expect(screen.getByText("Child 2")).toBeInTheDocument();
+    expect(screen.queryByText("Child 1")).not.toBeInTheDocument();
     expect(
-      document.querySelector('[data-role="relations-area-body"]'),
-    ).not.toBeInTheDocument();
+      document.querySelector('[data-role="relation-group-children"]'),
+    ).not.toBeNull();
   });
 
   it("+ Add opens the relation search/add UI", async () => {

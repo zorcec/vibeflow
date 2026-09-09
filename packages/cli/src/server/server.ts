@@ -66,9 +66,11 @@ import { getGitUser } from "../core/git-user.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
 import type { FSWatcher } from "chokidar";
 
-/** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings (30 chars, 15 random bytes). */
+/** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings:
+ * 30 chars (15 random bytes, current format) or 8 chars (legacy format that
+ * predates this validator — still present in real projects, e.g. `130ed97a`). */
 export function isValidTaskId(id: string): boolean {
-  return /^[a-f0-9]{30}$/.test(id);
+  return /^[a-f0-9]{8}$/.test(id) || /^[a-f0-9]{30}$/.test(id);
 }
 
 /** Validates comment IDs to prevent path traversal attacks. Comment IDs are hex strings (16 chars, 8 random bytes). */

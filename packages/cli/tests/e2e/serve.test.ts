@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
@@ -382,6 +382,69 @@ describe("proto serve (e2e)", () => {
       },
     );
     expect(uploadRes.status).toBe(400);
+  });
+
+  it("GET /api/tasks/:id/files serves legacy 8-char task IDs (regression: 400)", async () => {
+    const filePath = join(tempDir, "test.html");
+    writeFileSync(filePath, SAMPLE_HTML, "utf-8");
+
+    // Legacy tasks predate the 30-char ID format (e.g. vibeflow-private 130ed97a).
+    // The kanban files tab hit GET /api/tasks/<8-char-id>/files and got 400
+    // "Invalid task id" from the router-level param guard.
+    mkdirSync(join(tempDir, ".vibeflow", "tasks", "2026-04-09"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(tempDir, ".vibeflow", "tasks", "2026-04-09", "130ed97a.json"),
+      JSON.stringify({
+        id: "130ed97a",
+        title: "Legacy task",
+        description: "created before 30-char IDs",
+        selector: "/",
+        status: "backlog",
+        created: "2026-04-09T15:54:50.414Z",
+        files: [
+          { name: "legacy-notes.md", addedAt: "2026-04-09T17:38:30.701Z" },
+        ],
+      }),
+      "utf-8",
+    );
+    mkdirSync(join(tempDir, ".vibeflow", "tasks", "files", "130ed97a"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(
+        tempDir,
+        ".vibeflow",
+        "tasks",
+        "files",
+        "130ed97a",
+        "legacy-notes.md",
+      ),
+      "# legacy notes\n",
+      "utf-8",
+    );
+
+    instance = await serve(filePath, { port: 3769, open: false });
+
+    const listRes = await fetch(
+      "http://localhost:3769/api/tasks/130ed97a/files",
+    );
+    expect(listRes.status).toBe(200);
+    const listData = await listRes.json();
+    expect(listData.files).toHaveLength(1);
+    expect(listData.files[0].name).toBe("legacy-notes.md");
+
+    const fileRes = await fetch(
+      "http://localhost:3769/api/tasks/130ed97a/files/legacy-notes.md",
+    );
+    expect(fileRes.status).toBe(200);
+
+    // Non-hex IDs are still rejected at the router level.
+    const badRes = await fetch(
+      "http://localhost:3769/api/tasks/invalid-id/files",
+    );
+    expect(badRes.status).toBe(400);
   });
 });
 
