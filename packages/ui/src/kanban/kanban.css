@@ -1329,17 +1329,17 @@ body.proto-resizing-panel {
  min-height: 0;
 }
 
-/* ── Per-row tree spine (card + detail panel) ──
-   Each row draws its own vertical segment; top/bottom -3px overlap makes
-   segments form a continuous line per depth column. Dots (left -9px)
-   straddle the line at -7px. .child-tree-nested is structural only —
-   indentation comes from the per-node wrapper padding. */
-.child-link-row--inline,
-.child-link-row--detail {
+/* ── Node-level tree spine (cable-line pattern) ──
+   Each .recursive-children-tree-node draws a continuous vertical spine
+   that spans the node row AND its entire nested subtree, avoiding the
+   per-row gap problem. Dots (on ::after) remain untouched.
+
+   IMPORTANT: The depth offsets (14px per level) must stay in sync with
+   TREE_INDENT_PX (14) used in ChildRow.tsx padding calculations. */
+.recursive-children-tree-node {
  position: relative;
 }
-.child-link-row--inline::before,
-.child-link-row--detail::before {
+.recursive-children-tree-node::before {
  content: "";
  position: absolute;
  left: -7px;
@@ -1347,12 +1347,38 @@ body.proto-resizing-panel {
  bottom: -3px;
  border-left: 1px solid var(--p-blue-300, #60a5fa);
 }
+.recursive-children-tree-node:last-child::before {
+ bottom: 0;
+}
+/* Depth 2..8: offset moves right by 14px (TREE_INDENT_PX) per level.
+   Formula: depth * 14 - 7. Detail-variant rows are flush (no extra
+   indent) so the default left:-7px already matches depth 1. */
+.card-children-zone .recursive-children-tree-node[data-depth="2"]::before {
+ left: 21px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="3"]::before {
+ left: 35px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="4"]::before {
+ left: 49px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="5"]::before {
+ left: 63px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="6"]::before {
+ left: 77px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="7"]::before {
+ left: 91px;
+}
+.card-children-zone .recursive-children-tree-node[data-depth="8"]::before {
+ left: 105px;
+}
 /* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
 .card-children-zone[data-expanded="true"] {
  background: color-mix(in srgb, var(--p-card) 88%, #000);
- padding: 6px 8px 8px 10px;
- border-top: 1px solid var(--p-border);
- margin: 4px -8px -7px -8px;
+ padding: 4px 8px 8px 10px;
+ margin: 2px -8px -7px -8px;
  border-radius: 0 0 10px 10px;
  position: relative;
  max-height: 480px;
