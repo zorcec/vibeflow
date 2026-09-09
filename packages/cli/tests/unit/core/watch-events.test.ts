@@ -22,9 +22,7 @@ function task(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function snap(
-  overrides: Partial<TaskSnapshot> = {},
-): TaskSnapshot {
+function snap(overrides: Partial<TaskSnapshot> = {}): TaskSnapshot {
   return {
     taskId: "task-aaa",
     status: "todo",
@@ -87,9 +85,9 @@ describe("buildTaskSnapshot", () => {
     expect(buildTaskSnapshot(t2, 0, undefined, 0, TS).descriptionHash).toBe(
       simpleHash("bar"),
     );
-    expect(
-      buildTaskSnapshot(t1, 0, undefined, 0, TS).descriptionHash,
-    ).not.toBe(buildTaskSnapshot(t2, 0, undefined, 0, TS).descriptionHash);
+    expect(buildTaskSnapshot(t1, 0, undefined, 0, TS).descriptionHash).not.toBe(
+      buildTaskSnapshot(t2, 0, undefined, 0, TS).descriptionHash,
+    );
   });
 });
 
@@ -211,7 +209,10 @@ describe("diffTaskSnapshots", () => {
   it("emits 'comment' when commentCount increases", () => {
     const t = task();
     const prev = snap({ commentCount: 1 });
-    const next = snap({ commentCount: 3, lastCommentAt: "2026-09-07T09:30:00.000Z" });
+    const next = snap({
+      commentCount: 3,
+      lastCommentAt: "2026-09-07T09:30:00.000Z",
+    });
     const events = diffTaskSnapshots(t, prev, next);
     const commentEvent = events.find((e) => e.type === "comment");
     expect(commentEvent).toBeDefined();
@@ -440,7 +441,13 @@ describe("diffTaskSnapshots", () => {
     const events = diffTaskSnapshots(t, prev, next);
     const types = events.map((e) => e.type);
     // All 5 should be in order
-    expect(types).toEqual(["status", "comment", "file", "priority", "description"]);
+    expect(types).toEqual([
+      "status",
+      "comment",
+      "file",
+      "priority",
+      "description",
+    ]);
   });
 
   // --- case sensitivity / boundary ---

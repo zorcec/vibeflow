@@ -7,7 +7,12 @@ import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
 import { getTaskTypeColor, TASK_TYPE_ICONS } from "../../task-types";
 import { TagPills } from "./shared/TagPills";
-import { getBlockers, getChildren, getDescendants, getLeafDescendants } from "../task-links";
+import {
+      getBlockers,
+      getChildren,
+      getDescendants,
+      getLeafDescendants,
+} from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 
@@ -309,7 +314,9 @@ export const TaskCard = React.memo(function TaskCard({
                   data-blocked={blockers.length > 0 ? "true" : undefined}
                   title={
                         blockers.length > 0
-                              ? `Blocked by: ${blockers.map((b) => b.title).join(", ")}`
+                              ? `Blocked by: ${blockers
+                                      .map((b) => b?.title ?? "Untitled")
+                                      .join(", ")}`
                               : undefined
                   }
                   style={{
@@ -595,22 +602,6 @@ export const TaskCard = React.memo(function TaskCard({
                               }}
                         />
                   </div>
-
-                  {/* Collapsed children toggle row */}
-                  {childCount > 0 && !expanded && (
-                        <button className="card-children-toggle" onClick={(e) => {
-                              e.stopPropagation();
-                              setExpanded(true);
-                        }}>
-                              <span className="child-count-chip" style={{ fontSize: 10 }}>
-                                    ⊃ {childCount}
-                              </span>
-                              <span className="card-children-toggle-label">
-                                    {childCount} {childCount === 1 ? "child" : "children"}
-                              </span>
-                              <span className="block-chevron">▾</span>
-                        </button>
-                  )}
 
                   {/* Children zone — INSIDE the card, animated via CSS grid rows */}
                   {(() => {

@@ -1151,7 +1151,6 @@ body.proto-resizing-panel {
  border: 1px solid var(--p-blue-300, #60a5fa);
  width: 3px;
  height: 3px;
- left: -9px;
  box-shadow: 0 0 0 1px var(--p-card);
 }
 .child-link-id {
@@ -1186,8 +1185,10 @@ body.proto-resizing-panel {
 }
 .child-link-row--detail {
  position: relative;
- padding: 3px 8px 3px 4px;
+ padding: 3px 8px 3px 8px;
  gap: 8px;
+ border: none;
+ border-radius: 3px;
 }
 .child-link-info {
  display: flex;
@@ -1329,50 +1330,51 @@ body.proto-resizing-panel {
  min-height: 0;
 }
 
-/* ── Node-level tree spine (cable-line pattern) ──
-   Each .recursive-children-tree-node draws a continuous vertical spine
-   that spans the node row AND its entire nested subtree, avoiding the
-   per-row gap problem. Dots (on ::after) remain untouched.
-
-   IMPORTANT: The depth offsets (14px per level) must stay in sync with
-   TREE_INDENT_PX (14) used in ChildRow.tsx padding calculations. */
+/* ── VS Code-style indent guides ──
+   Each tree row renders one in-flow 14px slot per depth level
+   (see ChildRow .tree-guides). Slots draw a full-height left border;
+   the row's own level draws only the top half (elbow) when last.
+   Indentation comes from the guides, so inline/detail rows use a
+   small fixed left padding. The dot overlaps the final slot so its
+   center straddles the row's own level line (row gap 8px + dot
+   margin-left -2px → -24px pull-back for the 8px dot).
+   Slot width must stay in sync with TREE_INDENT_PX (14). */
+.tree-guides {
+ display: inline-flex;
+ align-self: stretch;
+ flex-shrink: 0;
+ margin-right: -24px;
+}
+.tree-guide,
+.tree-guide--last {
+ width: 14px;
+ border-left: 1px solid var(--p-blue-300, #60a5fa);
+ flex-shrink: 0;
+}
+.tree-guide--last {
+ clip-path: inset(0 0 50% 0);
+}
+/* Inline/detail dots sit in-flow after the guides (popover keeps the
+   legacy absolute dot). The 5px hollow box recenters on the line. */
+.child-link-row--inline .child-link-dot--on-line,
+.child-link-row--detail .child-link-dot--on-line {
+ position: static;
+ transform: none;
+}
+.child-link-row--inline .child-link-dot--hollow,
+.child-link-row--detail .child-link-dot--hollow {
+ margin-left: -0.5px;
+}
 .recursive-children-tree-node {
  position: relative;
 }
-.recursive-children-tree-node::before {
- content: "";
- position: absolute;
- left: -7px;
- top: -3px;
- bottom: -3px;
- border-left: 1px solid var(--p-blue-300, #60a5fa);
-}
-.recursive-children-tree-node:last-child::before {
- bottom: 0;
-}
-/* Depth 2..8: offset moves right by 14px (TREE_INDENT_PX) per level.
-   Formula: depth * 14 - 7. Detail-variant rows are flush (no extra
-   indent) so the default left:-7px already matches depth 1. */
-.card-children-zone .recursive-children-tree-node[data-depth="2"]::before {
- left: 21px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="3"]::before {
- left: 35px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="4"]::before {
- left: 49px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="5"]::before {
- left: 63px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="6"]::before {
- left: 77px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="7"]::before {
- left: 91px;
-}
-.card-children-zone .recursive-children-tree-node[data-depth="8"]::before {
- left: 105px;
+/* Detail Relations: children group uses in-row guides, not the outer
+   border. Gap is zeroed so guide lines run continuously across rows. */
+.relation-group--children .relation-group-rows {
+ border-left: none;
+ margin-left: 0;
+ padding-left: 0;
+ gap: 0;
 }
 /* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
 .card-children-zone[data-expanded="true"] {
@@ -1384,9 +1386,9 @@ body.proto-resizing-panel {
  max-height: 480px;
  overflow-y: auto;
 }
-/* Inline variant: dot rides the per-row spine */
+/* Inline variant: indent comes from in-row guides; dot rides in-flow */
 .child-link-row--inline {
- padding: 3px 8px 3px 28px;
+ padding: 3px 8px 3px 8px;
  border: none;
  border-radius: 3px;
  gap: 8px;

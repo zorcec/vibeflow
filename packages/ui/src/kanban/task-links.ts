@@ -11,10 +11,12 @@ export const STATUS_COLORS: Record<string, string> = {
   done: "#22c55e",
 };
 
-/** Return all children of a task. */
+/** Return all children of a task.
+ * Null-entry safe: skips null/undefined tasks and null links so a single
+ * corrupted entry in `tasks` can never blank the board during render (P0). */
 export function getChildren(tasks: Task[], parentId: string): Task[] {
   return tasks.filter((t) =>
-    t.links?.some((l) => l.type === "parent" && l.taskId === parentId),
+    t?.links?.some((l) => l?.type === "parent" && l?.taskId === parentId),
   );
 }
 
@@ -50,7 +52,8 @@ export function groupDetailRelations(
   const relatesLinks: DetailRelationRow[] = [];
 
   links.forEach((link, idx) => {
-    const target = allTasks.find((t) => t.id === link.taskId);
+    if (!link) return;
+    const target = allTasks.find((t) => t?.id === link.taskId);
     const row: DetailRelationRow = {
       target,
       link,
@@ -67,10 +70,10 @@ export function groupDetailRelations(
 
 /** Return the parent task, or undefined. */
 export function getParent(tasks: Task[], taskId: string): Task | undefined {
-  const task = tasks.find((t) => t.id === taskId);
-  const parentLink = task?.links?.find((l) => l.type === "parent");
+  const task = tasks.find((t) => t?.id === taskId);
+  const parentLink = task?.links?.find((l) => l?.type === "parent");
   if (!parentLink) return undefined;
-  return tasks.find((t) => t.id === parentLink.taskId);
+  return tasks.find((t) => t?.id === parentLink.taskId);
 }
 
 /** Get the short 7-char id for display. */
@@ -85,11 +88,12 @@ export function getStatusColor(status?: string): string {
 
 /** Return all tasks that block this task via a 'blocks' link on the blocked task.
 Semantics: a 'blocks' link on task T means X blocks T; getBlockers returns those X's.
-Dangling link targets are dropped (not an error). */
+Dangling link targets are dropped (not an error). Null-entry safe (P0):
+skips null/undefined tasks so `blockers.map((b) => b.title)` can never throw. */
 export function getBlockers(tasks: Task[], taskId: string): Task[] {
   return tasks
     .filter((t) =>
-      t.links?.some((l) => l.type === "blocks" && l.taskId === taskId),
+      t?.links?.some((l) => l?.type === "blocks" && l?.taskId === taskId),
     )
     .filter((t): t is Task => t !== undefined);
 }
@@ -101,8 +105,8 @@ export function resolveRootTask(tasks: Task[], taskId: string): string {
   while (!visited.has(current)) {
     visited.add(current);
     const parentLink = tasks
-      .find((t) => t.id === current)
-      ?.links?.find((l) => l.type === "parent");
+      .find((t) => t?.id === current)
+      ?.links?.find((l) => l?.type === "parent");
     if (!parentLink) break;
     current = parentLink.taskId;
   }
@@ -117,7 +121,7 @@ export function getDescendants(tasks: Task[], rootId: string): string[] {
   while (queue.length > 0) {
     const id = queue.shift()!;
     const kids = tasks.filter((t) =>
-      t.links?.some((l) => l.type === "parent" && l.taskId === id),
+      t?.links?.some((l) => l?.type === "parent" && l?.taskId === id),
     );
     for (const kid of kids) {
       if (!visited.has(kid.id)) {
@@ -134,7 +138,7 @@ export function getDescendants(tasks: Task[], rootId: string): string[] {
 export function getLeafDescendants(tasks: Task[], rootId: string): Task[] {
   const allDescIds = getDescendants(tasks, rootId);
   return allDescIds
-    .map((id) => tasks.find((t) => t.id === id))
+    .map((id) => tasks.find((t) => t?.id === id))
     .filter((t): t is Task => t !== undefined)
     .filter(
       (t) => !getChildren(tasks, t.id).some((c) => allDescIds.includes(c.id)),
@@ -154,11 +158,14 @@ export function groupTasksByRoot(
   tasks: Task[],
   comparator?: (a: Task, b: Task) => number,
 ): TaskGrouping {
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(
+    tasks.filter((t) => t?.id).map((t) => [t.id, t] as const),
+  );
   const standalone: Task[] = [];
   const groups = new Map<string, Task[]>();
 
   for (const task of tasks) {
+    if (!task?.id) continue; // null-entry safety (P0)
     const root = resolveRootTask(tasks, task.id);
     if (root === task.id) {
       // This task is a root — goes into standalone
@@ -169,8 +176,8 @@ export function groupTasksByRoot(
       let current = task.id;
       while (current !== root) {
         const parentLink = tasks
-          .find((t) => t.id === current)
-          ?.links?.find((l) => l.type === "parent");
+          .find((t) => t?.id === current)
+          ?.links?.find((l) => l?.type === "parent");
         if (!parentLink) break;
         const parentId = parentLink.taskId;
         if (!groups.has(parentId)) {

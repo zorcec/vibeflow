@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import type { Task } from "../types";
 import { getChildren, getDescendants } from "../task-links";
+import { compareTaskOrder } from "../utils";
 import { ChildRow } from "./ChildRow";
 
 /** Depth indentation per nesting level (px). */
@@ -56,12 +57,13 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
     return new Set<string>();
   }, [visited]);
 
-  // Filter out cycle targets and missing tasks
+  // Filter out cycle targets and missing tasks, then sort by kanban order (sortKey → createdAt)
   const validChildren = useMemo(() => {
-    return children.filter((c) => {
+    const filtered = children.filter((c) => {
       if (safeVisited.has(c.id)) return false;
       return true;
     });
+    return [...filtered].sort(compareTaskOrder);
   }, [children, safeVisited]);
 
   /** Set of all task IDs for orphan detection. */
@@ -81,7 +83,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
 
   return (
     <div className="recursive-children-tree" data-role="recursive-tree">
-      {validChildren.map((child) => {
+      {validChildren.map((child, index) => {
         const childCount = getChildren(allTasks, child.id).length;
         const childHasChildren = childCount > 0;
         const atMaxDepth = depth + 1 >= maxDepth;
@@ -99,19 +101,16 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
             data-role="recursive-tree-node"
             data-depth={depth + 1}
           >
-            {/* Indent wrapper — also the anchor for the opacity-ramp
-                selectors (`.recursive-children-tree-node … > div > .child-link-row`) */}
-            <div
-              style={
-                variant === "inline"
-                  ? { paddingLeft: (depth + 1) * TREE_INDENT_PX }
-                  : undefined
-              }
-            >
+            {/* Indent wrapper — kept plain (no padding): indentation now comes
+                from the in-flow .tree-guides inside ChildRow. The wrapper is
+                retained as the anchor for the opacity-ramp selectors
+                (`.recursive-children-tree-node … > div > .child-link-row`) */}
+            <div>
               <ChildRow
                 child={child}
                 variant={variant}
                 depth={depth + 1}
+                isLast={index === validChildren.length - 1}
                 onOpen={() => onOpen?.(child)}
                 isOrphan={isOrphan}
                 childCount={childCount}
@@ -123,7 +122,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                 className="tree-depth-limit"
                 data-role="tree-depth-limit"
                 style={
-                  variant === "inline"
+                  variant === "inline" || variant === "detail"
                     ? { paddingLeft: (depth + 2) * TREE_INDENT_PX }
                     : undefined
                 }

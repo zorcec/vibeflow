@@ -420,7 +420,16 @@ export function KanbanBoard({
               isLoading={isLoading}
               liveActivities={liveActivities}
               compact={compact}
-              isDragOver={dragOver === col.id && !dropIntent}
+              /* Highlight the column while its background is hovered. A card or
+                 children-zone intent suppresses it so the card-level indicator
+                 shows instead; a "column" intent (set by handleDragOver) must
+                 NOT suppress it — that regressed the highlight after the
+                 drop-intent rewrite. */
+              isDragOver={
+                dragOver === col.id &&
+                dropIntent?.kind !== "card" &&
+                dropIntent?.kind !== "zone"
+              }
               onDragOver={(e) => handleDragOver(e, col.id)}
               onDrop={(e) => handleDrop(e, col.id, colTasks)}
               onDragLeave={(e) => {

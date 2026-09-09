@@ -22,7 +22,11 @@ import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
-import { taskRelations, formatRelationsSummary } from "./core/task-links.js";
+import {
+  taskRelations,
+  formatRelationsSummary,
+  buildSetParentLinks,
+} from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { logout } from "./auth/logout.js";
@@ -687,6 +691,11 @@ program
     "--description <text>",
     "New description for the task (use with --edit)",
   )
+  .option(
+    "--set-parent <task-id>",
+    "Set/replace the parent task link (use with --edit; empty string clears)",
+  )
+  .option("--no-parent", "Remove the parent task link (use with --edit)")
   .option("--json", "Output machine-readable JSON")
   .option(
     "--commit",
@@ -762,6 +771,8 @@ program
         title?: string;
         setStatus?: string;
         description?: string;
+        setParent?: string;
+        parent?: boolean;
         json?: boolean;
         commit?: boolean;
         get?: string;
@@ -1574,7 +1585,13 @@ program
         // ── Edit mode ──────────────────────────────────────────────────────
         if (opts.edit !== undefined) {
           const taskId = typeof opts.edit === "string" ? opts.edit : undefined;
-          const hasEdits = opts.title || opts.setStatus || opts.description;
+          const wantsParentChange =
+            opts.setParent !== undefined || opts.parent === false;
+          const hasEdits =
+            opts.title ||
+            opts.setStatus ||
+            opts.description ||
+            wantsParentChange;
 
           if (!taskId || !hasEdits) {
             if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -1599,7 +1616,7 @@ program
             console.log("Edit a task:");
             console.log(
               chalk.cyan(
-                '  vibeflow tasks [dir] --edit <task-id> [--title "new title"] [--set-status backlog|todo|in-progress|review|done] [--description "new description"]',
+                '  vibeflow tasks [dir] --edit <task-id> [--title "new title"] [--set-status backlog|todo|in-progress|review|done] [--description "new description"] [--set-parent <task-id> | --no-parent]',
               ),
             );
             console.log();
@@ -1615,6 +1632,11 @@ program
             console.log(
               chalk.dim(
                 '  vibeflow tasks --edit abc12345 --title "Updated title" --description "More detail"',
+              ),
+            );
+            console.log(
+              chalk.dim(
+                "  vibeflow tasks --edit abc12345 --set-parent parent12345",
               ),
             );
             console.log();
@@ -1766,6 +1788,20 @@ program
           }
 
           // ── SaaS edit path (online mode) ────────────────────────────────
+          if (wantsParentChange && editMode === "saas") {
+            console.log(
+              chalk.red(
+                "✗ --set-parent / --no-parent is only supported for local tasks",
+              ),
+            );
+            console.log(
+              chalk.dim(
+                "  Parent links are not supported by the online backend yet.",
+              ),
+            );
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
           if (editMode === "saas") {
             const saasPatch: {
               status?: string;
@@ -1881,6 +1917,11 @@ program
             if (opts.title) dryUpdates.title = opts.title;
             if (opts.setStatus) dryUpdates.status = opts.setStatus;
             if (opts.description) dryUpdates.description = opts.description;
+            if (wantsParentChange)
+              dryUpdates.parent =
+                opts.parent === false || opts.setParent === ""
+                  ? "(cleared)"
+                  : (opts.setParent ?? "(cleared)");
             if (opts.branch) dryUpdates.branchName = opts.branch;
             if (opts.json) {
               console.log(
@@ -1925,13 +1966,68 @@ program
           const updates: Partial<
             Pick<
               Task,
-              "status" | "title" | "description" | "branchName" | "verified"
+              | "status"
+              | "title"
+              | "description"
+              | "branchName"
+              | "verified"
+              | "links"
             >
           > = {};
           if (opts.title) updates.title = opts.title;
           if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
           if (opts.description) updates.description = opts.description;
           if (opts.branch) updates.branchName = opts.branch;
+
+          // ── Parent link change (--set-parent / --no-parent) ────────────
+          // Resolve the parent prefix the same way --edit/--get/--commit do,
+          // then compute the new links via the pure helper (set/replace/clear
+          // with exists/self/cycle validation).
+          let parentDisplay: string | undefined;
+          if (wantsParentChange) {
+            const rawParent =
+              opts.parent === false ? "" : (opts.setParent ?? "");
+            if (rawParent === "") {
+              const cleared = buildSetParentLinks({
+                allTasks: listTasks(localProjectDir),
+                taskId: resolvedTaskId,
+                parentId: null,
+              });
+              if (!cleared.ok) {
+                console.log(chalk.red(`✗ ${cleared.reason}`));
+                process.exitCode = ExitCode.NOT_FOUND;
+                return;
+              }
+              updates.links = cleared.links;
+              parentDisplay = "(cleared)";
+            } else {
+              const resolvedParentId =
+                listTasks(localProjectDir).find(
+                  (t) => t.id === rawParent || t.id.startsWith(rawParent),
+                )?.id ?? rawParent;
+              const applied = buildSetParentLinks({
+                allTasks: listTasks(localProjectDir),
+                taskId: resolvedTaskId,
+                parentId: resolvedParentId,
+              });
+              if (!applied.ok) {
+                console.log(chalk.red(`✗ ${applied.reason}`));
+                console.log(
+                  chalk.dim(
+                    `  Run 'vibeflow tasks' to see available task IDs.`,
+                  ),
+                );
+                process.exitCode = applied.reason.startsWith(
+                  "Parent task not found",
+                )
+                  ? ExitCode.NOT_FOUND
+                  : ExitCode.USAGE;
+                return;
+              }
+              updates.links = applied.links;
+              parentDisplay = resolvedParentId;
+            }
+          }
 
           // Warn when setting a Research task to in-progress — should not implement.
           // Also detect in-progress conflicts (task already claimed by another agent/user).
@@ -2034,6 +2130,8 @@ program
             console.log(
               chalk.dim(`  id: ${updated.id} | status: ${updated.status}`),
             );
+            if (parentDisplay !== undefined)
+              console.log(chalk.dim(`  parent: ${parentDisplay}`));
             if (localEditNextActions.length > 0)
               printNextHint(localEditNextActions);
           }

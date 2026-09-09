@@ -1,5 +1,5 @@
 // ── Task link helpers (pure, no I/O) ─────────────────────────────────────
-import type { Task, TaskLinkType } from "./types.js";
+import type { Task, TaskLink, TaskLinkType } from "./types.js";
 
 /** Canonical status colors — single source of truth for dots/badges.
  * Matches the UI dp-status-btn.active-* text colors in kanban.css. */
@@ -59,6 +59,59 @@ export interface LinkValidationOk {
 }
 
 export type LinkValidationResult = LinkValidationError | LinkValidationOk;
+
+export type SetParentResult =
+  | { ok: true; links: TaskLink[] | undefined }
+  | { ok: false; reason: string };
+
+/**
+ * Compute the new `links` array for `tasks --edit --set-parent`.
+ * - `parentId` null/empty → clear the existing parent link (relates/blocks kept).
+ * - otherwise set/replace the single `parent` link (replace semantics: the old
+ *   parent is swapped out, so validation runs against the post-swap state).
+ * Validates that the parent exists, is not the task itself, and is not a
+ * descendant (cycle). Returns `links: undefined` when no links remain, matching
+ * the read-path normalization (empty array → no links field).
+ */
+export function buildSetParentLinks({
+  allTasks,
+  taskId,
+  parentId,
+}: {
+  allTasks: Task[];
+  taskId: string;
+  parentId: string | null | undefined;
+}): SetParentResult {
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task) return { ok: false, reason: `Task not found: ${taskId}` };
+
+  const otherLinks = (task.links ?? []).filter((l) => l.type !== "parent");
+  const clearedLinks = otherLinks.length > 0 ? otherLinks : undefined;
+
+  // Clear mode: empty string / null / undefined all remove the parent link.
+  if (!parentId) return { ok: true, links: clearedLinks };
+
+  if (!allTasks.some((t) => t.id === parentId))
+    return { ok: false, reason: `Parent task not found: ${parentId}` };
+
+  // Validate against the post-swap state (existing parent stripped first)
+  // so replacing a parent is not rejected as "already has a parent".
+  const strippedTasks = allTasks.map((t) =>
+    t.id === taskId ? { ...t, links: clearedLinks } : t,
+  );
+  const validation = validateLinkAddition({
+    allTasks: strippedTasks,
+    fromId: taskId,
+    toId: parentId,
+    type: "parent",
+  });
+  if (!validation.ok) return validation;
+
+  return {
+    ok: true,
+    links: [...otherLinks, { taskId: parentId, type: "parent" as const }],
+  };
+}
 
 /** Validate a proposed link addition. Returns {ok:false, reason} on rejection. */
 export function validateLinkAddition({

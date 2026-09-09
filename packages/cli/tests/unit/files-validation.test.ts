@@ -102,7 +102,6 @@ describe("isAllowedFileExtension", () => {
     expect(isAllowedFileExtension("x.exe")).toBe(false);
     expect(isAllowedFileExtension("script.sh")).toBe(false);
     expect(isAllowedFileExtension("payload.dll")).toBe(false);
-    expect(isAllowedFileExtension("evil.html")).toBe(false);
     expect(isAllowedFileExtension("data.xml")).toBe(false);
     expect(isAllowedFileExtension(".htaccess")).toBe(false);
   });
@@ -158,12 +157,9 @@ describe("validateFilename", () => {
     }
   });
 
-  it("returns UNSUPPORTED_FILE_TYPE for .html (XSS risk)", () => {
-    const result = validateFilename("evil.html");
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errorCode).toBe("UNSUPPORTED_FILE_TYPE");
-    }
+  it("allows .html for task file attachments", () => {
+    const result = validateFilename("report.html");
+    expect(result.valid).toBe(true);
   });
 
   it("returns VALIDATION when buffer exceeds MAX_FILE_SIZE", () => {

@@ -1105,14 +1105,7 @@ export function App() {
       return next;
     });
     try {
-      if (unlinkChildren) {
-        await fetch(
-          `${window.location.origin}/api/tasks/${encodeURIComponent(id)}?unlinkChildren=true`,
-          { method: "DELETE" },
-        );
-      } else {
-        await api.deleteTask(id);
-      }
+      await api.deleteTask(id, unlinkChildren);
     } catch {
       void loadTasks();
     }
@@ -1389,11 +1382,8 @@ export function App() {
               }}
               onDelete={async (id) => {
                 const task = tasksRef.current.find((t) => t.id === id);
-                const childCount = tasksRef.current.filter(
-                  (t) =>
-                    t.links?.some(
-                      (l) => l.type === "parent" && l.taskId === id,
-                    ),
+                const childCount = tasksRef.current.filter((t) =>
+                  t.links?.some((l) => l.type === "parent" && l.taskId === id),
                 ).length;
                 if (childCount > 0) {
                   setDeleteConfirm({

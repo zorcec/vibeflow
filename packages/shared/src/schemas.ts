@@ -95,12 +95,22 @@ export const updateTaskSchema = z.object({
     author: z.string().max(255).nullish(),
     sortKey: z.string().optional(),
     tags: z.array(z.string().max(50)).max(20).optional(),
+    links: z
+      .array(
+        z.object({
+          taskId: z.string().min(1),
+          type: z.enum(["parent", "relates", "blocks"]),
+        }),
+      )
+      .max(200)
+      .nullish(),
   }),
 });
 
 export const deleteTaskSchema = z.object({
   workspaceId: z.string().min(1),
   taskId: z.string().min(1),
+  unlinkChildren: z.boolean().optional(),
 });
 
 export const listTasksSchema = z.object({

@@ -24,7 +24,14 @@ interface Props {
  * "What's New" changelog modal. Shows the changelog section for the version
  * the user just updated to, with a toggle to browse the full changelog.
  */
-export function WhatsNewModal({ open, sections, version, startMode, sinceVersion = null, onClose }: Props) {
+export function WhatsNewModal({
+  open,
+  sections,
+  version,
+  startMode,
+  sinceVersion = null,
+  onClose,
+}: Props) {
   const [mode, setMode] = React.useState<"whatsnew" | "full">(startMode);
   React.useEffect(() => {
     if (open) setMode(startMode);

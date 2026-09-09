@@ -4,15 +4,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { Task } from "../../types";
 
-function makeTask(
-  id: string,
-  title: string,
-  links?: Task["links"],
-): Task {
+function makeTask(id: string, title: string, links?: Task["links"]): Task {
   return { id, title, status: "todo", links };
 }
 
-// Fresh import per describe block to avoid module-scope `relationsAreaOpen` leaking
+// Fresh import per test so the collapsed-by-default initial state is asserted cleanly
 let RelationsSection: typeof import("../RelationsSection").default;
 
 describe("RelationsSection", () => {
@@ -24,9 +20,7 @@ describe("RelationsSection", () => {
 
   it("collapsed header renders summary chips for children count", () => {
     const task = makeTask("p1", "Parent");
-    const child = makeTask("c1", "Child 1", [
-      { taskId: "p1", type: "parent" },
-    ]);
+    const child = makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]);
     render(
       <RelationsSection
         task={task}
@@ -35,6 +29,8 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 child")).toBeInTheDocument();
+    // Body (tree) stays hidden until the user expands it
+    expect(screen.queryByText("+ Add")).not.toBeInTheDocument();
   });
 
   it("collapsed header renders parent chips", () => {
@@ -50,6 +46,40 @@ describe("RelationsSection", () => {
       />,
     );
     expect(screen.getByText("1 parent")).toBeInTheDocument();
+  });
+
+  it("re-collapses when a different task is opened", async () => {
+    const task1 = makeTask("p1", "Parent 1");
+    const child1 = makeTask("c1", "Child 1", [
+      { taskId: "p1", type: "parent" },
+    ]);
+    const { rerender } = render(
+      <RelationsSection
+        task={task1}
+        allTasks={[task1, child1]}
+        onUpdateLinks={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /relations/i }));
+    await waitFor(() => {
+      expect(screen.getByText("+ Add")).toBeInTheDocument();
+    });
+
+    const task2 = makeTask("p2", "Parent 2");
+    const child2 = makeTask("c2", "Child 2", [
+      { taskId: "p2", type: "parent" },
+    ]);
+    rerender(
+      <RelationsSection
+        task={task2}
+        allTasks={[task2, child2]}
+        onUpdateLinks={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByText("+ Add")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("1 child")).toBeInTheDocument();
   });
 
   it("clicking toggle opens body", async () => {
@@ -69,9 +99,7 @@ describe("RelationsSection", () => {
   });
 
   it("RelationRow renders Remove text button", async () => {
-    const task = makeTask("p1", "Parent", [
-      { taskId: "r1", type: "relates" },
-    ]);
+    const task = makeTask("p1", "Parent", [{ taskId: "r1", type: "relates" }]);
     const related = makeTask("r1", "Related task");
     const onUpdateLinks = vi.fn();
 
@@ -84,9 +112,7 @@ describe("RelationsSection", () => {
     );
 
     // Open the section
-    fireEvent.click(
-      screen.getByRole("button", { name: /relations/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /relations/i }));
 
     await waitFor(() => {
       expect(screen.getByText("+ Add")).toBeInTheDocument();

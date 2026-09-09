@@ -37,8 +37,11 @@ export const api: KanbanApi = {
     return r.json() as Promise<{ success: boolean; task?: Task }>;
   },
 
-  async deleteTask(id: string): Promise<void> {
-    await fetch(`${API}/${id}`, { method: "DELETE" });
+  async deleteTask(id: string, unlinkChildren?: boolean): Promise<void> {
+    const url = unlinkChildren
+      ? `${API}/${encodeURIComponent(id)}?unlinkChildren=true`
+      : `${API}/${id}`;
+    await fetch(url, { method: "DELETE" });
   },
 
   async getComments(taskId: string): Promise<{ comments: Comment[] }> {

@@ -2,7 +2,10 @@ import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { RecursiveChildrenTree, MAX_TREE_DEPTH } from "../RecursiveChildrenTree";
+import {
+  RecursiveChildrenTree,
+  MAX_TREE_DEPTH,
+} from "../RecursiveChildrenTree";
 import type { Task } from "../../types";
 
 function makeTask(id: string, title: string, links?: Task["links"]): Task {
@@ -70,15 +73,29 @@ describe("RecursiveChildrenTree", () => {
       makeTask("gc1", "Grandchild 1", [{ taskId: "c1", type: "parent" }]),
     ];
     const { container } = render(
-      <RecursiveChildrenTree
-        parentId="p1"
-        allTasks={tasks}
-        maxDepth={1}
-      />,
+      <RecursiveChildrenTree parentId="p1" allTasks={tasks} maxDepth={1} />,
     );
     const limit = container.querySelector(".tree-depth-limit");
     expect(limit).toBeInTheDocument();
     expect(limit!.textContent).toContain("more");
+  });
+
+  it("last sibling gets elbow guide, earlier siblings get full guides", () => {
+    const tasks = [
+      makeTask("p1", "Parent"),
+      makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]),
+      makeTask("c2", "Child 2", [{ taskId: "p1", type: "parent" }]),
+    ];
+    const { container } = render(
+      <RecursiveChildrenTree parentId="p1" allTasks={tasks} />,
+    );
+    const rows = container.querySelectorAll("[data-role='child-link-row']");
+    expect(rows).toHaveLength(2);
+    // First sibling: full-height guide only
+    expect(rows[0].querySelector(".tree-guide--last")).not.toBeInTheDocument();
+    expect(rows[0].querySelector(".tree-guide")).toBeInTheDocument();
+    // Last sibling: elbow on its own (only) level
+    expect(rows[1].querySelector(".tree-guide--last")).toBeInTheDocument();
   });
 
   it("passes depth prop to ChildRow (depth 1 for direct children)", () => {
@@ -86,9 +103,7 @@ describe("RecursiveChildrenTree", () => {
       makeTask("p1", "Parent"),
       makeTask("c1", "Child 1", [{ taskId: "p1", type: "parent" }]),
     ];
-    render(
-      <RecursiveChildrenTree parentId="p1" allTasks={tasks} />,
-    );
+    render(<RecursiveChildrenTree parentId="p1" allTasks={tasks} />);
     const row = document.querySelector("[data-role='child-link-row']");
     expect(row).toBeInTheDocument();
   });

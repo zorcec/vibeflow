@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import type { Task, TaskLinkType } from "../types";
 import { shortId, groupDetailRelations, getStatusColor } from "../task-links";
 import type { DetailRelationRow } from "../task-links";
@@ -34,33 +34,32 @@ const TYPE_COLORS: Record<TaskLinkType, string> = {
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 
-/** Module-scope variable so the collapsed/open state survives per-selection remounts. */
-let relationsAreaOpen = false;
-
 export default function RelationsSection({
   task,
   allTasks,
   onUpdateLinks,
   onOpenTask,
 }: RelationsSectionProps) {
-  const [open, setOpen] = useState(relationsAreaOpen);
+  // Collapsed by default: opening a task's detail panel shows the Relations
+  // header with summary chips; the tree stays hidden until expanded.
+  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [linkType, setLinkType] = useState<TaskLinkType>("relates");
   const [search, setSearch] = useState("");
 
+  // Re-collapse whenever a different task is opened (the detail panel reuses
+  // one component instance across selections, so state would otherwise persist).
+  useEffect(() => {
+    setOpen(false);
+  }, [task.id]);
+
   const toggleOpen = useCallback(() => {
-    setOpen((prev) => {
-      relationsAreaOpen = !prev;
-      return relationsAreaOpen;
-    });
+    setOpen((prev) => !prev);
   }, []);
 
   const expand = useCallback(() => {
-    if (!open) {
-      relationsAreaOpen = true;
-      setOpen(true);
-    }
-  }, [open]);
+    setOpen(true);
+  }, []);
 
   const links = task.links ?? [];
 
@@ -122,12 +121,14 @@ export default function RelationsSection({
         <span className="relations-area-title">Relations</span>
         {groups.children.length > 0 && (
           <span className="relation-chip relation-chip--children">
-            {groups.children.length} {groups.children.length === 1 ? "child" : "children"}
+            {groups.children.length}{" "}
+            {groups.children.length === 1 ? "child" : "children"}
           </span>
         )}
         {groups.parentLinks.length > 0 && (
           <span className="relation-chip relation-chip--parent">
-            {groups.parentLinks.length} {groups.parentLinks.length === 1 ? "parent" : "parents"}
+            {groups.parentLinks.length}{" "}
+            {groups.parentLinks.length === 1 ? "parent" : "parents"}
           </span>
         )}
         {groups.blocksLinks.length > 0 && (
@@ -140,7 +141,9 @@ export default function RelationsSection({
             {groups.relatesLinks.length} related
           </span>
         )}
-        <span className="block-chevron" data-open={open || undefined}>▾</span>
+        <span className="block-chevron" data-open={open || undefined}>
+          ▾
+        </span>
       </button>
 
       {/* ── Expanded body ── */}

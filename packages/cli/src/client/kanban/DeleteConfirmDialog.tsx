@@ -93,17 +93,33 @@ export function DeleteConfirmDialog({
       }
     >
       <div style={{ padding: "16px 18px" }}>
-        <p style={{ margin: 0, fontSize: 13, color: "var(--p-text-f)", lineHeight: 1.6 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: "var(--p-text-f)",
+            lineHeight: 1.6,
+          }}
+        >
           This task has{" "}
           <strong style={{ color: "var(--p-text)" }}>
             {childCount} child task{childCount === 1 ? "" : "s"}
           </strong>{" "}
           that will become orphaned (no parent).
         </p>
-        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--p-text-m)", lineHeight: 1.5 }}>
-          <strong>Delete parent only</strong> — children remain as orphaned root tasks.
+        <p
+          style={{
+            margin: "10px 0 0",
+            fontSize: 12,
+            color: "var(--p-text-m)",
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Delete parent only</strong> — children remain as orphaned root
+          tasks.
           <br />
-          <strong>Delete and unlink children</strong> — children become root tasks with no parent link.
+          <strong>Delete and unlink children</strong> — children become root
+          tasks with no parent link.
         </p>
       </div>
     </ModalBase>
