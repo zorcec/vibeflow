@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Task, TaskLinkType } from "../types";
 import {
   shortId,
@@ -72,6 +72,24 @@ export default function RelationsSection({
   // The dragged id travels via the dragSession singleton (no prop-drilling).
   const [treeIntent, setTreeIntent] = useState<DropIntent | null>(null);
   const treeIntentRef = useRef<DropIntent | null>(null);
+  // Local drag mirror: the detail panel sits outside the board's drag state,
+  // so window dragstart/dragend drives the empty-group slot visibility.
+  // Rendered output is unchanged when idle (group stays hidden when empty).
+  const [panelDragActive, setPanelDragActive] = useState(false);
+  useEffect(() => {
+    const onStart = () => {
+      if (dragSession.get()) setPanelDragActive(true);
+    };
+    const onEnd = () => setPanelDragActive(false);
+    window.addEventListener("dragstart", onStart);
+    window.addEventListener("dragend", onEnd);
+    window.addEventListener("drop", onEnd);
+    return () => {
+      window.removeEventListener("dragstart", onStart);
+      window.removeEventListener("dragend", onEnd);
+      window.removeEventListener("drop", onEnd);
+    };
+  }, []);
   const safeTasks = allTasks ?? [];
 
   const links = task.links ?? [];
@@ -165,6 +183,7 @@ export default function RelationsSection({
       dragSession.end();
       treeIntentRef.current = null;
       setTreeIntent(null);
+      setPanelDragActive(false);
     },
     [safeTasks, onTreeReorder, onTreeReparent],
   );
@@ -173,6 +192,7 @@ export default function RelationsSection({
     dragSession.end();
     treeIntentRef.current = null;
     setTreeIntent(null);
+    setPanelDragActive(false);
   }, []);
 
   return (
@@ -204,8 +224,12 @@ export default function RelationsSection({
         )}
       </div>
 
-      {/* ── CHILDREN group — always visible, non-collapsible ── */}
-      {groups.children.length > 0 && (
+      {/* ── CHILDREN group — always visible when non-empty, non-collapsible.
+          When empty it stays hidden while idle, and renders the first-child
+          drop slot while a drag session is active (same zone-intent path). ── */}
+      {(groups.children.length > 0 ||
+        panelDragActive ||
+        dragSession.get() != null) && (
         <div
           className="relation-group relation-group--children"
           data-role="relation-group-children"

@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { Task } from "../../types";
@@ -12,10 +12,75 @@ function makeTask(id: string, title: string, links?: Task["links"]): Task {
 let RelationsSection: typeof import("../RelationsSection").default;
 
 describe("RelationsSection", () => {
+  // Fresh dragSession per test — resetModules gives the component its own
+  // task-links instance, so the test must use that same instance.
+  let dragSession: typeof import("../../task-links").dragSession;
   beforeEach(async () => {
     vi.resetModules();
     const mod = await import("../RelationsSection");
     RelationsSection = mod.default;
+    dragSession = (await import("../../task-links")).dragSession;
+  });
+
+  afterEach(() => dragSession.end());
+
+  describe("empty-state first-child slot", () => {
+    it("childless task renders no children group when idle", () => {
+      const task = makeTask("p1", "Parent");
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+      expect(
+        document.querySelector('[data-role="relation-group-children"]'),
+      ).toBeNull();
+      expect(
+        document.querySelector('[data-role="empty-child-slot"]'),
+      ).toBeNull();
+    });
+
+    it("childless task renders the group + slot while a drag is active", () => {
+      const task = makeTask("p1", "Parent");
+      const other = makeTask("d1", "Drag");
+      dragSession.begin(other.id);
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, other]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+      expect(
+        document.querySelector('[data-role="relation-group-children"]'),
+      ).not.toBeNull();
+      const slot = document.querySelector('[data-role="empty-child-slot"]');
+      expect(slot).not.toBeNull();
+      expect(slot).toHaveAttribute("data-parent-id", "p1");
+    });
+
+    it("slot dragover surfaces a zone intent for the open task", () => {
+      const task = makeTask("p1", "Parent");
+      const other = makeTask("d1", "Drag");
+      dragSession.begin(other.id);
+      const onTreeReparent = vi.fn();
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, other]}
+          onUpdateLinks={vi.fn()}
+          onTreeReparent={onTreeReparent}
+        />,
+      );
+      const slot = document.querySelector('[data-role="empty-child-slot"]')!;
+      fireEvent.dragOver(slot);
+      // Intent must be latched before drop: dropping on the slot bubbles
+      // to the group handler, which consumes the zone intent.
+      fireEvent.drop(slot);
+      expect(onTreeReparent).toHaveBeenCalledWith(other.id, "p1");
+    });
   });
 
   it("header renders summary chips plus the always-visible children tree", () => {

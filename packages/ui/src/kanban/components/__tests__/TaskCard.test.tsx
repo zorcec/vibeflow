@@ -1,8 +1,9 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { TaskCard } from "../TaskCard";
+import { dragSession } from "../../task-links";
 import type { Task, Column } from "../../types";
 
 const col: Column = {
@@ -93,6 +94,39 @@ describe("TaskCard bottom expand chevron", () => {
     fireEvent.click(chevron);
     expect(onOpen).not.toHaveBeenCalled();
     expect(screen.getByText("⤷1")).toBeInTheDocument();
+  });
+
+  describe("empty-state first-child slot", () => {
+    afterEach(() => dragSession.end());
+
+    it("childless card renders no slot when idle", () => {
+      const { container } = renderCard(makeTask(), [makeTask()]);
+      expect(
+        container.querySelector('[data-role="empty-child-slot"]'),
+      ).not.toBeInTheDocument();
+    });
+
+    it("childless card renders the slot while a drag is active", () => {
+      const other = makeTask({ id: "other-task-id", title: "Other" });
+      dragSession.begin(other.id);
+      const { container } = renderCard(makeTask(), [makeTask(), other], {
+        onTreeIntent: vi.fn(),
+      });
+      const slot = container.querySelector('[data-role="empty-child-slot"]');
+      expect(slot).toBeInTheDocument();
+      expect(slot).toHaveAttribute("data-parent-id", "parent-task-id");
+    });
+
+    it("card with children renders rows, not the slot, while dragging", () => {
+      dragSession.begin("other-task-id");
+      const { container } = renderCard(makeTask(), [makeTask(), child], {
+        onTreeIntent: vi.fn(),
+      });
+      // Zone collapsed by default; slot belongs to childless trees only
+      expect(
+        container.querySelector('[data-role="empty-child-slot"]'),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("renders no chevron on compact or done cards", () => {

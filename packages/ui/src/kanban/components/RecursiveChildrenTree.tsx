@@ -146,14 +146,52 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
     [onTreeIntent, safeTasks, parentId],
   );
 
-  if (validChildren.length === 0) return null;
+  // First-child slot dragover — same zone intent + validation as the gap
+  // fallback above, so dropping on the slot follows the existing
+  // onLinkChild / onTreeReparent path via the column/section handler.
+  const handleEmptySlotDragOver = React.useCallback(
+    (e: React.DragEvent) => {
+      if (!onTreeIntent || !parentId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = dragSession.get();
+      if (!draggedId) return;
+      if (!canReparent(safeTasks, draggedId, parentId)) return;
+      onTreeIntent({ kind: "zone", parentId });
+    },
+    [onTreeIntent, safeTasks, parentId],
+  );
 
-  // Mark this parent as visited for deeper recursion
+  // Mark this parent as visited for deeper recursion. Hoisted above the
+  // empty early-return: a tree that gains/loses its last child must keep
+  // a stable hook count across renders (else "more hooks than previous").
   const childVisited = useMemo(() => {
     const next = new Set(safeVisited);
     next.add(parentId);
     return next;
   }, [safeVisited, parentId]);
+
+  if (validChildren.length === 0) {
+    // Childless tree: render nothing when idle (zero layout/visual change),
+    // a dashed first-child drop slot while a drag session is active.
+    // Null-guarded: missing parentId or no dragged id renders nothing.
+    if (!parentId) return null;
+    if (!dragSession.get()) return null;
+    const showSlotHighlight =
+      dragIntent?.kind === "zone" && dragIntent.parentId === parentId;
+    return (
+      <div
+        className={`empty-child-slot${showSlotHighlight ? " empty-child-slot--drop-target" : ""}`}
+        data-role="empty-child-slot"
+        data-parent-id={parentId}
+        data-drop-target={showSlotHighlight || undefined}
+        onDragOver={handleEmptySlotDragOver}
+        onClick={(e) => e.stopPropagation()}
+      >
+        Drop to add as first child
+      </div>
+    );
+  }
 
   const dndActive = Boolean(onTreeIntent);
 

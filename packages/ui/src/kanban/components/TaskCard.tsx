@@ -6,7 +6,7 @@ import {
       CheckCircle,
       Eye,
       Lock,
-      ChevronDown,
+      ChevronsDown,
 } from "lucide-react";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
@@ -662,6 +662,21 @@ export const TaskCard = React.memo(function TaskCard({
                         );
                   })()}
 
+                  {/* First-child slot — the tree renders null when idle
+                      (zero layout change) and a dashed drop slot while a
+                      drag session is active. Drops bubble to the column
+                      handler → existing onLinkChild path. */}
+                  {childCount === 0 && (
+                        <RecursiveChildrenTree
+                              parentId={task.id}
+                              allTasks={allTasks}
+                              variant="inline"
+                              dragIntent={treeIntent}
+                              onTreeIntent={onTreeIntent}
+                              onRowDragStart={onTreeRowDragStart}
+                        />
+                  )}
+
                   {/* Child popover — suppressed while expanded */}
                   {showChildPopover &&
                         directChildren.length > 0 &&
@@ -713,7 +728,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           setShowChildPopover(false);
                                     }}
                               >
-                                    <ChevronDown
+                                    <ChevronsDown
                                           style={{ width: 10, height: 10 }}
                                     />
                               </button>

@@ -178,11 +178,12 @@ body {
 .task-card.dragging {
  opacity: 0.4;
 }
-/* ── Card bottom expand chevron (hover-only, toggles children zone) ── */
+/* ── Card bottom expand chevron (always visible, half-straddles the bottom
+   edge, bare glyph with no button chrome — toggles children zone) ── */
 .card-expand-chevron {
  position: absolute;
  left: 50%;
- bottom: 0;
+ bottom: -7px;
  transform: translateX(-50%);
  min-width: 36px;
  min-height: 16px;
@@ -191,18 +192,12 @@ body {
  justify-content: center;
  padding: 0 8px;
  border: none;
- border-radius: 6px 6px 0 0;
- background: color-mix(in srgb, var(--p-card) 85%, transparent);
+ border-radius: 0;
+ background: transparent;
  color: var(--p-text-m);
- opacity: 0;
- cursor: pointer;
- transition: opacity 150ms ease;
- z-index: 1;
-}
-.task-card:hover .card-expand-chevron,
-.card-expand-chevron:focus-visible,
-.card-expand-chevron[aria-expanded="true"] {
  opacity: 1;
+ cursor: pointer;
+ z-index: 1;
 }
 .card-expand-chevron svg {
  transition: transform 150ms ease;
@@ -1355,6 +1350,24 @@ body.proto-resizing-panel {
  outline: 1px dashed color-mix(in srgb, #60a5fa 60%, transparent);
  outline-offset: -1px;
  border-radius: 3px;
+}
+/* First-child slot — rendered ONLY during an active drag inside a childless
+   tree (card or detail). Dashed, quiet until hovered, highlighted when the
+   zone intent targets its parent. */
+.empty-child-slot {
+ border: 1px dashed color-mix(in srgb, var(--p-text-m) 45%, transparent);
+ border-radius: 6px;
+ padding: 6px 8px;
+ margin: 4px 0 2px;
+ font-size: 11px;
+ color: var(--p-text-m);
+ text-align: center;
+ cursor: copy;
+}
+.empty-child-slot--drop-target {
+ border-color: color-mix(in srgb, #60a5fa 70%, transparent);
+ background: color-mix(in srgb, #60a5fa 12%, transparent);
+ color: var(--p-text);
 }
 
 /* Make-child pill */
