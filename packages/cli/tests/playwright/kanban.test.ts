@@ -2315,11 +2315,11 @@ describe("Kanban board", () => {
     await page.click("#confirm-modal-confirm");
     await page.waitForSelector("#delete-confirm-dialog");
 
-    // Three modes offered, default = keep.
+    // Two modes offered, default = roots.
     expect(
       await page.locator('input[name="delete-children-mode"]').count(),
-    ).toBe(3);
-    expect(await page.locator("#delete-mode-keep").isChecked()).toBe(true);
+    ).toBe(2);
+    expect(await page.locator("#delete-mode-roots").isChecked()).toBe(true);
 
     await page.check("#delete-mode-recursive");
     await page.click("#delete-confirm-delete");
@@ -2334,6 +2334,196 @@ describe("Kanban board", () => {
           card.textContent?.includes(c),
         ),
       [parentTitle, childTitle],
+      { timeout: 10_000 },
+    );
+  });
+
+  // ── Cascade done to children ──────────────────────────────────────────────
+  it("cascade done: changing parent to done via detail panel marks all children done", async () => {
+    const post = async (title: string, parentId?: string) => {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          status: "todo",
+          selector: "/",
+          ...(parentId
+            ? { links: [{ taskId: parentId, type: "parent" }] }
+            : {}),
+        }),
+      });
+      const data = (await r.json()) as { task: { id: string } };
+      return data.task.id;
+    };
+    const stamp = Date.now();
+    const parentTitle = `Cascade parent ${stamp}`;
+    const childTitle = `Cascade child ${stamp}`;
+    const parentId = await post(parentTitle);
+    const childId = await post(childTitle, parentId);
+    await waitForTaskOnBoard(page, parentTitle);
+    await waitForTaskOnBoard(page, childTitle);
+
+    // Open parent and set status to done via detail panel
+    await openTaskByTitle(page, parentTitle);
+    await page.waitForSelector("#detail-panel.open");
+    await page.click('button[data-status="done"]');
+
+    // Parent card should move to done column
+    await page.waitForFunction(
+      (pId) => {
+        const doneCards = document.querySelectorAll(
+          '[data-column-id="done"] article[data-task-id]',
+        );
+        return [...doneCards].some(
+          (c) => c.getAttribute("data-task-id") === pId,
+        );
+      },
+      parentId,
+      { timeout: 10_000 },
+    );
+
+    // Verify cascade via API (server-side cascade is authoritative)
+    await page.waitForFunction(
+      async ([api, cId]) => {
+        const res = await fetch(`${api}/${cId}`);
+        const data = await res.json();
+        return data.status === "done";
+      },
+      [API, childId],
+      { timeout: 10_000 },
+    );
+
+    // Reload to verify parent appears in done column after fresh load
+    await page.reload();
+    await page.waitForSelector("#kanban-board");
+    await page.waitForFunction(
+      (pId) => {
+        const doneCards = document.querySelectorAll(
+          '[data-column-id="done"] article[data-task-id]',
+        );
+        return [...doneCards].some(
+          (c) => c.getAttribute("data-task-id") === pId,
+        );
+      },
+      parentId,
+      { timeout: 10_000 },
+    );
+  });
+
+  // ── Unlink parent link ────────────────────────────────────────────────────
+  it("unlink: opens confirm modal, confirm removes parent link and child becomes root", async () => {
+    const post = async (title: string, parentId?: string) => {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          status: "todo",
+          selector: "/",
+          ...(parentId
+            ? { links: [{ taskId: parentId, type: "parent" }] }
+            : {}),
+        }),
+      });
+      const data = (await r.json()) as { task: { id: string } };
+      return data.task.id;
+    };
+    const stamp = Date.now();
+    const parentTitle = `Unlink parent ${stamp}`;
+    const childTitle = `Unlink child ${stamp}`;
+    const parentId = await post(parentTitle);
+    const childId = await post(childTitle, parentId);
+    await waitForTaskOnBoard(page, parentTitle);
+    await waitForTaskOnBoard(page, childTitle);
+
+    // Open child detail panel
+    await openTaskByTitle(page, childTitle);
+    await page.waitForSelector("#detail-panel.open");
+
+    // Hover over the child row in the detail panel to reveal the Unlink button
+    const childRow = page.locator("#detail-panel [data-role='child-link-row'][data-task-id='" + childId + "']");
+    await childRow.hover();
+    await page.waitForTimeout(200);
+
+    // Click Unlink button in relations section
+    const unlinkBtn = childRow.locator(".relation-remove");
+    await unlinkBtn.click();
+
+    // Confirm modal appears
+    await page.waitForSelector(".modal-backdrop");
+    await page.click("#confirm-modal-confirm");
+
+    // Verify child has no parent link via API
+    const res = await fetch(`${API}/${childId}`);
+    const childData = (await res.json()) as {
+      links?: Array<{ type: string; taskId: string }>;
+    };
+    const parentLinks = childData.links?.filter(
+      (l) => l.type === "parent",
+    );
+    expect(parentLinks ?? []).toHaveLength(0);
+  });
+
+  // ── Recursive delete (2-mode dialog) ──────────────────────────────────────
+  it("recursive delete: 2-mode dialog, select recursive removes subtree", async () => {
+    const post = async (title: string, parentId?: string) => {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          status: "todo",
+          selector: "/",
+          ...(parentId
+            ? { links: [{ taskId: parentId, type: "parent" }] }
+            : {}),
+        }),
+      });
+      const data = (await r.json()) as { task: { id: string } };
+      return data.task.id;
+    };
+    const stamp = Date.now();
+    const parentTitle = `2Mode parent ${stamp}`;
+    const childA = `2Mode childA ${stamp}`;
+    const childB = `2Mode childB ${stamp}`;
+    const parentId = await post(parentTitle);
+    await post(childA, parentId);
+    await post(childB, parentId);
+    await waitForTaskOnBoard(page, parentTitle);
+    await waitForTaskOnBoard(page, childA);
+    await waitForTaskOnBoard(page, childB);
+
+    // Open parent, trigger delete
+    await openTaskByTitle(page, parentTitle);
+    await page.click("#dp-delete");
+    await page.click("#confirm-modal-confirm");
+    await page.waitForSelector("#delete-confirm-dialog");
+
+    // 2 modes: roots (default) and recursive
+    // Wait for dialog state to settle (React useState + useEffect reset)
+    await page.waitForTimeout(200);
+    const radios = page.locator('input[name="delete-children-mode"]');
+    expect(await radios.count()).toBe(2);
+    expect(await page.locator("#delete-mode-roots").isChecked()).toBe(true);
+    expect(await page.locator("#delete-mode-recursive").isChecked()).toBe(
+      false,
+    );
+
+    // Select recursive and confirm
+    await page.check("#delete-mode-recursive");
+    await page.click("#delete-confirm-delete");
+
+    // All three cards should disappear
+    await page.waitForFunction(
+      (titles) =>
+        titles.every(
+          (t: string) =>
+            ![...document.querySelectorAll("article.task-card")].some((card) =>
+              card.textContent?.includes(t),
+            ),
+        ),
+      [parentTitle, childA, childB],
       { timeout: 10_000 },
     );
   });

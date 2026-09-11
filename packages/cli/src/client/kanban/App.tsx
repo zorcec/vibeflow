@@ -752,6 +752,12 @@ export function App() {
         ? (String(incoming.status) as TaskStatus)
         : undefined;
 
+      // Cascade done: when the server sends cascadedDescendants (parent moved
+      // to done), update children's status in the same state batch.
+      const cascadedDescendants = Array.isArray(incoming.cascadedDescendants)
+        ? (incoming.cascadedDescendants as Array<Record<string, unknown>>)
+        : [];
+
       // Detect status change from remote WS event before updating state
       const prevTask = tasksRef.current.find((t) => t.id === id);
       if (newStatus && prevTask && prevTask.status !== newStatus) {
@@ -835,6 +841,22 @@ export function App() {
         tasksRef.current = next;
         return next;
       });
+
+      // Cascade done: when the server sends cascadedDescendants (parent moved
+      // to done), update children's status in the same state batch.
+      if (cascadedDescendants.length > 0) {
+        setTasks((prev) => {
+          const next = prev.map((t) => {
+            const cascade = cascadedDescendants.find((d) => d.id === t.id);
+            if (cascade && cascade.status) {
+              return { ...t, status: String(cascade.status) as TaskStatus };
+            }
+            return t;
+          });
+          tasksRef.current = next;
+          return next;
+        });
+      }
       // appendStatusChange is stable (useCallback with empty deps); intentional empty dep array
     },
     [],
@@ -1309,7 +1331,9 @@ export function App() {
     const parentLink = task?.links?.find((l) => l.type === "parent");
     const formerParentId = parentLink?.taskId;
     const directChildIds = tasksRef.current
-      .filter((t) => t.links?.some((l) => l.type === "parent" && l.taskId === id))
+      .filter((t) =>
+        t.links?.some((l) => l.type === "parent" && l.taskId === id),
+      )
       .map((t) => t.id);
 
     // Optimistic state update: remove the detached task, re-parent its direct
