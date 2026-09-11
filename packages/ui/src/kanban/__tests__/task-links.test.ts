@@ -102,12 +102,14 @@ describe("task-links null-entry safety (P0 board-blank regression)", () => {
 });
 
 describe("classifyTreeRowIntent (tree-row DnD bands)", () => {
-  // 200px row → 28% band = 56px (max clamp). Top band [0,56), bottom (144,200].
+  // 200px row → tree bands clamped to [5px, 10px].
+  // Top band [0,10), bottom [190,200], center [10,190).
   const rect = { top: 100, height: 200 };
   const child = { id: "c1" };
 
   it("top band → tree-row before", () => {
-    expect(classifyTreeRowIntent(rect, 110, child, "p1")).toEqual({
+    // y=105 is within top+10px band
+    expect(classifyTreeRowIntent(rect, 105, child, "p1")).toEqual({
       kind: "tree-row",
       targetId: "c1",
       parentId: "p1",
@@ -116,7 +118,8 @@ describe("classifyTreeRowIntent (tree-row DnD bands)", () => {
   });
 
   it("bottom band → tree-row after", () => {
-    expect(classifyTreeRowIntent(rect, 290, child, "p1")).toEqual({
+    // y=295 is within bottom-10px band (top+190)
+    expect(classifyTreeRowIntent(rect, 295, child, "p1")).toEqual({
       kind: "tree-row",
       targetId: "c1",
       parentId: "p1",
@@ -124,10 +127,12 @@ describe("classifyTreeRowIntent (tree-row DnD bands)", () => {
     });
   });
 
-  it("center → zone intent (make-child of the row's task)", () => {
+  it("center → zone intent with fromTree flag (make-child of the row's task)", () => {
+    // y=200 is in center band (10px < y < 190px from top)
     expect(classifyTreeRowIntent(rect, 200, child, "p1")).toEqual({
       kind: "zone",
       parentId: "c1",
+      fromTree: true,
     });
   });
 
@@ -138,14 +143,19 @@ describe("classifyTreeRowIntent (tree-row DnD bands)", () => {
     ).toBeNull();
   });
 
-  it("clamps small-row bands to 32px min", () => {
-    // 100px row → raw band 28px → clamped to 32px: y=top+31 is top,
-    // y=top+33 is center (bottom band starts at top+68).
-    const small = { top: 0, height: 100 };
-    expect(classifyTreeRowIntent(small, 31, child, "p1")?.position).toBe(
+  it("clamps small-row bands to tree-specific 5px min (center reachable)", () => {
+    // 22px row → raw band ~6px → clamped to [5,10]: y=top+4 is top,
+    // y=top+6 is center, y=top+18 is bottom.
+    const small = { top: 0, height: 22 };
+    expect(classifyTreeRowIntent(small, 4, child, "p1")?.position).toBe(
       "before",
     );
-    expect(classifyTreeRowIntent(small, 33, child, "p1")?.kind).toBe("zone");
+    const centerIntent = classifyTreeRowIntent(small, 11, child, "p1");
+    expect(centerIntent?.kind).toBe("zone");
+    expect(centerIntent).toHaveProperty("fromTree", true);
+    expect(classifyTreeRowIntent(small, 20, child, "p1")?.position).toBe(
+      "after",
+    );
   });
 });
 

@@ -211,6 +211,11 @@ export const DROP_BAND_RATIO = 0.28;
 export const DROP_BAND_MIN_PX = 32;
 export const DROP_BAND_MAX_PX = 56;
 
+/** Tree-row specific bands — tree rows are ~22px tall, so the 32px
+ *  card min band makes center (make-child) unreachable. */
+export const TREE_DROP_BAND_MIN_PX = 5;
+export const TREE_DROP_BAND_MAX_PX = 10;
+
 /** Classify a drop position within a card into top/bottom/center bands.
  * Top and bottom bands are 28% of height, clamped to [32px, 56px].
  * The remainder is center. */
@@ -220,6 +225,20 @@ export function classifyDropZone(
 ): "top" | "center" | "bottom" {
   const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
   const band = Math.max(DROP_BAND_MIN_PX, Math.min(DROP_BAND_MAX_PX, rawBand));
+  if (clientY < rect.top + band) return "top";
+  if (clientY > rect.top + rect.height - band) return "bottom";
+  return "center";
+}
+
+/** Classify a drop position within a tree row using tree-specific bands.
+ * Tree rows are ~22px tall, so we use much smaller bands [5px, 10px]
+ * to make the center (make-child) zone reachable. */
+export function classifyTreeDropZone(
+  rect: { top: number; height: number },
+  clientY: number,
+): "top" | "center" | "bottom" {
+  const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
+  const band = Math.max(TREE_DROP_BAND_MIN_PX, Math.min(TREE_DROP_BAND_MAX_PX, rawBand));
   if (clientY < rect.top + band) return "top";
   if (clientY > rect.top + rect.height - band) return "bottom";
   return "center";
@@ -243,6 +262,10 @@ export interface DropIntent {
   edgeZone?: "top" | "bottom";
   /** Tree-row target: the hovered child row's task id (kind=tree-row). */
   targetId?: string;
+  /** True when the zone intent originated from a tree-row center drop.
+   *  Tells the drop handler to use canReparent + onTreeReparent
+   *  instead of targetValid + onLinkChild. */
+  fromTree?: boolean;
 }
 
 /** Classify a drop position against a card's article element (not the
@@ -278,9 +301,10 @@ export function classifyForDropIntent(
 
 /**
  * Classify a dragover position within a tree child row.
- * Reuses the classifyDropZone 28% bands (clamped 32–56px): top/bottom
- * bands → tree-row before/after (sibling reorder within parentId),
- * center → zone intent (make-child of that row's task).
+ * Uses tree-specific bands (5–10px) so the center (make-child) zone
+ * is reachable on ~22px rows. Top/bottom bands → tree-row before/after
+ * (sibling reorder within parentId), center → zone intent with fromTree
+ * flag (make-child of that row's task via onTreeReparent).
  *
  * Null-safe: returns null when the row's task has no id.
  */
@@ -292,7 +316,7 @@ export function classifyTreeRowIntent(
 ): DropIntent | null {
   const childId = child?.id;
   if (!childId) return null;
-  const zone = classifyDropZone(rowRect, clientY);
+  const zone = classifyTreeDropZone(rowRect, clientY);
   if (zone === "top")
     return {
       kind: "tree-row",
@@ -302,7 +326,7 @@ export function classifyTreeRowIntent(
     };
   if (zone === "bottom")
     return { kind: "tree-row", targetId: childId, parentId, position: "after" };
-  return { kind: "zone", parentId: childId };
+  return { kind: "zone", parentId: childId, fromTree: true };
 }
 
 /**

@@ -128,7 +128,7 @@ describe("ChildRow", () => {
 
   it("renders no guide lines at any depth, indents via flat left padding", () => {
     const { container, unmount } = render(
-      <ChildRow child={makeTask()} variant="inline" depth={1} isLast={false} />,
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
     );
     const row = container.querySelector("[data-role='child-link-row']");
     expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
@@ -139,7 +139,7 @@ describe("ChildRow", () => {
     unmount();
 
     const rerender = render(
-      <ChildRow child={makeTask()} variant="detail" depth={3} isLast />,
+      <ChildRow child={makeTask()} variant="detail" depth={3} />,
     );
     const deepRow = rerender.container.querySelector(
       "[data-role='child-link-row']",

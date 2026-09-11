@@ -387,10 +387,20 @@ export function KanbanBoard({
       return;
     }
 
-    if (intent?.kind === "zone" && intent.parentId && onLinkChild) {
-      const freshValid = targetValid(tasks, dragging, intent.parentId);
-      if (freshValid) onLinkChild(dragging, intent.parentId);
-      return;
+    if (intent?.kind === "zone" && intent.parentId) {
+      if (intent.fromTree) {
+        // Tree-row center drop — reparent under the hovered row's task.
+        // Use canReparent (allows existing parents) instead of targetValid.
+        if (!canReparent(tasks, dragging, intent.parentId)) return;
+        onTreeReparent?.(dragging, intent.parentId);
+        return;
+      }
+      if (onLinkChild) {
+        // Card-zone drop — link as child (rejects existing parents).
+        const freshValid = targetValid(tasks, dragging, intent.parentId);
+        if (freshValid) onLinkChild(dragging, intent.parentId);
+        return;
+      }
     }
 
     if (intent?.kind === "card" && intent.taskId) {
