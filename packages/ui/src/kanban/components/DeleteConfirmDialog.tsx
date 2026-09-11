@@ -1,5 +1,5 @@
 import React from "react";
-import { ModalBase } from "@vibeflow-tools/ui/kanban";
+import { ModalBase } from "./ModalBase";
 
 export type DeleteChildrenMode = "keep" | "unlink" | "recursive";
 
