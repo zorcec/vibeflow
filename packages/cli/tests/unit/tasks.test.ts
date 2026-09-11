@@ -331,6 +331,73 @@ describe("CRUD operations", () => {
     });
   });
 
+  describe("cascade done to descendants", () => {
+    const linkChild = (childId: string, parentId: string) => {
+      updateTask(tempDir, childId, {
+        links: [{ type: "parent" as const, taskId: parentId }],
+      });
+    };
+    const makeTree = () => {
+      ensureTaskDirs(tempDir);
+      const mk = (title: string) =>
+        createTask(tempDir, {
+          title,
+          description: "",
+          status: "todo",
+          selector: "/",
+        }).id;
+      const parent = mk("parent");
+      const childA = mk("child-a");
+      const childB = mk("child-b");
+      const grand = mk("grand");
+      linkChild(childA, parent);
+      linkChild(childB, parent);
+      linkChild(grand, childA);
+      return { parent, childA, childB, grand };
+    };
+
+    it("marks all descendants done when parent is set to done", () => {
+      const { parent, childA, childB, grand } = makeTree();
+      // Simulate server cascade: get descendants, update each
+      const allTasks = listTasks(tempDir);
+      const descIds = getDescendantIds(allTasks, parent);
+      expect(descIds).toHaveLength(3);
+
+      for (const descId of descIds) {
+        const updated = updateTask(tempDir, descId, { status: "done" });
+        expect(updated).not.toBeNull();
+        expect(updated!.status).toBe("done");
+      }
+
+      // Verify all tasks are done
+      const refreshed = listTasks(tempDir);
+      expect(refreshed.find((t) => t.id === parent)!.status).toBe("todo");
+      expect(refreshed.find((t) => t.id === childA)!.status).toBe("done");
+      expect(refreshed.find((t) => t.id === childB)!.status).toBe("done");
+      expect(refreshed.find((t) => t.id === grand)!.status).toBe("done");
+    });
+
+    it("does not cascade to siblings or unrelated tasks", () => {
+      const { parent, childA, childB } = makeTree();
+      // Add an unrelated task
+      const unrelated = createTask(tempDir, {
+        title: "unrelated",
+        description: "",
+        status: "todo",
+        selector: "/",
+      }).id;
+
+      const allTasks = listTasks(tempDir);
+      const descIds = getDescendantIds(allTasks, parent);
+      for (const descId of descIds) {
+        updateTask(tempDir, descId, { status: "done" });
+      }
+
+      const refreshed = listTasks(tempDir);
+      expect(refreshed.find((t) => t.id === unrelated)!.status).toBe("todo");
+    });
+  });
+
   it("readTaskFile reads and parses a task file", () => {
     const task = createTask(tempDir, {
       title: "Read me",

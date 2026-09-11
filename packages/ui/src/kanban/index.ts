@@ -45,6 +45,10 @@ export { FilterBar } from "./components/FilterBar";
 export type { FilterState } from "./components/FilterBar";
 export { SettingsModal } from "./components/SettingsModal";
 export { ConfirmModal } from "./components/ConfirmModal";
+export {
+  DeleteConfirmDialog,
+  type DeleteChildrenMode,
+} from "./components/DeleteConfirmDialog";
 export { FilePreviewModal } from "./components/FilePreviewModal";
 export { ModalBase } from "./components/ModalBase";
 
@@ -79,6 +83,7 @@ export {
   classifyTreeRowIntent,
   canReparent,
   dragSession,
+  getDescendants,
   DROP_BAND_RATIO,
   DROP_BAND_MIN_PX,
   DROP_BAND_MAX_PX,

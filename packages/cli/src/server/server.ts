@@ -613,6 +613,24 @@ function registerTaskApi(
     console.log(
       `[Vibeflow] Task updated: "${updated.title}" (${updated.id}) → status:${updated.status}`,
     );
+
+    // Cascade done status: when a parent is moved to done, all descendants
+    // are also marked done so the entire subtree completes together.
+    const cascadedDescendants: typeof updated[] = [];
+    if (updates.status === "done") {
+      const allTasks = listTasks(projectDir);
+      const descendantIds = getDescendantIds(allTasks, id);
+      for (const descId of descendantIds) {
+        const descUpdated = updateTask(projectDir, descId, { status: "done" });
+        if (descUpdated) {
+          cascadedDescendants.push(descUpdated);
+          console.log(
+            `[Vibeflow] Cascade done → "${descUpdated.title}" (${descUpdated.id})`,
+          );
+        }
+      }
+    }
+
     // Broadcast task-changed with the full payload so clients can apply surgical
     // state updates without re-fetching all tasks (avoids full-list re-render).
     // fileCount is computed from the same source as the list endpoints so the
@@ -621,7 +639,14 @@ function registerTaskApi(
       type: "task-changed",
       taskId: updated.id,
       action: "update",
-      task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
+      task: {
+        ...updated,
+        fileCount: getFileCount(projectDir, updated.id),
+        cascadedDescendants: cascadedDescendants.map((d) => ({
+          id: d.id,
+          status: d.status,
+        })),
+      },
     });
     res.json({ success: true, task: updated });
   });
@@ -701,8 +726,7 @@ function registerTaskApi(
     const allTasks = listTasks(projectDir);
     const affectedChildren = allTasks.filter(
       (t) =>
-        t?.id &&
-        t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
+        t?.id && t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
     );
     for (const child of affectedChildren) {
       if (!child.id) continue;
@@ -714,7 +738,9 @@ function registerTaskApi(
       });
     }
 
-    console.log(`[Vibeflow] Task detached: ${id}${deleteChildren ? " (delete children)" : ""}`);
+    console.log(
+      `[Vibeflow] Task detached: ${id}${deleteChildren ? " (delete children)" : ""}`,
+    );
     res.json({ success: true, task: updated });
   });
 

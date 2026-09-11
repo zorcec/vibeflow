@@ -20,12 +20,16 @@ import {
   compareTaskOrder,
   generateSortKeyBetween,
   HeaderActionButton,
+  getDescendants,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
-import { DeleteConfirmDialog } from "./DeleteConfirmDialog.js";
+import {
+  DeleteConfirmDialog,
+  type DeleteChildrenMode,
+} from "@vibeflow-tools/ui/kanban";
 import {
   fetchChangelogSections,
   markVersionSeen,
@@ -1234,6 +1238,16 @@ export function App() {
       for (const { id, sortKey } of normalizationPatches)
         patches.set(id, { sortKey });
       patches.set(taskId, { status: newStatus, sortKey: newSortKey });
+
+      // Cascade done status: when a parent is moved to done, all
+      // descendants are also marked done so the subtree completes together.
+      if (newStatus === "done") {
+        const descIds = getDescendants(prev, taskId);
+        for (const descId of descIds) {
+          patches.set(descId, { status: "done" });
+        }
+      }
+
       const next = prev.map((t) =>
         patches.has(t.id) ? { ...t, ...patches.get(t.id) } : t,
       );
