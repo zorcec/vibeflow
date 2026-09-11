@@ -8,8 +8,6 @@ interface ChildRowProps {
   variant: "popover" | "detail" | "inline";
   /** Tree depth (1 = direct child). Drives flat left-padding indent per level. */
   depth?: number;
-  /** Unused legacy prop (kept for API compatibility) — guide elbows were removed. */
-  isLast?: boolean;
   /** True when the parent link in this child's `links` points at a task not present in allTasks. */
   isOrphan?: boolean;
   /** Direct children count — when > 0 a small ⊃ N chip is shown after the title. */

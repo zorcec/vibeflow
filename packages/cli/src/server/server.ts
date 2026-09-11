@@ -616,7 +616,7 @@ function registerTaskApi(
 
     // Cascade done status: when a parent is moved to done, all descendants
     // are also marked done so the entire subtree completes together.
-    const cascadedDescendants: typeof updated[] = [];
+    const cascadedDescendants: (typeof updated)[] = [];
     if (updates.status === "done") {
       const allTasks = listTasks(projectDir);
       const descendantIds = getDescendantIds(allTasks, id);
@@ -708,6 +708,18 @@ function registerTaskApi(
     const { id } = req.params;
     const deleteChildren = req.query.deleteChildren === "true";
 
+    // Snapshot children BEFORE detachParent so we can broadcast affected
+    // tasks. After detach: move-up re-parents them (old links gone),
+    // deleteChildren removes them from disk.
+    const preDetachAllTasks = listTasks(projectDir);
+    const preDetachChildren = preDetachAllTasks.filter(
+      (t) =>
+        t?.id && t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
+    );
+    const descendantIds = deleteChildren
+      ? getDescendantIds(preDetachAllTasks, id)
+      : [];
+
     const updated = detachParent(projectDir, id, { deleteChildren });
     if (!updated) {
       res.status(404).json({ error: "Task not found" });
@@ -722,20 +734,27 @@ function registerTaskApi(
       task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
     });
 
-    // Also broadcast affected children (re-parented or deleted)
-    const allTasks = listTasks(projectDir);
-    const affectedChildren = allTasks.filter(
-      (t) =>
-        t?.id && t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
-    );
-    for (const child of affectedChildren) {
-      if (!child.id) continue;
-      broadcast({
-        type: "task-changed",
-        taskId: child.id,
-        action: "update",
-        task: { ...child, fileCount: getFileCount(projectDir, child.id) },
-      });
+    if (deleteChildren) {
+      // Broadcast task-deleted for each removed descendant
+      for (const descId of descendantIds) {
+        broadcast({ type: "task-deleted", taskId: descId });
+      }
+    } else {
+      // Move-up: re-read children after detachParent (they now have updated
+      // parent links pointing at the former parent) and broadcast each.
+      const postDetachAllTasks = listTasks(projectDir);
+      for (const child of preDetachChildren) {
+        if (!child.id) continue;
+        const refreshed = postDetachAllTasks.find((t) => t.id === child.id);
+        if (refreshed) {
+          broadcast({
+            type: "task-changed",
+            taskId: refreshed.id,
+            action: "update",
+            task: { ...refreshed, fileCount: getFileCount(projectDir, refreshed.id) },
+          });
+        }
+      }
     }
 
     console.log(

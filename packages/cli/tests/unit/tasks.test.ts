@@ -26,6 +26,7 @@ import {
   renderTaskForAgent,
   renderAgentInstructions,
   normalizeEscapeSequences,
+  detachParent,
 } from "../../src/core/tasks.js";
 import type { Task, TaskComment } from "../../src/core/types.js";
 import type { FileInfo } from "../../src/core/files.js";
@@ -2076,5 +2077,128 @@ describe("compareTasksByPriorityThenCreated", () => {
     expect(getPriorityRank("medium")).toBe(2);
     expect(getPriorityRank("low")).toBe(3);
     expect(getPriorityRank(undefined)).toBe(2); // default = medium
+  });
+});
+
+describe("detachParent", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-detach-"));
+    ensureTaskDirs(tempDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function makeTaskWithParent(
+    title: string,
+    parentId: string,
+    status: Task["status"] = "todo",
+  ) {
+    return createTask(tempDir, {
+      title,
+      description: "",
+      status,
+      selector: "/",
+      links: [{ type: "parent", taskId: parentId }],
+    });
+  }
+
+  it("returns null for non-existent task", () => {
+    expect(detachParent(tempDir, "nonexistent")).toBeNull();
+  });
+
+  it("move-up: rewrites children's parent link to former parent", () => {
+    const grandparent = createTask(tempDir, {
+      title: "Grandparent",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    const parent = makeTaskWithParent("Parent", grandparent.id);
+    const child = makeTaskWithParent("Child", parent.id);
+    const grandchild = makeTaskWithParent("Grandchild", child.id);
+
+    const updated = detachParent(tempDir, parent.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.links ?? []).toEqual([]);
+
+    // Child should now point at grandparent
+    const childAfter = readTaskFile(findTaskFilePath(tempDir, child.id)!);
+    const childParentLink = childAfter?.links?.find(
+      (l) => l.type === "parent",
+    );
+    expect(childParentLink?.taskId).toBe(grandparent.id);
+
+    // Grandchild should still point at child (unchanged)
+    const grandchildAfter = readTaskFile(
+      findTaskFilePath(tempDir, grandchild.id)!,
+    );
+    const gcParentLink = grandchildAfter?.links?.find(
+      (l) => l.type === "parent",
+    );
+    expect(gcParentLink?.taskId).toBe(child.id);
+  });
+
+  it("deleteChildren: keeps parent link, deletes descendants", () => {
+    const grandparent = createTask(tempDir, {
+      title: "Grandparent",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    const parent = makeTaskWithParent("Parent", grandparent.id);
+    const child = makeTaskWithParent("Child", parent.id);
+    const grandchild = makeTaskWithParent("Grandchild", child.id);
+
+    const updated = detachParent(tempDir, parent.id, {
+      deleteChildren: true,
+    });
+    expect(updated).not.toBeNull();
+    // Parent link should be removed from the detached task
+    expect((updated!.links ?? []).some((l) => l.type === "parent")).toBe(false);
+
+    // Descendants should be deleted
+    expect(existsSync(findTaskFilePath(tempDir, child.id)!)).toBe(false);
+    expect(existsSync(findTaskFilePath(tempDir, grandchild.id)!)).toBe(false);
+  });
+
+  it("no-parent edge: task has no parent, children stay under it", () => {
+    const root = createTask(tempDir, {
+      title: "Root",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    const child = makeTaskWithParent("Child", root.id);
+
+    const updated = detachParent(tempDir, root.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.links ?? []).toEqual([]);
+
+    // Child should still point at root (no re-parenting when no former parent)
+    const childAfter = readTaskFile(findTaskFilePath(tempDir, child.id)!);
+    const childParentLink = childAfter?.links?.find(
+      (l) => l.type === "parent",
+    );
+    expect(childParentLink?.taskId).toBe(root.id);
+  });
+
+  it("cycle safety: detaching a task never creates cycles", () => {
+    const a = createTask(tempDir, {
+      title: "A",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    const b = makeTaskWithParent("B", a.id);
+    const c = makeTaskWithParent("C", b.id);
+    // Detach B: C should move up to A
+    detachParent(tempDir, b.id);
+    const cAfter = readTaskFile(findTaskFilePath(tempDir, c.id)!);
+    const cParentLink = cAfter?.links?.find((l) => l.type === "parent");
+    expect(cParentLink?.taskId).toBe(a.id);
   });
 });

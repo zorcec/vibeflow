@@ -253,7 +253,6 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   child={child}
                   variant={variant}
                   depth={depth + 1}
-                  isLast={index === validChildren.length - 1}
                   onOpen={() => onOpen?.(child)}
                   isOrphan={isOrphan}
                   childCount={childCount}

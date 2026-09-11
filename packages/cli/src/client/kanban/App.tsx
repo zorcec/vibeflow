@@ -1304,6 +1304,56 @@ export function App() {
   }
 
   async function detachTaskById(id: string, deleteChildren?: boolean) {
+    // Snapshot for optimistic update — resolve former parent and direct
+    // children before the server mutates anything.
+    const task = tasksRef.current.find((t) => t.id === id);
+    const parentLink = task?.links?.find((l) => l.type === "parent");
+    const formerParentId = parentLink?.taskId;
+    const directChildIds = tasksRef.current
+      .filter((t) => t.links?.some((l) => l.type === "parent" && l.taskId === id))
+      .map((t) => t.id);
+
+    // Collect all descendant IDs (recursive) for deleteChildren mode.
+    const descendantIds: string[] = [];
+    if (deleteChildren) {
+      const queue = [...directChildIds];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        descendantIds.push(cur);
+        for (const t of tasksRef.current) {
+          if (
+            !descendantIds.includes(t.id) &&
+            t.links?.some((l) => l.type === "parent" && l.taskId === cur)
+          ) {
+            queue.push(t.id);
+          }
+        }
+      }
+    }
+
+    // Optimistic state update
+    setTasks((prev) => {
+      if (deleteChildren) {
+        // Remove the task + all descendants
+        const remove = new Set([id, ...descendantIds]);
+        return prev.filter((t) => !remove.has(t.id));
+      }
+      // Move-up: remove the detached task, re-parent its direct children
+      // to the former parent (or remove parent link if no former parent).
+      return prev
+        .filter((t) => t.id !== id)
+        .map((t) => {
+          if (!directChildIds.includes(t.id)) return t;
+          const newLinks = (t.links ?? []).filter(
+            (l) => !(l.type === "parent" && l.taskId === id),
+          );
+          if (formerParentId) {
+            newLinks.push({ type: "parent", taskId: formerParentId });
+          }
+          return { ...t, links: newLinks };
+        });
+    });
+
     try {
       await api.detachTask(id, deleteChildren);
     } catch {
