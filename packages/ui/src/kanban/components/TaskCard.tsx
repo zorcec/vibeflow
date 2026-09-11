@@ -47,6 +47,8 @@ interface Props {
       onTreeRowDragStart?: (e: React.DragEvent, childId: string) => void;
       /** Called when the user clicks Unlink on a child row in the card's inline tree. */
       onDetach?: (taskId: string) => void;
+      /** Reactive drag-active flag — forwarded to RecursiveChildrenTree for empty-slot visibility. */
+      isDragging?: boolean;
 }
 
 function isImageFileName(name: string): boolean {
@@ -188,6 +190,7 @@ export const TaskCard = React.memo(function TaskCard({
       onTreeIntent,
       onTreeRowDragStart,
       onDetach,
+      isDragging,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -659,6 +662,7 @@ export const TaskCard = React.memo(function TaskCard({
                                                 variant="inline"
                                                 dragIntent={treeIntent}
                                                 onTreeIntent={onTreeIntent}
+                                                isDragging={isDragging}
                                                 onRowDragStart={
                                                       onTreeRowDragStart
                                                 }
@@ -670,7 +674,9 @@ export const TaskCard = React.memo(function TaskCard({
                                                 onRemove={
                                                       onDetach
                                                             ? (childId) =>
-                                                                    onDetach(childId)
+                                                                    onDetach(
+                                                                          childId,
+                                                                    )
                                                             : undefined
                                                 }
                                           />
@@ -690,6 +696,7 @@ export const TaskCard = React.memo(function TaskCard({
                               variant="inline"
                               dragIntent={treeIntent}
                               onTreeIntent={onTreeIntent}
+                              isDragging={isDragging}
                               onRowDragStart={onTreeRowDragStart}
                         />
                   )}

@@ -109,6 +109,7 @@ describe("TaskCard children toggle chip", () => {
       dragSession.begin(other.id);
       const { container } = renderCard(makeTask(), [makeTask(), other], {
         onTreeIntent: vi.fn(),
+        isDragging: true,
       });
       const slot = container.querySelector('[data-role="empty-child-slot"]');
       expect(slot).toBeInTheDocument();

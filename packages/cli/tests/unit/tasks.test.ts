@@ -2127,9 +2127,7 @@ describe("detachParent", () => {
 
     // Child should now point at grandparent
     const childAfter = readTaskFile(findTaskFilePath(tempDir, child.id)!);
-    const childParentLink = childAfter?.links?.find(
-      (l) => l.type === "parent",
-    );
+    const childParentLink = childAfter?.links?.find((l) => l.type === "parent");
     expect(childParentLink?.taskId).toBe(grandparent.id);
 
     // Grandchild should still point at child (unchanged)
@@ -2141,7 +2139,6 @@ describe("detachParent", () => {
     );
     expect(gcParentLink?.taskId).toBe(child.id);
   });
-
 
   it("no-parent edge: task has no parent, children stay under it", () => {
     const root = createTask(tempDir, {
@@ -2158,9 +2155,7 @@ describe("detachParent", () => {
 
     // Child should still point at root (no re-parenting when no former parent)
     const childAfter = readTaskFile(findTaskFilePath(tempDir, child.id)!);
-    const childParentLink = childAfter?.links?.find(
-      (l) => l.type === "parent",
-    );
+    const childParentLink = childAfter?.links?.find((l) => l.type === "parent");
     expect(childParentLink?.taskId).toBe(root.id);
   });
 

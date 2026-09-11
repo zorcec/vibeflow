@@ -254,6 +254,23 @@ export function KanbanBoard({
     };
   }, [cols.length]);
 
+  // Belt-and-braces: window-level dragend catches stale sessions when the
+  // source element unmounts mid-drag (e.g. tree-row drag ends outside a valid
+  // zone, Escape key, source card re-renders). Guarantees full cleanup.
+  React.useEffect(() => {
+    function onWindowDragEnd() {
+      dragTaskIdRef.current = null;
+      setDragTaskId(null);
+      dropIntentRef.current = null;
+      setDropIntent(null);
+      setMakeChildTarget(null);
+      setDragOver(null);
+      dragSession.end();
+    }
+    window.addEventListener("dragend", onWindowDragEnd);
+    return () => window.removeEventListener("dragend", onWindowDragEnd);
+  }, []);
+
   function handleDragStart(e: React.DragEvent, taskId: string) {
     if (!taskId) return;
     dragTaskIdRef.current = taskId;
@@ -263,6 +280,7 @@ export function KanbanBoard({
     dropIntentRef.current = null;
     setDropIntent(null);
     setMakeChildTarget(null);
+    setDragOver(null);
     e.dataTransfer.effectAllowed = "move";
     // D1: Firefox requires setData() to initiate HTML5 drag.
     try {
@@ -397,12 +415,12 @@ export function KanbanBoard({
       if (intent.fromTree) {
         // Tree-row center drop — reparent under the hovered row's task.
         // Use canReparent (allows existing parents) instead of targetValid.
-        if (!canReparent(tasks, dragging, intent.parentId)) {
-          // D2: not reparentable — fall through to fallback (no-op) rather
-          // than silently returning.
-        } else {
+        if (canReparent(tasks, dragging, intent.parentId)) {
           onTreeReparent?.(dragging, intent.parentId);
           return;
+        } else {
+          // D2: not reparentable — fall through to fallback (no-op) rather
+          // than silently returning.
         }
       } else if (onLinkChild) {
         // Card-zone drop — link as child (rejects existing parents).
@@ -473,6 +491,7 @@ export function KanbanBoard({
     dropIntentRef.current = null;
     setDropIntent(null);
     setMakeChildTarget(null);
+    setDragOver(null);
     e.dataTransfer.effectAllowed = "move";
     // D1: Firefox requires setData() to initiate HTML5 drag.
     try {
@@ -857,6 +876,7 @@ function KanbanColumn({
                     onOpen={onOpenTask}
                     onOpenChild={onOpenTask}
                     onDragStart={onDragStart}
+                    isDragging={isDragging}
                     onChildrenZoneDragOver={
                       isDragging
                         ? (e) => onChildrenZoneDragOver(e, task.id)

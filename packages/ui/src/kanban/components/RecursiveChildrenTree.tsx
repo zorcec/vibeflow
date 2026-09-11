@@ -49,6 +49,8 @@ interface RecursiveChildrenTreeProps {
   onRowDragStart?: (e: React.DragEvent, childId: string) => void;
   /** Extra drop hook per row — drops also bubble to the column/section handler. */
   onRowDrop?: (e: React.DragEvent, childId: string) => void;
+  /** Reactive drag-active flag — replaces render-time dragSession.get() reads. */
+  isDragging?: boolean;
 }
 
 /**
@@ -73,6 +75,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
   onTreeIntent,
   onRowDragStart,
   onRowDrop,
+  isDragging,
 }: RecursiveChildrenTreeProps) {
   const safeTasks = allTasks ?? [];
   const derivedChildren = useMemo(
@@ -176,7 +179,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
     // a dashed first-child drop slot while a drag session is active.
     // Null-guarded: missing parentId or no dragged id renders nothing.
     if (!parentId) return null;
-    if (!dragSession.get()) return null;
+    if (!isDragging) return null;
     const showSlotHighlight =
       dragIntent?.kind === "zone" && dragIntent.parentId === parentId;
     return (
@@ -290,6 +293,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                     onTreeIntent={onTreeIntent}
                     onRowDragStart={onRowDragStart}
                     onRowDrop={onRowDrop}
+                    isDragging={isDragging}
                   />
                 </div>
               )}

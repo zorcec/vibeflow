@@ -239,9 +239,7 @@ export default function RelationsSection({
       {/* ── CHILDREN group — always visible when non-empty, non-collapsible.
           When empty it stays hidden while idle, and renders the first-child
           drop slot while a drag session is active (same zone-intent path). ── */}
-      {(groups.children.length > 0 ||
-        panelDragActive ||
-        dragSession.get() != null) && (
+      {(groups.children.length > 0 || panelDragActive) && (
         <div
           className="relation-group relation-group--children"
           data-role="relation-group-children"
@@ -263,6 +261,7 @@ export default function RelationsSection({
               onRemove={handleRemoveChildLink}
               dragIntent={treeIntent}
               onTreeIntent={handleTreeIntent}
+              isDragging={panelDragActive}
             />
           </div>
         </div>
@@ -351,16 +350,49 @@ export default function RelationsSection({
         message={
           confirmRemove?.childCount ? (
             <>
-              <p style={{ margin: 0, fontSize: 13, color: "var(--p-text-f)", lineHeight: 1.6 }}>
-                Unlink{' '}<strong style={{ color: 'var(--p-text)' }}>&ldquo;{confirmRemove.childTitle}&rdquo;</strong>?
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "var(--p-text-f)",
+                  lineHeight: 1.6,
+                }}
+              >
+                Unlink{" "}
+                <strong style={{ color: "var(--p-text)" }}>
+                  &ldquo;{confirmRemove.childTitle}&rdquo;
+                </strong>
+                ?
               </p>
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--p-text-m)', lineHeight: 1.5 }}>
-                Its {confirmRemove.childCount} {confirmRemove.childCount === 1 ? 'child moves' : 'children move'} up one level.
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: 12,
+                  color: "var(--p-text-m)",
+                  lineHeight: 1.5,
+                }}
+              >
+                Its {confirmRemove.childCount}{" "}
+                {confirmRemove.childCount === 1
+                  ? "child moves"
+                  : "children move"}{" "}
+                up one level.
               </p>
             </>
           ) : (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--p-text-f)', lineHeight: 1.6 }}>
-              Unlink{' '}<strong style={{ color: 'var(--p-text)' }}>&ldquo;{confirmRemove?.childTitle}&rdquo;</strong>? It will become a root task.
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                color: "var(--p-text-f)",
+                lineHeight: 1.6,
+              }}
+            >
+              Unlink{" "}
+              <strong style={{ color: "var(--p-text)" }}>
+                &ldquo;{confirmRemove?.childTitle}&rdquo;
+              </strong>
+              ? It will become a root task.
             </p>
           )
         }
@@ -373,7 +405,8 @@ export default function RelationsSection({
           } else {
             // Fallback: direct link removal (no server detach)
             const idx = links.findIndex(
-              (l) => l?.type === "parent" && l?.taskId === confirmRemove.childId,
+              (l) =>
+                l?.type === "parent" && l?.taskId === confirmRemove.childId,
             );
             if (idx >= 0) handleRemove(idx);
           }

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { Task } from "../../types";
 
@@ -53,6 +53,8 @@ describe("RelationsSection", () => {
           onUpdateLinks={vi.fn()}
         />,
       );
+      // Fire window dragstart AFTER render so the useEffect listener is registered
+      act(() => { window.dispatchEvent(new Event("dragstart")); });
       expect(
         document.querySelector('[data-role="relation-group-children"]'),
       ).not.toBeNull();
@@ -74,6 +76,8 @@ describe("RelationsSection", () => {
           onTreeReparent={onTreeReparent}
         />,
       );
+      // Fire window dragstart AFTER render so the useEffect listener is registered
+      act(() => { window.dispatchEvent(new Event("dragstart")); });
       const slot = document.querySelector('[data-role="empty-child-slot"]')!;
       fireEvent.dragOver(slot);
       // Intent must be latched before drop: dropping on the slot bubbles

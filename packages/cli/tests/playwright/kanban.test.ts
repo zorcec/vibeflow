@@ -2442,7 +2442,11 @@ describe("Kanban board", () => {
     await page.waitForSelector("#detail-panel.open");
 
     // Hover over the child row in the detail panel to reveal the Unlink button
-    const childRow = page.locator("#detail-panel [data-role='child-link-row'][data-task-id='" + childId + "']");
+    const childRow = page.locator(
+      "#detail-panel [data-role='child-link-row'][data-task-id='" +
+        childId +
+        "']",
+    );
     await childRow.hover();
     await page.waitForTimeout(200);
 
@@ -2459,9 +2463,7 @@ describe("Kanban board", () => {
     const childData = (await res.json()) as {
       links?: Array<{ type: string; taskId: string }>;
     };
-    const parentLinks = childData.links?.filter(
-      (l) => l.type === "parent",
-    );
+    const parentLinks = childData.links?.filter((l) => l.type === "parent");
     expect(parentLinks ?? []).toHaveLength(0);
   });
 

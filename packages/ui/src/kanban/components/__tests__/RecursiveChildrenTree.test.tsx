@@ -128,6 +128,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={vi.fn()}
+          isDragging
         />,
       );
       const slot = container.querySelector("[data-role='empty-child-slot']");
@@ -148,6 +149,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={vi.fn()}
+          isDragging
         />,
       );
       expect(
@@ -167,6 +169,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={onTreeIntent}
+          isDragging
         />,
       );
       fireEvent.dragOver(
@@ -187,6 +190,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={onTreeIntent}
+          isDragging
         />,
       );
       fireEvent.dragOver(
@@ -203,6 +207,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={vi.fn()}
+          isDragging
         />,
       );
       expect(
@@ -219,6 +224,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={withChild}
           onTreeIntent={vi.fn()}
+          isDragging
         />,
       );
       expect(
@@ -233,6 +239,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={vi.fn()}
+          isDragging
         />,
       );
       expect(
@@ -252,6 +259,7 @@ describe("RecursiveChildrenTree", () => {
           parentId="p1"
           allTasks={tasks}
           onTreeIntent={onTreeIntent}
+          isDragging
         />,
       );
       fireEvent.dragOver(

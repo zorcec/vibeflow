@@ -740,7 +740,10 @@ function registerTaskApi(
           type: "task-changed",
           taskId: refreshed.id,
           action: "update",
-          task: { ...refreshed, fileCount: getFileCount(projectDir, refreshed.id) },
+          task: {
+            ...refreshed,
+            fileCount: getFileCount(projectDir, refreshed.id),
+          },
         });
       }
     }

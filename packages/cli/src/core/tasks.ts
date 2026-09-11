@@ -484,10 +484,7 @@ export function getDescendantIds(allTasks: Task[], taskId: string): string[] {
  *
  * Returns the updated task, or null if the task was not found.
  */
-export function detachParent(
-  projectDir: string,
-  taskId: string,
-): Task | null {
+export function detachParent(projectDir: string, taskId: string): Task | null {
   const allTasks = listTasks(projectDir);
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) return null;
