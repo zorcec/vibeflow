@@ -1270,6 +1270,13 @@ body.proto-resizing-panel {
  font-weight: 700;
  flex-shrink: 0;
 }
+/* Minimal loader replacing the tree chevron on in-progress child rows.
+   Reuses the shared .spinner animation at chevron scale. */
+.child-link-spinner {
+ width: 10px;
+ height: 10px;
+ flex-shrink: 0;
+}
 .recursive-children-tree-node {
  position: relative;
 }

@@ -78,13 +78,27 @@ describe("ChildRow", () => {
     expect(parentClick).not.toHaveBeenCalled();
   });
 
-  it("tree variants render status-colored chevron, no dot", () => {
+  it("in-progress tree rows render loader instead of chevron", () => {
     const { unmount } = render(
       <ChildRow
         child={makeTask({ status: "in-progress" })}
         variant="inline"
         depth={1}
       />,
+    );
+    const loader = document.querySelector(".child-link-spinner");
+    expect(loader).toBeInTheDocument();
+    expect(loader).toHaveAttribute("aria-label", "In progress");
+    expect(
+      document.querySelector(".child-link-chevron"),
+    ).not.toBeInTheDocument();
+    expect(document.querySelector(".child-link-dot")).not.toBeInTheDocument();
+    unmount();
+  });
+
+  it("tree variants render status-colored chevron, no dot", () => {
+    const { unmount } = render(
+      <ChildRow child={makeTask({ status: "todo" })} variant="inline" />,
     );
     const chevron = document.querySelector(".child-link-chevron");
     expect(chevron).toBeInTheDocument();
