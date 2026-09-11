@@ -178,41 +178,36 @@ body {
 .task-card.dragging {
  opacity: 0.4;
 }
-/* ── Card bottom expand chevron (hover-revealed, half-straddles the bottom
-   edge, bare glyph with no button chrome — toggles children zone.
-   Only rendered when children exist; hidden until the card is hovered,
-   focused, or already expanded. Points down when collapsed (expand),
-   flips 180° to point up when expanded (collapse).) ── */
-.card-expand-chevron {
- position: absolute;
- left: 50%;
- bottom: -9px;
- transform: translateX(-50%);
- min-width: 52px;
- min-height: 24px;
- display: flex;
+/* ── Card children toggle chip (footer, last item — the ⤷N count morphs
+   into a chevron on hover/focus; chevron-up persists while expanded.
+   Only rendered when children exist.) ── */
+.child-toggle-chip {
+ display: inline-flex;
  align-items: center;
  justify-content: center;
- padding: 0 12px;
- border: none;
- border-radius: 0;
- background: transparent;
- color: var(--p-text-m);
- opacity: 0;
- cursor: pointer;
- z-index: 1;
- transition: opacity 120ms ease;
+ min-width: 30px;
+ min-height: 22px;
+ padding: 2px 6px;
+ border-radius: 6px;
 }
-.task-card:hover .card-expand-chevron,
-.task-card:focus-within .card-expand-chevron,
-.card-expand-chevron:focus-visible,
-.card-expand-chevron[aria-expanded="true"] {
- opacity: 1;
+.child-toggle-chip:hover {
+ background: var(--p-hover, rgba(255, 255, 255, 0.05));
 }
-.card-expand-chevron svg {
+.child-toggle-chip .child-toggle-chevron {
+ display: none;
  transition: transform 150ms ease;
 }
-.card-expand-chevron[aria-expanded="true"] svg {
+.child-toggle-chip:hover .child-toggle-label,
+.child-toggle-chip:focus-visible .child-toggle-label,
+.child-toggle-chip[aria-expanded="true"] .child-toggle-label {
+ display: none;
+}
+.child-toggle-chip:hover .child-toggle-chevron,
+.child-toggle-chip:focus-visible .child-toggle-chevron,
+.child-toggle-chip[aria-expanded="true"] .child-toggle-chevron {
+ display: block;
+}
+.child-toggle-chip[aria-expanded="true"] .child-toggle-chevron {
  transform: rotate(180deg);
 }
 .drag-over {

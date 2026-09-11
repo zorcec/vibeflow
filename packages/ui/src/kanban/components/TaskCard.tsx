@@ -6,7 +6,7 @@ import {
       CheckCircle,
       Eye,
       Lock,
-      ChevronsDown,
+      ChevronDown,
 } from "lucide-react";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
@@ -479,75 +479,6 @@ export const TaskCard = React.memo(function TaskCard({
                               <TagPills tags={task.tags} size="xs" />
                         )}
                         <div style={SPACER_STYLE} />
-                        {childCount > 0 && (
-                              <span
-                                    ref={childChipRef}
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-expanded={expanded}
-                                    title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree`}
-                                    style={{
-                                          fontSize: 9,
-                                          color: "var(--p-text-m)",
-                                          cursor: "pointer",
-                                          flexShrink: 0,
-                                    }}
-                                    onMouseEnter={() => {
-                                          if (childHoverTimeout.current)
-                                                clearTimeout(
-                                                      childHoverTimeout.current,
-                                                );
-                                          // Capture chip rect for fixed positioning
-                                          if (childChipRef.current) {
-                                                setChildChipRect(
-                                                      childChipRef.current.getBoundingClientRect(),
-                                                );
-                                          }
-                                          // Hover shows popover preview only when not expanded inline
-                                          if (!expanded) {
-                                                childHoverTimeout.current =
-                                                      setTimeout(
-                                                            () =>
-                                                                  setShowChildPopover(
-                                                                        true,
-                                                                  ),
-                                                            200,
-                                                      );
-                                          }
-                                    }}
-                                    onMouseLeave={() => {
-                                          if (childHoverTimeout.current)
-                                                clearTimeout(
-                                                      childHoverTimeout.current,
-                                                );
-                                          // Hover close only when not pinned (pinned = in-flow expanded)
-                                          if (!expanded)
-                                                setShowChildPopover(false);
-                                    }}
-                                    onClick={(e) => {
-                                          e.stopPropagation();
-                                          const next = !expanded;
-                                          setExpanded(next);
-                                          setShowChildPopover(false);
-                                    }}
-                                    onKeyDown={(e) => {
-                                          if (
-                                                e.key === "Enter" ||
-                                                e.key === " "
-                                          ) {
-                                                e.stopPropagation();
-                                                const next = !expanded;
-                                                setExpanded(next);
-                                                setShowChildPopover(false);
-                                          } else if (e.key === "Escape") {
-                                                setExpanded(false);
-                                                setShowChildPopover(false);
-                                          }
-                                    }}
-                              >
-                                    {`⤷${childCount}`}
-                              </span>
-                        )}
                         {liveActivity && (
                               <LiveActivityBadge activity={liveActivity} />
                         )}
@@ -611,6 +542,81 @@ export const TaskCard = React.memo(function TaskCard({
                                     onOpen(task, "files");
                               }}
                         />
+                        {childCount > 0 && (
+                              <span
+                                    ref={childChipRef}
+                                    role="button"
+                                    tabIndex={0}
+                                    className="child-toggle-chip"
+                                    data-role="children-toggle"
+                                    aria-expanded={expanded}
+                                    title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree — activate to ${expanded ? "collapse" : "expand"}`}
+                                    style={{
+                                          fontSize: 9,
+                                          color: "var(--p-text-m)",
+                                          cursor: "pointer",
+                                          flexShrink: 0,
+                                    }}
+                                    onMouseEnter={() => {
+                                          if (childHoverTimeout.current)
+                                                clearTimeout(
+                                                      childHoverTimeout.current,
+                                                );
+                                          // Capture chip rect for fixed positioning
+                                          if (childChipRef.current) {
+                                                setChildChipRect(
+                                                      childChipRef.current.getBoundingClientRect(),
+                                                );
+                                          }
+                                          // Hover shows popover preview only when not expanded inline
+                                          if (!expanded) {
+                                                childHoverTimeout.current =
+                                                      setTimeout(
+                                                            () =>
+                                                                  setShowChildPopover(
+                                                                        true,
+                                                                  ),
+                                                            200,
+                                                      );
+                                          }
+                                    }}
+                                    onMouseLeave={() => {
+                                          if (childHoverTimeout.current)
+                                                clearTimeout(
+                                                      childHoverTimeout.current,
+                                                );
+                                          // Hover close only when not pinned (pinned = in-flow expanded)
+                                          if (!expanded)
+                                                setShowChildPopover(false);
+                                    }}
+                                    onClick={(e) => {
+                                          e.stopPropagation();
+                                          const next = !expanded;
+                                          setExpanded(next);
+                                          setShowChildPopover(false);
+                                    }}
+                                    onKeyDown={(e) => {
+                                          if (
+                                                e.key === "Enter" ||
+                                                e.key === " "
+                                          ) {
+                                                e.stopPropagation();
+                                                const next = !expanded;
+                                                setExpanded(next);
+                                                setShowChildPopover(false);
+                                          } else if (e.key === "Escape") {
+                                                setExpanded(false);
+                                                setShowChildPopover(false);
+                                          }
+                                    }}
+                              >
+                                    <span className="child-toggle-label">{`⤷${childCount}`}</span>
+                                    <ChevronDown
+                                          className="child-toggle-chevron"
+                                          style={{ width: 13, height: 13 }}
+                                    />
+                              </span>
+                        )}
                   </div>
 
                   {/* Children zone — INSIDE the card, animated via CSS grid rows */}
@@ -692,48 +698,6 @@ export const TaskCard = React.memo(function TaskCard({
                                     }}
                               />
                         )}
-
-                  {/* Bottom-edge expand chevron — same leaf-descendant condition as
-                      the children zone above (never a chevron without a zone).
-                      Toggles the same expanded state; the ⤷N chip is untouched. */}
-                  {(() => {
-                        const zoneChildren = getLeafDescendants(
-                              allTasks,
-                              task.id,
-                        );
-                        if (zoneChildren.length === 0) return null;
-                        return (
-                              <button
-                                    type="button"
-                                    className="card-expand-chevron"
-                                    data-role="card-expand-chevron"
-                                    draggable={false}
-                                    aria-expanded={expanded}
-                                    aria-label={
-                                          expanded
-                                                ? "Collapse children"
-                                                : "Expand children"
-                                    }
-                                    title={
-                                          expanded
-                                                ? "Collapse children"
-                                                : "Expand children"
-                                    }
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    onDragStart={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                          e.stopPropagation();
-                                          const next = !expanded;
-                                          setExpanded(next);
-                                          setShowChildPopover(false);
-                                    }}
-                              >
-                                    <ChevronsDown
-                                          style={{ width: 16, height: 16 }}
-                                    />
-                              </button>
-                        );
-                  })()}
             </article>
       );
 });

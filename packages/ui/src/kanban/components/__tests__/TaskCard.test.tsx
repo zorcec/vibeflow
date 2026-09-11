@@ -42,56 +42,54 @@ function renderCard(task: Task, allTasks: Task[], extra: object = {}) {
   );
 }
 
-describe("TaskCard bottom expand chevron", () => {
-  it("renders chevron + children zone when leaf descendants exist", () => {
+describe("TaskCard children toggle chip", () => {
+  it("renders toggle chip + children zone when leaf descendants exist", () => {
     const { container } = renderCard(makeTask(), [makeTask(), child]);
     expect(
-      container.querySelector('[data-role="card-expand-chevron"]'),
+      container.querySelector('[data-role="children-toggle"]'),
     ).toBeInTheDocument();
     expect(
       container.querySelector('[data-role="children-block"]'),
     ).toBeInTheDocument();
   });
 
-  it("renders no chevron and no zone for childless cards", () => {
+  it("renders no toggle chip and no zone for childless cards", () => {
     const { container } = renderCard(makeTask(), [makeTask()]);
     expect(
-      container.querySelector('[data-role="card-expand-chevron"]'),
+      container.querySelector('[data-role="children-toggle"]'),
     ).not.toBeInTheDocument();
     expect(
       container.querySelector('[data-role="children-block"]'),
     ).not.toBeInTheDocument();
   });
 
-  it("click toggles the zone in both directions and keeps chevron visible when expanded", () => {
+  it("click toggles the zone in both directions and keeps chip visible when expanded", () => {
     const { container } = renderCard(makeTask(), [makeTask(), child]);
-    const chevron = container.querySelector(
-      '[data-role="card-expand-chevron"]',
-    )!;
-    expect(chevron).toHaveAttribute("aria-expanded", "false");
+    const chip = container.querySelector('[data-role="children-toggle"]')!;
+    expect(chip).toHaveAttribute("aria-expanded", "false");
 
-    fireEvent.click(chevron);
-    expect(chevron).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
     expect(
       container.querySelector('[data-role="children-block"]'),
     ).toHaveAttribute("data-expanded", "true");
 
-    fireEvent.click(chevron);
-    expect(chevron).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
     expect(
       container.querySelector('[data-role="children-block"]'),
     ).toHaveAttribute("data-expanded", "false");
   });
 
-  it("chevron click does not open the card and the ⤷N chip remains", () => {
+  it("chip click does not open the card and shows count label when collapsed", () => {
     const onOpen = vi.fn();
     const { container } = renderCard(makeTask(), [makeTask(), child], {
       onOpen,
     });
-    const chevron = container.querySelector(
-      '[data-role="card-expand-chevron"]',
-    )!;
-    fireEvent.click(chevron);
+    const chip = container.querySelector('[data-role="children-toggle"]')!;
+    fireEvent.click(chip);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(chip);
     expect(onOpen).not.toHaveBeenCalled();
     expect(screen.getByText("⤷1")).toBeInTheDocument();
   });
@@ -129,7 +127,7 @@ describe("TaskCard bottom expand chevron", () => {
     });
   });
 
-  it("renders no chevron on compact or done cards", () => {
+  it("renders no toggle chip on compact or done cards", () => {
     const doneCol: Column = {
       id: "done",
       label: "Done",
@@ -146,7 +144,7 @@ describe("TaskCard bottom expand chevron", () => {
       />,
     );
     expect(
-      container.querySelector('[data-role="card-expand-chevron"]'),
+      container.querySelector('[data-role="children-toggle"]'),
     ).not.toBeInTheDocument();
     unmount();
 
@@ -161,7 +159,7 @@ describe("TaskCard bottom expand chevron", () => {
       />,
     );
     expect(
-      rerender.container.querySelector('[data-role="card-expand-chevron"]'),
+      rerender.container.querySelector('[data-role="children-toggle"]'),
     ).not.toBeInTheDocument();
   });
 });
