@@ -55,6 +55,8 @@ export interface Task {
   verified?: boolean;
   /** Links to other tasks (parent, relates, blocks). */
   links?: TaskLink[];
+  /** User IDs who have opened this task (persistent read state). */
+  openedBy?: string[];
 }
 
 export interface Comment {

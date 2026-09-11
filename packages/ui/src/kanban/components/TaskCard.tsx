@@ -382,6 +382,28 @@ export const TaskCard = React.memo(function TaskCard({
                                     style={SPINNER_SHRINK_STYLE}
                               />
                         )}
+                        {/* Unopened indicator: blue dot if task has not been opened by current user */}
+                        {(() => {
+                              const currentUserId = typeof window !== 'undefined'
+                                ? localStorage.getItem('vibeflow-user-id') ?? 'anonymous'
+                                : 'anonymous';
+                              const isOpened = (task.openedBy ?? []).includes(currentUserId);
+                              if (!isOpened) {
+                                return (
+                                  <span
+                                    style={{
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: '50%',
+                                      background: 'var(--p-blue-500, #3b82f6)',
+                                      flexShrink: 0,
+                                    }}
+                                    title="Unread"
+                                  />
+                                );
+                              }
+                              return null;
+                        })()}
                         <span style={CARD_TITLE_TEXT_STYLE}>{task.title}</span>
                   </div>
 
