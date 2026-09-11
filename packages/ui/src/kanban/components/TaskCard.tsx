@@ -729,7 +729,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     }}
                               >
                                     <ChevronsDown
-                                          style={{ width: 10, height: 10 }}
+                                          style={{ width: 16, height: 16 }}
                                     />
                               </button>
                         );

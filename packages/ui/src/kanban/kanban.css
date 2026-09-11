@@ -178,32 +178,42 @@ body {
 .task-card.dragging {
  opacity: 0.4;
 }
-/* ── Card bottom expand chevron (always visible, half-straddles the bottom
-   edge, bare glyph with no button chrome — toggles children zone) ── */
+/* ── Card bottom expand chevron (hover-revealed, half-straddles the bottom
+   edge, bare glyph with no button chrome — toggles children zone.
+   Only rendered when children exist; hidden until the card is hovered,
+   focused, or already expanded. Points down when collapsed (expand),
+   flips 180° to point up when expanded (collapse).) ── */
 .card-expand-chevron {
  position: absolute;
  left: 50%;
- bottom: -7px;
+ bottom: -9px;
  transform: translateX(-50%);
- min-width: 36px;
- min-height: 16px;
+ min-width: 52px;
+ min-height: 24px;
  display: flex;
  align-items: center;
  justify-content: center;
- padding: 0 8px;
+ padding: 0 12px;
  border: none;
  border-radius: 0;
  background: transparent;
  color: var(--p-text-m);
- opacity: 1;
+ opacity: 0;
  cursor: pointer;
  z-index: 1;
+ transition: opacity 120ms ease;
+}
+.task-card:hover .card-expand-chevron,
+.task-card:focus-within .card-expand-chevron,
+.card-expand-chevron:focus-visible,
+.card-expand-chevron[aria-expanded="true"] {
+ opacity: 1;
 }
 .card-expand-chevron svg {
  transition: transform 150ms ease;
 }
 .card-expand-chevron[aria-expanded="true"] svg {
- transform: rotate(90deg);
+ transform: rotate(180deg);
 }
 .drag-over {
  outline: 2px dashed rgba(59, 130, 246, 0.5);
