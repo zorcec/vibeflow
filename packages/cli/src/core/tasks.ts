@@ -452,10 +452,7 @@ export function deleteTask(projectDir: string, taskId: string): boolean {
  * appear before their children, so reversing the result yields
  * deepest-first order for recursive deletion.
  */
-export function getDescendantIds(
-  allTasks: Task[],
-  taskId: string,
-): string[] {
+export function getDescendantIds(allTasks: Task[], taskId: string): string[] {
   const result: string[] = [];
   const visited = new Set<string>([taskId]);
   const queue = [taskId];

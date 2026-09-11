@@ -1270,9 +1270,7 @@ export function App() {
           for (const t of prev) {
             if (
               !remove.has(t.id) &&
-              t.links?.some(
-                (l) => l.type === "parent" && l.taskId === cur,
-              )
+              t.links?.some((l) => l.type === "parent" && l.taskId === cur)
             ) {
               remove.add(t.id);
               queue.push(t.id);

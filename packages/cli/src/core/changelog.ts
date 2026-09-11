@@ -27,7 +27,7 @@ export function parseChangelogSections(content: string): ChangelogSection[] {
     if (!match) continue;
     const start = (match.index ?? 0) + match[0].length;
     const next = matches[i + 1];
-    const end = next ? next.index ?? content.length : content.length;
+    const end = next ? (next.index ?? content.length) : content.length;
     sections.push({
       version: match[1] ?? "",
       markdown: content.slice(start, end).trim(),
@@ -65,7 +65,9 @@ export function formatSectionForTerminal(section: ChangelogSection): string {
       inHighlights = (category[1] ?? "").trim() === "Highlights";
       lines.push(`  ${chalk.bold.underline(category[1] ?? "")}`);
     } else if (inHighlights && /^\s*[-*]\s+\S/.test(line)) {
-      lines.push(`  ${chalk.bold(`✨ ${line.trim().replace(/^[-*]\s+/, "")}`)}`);
+      lines.push(
+        `  ${chalk.bold(`✨ ${line.trim().replace(/^[-*]\s+/, "")}`)}`,
+      );
     } else {
       lines.push(`  ${chalk.dim(line.trimEnd())}`);
     }

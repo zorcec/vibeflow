@@ -156,9 +156,9 @@ describe("What's New changelog modal", () => {
     const { context, page } = await openBoard(null);
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
-    expect(
-      await page.locator('[data-role="highlights-region"]').count(),
-    ).toBe(0);
+    expect(await page.locator('[data-role="highlights-region"]').count()).toBe(
+      0,
+    );
     await context.close();
   });
 });

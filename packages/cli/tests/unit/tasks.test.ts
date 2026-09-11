@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -35,7 +42,6 @@ describe("generateTaskId", () => {
   });
 });
 
-
 describe("uniqueFilename collision (counter branch)", () => {
   let tempDir: string;
 
@@ -49,8 +55,18 @@ describe("uniqueFilename collision (counter branch)", () => {
 
   it("appends -2 counter when slug already exists", () => {
     // Create two tasks with the same title so uniqueFilename needs counter path
-    createTask(tempDir, { title: "Same Title", description: "", status: "todo", selector: "#a" });
-    createTask(tempDir, { title: "Same Title", description: "", status: "todo", selector: "#b" });
+    createTask(tempDir, {
+      title: "Same Title",
+      description: "",
+      status: "todo",
+      selector: "#a",
+    });
+    createTask(tempDir, {
+      title: "Same Title",
+      description: "",
+      status: "todo",
+      selector: "#b",
+    });
 
     const tasks = listTasks(tempDir);
     expect(tasks).toHaveLength(2);
@@ -255,7 +271,12 @@ describe("CRUD operations", () => {
     const makeTree = () => {
       ensureTaskDirs(tempDir);
       const mk = (title: string) =>
-        createTask(tempDir, { title, description: "", status: "todo", selector: "/" }).id;
+        createTask(tempDir, {
+          title,
+          description: "",
+          status: "todo",
+          selector: "/",
+        }).id;
       const parent = mk("parent");
       const childA = mk("child-a");
       const childB = mk("child-b");
@@ -358,7 +379,11 @@ describe("CRUD operations", () => {
       comments: [],
       files: [],
     };
-    writeFileSync(join(tasksDir, "flat1234.json"), JSON.stringify(flatTask, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "flat1234.json"),
+      JSON.stringify(flatTask, null, 2),
+      "utf-8",
+    );
 
     const tasks = listTasks(tempDir);
     expect(tasks).toHaveLength(1);
@@ -378,7 +403,11 @@ describe("CRUD operations", () => {
       comments: [],
       files: [],
     };
-    writeFileSync(join(tasksDir, "upd12345.json"), JSON.stringify(flatTask, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "upd12345.json"),
+      JSON.stringify(flatTask, null, 2),
+      "utf-8",
+    );
 
     const result = updateTask(tempDir, "upd12345", { title: "Updated flat" });
     expect(result).not.toBeNull();
@@ -396,8 +425,12 @@ describe("CRUD operations", () => {
 describe("task data structure fixes", () => {
   let tempDir: string;
 
-  beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), "proto-struct-")); });
-  afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-struct-"));
+  });
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 
   it("reportBack:false is not stored in task JSON", () => {
     const task = createTask(tempDir, {
@@ -441,7 +474,11 @@ describe("task data structure fixes", () => {
     };
     const dir = join(tempDir, ".vibeflow", "tasks", "2025-01-01");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "test1234.json"), JSON.stringify(taskData), "utf-8");
+    writeFileSync(
+      join(dir, "test1234.json"),
+      JSON.stringify(taskData),
+      "utf-8",
+    );
 
     const tasks = listTasks(tempDir);
     expect(tasks).toHaveLength(1);
@@ -462,7 +499,11 @@ describe("task data structure fixes", () => {
     };
     const dir = join(tempDir, ".vibeflow", "tasks", "2025-01-01");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "test5678.json"), JSON.stringify(taskData), "utf-8");
+    writeFileSync(
+      join(dir, "test5678.json"),
+      JSON.stringify(taskData),
+      "utf-8",
+    );
 
     const tasks = listTasks(tempDir);
     expect(tasks[0].selector).toBe("/");
@@ -618,15 +659,30 @@ describe("formatTaskForAgent", () => {
 
   it("includes structuredComments with author, timestamp, and text", () => {
     const comments: TaskComment[] = [
-      { id: "c1", author: "user", text: "Please make the button blue.", createdAt: "2025-06-01T09:00:00.000Z" },
-      { id: "c2", author: "agent", text: "Fixed in src/Button.tsx line 12.", createdAt: "2025-06-01T09:05:00.000Z", updatedAt: "2025-06-01T09:10:00.000Z" },
+      {
+        id: "c1",
+        author: "user",
+        text: "Please make the button blue.",
+        createdAt: "2025-06-01T09:00:00.000Z",
+      },
+      {
+        id: "c2",
+        author: "agent",
+        text: "Fixed in src/Button.tsx line 12.",
+        createdAt: "2025-06-01T09:05:00.000Z",
+        updatedAt: "2025-06-01T09:10:00.000Z",
+      },
     ];
     const result = formatTaskForAgent(baseTask, comments);
     expect(result.structuredComments).toHaveLength(2);
     expect(result.structuredComments![0].author).toBe("user");
-    expect(result.structuredComments![0].text).toBe("Please make the button blue.");
+    expect(result.structuredComments![0].text).toBe(
+      "Please make the button blue.",
+    );
     expect(result.structuredComments![1].author).toBe("agent");
-    expect(result.structuredComments![1].updatedAt).toBe("2025-06-01T09:10:00.000Z");
+    expect(result.structuredComments![1].updatedAt).toBe(
+      "2025-06-01T09:10:00.000Z",
+    );
   });
 
   it("omits structuredComments when array is empty", () => {
@@ -636,7 +692,11 @@ describe("formatTaskForAgent", () => {
 
   it("includes linkedFiles with name and url", () => {
     const files: FileInfo[] = [
-      { name: "report.md", size: 1024, url: "http://localhost:3700/api/tasks/abc12345/files/report.md" },
+      {
+        name: "report.md",
+        size: 1024,
+        url: "http://localhost:3700/api/tasks/abc12345/files/report.md",
+      },
     ];
     const result = formatTaskForAgent(baseTask, undefined, files);
     expect(result.linkedFiles).toHaveLength(1);
@@ -655,15 +715,22 @@ describe("formatTaskForAgent", () => {
 describe("migrateFlatTasksToDateDirs", () => {
   let tempDir: string;
 
-  beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), "proto-migrate-")); });
-  afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-migrate-"));
+  });
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 
   it("returns 0 when tasks directory does not exist", () => {
     expect(migrateFlatTasksToDateDirs(tempDir)).toBe(0);
   });
 
   it("returns 0 when all tasks are already in date subdirs", () => {
-    const task = createTask(tempDir, { title: "Already nested", description: "" });
+    const task = createTask(tempDir, {
+      title: "Already nested",
+      description: "",
+    });
     const count = migrateFlatTasksToDateDirs(tempDir);
     expect(count).toBe(0);
     expect(findTaskFilePath(tempDir, task.id)).not.toBeNull();
@@ -684,7 +751,11 @@ describe("migrateFlatTasksToDateDirs", () => {
       comments: [],
       files: [],
     };
-    writeFileSync(join(tasksDir, "abcd1234.json"), JSON.stringify(task, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "abcd1234.json"),
+      JSON.stringify(task, null, 2),
+      "utf-8",
+    );
 
     expect(migrateFlatTasksToDateDirs(tempDir)).toBe(1);
 
@@ -736,14 +807,26 @@ describe("migrateFlatTasksToDateDirs", () => {
       comments: [],
       files: [],
     };
-    writeFileSync(join(tasksDir, "aaaa1111.json"), JSON.stringify(task1, null, 2), "utf-8");
-    writeFileSync(join(tasksDir, "bbbb2222.json"), JSON.stringify(task2, null, 2), "utf-8");
+    writeFileSync(
+      join(tasksDir, "aaaa1111.json"),
+      JSON.stringify(task1, null, 2),
+      "utf-8",
+    );
+    writeFileSync(
+      join(tasksDir, "bbbb2222.json"),
+      JSON.stringify(task2, null, 2),
+      "utf-8",
+    );
 
     expect(migrateFlatTasksToDateDirs(tempDir)).toBe(2);
 
     // Both files should be in their respective date subdirs
-    expect(existsSync(join(tasksDir, "2025-01-10", "aaaa1111.json"))).toBe(true);
-    expect(existsSync(join(tasksDir, "2025-02-20", "bbbb2222.json"))).toBe(true);
+    expect(existsSync(join(tasksDir, "2025-01-10", "aaaa1111.json"))).toBe(
+      true,
+    );
+    expect(existsSync(join(tasksDir, "2025-02-20", "bbbb2222.json"))).toBe(
+      true,
+    );
 
     // Flat files should be gone
     expect(existsSync(join(tasksDir, "aaaa1111.json"))).toBe(false);
@@ -768,7 +851,11 @@ describe("migrateFlatTasksToDateDirs", () => {
       comments: [],
       files: [],
     };
-    writeFileSync(join(dateDir, "cccc3333.json"), JSON.stringify(task, null, 2), "utf-8");
+    writeFileSync(
+      join(dateDir, "cccc3333.json"),
+      JSON.stringify(task, null, 2),
+      "utf-8",
+    );
 
     // Should return 0 since file is already in correct place
     expect(migrateFlatTasksToDateDirs(tempDir)).toBe(0);
@@ -791,8 +878,16 @@ describe("multiple commits support", () => {
   it("stores commits array on task", () => {
     const task = createTask(tempDir, { title: "Test task" });
     const commits = [
-      { sha: "abc12345", message: "first commit", timestamp: "2025-01-01T00:00:00.000Z" },
-      { sha: "def67890", message: "second commit", timestamp: "2025-01-02T00:00:00.000Z" },
+      {
+        sha: "abc12345",
+        message: "first commit",
+        timestamp: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        sha: "def67890",
+        message: "second commit",
+        timestamp: "2025-01-02T00:00:00.000Z",
+      },
     ];
     updateTask(tempDir, task.id, { commits });
     const updated = listTasks(tempDir).find((t) => t.id === task.id);
@@ -806,7 +901,12 @@ describe("multiple commits support", () => {
     const filePath = findTaskFilePath(tempDir, task.id);
     expect(filePath).toBeTruthy();
     const raw = JSON.parse(readFileSync(filePath!, "utf-8"));
-    const withCommits = { ...raw, commits: [{ sha: "aaa", message: "msg", timestamp: "2025-01-01T00:00:00.000Z" }] };
+    const withCommits = {
+      ...raw,
+      commits: [
+        { sha: "aaa", message: "msg", timestamp: "2025-01-01T00:00:00.000Z" },
+      ],
+    };
     writeFileSync(filePath!, JSON.stringify(withCommits), "utf-8");
     const loaded = listTasks(tempDir).find((t) => t.id === task.id);
     expect(loaded?.commits).toHaveLength(1);
@@ -814,11 +914,19 @@ describe("multiple commits support", () => {
   });
 
   it("appends new commit to existing commits array", () => {
-    const firstCommit = { sha: "first111", message: "initial", timestamp: "2025-01-01T00:00:00.000Z" };
+    const firstCommit = {
+      sha: "first111",
+      message: "initial",
+      timestamp: "2025-01-01T00:00:00.000Z",
+    };
     const task = createTask(tempDir, { title: "Test task" });
     updateTask(tempDir, task.id, { commits: [firstCommit] });
 
-    const secondCommit = { sha: "second22", message: "follow-up", timestamp: new Date().toISOString() };
+    const secondCommit = {
+      sha: "second22",
+      message: "follow-up",
+      timestamp: new Date().toISOString(),
+    };
     const existing = listTasks(tempDir).find((t) => t.id === task.id);
     const prevCommits = existing?.commits ?? [];
     updateTask(tempDir, task.id, { commits: [...prevCommits, secondCommit] });
@@ -843,35 +951,59 @@ describe("--next task selection logic", () => {
   /** Mirrors the priority ordering used by the --next handler in index.ts */
   function getPriorityRank(priority?: string): number {
     switch ((priority ?? "").toLowerCase()) {
-      case "critical": return 0;
-      case "high":     return 1;
-      case "medium":   return 2;
-      case "low":      return 3;
-      default:         return 2;
+      case "critical":
+        return 0;
+      case "high":
+        return 1;
+      case "medium":
+        return 2;
+      case "low":
+        return 3;
+      default:
+        return 2;
     }
   }
 
   it("picks the only todo task when one exists", () => {
     createTask(tempDir, { title: "Only task", status: "todo", selector: "#a" });
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
     expect(todos).toHaveLength(1);
     expect(todos[0].title).toBe("Only task");
   });
 
   it("returns empty list when no todo tasks exist", () => {
     createTask(tempDir, { title: "Done task", status: "done", selector: "#a" });
-    createTask(tempDir, { title: "In-progress task", status: "in-progress", selector: "#b" });
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
+    createTask(tempDir, {
+      title: "In-progress task",
+      status: "in-progress",
+      selector: "#b",
+    });
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
     expect(todos).toHaveLength(0);
   });
 
   it("picks highest priority task first (critical before high)", () => {
-    createTask(tempDir, { title: "High task", status: "todo", priority: "high", selector: "#a" });
-    createTask(tempDir, { title: "Critical task", status: "todo", priority: "critical", selector: "#b" });
+    createTask(tempDir, {
+      title: "High task",
+      status: "todo",
+      priority: "high",
+      selector: "#a",
+    });
+    createTask(tempDir, {
+      title: "Critical task",
+      status: "todo",
+      priority: "critical",
+      selector: "#b",
+    });
     const todos = listTasksWithPaths(tempDir)
       .filter((t) => t.status === "todo")
       .sort((a, b) => {
-        const byPriority = getPriorityRank(a.priority) - getPriorityRank(b.priority);
+        const byPriority =
+          getPriorityRank(a.priority) - getPriorityRank(b.priority);
         if (byPriority !== 0) return byPriority;
         return new Date(a.created).getTime() - new Date(b.created).getTime();
       });
@@ -879,28 +1011,56 @@ describe("--next task selection logic", () => {
   });
 
   it("picks highest priority task first (high before medium)", () => {
-    createTask(tempDir, { title: "Medium task", status: "todo", priority: "medium", selector: "#a" });
-    createTask(tempDir, { title: "High task", status: "todo", priority: "high", selector: "#b" });
+    createTask(tempDir, {
+      title: "Medium task",
+      status: "todo",
+      priority: "medium",
+      selector: "#a",
+    });
+    createTask(tempDir, {
+      title: "High task",
+      status: "todo",
+      priority: "high",
+      selector: "#b",
+    });
     const todos = listTasksWithPaths(tempDir)
       .filter((t) => t.status === "todo")
-      .sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
+      .sort(
+        (a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority),
+      );
     expect(todos[0].title).toBe("High task");
   });
 
   it("breaks priority ties by creation time (oldest first)", () => {
-    const first = createTask(tempDir, { title: "First medium", status: "todo", priority: "medium", selector: "#a" });
+    const first = createTask(tempDir, {
+      title: "First medium",
+      status: "todo",
+      priority: "medium",
+      selector: "#a",
+    });
     // force an earlier creation date on the second task by mutating the stored file
-    const second = createTask(tempDir, { title: "Second medium", status: "todo", priority: "medium", selector: "#b" });
+    const second = createTask(tempDir, {
+      title: "Second medium",
+      status: "todo",
+      priority: "medium",
+      selector: "#b",
+    });
     // Make second task appear older by setting its 'created' field earlier
-    const { filePath } = listTasksWithPaths(tempDir).find((t) => t.id === second.id)!;
-    const raw = JSON.parse(readFileSync(filePath!, "utf-8")) as Record<string, unknown>;
+    const { filePath } = listTasksWithPaths(tempDir).find(
+      (t) => t.id === second.id,
+    )!;
+    const raw = JSON.parse(readFileSync(filePath!, "utf-8")) as Record<
+      string,
+      unknown
+    >;
     raw.created = "2000-01-01T00:00:00.000Z";
     writeFileSync(filePath!, JSON.stringify(raw), "utf-8");
 
     const todos = listTasksWithPaths(tempDir)
       .filter((t) => t.status === "todo")
       .sort((a, b) => {
-        const byPriority = getPriorityRank(a.priority) - getPriorityRank(b.priority);
+        const byPriority =
+          getPriorityRank(a.priority) - getPriorityRank(b.priority);
         if (byPriority !== 0) return byPriority;
         return new Date(a.created).getTime() - new Date(b.created).getTime();
       });
@@ -911,7 +1071,11 @@ describe("--next task selection logic", () => {
   });
 
   it("moving selected task to in-progress via updateTask persists correctly", () => {
-    const task = createTask(tempDir, { title: "Task to start", status: "todo", selector: "#x" });
+    const task = createTask(tempDir, {
+      title: "Task to start",
+      status: "todo",
+      selector: "#x",
+    });
     const updated = updateTask(tempDir, task.id, { status: "in-progress" });
     expect(updated?.status).toBe("in-progress");
 
@@ -921,61 +1085,136 @@ describe("--next task selection logic", () => {
 
   it("only todo tasks are candidates — in-progress and done tasks are excluded", () => {
     createTask(tempDir, { title: "Todo task", status: "todo", selector: "#a" });
-    createTask(tempDir, { title: "In-progress task", status: "in-progress", selector: "#b" });
+    createTask(tempDir, {
+      title: "In-progress task",
+      status: "in-progress",
+      selector: "#b",
+    });
     createTask(tempDir, { title: "Done task", status: "done", selector: "#c" });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
     expect(todos).toHaveLength(1);
     expect(todos[0].title).toBe("Todo task");
   });
 
   it("--next --type filters to only matching type", () => {
-    createTask(tempDir, { title: "Bug todo", status: "todo", type: "Bug", selector: "#a" });
-    createTask(tempDir, { title: "Feature todo", status: "todo", type: "Feature", selector: "#b" });
+    createTask(tempDir, {
+      title: "Bug todo",
+      status: "todo",
+      type: "Bug",
+      selector: "#a",
+    });
+    createTask(tempDir, {
+      title: "Feature todo",
+      status: "todo",
+      type: "Feature",
+      selector: "#b",
+    });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
-    const filtered = todos.filter((t) => (t.type ?? "Task").toLowerCase() === "bug");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
+    const filtered = todos.filter(
+      (t) => (t.type ?? "Task").toLowerCase() === "bug",
+    );
     expect(filtered).toHaveLength(1);
     expect(filtered[0].title).toBe("Bug todo");
   });
 
   it("--next --type returns empty when no matching type exists", () => {
-    createTask(tempDir, { title: "Feature todo", status: "todo", type: "Feature", selector: "#a" });
+    createTask(tempDir, {
+      title: "Feature todo",
+      status: "todo",
+      type: "Feature",
+      selector: "#a",
+    });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
-    const filtered = todos.filter((t) => (t.type ?? "Task").toLowerCase() === "bug");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
+    const filtered = todos.filter(
+      (t) => (t.type ?? "Task").toLowerCase() === "bug",
+    );
     expect(filtered).toHaveLength(0);
   });
 
   it("--next --tag filters to only tasks with that tag", () => {
-    createTask(tempDir, { title: "Tagged todo", status: "todo", selector: "#a", tags: ["urgent"] });
-    createTask(tempDir, { title: "Untagged todo", status: "todo", selector: "#b" });
+    createTask(tempDir, {
+      title: "Tagged todo",
+      status: "todo",
+      selector: "#a",
+      tags: ["urgent"],
+    });
+    createTask(tempDir, {
+      title: "Untagged todo",
+      status: "todo",
+      selector: "#b",
+    });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
-    const filtered = todos.filter((t) => ["urgent"].every(tag => (t.tags ?? []).includes(tag)));
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
+    const filtered = todos.filter((t) =>
+      ["urgent"].every((tag) => (t.tags ?? []).includes(tag)),
+    );
     expect(filtered).toHaveLength(1);
     expect(filtered[0].title).toBe("Tagged todo");
   });
 
   it("--next --user filters to only tasks by that author", () => {
-    createTask(tempDir, { title: "Alice todo", status: "todo", selector: "#a", author: "alice@example.com" });
-    createTask(tempDir, { title: "Bob todo", status: "todo", selector: "#b", author: "bob@example.com" });
+    createTask(tempDir, {
+      title: "Alice todo",
+      status: "todo",
+      selector: "#a",
+      author: "alice@example.com",
+    });
+    createTask(tempDir, {
+      title: "Bob todo",
+      status: "todo",
+      selector: "#b",
+      author: "bob@example.com",
+    });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
-    const filtered = todos.filter((t) => (t.author ?? "").toLowerCase() === "alice@example.com");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
+    const filtered = todos.filter(
+      (t) => (t.author ?? "").toLowerCase() === "alice@example.com",
+    );
     expect(filtered).toHaveLength(1);
     expect(filtered[0].title).toBe("Alice todo");
   });
 
   it("--next combined type and tag filters narrows candidates correctly", () => {
-    createTask(tempDir, { title: "Bug urgent", status: "todo", type: "Bug", selector: "#a", tags: ["urgent"] });
-    createTask(tempDir, { title: "Bug normal", status: "todo", type: "Bug", selector: "#b" });
-    createTask(tempDir, { title: "Feature urgent", status: "todo", type: "Feature", selector: "#c", tags: ["urgent"] });
+    createTask(tempDir, {
+      title: "Bug urgent",
+      status: "todo",
+      type: "Bug",
+      selector: "#a",
+      tags: ["urgent"],
+    });
+    createTask(tempDir, {
+      title: "Bug normal",
+      status: "todo",
+      type: "Bug",
+      selector: "#b",
+    });
+    createTask(tempDir, {
+      title: "Feature urgent",
+      status: "todo",
+      type: "Feature",
+      selector: "#c",
+      tags: ["urgent"],
+    });
 
-    const todos = listTasksWithPaths(tempDir).filter((t) => t.status === "todo");
+    const todos = listTasksWithPaths(tempDir).filter(
+      (t) => t.status === "todo",
+    );
     const filtered = todos
       .filter((t) => (t.type ?? "Task").toLowerCase() === "bug")
-      .filter((t) => ["urgent"].every(tag => (t.tags ?? []).includes(tag)));
+      .filter((t) => ["urgent"].every((tag) => (t.tags ?? []).includes(tag)));
     expect(filtered).toHaveLength(1);
     expect(filtered[0].title).toBe("Bug urgent");
   });
@@ -993,9 +1232,14 @@ describe("--tag filter logic", () => {
   });
 
   /** Applies the same tag filter logic used in the tasks command. */
-  function applyTagFilter(tasks: ReturnType<typeof listTasks>, tags: string[]): ReturnType<typeof listTasks> {
+  function applyTagFilter(
+    tasks: ReturnType<typeof listTasks>,
+    tags: string[],
+  ): ReturnType<typeof listTasks> {
     if (!tags.length) return tasks;
-    return tasks.filter((t) => tags.every((tag) => (t.tags ?? []).includes(tag)));
+    return tasks.filter((t) =>
+      tags.every((tag) => (t.tags ?? []).includes(tag)),
+    );
   }
 
   it("returns all tasks when no tag filter is given", () => {
@@ -1006,9 +1250,17 @@ describe("--tag filter logic", () => {
   });
 
   it("filters to tasks that have the specified tag", () => {
-    createTask(tempDir, { title: "Tagged", selector: "#a", tags: ["frontend"] });
+    createTask(tempDir, {
+      title: "Tagged",
+      selector: "#a",
+      tags: ["frontend"],
+    });
     createTask(tempDir, { title: "Untagged", selector: "#b" });
-    createTask(tempDir, { title: "Other tag", selector: "#c", tags: ["backend"] });
+    createTask(tempDir, {
+      title: "Other tag",
+      selector: "#c",
+      tags: ["backend"],
+    });
 
     const result = applyTagFilter(listTasks(tempDir), ["frontend"]);
     expect(result).toHaveLength(1);
@@ -1016,9 +1268,21 @@ describe("--tag filter logic", () => {
   });
 
   it("AND logic: only returns tasks that have ALL specified tags", () => {
-    createTask(tempDir, { title: "Both", selector: "#a", tags: ["frontend", "urgent"] });
-    createTask(tempDir, { title: "Frontend only", selector: "#b", tags: ["frontend"] });
-    createTask(tempDir, { title: "Urgent only", selector: "#c", tags: ["urgent"] });
+    createTask(tempDir, {
+      title: "Both",
+      selector: "#a",
+      tags: ["frontend", "urgent"],
+    });
+    createTask(tempDir, {
+      title: "Frontend only",
+      selector: "#b",
+      tags: ["frontend"],
+    });
+    createTask(tempDir, {
+      title: "Urgent only",
+      selector: "#c",
+      tags: ["urgent"],
+    });
     createTask(tempDir, { title: "Neither", selector: "#d" });
 
     const result = applyTagFilter(listTasks(tempDir), ["frontend", "urgent"]);
@@ -1065,11 +1329,20 @@ describe("--tag filter logic", () => {
 describe("renderTaskForAgent", () => {
   let tempDir: string;
 
-  beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), "proto-render-")); });
-  afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-render-"));
+  });
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 
   it("renders basic task with status, title, id, file, selector, created", () => {
-    const task = createTask(tempDir, { title: "Render me", description: "", status: "todo", selector: "#btn" });
+    const task = createTask(tempDir, {
+      title: "Render me",
+      description: "",
+      status: "todo",
+      selector: "#btn",
+    });
     const filePath = findTaskFilePath(tempDir, task.id)!;
     const output = renderTaskForAgent(task, filePath, [], [], tempDir);
 
@@ -1092,7 +1365,13 @@ describe("renderTaskForAgent", () => {
       line: 42,
       col: 7,
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("source:   src/App.tsx:42:7");
   });
 
@@ -1107,7 +1386,13 @@ describe("renderTaskForAgent", () => {
       file: "src/App.tsx",
       line: 42,
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("source:   src/App.tsx:42");
     expect(output).not.toMatch(/:42:/);
   });
@@ -1122,7 +1407,13 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
       component: "MyButton",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("component: MyButton");
   });
 
@@ -1136,7 +1427,13 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
       cssSelector: "div.hero > h1",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("css:      div.hero > h1");
   });
 
@@ -1150,7 +1447,13 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
       url: "http://localhost:3000/page",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("url:      http://localhost:3000/page");
   });
 
@@ -1162,9 +1465,21 @@ describe("renderTaskForAgent", () => {
       status: "todo",
       selector: "/",
       created: "2025-01-01T00:00:00.000Z",
-      commits: [{ sha: "abc123def456", message: "fix: something", timestamp: "2025-01-01T00:00:00.000Z" }],
+      commits: [
+        {
+          sha: "abc123def456",
+          message: "fix: something",
+          timestamp: "2025-01-01T00:00:00.000Z",
+        },
+      ],
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("commit:   abc123def456");
     expect(output).not.toContain("commits (");
   });
@@ -1178,11 +1493,25 @@ describe("renderTaskForAgent", () => {
       selector: "/",
       created: "2025-01-01T00:00:00.000Z",
       commits: [
-        { sha: "aaa111bbb222", message: "first", timestamp: "2025-01-01T00:00:00.000Z" },
-        { sha: "ccc333ddd444", message: "second", timestamp: "2025-01-02T00:00:00.000Z" },
+        {
+          sha: "aaa111bbb222",
+          message: "first",
+          timestamp: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          sha: "ccc333ddd444",
+          message: "second",
+          timestamp: "2025-01-02T00:00:00.000Z",
+        },
       ],
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("commits (2):");
     expect(output).toContain("aaa111bb");
     expect(output).toContain("ccc333dd");
@@ -1199,7 +1528,13 @@ describe("renderTaskForAgent", () => {
       type: "Bug",
       priority: "High",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("type:     Bug");
     expect(output).toContain("priority: High");
   });
@@ -1214,7 +1549,13 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
       author: "alice@example.com",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("author:   alice@example.com");
   });
 
@@ -1227,7 +1568,13 @@ describe("renderTaskForAgent", () => {
       selector: "/",
       created: "2025-01-01T00:00:00.000Z",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("description:");
     expect(output).toContain("      Line one");
     expect(output).toContain("      Line two");
@@ -1243,7 +1590,13 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
       annotatedElementText: "Submit Button",
     };
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      [],
+      tempDir,
+    );
     expect(output).toContain("element text: Submit Button");
   });
 
@@ -1257,10 +1610,27 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
     };
     const comments: TaskComment[] = [
-      { id: "c1", author: "user", text: "Hello", createdAt: "2025-01-01T00:00:00.000Z" },
-      { id: "c2", author: "agent", text: "World", createdAt: "2025-01-01T01:00:00.000Z", updatedAt: "2025-01-01T02:00:00.000Z" },
+      {
+        id: "c1",
+        author: "user",
+        text: "Hello",
+        createdAt: "2025-01-01T00:00:00.000Z",
+      },
+      {
+        id: "c2",
+        author: "agent",
+        text: "World",
+        createdAt: "2025-01-01T01:00:00.000Z",
+        updatedAt: "2025-01-01T02:00:00.000Z",
+      },
     ];
-    const output = renderTaskForAgent(task, "/path/to/task.json", comments, [], tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      comments,
+      [],
+      tempDir,
+    );
     expect(output).toContain("comments (2):");
     expect(output).toContain("[user]");
     expect(output).toContain("[agent]");
@@ -1279,22 +1649,42 @@ describe("renderTaskForAgent", () => {
       created: "2025-01-01T00:00:00.000Z",
     };
     const files: FileInfo[] = [
-      { name: "report.md", size: 100, url: "/api/tasks/files123/files/report.md" },
+      {
+        name: "report.md",
+        size: 100,
+        url: "/api/tasks/files123/files/report.md",
+      },
     ];
-    const output = renderTaskForAgent(task, "/path/to/task.json", [], files, tempDir);
+    const output = renderTaskForAgent(
+      task,
+      "/path/to/task.json",
+      [],
+      files,
+      tempDir,
+    );
     expect(output).toContain("linked files (1):");
     expect(output).toContain("- report.md");
     expect(output).toContain("/api/tasks/files123/files/report.md");
   });
 
   it("renders file content preview for small .md files that exist", () => {
-    const task = createTask(tempDir, { title: "Preview task", description: "", status: "todo", selector: "/" });
+    const task = createTask(tempDir, {
+      title: "Preview task",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
     const filesDir = join(tempDir, ".vibeflow", "tasks", "files", task.id);
     mkdirSync(filesDir, { recursive: true });
     writeFileSync(join(filesDir, "preview.md"), "Hello\nWorld", "utf-8");
 
     const files: FileInfo[] = [
-      { name: "preview.md", size: 11, url: "/api/tasks/files/files/preview.md", linkedPath: join(filesDir, "preview.md") },
+      {
+        name: "preview.md",
+        size: 11,
+        url: "/api/tasks/files/files/preview.md",
+        linkedPath: join(filesDir, "preview.md"),
+      },
     ];
     const filePath = findTaskFilePath(tempDir, task.id)!;
     const output = renderTaskForAgent(task, filePath, [], files, tempDir);
@@ -1314,66 +1704,101 @@ describe("renderAgentInstructions", () => {
     expect(output).toContain("Workflow:");
     expect(output).toContain("in-progress");
     expect(output).toContain("NEVER edit .vibeflow/");
-    expect(output).toContain("NEVER set a task status to \"done\"");
+    expect(output).toContain('NEVER set a task status to "done"');
   });
 
   it("includes auto-commit step 3/4 when autoCommit is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: true,
+    });
     expect(output).toContain("git add <files>   (stage your changes first)");
     expect(output).toContain('--commit-message "<one-line summary>"');
     expect(output).toContain("CLI will commit staged changes");
   });
 
   it("includes manual commit step when autoCommit is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoCommit: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: false,
+    });
     expect(output).toContain("git add <files> && vibeflow tasks --commit");
     expect(output).not.toContain("CLI will commit staged changes");
   });
 
   it("includes --comment arg in review step when autoComment is true with autoCommit", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true, autoComment: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: true,
+      autoComment: true,
+    });
     expect(output).toContain('--comment "<report>"');
   });
 
   it("includes --comment arg in review step when autoComment is true without autoCommit", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoCommit: false, autoComment: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: false,
+      autoComment: true,
+    });
     expect(output).toContain('--comment "<report>"');
   });
 
   it("includes Comment format section when autoComment is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoComment: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoComment: true,
+    });
     expect(output).toContain("Comment format (--comment):");
     expect(output).toContain("Plain text for concise");
     expect(output).toContain("Markdown for multi-section");
   });
 
   it("excludes Comment format section when autoComment is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoComment: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoComment: false,
+    });
     expect(output).not.toContain("Comment format (--comment):");
   });
 
   it("includes Auto-push setting when autoPush is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoPush: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoPush: true,
+    });
     expect(output).toContain("Auto-push ON");
   });
 
   it("excludes Auto-push setting when autoPush is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoPush: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoPush: false,
+    });
     expect(output).not.toContain("Auto-push ON");
   });
 
   it("includes Auto-commit setting when autoCommit is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: true,
+    });
     expect(output).toContain("Auto-commit ON");
   });
 
   it("includes Auto-comment setting when autoComment is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, autoComment: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoComment: true,
+    });
     expect(output).toContain("Auto-comment ON");
   });
 
   it("includes Create branch instructions when createBranch is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, createBranch: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      createBranch: true,
+    });
     expect(output).toContain("Create branch ON");
     expect(output).toContain("git checkout -b");
     expect(output).toContain("Branch name rules");
@@ -1381,7 +1806,10 @@ describe("renderAgentInstructions", () => {
   });
 
   it("excludes Create branch instructions when createBranch is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, createBranch: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      createBranch: false,
+    });
     expect(output).not.toContain("Create branch ON");
     expect(output).not.toContain("git checkout -b");
   });
@@ -1401,7 +1829,10 @@ describe("renderAgentInstructions", () => {
   });
 
   it("includes Bug task instructions when hasBugTasks is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, hasBugTasks: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      hasBugTasks: true,
+    });
     expect(output).toContain("Bug tasks:");
     expect(output).toContain("· Symptom:");
     expect(output).toContain("· Root cause:");
@@ -1409,7 +1840,10 @@ describe("renderAgentInstructions", () => {
   });
 
   it("excludes Bug task instructions when hasBugTasks is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, hasBugTasks: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      hasBugTasks: false,
+    });
     expect(output).not.toContain("Bug tasks:");
   });
 
@@ -1432,13 +1866,19 @@ describe("renderAgentInstructions", () => {
   });
 
   it("includes Verify gate setting when requireVerifyBeforeReview is true", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: true });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: true,
+    });
     expect(output).toContain("Verify gate ON");
     expect(output).toContain("vibeflow verify before setting status to review");
   });
 
   it("excludes Verify gate setting when requireVerifyBeforeReview is false", () => {
-    const output = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: false });
+    const output = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: false,
+    });
     expect(output).not.toContain("Verify gate ON");
   });
 });
@@ -1457,9 +1897,17 @@ describe("next_actions hints", () => {
   });
 
   it("add task returns next_actions in JSON output", () => {
-    const task = createTask(tempDir, { title: "Test task", description: "", status: "todo", selector: "/" });
+    const task = createTask(tempDir, {
+      title: "Test task",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
     // Simulate what the CLI does for --add --json output
-    const nextActions = ["set status to in-progress before implementation", "add a description"];
+    const nextActions = [
+      "set status to in-progress before implementation",
+      "add a description",
+    ];
     const output = { success: true, task, next_actions: nextActions };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
@@ -1468,9 +1916,19 @@ describe("next_actions hints", () => {
   });
 
   it("set-status in-progress returns next_actions with implementation hints", () => {
-    const task = createTask(tempDir, { title: "Test task", description: "", status: "todo", selector: "/" });
+    const task = createTask(tempDir, {
+      title: "Test task",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
     const updated = updateTask(tempDir, task.id, { status: "in-progress" });
-    const nextActions = ["implement the change", "run tests", `commit with vibeflow tasks --commit --task ${task.id} --message "..."`, "set review status"];
+    const nextActions = [
+      "implement the change",
+      "run tests",
+      `commit with vibeflow tasks --commit --task ${task.id} --message "..."`,
+      "set review status",
+    ];
     const output = { success: true, task: updated, next_actions: nextActions };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
@@ -1480,7 +1938,12 @@ describe("next_actions hints", () => {
   });
 
   it("set-status review returns next_actions with review hint", () => {
-    const task = createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
+    const task = createTask(tempDir, {
+      title: "Test task",
+      description: "",
+      status: "in-progress",
+      selector: "/",
+    });
     const updated = updateTask(tempDir, task.id, { status: "review" });
     const nextActions = ["only humans mark done after reviewing"];
     const output = { success: true, task: updated, next_actions: nextActions };
@@ -1490,23 +1953,41 @@ describe("next_actions hints", () => {
   });
 
   it("commit returns next_actions with review status hint", () => {
-    createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
+    createTask(tempDir, {
+      title: "Test task",
+      description: "",
+      status: "in-progress",
+      selector: "/",
+    });
     const commitSha = "abc12345";
-    const nextActions = ["set review status with vibeflow tasks --edit <id> --set-status review --comment \"what changed and why\""];
-    const output = { success: true, commit: commitSha, next_actions: nextActions };
+    const nextActions = [
+      'set review status with vibeflow tasks --edit <id> --set-status review --comment "what changed and why"',
+    ];
+    const output = {
+      success: true,
+      commit: commitSha,
+      next_actions: nextActions,
+    };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
     expect(json).toContain("set review status with vibeflow tasks --edit");
   });
 
   it("next_actions array has max 4 items", () => {
-    const nextActions = ["implement the change", "run tests", `commit with vibeflow tasks --commit --task test123 --message "..."`, "set review status"];
+    const nextActions = [
+      "implement the change",
+      "run tests",
+      `commit with vibeflow tasks --commit --task test123 --message "..."`,
+      "set review status",
+    ];
     expect(nextActions.length).toBeLessThanOrEqual(4);
   });
 });
 
-
-import { getPriorityRank, compareTasksByPriorityThenCreated } from "../../src/core/types.js";
+import {
+  getPriorityRank,
+  compareTasksByPriorityThenCreated,
+} from "../../src/core/types.js";
 
 describe("compareTasksByPriorityThenCreated", () => {
   it("critical beats high", () => {
