@@ -1326,4 +1326,92 @@ describe("proto serve — deprecated agents API", () => {
     const data = (await res.json()) as { tasks: unknown[] };
     expect(data.tasks).toHaveLength(3);
   });
+
+  // ── Recursive delete (?deleteChildren) ───────────────────────────────
+  const createTree = async (port: number) => {
+    const post = async (title: string, parentId?: string) => {
+      const r = await fetch(`http://localhost:${port}/api/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          selector: "/body",
+          ...(parentId
+            ? { links: [{ taskId: parentId, type: "parent" }] }
+            : {}),
+        }),
+      });
+      const data = (await r.json()) as { task: { id: string } };
+      return data.task.id;
+    };
+    const parent = await post("del-parent");
+    const child = await post("del-child", parent);
+    const grand = await post("del-grand", child);
+    return { parent, child, grand };
+  };
+  const listIds = async (port: number) => {
+    const r = await fetch(`http://localhost:${port}/api/tasks`);
+    const data = (await r.json()) as { tasks: Array<{ id: string }> };
+    return data.tasks.map((t) => t.id);
+  };
+
+  it("DELETE ?deleteChildren=true removes the whole subtree", async () => {
+    instance = await serve(undefined, {
+      port: 9840,
+      open: false,
+      projectDir: tempDir,
+    });
+    const { parent, child, grand } = await createTree(9840);
+
+    const del = await fetch(
+      `http://localhost:9840/api/tasks/${parent}?deleteChildren=true`,
+      { method: "DELETE" },
+    );
+    expect(del.ok).toBe(true);
+    const remaining = await listIds(9840);
+    expect(remaining).not.toContain(parent);
+    expect(remaining).not.toContain(child);
+    expect(remaining).not.toContain(grand);
+  });
+
+  it("DELETE ?deleteChildren wins when both flags are passed", async () => {
+    instance = await serve(undefined, {
+      port: 9841,
+      open: false,
+      projectDir: tempDir,
+    });
+    const { parent, child } = await createTree(9841);
+
+    const del = await fetch(
+      `http://localhost:9841/api/tasks/${parent}?deleteChildren=true&unlinkChildren=true`,
+      { method: "DELETE" },
+    );
+    expect(del.ok).toBe(true);
+    const remaining = await listIds(9841);
+    expect(remaining).not.toContain(parent);
+    expect(remaining).not.toContain(child);
+  });
+
+  it("DELETE without flags keeps children, 404 for unknown id", async () => {
+    instance = await serve(undefined, {
+      port: 9842,
+      open: false,
+      projectDir: tempDir,
+    });
+    const { parent, child } = await createTree(9842);
+
+    const del = await fetch(`http://localhost:9842/api/tasks/${parent}`, {
+      method: "DELETE",
+    });
+    expect(del.ok).toBe(true);
+    const remaining = await listIds(9842);
+    expect(remaining).not.toContain(parent);
+    expect(remaining).toContain(child);
+
+    const missing = await fetch(
+      `http://localhost:9842/api/tasks/aabbccddeeff001122334455667788?deleteChildren=true`,
+      { method: "DELETE" },
+    );
+    expect(missing.status).toBe(404);
+  });
 });

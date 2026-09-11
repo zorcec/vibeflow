@@ -37,11 +37,19 @@ export const api: KanbanApi = {
     return r.json() as Promise<{ success: boolean; task?: Task }>;
   },
 
-  async deleteTask(id: string, unlinkChildren?: boolean): Promise<void> {
-    const url = unlinkChildren
-      ? `${API}/${encodeURIComponent(id)}?unlinkChildren=true`
-      : `${API}/${id}`;
-    await fetch(url, { method: "DELETE" });
+  async deleteTask(
+    id: string,
+    unlinkChildren?: boolean,
+    deleteChildren?: boolean,
+  ): Promise<void> {
+    const params = new URLSearchParams();
+    // Recursive delete wins when both flags are passed.
+    if (deleteChildren) params.set("deleteChildren", "true");
+    else if (unlinkChildren) params.set("unlinkChildren", "true");
+    const qs = params.size > 0 ? `?${params}` : "";
+    await fetch(`${API}/${encodeURIComponent(id)}${qs}`, {
+      method: "DELETE",
+    });
   },
 
   async getComments(taskId: string): Promise<{ comments: Comment[] }> {

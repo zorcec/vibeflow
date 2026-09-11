@@ -1,30 +1,36 @@
 import React from "react";
 import { ModalBase } from "@vibeflow-tools/ui/kanban";
 
+export type DeleteChildrenMode = "keep" | "unlink" | "recursive";
+
 interface DeleteConfirmDialogProps {
   open: boolean;
   taskTitle: string;
   childCount: number;
   onCancel: () => void;
-  onDeleteOnly: () => void;
-  onDeleteAndUnlink: () => void;
+  onDelete: (mode: DeleteChildrenMode) => void;
   loading?: boolean;
 }
 
 /**
  * Delete confirmation dialog with orphan awareness.
  * Shows when the user tries to delete a task that has children.
- * Offers: Cancel | Delete parent only | Delete parent and unlink children.
+ * Offers a radio choice (keep as separate tasks / unlink to roots /
+ * delete the whole subtree) plus Cancel | Delete footer.
  */
 export function DeleteConfirmDialog({
   open,
   taskTitle,
   childCount,
   onCancel,
-  onDeleteOnly,
-  onDeleteAndUnlink,
+  onDelete,
   loading = false,
 }: DeleteConfirmDialogProps) {
+  const [mode, setMode] = React.useState<DeleteChildrenMode>("keep");
+  React.useEffect(() => {
+    if (open) setMode("keep");
+  }, [open]);
+  const danger = mode === "recursive";
   return (
     <ModalBase
       open={open}
@@ -52,34 +58,15 @@ export function DeleteConfirmDialog({
             Cancel
           </button>
           <button
-            id="delete-confirm-delete-only"
-            onClick={onDeleteOnly}
+            id="delete-confirm-delete"
+            onClick={() => onDelete(mode)}
             disabled={loading}
             style={{
               padding: "7px 16px",
               borderRadius: 8,
-              background: "var(--p-hover)",
-              border: "1px solid var(--p-border)",
-              color: "var(--p-text-f)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: loading ? "wait" : "pointer",
-              opacity: loading ? 0.6 : 1,
-              transition: "background 0.15s",
-            }}
-          >
-            {loading ? "…" : "Delete parent only"}
-          </button>
-          <button
-            id="delete-confirm-unlink"
-            onClick={onDeleteAndUnlink}
-            disabled={loading}
-            style={{
-              padding: "7px 16px",
-              borderRadius: 8,
-              background: "#dc2626",
-              border: "none",
-              color: "#fff",
+              background: danger ? "#dc2626" : "var(--p-hover)",
+              border: danger ? "none" : "1px solid var(--p-border)",
+              color: danger ? "#fff" : "var(--p-text-f)",
               fontSize: 13,
               fontWeight: 600,
               cursor: loading ? "wait" : "pointer",
@@ -87,7 +74,7 @@ export function DeleteConfirmDialog({
               transition: "background 0.15s",
             }}
           >
-            {loading ? "…" : "Delete and unlink children"}
+            {loading ? "…" : "Delete"}
           </button>
         </>
       }
@@ -104,24 +91,108 @@ export function DeleteConfirmDialog({
           This task has{" "}
           <strong style={{ color: "var(--p-text)" }}>
             {childCount} child task{childCount === 1 ? "" : "s"}
-          </strong>{" "}
-          that will become orphaned (no parent).
+          </strong>
+          . What should happen to them?
         </p>
-        <p
+        <div
+          role="radiogroup"
+          aria-label="What to do with child tasks"
           style={{
-            margin: "10px 0 0",
-            fontSize: 12,
-            color: "var(--p-text-m)",
-            lineHeight: 1.5,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginTop: 12,
           }}
         >
-          <strong>Delete parent only</strong> — children remain as orphaned root
-          tasks.
-          <br />
-          <strong>Delete and unlink children</strong> — children become root
-          tasks with no parent link.
-        </p>
+          <DeleteModeOption
+            id="delete-mode-keep"
+            checked={mode === "keep"}
+            onSelect={() => setMode("keep")}
+            title="Keep children as separate tasks"
+            hint="Children remain as root tasks with no parent."
+          />
+          <DeleteModeOption
+            id="delete-mode-unlink"
+            checked={mode === "unlink"}
+            onSelect={() => setMode("unlink")}
+            title="Delete parent only, unlink children"
+            hint="Parent link is removed; children become root tasks."
+          />
+          <DeleteModeOption
+            id="delete-mode-recursive"
+            checked={mode === "recursive"}
+            onSelect={() => setMode("recursive")}
+            title={`Delete parent and all ${childCount} child task${childCount === 1 ? "" : "s"}`}
+            hint="The whole subtree is permanently removed. This cannot be undone."
+            warning
+          />
+        </div>
       </div>
     </ModalBase>
+  );
+}
+
+function DeleteModeOption({
+  id,
+  checked,
+  onSelect,
+  title,
+  hint,
+  warning = false,
+}: {
+  id: string;
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  hint: string;
+  warning?: boolean;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      style={{
+        display: "flex",
+        gap: 10,
+        alignItems: "flex-start",
+        padding: "9px 12px",
+        borderRadius: 8,
+        border: checked
+          ? "1px solid var(--p-blue, #60a5fa)"
+          : "1px solid var(--p-border)",
+        background: checked ? "var(--p-hover)" : "transparent",
+        cursor: "pointer",
+      }}
+    >
+      <input
+        id={id}
+        type="radio"
+        name="delete-children-mode"
+        checked={checked}
+        onChange={onSelect}
+        style={{ marginTop: 2, accentColor: "var(--p-blue, #60a5fa)" }}
+      />
+      <span>
+        <span
+          style={{
+            display: "block",
+            fontSize: 13,
+            fontWeight: 600,
+            color: warning ? "#f87171" : "var(--p-text-f)",
+          }}
+        >
+          {title}
+        </span>
+        <span
+          style={{
+            display: "block",
+            fontSize: 12,
+            color: "var(--p-text-m)",
+            marginTop: 2,
+          }}
+        >
+          {hint}
+        </span>
+      </span>
+    </label>
   );
 }

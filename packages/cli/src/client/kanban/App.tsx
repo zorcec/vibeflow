@@ -1250,14 +1250,42 @@ export function App() {
       });
   }
 
-  async function deleteTaskById(id: string, unlinkChildren?: boolean) {
+  async function deleteTaskById(
+    id: string,
+    opts?: boolean | { unlinkChildren?: boolean; deleteChildren?: boolean },
+  ) {
+    const unlinkChildren =
+      typeof opts === "boolean" ? opts : (opts?.unlinkChildren ?? false);
+    const deleteChildren =
+      typeof opts === "object" ? (opts?.deleteChildren ?? false) : false;
     setTasks((prev) => {
-      const next = prev.filter((t) => t.id !== id);
+      // Optimistically drop the parent plus the whole known subtree so
+      // recursively deleted cards vanish immediately; any mismatch with
+      // the server is reconciled by the loadTasks fallback below.
+      const remove = new Set<string>([id]);
+      if (deleteChildren) {
+        const queue = [id];
+        while (queue.length > 0) {
+          const cur = queue.shift()!;
+          for (const t of prev) {
+            if (
+              !remove.has(t.id) &&
+              t.links?.some(
+                (l) => l.type === "parent" && l.taskId === cur,
+              )
+            ) {
+              remove.add(t.id);
+              queue.push(t.id);
+            }
+          }
+        }
+      }
+      const next = prev.filter((t) => !remove.has(t.id));
       tasksRef.current = next;
       return next;
     });
     try {
-      await api.deleteTask(id, unlinkChildren);
+      await api.deleteTask(id, unlinkChildren, deleteChildren);
     } catch {
       void loadTasks();
     }
@@ -1682,18 +1710,14 @@ export function App() {
         taskTitle={deleteConfirm?.taskTitle ?? ""}
         childCount={deleteConfirm?.childCount ?? 0}
         onCancel={() => setDeleteConfirm(null)}
-        onDeleteOnly={async () => {
+        onDelete={async (mode) => {
           if (!deleteConfirm) return;
           const id = deleteConfirm.taskId;
           setDeleteConfirm(null);
-          await deleteTaskById(id);
-          setPanelState((p) => ({ ...p, open: false }));
-        }}
-        onDeleteAndUnlink={async () => {
-          if (!deleteConfirm) return;
-          const id = deleteConfirm.taskId;
-          setDeleteConfirm(null);
-          await deleteTaskById(id, true);
+          if (mode === "recursive")
+            await deleteTaskById(id, { deleteChildren: true });
+          else if (mode === "unlink") await deleteTaskById(id, true);
+          else await deleteTaskById(id);
           setPanelState((p) => ({ ...p, open: false }));
         }}
       />

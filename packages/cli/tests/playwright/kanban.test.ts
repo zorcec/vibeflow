@@ -2283,6 +2283,60 @@ describe("Kanban board", () => {
     );
     expect(colCount).toBeGreaterThanOrEqual(5);
   });
+
+  // ── Delete confirmation with children ─────────────────────────────────────
+  it("delete dialog offers recursive delete that removes the whole subtree", async () => {
+    const post = async (title: string, parentId?: string) => {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          status: "todo",
+          selector: "/",
+          ...(parentId
+            ? { links: [{ taskId: parentId, type: "parent" }] }
+            : {}),
+        }),
+      });
+      const data = (await r.json()) as { task: { id: string } };
+      return data.task.id;
+    };
+    const stamp = Date.now();
+    const parentTitle = `RecDel parent ${stamp}`;
+    const childTitle = `RecDel child ${stamp}`;
+    const parentId = await post(parentTitle);
+    await post(childTitle, parentId);
+    await waitForTaskOnBoard(page, parentTitle);
+    await waitForTaskOnBoard(page, childTitle);
+
+    await openTaskByTitle(page, parentTitle);
+    await page.click("#dp-delete");
+    await page.click("#confirm-modal-confirm");
+    await page.waitForSelector("#delete-confirm-dialog");
+
+    // Three modes offered, default = keep.
+    expect(
+      await page.locator('input[name="delete-children-mode"]').count(),
+    ).toBe(3);
+    expect(await page.locator("#delete-mode-keep").isChecked()).toBe(true);
+
+    await page.check("#delete-mode-recursive");
+    await page.click("#delete-confirm-delete");
+
+    // Both parent and child cards disappear from the board.
+    await page.waitForFunction(
+      ([p, c]) =>
+        ![...document.querySelectorAll("article.task-card")].some((card) =>
+          card.textContent?.includes(p),
+        ) &&
+        ![...document.querySelectorAll("article.task-card")].some((card) =>
+          card.textContent?.includes(c),
+        ),
+      [parentTitle, childTitle],
+      { timeout: 10_000 },
+    );
+  });
 });
 
 // ─── Task reference navigation e2e tests ────────────────────────────────────

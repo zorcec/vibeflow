@@ -13,6 +13,7 @@ import {
   findTaskFilePath,
   updateTask,
   deleteTask,
+  getDescendantIds,
   formatTaskForAgent,
   migrateFlatTasksToDateDirs,
   renderTaskForAgent,
@@ -242,6 +243,71 @@ describe("CRUD operations", () => {
   it("deleteTask returns false for non-existent task", () => {
     ensureTaskDirs(tempDir);
     expect(deleteTask(tempDir, "nonexist")).toBe(false);
+  });
+
+  describe("getDescendantIds", () => {
+    const linkChild = (childId: string, parentId: string) => {
+      const updated = updateTask(tempDir, childId, {
+        links: [{ type: "parent" as const, taskId: parentId }],
+      });
+      expect(updated).not.toBeNull();
+    };
+    const makeTree = () => {
+      ensureTaskDirs(tempDir);
+      const mk = (title: string) =>
+        createTask(tempDir, { title, description: "", status: "todo", selector: "/" }).id;
+      const parent = mk("parent");
+      const childA = mk("child-a");
+      const childB = mk("child-b");
+      const grand = mk("grand");
+      linkChild(childA, parent);
+      linkChild(childB, parent);
+      linkChild(grand, childA);
+      return { parent, childA, childB, grand };
+    };
+
+    it("returns children and grandchildren, parents before children", () => {
+      const { parent, childA, childB, grand } = makeTree();
+      const ids = getDescendantIds(listTasks(tempDir), parent);
+      expect(ids).toHaveLength(3);
+      expect(new Set(ids)).toEqual(new Set([childA, childB, grand]));
+      // Deepest-first deletion order = reversed, grandchild first.
+      expect([...ids].reverse()[0]).toBe(grand);
+    });
+
+    it("returns only the subtree, not siblings or parents", () => {
+      const { childA, grand } = makeTree();
+      expect(getDescendantIds(listTasks(tempDir), childA)).toEqual([grand]);
+    });
+
+    it("returns empty array for childless tasks and unknown ids", () => {
+      const { grand, parent } = makeTree();
+      expect(getDescendantIds(listTasks(tempDir), grand)).toEqual([]);
+      expect(getDescendantIds(listTasks(tempDir), parent).length).toBe(3);
+      expect(getDescendantIds(listTasks(tempDir), "nonexist")).toEqual([]);
+    });
+
+    it("lists a shared grandchild once (diamond)", () => {
+      const { parent, childA, childB, grand } = makeTree();
+      const updated = updateTask(tempDir, grand, {
+        links: [
+          { type: "parent" as const, taskId: childA },
+          { type: "parent" as const, taskId: childB },
+        ],
+      });
+      expect(updated).not.toBeNull();
+      const ids = getDescendantIds(listTasks(tempDir), parent);
+      expect(ids.filter((id) => id === grand)).toHaveLength(1);
+    });
+
+    it("is cycle-safe and never includes the root", () => {
+      const { parent, childA } = makeTree();
+      // Forge a cycle: parent claims childA as its own parent.
+      linkChild(parent, childA);
+      const ids = getDescendantIds(listTasks(tempDir), parent);
+      expect(ids).not.toContain(parent);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
   });
 
   it("readTaskFile reads and parses a task file", () => {
@@ -1424,7 +1490,7 @@ describe("next_actions hints", () => {
   });
 
   it("commit returns next_actions with review status hint", () => {
-    const task = createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
+    createTask(tempDir, { title: "Test task", description: "", status: "in-progress", selector: "/" });
     const commitSha = "abc12345";
     const nextActions = ["set review status with vibeflow tasks --edit <id> --set-status review --comment \"what changed and why\""];
     const output = { success: true, commit: commitSha, next_actions: nextActions };

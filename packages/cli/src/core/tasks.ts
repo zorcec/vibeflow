@@ -446,6 +446,36 @@ export function deleteTask(projectDir: string, taskId: string): boolean {
   return true;
 }
 
+/**
+ * Return all descendant ids (children, grandchildren, …) of a task by
+ * following `parent` links. Cycle-safe via visited-set; parents always
+ * appear before their children, so reversing the result yields
+ * deepest-first order for recursive deletion.
+ */
+export function getDescendantIds(
+  allTasks: Task[],
+  taskId: string,
+): string[] {
+  const result: string[] = [];
+  const visited = new Set<string>([taskId]);
+  const queue = [taskId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const t of allTasks) {
+      if (
+        t?.id &&
+        !visited.has(t.id) &&
+        t.links?.some((l) => l?.type === "parent" && l?.taskId === id)
+      ) {
+        visited.add(t.id);
+        result.push(t.id);
+        queue.push(t.id);
+      }
+    }
+  }
+  return result;
+}
+
 // ── Atomic task claiming ──────────────────────────────────────────────────
 
 /**
