@@ -264,6 +264,12 @@ export function KanbanBoard({
     setDropIntent(null);
     setMakeChildTarget(null);
     e.dataTransfer.effectAllowed = "move";
+    // D1: Firefox requires setData() to initiate HTML5 drag.
+    try {
+      e.dataTransfer.setData("text/plain", taskId);
+    } catch {
+      /* test environments may throw */
+    }
   }
 
   function handleDragOver(e: React.DragEvent, colId: string) {
@@ -391,11 +397,14 @@ export function KanbanBoard({
       if (intent.fromTree) {
         // Tree-row center drop — reparent under the hovered row's task.
         // Use canReparent (allows existing parents) instead of targetValid.
-        if (!canReparent(tasks, dragging, intent.parentId)) return;
-        onTreeReparent?.(dragging, intent.parentId);
-        return;
-      }
-      if (onLinkChild) {
+        if (!canReparent(tasks, dragging, intent.parentId)) {
+          // D2: not reparentable — fall through to fallback (no-op) rather
+          // than silently returning.
+        } else {
+          onTreeReparent?.(dragging, intent.parentId);
+          return;
+        }
+      } else if (onLinkChild) {
         // Card-zone drop — link as child (rejects existing parents).
         const freshValid = targetValid(tasks, dragging, intent.parentId);
         if (freshValid) onLinkChild(dragging, intent.parentId);
@@ -465,6 +474,12 @@ export function KanbanBoard({
     setDropIntent(null);
     setMakeChildTarget(null);
     e.dataTransfer.effectAllowed = "move";
+    // D1: Firefox requires setData() to initiate HTML5 drag.
+    try {
+      e.dataTransfer.setData("text/plain", childId);
+    } catch {
+      /* test environments may throw */
+    }
   }
 
   {

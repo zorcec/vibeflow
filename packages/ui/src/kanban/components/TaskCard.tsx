@@ -552,6 +552,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     tabIndex={0}
                                     className="child-toggle-chip"
                                     data-role="children-toggle"
+                                    draggable={false}
                                     aria-expanded={expanded}
                                     title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree — activate to ${expanded ? "collapse" : "expand"}`}
                                     style={{
@@ -560,6 +561,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           cursor: "pointer",
                                           flexShrink: 0,
                                     }}
+                                    onMouseDown={(e) => e.stopPropagation()}
                                     onMouseEnter={() => {
                                           if (childHoverTimeout.current)
                                                 clearTimeout(

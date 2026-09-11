@@ -178,6 +178,15 @@ body {
 .task-card.dragging {
  opacity: 0.4;
 }
+/* D3: suppress child-toggle chip morph while card is being dragged —
+   label↔chevron swap reflows the card during dragstart. */
+.task-card.dragging .child-toggle-chip:hover .child-toggle-label,
+.task-card.dragging .child-toggle-chip:hover .child-toggle-chevron {
+ display: none;
+}
+.task-card.dragging .child-toggle-chip .child-toggle-label {
+ display: block !important;
+}
 /* ── Card children toggle chip (footer, last item — the ⤷N count morphs
    into a chevron on hover/focus; chevron-up persists while expanded.
    Only rendered when children exist.) ── */
