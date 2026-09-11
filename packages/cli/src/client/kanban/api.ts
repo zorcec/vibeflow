@@ -52,14 +52,9 @@ export const api: KanbanApi = {
     });
   },
 
-  async detachTask(
-    id: string,
-    deleteChildren?: boolean,
-  ): Promise<void> {
-    const params = new URLSearchParams();
-    if (deleteChildren) params.set("deleteChildren", "true");
-    const qs = params.size > 0 ? `?${params}` : "";
-    await fetch(`${API}/${encodeURIComponent(id)}/detach${qs}`, {
+  /** Unlink a child task from its parent — only removes the parent link, never deletes. */
+  async detachTask(id: string): Promise<void> {
+    await fetch(`${API}/${encodeURIComponent(id)}/detach`, {
       method: "POST",
     });
   },

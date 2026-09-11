@@ -153,8 +153,8 @@ interface Props {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
-  /** Called when the user confirms detach (move-up or delete-children). */
-  onDetach?: (taskId: string, deleteChildren: boolean) => void;
+  /** Called when the user confirms unlink (removes parent link, never deletes). */
+  onDetach?: (taskId: string) => void;
 }
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit

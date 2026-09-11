@@ -701,26 +701,21 @@ function registerTaskApi(
     res.json({ success: true });
   });
 
-  // POST /api/tasks/:id/detach — detach task from its parent without deleting it.
-  // Default: re-parent direct children to former parent.
-  // ?deleteChildren=true: delete descendants, keep task as root.
+  // POST /api/tasks/:id/detach — unlink task from its parent without deleting it.
+  // Only removes the parent link; children move up one level.
+  // This is the ONLY unlink surface. Deletion is handled by DELETE /api/tasks/:id.
   app.post("/api/tasks/:id/detach", (req, res) => {
     const { id } = req.params;
-    const deleteChildren = req.query.deleteChildren === "true";
 
     // Snapshot children BEFORE detachParent so we can broadcast affected
-    // tasks. After detach: move-up re-parents them (old links gone),
-    // deleteChildren removes them from disk.
+    // tasks. After detach: move-up re-parents them (old links gone).
     const preDetachAllTasks = listTasks(projectDir);
     const preDetachChildren = preDetachAllTasks.filter(
       (t) =>
         t?.id && t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
     );
-    const descendantIds = deleteChildren
-      ? getDescendantIds(preDetachAllTasks, id)
-      : [];
 
-    const updated = detachParent(projectDir, id, { deleteChildren });
+    const updated = detachParent(projectDir, id);
     if (!updated) {
       res.status(404).json({ error: "Task not found" });
       return;
@@ -734,32 +729,23 @@ function registerTaskApi(
       task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
     });
 
-    if (deleteChildren) {
-      // Broadcast task-deleted for each removed descendant
-      for (const descId of descendantIds) {
-        broadcast({ type: "task-deleted", taskId: descId });
-      }
-    } else {
-      // Move-up: re-read children after detachParent (they now have updated
-      // parent links pointing at the former parent) and broadcast each.
-      const postDetachAllTasks = listTasks(projectDir);
-      for (const child of preDetachChildren) {
-        if (!child.id) continue;
-        const refreshed = postDetachAllTasks.find((t) => t.id === child.id);
-        if (refreshed) {
-          broadcast({
-            type: "task-changed",
-            taskId: refreshed.id,
-            action: "update",
-            task: { ...refreshed, fileCount: getFileCount(projectDir, refreshed.id) },
-          });
-        }
+    // Move-up: re-read children after detachParent (they now have updated
+    // parent links pointing at the former parent) and broadcast each.
+    const postDetachAllTasks = listTasks(projectDir);
+    for (const child of preDetachChildren) {
+      if (!child.id) continue;
+      const refreshed = postDetachAllTasks.find((t) => t.id === child.id);
+      if (refreshed) {
+        broadcast({
+          type: "task-changed",
+          taskId: refreshed.id,
+          action: "update",
+          task: { ...refreshed, fileCount: getFileCount(projectDir, refreshed.id) },
+        });
       }
     }
 
-    console.log(
-      `[Vibeflow] Task detached: ${id}${deleteChildren ? " (delete children)" : ""}`,
-    );
+    console.log(`[Vibeflow] Task unlinked: ${id}`);
     res.json({ success: true, task: updated });
   });
 

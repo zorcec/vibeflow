@@ -1,7 +1,7 @@
 import React from "react";
 import { ModalBase } from "./ModalBase";
 
-export type DeleteChildrenMode = "keep" | "unlink" | "recursive";
+export type DeleteChildrenMode = "roots" | "recursive";
 
 interface DeleteConfirmDialogProps {
   open: boolean;
@@ -15,8 +15,8 @@ interface DeleteConfirmDialogProps {
 /**
  * Delete confirmation dialog with orphan awareness.
  * Shows when the user tries to delete a task that has children.
- * Offers a radio choice (keep as separate tasks / unlink to roots /
- * delete the whole subtree) plus Cancel | Delete footer.
+ * Offers a radio choice (children become roots / delete whole subtree)
+ * plus Cancel | Delete footer. This is the ONLY deletion surface.
  */
 export function DeleteConfirmDialog({
   open,
@@ -26,9 +26,9 @@ export function DeleteConfirmDialog({
   onDelete,
   loading = false,
 }: DeleteConfirmDialogProps) {
-  const [mode, setMode] = React.useState<DeleteChildrenMode>("keep");
+  const [mode, setMode] = React.useState<DeleteChildrenMode>("roots");
   React.useEffect(() => {
-    if (open) setMode("keep");
+    if (open) setMode("roots");
   }, [open]);
   const danger = mode === "recursive";
   return (
@@ -105,18 +105,11 @@ export function DeleteConfirmDialog({
           }}
         >
           <DeleteModeOption
-            id="delete-mode-keep"
-            checked={mode === "keep"}
-            onSelect={() => setMode("keep")}
-            title="Keep children as separate tasks"
+            id="delete-mode-roots"
+            checked={mode === "roots"}
+            onSelect={() => setMode("roots")}
+            title="Delete parent only (children become root tasks)"
             hint="Children remain as root tasks with no parent."
-          />
-          <DeleteModeOption
-            id="delete-mode-unlink"
-            checked={mode === "unlink"}
-            onSelect={() => setMode("unlink")}
-            title="Delete parent only, unlink children"
-            hint="Parent link is removed; children become root tasks."
           />
           <DeleteModeOption
             id="delete-mode-recursive"

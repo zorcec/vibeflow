@@ -50,13 +50,13 @@ describe("ChildRow", () => {
     expect(screen.queryByText("abc12345-test-task")).not.toBeInTheDocument();
   });
 
-  it("renders 'Remove' text button and fires onRemove on click", () => {
+  it("renders 'Unlink' text button and fires onRemove on click", () => {
     const onRemove = vi.fn();
     render(
       <ChildRow child={makeTask()} variant="inline" onRemove={onRemove} />,
     );
 
-    const removeBtn = screen.getByText("Remove");
+    const removeBtn = screen.getByText("Unlink");
     expect(removeBtn).toBeInTheDocument();
     expect(removeBtn.tagName).toBe("BUTTON");
 
@@ -64,7 +64,7 @@ describe("ChildRow", () => {
     expect(onRemove).toHaveBeenCalledWith("abc12345-test-task");
   });
 
-  it("Remove button stops propagation", () => {
+  it("Unlink button stops propagation", () => {
     const parentClick = vi.fn();
     const onRemove = vi.fn();
 
@@ -74,7 +74,7 @@ describe("ChildRow", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByText("Remove"));
+    fireEvent.click(screen.getByText("Unlink"));
     expect(parentClick).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe("ChildRow", () => {
     expect(title!.textContent).toBe("Test task");
   });
 
-  it("does not render Remove button when onRemove is not provided", () => {
+  it("does not render Unlink button when onRemove is not provided", () => {
     render(<ChildRow child={makeTask()} variant="inline" />);
     expect(screen.queryByText("Remove")).not.toBeInTheDocument();
   });

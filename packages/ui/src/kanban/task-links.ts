@@ -238,7 +238,10 @@ export function classifyTreeDropZone(
   clientY: number,
 ): "top" | "center" | "bottom" {
   const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
-  const band = Math.max(TREE_DROP_BAND_MIN_PX, Math.min(TREE_DROP_BAND_MAX_PX, rawBand));
+  const band = Math.max(
+    TREE_DROP_BAND_MIN_PX,
+    Math.min(TREE_DROP_BAND_MAX_PX, rawBand),
+  );
   if (clientY < rect.top + band) return "top";
   if (clientY > rect.top + rect.height - band) return "bottom";
   return "center";

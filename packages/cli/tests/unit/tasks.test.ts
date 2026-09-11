@@ -2142,28 +2142,6 @@ describe("detachParent", () => {
     expect(gcParentLink?.taskId).toBe(child.id);
   });
 
-  it("deleteChildren: keeps parent link, deletes descendants", () => {
-    const grandparent = createTask(tempDir, {
-      title: "Grandparent",
-      description: "",
-      status: "todo",
-      selector: "/",
-    });
-    const parent = makeTaskWithParent("Parent", grandparent.id);
-    const child = makeTaskWithParent("Child", parent.id);
-    const grandchild = makeTaskWithParent("Grandchild", child.id);
-
-    const updated = detachParent(tempDir, parent.id, {
-      deleteChildren: true,
-    });
-    expect(updated).not.toBeNull();
-    // Parent link should be removed from the detached task
-    expect((updated!.links ?? []).some((l) => l.type === "parent")).toBe(false);
-
-    // Descendants should be deleted
-    expect(existsSync(findTaskFilePath(tempDir, child.id)!)).toBe(false);
-    expect(existsSync(findTaskFilePath(tempDir, grandchild.id)!)).toBe(false);
-  });
 
   it("no-parent edge: task has no parent, children stay under it", () => {
     const root = createTask(tempDir, {

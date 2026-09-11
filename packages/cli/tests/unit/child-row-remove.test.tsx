@@ -42,8 +42,8 @@ describe("ChildRow — remove button", () => {
       <ChildRow child={child} variant="detail" onRemove={onRemove} />,
     );
     expect(html).toContain("relation-remove");
-    expect(html).toContain("Remove");
-    expect(html).toContain('title="Remove link"');
+    expect(html).toContain("Unlink");
+    expect(html).toContain('title="Unlink from parent"');
   });
 
   it("does NOT render remove button when onRemove is undefined", () => {

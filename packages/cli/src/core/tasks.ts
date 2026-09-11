@@ -487,7 +487,6 @@ export function getDescendantIds(allTasks: Task[], taskId: string): string[] {
 export function detachParent(
   projectDir: string,
   taskId: string,
-  opts: { deleteChildren?: boolean } = {},
 ): Task | null {
   const allTasks = listTasks(projectDir);
   const task = allTasks.find((t) => t.id === taskId);
@@ -505,13 +504,7 @@ export function detachParent(
   );
   updateTask(projectDir, taskId, { links: newLinks });
 
-  if (opts.deleteChildren) {
-    // Delete all descendants (not the task itself)
-    const descendantIds = getDescendantIds(allTasks, taskId);
-    for (const descId of descendantIds) {
-      deleteTask(projectDir, descId);
-    }
-  } else if (formerParentId) {
+  if (formerParentId) {
     // Re-parent direct children to the former parent
     const children = allTasks.filter(
       (t) =>

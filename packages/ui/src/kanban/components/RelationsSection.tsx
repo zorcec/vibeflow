@@ -13,7 +13,7 @@ import type { DropIntent } from "../task-links";
 import { TASK_LINK_TYPES } from "../types";
 import { compareTaskOrder } from "../utils";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
-import { RemoveLinkDialog } from "./RemoveLinkDialog";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface RelationsSectionProps {
   task: Task;
@@ -34,8 +34,8 @@ interface RelationsSectionProps {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
-  /** Called when the user confirms detach (move-up or delete-children). */
-  onDetach?: (taskId: string, deleteChildren: boolean) => void;
+  /** Called when the user confirms unlink (removes parent link, never deletes). */
+  onDetach?: (taskId: string) => void;
 }
 
 const TYPE_LABELS: Record<TaskLinkType, string> = {
@@ -345,15 +345,31 @@ export default function RelationsSection({
         </div>
       )}
 
-      <RemoveLinkDialog
+      <ConfirmModal
         open={confirmRemove !== null}
-        childTitle={confirmRemove?.childTitle ?? ""}
-        childCount={confirmRemove?.childCount ?? 0}
+        title="Unlink child?"
+        message={
+          confirmRemove?.childCount ? (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--p-text-f)", lineHeight: 1.6 }}>
+                Unlink{' '}<strong style={{ color: 'var(--p-text)' }}>&ldquo;{confirmRemove.childTitle}&rdquo;</strong>?
+              </p>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--p-text-m)', lineHeight: 1.5 }}>
+                Its {confirmRemove.childCount} {confirmRemove.childCount === 1 ? 'child moves' : 'children move'} up one level.
+              </p>
+            </>
+          ) : (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--p-text-f)', lineHeight: 1.6 }}>
+              Unlink{' '}<strong style={{ color: 'var(--p-text)' }}>&ldquo;{confirmRemove?.childTitle}&rdquo;</strong>? It will become a root task.
+            </p>
+          )
+        }
+        confirmLabel="Unlink"
         onCancel={() => setConfirmRemove(null)}
-        onConfirm={(deleteChildren) => {
+        onConfirm={() => {
           if (!confirmRemove) return;
           if (onDetach) {
-            onDetach(confirmRemove.childId, deleteChildren);
+            onDetach(confirmRemove.childId);
           } else {
             // Fallback: direct link removal (no server detach)
             const idx = links.findIndex(
