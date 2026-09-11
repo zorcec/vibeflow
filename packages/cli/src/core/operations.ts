@@ -577,12 +577,14 @@ export async function exportPrompt(
       }
       const comments = listComments(ctx.projectDir, input.id);
       const files = listFiles(ctx.projectDir, input.id);
+      const allTasks = coreListTasks(ctx.projectDir);
       const rendered = renderTaskForAgent(
         task,
         filePath,
         comments,
         files,
         ctx.projectDir,
+        allTasks,
       );
       return { ok: true, data: rendered };
     }
@@ -596,23 +598,24 @@ export async function exportPrompt(
         if (!task) continue;
         const comments = listComments(ctx.projectDir, id);
         const files = listFiles(ctx.projectDir, id);
+        const allTasks = coreListTasks(ctx.projectDir);
         results.push(
-          renderTaskForAgent(task, filePath, comments, files, ctx.projectDir),
+          renderTaskForAgent(task, filePath, comments, files, ctx.projectDir, allTasks),
         );
       }
       return { ok: true, data: results.join("\n\n") };
     }
 
     // Export all tasks
-    const tasks = coreListTasks(ctx.projectDir);
+    const allTasks = coreListTasks(ctx.projectDir);
     const results: string[] = [];
-    for (const task of tasks) {
+    for (const task of allTasks) {
       const filePath = findTaskFilePath(ctx.projectDir, task.id);
       if (!filePath) continue;
       const comments = listComments(ctx.projectDir, task.id);
       const files = listFiles(ctx.projectDir, task.id);
       results.push(
-        renderTaskForAgent(task, filePath, comments, files, ctx.projectDir),
+        renderTaskForAgent(task, filePath, comments, files, ctx.projectDir, allTasks),
       );
     }
     return { ok: true, data: results.join("\n\n") };

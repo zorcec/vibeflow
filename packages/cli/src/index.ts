@@ -7,12 +7,12 @@ import {
   listTasksWithPaths,
   updateTask,
   formatTaskForAgent,
+  markTaskOpened,
   renderTaskForAgent,
   renderAgentInstructions,
   generateTaskId,
   ensureTaskDirs,
   findTaskFilePath,
-  readTaskFile,
   claimNextTaskAtomic,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
@@ -922,6 +922,10 @@ program
             process.exitCode = ExitCode.NOT_FOUND;
             return;
           }
+          // Mark task as opened by current user
+          const currentUser = process.env.USER ?? process.env.USERNAME ?? "agent";
+          markTaskOpened(projectDir, task.id, currentUser);
+
           const structuredComments = listComments(projectDir, task.id).sort(
             sortByCreatedAt,
           );
@@ -954,12 +958,14 @@ program
             return;
           }
           const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
+          const allTasks = allWithPaths.map((t) => ({ ...t, id: t.id } as import('./core/types').Task));
           const agentMessage = renderTaskForAgent(
             task,
             task.filePath,
             structuredComments,
             linkedFiles,
             projectDir,
+            allTasks,
           );
           // Prepend the colored status/title line, then print the rest dimmed
           const agentLines = agentMessage.split("\n");
@@ -1218,12 +1224,14 @@ program
           );
           const nextLocalFilePath =
             findTaskFilePath(nextProjectDir, nextUpdated.id) ?? "";
+          const allTasks = listTasks(nextProjectDir);
           const agentMessage = renderTaskForAgent(
             nextUpdated,
             nextLocalFilePath,
             structuredComments,
             linkedFiles,
             nextProjectDir,
+            allTasks,
           );
 
           console.log(

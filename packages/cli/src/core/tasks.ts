@@ -679,6 +679,26 @@ export function formatTaskForAgent(
 }
 
 /**
+ * Marks a task as opened by a user. Adds the userId to the openedBy array
+ * if not already present. Persists to the task JSON file.
+ */
+export function markTaskOpened(
+  projectDir: string,
+  taskId: string,
+  userId: string,
+): void {
+  const filePath = findTaskFilePath(projectDir, taskId);
+  if (!filePath) return;
+  const task = readTaskFile(filePath);
+  if (!task) return;
+  if (!task.openedBy) task.openedBy = [];
+  if (!task.openedBy.includes(userId)) {
+    task.openedBy.push(userId);
+    writeFileSync(filePath, JSON.stringify(task, null, 2) + "\n");
+  }
+}
+
+/**
  * Renders a task, its comments, and linked files into the exact plain-text
  * format produced by `vibeflow tasks --get`. This is shared between the CLI
  * `--get` command and any agent-facing rendering (e.g. `--next`) so agents
@@ -690,6 +710,7 @@ export function renderTaskForAgent(
   comments: TaskComment[],
   files: FileInfo[],
   projectDir: string,
+  allTasks?: Task[],
 ): string {
   const lines: string[] = [];
 
@@ -774,6 +795,83 @@ export function renderTaskForAgent(
         } catch {
           /* file read failed – show URL only */
         }
+      }
+    }
+  }
+
+  // ── Relationships (children, related, blocked) ──────────────────────
+  if (allTasks && allTasks.length > 0) {
+    const taskLinks = task.links ?? [];
+
+    // Children: tasks whose parent link points at this task
+    const children = allTasks.filter((t) =>
+      (t.links ?? []).some(
+        (l) => l.type === "parent" && l.taskId === task.id,
+      ),
+    );
+    if (children.length > 0) {
+      // Stryker disable once StringLiteral: display format for task rendering
+      lines.push(`    children (${children.length}):`);
+      for (const c of children) {
+        // Stryker disable once StringLiteral: display format for task rendering
+        lines.push(
+          `      [${c.status}] ${c.title}  ${c.id.slice(0, 12)}`,
+        );
+      }
+    }
+
+    // Related: tasks linked via 'relates' type
+    const relatedIds = taskLinks
+      .filter((l) => l.type === "relates")
+      .map((l) => l.taskId);
+    const related = relatedIds.flatMap((id) => {
+      const found = allTasks.find((t) => t.id === id);
+      return found ? [found] : [];
+    });
+    if (related.length > 0) {
+      // Stryker disable once StringLiteral: display format for task rendering
+      lines.push(`    related (${related.length}):`);
+      for (const r of related) {
+        // Stryker disable once StringLiteral: display format for task rendering
+        lines.push(
+          `      [${r.status}] ${r.title}  ${r.id.slice(0, 12)}`,
+        );
+      }
+    }
+
+    // Blocked by: tasks linked via 'blocks' type (this task is blocked by them)
+    const blockedByIds = taskLinks
+      .filter((l) => l.type === "blocks")
+      .map((l) => l.taskId);
+    const blockedBy = blockedByIds.flatMap((id) => {
+      const found = allTasks.find((t) => t.id === id);
+      return found ? [found] : [];
+    });
+    if (blockedBy.length > 0) {
+      // Stryker disable once StringLiteral: display format for task rendering
+      lines.push(`    blocked by (${blockedBy.length}):`);
+      for (const b of blockedBy) {
+        // Stryker disable once StringLiteral: display format for task rendering
+        lines.push(
+          `      [${b.status}] ${b.title}  ${b.id.slice(0, 12)}`,
+        );
+      }
+    }
+
+    // Blocking: tasks that are blocked by this task
+    const blocking = allTasks.filter((t) =>
+      (t.links ?? []).some(
+        (l) => l.type === "blocks" && l.taskId === task.id,
+      ),
+    );
+    if (blocking.length > 0) {
+      // Stryker disable once StringLiteral: display format for task rendering
+      lines.push(`    blocking (${blocking.length}):`);
+      for (const bl of blocking) {
+        // Stryker disable once StringLiteral: display format for task rendering
+        lines.push(
+          `      [${bl.status}] ${bl.title}  ${bl.id.slice(0, 12)}`,
+        );
       }
     }
   }

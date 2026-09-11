@@ -131,6 +131,8 @@ export interface Task {
   authStateEnc?: string;
   /** Links to other tasks (parent, relates, blocks). Child stores {taskId: parentId, type: 'parent'}. */
   links?: TaskLink[];
+  /** User IDs/emails who have opened this task (persistent read state). */
+  openedBy?: string[];
 }
 
 export interface ProtoConfig {
