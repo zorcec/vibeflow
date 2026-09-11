@@ -52,6 +52,18 @@ export const api: KanbanApi = {
     });
   },
 
+  async detachTask(
+    id: string,
+    deleteChildren?: boolean,
+  ): Promise<void> {
+    const params = new URLSearchParams();
+    if (deleteChildren) params.set("deleteChildren", "true");
+    const qs = params.size > 0 ? `?${params}` : "";
+    await fetch(`${API}/${encodeURIComponent(id)}/detach${qs}`, {
+      method: "POST",
+    });
+  },
+
   async getComments(taskId: string): Promise<{ comments: Comment[] }> {
     const r = await fetch(`${API}/${taskId}/comments`);
     return r.json() as Promise<{ comments: Comment[] }>;

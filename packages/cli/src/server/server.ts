@@ -34,6 +34,7 @@ import {
   listTasksWithPaths,
   updateTask,
   deleteTask,
+  detachParent,
   getDescendantIds,
   ensureTaskDirs,
   readTaskFile,
@@ -673,6 +674,48 @@ function registerTaskApi(
     // Broadcast task-deleted so clients can surgically remove the card.
     broadcast({ type: "task-deleted", taskId: id });
     res.json({ success: true });
+  });
+
+  // POST /api/tasks/:id/detach — detach task from its parent without deleting it.
+  // Default: re-parent direct children to former parent.
+  // ?deleteChildren=true: delete descendants, keep task as root.
+  app.post("/api/tasks/:id/detach", (req, res) => {
+    const { id } = req.params;
+    const deleteChildren = req.query.deleteChildren === "true";
+
+    const updated = detachParent(projectDir, id, { deleteChildren });
+    if (!updated) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+
+    // Broadcast the detached task update
+    broadcast({
+      type: "task-changed",
+      taskId: updated.id,
+      action: "update",
+      task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
+    });
+
+    // Also broadcast affected children (re-parented or deleted)
+    const allTasks = listTasks(projectDir);
+    const affectedChildren = allTasks.filter(
+      (t) =>
+        t?.id &&
+        t.links?.some((l) => l?.type === "parent" && l?.taskId === id),
+    );
+    for (const child of affectedChildren) {
+      if (!child.id) continue;
+      broadcast({
+        type: "task-changed",
+        taskId: child.id,
+        action: "update",
+        task: { ...child, fileCount: getFileCount(projectDir, child.id) },
+      });
+    }
+
+    console.log(`[Vibeflow] Task detached: ${id}${deleteChildren ? " (delete children)" : ""}`);
+    res.json({ success: true, task: updated });
   });
 
   // Comments API

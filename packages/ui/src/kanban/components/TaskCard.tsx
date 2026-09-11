@@ -45,6 +45,8 @@ interface Props {
       ) => void;
       /** Row dragstart mirror — sets the board drag source for tree-row drags. */
       onTreeRowDragStart?: (e: React.DragEvent, childId: string) => void;
+      /** Called when the user clicks Remove on a child row in the card's inline tree. */
+      onDetach?: (taskId: string, deleteChildren: boolean) => void;
 }
 
 function isImageFileName(name: string): boolean {
@@ -185,6 +187,7 @@ export const TaskCard = React.memo(function TaskCard({
       treeIntent,
       onTreeIntent,
       onTreeRowDragStart,
+      onDetach,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -662,6 +665,15 @@ export const TaskCard = React.memo(function TaskCard({
                                                             onOpenChild(child);
                                                       else onOpen(child);
                                                 }}
+                                                onRemove={
+                                                      onDetach
+                                                            ? (childId) =>
+                                                                    onDetach(
+                                                                          childId,
+                                                                          false,
+                                                                    )
+                                                            : undefined
+                                                }
                                           />
                                     </div>
                               </div>

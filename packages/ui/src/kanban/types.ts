@@ -147,6 +147,10 @@ export interface KanbanApi {
     unlinkChildren?: boolean,
     deleteChildren?: boolean,
   ): Promise<void>;
+  detachTask(
+    id: string,
+    deleteChildren?: boolean,
+  ): Promise<void>;
   getComments(taskId: string): Promise<{ comments: Comment[] }>;
   addComment(taskId: string, text: string): Promise<void>;
   updateComment(taskId: string, commentId: string, text: string): Promise<void>;

@@ -153,6 +153,8 @@ interface Props {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
+  /** Called when the user confirms detach (move-up or delete-children). */
+  onDetach?: (taskId: string, deleteChildren: boolean) => void;
 }
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit
@@ -218,9 +220,10 @@ export function DetailPanel({
   createBranch,
   onTreeReorder,
   onTreeReparent,
+  onDetach,
 }: Props) {
   const isAdd = !task;
-  const typeColor = task
+  const _typeColor = task
     ? getTaskTypeColor(task.type)
     : getTaskTypeColor("Task");
   const panelRef = React.useRef<HTMLElement>(null);
@@ -271,7 +274,7 @@ export function DetailPanel({
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [localChanges, setLocalChanges] = React.useState<LocalChange[]>([]);
   const [draftTags, setDraftTags] = React.useState<string[]>([]);
-  const [linksSaving, setLinksSaving] = React.useState(false);
+  const [_linksSaving, setLinksSaving] = React.useState(false);
   const [linksError, setLinksError] = React.useState<string | null>(null);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const autoSaveRef = React.useRef<() => void>(() => {});
@@ -1280,6 +1283,7 @@ export function DetailPanel({
                   onOpenTask={onOpenTask}
                   onTreeReorder={onTreeReorder}
                   onTreeReparent={onTreeReparent}
+                  onDetach={onDetach}
                   onUpdateLinks={async (links) => {
                     if (!task) return;
                     setLinksSaving(true);

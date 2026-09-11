@@ -1289,6 +1289,14 @@ export function App() {
     }
   }
 
+  async function detachTaskById(id: string, deleteChildren?: boolean) {
+    try {
+      await api.detachTask(id, deleteChildren);
+    } catch {
+      void loadTasks();
+    }
+  }
+
   async function createTask(draft: Partial<Task>): Promise<string | undefined> {
     try {
       const result = await api.createTask(
@@ -1579,6 +1587,7 @@ export function App() {
               onPatch={patchTask}
               onTreeReorder={handleTreeReorder}
               onTreeReparent={handleTreeReparent}
+              onDetach={detachTaskById}
               onFilePreview={openFilePreview}
               onGoBack={navHistory.length > 0 ? goBack : undefined}
               navBackLabel={

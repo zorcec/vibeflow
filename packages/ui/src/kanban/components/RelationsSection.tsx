@@ -13,6 +13,7 @@ import type { DropIntent } from "../task-links";
 import { TASK_LINK_TYPES } from "../types";
 import { compareTaskOrder } from "../utils";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
+import { RemoveLinkDialog } from "./RemoveLinkDialog";
 
 interface RelationsSectionProps {
   task: Task;
@@ -33,6 +34,8 @@ interface RelationsSectionProps {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
+  /** Called when the user confirms detach (move-up or delete-children). */
+  onDetach?: (taskId: string, deleteChildren: boolean) => void;
 }
 
 const TYPE_LABELS: Record<TaskLinkType, string> = {
@@ -63,10 +66,16 @@ export default function RelationsSection({
   onOpenTask,
   onTreeReorder,
   onTreeReparent,
+  onDetach,
 }: RelationsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [linkType, setLinkType] = useState<TaskLinkType>("relates");
   const [search, setSearch] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<{
+    childId: string;
+    childTitle: string;
+    childCount: number;
+  } | null>(null);
 
   // Tree DnD intent — shared by the children tree in this section.
   // The dragged id travels via the dragSession singleton (no prop-drilling).
@@ -125,12 +134,15 @@ export default function RelationsSection({
 
   const handleRemoveChildLink = useCallback(
     (childId: string) => {
-      const idx = links.findIndex(
-        (l) => l?.type === "parent" && l?.taskId === childId,
-      );
-      if (idx >= 0) handleRemove(idx);
+      const child = safeTasks.find((t) => t.id === childId);
+      const childChildren = getChildren(safeTasks, childId);
+      setConfirmRemove({
+        childId,
+        childTitle: child?.title ?? childId,
+        childCount: childChildren.length,
+      });
     },
-    [links, handleRemove],
+    [safeTasks],
   );
 
   const handleTreeIntent = useCallback((intent: DropIntent | null) => {
@@ -332,6 +344,26 @@ export default function RelationsSection({
           </button>
         </div>
       )}
+
+      <RemoveLinkDialog
+        open={confirmRemove !== null}
+        childTitle={confirmRemove?.childTitle ?? ""}
+        childCount={confirmRemove?.childCount ?? 0}
+        onCancel={() => setConfirmRemove(null)}
+        onConfirm={(deleteChildren) => {
+          if (!confirmRemove) return;
+          if (onDetach) {
+            onDetach(confirmRemove.childId, deleteChildren);
+          } else {
+            // Fallback: direct link removal (no server detach)
+            const idx = links.findIndex(
+              (l) => l?.type === "parent" && l?.taskId === confirmRemove.childId,
+            );
+            if (idx >= 0) handleRemove(idx);
+          }
+          setConfirmRemove(null);
+        }}
+      />
     </div>
   );
 }

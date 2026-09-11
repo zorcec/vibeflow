@@ -473,6 +473,67 @@ export function getDescendantIds(allTasks: Task[], taskId: string): string[] {
   return result;
 }
 
+/**
+ * Detach a task from its parent without deleting the task itself.
+ *
+ * - Removes the parent link from the task's links.
+ * - When deleteChildren is false (default): re-parents the task's direct
+ *   children to the task's former parent so the subtree stays connected.
+ * - When deleteChildren is true: deletes all descendants (descendants only;
+ *   the task itself survives as a root task).
+ *
+ * Returns the updated task, or null if the task was not found.
+ */
+export function detachParent(
+  projectDir: string,
+  taskId: string,
+  opts: { deleteChildren?: boolean } = {},
+): Task | null {
+  const allTasks = listTasks(projectDir);
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task) return null;
+
+  // Find the parent link
+  const parentLink = (task.links ?? []).find(
+    (l) => l?.type === "parent" && l?.taskId,
+  );
+  const formerParentId = parentLink?.taskId ?? null;
+
+  // Remove the parent link from this task
+  const newLinks = (task.links ?? []).filter(
+    (l) => !(l?.type === "parent" && l?.taskId === formerParentId),
+  );
+  updateTask(projectDir, taskId, { links: newLinks });
+
+  if (opts.deleteChildren) {
+    // Delete all descendants (not the task itself)
+    const descendantIds = getDescendantIds(allTasks, taskId);
+    for (const descId of descendantIds) {
+      deleteTask(projectDir, descId);
+    }
+  } else if (formerParentId) {
+    // Re-parent direct children to the former parent
+    const children = allTasks.filter(
+      (t) =>
+        t?.id &&
+        t.links?.some((l) => l?.type === "parent" && l?.taskId === taskId),
+    );
+    for (const child of children) {
+      if (!child.id) continue;
+      const childNewLinks = (child.links ?? []).map((l) =>
+        l?.type === "parent" && l?.taskId === taskId
+          ? { ...l, taskId: formerParentId }
+          : l,
+      );
+      updateTask(projectDir, child.id, { links: childNewLinks });
+    }
+  }
+
+  // Return the updated task (parent link removed)
+  const updatedPath = findTaskFilePath(projectDir, taskId);
+  return updatedPath ? readTaskFile(updatedPath) : null;
+}
+
 // ── Atomic task claiming ──────────────────────────────────────────────────
 
 /**
