@@ -1,12 +1,14 @@
 import React from "react";
 import { ModalBase, MarkdownPreview } from "@vibeflow-tools/ui/kanban";
 import {
+  extractHighlights,
   fullChangelogMarkdown,
   pickWhatsNewSection,
   sectionsSince,
   whatsNewMarkdown,
   type ChangelogSection,
 } from "./whats-new.js";
+import { HighlightsBanner } from "./HighlightsBanner.js";
 
 interface Props {
   open: boolean;
@@ -40,6 +42,12 @@ export function WhatsNewModal({
   const filteredSections = React.useMemo(
     () => (mode === "full" ? sections : sectionsSince(sections, sinceVersion)),
     [sections, mode, sinceVersion],
+  );
+  // Aggregated highlights across the visible (unseen) sections; the tagged
+  // bullets stay duplicated in the markdown flow below by design.
+  const highlights = React.useMemo(
+    () => extractHighlights(filteredSections),
+    [filteredSections],
   );
   const markdown =
     mode === "full"
@@ -105,6 +113,7 @@ export function WhatsNewModal({
           color: "var(--p-text-f)",
         }}
       >
+        <HighlightsBanner items={highlights} />
         <MarkdownPreview markdown={markdown} />
       </div>
     </ModalBase>

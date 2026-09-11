@@ -57,10 +57,15 @@ export function getSectionByVersion(
  */
 export function formatSectionForTerminal(section: ChangelogSection): string {
   const lines = [`  ${chalk.bold(`What's new in ${section.version}`)}`, ""];
+  let inHighlights = false;
   for (const line of section.markdown.split("\n")) {
     const category = /^### (.+)$/.exec(line);
     if (category) {
+      // Manually tagged Highlights bullets render bold with a ✨ marker.
+      inHighlights = (category[1] ?? "").trim() === "Highlights";
       lines.push(`  ${chalk.bold.underline(category[1] ?? "")}`);
+    } else if (inHighlights && /^\s*[-*]\s+\S/.test(line)) {
+      lines.push(`  ${chalk.bold(`✨ ${line.trim().replace(/^[-*]\s+/, "")}`)}`);
     } else {
       lines.push(`  ${chalk.dim(line.trimEnd())}`);
     }

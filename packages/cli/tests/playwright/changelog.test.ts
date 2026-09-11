@@ -149,4 +149,16 @@ describe("What's New changelog modal", () => {
     }
     await context.close();
   });
+
+  it("shows no Highlights region when no changeset tags one", async () => {
+    // The real CLI changelog carries no ### Highlights subsection, so the
+    // region stays hidden. Tagged rendering is covered by SSR unit tests.
+    const { context, page } = await openBoard(null);
+    await page.click("#changelog-btn");
+    await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
+    expect(
+      await page.locator('[data-role="highlights-region"]').count(),
+    ).toBe(0);
+    await context.close();
+  });
 });

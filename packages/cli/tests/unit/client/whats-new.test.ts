@@ -8,6 +8,8 @@ import {
   sectionsSince,
   whatsNewMarkdown,
   fullChangelogMarkdown,
+  extractHighlights,
+  MAX_HIGHLIGHTS,
   LAST_SEEN_VERSION_KEY,
   type ChangelogSection,
 } from "../../../src/client/kanban/whats-new.js";
@@ -101,6 +103,67 @@ describe("markdown builders", () => {
 
   it("fullChangelogMarkdown of no sections is empty", () => {
     expect(fullChangelogMarkdown([])).toBe("");
+  });
+});
+
+describe("extractHighlights", () => {
+  const tagged: ChangelogSection[] = [
+    {
+      version: "0.3.0",
+      markdown:
+        "### Minor Changes\n\n- x: feature\n\n### Highlights\n\n- Big new thing\n- Another big thing\n\n### Patch Changes\n\n- y: fix",
+    },
+    {
+      version: "0.2.0",
+      markdown: "### Highlights\n\n- Older highlight",
+    },
+    {
+      version: "0.1.0",
+      markdown: "### Patch Changes\n\n- plain fix",
+    },
+  ];
+
+  it("collects bullets between ### Highlights and the next header", () => {
+    const out = extractHighlights([tagged[0] as ChangelogSection]);
+    expect(out).toEqual([
+      { version: "0.3.0", text: "Big new thing" },
+      { version: "0.3.0", text: "Another big thing" },
+    ]);
+  });
+
+  it("aggregates newest-first across versions, skipping untagged ones", () => {
+    const out = extractHighlights(tagged);
+    expect(out.map((h) => `${h.version}:${h.text}`)).toEqual([
+      "0.3.0:Big new thing",
+      "0.3.0:Another big thing",
+      "0.2.0:Older highlight",
+    ]);
+  });
+
+  it("caps output at MAX_HIGHLIGHTS", () => {
+    const many: ChangelogSection[] = [
+      {
+        version: "1.0.0",
+        markdown:
+          "### Highlights\n\n" +
+          Array.from({ length: 8 }, (_, i) => `- item ${i}`).join("\n"),
+      },
+    ];
+    expect(extractHighlights(many)).toHaveLength(MAX_HIGHLIGHTS);
+    expect(MAX_HIGHLIGHTS).toBe(5);
+  });
+
+  it("returns empty for sections without a Highlights subsection", () => {
+    expect(
+      extractHighlights([{ version: "0.1.0", markdown: "- plain" }]),
+    ).toEqual([]);
+  });
+
+  it("returns empty for empty input and never throws on malformed markdown", () => {
+    expect(extractHighlights([])).toEqual([]);
+    expect(() =>
+      extractHighlights([{ version: "0.0.0", markdown: "### Highlights" }]),
+    ).not.toThrow();
   });
 });
 

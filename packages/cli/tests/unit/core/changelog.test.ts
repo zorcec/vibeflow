@@ -108,6 +108,26 @@ describe("formatSectionForTerminal", () => {
   });
 });
 
+describe("formatSectionForTerminal highlights", () => {
+  it("marks tagged Highlights bullets with ✨", () => {
+    const section = {
+      version: "0.3.0",
+      markdown:
+        "### Minor Changes\n\n- x: feature\n\n### Highlights\n\n- Big new thing\n\n### Patch Changes\n\n- y: fix",
+    };
+    const out = strip(formatSectionForTerminal(section));
+    expect(out).toContain("✨ Big new thing");
+    expect(out).toContain("x: feature");
+    expect(out).toContain("y: fix");
+  });
+
+  it("leaves untagged sections without ✨ markers", () => {
+    const section = getLatestSection(parseChangelogSections(SAMPLE));
+    const out = strip(formatSectionForTerminal(section!));
+    expect(out).not.toContain("✨");
+  });
+});
+
 describe("changelogText", () => {
   const sections = parseChangelogSections(SAMPLE);
 

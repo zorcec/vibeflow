@@ -76,6 +76,49 @@ export function whatsNewMarkdown(section: ChangelogSection | null): string {
  return `## ${section.version}\n\n${section.markdown}`;
 }
 
+/** One tagged highlight bullet pulled from a `### Highlights` subsection. */
+export interface Highlight {
+ version: string;
+ /** Bullet text with the leading marker stripped. */
+ text: string;
+}
+
+/** Maximum highlight bullets surfaced in the Highlights region. */
+export const MAX_HIGHLIGHTS = 5;
+
+/**
+ * Extracts manually tagged highlight bullets from section markdown.
+ * Authors opt in by adding a `### Highlights` subsection to a changeset
+ * body; bullets are collected until the next markdown header or EOF.
+ * Sections stay newest-first; total output is capped at MAX_HIGHLIGHTS.
+ * Malformed sections (no bullets) contribute nothing — never throws.
+ */
+export function extractHighlights(
+ sections: ChangelogSection[],
+ cap: number = MAX_HIGHLIGHTS,
+): Highlight[] {
+ const out: Highlight[] = [];
+ for (const section of sections) {
+  const lines = (section.markdown ?? "").split("\n");
+  let inHighlights = false;
+  for (const raw of lines) {
+   const line = raw.trim();
+   if (/^###\s+Highlights\s*$/.test(line)) {
+    inHighlights = true;
+    continue;
+   }
+   if (inHighlights && /^#{1,6}\s/.test(line)) break;
+   if (!inHighlights) continue;
+   const bullet = /^[-*]\s+(.+)$/.exec(line);
+   if (bullet?.[1]) {
+    out.push({ version: section.version, text: bullet[1].trim() });
+    if (out.length >= cap) return out;
+   }
+  }
+ }
+ return out;
+}
+
 /** Markdown for the full changelog, newest first. */
 export function fullChangelogMarkdown(sections: ChangelogSection[]): string {
  return sections.map((s) => whatsNewMarkdown(s)).join("\n\n");
