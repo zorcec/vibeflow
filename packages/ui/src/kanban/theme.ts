@@ -7,20 +7,23 @@
  * validated against THEMES so a stale/garbage value can never produce an
  * unknown data-theme. All helpers are SSR-safe: with no `window`/`document`
  * they degrade to no-ops instead of throwing.
+ *
+ * The theme LIST lives in theme-registry.ts and is re-exported here; this file
+ * only owns persistence + application so the resolver and the registry stay in
+ * sync by construction.
  */
 
-export type Theme = "dark" | "light" | "hc-dark";
+import { THEMES, type Theme } from "./theme-registry";
 
-/** Known themes. Order is the canonical list used for validation. */
-export const THEMES: readonly Theme[] = ["dark", "light", "hc-dark"];
+export {
+  THEME_REGISTRY,
+  THEMES,
+  DEFAULT_THEME,
+  getThemeDefinition,
+} from "./theme-registry";
+export type { Theme, ThemeDefinition, ThemeBase } from "./theme-registry";
 
 export const THEME_STORAGE_KEY = "vibeflow.kanban.theme";
-
-/** Fallback used when a concrete theme is required. The rendered default is
- *  still driven by themes.css :root (dark) plus the prefers-color-scheme
- *  media query, so `resolveInitialTheme()` returns null until the user has an
- *  explicit preference. */
-export const DEFAULT_THEME: Theme = "dark";
 
 export function isTheme(value: unknown): value is Theme {
   return typeof value === "string" && (THEMES as readonly string[]).includes(value);

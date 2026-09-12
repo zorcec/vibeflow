@@ -100,11 +100,13 @@ export type {
   TreeReorderPlan,
 } from "./task-links";
 
-// Theme resolver + persistence (shared by every kanban consumer)
+// Theme registry + resolver + persistence (shared by every kanban consumer)
 export {
+  THEME_REGISTRY,
   THEMES,
   THEME_STORAGE_KEY,
   DEFAULT_THEME,
+  getThemeDefinition,
   isTheme,
   getStoredTheme,
   setStoredTheme,
@@ -113,4 +115,4 @@ export {
   applyTheme,
   applyInitialTheme,
 } from "./theme";
-export type { Theme } from "./theme";
+export type { Theme, ThemeDefinition, ThemeBase } from "./theme";

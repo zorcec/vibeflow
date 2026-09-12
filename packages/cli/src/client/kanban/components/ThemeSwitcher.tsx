@@ -3,6 +3,11 @@
  * `SettingsModal`'s `appearance` slot. Keeping it behind a slot means no other
  * consumer of the shared modal renders theme UI it did not ask for.
  *
+ * The option list comes from the shared THEME_REGISTRY, so shipping a new theme
+ * is one registry entry + one token block — this component never needs editing.
+ * Labels, descriptions and preview swatches are all registry data; the icon is
+ * only a fallback for entries without swatches.
+ *
  * All persistence/application goes through the shared resolver in
  * `@vibeflow-tools/ui/kanban` (setStoredTheme / clearStoredTheme / applyTheme).
  * A concrete theme is stored under THEME_STORAGE_KEY; "System" is a real,
@@ -10,45 +15,75 @@
  * `@media (prefers-color-scheme)` fallback decides again.
  */
 import React from "react";
-import { Contrast, Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import {
-  THEMES,
+  THEME_REGISTRY,
   applyTheme,
   clearStoredTheme,
   getStoredTheme,
+  getThemeDefinition,
   setStoredTheme,
   type Theme,
+  type ThemeDefinition,
 } from "@vibeflow-tools/ui/kanban";
 
 /** A user choice: a concrete theme, or "system" (= no stored preference). */
 export type ThemePreference = "system" | Theme;
 
-/** System first, then the shared THEMES order — one list, no drift. */
+/** Not a registry theme: "system" clears the key so the media query wins. */
+const SYSTEM_META: ThemeDefinition = {
+  id: "system",
+  name: "System",
+  description: "Follows your OS setting.",
+  base: "dark",
+  preview: [],
+};
+
+/** System first, then the registry order — one list, no drift. */
 export const THEME_PREFERENCES: readonly ThemePreference[] = [
   "system",
-  ...THEMES,
+  ...THEME_REGISTRY.map((entry) => entry.id),
 ];
 
-const LABELS: Record<ThemePreference, string> = {
-  system: "System",
-  dark: "Dark",
-  light: "Light",
-  "hc-dark": "High contrast",
-};
+function metaFor(preference: ThemePreference): ThemeDefinition {
+  return preference === "system"
+    ? SYSTEM_META
+    : getThemeDefinition(preference);
+}
 
-const HINTS: Record<ThemePreference, string> = {
-  system: "Follows your OS setting",
-  dark: "Dark board, low light",
-  light: "Light board, bright rooms",
-  "hc-dark": "Maximum legibility",
-};
+/** Registry preview colours as a small swatch grid (the theme's identity). */
+function ThemeSwatches({ preview }: { preview: readonly string[] }) {
+  if (preview.length === 0) return null;
+  return (
+    <span className="theme-option-preview" aria-hidden="true">
+      {preview.map((color, index) => (
+        <span
+          key={`${color}-${index}`}
+          className="theme-option-swatch"
+          style={{ background: color }}
+        />
+      ))}
+    </span>
+  );
+}
 
-const ICONS: Record<ThemePreference, React.ReactNode> = {
-  system: <Monitor style={{ width: 14, height: 14 }} />,
-  dark: <Moon style={{ width: 14, height: 14 }} />,
-  light: <Sun style={{ width: 14, height: 14 }} />,
-  "hc-dark": <Contrast style={{ width: 14, height: 14 }} />,
-};
+/** System gets the monitor glyph; themes get swatches, or an ink-scale glyph
+ *  when a registry entry ships no preview. */
+function ThemeGlyph({
+  meta,
+  isSystem,
+}: {
+  meta: ThemeDefinition;
+  isSystem: boolean;
+}) {
+  if (isSystem) return <Monitor style={{ width: 14, height: 14 }} />;
+  if (meta.preview.length > 0) return <ThemeSwatches preview={meta.preview} />;
+  return meta.base === "light" ? (
+    <Sun style={{ width: 14, height: 14 }} />
+  ) : (
+    <Moon style={{ width: 14, height: 14 }} />
+  );
+}
 
 /** The persisted choice: a stored theme, or "system" when nothing is stored. */
 export function readThemePreference(): ThemePreference {
@@ -86,12 +121,14 @@ export function ThemeSwitcher() {
       <div className="theme-switcher-options">
         {THEME_PREFERENCES.map((id) => {
           const selected = preference === id;
+          const meta = metaFor(id);
           return (
             <label
               key={id}
               className="theme-option"
               data-selected={selected}
               data-theme-option={id}
+              data-base={meta.base}
             >
               <input
                 type="radio"
@@ -102,12 +139,14 @@ export function ThemeSwitcher() {
                 onChange={() => select(id)}
                 aria-describedby={hintId}
               />
-              <span className="theme-option-icon" aria-hidden="true">
-                {ICONS[id]}
+              <span className="theme-option-icon">
+                <ThemeGlyph meta={meta} isSystem={id === "system"} />
               </span>
               <span className="theme-option-text">
-                <span className="theme-option-label">{LABELS[id]}</span>
-                <span className="theme-option-hint">{HINTS[id]}</span>
+                <span className="theme-option-label">{meta.name}</span>
+                <span className="theme-option-hint" title={meta.description}>
+                  {meta.description}
+                </span>
               </span>
             </label>
           );

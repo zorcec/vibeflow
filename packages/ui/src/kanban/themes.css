@@ -376,6 +376,265 @@
   --t-syntax-null: #fca5a5;
 }
 
+/* ── Curated themes ──────────────────────────────────────────────
+   Added by task 9a2c1be7. Each block below is a DATA-ONLY theme: it
+   declares every `--t-*` token itself (surfaces, text, borders, accents,
+   status, relations, semantic states, elevation, syntax, and the extended
+   chip/control aliases) and no `--p-*` primitives, so nothing can silently
+   inherit another theme's value. The contract test
+   (`__tests__/theme-contract.test.ts`) fails if any of these blocks is
+   incomplete or drops below the contrast floor. Values come from
+   docs/research/theme-palettes.md §3–§5; the only deviations are documented
+   there and in the task report. ───────────────────────────────── */
+
+/* ── Rosé Pine Dawn (light) ── */
+[data-theme="rose-pine-dawn"] {
+  --t-bg: #f2e9e1;
+  --t-surface: #faf4ed;
+  --t-card: #fffaf3;
+  --t-card-inset: #f2e9e1;
+  --t-hover: #f2e9e1;
+  --t-input: #f9f2ea;
+  --t-overlay-scrim: rgba(70, 66, 97, 0.45);
+  --t-text: #464261;
+  --t-text-sub: #575279;
+  --t-text-muted: #6e6a86;
+  --t-text-faint: #797593;
+  /* Spec §3: Dawn muted #9893a5 (2.73:1 on surface). Darkened to clear the 3:1
+     de-emphasised-tier floor — the only palette deviation in this theme. */
+  --t-text-ghost: #8f8a9b;
+  --t-on-accent: #faf4ed;
+  --t-border: #f2e9e1;
+  --t-border-strong: #e4d6c8;
+  --t-border-faint: #f7efe8;
+  --t-accent: #286983;
+  --t-accent-hover: #31748f;
+  --t-accent-soft-bg: rgba(40, 105, 131, 0.10);
+  --t-accent-soft-border: rgba(40, 105, 131, 0.30);
+  --t-accent-contrast: #286983;
+  --t-status-backlog: #6e6a86;
+  --t-status-todo: #986622;
+  --t-status-progress: #286983;
+  --t-status-review: #7a6890;
+  --t-status-done: #45767f;
+  --t-rel-children: #286983;
+  --t-rel-parent: #286983;
+  --t-rel-blocks: #a2596e;
+  --t-rel-related: #7a6890;
+  --t-success: #45767f;
+  --t-success-soft: rgba(69, 118, 127, 0.12);
+  --t-danger: #a2596e;
+  --t-danger-strong: #8a4a5d;
+  --t-danger-soft: rgba(180, 99, 122, 0.10);
+  --t-warning: #986622;
+  --t-warning-soft: rgba(234, 157, 52, 0.15);
+  --t-info-soft: rgba(40, 105, 131, 0.10);
+  --t-agent: #9c5e5b;
+  --t-shadow-card: 0 4px 16px rgba(70, 66, 97, 0.08);
+  --t-shadow-popover: 0 8px 24px rgba(70, 66, 97, 0.12);
+  --t-shadow-modal: 0 8px 24px rgba(70, 66, 97, 0.10);
+  --t-syntax-key: #7a6890;
+  --t-syntax-string: #45767f;
+  --t-syntax-number: #286983;
+  --t-syntax-bool: #986622;
+  --t-syntax-null: #a2596e;
+  /* Extended aliases the legacy themes resolve through --p-* primitives; a
+     data-only theme must set them directly or they inherit the dark defaults. */
+  --t-accent-strong: #286983;
+  --t-accent-soft: #31748f;
+  --t-accent-subtle: #31748f;
+  --t-secondary: #7a6890;
+  --t-secondary-soft: #7a6890;
+  --t-cyan: #286983;
+  --t-cyan-soft: #2f6e88;
+  --t-pink-soft: #a2596e;
+  --t-warning-subtle: #986622;
+  --t-success-subtle: #45767f;
+  /* Foreground ON accent/danger fills (see Dracula note). */
+  --t-white: #faf4ed;
+  --t-bg-raised: #faf4ed;
+  --t-shadow-lg: 0 8px 24px rgba(70, 66, 97, 0.12);
+  --t-text-body: #6e6a86;
+  --t-chip-blue-200: #286983;
+  --t-chip-blue-300: #286983;
+  --t-chip-purple-300: #7a6890;
+  --t-chip-amber-300: #986622;
+  --t-chip-amber-400: #986622;
+  --t-chip-orange-400: #9c5e5b;
+  --t-chip-green-300: #45767f;
+  --t-chip-green-400: #45767f;
+  --t-chip-pink-300: #a2596e;
+  --t-chip-cyan-300: #31748f;
+  --t-chip-red-300: #a2596e;
+  --t-chip-slate-400: #6e6a86;
+  --t-control-surface: #f2e9e1;
+  --t-code-bg: #f2e9e1;
+}
+
+/* ── Dracula (dark) ── */
+[data-theme="dracula"] {
+  --t-bg: #191a21;
+  --t-surface: #21222c;
+  --t-card: #282a36;
+  --t-card-inset: #191a21;
+  --t-hover: #44475a;
+  --t-input: #21222c;
+  --t-overlay-scrim: rgba(0, 0, 0, 0.6);
+  --t-text: #f8f8f2;
+  --t-text-sub: #cecfcc;
+  --t-text-muted: #afb0b0;
+  --t-text-faint: #8f9abb;
+  --t-text-ghost: #6272a4;
+  --t-on-accent: #282a36;
+  --t-border: #343746;
+  --t-border-strong: #6272a4;
+  --t-border-faint: #21222c;
+  --t-accent: #bd93f9;
+  --t-accent-hover: #d6acff;
+  --t-accent-soft-bg: rgba(189, 147, 249, 0.12);
+  --t-accent-soft-border: rgba(189, 147, 249, 0.35);
+  --t-accent-contrast: #bd93f9;
+  --t-status-backlog: #8f9abb;
+  --t-status-todo: #f1fa8c;
+  --t-status-progress: #8be9fd;
+  --t-status-review: #bd93f9;
+  --t-status-done: #50fa7b;
+  --t-rel-children: #8be9fd;
+  --t-rel-parent: #8be9fd;
+  --t-rel-blocks: #ff5555;
+  --t-rel-related: #bd93f9;
+  --t-success: #50fa7b;
+  --t-success-soft: rgba(80, 250, 123, 0.12);
+  --t-danger: #ff5555;
+  --t-danger-strong: #d63f3f;
+  --t-danger-soft: rgba(255, 85, 85, 0.12);
+  --t-warning: #ffb86c;
+  --t-warning-soft: rgba(255, 184, 108, 0.15);
+  --t-info-soft: rgba(139, 233, 253, 0.10);
+  --t-agent: #ffb86c;
+  --t-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --t-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --t-shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.40);
+  --t-syntax-key: #ff79c6;
+  --t-syntax-string: #f1fa8c;
+  --t-syntax-number: #bd93f9;
+  --t-syntax-bool: #8be9fd;
+  --t-syntax-null: #ff6e6e;
+  /* Extended aliases (see Dawn note). */
+  --t-accent-strong: #bd93f9;
+  --t-accent-soft: #d6acff;
+  --t-accent-subtle: #d6acff;
+  --t-secondary: #bd93f9;
+  --t-secondary-soft: #d6acff;
+  --t-cyan: #8be9fd;
+  --t-cyan-soft: #8be9fd;
+  --t-pink-soft: #ff79c6;
+  --t-warning-subtle: #ffb86c;
+  --t-success-subtle: #50fa7b;
+  /* Components use --t-white as the label ON an accent (comment submit) or
+     danger (delete) fill. Dracula's accent is light, so ink — not white — is
+     the legible label. */
+  --t-white: #282a36;
+  --t-bg-raised: #21222c;
+  --t-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --t-text-body: #afb0b0;
+  --t-chip-blue-200: #8be9fd;
+  --t-chip-blue-300: #8be9fd;
+  --t-chip-purple-300: #bd93f9;
+  --t-chip-amber-300: #f1fa8c;
+  --t-chip-amber-400: #f1fa8c;
+  --t-chip-orange-400: #ffb86c;
+  --t-chip-green-300: #50fa7b;
+  --t-chip-green-400: #50fa7b;
+  --t-chip-pink-300: #ff79c6;
+  --t-chip-cyan-300: #8be9fd;
+  --t-chip-red-300: #ff5555;
+  --t-chip-slate-400: #8f9abb;
+  --t-control-surface: #343746;
+  --t-code-bg: #343746;
+}
+
+/* ── Gruvbox Dark (dark) ── */
+[data-theme="gruvbox-dark"] {
+  --t-bg: #1d2021;
+  --t-surface: #282828;
+  --t-card: #32302f;
+  --t-card-inset: #1d2021;
+  --t-hover: #3c3836;
+  --t-input: #282828;
+  --t-overlay-scrim: rgba(0, 0, 0, 0.6);
+  --t-text: #ebdbb2;
+  --t-text-sub: #d5c4a1;
+  --t-text-muted: #bdae93;
+  --t-text-faint: #a89984;
+  --t-text-ghost: #928374;
+  --t-on-accent: #1d2021;
+  --t-border: #3c3836;
+  --t-border-strong: #504945;
+  --t-border-faint: #282828;
+  --t-accent: #83a598;
+  --t-accent-hover: #9ec6bb;
+  --t-accent-soft-bg: rgba(131, 165, 152, 0.14);
+  --t-accent-soft-border: rgba(131, 165, 152, 0.38);
+  --t-accent-contrast: #83a598;
+  --t-status-backlog: #a89984;
+  --t-status-todo: #fabd2f;
+  --t-status-progress: #83a598;
+  --t-status-review: #d3869b;
+  --t-status-done: #8ec07c;
+  --t-rel-children: #83a598;
+  --t-rel-parent: #83a598;
+  --t-rel-blocks: #fc6755;
+  --t-rel-related: #d3869b;
+  --t-success: #8ec07c;
+  --t-success-soft: rgba(142, 192, 124, 0.14);
+  --t-danger: #fc6755;
+  --t-danger-strong: #cc241d;
+  --t-danger-soft: rgba(251, 73, 52, 0.14);
+  --t-warning: #fabd2f;
+  --t-warning-soft: rgba(250, 189, 47, 0.15);
+  --t-info-soft: rgba(131, 165, 152, 0.14);
+  --t-agent: #fe8019;
+  --t-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.30);
+  --t-shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.40);
+  --t-shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --t-syntax-key: #fc6755;
+  --t-syntax-string: #b8bb26;
+  --t-syntax-number: #d3869b;
+  --t-syntax-bool: #fabd2f;
+  --t-syntax-null: #fe8019;
+  /* Extended aliases (see Dawn note). */
+  --t-accent-strong: #83a598;
+  --t-accent-soft: #9ec6bb;
+  --t-accent-subtle: #9ec6bb;
+  --t-secondary: #d3869b;
+  --t-secondary-soft: #d3869b;
+  --t-cyan: #8ec07c;
+  --t-cyan-soft: #8ec07c;
+  --t-pink-soft: #d3869b;
+  --t-warning-subtle: #fabd2f;
+  --t-success-subtle: #8ec07c;
+  /* Foreground ON accent/danger fills (see Dracula note). */
+  --t-white: #1d2021;
+  --t-bg-raised: #282828;
+  --t-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.40);
+  --t-text-body: #bdae93;
+  --t-chip-blue-200: #83a598;
+  --t-chip-blue-300: #83a598;
+  --t-chip-purple-300: #d3869b;
+  --t-chip-amber-300: #fabd2f;
+  --t-chip-amber-400: #fabd2f;
+  --t-chip-orange-400: #fe8019;
+  --t-chip-green-300: #8ec07c;
+  --t-chip-green-400: #8ec07c;
+  --t-chip-pink-300: #d3869b;
+  --t-chip-cyan-300: #8ec07c;
+  --t-chip-red-300: #fc6755;
+  --t-chip-slate-400: #a89984;
+  --t-control-surface: #3c3836;
+  --t-code-bg: #3c3836;
+}
+
 /* ── System fallback: auto-detect light preference ── */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {

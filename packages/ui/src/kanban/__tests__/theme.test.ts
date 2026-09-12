@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   THEMES,
+  THEME_REGISTRY,
   THEME_STORAGE_KEY,
   DEFAULT_THEME,
+  getThemeDefinition,
   isTheme,
   getStoredTheme,
   setStoredTheme,
@@ -36,9 +38,43 @@ class MemoryStorage implements Storage {
 }
 
 describe("theme tokens", () => {
-  it("exposes the known theme list starting with the dark default", () => {
-    expect(THEMES).toEqual(["dark", "light", "hc-dark"]);
+  it("derives the known theme list from the registry, dark first", () => {
+    expect(THEMES).toEqual([
+      "dark",
+      "light",
+      "hc-dark",
+      "rose-pine-dawn",
+      "dracula",
+      "gruvbox-dark",
+    ]);
     expect(THEMES).toContain(DEFAULT_THEME);
+  });
+});
+
+describe("theme registry", () => {
+  it("lists each theme id exactly once", () => {
+    const ids = THEME_REGISTRY.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(THEMES);
+  });
+
+  it("carries the display metadata every consumer reads", () => {
+    for (const entry of THEME_REGISTRY) {
+      expect(entry.name.length).toBeGreaterThan(0);
+      expect(entry.description.length).toBeGreaterThan(0);
+      expect(["dark", "light"]).toContain(entry.base);
+      expect(entry.preview.length).toBeGreaterThanOrEqual(2);
+      expect(entry.preview.length).toBeLessThanOrEqual(4);
+      for (const swatch of entry.preview) {
+        expect(swatch).toMatch(/^#[0-9a-f]{6}$/i);
+      }
+    }
+  });
+
+  it("resolves a definition for every registered theme", () => {
+    for (const id of THEMES) {
+      expect(getThemeDefinition(id).id).toBe(id);
+    }
   });
 });
 
