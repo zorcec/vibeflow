@@ -805,18 +805,14 @@ export function renderTaskForAgent(
 
     // Children: tasks whose parent link points at this task
     const children = allTasks.filter((t) =>
-      (t.links ?? []).some(
-        (l) => l.type === "parent" && l.taskId === task.id,
-      ),
+      (t.links ?? []).some((l) => l.type === "parent" && l.taskId === task.id),
     );
     if (children.length > 0) {
       // Stryker disable once StringLiteral: display format for task rendering
       lines.push(`    children (${children.length}):`);
       for (const c of children) {
         // Stryker disable once StringLiteral: display format for task rendering
-        lines.push(
-          `      [${c.status}] ${c.title}  ${c.id.slice(0, 12)}`,
-        );
+        lines.push(`      [${c.status}] ${c.title}  ${c.id.slice(0, 12)}`);
       }
     }
 
@@ -833,9 +829,7 @@ export function renderTaskForAgent(
       lines.push(`    related (${related.length}):`);
       for (const r of related) {
         // Stryker disable once StringLiteral: display format for task rendering
-        lines.push(
-          `      [${r.status}] ${r.title}  ${r.id.slice(0, 12)}`,
-        );
+        lines.push(`      [${r.status}] ${r.title}  ${r.id.slice(0, 12)}`);
       }
     }
 
@@ -852,26 +846,20 @@ export function renderTaskForAgent(
       lines.push(`    blocked by (${blockedBy.length}):`);
       for (const b of blockedBy) {
         // Stryker disable once StringLiteral: display format for task rendering
-        lines.push(
-          `      [${b.status}] ${b.title}  ${b.id.slice(0, 12)}`,
-        );
+        lines.push(`      [${b.status}] ${b.title}  ${b.id.slice(0, 12)}`);
       }
     }
 
     // Blocking: tasks that are blocked by this task
     const blocking = allTasks.filter((t) =>
-      (t.links ?? []).some(
-        (l) => l.type === "blocks" && l.taskId === task.id,
-      ),
+      (t.links ?? []).some((l) => l.type === "blocks" && l.taskId === task.id),
     );
     if (blocking.length > 0) {
       // Stryker disable once StringLiteral: display format for task rendering
       lines.push(`    blocking (${blocking.length}):`);
       for (const bl of blocking) {
         // Stryker disable once StringLiteral: display format for task rendering
-        lines.push(
-          `      [${bl.status}] ${bl.title}  ${bl.id.slice(0, 12)}`,
-        );
+        lines.push(`      [${bl.status}] ${bl.title}  ${bl.id.slice(0, 12)}`);
       }
     }
   }

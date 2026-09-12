@@ -600,7 +600,14 @@ export async function exportPrompt(
         const files = listFiles(ctx.projectDir, id);
         const allTasks = coreListTasks(ctx.projectDir);
         results.push(
-          renderTaskForAgent(task, filePath, comments, files, ctx.projectDir, allTasks),
+          renderTaskForAgent(
+            task,
+            filePath,
+            comments,
+            files,
+            ctx.projectDir,
+            allTasks,
+          ),
         );
       }
       return { ok: true, data: results.join("\n\n") };
@@ -615,7 +622,14 @@ export async function exportPrompt(
       const comments = listComments(ctx.projectDir, task.id);
       const files = listFiles(ctx.projectDir, task.id);
       results.push(
-        renderTaskForAgent(task, filePath, comments, files, ctx.projectDir, allTasks),
+        renderTaskForAgent(
+          task,
+          filePath,
+          comments,
+          files,
+          ctx.projectDir,
+          allTasks,
+        ),
       );
     }
     return { ok: true, data: results.join("\n\n") };

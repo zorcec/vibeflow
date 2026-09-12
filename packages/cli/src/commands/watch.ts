@@ -58,8 +58,17 @@ function renderTicket(projectDir: string, taskId: string): string | null {
       ...f,
       url: `http://localhost:${config.port}${f.url}`,
     }));
-    const allTasks = listTasksWithPaths(projectDir).map((t) => ({ ...t } as import('../core/types').Task));
-    return renderTaskForAgent(task, task.filePath, comments, files, projectDir, allTasks);
+    const allTasks = listTasksWithPaths(projectDir).map(
+      (t) => ({ ...t }) as import("../core/types").Task,
+    );
+    return renderTaskForAgent(
+      task,
+      task.filePath,
+      comments,
+      files,
+      projectDir,
+      allTasks,
+    );
   } catch {
     return null;
   }

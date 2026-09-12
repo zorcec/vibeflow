@@ -923,7 +923,8 @@ program
             return;
           }
           // Mark task as opened by current user
-          const currentUser = process.env.USER ?? process.env.USERNAME ?? "agent";
+          const currentUser =
+            process.env.USER ?? process.env.USERNAME ?? "agent";
           markTaskOpened(projectDir, task.id, currentUser);
 
           const structuredComments = listComments(projectDir, task.id).sort(
@@ -958,7 +959,9 @@ program
             return;
           }
           const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
-          const allTasks = allWithPaths.map((t) => ({ ...t, id: t.id } as import('./core/types').Task));
+          const allTasks = allWithPaths.map(
+            (t) => ({ ...t, id: t.id }) as import("./core/types").Task,
+          );
           const agentMessage = renderTaskForAgent(
             task,
             task.filePath,
