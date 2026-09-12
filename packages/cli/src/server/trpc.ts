@@ -157,7 +157,7 @@ export const appRouter = router({
         component: input.component,
         type: input.type,
         priority: input.priority,
-        author: input.author ?? "Unknown",
+        author: input.author ?? getGitUser(ctx.projectDir).name,
         agent: input.agent,
         model: input.model,
         annotatedElementText: input.annotatedElementText,

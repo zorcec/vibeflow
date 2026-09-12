@@ -4,6 +4,12 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { commitTaskChanges } from "../../src/core/git.js";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
+
+// Git exports repo-location vars (GIT_DIR, GIT_WORK_TREE, …) to hooks such as
+// the repo pre-commit hook that runs this suite. Inheriting them makes every
+// `git` command below ignore its `cwd` and write into the real repository.
+const gitEnv = gitEnvWithCleanLocation();
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `git-helper-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -12,9 +18,9 @@ function makeTmpDir(): string {
 }
 
 function initGitRepo(dir: string) {
-  execSync("git init", { cwd: dir, stdio: "ignore" });
-  execSync("git config user.email 'test@test.com'", { cwd: dir, stdio: "ignore" });
-  execSync("git config user.name 'Test'", { cwd: dir, stdio: "ignore" });
+  execSync("git init", { cwd: dir, env: gitEnv, stdio: "ignore" });
+  execSync("git config user.email 'test@test.com'", { cwd: dir, env: gitEnv, stdio: "ignore" });
+  execSync("git config user.name 'Test'", { cwd: dir, env: gitEnv, stdio: "ignore" });
 }
 
 function createTaskFile(dir: string, taskId: string, commits: Array<{ sha: string; message: string; timestamp: string }> = []) {
@@ -54,7 +60,7 @@ describe("commitTaskChanges", () => {
     createTaskFile(tmpDir, taskId);
     // Stage a file
     writeFileSync(join(tmpDir, "test.txt"), "hello");
-    execSync("git add test.txt", { cwd: tmpDir, stdio: "ignore" });
+    execSync("git add test.txt", { cwd: tmpDir, env: gitEnv, stdio: "ignore" });
 
     const result = commitTaskChanges(tmpDir, taskId, "feat: add test file");
     expect(result.ok).toBe(true);
@@ -67,7 +73,7 @@ describe("commitTaskChanges", () => {
     const taskId = "test-task-002";
     createTaskFile(tmpDir, taskId);
     writeFileSync(join(tmpDir, "file2.txt"), "content");
-    execSync("git add file2.txt", { cwd: tmpDir, stdio: "ignore" });
+    execSync("git add file2.txt", { cwd: tmpDir, env: gitEnv, stdio: "ignore" });
 
     const result = commitTaskChanges(tmpDir, taskId, "fix: something");
     expect(result.ok).toBe(true);
@@ -86,13 +92,13 @@ describe("commitTaskChanges", () => {
     const taskId = "test-task-003";
     createTaskFile(tmpDir, taskId);
     writeFileSync(join(tmpDir, "file3.txt"), "data");
-    execSync("git add file3.txt", { cwd: tmpDir, stdio: "ignore" });
+    execSync("git add file3.txt", { cwd: tmpDir, env: gitEnv, stdio: "ignore" });
 
     const result = commitTaskChanges(tmpDir, taskId, "chore: update");
     expect(result.ok).toBe(true);
 
     // Check the git log for the proto tag
-    const log = execSync("git log --oneline -1", { cwd: tmpDir }).toString();
+    const log = execSync("git log --oneline -1", { cwd: tmpDir, env: gitEnv }).toString();
     expect(log).toContain(`[proto:${taskId}]`);
   });
 
@@ -115,7 +121,7 @@ describe("commitTaskChanges", () => {
     ];
     createTaskFile(tmpDir, taskId, existingCommits);
     writeFileSync(join(tmpDir, "file5.txt"), "data");
-    execSync("git add file5.txt", { cwd: tmpDir, stdio: "ignore" });
+    execSync("git add file5.txt", { cwd: tmpDir, env: gitEnv, stdio: "ignore" });
 
     const result = commitTaskChanges(tmpDir, taskId, "second commit");
     expect(result.ok).toBe(true);

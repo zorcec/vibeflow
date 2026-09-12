@@ -8,6 +8,7 @@
  * record (sha + message + timestamp) is appended to the task's `commits` array.
  */
 import { execFileSync, execSync } from "node:child_process";
+import { gitEnvWithCleanLocation } from "./git-env.js";
 import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
 
 export function commitTaskChanges(
@@ -17,11 +18,15 @@ export function commitTaskChanges(
 ): { ok: true; sha: string } | { ok: false; error: string } {
   try {
     const commitMsg = `${message} [proto:${taskId}]`;
+    // Commit into `projectDir`'s repo even when a GIT_DIR/GIT_WORK_TREE leaked
+    // from an enclosing hook (e.g. the pre-commit hook running the test suite).
+    const env = gitEnvWithCleanLocation();
     execFileSync("git", ["commit", "-m", commitMsg], {
       cwd: projectDir,
+      env,
       stdio: "inherit",
     });
-    const sha = execSync("git rev-parse HEAD", { cwd: projectDir })
+    const sha = execSync("git rev-parse HEAD", { cwd: projectDir, env })
       .toString()
       .trim();
 

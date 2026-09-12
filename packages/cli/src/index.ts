@@ -1428,6 +1428,9 @@ program
             description: opts.description?.trim() ?? "",
             status,
             selector: "/",
+            // Attribute the task to the task-store repo's git identity so an
+            // agent-created task matches a human-created one.
+            author: getGitUser(projectDir).name,
             ...(opts.type ? { type: opts.type } : {}),
             ...(opts.priority ? { priority: opts.priority } : {}),
             ...(opts.tag?.length ? { tags: opts.tag } : {}),
@@ -1982,6 +1985,7 @@ program
               | "description"
               | "branchName"
               | "verified"
+              | "author"
               | "links"
             >
           > = {};
@@ -1989,6 +1993,18 @@ program
           if (opts.setStatus) updates.status = opts.setStatus as TaskStatus;
           if (opts.description) updates.description = opts.description;
           if (opts.branch) updates.branchName = opts.branch;
+
+          // Author attribution on status changes: claiming a task
+          // (in-progress) sets the current git identity; any other transition
+          // only backfills a missing author so an existing one is never lost.
+          if (opts.setStatus) {
+            const existingAuthor = listTasks(localProjectDir).find(
+              (t) => t.id === resolvedTaskId,
+            )?.author;
+            if (opts.setStatus === "in-progress" || !existingAuthor) {
+              updates.author = getGitUser(localProjectDir).name;
+            }
+          }
 
           // ── Parent link change (--set-parent / --no-parent) ────────────
           // Resolve the parent prefix the same way --edit/--get/--commit do,

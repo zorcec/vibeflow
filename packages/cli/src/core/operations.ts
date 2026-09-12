@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { Task, TaskComment } from "../core/types.js";
 import { TASK_STATUSES, type TaskStatus } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
+import { getGitUser } from "./git-user.js";
 
 // ── Context ────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,9 @@ export async function createTask(
       url: input.url,
       selector: input.selector,
       cssSelector: input.cssSelector,
+      // Same identity source as the CLI and the board so agent-created tasks
+      // match human-created ones.
+      author: ctx.userId ?? getGitUser(ctx.projectDir).name,
     });
 
     return { ok: true, data: task };
@@ -365,6 +369,14 @@ export async function updateTask(
     // Verified reset on in-progress (parity with CLI edit path)
     if (input.status === "in-progress") {
       updates.verified = false;
+    }
+
+    // Author attribution on status changes (parity with the CLI --edit path):
+    // claiming sets the current identity; other transitions backfill only.
+    if (input.status) {
+      if (input.status === "in-progress" || !existingTask.author) {
+        updates.author = ctx.userId ?? getGitUser(ctx.projectDir).name;
+      }
     }
 
     const task = coreUpdateTask(ctx.projectDir, input.id, updates);
