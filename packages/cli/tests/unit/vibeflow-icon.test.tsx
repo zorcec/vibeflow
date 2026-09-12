@@ -58,7 +58,7 @@ describe("VibeflowIcon", () => {
     expect(svg).toContain('fill="#2563eb"');
   });
 
-  it("4 bars have uniform width 2.5, centered on midline y+h/2=9", () => {
+  it("4 bars have uniform width 2, centered on midline y+h/2=9", () => {
     const svg = renderToString(<VibeflowIcon />);
     const { rects } = parseSvg(svg);
     const bars = rects.slice(1);
@@ -66,7 +66,7 @@ describe("VibeflowIcon", () => {
 
     // Uniform width
     for (const bar of bars) {
-      expect(bar.width).toBe(2.5);
+      expect(bar.width).toBe(2);
     }
 
     // Midline centered: y + height/2 = 9
@@ -75,22 +75,22 @@ describe("VibeflowIcon", () => {
     }
   });
 
-  it("bars have correct heights and opacities (descending 10/12/8/6)", () => {
+  it("bars match the favicon heights and opacities (8/14/6/10)", () => {
     const svg = renderToString(<VibeflowIcon />);
     const { rects } = parseSvg(svg);
     const bars = rects.slice(1);
 
-    expect(bars[0].height).toBe(10);
-    expect(bars[0].opacity).toBeCloseTo(0.9);
+    expect(bars[0].height).toBe(8);
+    expect(bars[0].opacity).toBeCloseTo(0.7);
 
-    expect(bars[1].height).toBe(12);
+    expect(bars[1].height).toBe(14);
     expect(bars[1].opacity).toBe(1);
 
-    expect(bars[2].height).toBe(8);
-    expect(bars[2].opacity).toBeCloseTo(0.8);
+    expect(bars[2].height).toBe(6);
+    expect(bars[2].opacity).toBeCloseTo(0.7);
 
-    expect(bars[3].height).toBe(6);
-    expect(bars[3].opacity).toBeCloseTo(0.6);
+    expect(bars[3].height).toBe(10);
+    expect(bars[3].opacity).toBeCloseTo(0.85);
   });
 
   it("bars are evenly spaced (x = 2.5 / 6.5 / 10.5 / 14.5)", () => {
