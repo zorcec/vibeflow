@@ -278,4 +278,42 @@ describe("RecursiveChildrenTree", () => {
     const row = document.querySelector("[data-role='child-link-row']");
     expect(row).toBeInTheDocument();
   });
+
+  describe("explicit-nodes mode", () => {
+    const tasks = [
+      makeTask("p1", "Parent"),
+      makeTask("r1", "Related"),
+      makeTask("x1", "Nested", [{ taskId: "r1", type: "parent" }]),
+    ];
+    const related = tasks[1];
+
+    it("renders the given nodes instead of the parent's children, including their subtree", () => {
+      const { container } = render(
+        <RecursiveChildrenTree parentId="p1" allTasks={tasks} nodes={[related]} />,
+      );
+      // r1 (given node) + x1 (r1's child, resolved normally).
+      expect(
+        container.querySelectorAll("[data-role='child-link-row']"),
+      ).toHaveLength(2);
+    });
+
+    it("`flat` renders leaf rows — no subtree, no depth-limit summary", () => {
+      const { container } = render(
+        <RecursiveChildrenTree
+          parentId="p1"
+          allTasks={tasks}
+          nodes={[related]}
+          flat
+        />,
+      );
+      expect(
+        container.querySelectorAll("[data-role='child-link-row']"),
+      ).toHaveLength(1);
+      expect(screen.getByText("Related")).toBeInTheDocument();
+      expect(screen.queryByText("Nested")).toBeNull();
+      expect(
+        container.querySelector("[data-role='tree-depth-limit']"),
+      ).toBeNull();
+    });
+  });
 });

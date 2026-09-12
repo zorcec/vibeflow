@@ -9,7 +9,7 @@ import {
   canReparent,
   dragSession,
 } from "../task-links";
-import type { DropIntent } from "../task-links";
+import type { DetailRelationRow, DropIntent } from "../task-links";
 import { TASK_LINK_TYPES } from "../types";
 import { compareTaskOrder } from "../utils";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
@@ -56,8 +56,10 @@ const TYPE_COLORS: Record<TaskLinkType, string> = {
 /**
  * Detail-panel Relations section — always expanded, non-collapsible.
  * Renders the header row (title + flat count chips, no toggle/chevron),
- * the CHILDREN group tree (same chevron + title + flat-indent row
- * rendering as the card zone), plus the relation search/add UI.
+ * one group body per non-empty relation type — CHILDREN as a recursive tree
+ * (same chevron + title + flat-indent row rendering as the card zone),
+ * PARENTS / BLOCKS / RELATED as flat rows (see FlatRelationGroup) — plus the
+ * relation search/add UI.
  */
 export default function RelationsSection({
   task,
@@ -273,6 +275,45 @@ export default function RelationsSection({
         </div>
       )}
 
+      {/* ── PARENTS group — this task's explicit "child of" links, flat rows ── */}
+      {groups.parentLinks.length > 0 && (
+        <FlatRelationGroup
+          kind="parent"
+          label="PARENTS"
+          parentId={task.id}
+          allTasks={safeTasks}
+          rows={groups.parentLinks}
+          onOpen={onOpenTask}
+          onRemoveLink={handleRemove}
+        />
+      )}
+
+      {/* ── BLOCKS group — flat rows ── */}
+      {groups.blocksLinks.length > 0 && (
+        <FlatRelationGroup
+          kind="blocks"
+          label="BLOCKS"
+          parentId={task.id}
+          allTasks={safeTasks}
+          rows={groups.blocksLinks}
+          onOpen={onOpenTask}
+          onRemoveLink={handleRemove}
+        />
+      )}
+
+      {/* ── RELATED group — flat rows ── */}
+      {groups.relatesLinks.length > 0 && (
+        <FlatRelationGroup
+          kind="relates"
+          label="RELATED"
+          parentId={task.id}
+          allTasks={safeTasks}
+          rows={groups.relatesLinks}
+          onOpen={onOpenTask}
+          onRemoveLink={handleRemove}
+        />
+      )}
+
       {/* ── + Add relation ── */}
       {!adding && (
         <button
@@ -421,4 +462,96 @@ export default function RelationsSection({
       />
     </div>
   );
+}
+
+/* ── Inline helpers ───────────────────────────────────────────────────────── */
+
+interface FlatRelationGroupProps {
+  /** Non-children relation type — drives the data-role and colour modifier. */
+  kind: "parent" | "blocks" | "relates";
+  /** Uppercase group label (plural, matches the summary chip wording). */
+  label: string;
+  /** The open task's id — vestigial parent for the explicit-nodes tree. */
+  parentId: string;
+  /** Full task list — row rendering needs it (dangling links, child counts). */
+  allTasks: Task[];
+  /** That type's rows, with the original link index needed for removal. */
+  rows: DetailRelationRow[];
+  onOpen?: (task: Task) => void;
+  /** Removes the link at its original index in `task.links`. */
+  onRemoveLink: (linkIndex: number) => void;
+}
+
+/**
+ * PARENTS / BLOCKS / RELATED group body.
+ *
+ * Reuses the one tree component (RecursiveChildrenTree) in explicit-nodes mode
+ * with `flat`, so the group renders leaf rows: a blocks/relates target's own
+ * subtree is not part of this task's relations, and recursing the PARENTS
+ * group would render this task's siblings under each parent. No drag intent is
+ * passed, so these rows are plain links — drag-reparenting only has meaning
+ * inside the CHILDREN tree.
+ */
+function FlatRelationGroup({
+  kind,
+  label,
+  parentId,
+  allTasks,
+  rows,
+  onOpen,
+  onRemoveLink,
+}: FlatRelationGroupProps) {
+  const nodes = toTreeNodes(rows);
+
+  const handleRemove = useCallback(
+    (taskId: string) => {
+      const row = rows.find((r) => r?.link?.taskId === taskId);
+      if (row) onRemoveLink(row.linkIndex);
+    },
+    [rows, onRemoveLink],
+  );
+
+  return (
+    <div
+      className={`relation-group relation-group--${kind}`}
+      data-role={`relation-group-${kind}`}
+    >
+      <div className="relation-group-header">
+        <span className="relation-group-dot" />
+        <span className="relation-group-label">
+          {label} · {rows.length}
+        </span>
+      </div>
+      <div className="relation-group-rows">
+        <RecursiveChildrenTree
+          parentId={parentId}
+          allTasks={allTasks}
+          variant="detail"
+          flat
+          nodes={nodes}
+          onOpen={onOpen}
+          onRemove={handleRemove}
+          removeTitle="Unlink this relation"
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Map flat relation rows to tree nodes. Resolved targets render as rows;
+ * dangling links render as a "(missing <id>)" placeholder so the row (and its
+ * Unlink action) stays reachable.
+ */
+function toTreeNodes(rows: DetailRelationRow[]): Task[] {
+  return (rows ?? [])
+    .filter((r) => r?.link?.taskId)
+    .map(
+      (r) =>
+        r.target ?? {
+          id: r.link.taskId,
+          title: `(missing ${shortId(r.link.taskId)})`,
+          status: "todo",
+        },
+    );
 }

@@ -6,6 +6,7 @@ import {
   fireEvent,
   waitFor,
   act,
+  within,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { Task } from "../../types";
@@ -288,5 +289,140 @@ describe("RelationsSection", () => {
     expect(onUpdateLinks).toHaveBeenCalledWith([
       { taskId: "r1", type: "relates" },
     ]);
+  });
+
+  describe("relation groups", () => {
+    const groupOf = (kind: string): HTMLElement | null =>
+      document.querySelector<HTMLElement>(
+        `[data-role="relation-group-${kind}"]`,
+      );
+
+    it("renders the RELATED group when `related` is the only relation (reported bug)", () => {
+      const task = makeTask("p1", "Parent", [{ taskId: "r1", type: "relates" }]);
+      const related = makeTask("r1", "Related task");
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, related]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+
+      const relates = groupOf("relates");
+      expect(relates).not.toBeNull();
+      expect(relates!.textContent).toContain("RELATED · 1");
+      expect(relates!.querySelector('[data-task-id="r1"]')).not.toBeNull();
+      expect(screen.getByText("1 related")).toBeInTheDocument();
+      // The three empty groups stay out of the DOM.
+      expect(groupOf("children")).toBeNull();
+      expect(groupOf("parent")).toBeNull();
+      expect(groupOf("blocks")).toBeNull();
+    });
+
+    it("renders one group per relation type and keeps the chips in sync", () => {
+      const task = makeTask("p1", "Parent", [
+        { taskId: "root1", type: "parent" },
+        { taskId: "b1", type: "blocks" },
+        { taskId: "r1", type: "relates" },
+      ]);
+      const child = makeTask("c1", "Child 1", [
+        { taskId: "p1", type: "parent" },
+      ]);
+      const root = makeTask("root1", "Root");
+      const blocker = makeTask("b1", "Blocker");
+      const related = makeTask("r1", "Related");
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, child, root, blocker, related]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+
+      expect(
+        groupOf("children")!.querySelector('[data-task-id="c1"]'),
+      ).not.toBeNull();
+      expect(groupOf("parent")!.textContent).toContain("PARENTS · 1");
+      expect(groupOf("blocks")!.textContent).toContain("BLOCKS · 1");
+      expect(groupOf("relates")!.textContent).toContain("RELATED · 1");
+      expect(
+        groupOf("parent")!.querySelector('[data-task-id="root1"]'),
+      ).not.toBeNull();
+      expect(
+        groupOf("blocks")!.querySelector('[data-task-id="b1"]'),
+      ).not.toBeNull();
+      expect(
+        groupOf("relates")!.querySelector('[data-task-id="r1"]'),
+      ).not.toBeNull();
+
+      // Chips mirror what is rendered.
+      ["1 child", "1 parent", "1 blocks", "1 related"].forEach((label) =>
+        expect(screen.getByText(label)).toBeInTheDocument(),
+      );
+    });
+
+    it("renders no relation group for a task without relations", () => {
+      const task = makeTask("p1", "Parent");
+      const { container } = render(
+        <RelationsSection
+          task={task}
+          allTasks={[task]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+      expect(container.querySelectorAll(".relation-group")).toHaveLength(0);
+    });
+
+    it("unlinking a flat relation removes exactly that link", () => {
+      const task = makeTask("p1", "Parent", [
+        { taskId: "b1", type: "blocks" },
+        { taskId: "r1", type: "relates" },
+      ]);
+      const blocker = makeTask("b1", "Blocker");
+      const related = makeTask("r1", "Related");
+      const onUpdateLinks = vi.fn();
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, blocker, related]}
+          onUpdateLinks={onUpdateLinks}
+        />,
+      );
+
+      const relates = groupOf("relates")!;
+      fireEvent.click(within(relates).getByTitle("Unlink this relation"));
+
+      // Only the relates link is dropped; the blocks link keeps its slot.
+      expect(onUpdateLinks).toHaveBeenCalledWith([
+        { taskId: "b1", type: "blocks" },
+      ]);
+    });
+
+    it("flat groups list rows only — no recursion into the target's children", () => {
+      const task = makeTask("p1", "Parent", [
+        { taskId: "r1", type: "relates" },
+      ]);
+      const related = makeTask("r1", "Related");
+      const nested = makeTask("x1", "Nested child", [
+        { taskId: "r1", type: "parent" },
+      ]);
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, related, nested]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+
+      const relates = groupOf("relates")!;
+      expect(
+        relates.querySelectorAll("[data-role='child-link-row']"),
+      ).toHaveLength(1);
+      expect(within(relates).queryByText("Nested child")).toBeNull();
+      // No nested subtree and no depth-limit summary line either.
+      expect(
+        relates.querySelector("[data-role='tree-depth-limit']"),
+      ).toBeNull();
+    });
   });
 });

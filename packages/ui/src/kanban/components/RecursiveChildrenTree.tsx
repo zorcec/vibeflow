@@ -32,8 +32,17 @@ interface RecursiveChildrenTreeProps {
   onOpen?: (task: Task) => void;
   /** Callback to remove the parent link for a child. When provided, ChildRow renders a hover × button. */
   onRemove?: (taskId: string) => void;
+  /** Tooltip for the ChildRow Unlink button (flat relation groups override the children wording). */
+  removeTitle?: string;
   /** Max depth — cycle/pathology failsafe. Defaults to MAX_TREE_DEPTH. */
   maxDepth?: number;
+  /**
+   * Leaf-list mode: render `nodes` as flat rows — never recurse into a node's
+   * subtree and never show the depth-limit summary. Used by the detail panel's
+   * PARENTS / BLOCKS / RELATED groups, whose nested tasks are not part of the
+   * open task's relations.
+   */
+  flat?: boolean;
   /**
    * Explicit-nodes mode: render the given tasks as depth-1 rows instead of
    * resolving getChildren(parentId). Used for the flat relation groups
@@ -69,7 +78,9 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
   variant = "inline",
   onOpen,
   onRemove,
+  removeTitle,
   maxDepth = MAX_TREE_DEPTH,
+  flat,
   nodes,
   dragIntent,
   onTreeIntent,
@@ -204,7 +215,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
       data-role="recursive-tree"
       onDragOver={dndActive ? handleRootDragOver : undefined}
     >
-      {validChildren.map((child, index) => {
+      {validChildren.map((child) => {
         if (!child?.id) return null;
         const childCount = getChildren(safeTasks, child.id).length;
         const childHasChildren = childCount > 0;
@@ -260,12 +271,13 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   isOrphan={isOrphan}
                   childCount={childCount}
                   onRemove={onRemove}
+                  removeTitle={removeTitle}
                   onRowDragStart={dndActive ? handleRowDragStart : undefined}
                   onRowDragOver={dndActive ? handleRowDragOver : undefined}
                   onRowDrop={dndActive ? onRowDrop : undefined}
                 />
               </div>
-              {childHasChildren && atMaxDepth && (
+              {!flat && childHasChildren && atMaxDepth && (
                 <div
                   className="tree-depth-limit"
                   data-role="tree-depth-limit"
@@ -278,7 +290,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   … {getDescendants(safeTasks, child.id).length} more
                 </div>
               )}
-              {childHasChildren && !atMaxDepth && (
+              {!flat && childHasChildren && !atMaxDepth && (
                 <div className="child-tree-nested">
                   <RecursiveChildrenTree
                     parentId={child.id}
@@ -288,6 +300,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                     variant={variant}
                     onOpen={onOpen}
                     onRemove={onRemove}
+                    removeTitle={removeTitle}
                     maxDepth={maxDepth}
                     dragIntent={dragIntent}
                     onTreeIntent={onTreeIntent}

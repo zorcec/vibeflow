@@ -14,6 +14,8 @@ interface ChildRowProps {
   childCount?: number;
   /** Callback to remove the parent link for this child. When provided, a hover × Unlink button is rendered. */
   onRemove?: (taskId: string) => void;
+  /** Tooltip for the Unlink button. Defaults to the children-tree wording. */
+  removeTitle?: string;
   /** Drag source id — when provided the row is draggable (tree variants). Popover rows omit this. */
   onRowDragStart?: (e: React.DragEvent, childId: string) => void;
   /** Fired on dragover of the row — the tree classifies the tree-row intent. */
@@ -30,6 +32,7 @@ export function ChildRow({
   isOrphan,
   childCount,
   onRemove,
+  removeTitle,
   onRowDragStart,
   onRowDragOver,
   onRowDrop,
@@ -177,7 +180,7 @@ export function ChildRow({
             if (!id) return;
             onRemove(id);
           }}
-          title="Unlink from parent"
+          title={removeTitle ?? "Unlink from parent"}
           type="button"
         >
           Unlink

@@ -1221,6 +1221,26 @@ body.proto-resizing-panel {
 .relation-group--children .relation-group-label {
  color: #60a5fa;
 }
+/* Flat relation groups (PARENTS / BLOCKS / RELATED) — colours match the
+   relation link types; tokens so light themes recolour them. */
+.relation-group--parent .relation-group-dot {
+ background: var(--p-blue-300, #60a5fa);
+}
+.relation-group--parent .relation-group-label {
+ color: var(--p-blue-300, #60a5fa);
+}
+.relation-group--blocks .relation-group-dot {
+ background: var(--p-red, #f87171);
+}
+.relation-group--blocks .relation-group-label {
+ color: var(--p-red, #f87171);
+}
+.relation-group--relates .relation-group-dot {
+ background: var(--p-purple, #a78bfa);
+}
+.relation-group--relates .relation-group-label {
+ color: var(--p-purple, #a78bfa);
+}
 /* Detail children rows use the flat per-depth left padding in ChildRow
    (no outer border, no extra offset) — same as the card zone. */
 .relation-group-rows {
