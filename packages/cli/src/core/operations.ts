@@ -7,11 +7,7 @@
  */
 import { z } from "zod";
 import type { Task, TaskComment } from "../core/types.js";
-import {
-  TASK_STATUSES,
-  compareTasksByPriorityThenCreated,
-  type TaskStatus,
-} from "../core/types.js";
+import { TASK_STATUSES, type TaskStatus } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
 
 // ── Context ────────────────────────────────────────────────────────────────

@@ -17,17 +17,20 @@
     "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
-    "lint": "pnpm -r run lint",
+    "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
+    "lint": "pnpm run lint:symbols && pnpm -r run lint",
     "scan:secrets": "gitleaks detect --source . --staged --verbose",
     "scan:secrets:full": "gitleaks detect --source . --verbose",
-    "check": "pnpm --filter @vibeflow-tools/cli run lint",
+    "check": "pnpm run lint:symbols && pnpm --filter @vibeflow-tools/cli run lint",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
     "prepare": "husky"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
     "esbuild": "^0.28.1",
-    "husky": "^9.1.7"
+    "eslint": "^10.10.0",
+    "husky": "^9.1.7",
+    "typescript-eslint": "^8.70.0"
   },
   "overrides": {
     "vite": ">=7.3.5",

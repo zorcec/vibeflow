@@ -14,7 +14,6 @@ import { createTaskWatcher } from "../server/watcher.js";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import {
-  type WatchEvent,
   type TaskSnapshot,
   buildTaskSnapshot,
   diffTaskSnapshots,
@@ -103,27 +102,6 @@ function buildAllSnapshots(
     }
   }
   return snapshots;
-}
-
-/**
- * Emit gap event for events older than 1 minute that were not delivered.
- */
-function emitGapEvent(
-  sink: ReturnType<typeof createSink>,
-  missed: number,
-): void {
-  if (missed === 0) return;
-  const now = new Date().toISOString();
-  const event: WatchEvent = {
-    type: "gap",
-    taskId: "",
-    timestamp: now,
-    missedMinutes: missed,
-    message:
-      `Many changes detected (${missed} events older than 1 min) — run ` +
-      `tasks --status todo to catch up. Future events will be returned with --once.`,
-  };
-  sink.emit(event);
 }
 
 /** Daemon mode: watch for changes and emit events as they happen. */

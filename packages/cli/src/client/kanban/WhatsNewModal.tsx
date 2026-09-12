@@ -3,9 +3,7 @@ import { ModalBase, MarkdownPreview } from "@vibeflow-tools/ui/kanban";
 import {
         extractHighlights,
         fullChangelogMarkdown,
-        pickWhatsNewSection,
         sectionsSince,
-        whatsNewMarkdown,
         type ChangelogSection,
 } from "./whats-new.js";
 import { HighlightsBanner } from "./HighlightsBanner.js";
@@ -29,7 +27,6 @@ interface Props {
 export function WhatsNewModal({
         open,
         sections,
-        version,
         startMode,
         sinceVersion = null,
         onClose,
@@ -56,12 +53,6 @@ export function WhatsNewModal({
                 mode === "full"
                         ? fullChangelogMarkdown(sections)
                         : fullChangelogMarkdown(filteredSections);
-        const title =
-                mode === "full"
-                        ? "Changelog"
-                        : sinceVersion
-                          ? `What's new since ${sinceVersion}`
-                          : "What's new in Vibeflow";
 
         return (
                 <ModalBase

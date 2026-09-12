@@ -12,7 +12,6 @@ import type {
   VariantMode,
   VariantProviderProps,
 } from "./types.js";
-import type { KeyboardShortcut } from "./useKeyboardShortcuts.js";
 import {
   resolveActiveVariant,
   writeVariantToUrl,

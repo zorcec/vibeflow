@@ -1,5 +1,3 @@
-import type { ProtoConfig } from "./types.js";
-declare const PROTO_CONFIG: ProtoConfig;
 import type { Task } from "./types.js";
 import { state } from "./state.js";
 import { el } from "./dom.js";
@@ -51,7 +49,6 @@ export function renderIndicators(): void {
     indicator.style.top = `${rect.top - 10}px`;
 
     const grp = group;
-    const capturedAllDone = allDone;
 
     indicator.addEventListener("mouseenter", () => {
       if (!state.tooltipPinned) showIndicatorTooltip(indicator, grp);

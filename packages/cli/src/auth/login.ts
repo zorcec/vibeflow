@@ -216,7 +216,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
     return;
   }
 
-  const { deviceCode, userCode, verificationUrl, expiresIn } =
+  const { deviceCode, verificationUrl, expiresIn } =
     (await initRes.json()) as {
       deviceCode: string;
       userCode: string;

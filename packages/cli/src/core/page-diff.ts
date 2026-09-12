@@ -9,7 +9,6 @@ import type {
   PageElementRecord,
   PageSnapshot,
   PageStyleChange,
-  PageHtmlDiff,
   StyleDiffResult,
   StyleQueryResult,
   HtmlQueryResult,

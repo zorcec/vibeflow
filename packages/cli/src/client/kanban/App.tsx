@@ -26,10 +26,7 @@ import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
-import {
-  DeleteConfirmDialog,
-  type DeleteChildrenMode,
-} from "@vibeflow-tools/ui/kanban";
+import { DeleteConfirmDialog } from "@vibeflow-tools/ui/kanban";
 import {
   fetchChangelogSections,
   markVersionSeen,
@@ -633,7 +630,7 @@ export function App() {
       (k) => updated[k] !== current[k],
     );
     if (changed) setPanelState((prev) => ({ ...prev, task: updated }));
-  }, [tasks, panelState.open, panelState.task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tasks, panelState.open, panelState.task?.id]);
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {

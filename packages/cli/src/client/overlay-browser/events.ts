@@ -1,11 +1,10 @@
 import { state } from "./state.js";
 import { el } from "./dom.js";
-import { buildSourcePointer, buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
+import { buildSourcePointer, buildSourcePointerAsync } from "./selectors.js";
 import { showPopover } from "./popover.js";
 import { toggleSidebar, closeSidebar } from "./sidebar.js";
 import { setAnnotateHighlight, clearAnnotateHighlight, startAnnotationHover, stopAnnotationHover } from "./ui.js";
-import { scheduleRenderIndicators } from "./indicators.js";
-import { showAddTaskModal, showInspectModal } from "./modal.js";
+import { showInspectModal } from "./modal.js";
 import { setOverlayTriggerAnnotating, showOverlayTrigger, hideOverlayTrigger, disableVibeflowOverlay, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 
 // ── Prototyping integration ───────────────────────────────────────────────────
@@ -22,6 +21,7 @@ function hasPrototypingApi(): boolean {
 
 /** Opens the variant switcher panel via the prototyping package API */
 function openPrototypingPanel(): void {
+  // SAFETY: __vf_prototyping is a global injected by the prototyping bundle; hasPrototypingApi() already verified its presence.
   const api = (window as unknown as Record<string, unknown>).__vf_prototyping as PrototypingApi | undefined;
   api?.openPanel();
 }

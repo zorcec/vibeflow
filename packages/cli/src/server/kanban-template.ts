@@ -36,7 +36,7 @@ function getSaasModeScript(opts: KanbanOptions): string {
   return `window.__SAAS_MODE__ = true; window.__BOARD_URL__ = ${JSON.stringify(opts.boardUrl ?? "")}; window.__BOARD_NAME__ = ${JSON.stringify(opts.boardName ?? "")}; window.__IS_ADMIN__ = ${opts.isAdmin ? "true" : "false"};`;
 }
 
-// eslint-disable-next-line no-secrets/no-secrets -- base64-encoded SVG favicon, not a credential
+// base64-encoded SVG favicon, not a credential
 const FAVICON_DATA_URI =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOCAxOCIgZmlsbD0ibm9uZSI+PHJlY3Qgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iNCIgZmlsbD0iIzI1NjNlYiIvPjxyZWN0IHg9IjIuNSIgeT0iNSIgd2lkdGg9IjIiIGhlaWdodD0iOCIgcng9IjEiIGZpbGw9IndoaXRlIiBvcGFjaXR5PSIwLjciLz48cmVjdCB4PSI2LjUiIHk9IjIiIHdpZHRoPSIyIiBoZWlnaHQ9IjE0IiByeD0iMSIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIxMC41IiB5PSI2IiB3aWR0aD0iMiIgaGVpZ2h0PSI2IiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuNyIvPjxyZWN0IHg9IjE0LjUiIHk9IjQiIHdpZHRoPSIyIiBoZWlnaHQ9IjEwIiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuODUiLz48L3N2Zz4=";
 

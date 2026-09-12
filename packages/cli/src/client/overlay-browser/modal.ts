@@ -5,9 +5,8 @@ import type { SourcePointer } from "./selectors.js";
 import { buildCssSelector } from "./selectors.js";
 import { state } from "./state.js";
 import { el } from "./dom.js";
-import { fetchTasks, submitTask } from "./api.js";
+import { fetchTasks } from "./api.js";
 import { showOverlayAddModal } from "../overlay-react/OverlayApp.js";
-import { TASK_TYPE_CHOICES_DETAILED } from "./task-types.js";
 import { buildTypePickerEl } from "./type-picker-el.js";
 
 // ── Lightweight markdown renderer ─────────────────────────────────────────────
@@ -27,7 +26,7 @@ export function renderMarkdown(md: string): string {
     .replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
     .replace(/^---$/gm, "<hr>")
-    // eslint-disable-next-line security/detect-unsafe-regex -- input is our own generated HTML, not raw user input
+    // input is our own generated HTML, not raw user input
     .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
     .replace(/^(?!<[a-z]|$).+$/gm, line => `<p>${line}</p>`);
 }

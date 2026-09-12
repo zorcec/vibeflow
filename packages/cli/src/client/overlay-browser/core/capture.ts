@@ -8,7 +8,6 @@
 
 import type { DomSnapshot, ProtoConfig, PageSnapshot } from "./types.js";
 import { captureAuthState } from "./auth.js";
-import { state } from "../state.js";
 
 declare const PROTO_CONFIG: ProtoConfig;
 

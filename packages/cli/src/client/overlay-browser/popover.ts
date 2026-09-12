@@ -2,7 +2,7 @@ import { state } from "./state.js";
 import { el } from "./dom.js";
 import { buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
 import { submitTask } from "./api.js";
-import { setAnnotateHighlight, clearAnnotateHighlight } from "./ui.js";
+import { clearAnnotateHighlight } from "./ui.js";
 import { captureDomSnapshot, capturePageSnapshot } from "./core/baseline.js";
 import {
   sendBaselineToServer,

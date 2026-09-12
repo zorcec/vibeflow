@@ -1,7 +1,6 @@
 import { readdirSync, unlinkSync, existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { PROTO_DIR } from "../core/types.js";
-import { ExitCode } from "../core/exit-codes.js";
 
 /**
  * Glob pattern for per-task encrypted auth state files.

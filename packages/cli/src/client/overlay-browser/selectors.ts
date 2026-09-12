@@ -408,7 +408,7 @@ export function buildSourcePointer(element: Element): SourcePointer {
 
 // Minimal VLQ base64 decoder. Each base64 char is: 1 continuation bit (MSB)
 // + 5 data bits; first char's bit 0 is the sign bit.
-// eslint-disable-next-line no-secrets/no-secrets -- base64 alphabet constant, not a credential
+// base64 alphabet constant, not a credential
 const VLQ_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const VLQ_TABLE: Record<number, number> = {};
@@ -637,7 +637,6 @@ export function captureV8CallSites(err: Error): V8CallSite[] | null {
         .join("\n");
     };
     // Accessing .stack triggers the hook only if it hasn't been computed yet.
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     void (err as any).stack;
   } finally {
     (Error as any).prepareStackTrace = prev;

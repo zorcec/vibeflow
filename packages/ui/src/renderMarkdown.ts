@@ -4,7 +4,7 @@ function splitTableCells(row: string): string[] {
 }
 
 function isTableDivider(line: string): boolean {
-  // eslint-disable-next-line security/detect-unsafe-regex -- bounded by literal | separators, not ReDoS-vulnerable
+  // bounded by literal | separators, not ReDoS-vulnerable
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 }
 
@@ -68,7 +68,7 @@ export function renderMarkdown(md: string): string {
     .replace(/(^|[^\w])#([a-f0-9]{30})(?![a-f0-9])/gi, '$1<a href="#task-$2" data-task-ref="$2" style="color:#60a5fa;text-decoration:underline;font-family:Menlo,monospace;">#$2</a>')
     .replace(/^[-*] (.+)$/gm, '<li style="margin:0.2em 0;display:list-item;">$1</li>')
     .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #334155;margin:0.8em 0;">')
-    // eslint-disable-next-line security/detect-unsafe-regex -- input is our own generated HTML, not raw user input; no ReDoS risk
+    // input is our own generated HTML, not raw user input; no ReDoS risk
     .replace(/(<li[^>]*>[\s\S]*?<\/li>\n?)+/g, (m) => `<ul style="padding-left:1.5em;margin:0.4em 0;list-style-type:disc;">${m}</ul>`)
     .replace(/^(?!<[a-z]|$).+$/gm, (line) => `<p style="margin:0.5em 0;">${line}</p>`);
 }
