@@ -11,8 +11,8 @@ const STATUS_COLORS: Record<
 > = {
   backlog: {
     text: "var(--t-text-muted)",
-    bg: "color-mix(in srgb, var(--t-text-ghost) 14%, transparent)",
-    border: "color-mix(in srgb, var(--t-text-ghost) 30%, transparent)",
+    bg: "color-mix(in srgb, var(--t-text-body) 14%, transparent)",
+    border: "color-mix(in srgb, var(--t-text-body) 30%, transparent)",
   },
   todo: {
     text: "var(--t-warning-subtle)",
@@ -20,12 +20,12 @@ const STATUS_COLORS: Record<
     border: "color-mix(in srgb, var(--t-warning) 30%, transparent)",
   },
   "in-progress": {
-    text: "var(--t-accent-subtle)",
+    text: "var(--t-chip-blue-200)",
     bg: "color-mix(in srgb, var(--t-accent) 14%, transparent)",
     border: "color-mix(in srgb, var(--t-accent) 30%, transparent)",
   },
   review: {
-    text: "var(--t-secondary-soft)",
+    text: "var(--t-chip-purple-300)",
     bg: "color-mix(in srgb, var(--t-secondary) 14%, transparent)",
     border: "color-mix(in srgb, var(--t-secondary) 30%, transparent)",
   },
@@ -292,7 +292,7 @@ export function KanbanListView({
                   >
                     {status}
                   </span>
-                  <span style={{ fontSize: 11, color: "var(--t-text-ghost)" }}>
+                  <span style={{ fontSize: 11, color: "var(--t-text-body)" }}>
                     {group.length}
                   </span>
                   <button
@@ -360,7 +360,7 @@ export function KanbanListView({
         <div
           style={{
             textAlign: "center",
-            color: "var(--t-text-ghost)",
+            color: "var(--t-text-body)",
             fontSize: 13,
             marginTop: 60,
           }}
@@ -477,7 +477,7 @@ function ListRow({
                   "color-mix(in srgb, var(--t-secondary) 14%, transparent)",
                 border:
                   "1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent)",
-                color: "var(--t-secondary-soft)",
+                color: "var(--t-chip-purple-300)",
                 flexShrink: 0,
                 fontFamily: "monospace",
               }}
@@ -490,7 +490,7 @@ function ListRow({
           <div
             style={{
               fontSize: 11,
-              color: "var(--t-text-ghost)",
+              color: "var(--t-text-body)",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",

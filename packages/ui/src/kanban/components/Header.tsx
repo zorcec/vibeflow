@@ -1,13 +1,13 @@
-import React from 'react';
-import { Search, Settings, X, ChevronRight } from 'lucide-react';
-import { VibeflowIcon } from '../../VibeflowIcon';
-import { HeaderActionButton } from './shared/HeaderActionButton';
-import { getTagColors } from '../tag-colors';
+import React from "react";
+import { Search, Settings, X, ChevronRight } from "lucide-react";
+import { VibeflowIcon } from "../../VibeflowIcon";
+import { HeaderActionButton } from "./shared/HeaderActionButton";
+import { getTagColors } from "../tag-colors";
 
 interface Props {
   projectName: string;
   projectIcon?: string;
-  missingProjectIconStyle?: 'initial' | 'vibeflow';
+  missingProjectIconStyle?: "initial" | "vibeflow";
   wsConnected: boolean;
   port: number;
   searchQuery: string;
@@ -24,10 +24,22 @@ interface Props {
 }
 
 export function Header({
-  projectName, projectIcon, missingProjectIconStyle = 'initial', wsConnected, port, searchQuery, isLoading,
-  filterTags, allTags, onToggleTag,
-  backHref, backLabel,
-  onSearchChange, onSettings, extraActions, taskSummary,
+  projectName,
+  projectIcon,
+  missingProjectIconStyle = "initial",
+  wsConnected,
+  port,
+  searchQuery,
+  isLoading,
+  filterTags,
+  allTags,
+  onToggleTag,
+  backHref,
+  backLabel,
+  onSearchChange,
+  onSettings,
+  extraActions,
+  taskSummary,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [dropdownIdx, setDropdownIdx] = React.useState(0);
@@ -39,17 +51,24 @@ export function Header({
   const hashQuery = hashMatch ? hashMatch[1] : null;
 
   const activeFilterTags = filterTags ?? [];
-  const availableTags = (allTags ?? []).filter(t => !activeFilterTags.includes(t));
-  const dropdownTags = hashQuery === null
-    ? []
-    : availableTags.filter(t => t.toLowerCase().includes(hashQuery.toLowerCase()));
+  const availableTags = (allTags ?? []).filter(
+    (t) => !activeFilterTags.includes(t),
+  );
+  const dropdownTags =
+    hashQuery === null
+      ? []
+      : availableTags.filter((t) =>
+          t.toLowerCase().includes(hashQuery.toLowerCase()),
+        );
 
   // Reset keyboard index when dropdown list changes
-  React.useEffect(() => { setDropdownIdx(0); }, [dropdownTags.length]);
+  React.useEffect(() => {
+    setDropdownIdx(0);
+  }, [dropdownTags.length]);
 
   function selectTag(tag: string) {
     // Strip the trailing `#query` fragment (and any preceding space) from the text input
-    const cleaned = searchQuery.replace(/\s*#\S*$/, '');
+    const cleaned = searchQuery.replace(/\s*#\S*$/, "");
     onSearchChange(cleaned);
     onToggleTag?.(tag);
     inputRef.current?.focus();
@@ -57,36 +76,40 @@ export function Header({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     // Backspace with empty input removes the last active filter tag
-    if (e.key === 'Backspace' && searchQuery === '' && activeFilterTags.length > 0) {
+    if (
+      e.key === "Backspace" &&
+      searchQuery === "" &&
+      activeFilterTags.length > 0
+    ) {
       e.preventDefault();
       onToggleTag?.(activeFilterTags[activeFilterTags.length - 1]);
       return;
     }
     if (hashQuery === null || dropdownTags.length === 0) return;
-    if (e.key === 'ArrowDown') {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
-      setDropdownIdx(i => Math.min(i + 1, dropdownTags.length - 1));
-    } else if (e.key === 'ArrowUp') {
+      setDropdownIdx((i) => Math.min(i + 1, dropdownTags.length - 1));
+    } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setDropdownIdx(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
+      setDropdownIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
       e.preventDefault();
       if (dropdownTags[dropdownIdx]) selectTag(dropdownTags[dropdownIdx]);
-    } else if (e.key === 'Escape') {
-      const cleaned = searchQuery.replace(/\s*#\S*$/, '');
+    } else if (e.key === "Escape") {
+      const cleaned = searchQuery.replace(/\s*#\S*$/, "");
       onSearchChange(cleaned);
     }
   }
 
-  const normalizedProjectIcon = (projectIcon ?? '').trim();
+  const normalizedProjectIcon = (projectIcon ?? "").trim();
   const displayProjectName = projectName
     ? projectName.charAt(0).toUpperCase() + projectName.slice(1)
-    : 'Vibeflow Board';
+    : "Vibeflow Board";
 
   const hasContent = searchQuery || activeFilterTags.length > 0;
 
   return (
-    <header className="px-5 py-3 flex items-center gap-3 border-b border-slate-800/60 flex-shrink-0">
+    <header className="px-5 py-3 flex items-center gap-3 border-b kb-header-border flex-shrink-0">
       {/* Project identity */}
       <div className="flex items-center gap-3 flex-shrink-0">
         {backHref && (
@@ -94,60 +117,102 @@ export function Header({
             <a
               id="header-back-link"
               href={backHref}
-              className="text-xs text-slate-400 hover:text-slate-200 transition-colors no-underline"
-              style={{ textDecoration: 'none', fontWeight: 500 }}
+              className="text-xs kb-nav-link transition-colors no-underline"
+              style={{ textDecoration: "none", fontWeight: 500 }}
             >
-              {backLabel ?? 'Back'}
+              {backLabel ?? "Back"}
             </a>
             <ChevronRight className="w-3 h-3 text-slate-600 flex-shrink-0" />
           </>
         )}
-        <div className="flex-shrink-0" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', ...(normalizedProjectIcon ? { fontSize: 20 } : undefined) }}>
-          {normalizedProjectIcon ? normalizedProjectIcon : (
-            missingProjectIconStyle === 'vibeflow' ? (
-              <VibeflowIcon size={32} />
-            ) : (
-              <div
-                style={{
-                  width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                  background: 'linear-gradient(135deg, var(--t-border-strong) 0%, var(--t-border) 100%)',
-                  border: '1px solid rgba(37,99,235,0.3)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 13, fontWeight: 700, color: 'var(--t-accent-subtle)', letterSpacing: '-0.01em',
-                }}
-                title={displayProjectName}
-              >
-                {displayProjectName.charAt(0).toUpperCase()}
-              </div>
-            )
+        <div
+          className="flex-shrink-0"
+          style={{
+            width: 32,
+            height: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            ...(normalizedProjectIcon ? { fontSize: 20 } : undefined),
+          }}
+        >
+          {normalizedProjectIcon ? (
+            normalizedProjectIcon
+          ) : missingProjectIconStyle === "vibeflow" ? (
+            <VibeflowIcon size={32} />
+          ) : (
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                flexShrink: 0,
+                background:
+                  "linear-gradient(135deg, var(--t-border-strong) 0%, var(--t-border) 100%)",
+                border: "1px solid rgba(37,99,235,0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 13,
+                fontWeight: 700,
+                color: "var(--t-chip-blue-200)",
+                letterSpacing: "-0.01em",
+              }}
+              title={displayProjectName}
+            >
+              {displayProjectName.charAt(0).toUpperCase()}
+            </div>
           )}
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <h1 id="header-project-name" className="text-sm font-semibold text-white leading-tight">
+            <h1
+              id="header-project-name"
+              className="text-sm font-semibold kb-title leading-tight"
+            >
               {displayProjectName}
             </h1>
             {wsConnected && (
               <div
                 id="header-live-pill"
                 className="flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                style={{ background: 'color-mix(in srgb, var(--t-success) 30%, transparent)', border: '1px solid color-mix(in srgb, var(--t-success) 28%, transparent)' }}
+                style={{
+                  background:
+                    "color-mix(in srgb, var(--t-success) 30%, transparent)",
+                  border:
+                    "1px solid color-mix(in srgb, var(--t-success) 28%, transparent)",
+                }}
               >
                 <div
-                  className="w-1.5 h-1.5 rounded-full bg-green-400"
-                  style={{ animation: 'pulse-live 2s ease-in-out infinite' }}
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: "var(--t-chip-green-400)",
+                    animation: "pulse-live 2s ease-in-out infinite",
+                  }}
                 />
-                <span className="text-[10px] font-medium text-green-400">live · :{port}</span>
+                <span
+                  className="text-[10px] font-medium"
+                  style={{ color: "var(--t-chip-green-400)" }}
+                >
+                  live · :{port}
+                </span>
               </div>
             )}
           </div>
-          <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+          <p
+            className="text-[10px] font-mono mt-0.5"
+            style={{ color: "var(--t-text-faint)" }}
+          >
             {taskSummary}
             {isLoading && (
               <span
                 id="header-loading-indicator"
-                className="inline-block ml-1.5 w-1 h-1 rounded-full bg-blue-400"
-                style={{ animation: 'pulse-live 1.4s ease-in-out infinite', verticalAlign: 'middle' }}
+                className="inline-block ml-1.5 w-1 h-1 rounded-full"
+                style={{
+                  background: "var(--t-status-progress)",
+                  animation: "pulse-live 1.4s ease-in-out infinite",
+                  verticalAlign: "middle",
+                }}
               />
             )}
           </p>
@@ -159,23 +224,50 @@ export function Header({
         <div className="relative w-full max-w-sm">
           {/* Token input container */}
           <div
-            className="flex flex-wrap items-center gap-1 w-full min-h-[30px] rounded-lg bg-slate-800 border border-slate-700/60 px-2 py-1 cursor-text transition-colors focus-within:border-blue-500"
+            className="kb-search-field flex flex-wrap items-center gap-1 w-full min-h-[30px] rounded-lg px-2 py-1 cursor-text transition-colors"
             onClick={() => inputRef.current?.focus()}
           >
-            <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0 mr-0.5" />
+            <Search
+              className="w-3.5 h-3.5 flex-shrink-0 mr-0.5"
+              style={{ color: "var(--t-text-faint)" }}
+            />
 
             {/* Active tag chips */}
-            {activeFilterTags.map(tag => {
+            {activeFilterTags.map((tag) => {
               const { bg, text, border } = getTagColors(tag);
               return (
                 <span
                   key={tag}
-                  style={{ background: bg, color: text, border: `1px solid ${border}`, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 7px', borderRadius: 100, fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}
+                  style={{
+                    background: bg,
+                    color: text,
+                    border: `1px solid ${border}`,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "1px 7px",
+                    borderRadius: 100,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                  }}
                 >
                   {tag}
                   <button
-                    onClick={(e) => { e.stopPropagation(); onToggleTag?.(tag); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1, color: 'inherit', opacity: 0.7, display: 'flex' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleTag?.(tag);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                      lineHeight: 1,
+                      color: "inherit",
+                      opacity: 0.7,
+                      display: "flex",
+                    }}
                   >
                     <X style={{ width: 9, height: 9 }} />
                   </button>
@@ -188,11 +280,15 @@ export function Header({
               ref={inputRef}
               id="global-search"
               type="text"
-              placeholder={activeFilterTags.length === 0 ? 'Search… or type #tag' : '#tag or search…'}
+              placeholder={
+                activeFilterTags.length === 0
+                  ? "Search… or type #tag"
+                  : "#tag or search…"
+              }
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="flex-1 min-w-[100px] bg-transparent border-none outline-none text-xs text-slate-200 placeholder-slate-500"
+              className="flex-1 min-w-[100px] bg-transparent border-none outline-none text-xs kb-search-input"
               autoComplete="off"
               spellCheck={false}
             />
@@ -201,8 +297,11 @@ export function Header({
             {hasContent && (
               <button
                 id="global-search-clear"
-                onClick={() => { onSearchChange(''); activeFilterTags.forEach(t => onToggleTag?.(t)); }}
-                className="text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0 flex"
+                onClick={() => {
+                  onSearchChange("");
+                  activeFilterTags.forEach((t) => onToggleTag?.(t));
+                }}
+                className="kb-search-clear transition-colors flex-shrink-0 flex"
                 title="Clear search and tag filters"
               >
                 <X className="w-3.5 h-3.5" />
@@ -214,9 +313,29 @@ export function Header({
           {hashQuery !== null && dropdownTags.length > 0 && (
             <div
               ref={dropdownRef}
-              style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--t-card)', border: '1px solid var(--t-border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 50, overflow: 'hidden' }}
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "var(--t-card)",
+                border: "1px solid var(--t-border-strong)",
+                borderRadius: 8,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                zIndex: 50,
+                overflow: "hidden",
+              }}
             >
-              <div style={{ padding: '5px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--t-text-ghost)', borderBottom: '1px solid var(--t-border)' }}>
+              <div
+                style={{
+                  padding: "5px 10px",
+                  fontSize: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--t-text-body)",
+                  borderBottom: "1px solid var(--t-border)",
+                }}
+              >
                 Tags
               </div>
               {dropdownTags.map((tag, i) => {
@@ -224,19 +343,63 @@ export function Header({
                 return (
                   <button
                     key={tag}
-                    onMouseDown={(e) => { e.preventDefault(); selectTag(tag); }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectTag(tag);
+                    }}
                     onMouseEnter={() => setDropdownIdx(i)}
-                    style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: i === dropdownIdx ? 'var(--t-hover)' : 'none', border: 'none', cursor: 'pointer' }}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "7px 12px",
+                      background: i === dropdownIdx ? "var(--t-hover)" : "none",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
                   >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: 'var(--t-text-muted)' }}>{tag}</span>
-                    <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', padding: '1px 7px', borderRadius: 100, fontSize: 10, background: bg, color: text, border: `1px solid ${border}` }}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: text,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{ fontSize: 12, color: "var(--t-text-muted)" }}
+                    >
+                      {tag}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "1px 7px",
+                        borderRadius: 100,
+                        fontSize: 10,
+                        background: bg,
+                        color: text,
+                        border: `1px solid ${border}`,
+                      }}
+                    >
                       tag
                     </span>
                   </button>
                 );
               })}
-              <div style={{ padding: '5px 10px', fontSize: 10, color: 'var(--t-text-ghost)', borderTop: '1px solid var(--t-border)' }}>
+              <div
+                style={{
+                  padding: "5px 10px",
+                  fontSize: 10,
+                  color: "var(--t-text-body)",
+                  borderTop: "1px solid var(--t-border)",
+                }}
+              >
                 ↑↓ navigate · Enter select · Esc close
               </div>
             </div>
@@ -266,28 +429,90 @@ export function Header({
       {/* Keyboard Shortcuts modal */}
       {shortcutsOpen && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(2,12,27,0.80)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "var(--t-overlay-scrim)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
           onClick={() => setShortcutsOpen(false)}
         >
           <div
             id="shortcuts-modal"
-            style={{ background: 'var(--t-card)', border: '1px solid var(--t-border-strong)', borderRadius: 14, padding: '20px 24px', minWidth: 320, maxWidth: 420, boxShadow: 'var(--t-shadow-lg)' }}
+            style={{
+              background: "var(--t-card)",
+              border: "1px solid var(--t-border-strong)",
+              borderRadius: 14,
+              padding: "20px 24px",
+              minWidth: 320,
+              maxWidth: 420,
+              boxShadow: "var(--t-shadow-lg)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t-text)' }}>Keyboard Shortcuts</span>
-              <button onClick={() => setShortcutsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t-text-faint)', padding: 2 }}><X style={{ width: 14, height: 14 }} /></button>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 16,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "var(--t-text)",
+                }}
+              >
+                Keyboard Shortcuts
+              </span>
+              <button
+                onClick={() => setShortcutsOpen(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--t-text-faint)",
+                  padding: 2,
+                }}
+              >
+                <X style={{ width: 14, height: 14 }} />
+              </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {[
-                ['Alt+N', 'Open new task panel'],
-                ['Esc', 'Close panel / modal'],
-                ['?', 'Show this shortcuts overlay'],
-                ['Alt+F', 'Focus task search'],
+                ["Alt+N", "Open new task panel"],
+                ["Esc", "Close panel / modal"],
+                ["?", "Show this shortcuts overlay"],
+                ["Alt+F", "Focus task search"],
               ].map(([key, desc]) => (
-                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <kbd style={{ fontSize: 10, fontFamily: 'monospace', background: 'var(--t-surface)', border: '1px solid var(--t-border-faint)', borderRadius: 4, padding: '2px 7px', color: 'var(--t-text-sub)', flexShrink: 0 }}>{key}</kbd>
-                  <span style={{ fontSize: 12, color: 'var(--t-text-muted)' }}>{desc}</span>
+                <div
+                  key={key}
+                  style={{ display: "flex", alignItems: "center", gap: 12 }}
+                >
+                  <kbd
+                    style={{
+                      fontSize: 10,
+                      fontFamily: "monospace",
+                      background: "var(--t-surface)",
+                      border: "1px solid var(--t-border-faint)",
+                      borderRadius: 4,
+                      padding: "2px 7px",
+                      color: "var(--t-text-sub)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {key}
+                  </kbd>
+                  <span style={{ fontSize: 12, color: "var(--t-text-muted)" }}>
+                    {desc}
+                  </span>
                 </div>
               ))}
             </div>

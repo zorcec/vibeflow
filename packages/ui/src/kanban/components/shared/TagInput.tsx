@@ -148,10 +148,10 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
                 display: 'flex', alignItems: 'center', gap: 6,
                 background: 'none', border: suggestions.length > 0 ? '1px solid var(--t-border)' : 'none',
                 borderLeft: 'none', borderRight: 'none', borderBottom: 'none',
-                cursor: 'pointer', fontSize: 12, color: 'var(--t-text-ghost)',
+                cursor: 'pointer', fontSize: 12, color: 'var(--t-text-body)',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--t-hover)'; e.currentTarget.style.color = 'var(--t-text-muted)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--t-text-ghost)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--t-text-body)'; }}
             >
               <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
               Create "<strong style={{ color: 'var(--t-text)' }}>{input.trim()}</strong>"

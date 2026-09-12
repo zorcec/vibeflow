@@ -885,7 +885,7 @@ export function DetailPanel({
                   borderRadius: 6,
                   border: "1px solid var(--t-border-faint)",
                   background: "transparent",
-                  color: "var(--t-text-ghost)",
+                  color: "var(--t-text-body)",
                   cursor: "pointer",
                   transition: "background .12s,color .12s",
                   fontSize: 14,
@@ -898,7 +898,7 @@ export function DetailPanel({
                 }}
                 onMouseOut={(e) => {
                   e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = "var(--t-text-ghost)";
+                  e.currentTarget.style.color = "var(--t-text-body)";
                   e.currentTarget.style.borderColor = "var(--t-border-faint)";
                 }}
               >
@@ -970,7 +970,7 @@ export function DetailPanel({
                     borderRadius: 4,
                     border: "1px solid var(--t-border-faint)",
                     background: "none",
-                    color: "var(--t-text-ghost)",
+                    color: "var(--t-text-body)",
                     cursor: "pointer",
                     fontSize: 13,
                     lineHeight: 1,
@@ -980,7 +980,7 @@ export function DetailPanel({
                     e.currentTarget.style.borderColor = "var(--t-warning-subtle)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.color = "var(--t-text-ghost)";
+                    e.currentTarget.style.color = "var(--t-text-body)";
                     e.currentTarget.style.borderColor = "var(--t-border-faint)";
                   }}
                 >
@@ -1000,7 +1000,7 @@ export function DetailPanel({
                 borderRadius: 6,
                 border: "none",
                 background: "transparent",
-                color: "var(--t-text-ghost)",
+                color: "var(--t-text-body)",
                 cursor: "pointer",
                 transition: "background .12s,color .12s",
                 pointerEvents: "auto",
@@ -1011,7 +1011,7 @@ export function DetailPanel({
               }}
               onMouseOut={(e) => {
                 e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--t-text-ghost)";
+                e.currentTarget.style.color = "var(--t-text-body)";
               }}
             >
               <X style={{ width: 14, height: 14 }} />
@@ -1054,7 +1054,7 @@ export function DetailPanel({
             <span
               style={{
                 fontSize: 10,
-                color: "var(--t-text-ghost)",
+                color: "var(--t-text-body)",
                 fontWeight: 500,
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
@@ -1091,7 +1091,7 @@ export function DetailPanel({
             >
               <span
                 style={{
-                  color: "var(--t-secondary-soft)",
+                  color: "var(--t-chip-purple-300)",
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                 }}
@@ -1147,7 +1147,7 @@ export function DetailPanel({
                   borderRadius: 6,
                   border: "1px solid var(--t-border)",
                   background: "transparent",
-                  color: "var(--t-text-ghost)",
+                  color: "var(--t-text-body)",
                   fontSize: 11,
                   cursor: "pointer",
                 }}
@@ -1177,7 +1177,7 @@ export function DetailPanel({
               {commentCount > 0 && (
                 <span
                   id="dp-activity-count"
-                  style={{ color: "var(--t-text-ghost)", fontSize: 10 }}
+                  style={{ color: "var(--t-text-body)", fontSize: 10 }}
                 >
                   ({commentCount})
                 </span>
@@ -1192,7 +1192,7 @@ export function DetailPanel({
               {fileCount > 0 && (
                 <span
                   id="dp-file-count"
-                  style={{ color: "var(--t-text-ghost)", fontSize: 10 }}
+                  style={{ color: "var(--t-text-body)", fontSize: 10 }}
                 >
                   ({fileCount})
                 </span>
@@ -1447,7 +1447,7 @@ export function DetailPanel({
               <span
                 style={{
                   fontSize: 11,
-                  color: "var(--t-border-faint)",
+                  color: "var(--t-text-faint)",
                   marginLeft: "auto",
                 }}
               >
@@ -1520,7 +1520,7 @@ export function DetailPanel({
                   transition: "all .15s",
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = "var(--t-text-ghost)";
+                  e.currentTarget.style.borderColor = "var(--t-text-body)";
                 }}
                 onMouseOut={(e) => {
                   e.currentTarget.style.borderColor = "var(--t-border-faint)";
@@ -1557,7 +1557,7 @@ export function DetailPanel({
             <span
               style={{
                 fontSize: 11,
-                color: "var(--t-text-ghost)",
+                color: "var(--t-text-body)",
                 padding: "5px 4px",
               }}
             >
@@ -1721,7 +1721,7 @@ function DpMetaRow({ task }: { task: Task }) {
             "1px solid color-mix(in srgb, var(--t-secondary) 36%, transparent)",
           borderRadius: 100,
           fontSize: 10,
-          color: "var(--t-secondary-soft)",
+          color: "var(--t-chip-purple-300)",
           fontFamily: "monospace",
         }}
       >
@@ -1781,7 +1781,7 @@ function DpMetaRow({ task }: { task: Task }) {
                 padding: "2px 6px",
                 background:
                   "color-mix(in srgb, var(--t-border) 72%, transparent)",
-                color: "var(--t-text-ghost)",
+                color: "var(--t-text-body)",
                 borderLeft:
                   "1px solid color-mix(in srgb, var(--t-accent) 18%, transparent)",
               }}
@@ -1816,7 +1816,7 @@ function DpMetaRow({ task }: { task: Task }) {
             "1px solid color-mix(in srgb, var(--t-secondary) 24%, transparent)",
           borderRadius: 100,
           fontSize: 10,
-          color: "var(--t-secondary-soft)",
+          color: "var(--t-chip-purple-300)",
         }}
       >
         ↩ report back

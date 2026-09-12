@@ -28,6 +28,7 @@ import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
+import { ThemeSwitcher } from "./components/ThemeSwitcher.js";
 import { DeleteConfirmDialog } from "@vibeflow-tools/ui/kanban";
 import {
   fetchChangelogSections,
@@ -1813,6 +1814,7 @@ export function App() {
         open={settingsOpen}
         visibleCols={visibleCols}
         settings={appSettings}
+        appearance={<ThemeSwitcher />}
         onClose={() => setSettingsOpen(false)}
         onSave={(cols, newSettings) => {
           setVisibleCols(cols);

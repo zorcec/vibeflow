@@ -38,7 +38,7 @@ export function FilesList({
     return (
       <p
         style={{
-          color: "var(--t-text-ghost)",
+          color: "var(--t-text-body)",
           fontSize: 12,
           textAlign: "center",
           padding: "16px 0",
@@ -66,7 +66,7 @@ export function FilesList({
     return (
       <p
         style={{
-          color: "var(--t-text-ghost)",
+          color: "var(--t-text-body)",
           fontSize: 12,
           textAlign: "center",
           padding: "16px 0",

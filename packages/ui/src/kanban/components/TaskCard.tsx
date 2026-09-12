@@ -148,7 +148,7 @@ const DESC_THUMB_ROW_STYLE: React.CSSProperties = {
 };
 const DESC_TEXT_STYLE: React.CSSProperties = {
       fontSize: 10,
-      color: "var(--t-text-ghost)",
+      color: "var(--t-text-body)",
       lineHeight: "1.45",
       overflow: "hidden",
       display: "-webkit-box",
@@ -858,7 +858,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                     fontSize: 9,
                     fontWeight: 600,
                     border: "1px solid rgba(59,130,246,0.35)",
-                    color: "var(--t-accent-subtle)",
+                    color: "var(--t-chip-blue-200)",
                     background: "rgba(30,58,138,0.28)",
                     flexShrink: 0,
                     maxWidth: 110,

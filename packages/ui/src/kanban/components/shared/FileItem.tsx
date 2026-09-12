@@ -55,7 +55,7 @@ export function FileItem({ file: f, url, variant, onPreview, onDelete }: FileIte
             title={f.name}
           >{f.name}</button>
         </div>
-        <span className="file-compact-ts" style={{ fontSize: 10, color: 'var(--t-border-faint)', flexShrink: 0, marginLeft: 2 }}>
+        <span className="file-compact-ts" style={{ fontSize: 10, color: 'var(--t-text-faint)', flexShrink: 0, marginLeft: 2 }}>
           {f.createdAt ? formatDate(f.createdAt) : 'attached'}
         </span>
         <div

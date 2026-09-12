@@ -17,9 +17,9 @@ export function HeaderActionButton({
   icon,
   variant = 'neutral',
 }: HeaderActionButtonProps) {
-  const baseClass = 'h-7 inline-flex items-center justify-center rounded-lg border transition-colors';
-  const neutralClass = 'border-slate-700/60 bg-slate-800 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200';
-  const accentClass = 'border-violet-700/50 bg-violet-900/30 text-violet-300 hover:bg-violet-800/30';
+  const baseClass = 'h-7 inline-flex items-center justify-center rounded-lg transition-colors';
+  const neutralClass = 'kb-action-btn';
+  const accentClass = 'kb-action-btn kb-action-btn--accent';
 
   return (
     <button

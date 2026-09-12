@@ -169,14 +169,14 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       width="min(1100px, 95vw)"
       maxHeight="88vh"
       boxStyle={{ display: "flex", flexDirection: "column" }}
-      icon={<FileText className="w-4 h-4 text-slate-400" />}
+      icon={<FileText className="w-4 h-4 kb-text-muted" />}
       title={name}
       headerActions={
         <>
           <a
             href={url}
             download={name}
-            className="text-slate-400 hover:text-slate-200 transition-colors p-1.5 rounded-md hover:bg-slate-700/60"
+            className="kb-icon-btn transition-colors p-1.5 rounded-md"
             title="Download"
           >
             <Download className="w-4 h-4" />
@@ -184,7 +184,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <button
             id="file-preview-close"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-200 transition-colors p-1.5 rounded-md hover:bg-slate-700/60"
+            className="kb-icon-btn transition-colors p-1.5 rounded-md"
             title="Close"
           >
             <X className="w-4 h-4" />
@@ -196,7 +196,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <a
             href={url}
             download={name}
-            className="flex items-center gap-1.5 border border-slate-700 hover:bg-slate-800 text-slate-300 text-sm px-3 py-1.5 rounded-lg transition-colors"
+            className="kb-btn-ghost flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             Download
@@ -204,7 +204,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <button
             id="file-preview-close-footer"
             onClick={onClose}
-            className="border border-slate-700 hover:bg-slate-800 text-slate-300 text-sm px-4 py-1.5 rounded-lg transition-colors"
+            className="kb-btn-ghost text-sm px-4 py-1.5 rounded-lg transition-colors"
           >
             Close
           </button>
@@ -239,7 +239,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           </div>
         )}
         {isMarkdown(name) && loading && (
-          <p className="text-xs text-slate-500 py-4">Loading…</p>
+          <p className="text-xs kb-text-faint py-4">Loading…</p>
         )}
         {isMarkdown(name) && !loading && mdContent !== null && (
           <div
@@ -258,10 +258,10 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           </div>
         )}
         {isJson(name) && loading && (
-          <p className="text-xs text-slate-500 py-4">Loading…</p>
+          <p className="text-xs kb-text-faint py-4">Loading…</p>
         )}
         {isJson(name) && !loading && jsonError && (
-          <p className="text-xs text-red-400 py-4">
+          <p className="text-xs kb-error-text py-4">
             Error loading or parsing JSON file.
           </p>
         )}
@@ -288,13 +288,13 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           </pre>
         )}
         {!isImage(name) && !isMarkdown(name) && !isJson(name) && (
-          <div className="flex flex-col items-center justify-center gap-3 py-12 text-slate-500">
+          <div className="flex flex-col items-center justify-center gap-3 py-12 kb-text-faint">
             <FileText className="w-10 h-10 opacity-40" />
             <p className="text-sm">Preview not available for this file type.</p>
             <a
               href={url}
               download={name}
-              className="flex items-center gap-1.5 text-violet-400 hover:text-violet-300 hover:underline text-sm transition-colors"
+              className="kb-violet-link flex items-center gap-1.5 hover:underline text-sm transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               Download file

@@ -176,7 +176,7 @@ export function MarkdownEditableField({
     >
       {(previewValue ?? value).trim()
         ? <MarkdownPreview markdown={previewValue ?? value} />
-        : <span style={{ color: 'var(--t-border-faint)' }}>{previewEmptyText ?? placeholder}</span>}
+        : <span style={{ color: 'var(--t-text-faint)' }}>{previewEmptyText ?? placeholder}</span>}
     </div>
   ) : (
     <div style={{ position: 'relative' }}>

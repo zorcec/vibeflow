@@ -128,6 +128,37 @@
   --t-white: var(--p-white);
   --t-bg-raised: var(--p-bg-2);
   --t-shadow-lg: var(--p-shadow-lg);
+
+  /* Readable muted tier — secondary/tertiary copy (card descriptions, hints,
+     timestamps, filter labels). Dark and hc-dark keep the exact --p-text-g
+     values they rendered before; light gets slate-700 so the same copy stays
+     above 4.5:1 on white AND on the softly tinted card surfaces. */
+  --t-text-body: var(--p-text-g);
+
+  /* Chip text tier — the text colour for tinted chips/badges (task type,
+     priority, tags, status badges). Dark and hc-dark values are the hues those
+     chips have always rendered; the light blocks below swap in darker hues of
+     the same step, because the legacy dark hues drop to 1.2-2.5:1 on white. */
+  --t-chip-blue-200: #93c5fd;
+  --t-chip-blue-300: #60a5fa;
+  --t-chip-purple-300: #c4b5fd;
+  --t-chip-amber-300: #fcd34d;
+  --t-chip-amber-400: #facc15;
+  --t-chip-orange-400: #fb923c;
+  --t-chip-green-300: #6ee7b7;
+  --t-chip-green-400: #4ade80;
+  --t-chip-pink-300: #f9a8d4;
+  --t-chip-cyan-300: #7dd3fc;
+  --t-chip-red-300: #fca5a5;
+  --t-chip-slate-400: #94a3b8;
+
+  /* Filled control surface (header search box, ghost header buttons): the dark
+     value is the legacy slate-800 fill, the light blocks use the light surface
+     step so the controls still separate from the page. */
+  --t-control-surface: #1e293b;
+
+  /* Inline code chip background (markdown description/comment previews). */
+  --t-code-bg: #1e293b;
 }
 
 /* ── Dark (explicit — same as default) ── */
@@ -234,6 +265,22 @@
   --p-pink-300: #be185d;
   --p-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1);
   --p-overlay: rgba(15, 23, 42, 0.08);
+
+  --t-text-body: #334155;
+  --t-chip-blue-200: #1e40af;
+  --t-chip-blue-300: #1d4ed8;
+  --t-chip-purple-300: #6d28d9;
+  --t-chip-amber-300: #92400e;
+  --t-chip-amber-400: #854d0e;
+  --t-chip-orange-400: #9a3412;
+  --t-chip-green-300: #166534;
+  --t-chip-green-400: #15803d;
+  --t-chip-pink-300: #be185d;
+  --t-chip-cyan-300: #0e7490;
+  --t-chip-red-300: #b91c1c;
+  --t-chip-slate-400: #475569;
+  --t-control-surface: #e2e8f0;
+  --t-code-bg: #f1f5f9;
 
   --t-on-accent: #ffffff;
   --t-accent-soft-bg: rgba(29, 78, 216, 0.08);
@@ -368,6 +415,22 @@
     --p-pink-300: #be185d;
     --p-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1);
     --p-overlay: rgba(15, 23, 42, 0.08);
+
+    --t-text-body: #334155;
+    --t-chip-blue-200: #1e40af;
+    --t-chip-blue-300: #1d4ed8;
+    --t-chip-purple-300: #6d28d9;
+    --t-chip-amber-300: #92400e;
+    --t-chip-amber-400: #854d0e;
+    --t-chip-orange-400: #9a3412;
+    --t-chip-green-300: #166534;
+    --t-chip-green-400: #15803d;
+    --t-chip-pink-300: #be185d;
+    --t-chip-cyan-300: #0e7490;
+    --t-chip-red-300: #b91c1c;
+    --t-chip-slate-400: #475569;
+    --t-control-surface: #e2e8f0;
+    --t-code-bg: #f1f5f9;
 
     --t-on-accent: #ffffff;
     --t-accent-soft-bg: rgba(29, 78, 216, 0.08);

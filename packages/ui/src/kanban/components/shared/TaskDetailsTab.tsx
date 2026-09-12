@@ -131,7 +131,7 @@ export function TaskDetailsTab({
                   alignItems: "center",
                   gap: 4,
                   fontSize: 11,
-                  color: "var(--t-text-ghost)",
+                  color: "var(--t-text-body)",
                   background: "none",
                   border: "1px solid var(--t-border-faint)",
                   borderRadius: 6,
@@ -144,7 +144,7 @@ export function TaskDetailsTab({
                   e.currentTarget.style.borderColor = "var(--t-warning-subtle)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--t-text-ghost)";
+                  e.currentTarget.style.color = "var(--t-text-body)";
                   e.currentTarget.style.borderColor = "var(--t-border-faint)";
                 }}
               >
@@ -330,7 +330,7 @@ export function TaskDetailsTab({
               <div
                 style={{
                   fontSize: 9,
-                  color: "var(--t-border-faint)",
+                  color: "var(--t-text-faint)",
                   marginBottom: 2,
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
@@ -389,7 +389,7 @@ function MetaTile({
       <div
         style={{
           fontSize: 9,
-          color: "var(--t-border-faint)",
+          color: "var(--t-text-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -455,7 +455,7 @@ function CommitTile({
       <div
         style={{
           fontSize: 9,
-          color: "var(--t-border-faint)",
+          color: "var(--t-text-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -533,7 +533,7 @@ function BranchTile({ branchName }: { branchName: string }) {
       <div
         style={{
           fontSize: 9,
-          color: "var(--t-border-faint)",
+          color: "var(--t-text-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -615,7 +615,7 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
           Console Logs
         </span>
         <span
-          style={{ fontSize: 9, color: "var(--t-text-ghost)", marginLeft: "auto" }}
+          style={{ fontSize: 9, color: "var(--t-text-body)", marginLeft: "auto" }}
         >
           captured at submission
         </span>
@@ -657,7 +657,7 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
           <div
             style={{
               fontSize: 10,
-              color: "var(--t-text-ghost)",
+              color: "var(--t-text-body)",
               fontStyle: "italic",
             }}
           >

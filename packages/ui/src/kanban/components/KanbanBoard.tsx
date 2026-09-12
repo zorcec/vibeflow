@@ -19,7 +19,7 @@ const COLUMNS: Column[] = [
     id: "backlog",
     label: "Backlog",
     color: "var(--t-text-faint)",
-    accent: "color-mix(in srgb, var(--t-text-ghost) 25%, transparent)",
+    accent: "color-mix(in srgb, var(--t-text-body) 25%, transparent)",
   },
   {
     id: "todo",
@@ -665,7 +665,7 @@ export function KanbanBoard({
           }}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLDivElement).style.background =
-              "var(--t-text-ghost)";
+              "var(--t-text-body)";
           }}
           onMouseLeave={(e) => {
             if (
@@ -863,7 +863,7 @@ function KanbanColumn({
             borderRadius: 4,
             border: "none",
             background: "transparent",
-            color: addHovered ? col.color : "var(--t-text-ghost)",
+            color: addHovered ? col.color : "var(--t-text-body)",
             cursor: "pointer",
             transition: "color .15s",
             padding: 0,
@@ -993,7 +993,7 @@ function KanbanColumn({
                   borderRadius: 10,
                   padding: "11px 13px",
                   fontSize: 12,
-                  color: "var(--t-text-ghost)",
+                  color: "var(--t-text-body)",
                   textAlign: "center",
                   lineHeight: 1.4,
                   opacity: 0.7,
