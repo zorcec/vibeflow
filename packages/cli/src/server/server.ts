@@ -348,6 +348,7 @@ function registerTaskApi(
       tags,
       sortKey,
       links,
+      parent,
     } = req.body as {
       title?: string;
       description?: string;
@@ -368,6 +369,7 @@ function registerTaskApi(
       tags?: string[];
       sortKey?: string;
       links?: Array<{ taskId: string; type: string }>;
+      parent?: string;
     };
 
     if (!title || !selector) {
@@ -413,13 +415,35 @@ function registerTaskApi(
       }
     }
 
+    // Optional convenience: a single `parent` id (full or prefix) is resolved
+    // and merged into the links array, mirroring the CLI `--add --parent` and
+    // MCP `create_task` parent field. Dangling targets use the same wording as
+    // the --set-parent path.
+    let createLinks = validatedLinks;
+    if (typeof parent === "string" && parent.length > 0) {
+      const allTasks = listTasks(projectDir);
+      const resolvedParentId =
+        allTasks.find((t) => t.id === parent || t.id.startsWith(parent))?.id ??
+        parent;
+      if (!allTasks.some((t) => t.id === resolvedParentId)) {
+        res
+          .status(400)
+          .json({ error: `Parent task not found: ${resolvedParentId}` });
+        return;
+      }
+      createLinks = [
+        ...(validatedLinks ?? []),
+        { taskId: resolvedParentId, type: "parent" },
+      ];
+    }
+
     const gitUser = getGitUser(projectDir);
     const task = createTask(projectDir, {
       title,
       description: description || "",
       selector,
       cssSelector: cssSelector || undefined,
-      links: validatedLinks,
+      links: createLinks,
       url: url || undefined,
       status: (VALID_CREATE_STATUSES.includes(
         reqStatus as (typeof VALID_CREATE_STATUSES)[number],

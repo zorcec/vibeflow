@@ -6,7 +6,7 @@
  * and delegate to the existing core functions.
  */
 import { z } from "zod";
-import type { Task, TaskComment } from "../core/types.js";
+import type { Task, TaskComment, TaskLink } from "../core/types.js";
 import { TASK_STATUSES, type TaskStatus } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
 import { getGitUser } from "./git-user.js";
@@ -73,6 +73,9 @@ export const CreateTaskInput = z.object({
   cssSelector: z.string().optional(),
   // Optional explicit ordering key; core auto-assigns one when omitted.
   sortKey: z.string().optional(),
+  // Optional parent task id (full id or unique prefix); links the new task
+  // under it as a child.
+  parent: z.string().min(1).optional(),
 });
 export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
@@ -263,6 +266,30 @@ export async function createTask(
   input: CreateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
+    // Resolve an optional parent (full id or unique prefix) to a parent link,
+    // matching the wording the --set-parent path emits. A task being created
+    // has no id/links/descendants yet, so self-link, duplicate and cycle are
+    // structurally impossible; a dangling target is the only rejection.
+    let links: TaskLink[] | undefined;
+    if (input.parent) {
+      const { listTasks: coreListTasks } = await import("../core/tasks.js");
+      const allTasks = coreListTasks(ctx.projectDir);
+      const resolvedParentId =
+        allTasks.find(
+          (t) => t.id === input.parent || t.id.startsWith(input.parent!),
+        )?.id ?? input.parent;
+      if (!allTasks.some((t) => t.id === resolvedParentId)) {
+        return {
+          ok: false,
+          error: {
+            code: "CREATE_TASK_ERROR",
+            message: `Parent task not found: ${resolvedParentId}`,
+          },
+        };
+      }
+      links = [{ taskId: resolvedParentId, type: "parent" }];
+    }
+
     if (ctx.dryRun) {
       return {
         ok: true,
@@ -273,6 +300,7 @@ export async function createTask(
           status: input.status as TaskStatus,
           selector: input.selector,
           created: new Date().toISOString(),
+          ...(links ? { links } : {}),
         } as Task,
         steps: ["Dry run: task would be created"],
       };
@@ -290,6 +318,7 @@ export async function createTask(
       selector: input.selector,
       cssSelector: input.cssSelector,
       sortKey: input.sortKey,
+      ...(links ? { links } : {}),
       // Same identity source as the CLI and the board so agent-created tasks
       // match human-created ones.
       author: ctx.userId ?? getGitUser(ctx.projectDir).name,

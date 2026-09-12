@@ -73,12 +73,14 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ListTasksInput.shape,
-    run: (ctx, input) => listTasks(ctx, input as z.infer<typeof ListTasksInput>),
+    run: (ctx, input) =>
+      listTasks(ctx, input as z.infer<typeof ListTasksInput>),
   },
   {
     name: "get_task",
     title: "Get task",
-    description: "Get a single task by ID with full details including comments and files.",
+    description:
+      "Get a single task by ID with full details including comments and files.",
     cliRef: {
       command: "tasks",
       flags: ["--get"],
@@ -99,7 +101,15 @@ export const manifest: ToolManifest[] = [
     description: "Create a new task with title, description, and metadata.",
     cliRef: {
       command: "tasks",
-      flags: ["--add", "--title", "--description", "--type", "--priority", "--tag"],
+      flags: [
+        "--add",
+        "--title",
+        "--description",
+        "--type",
+        "--priority",
+        "--tag",
+        "--parent",
+      ],
     },
     category: "task-write",
     annotations: {
@@ -109,7 +119,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: CreateTaskInput.shape,
-    run: (ctx, input) => createTask(ctx, input as z.infer<typeof CreateTaskInput>),
+    run: (ctx, input) =>
+      createTask(ctx, input as z.infer<typeof CreateTaskInput>),
   },
   {
     name: "update_task",
@@ -137,12 +148,14 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: UpdateTaskInput.shape,
-    run: (ctx, input) => updateTask(ctx, input as z.infer<typeof UpdateTaskInput>),
+    run: (ctx, input) =>
+      updateTask(ctx, input as z.infer<typeof UpdateTaskInput>),
   },
   {
     name: "claim_next_task",
     title: "Claim next task",
-    description: "Claim the highest-priority todo task and set it to in-progress.",
+    description:
+      "Claim the highest-priority todo task and set it to in-progress.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],
@@ -155,7 +168,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ClaimNextTaskInput.shape,
-    run: (ctx, input) => claimNextTask(ctx, input as z.infer<typeof ClaimNextTaskInput>),
+    run: (ctx, input) =>
+      claimNextTask(ctx, input as z.infer<typeof ClaimNextTaskInput>),
   },
   {
     name: "add_comment",
@@ -173,7 +187,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: AddCommentInput.shape,
-    run: (ctx, input) => addComment(ctx, input as z.infer<typeof AddCommentInput>),
+    run: (ctx, input) =>
+      addComment(ctx, input as z.infer<typeof AddCommentInput>),
   },
   {
     name: "attach_file",
@@ -191,7 +206,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: AttachFileInput.shape,
-    run: (ctx, input) => attachFile(ctx, input as z.infer<typeof AttachFileInput>),
+    run: (ctx, input) =>
+      attachFile(ctx, input as z.infer<typeof AttachFileInput>),
   },
   {
     name: "export_prompt",
@@ -209,7 +225,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ExportPromptInput.shape,
-    run: (ctx, input) => exportPrompt(ctx, input as z.infer<typeof ExportPromptInput>),
+    run: (ctx, input) =>
+      exportPrompt(ctx, input as z.infer<typeof ExportPromptInput>),
   },
   {
     name: "verify_task",
@@ -228,7 +245,8 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: VerifyTaskInput.shape,
-    run: (ctx, input) => verifyTaskOp(ctx, input as z.infer<typeof VerifyTaskInput>),
+    run: (ctx, input) =>
+      verifyTaskOp(ctx, input as z.infer<typeof VerifyTaskInput>),
   },
   {
     name: "push_tasks",
@@ -246,6 +264,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: PushTasksInput.shape,
-    run: (ctx, input) => pushTasks(ctx, input as z.infer<typeof PushTasksInput>),
+    run: (ctx, input) =>
+      pushTasks(ctx, input as z.infer<typeof PushTasksInput>),
   },
 ];

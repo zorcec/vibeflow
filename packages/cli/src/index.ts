@@ -693,6 +693,10 @@ program
     "New description for the task (use with --edit)",
   )
   .option(
+    "--parent <task-id>",
+    "Create the new task as a child of this parent (use with --add; full ID or prefix)",
+  )
+  .option(
     "--set-parent <task-id>",
     "Set/replace the parent task link (use with --edit; empty string clears)",
   )
@@ -773,7 +777,7 @@ program
         setStatus?: string;
         description?: string;
         setParent?: string;
-        parent?: boolean;
+        parent?: string | boolean;
         json?: boolean;
         commit?: boolean;
         get?: string;
@@ -807,6 +811,21 @@ program
           command: "tasks",
           subcommand: taskSubcommand,
         });
+
+        // ── --parent is --add-only ──────────────────────────────────────
+        // (--edit uses --set-parent / --no-parent; --no-parent arrives as
+        // the boolean `false`, never a string, so it is unaffected here.)
+        if (typeof opts.parent === "string" && !opts.add) {
+          outputError({
+            code: "E_USAGE",
+            message: "--parent is only valid with --add",
+            suggestion:
+              'Example: vibeflow tasks --add --title "Fix CTA spacing" --parent 358fcff6',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
 
         // ── Get single task mode ───────────────────────────────────────────
         if (opts.get) {
@@ -1283,6 +1302,18 @@ program
 
           const addMode = await getMode();
           if (addMode === "saas") {
+            if (typeof opts.parent === "string") {
+              console.log(
+                chalk.red("✗ --parent is only supported for local tasks"),
+              );
+              console.log(
+                chalk.dim(
+                  "  Parent links are not supported by the online backend yet.",
+                ),
+              );
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
             const addWorkspace = await readWorkspace();
             const validSaasStatuses = [
               "backlog",
@@ -1388,6 +1419,29 @@ program
             ? (opts.setStatus as TaskStatus)
             : "todo";
 
+          // ── Parent link (--parent) ─────────────────────────────────────
+          // Resolve a full ID or prefix the same way --get/--set-parent do,
+          // then reject a dangling target with the wording the --set-parent
+          // path emits. A brand-new task has no id yet, so self-link,
+          // duplicate and cycle are structurally impossible (see report).
+          let parentId: string | undefined;
+          if (typeof opts.parent === "string") {
+            const rawParent = opts.parent;
+            const parentTasks = listTasks(projectDir);
+            parentId =
+              parentTasks.find(
+                (t) => t.id === rawParent || t.id.startsWith(rawParent),
+              )?.id ?? rawParent;
+            if (!parentTasks.some((t) => t.id === parentId)) {
+              console.log(chalk.red(`✗ Parent task not found: ${parentId}`));
+              console.log(
+                chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
+              );
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
+            }
+          }
+
           if (opts.dryRun) {
             const dryId = generateTaskId();
             const dryTask = {
@@ -1396,6 +1450,9 @@ program
               description: opts.description?.trim() ?? "",
               status,
               selector: "/",
+              ...(parentId
+                ? { links: [{ taskId: parentId, type: "parent" as const }] }
+                : {}),
             };
             if (opts.json) {
               console.log(
@@ -1434,6 +1491,10 @@ program
             ...(opts.type ? { type: opts.type } : {}),
             ...(opts.priority ? { priority: opts.priority } : {}),
             ...(opts.tag?.length ? { tags: opts.tag } : {}),
+            // Link shape matches the --edit --set-parent path exactly.
+            ...(parentId
+              ? { links: [{ taskId: parentId, type: "parent" as const }] }
+              : {}),
           });
 
           const localAddNextActions = getNextActions("add", created.id);
