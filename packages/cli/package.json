@@ -19,7 +19,8 @@
     "dist/files-*.js",
     "dist/workspace-*.js",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/demo/"
   ],
   "bin": {
     "vibeflow": "dist/cli/index.js",

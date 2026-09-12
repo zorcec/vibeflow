@@ -6,10 +6,7 @@ Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any
 
 🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
 
-```bash
-npm install -g @vibeflow-tools/cli
-vibeflow kanban
-```
+![The Vibeflow Kanban board — backlog, todo, in-progress, review and done columns filled with typed, prioritised task cards](docs/demo/board-overview.png)
 
 ---
 
@@ -27,31 +24,82 @@ Perfect for small UI fixes, broken layouts, spacing issues, and anything where p
 
 ---
 
+## Install
+
+Run it once with `npx` — nothing to install:
+
+```bash
+npx @vibeflow-tools/cli kanban
+```
+
+Or install it globally for day two. This adds the short alias `vf`:
+
+```bash
+npm install -g @vibeflow-tools/cli
+vibeflow kanban                  # or: vf kanban
+```
+
+**Requirements:** Node.js >= 22. Apache-2.0 licensed. No account and no cloud — every task is a JSON file in your repo.
+
+---
+
 ## Quick Start
 
 ```bash
-# 1. Embed the overlay into your app (bookmarklet, script tag, or devtools)
-#    Visit /inject on your running server for ready-to-use snippets
+# 1. Start the local server and open the Kanban board
+npx @vibeflow-tools/cli kanban
 
-# 2. Open the Kanban board
-vibeflow kanban
+# 2. Annotate a running app: open http://localhost:3700/inject and drag the
+#    bookmarklet onto your bookmarks bar (or use the script tag / console snippet)
 
-# 3. Click elements in your app to annotate, or create tasks on the board
+# 3. Click elements in your app to create tasks — the CSS selector, URL and
+#    source location are captured for you. You can also create tasks on the board.
 
-# 4. Your agent picks the next task with full context executing following command
-vibeflow tasks --next
-
+# 4. Let your agent pick up the next task with full context
+npx @vibeflow-tools/cli tasks --next
 ```
+
+---
+
+## See It in Action
+
+### Drag tasks across the board
+
+![Dragging a task card between Kanban columns](docs/demo/drag-and-drop.gif)
+
+Backlog → Todo → In Progress → Review → Done. Drag a card to change its status and the
+board persists the new column and order, even after a reload. Tag, user and type filters
+keep their state while you move work, and every change is written straight to the task
+store — so the CLI and your agent see it immediately.
+
+### Break work into a parent / child tree
+
+![A parent task card with its child tasks expanded as an inline tree](docs/demo/parent-tree.gif)
+
+Turn an epic into child tasks that keep their own status, priority and history. Expand
+the tree inline on the card, or create children from the terminal with
+`vibeflow tasks --add --title "..." --parent <id>`. The same hierarchy comes back from
+`vibeflow tasks --get <id>`, so an agent can pick up a leaf without losing the parent.
+
+### Get the whole ticket in one panel
+
+![The task detail panel with status, description, tags, priority, relations, activity and files](docs/demo/task-detail.gif)
+
+Open any card for the full ticket: status, description, tags, priority, author,
+relations (children and related tasks), an activity feed and file attachments. Changes
+save automatically, and pasting a screenshot or file anywhere in the panel attaches it
+to the task instead of your Downloads folder.
 
 ---
 
 ## Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
+| `vibeflow watch [dir]` | Watch the task store and print ticket details for important updates |
 | `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
 
 ### `vibeflow kanban [dir]`
@@ -61,7 +109,9 @@ vibeflow kanban                   # open Kanban board for current directory
 vibeflow kanban ./my-project      # open Kanban for a specific project
 ```
 
-The Kanban board provides a visual task tracker with drag-and-drop columns, agent status display, and file attachments. Create tasks directly on the board or import them from annotated prototypes.
+The Kanban board provides a visual task tracker with drag-and-drop columns, parent/child
+task trees, agent status display, and file attachments. Create tasks directly on the
+board or import them from annotated prototypes.
 
 ### `vibeflow serve [target]`
 
@@ -85,7 +135,7 @@ vibeflow tasks --next                             # picks highest-priority todo 
 vibeflow tasks --next --type Bug                  # next bug task only
 
 # List tasks
-vibeflow tasks                                    # all tasks (default: 20 most recent)
+vibeflow tasks                                    # tasks (default: 5 most recent)
 vibeflow tasks --limit 0                          # show all tasks (no limit)
 vibeflow tasks --json                             # machine-readable JSON output
 
@@ -98,8 +148,9 @@ vibeflow tasks --tag frontend --tag urgent        # by tags (AND matching)
 # Get full details of a single task
 vibeflow tasks --get <id>                         # supports partial ID prefix
 
-# Create a task
+# Create a task, or a child of an existing one
 vibeflow tasks --add --title "Fix header" --description "Button overflows on mobile"
+vibeflow tasks --add --title "Adjust the tour copy" --parent <id>
 
 # Edit a task
 vibeflow tasks --edit <id> --set-status in-progress
@@ -114,6 +165,20 @@ vibeflow tasks --edit <id> --set-status review \
 **Task types:** Task · Bug · Feature · Enhancement · Research  
 **Task statuses:** backlog → todo → in-progress → review → done  
 **Priorities:** Critical · High · Medium · Low
+
+### `vibeflow watch [dir]`
+
+```bash
+vibeflow watch                    # watch the current directory's task store
+vibeflow watch ./my-project       # watch a specific project
+vibeflow watch --json             # emit events as JSONL to stdout
+vibeflow watch --once             # one-shot poll, then exit
+```
+
+Runs until interrupted (Ctrl+C) and prints full ticket details whenever a task is
+newly created or moved back to `todo` — handy as a driver for AI-agent loops that
+react to new work. Events can also be written to a file (`--output <file>`) or POSTed
+to a webhook (`--webhook <url>`).
 
 ### `vibeflow telemetry`
 
@@ -145,7 +210,7 @@ The overlay is a Shadow DOM panel injected into any page — HTML prototypes or 
 The overlay can be injected into any page three ways:
 
 | Method | Best for | CSP-safe |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | **Bookmarklet** (recommended) | Any page, including production apps | Yes |
 | **Script tag** | Pages you control the HTML of | No |
 | **DevTools console** | Quick one-off sessions | Yes |
@@ -174,6 +239,7 @@ You browse your app  →  click to annotate  →  task created with context
 Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts via CDN — the annotation contract tells your LLM to use exactly these libraries.
 
 **Rules:**
+
 - One file per screen — name after the route (`login.html`, `dashboard.html`)
 - Every meaningful element gets a `data-vibeflow-id` — kebab-case, globally unique
 - Navigate between pages with relative links: `<a href="./page.html">`
@@ -230,22 +296,6 @@ A REST API and tRPC router are available at `http://localhost:3700` for integrat
 - `/inject` — overlay injection helper page
 
 See [src/server/server.ts](https://github.com/zorcec/vibeflow/blob/main/packages/cli/src/server/server.ts) for the full API.
-
----
-
-## Installation
-
-```bash
-npm install -g @vibeflow-tools/cli
-```
-
-Or run without installing:
-
-```bash
-npx @vibeflow-tools/cli kanban
-```
-
-**Requirements:** Node.js >= 22
 
 ---
 
