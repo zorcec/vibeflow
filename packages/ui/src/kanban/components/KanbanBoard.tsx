@@ -465,9 +465,7 @@ export function KanbanBoard({
         }
         if (intent.position && onReorder) {
           // edge → reorder
-          const targetIndex = colTasks.findIndex(
-            (t) => t.id === intent.taskId,
-          );
+          const targetIndex = colTasks.findIndex((t) => t.id === intent.taskId);
           let beforeId: string | null = null;
           let afterId: string | null = null;
           if (intent.position === "before") {

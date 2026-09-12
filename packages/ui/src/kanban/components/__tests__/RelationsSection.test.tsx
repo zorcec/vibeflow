@@ -122,9 +122,7 @@ describe("RelationsSection", () => {
 
     it("a rejected reparent still releases the drag session", () => {
       const parent = makeTask("p1", "Parent");
-      const child = makeTask("c1", "Child", [
-        { taskId: "p1", type: "parent" },
-      ]);
+      const child = makeTask("c1", "Child", [{ taskId: "p1", type: "parent" }]);
       // Dragging the ancestor itself → dropping it on its own descendant is
       // rejected by canReparent.
       dragSession.begin(parent.id);
@@ -140,9 +138,7 @@ describe("RelationsSection", () => {
       act(() => {
         window.dispatchEvent(new Event("dragstart"));
       });
-      const row = container.querySelector(
-        '[data-task-id="c1"]',
-      ) as HTMLElement;
+      const row = container.querySelector('[data-task-id="c1"]') as HTMLElement;
       expect(row).toBeInTheDocument();
       fireEvent.dragOver(row);
       fireEvent.drop(row);

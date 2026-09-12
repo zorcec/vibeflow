@@ -59,9 +59,7 @@ function BoardHarness({
   ) => void;
 }) {
   const [tasks, setTasks] = React.useState(initial);
-  const visible = removeId
-    ? tasks.filter((t) => t.id !== removeId)
-    : tasks;
+  const visible = removeId ? tasks.filter((t) => t.id !== removeId) : tasks;
   const link = (draggedId: string, parentId: string) =>
     setTasks((prev) =>
       prev.map((t) =>
@@ -107,9 +105,7 @@ function cardWrapper(container: HTMLElement, id: string): HTMLElement {
 
 /** The children drop zone rendered inside a card that has leaf descendants. */
 function childrenZone(container: HTMLElement, id: string): HTMLElement | null {
-  return card(container, id)!.querySelector(
-    '[data-drop-role="children-zone"]',
-  );
+  return card(container, id)!.querySelector('[data-drop-role="children-zone"]');
 }
 
 /** Every leftover drag affordance: imperative classes + phantom drop slots. */
@@ -200,10 +196,7 @@ describe("KanbanBoard drag-and-drop invariants", () => {
     // Live update removes the drag source while the drag is in flight — its
     // own dragend can never be delivered.
     rerender(
-      <BoardHarness
-        initial={[alpha, beta, child, delta]}
-        removeId="a1"
-      />,
+      <BoardHarness initial={[alpha, beta, child, delta]} removeId="a1" />,
     );
     expect(card(container, "a1")).toBeNull();
     expect(dragSession.get()).toBe("a1");
