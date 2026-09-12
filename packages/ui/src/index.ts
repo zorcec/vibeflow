@@ -32,5 +32,25 @@ export type {
   KanbanHandlers,
 } from "./types";
 
+// Realtime collaboration client — shared across surfaces. The transport is
+// injected, so single-user surfaces use it with `enabled: false`.
+export {
+  createSocket,
+  useCollab,
+  REALTIME_PATH,
+  SERVER_EVENT,
+} from "./socket";
+export type {
+  CollabEvent,
+  CollabSocket,
+  CreateSocketOptions,
+  CreateTransport,
+  RealtimeSocket,
+  TransportOptions,
+  UseCollabOptions,
+  UseCollabResult,
+} from "./socket";
+
 // Kanban app components (shared between CLI and web)
 export * from "./kanban";
+
