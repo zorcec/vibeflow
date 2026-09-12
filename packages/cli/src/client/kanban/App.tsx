@@ -19,7 +19,6 @@ import {
   computeReorder,
   compareTaskOrder,
   computeTreeReorder,
-  generateSortKeyBetween,
   HeaderActionButton,
   getDescendants,
 } from "@vibeflow-tools/ui/kanban";
@@ -1251,12 +1250,20 @@ export function App() {
     const colTasks = tasksRef.current
       .filter((t) => t?.status === status && t.id !== taskId)
       .sort(compareTaskOrder);
-    const lastKey =
-      colTasks.length > 0
-        ? (colTasks[colTasks.length - 1].sortKey ?? null)
-        : null;
-    const sortKey = generateSortKeyBetween(lastKey, null);
-    await patchTask(taskId, { status, links: nextLinks, sortKey });
+    // Append after the last column task. computeReorder also returns the
+    // normalization patches that give keyless siblings real keys, so a
+    // drag-out onto a mostly-keyless column still lands at the bottom: writing
+    // only the new key would sort it before every keyless task on the next read
+    // (see handleReorder).
+    const { newSortKey, normalizationPatches } = computeReorder(
+      colTasks,
+      taskId,
+      colTasks[colTasks.length - 1]?.id ?? null,
+      null,
+    );
+    await patchTask(taskId, { status, links: nextLinks, sortKey: newSortKey });
+    for (const patch of normalizationPatches)
+      await patchTask(patch.id, { sortKey: patch.sortKey });
   }
 
   async function handleReorder(
@@ -1297,13 +1304,22 @@ export function App() {
       return next;
     });
 
-    // Only persist the dragged task — normalization patches are applied optimistically
-    // in the UI but must not trigger server-side updates for other tasks.
-    await api
-      .updateTask(taskId, { status: newStatus, sortKey: newSortKey })
-      .catch(() => {
-        void loadTasks();
-      });
+    // Persist the dragged task AND every normalization patch. compareTaskOrder
+    // sorts any keyed task before every keyless one, so writing only the
+    // dragged key would re-key its keyless siblings in local state only and
+    // drop them after the dragged card on the next read — the drop position is
+    // silently discarded. The cascade-done path below needs no extra writes:
+    // the server marks descendants done off the dragged task's status.
+    try {
+      await api.updateTask(taskId, { status: newStatus, sortKey: newSortKey });
+      for (const patch of normalizationPatches)
+        await api.updateTask(patch.id, { sortKey: patch.sortKey });
+    } catch {
+      // A partial failure (dragged task written, some patches not) self-heals
+      // by re-reading server truth, which also reconciles the optimistic
+      // cascade-done state — no snapshot revert needed here.
+      void loadTasks();
+    }
   }
 
   async function deleteTaskById(
