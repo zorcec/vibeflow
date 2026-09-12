@@ -39,7 +39,7 @@ interface RelationsSectionProps {
 }
 
 const TYPE_LABELS: Record<TaskLinkType, string> = {
-  parent: "Child of →",
+  parent: "Child of",
   relates: "related",
   blocks: "blocks",
 };

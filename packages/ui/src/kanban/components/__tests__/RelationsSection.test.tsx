@@ -298,7 +298,9 @@ describe("RelationsSection", () => {
       );
 
     it("renders the RELATED group when `related` is the only relation (reported bug)", () => {
-      const task = makeTask("p1", "Parent", [{ taskId: "r1", type: "relates" }]);
+      const task = makeTask("p1", "Parent", [
+        { taskId: "r1", type: "relates" },
+      ]);
       const related = makeTask("r1", "Related task");
       render(
         <RelationsSection
@@ -423,6 +425,22 @@ describe("RelationsSection", () => {
       expect(
         relates.querySelector("[data-role='tree-depth-limit']"),
       ).toBeNull();
+    });
+
+    it("renders the parent type label without the direction arrow", () => {
+      const task = makeTask("p1", "Parent");
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+
+      // The add panel's type picker renders TYPE_LABELS.parent verbatim.
+      fireEvent.click(document.querySelector('[data-role="relations-add"]')!);
+      expect(screen.getByText("Child of")).toBeInTheDocument();
+      expect(screen.queryByText("Child of →")).toBeNull();
     });
   });
 });
