@@ -126,7 +126,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, and adding comments.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and replacing the task's links (parent/relates/blocks; pass an empty array to clear).",
     cliRef: {
       command: "tasks",
       flags: [
@@ -138,6 +138,8 @@ export const manifest: ToolManifest[] = [
         "--comment",
         "--commit-message",
         "--skip-verify",
+        "--set-parent",
+        "--no-parent",
       ],
     },
     category: "task-mutate",

@@ -6,8 +6,17 @@
  * and delegate to the existing core functions.
  */
 import { z } from "zod";
-import type { Task, TaskComment, TaskLink } from "../core/types.js";
-import { TASK_STATUSES, type TaskStatus } from "../core/types.js";
+import type {
+  Task,
+  TaskComment,
+  TaskLink,
+  TaskLinkType,
+} from "../core/types.js";
+import {
+  TASK_LINK_TYPES,
+  TASK_STATUSES,
+  type TaskStatus,
+} from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
 import { getGitUser } from "./git-user.js";
 
@@ -90,6 +99,20 @@ export const UpdateTaskInput = z.object({
   commitMessage: z.string().optional(),
   skipVerify: z.boolean().default(false),
   dryRun: z.boolean().default(false),
+  // Replace semantics for the task's links (matches the HTTP PATCH route):
+  // the array becomes the full link set and an empty array clears every link.
+  // Validated in updateTask against the post-replace state.
+  links: z
+    .array(
+      z.object({
+        taskId: z.string().min(1),
+        // SAFETY: TASK_LINK_TYPES is a readonly tuple; z.enum requires a mutable tuple type.
+        type: z.enum(
+          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
+        ),
+      }),
+    )
+    .optional(),
 });
 export type UpdateTaskInputType = z.infer<typeof UpdateTaskInput>;
 
@@ -381,6 +404,28 @@ export async function updateTask(
       }
     }
 
+    // Links: replace semantics (parity with the HTTP PATCH route). Validated
+    // against the post-replace state using the same helpers and wording as
+    // --set-parent; rejected before any write (including dry-run).
+    let linksUpdate: TaskLink[] | undefined;
+    const linksProvided = input.links !== undefined;
+    if (linksProvided) {
+      const { buildUpdateLinks } = await import("../core/task-links.js");
+      const { listTasks: coreListTasks } = await import("../core/tasks.js");
+      const linksResult = buildUpdateLinks({
+        allTasks: coreListTasks(ctx.projectDir),
+        taskId: existingTask.id,
+        incoming: input.links!,
+      });
+      if (!linksResult.ok) {
+        return {
+          ok: false,
+          error: { code: "UPDATE_TASK_ERROR", message: linksResult.reason },
+        };
+      }
+      linksUpdate = linksResult.links;
+    }
+
     // Dry-run: return preview (after gate check so would-be failures are reported)
     if (ctx.dryRun) {
       return {
@@ -397,6 +442,7 @@ export async function updateTask(
     if (input.description !== undefined)
       updates.description = input.description;
     if (input.branch) updates.branchName = input.branch;
+    if (linksProvided) updates.links = linksUpdate;
 
     // Verified reset on in-progress (parity with CLI edit path)
     if (input.status === "in-progress") {

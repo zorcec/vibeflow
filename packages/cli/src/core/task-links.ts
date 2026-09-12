@@ -169,6 +169,54 @@ export function validateLinkAddition({
   return { ok: true };
 }
 
+export type UpdateLinksResult =
+  | { ok: true; links: TaskLink[] | undefined }
+  | { ok: false; reason: string };
+
+/**
+ * Compute the new `links` array for `update_task` (MCP).
+ * Replace semantics — matching the HTTP PATCH route — so the incoming array
+ * becomes the task's full link set and an empty array clears every link.
+ * Each link is validated with `validateLinkAddition` against the post-replace
+ * state (existing links stripped first, so a parent swap is allowed) and
+ * accepted links accumulate so duplicate/cycle checks see earlier entries in
+ * the same payload. Rejections reuse the --set-parent wording.
+ */
+export function buildUpdateLinks({
+  allTasks,
+  taskId,
+  incoming,
+}: {
+  allTasks: Task[];
+  taskId: string;
+  incoming: TaskLink[];
+}): UpdateLinksResult {
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task) return { ok: false, reason: `Task not found: ${taskId}` };
+
+  // Replace semantics: empty array clears every link.
+  if (incoming.length === 0) return { ok: true, links: undefined };
+
+  const accepted: TaskLink[] = [];
+  let working = allTasks.map((t) =>
+    t.id === taskId ? { ...t, links: undefined } : t,
+  );
+  for (const link of incoming) {
+    const validation = validateLinkAddition({
+      allTasks: working,
+      fromId: taskId,
+      toId: link.taskId,
+      type: link.type,
+    });
+    if (!validation.ok) return validation;
+    accepted.push(link);
+    working = working.map((t) =>
+      t.id === taskId ? { ...t, links: [...accepted] } : t,
+    );
+  }
+  return { ok: true, links: accepted };
+}
+
 /** Walk parent chain upward to find the top-most ancestor. Cycle-safe (visited-set). */
 export function resolveRootTask(tasks: Task[], taskId: string): string {
   const visited = new Set<string>();

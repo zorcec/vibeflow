@@ -42,6 +42,21 @@ function findTaskFile(projectDir: string, taskId: string): string | null {
   return matches[0] ?? null;
 }
 
+/**
+ * Read the persisted links straight from the task's JSON on disk, so the
+ * relations tests prove the update_task write landed (not just that the tool
+ * returned success).
+ */
+function diskLinks(
+  projectDir: string,
+  taskId: string,
+): Array<{ taskId: string; type: string }> | undefined {
+  const file = findTaskFile(projectDir, taskId);
+  if (!file) throw new Error(`no task file on disk for ${taskId}`);
+  const raw = JSON.parse(readFileSync(file, "utf-8")) as { links?: unknown };
+  return raw.links as Array<{ taskId: string; type: string }> | undefined;
+}
+
 describe("MCP tools happy paths", () => {
   let env: McpTestEnv;
   let client: McpClient;
@@ -424,6 +439,10 @@ describe("MCP tools happy paths", () => {
       expect(parsed.parent).toBeDefined();
       expect(parsed.parent.id).toBe(parent.id);
       expect(parsed.parent.title).toBe("MCP Parent");
+      // Persisted on disk, not merely reflected back by the tool.
+      expect(diskLinks(env.projectDir, child.id)).toEqual([
+        { taskId: parent.id, type: "parent" },
+      ]);
     });
 
     it("11b: get_task on parent → children array populated", async () => {
@@ -459,6 +478,13 @@ describe("MCP tools happy paths", () => {
       const childIds = parsed.children.map((c: any) => c.id);
       expect(childIds).toContain(c1.id);
       expect(childIds).toContain(c2.id);
+      // Persisted on disk, not merely reflected back by the tool.
+      expect(diskLinks(env.projectDir, c1.id)).toEqual([
+        { taskId: parent.id, type: "parent" },
+      ]);
+      expect(diskLinks(env.projectDir, c2.id)).toEqual([
+        { taskId: parent.id, type: "parent" },
+      ]);
     });
 
     it("11c: get_task with relates → others populated", async () => {
@@ -487,6 +513,10 @@ describe("MCP tools happy paths", () => {
       expect(other).toBeDefined();
       expect(other.type).toBe("relates");
       expect(other.title).toBe("Task B");
+      // Persisted on disk, not merely reflected back by the tool.
+      expect(diskLinks(env.projectDir, a.id)).toEqual([
+        { taskId: b.id, type: "relates" },
+      ]);
     });
 
     it("11d: get_task with no links → parent null, children empty, others empty", async () => {
@@ -536,6 +566,11 @@ describe("MCP tools happy paths", () => {
       const blocksLink = parsed.others.find((o: any) => o.id === blocker.id);
       expect(blocksLink).toBeDefined();
       expect(blocksLink.type).toBe("blocks");
+      // Persisted on disk, not merely reflected back by the tool.
+      expect(diskLinks(env.projectDir, child.id)).toEqual([
+        { taskId: parent.id, type: "parent" },
+        { taskId: blocker.id, type: "blocks" },
+      ]);
     });
   });
 });
