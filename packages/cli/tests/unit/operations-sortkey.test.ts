@@ -231,4 +231,45 @@ describe("sortKey ceiling cache", () => {
     const next = await createTask(ctx(), { title: "Next", description: "" });
     expect((next.data?.sortKey ?? "") > "0000000009900000").toBe(true);
   });
+
+  // Regression: `--reindex-sort-keys` deletes the sidecar on every write, and
+  // the next `updateTask` used to re-seed it from the single task it had just
+  // written. If that task did not sort last, the ceiling went low and the next
+  // `--add` minted `thatKey + gap` — landing mid-store instead of appending.
+  it("rescans the true store max when an update re-seeds a deleted sidecar", async () => {
+    const low = await createTask(ctx(), { title: "Low", description: "" });
+    const high = await createTask(ctx(), {
+      title: "High",
+      description: "",
+      sortKey: "0000000009000000",
+    });
+    expect((low.data?.sortKey ?? "") < (high.data?.sortKey ?? "")).toBe(
+      true,
+    );
+
+    // Simulate the reindex invalidating the cache.
+    rmSync(sidecar());
+
+    // Update the low task: this must not seed the ceiling from its own key.
+    updateTask(projectDir, low.data!.id, { title: "Low edited" });
+    expect(readFileSync(sidecar(), "utf-8")).toBe(high.data?.sortKey);
+
+    // The next create must sort after the true store max, not mid-store.
+    const next = await createTask(ctx(), { title: "Next", description: "" });
+    expect((next.data?.sortKey ?? "") > "0000000009000000").toBe(true);
+  });
+
+  // Pins the raise branch: a sidecar that is present but below the store max
+  // must be raised when an update writes a higher key, or the next create mints
+  // into the gap. Asserting the exact sidecar value (not just "next key")
+  // keeps the 1e6 gap from masking a skipped write.
+  it("raises a stale-low sidecar when an update writes a higher key", async () => {
+    const base = await createTask(ctx(), { title: "Base", description: "" });
+    // Force a stale-low cache instead of letting createTask raise it.
+    writeFileSync(sidecar(), "0000000000000001", "utf-8");
+
+    updateTask(projectDir, base.data!.id, { sortKey: "0000000009000000" });
+
+    expect(readFileSync(sidecar(), "utf-8")).toBe("0000000009000000");
+  });
 });

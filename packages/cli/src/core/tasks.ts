@@ -606,15 +606,20 @@ export function updateTask(
     };
     writeTaskJson(projectDir, updated);
     // Keep the monotonic sortKey ceiling above any key an update writes (a drag
-    // appended to the bottom raises the store max). Done under the same lock
-    // creates use, because the ceiling is a read-modify-write; best-effort so a
-    // lock timeout can never fail the update.
+    // appended to the bottom raises the store max). Read through
+    // `maxStoreSortKey`, not the raw cache: when the sidecar is missing — e.g.
+    // `--reindex-sort-keys` deleted it after re-keying the store — this rescans
+    // for the TRUE store max instead of seeding the ceiling from this single
+    // updated task's key. Seeding from that key would let the next `--add` mint
+    // `thatKey + gap`, landing it mid-store when the updated task does not sort
+    // last. Done under the same lock creates use, because the ceiling is a
+    // read-modify-write; best-effort so a lock timeout can never fail the update.
     if (updated.sortKey) {
       try {
-        const current = readSortKeyCeiling(projectDir);
+        const current = maxStoreSortKey(projectDir);
         if (!current || updated.sortKey > current) {
           withFileLockSync(taskLockPath(projectDir, ".store-create"), () => {
-            const latest = readSortKeyCeiling(projectDir);
+            const latest = maxStoreSortKey(projectDir);
             if (!latest || (updated.sortKey as string) > latest) {
               writeSortKeyCeiling(projectDir, updated.sortKey as string);
             }
