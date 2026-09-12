@@ -165,4 +165,74 @@ describe("ChildRow", () => {
     render(<ChildRow child={makeTask()} variant="inline" />);
     expect(screen.queryByText("Remove")).not.toBeInTheDocument();
   });
+
+  describe("row as drag source", () => {
+    function dragRow() {
+      const row = document.querySelector(
+        "[data-role='child-link-row']",
+      ) as HTMLElement;
+      expect(row).toHaveAttribute("draggable", "true");
+      return row;
+    }
+
+    it("registers the drag source even when no dataTransfer is available", () => {
+      const onRowDragStart = vi.fn();
+      render(
+        <ChildRow
+          child={makeTask()}
+          variant="inline"
+          onRowDragStart={onRowDragStart}
+        />,
+      );
+      const row = dragRow();
+      // jsdom exposes no DataTransfer at all — the drag source must still be
+      // registered, otherwise the board never learns what is being dragged.
+      expect(() => fireEvent.dragStart(row)).not.toThrow();
+      expect(onRowDragStart).toHaveBeenCalledWith(
+        expect.anything(),
+        "abc12345-test-task",
+      );
+    });
+
+    it("marks the row while dragging and clears the mark on dragend", () => {
+      render(
+        <ChildRow
+          child={makeTask()}
+          variant="inline"
+          onRowDragStart={vi.fn()}
+        />,
+      );
+      const row = dragRow();
+      expect(row.classList.contains("dragging")).toBe(false);
+      fireEvent.dragStart(row);
+      expect(row.classList.contains("dragging")).toBe(true);
+      fireEvent.dragEnd(row);
+      expect(row.classList.contains("dragging")).toBe(false);
+    });
+
+    it("hands the id to dataTransfer as well when one exists", () => {
+      const onRowDragStart = vi.fn();
+      const setData = vi.fn();
+      render(
+        <ChildRow
+          child={makeTask()}
+          variant="inline"
+          onRowDragStart={onRowDragStart}
+        />,
+      );
+      fireEvent.dragStart(dragRow(), {
+        dataTransfer: { setData, getData: vi.fn(() => ""), effectAllowed: "" },
+      });
+      expect(setData).toHaveBeenCalledWith("text/plain", "abc12345-test-task");
+      expect(onRowDragStart).toHaveBeenCalled();
+    });
+
+    it("is not draggable without an onRowDragStart hook", () => {
+      render(<ChildRow child={makeTask()} variant="inline" />);
+      const row = document.querySelector(
+        "[data-role='child-link-row']",
+      ) as HTMLElement;
+      expect(row).not.toHaveAttribute("draggable", "true");
+    });
+  });
 });

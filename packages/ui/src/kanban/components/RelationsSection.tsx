@@ -156,46 +156,52 @@ export default function RelationsSection({
       e.preventDefault();
       const draggedId = dragSession.get();
       const intent = treeIntentRef.current;
-      if (!draggedId || !intent) return;
-      if (intent.kind === "tree-row" && intent.targetId && intent.parentId) {
-        if (draggedId === intent.targetId) return;
-        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
-        const cur = getParent(safeTasks, draggedId)?.id ?? null;
-        if (cur === intent.parentId) {
-          onTreeReorder?.(
-            draggedId,
-            intent.targetId,
-            intent.position ?? "after",
-            intent.parentId,
-          );
-        } else {
-          onTreeReparent?.(
-            draggedId,
-            intent.parentId,
-            intent.targetId,
-            intent.position,
-          );
+      try {
+        if (!draggedId || !intent) return;
+        if (intent.kind === "tree-row" && intent.targetId && intent.parentId) {
+          if (draggedId === intent.targetId) return;
+          if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+          const cur = getParent(safeTasks, draggedId)?.id ?? null;
+          if (cur === intent.parentId) {
+            onTreeReorder?.(
+              draggedId,
+              intent.targetId,
+              intent.position ?? "after",
+              intent.parentId,
+            );
+          } else {
+            onTreeReparent?.(
+              draggedId,
+              intent.parentId,
+              intent.targetId,
+              intent.position,
+            );
+          }
+        } else if (intent.kind === "zone" && intent.parentId) {
+          if (draggedId === intent.parentId) return;
+          if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
+          const cur = getParent(safeTasks, draggedId)?.id ?? null;
+          if (cur === intent.parentId) {
+            // Gap drop within the same parent → append-last reorder.
+            const sibs = getChildren(safeTasks, intent.parentId)
+              .filter((t) => t?.id && t.id !== draggedId)
+              .sort(compareTaskOrder);
+            const last = sibs[sibs.length - 1];
+            if (!last?.id) return;
+            onTreeReorder?.(draggedId, last.id, "after", intent.parentId);
+          } else {
+            onTreeReparent?.(draggedId, intent.parentId);
+          }
         }
-      } else if (intent.kind === "zone" && intent.parentId) {
-        if (draggedId === intent.parentId) return;
-        if (!canReparent(safeTasks, draggedId, intent.parentId)) return;
-        const cur = getParent(safeTasks, draggedId)?.id ?? null;
-        if (cur === intent.parentId) {
-          // Gap drop within the same parent → append-last reorder.
-          const sibs = getChildren(safeTasks, intent.parentId)
-            .filter((t) => t?.id && t.id !== draggedId)
-            .sort(compareTaskOrder);
-          const last = sibs[sibs.length - 1];
-          if (!last?.id) return;
-          onTreeReorder?.(draggedId, last.id, "after", intent.parentId);
-        } else {
-          onTreeReparent?.(draggedId, intent.parentId);
-        }
+      } finally {
+        // A drop is terminal: release the session/intent on EVERY path — a
+        // missing intent or a rejected reparent must not leave the panel (and
+        // the dragSession singleton the board reads) holding a live drag.
+        dragSession.end();
+        treeIntentRef.current = null;
+        setTreeIntent(null);
+        setPanelDragActive(false);
       }
-      dragSession.end();
-      treeIntentRef.current = null;
-      setTreeIntent(null);
-      setPanelDragActive(false);
     },
     [safeTasks, onTreeReorder, onTreeReparent],
   );

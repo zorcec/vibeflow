@@ -105,6 +105,25 @@ function SkeletonCard() {
 
 // DropIntent is imported from task-links (single-ref architecture)
 
+/** Class names applied imperatively (not through React's className) while a
+ * drag is active. React only rewrites `className` when its computed value
+ * changes, so a class left by a source that never gets its own dragend would
+ * otherwise outlive the drag. */
+const DRAG_STATE_CLASSES = [
+  "dragging",
+  "dnd-drop-center",
+  "dnd-drop-blocked",
+  "dnd-zone-hover",
+];
+
+/** Strip every imperative drag-state class from the document. */
+function clearDragDomState(): void {
+  const selector = DRAG_STATE_CLASSES.map((c) => `.${c}`).join(", ");
+  document
+    .querySelectorAll(selector)
+    .forEach((el) => el.classList.remove(...DRAG_STATE_CLASSES));
+}
+
 interface Props {
   tasks: Task[];
   visibleCols: TaskStatus[];
@@ -272,6 +291,10 @@ export function KanbanBoard({
       setMakeChildTarget(null);
       setDragOver(null);
       dragSession.end();
+      // Also drop the imperative drag classes: a source that never receives
+      // its own dragend can leave `dragging`/`dnd-*` on an element React has
+      // no reason to rewrite, which would strand the board's drag visuals.
+      clearDragDomState();
     }
     window.addEventListener("dragend", onWindowDragEnd);
     return () => window.removeEventListener("dragend", onWindowDragEnd);
@@ -287,9 +310,11 @@ export function KanbanBoard({
     setDropIntent(null);
     setMakeChildTarget(null);
     setDragOver(null);
-    e.dataTransfer.effectAllowed = "move";
-    // D1: Firefox requires setData() to initiate HTML5 drag.
+    // D1: Firefox requires setData() to initiate HTML5 drag. Guarded: some
+    // environments expose no dataTransfer, and a throw here must not abort the
+    // drag registration that already happened above.
     try {
+      e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", taskId);
     } catch {
       /* test environments may throw */
@@ -380,91 +405,100 @@ export function KanbanBoard({
   function handleDrop(e: React.DragEvent, colId: TaskStatus, colTasks: Task[]) {
     e.preventDefault();
     setDragOver(null);
-    // Single ref consume: read once, clear once, act once.
+    // Single ref consume: read once, act once.
     const intent = dropIntentRef.current;
-    dropIntentRef.current = null;
-    setDropIntent(null);
-    setMakeChildTarget(null);
     // Tree rows begin the dragSession without touching the card ref —
     // prefer the ref, fall back to the session so row drags resolve.
     const dragging = dragTaskIdRef.current ?? dragSession.get();
-    dragTaskIdRef.current = null;
-    setDragTaskId(null);
-    dragSession.end();
-    if (!dragging) return;
+    try {
+      if (!dragging) return;
 
-    if (intent?.kind === "tree-row" && intent.targetId && intent.parentId) {
-      if (dragging === intent.targetId) return;
-      // Self/descendant guard — mirrors the detail-panel drop handler.
-      // Same-parent reorder always passes (parent is neither self nor child).
-      if (!canReparent(tasks, dragging, intent.parentId)) return;
-      const curParent = getParent(tasks, dragging)?.id ?? null;
-      if (curParent === intent.parentId) {
-        onTreeReorder?.(
-          dragging,
-          intent.targetId,
-          intent.position ?? "after",
-          intent.parentId,
-        );
-      } else {
-        onTreeReparent?.(
-          dragging,
-          intent.parentId,
-          intent.targetId,
-          intent.position,
-        );
+      if (intent?.kind === "tree-row" && intent.targetId && intent.parentId) {
+        if (dragging === intent.targetId) return;
+        // Self/descendant guard — mirrors the detail-panel drop handler.
+        // Same-parent reorder always passes (parent is neither self nor child).
+        if (!canReparent(tasks, dragging, intent.parentId)) return;
+        const curParent = getParent(tasks, dragging)?.id ?? null;
+        if (curParent === intent.parentId) {
+          onTreeReorder?.(
+            dragging,
+            intent.targetId,
+            intent.position ?? "after",
+            intent.parentId,
+          );
+        } else {
+          onTreeReparent?.(
+            dragging,
+            intent.parentId,
+            intent.targetId,
+            intent.position,
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    if (intent?.kind === "zone" && intent.parentId) {
-      if (intent.fromTree) {
-        // Tree-row center drop — reparent under the hovered row's task.
-        // Use canReparent (allows existing parents) instead of targetValid.
-        if (canReparent(tasks, dragging, intent.parentId)) {
-          onTreeReparent?.(dragging, intent.parentId);
+      if (intent?.kind === "zone" && intent.parentId) {
+        if (intent.fromTree) {
+          // Tree-row center drop — reparent under the hovered row's task.
+          // Use canReparent (allows existing parents) instead of targetValid.
+          if (canReparent(tasks, dragging, intent.parentId)) {
+            onTreeReparent?.(dragging, intent.parentId);
+            return;
+          } else {
+            // D2: not reparentable — fall through to fallback (no-op) rather
+            // than silently returning.
+          }
+        } else if (onLinkChild) {
+          // Card-zone drop — link as child (rejects existing parents).
+          const freshValid = targetValid(tasks, dragging, intent.parentId);
+          if (freshValid) onLinkChild(dragging, intent.parentId);
           return;
-        } else {
-          // D2: not reparentable — fall through to fallback (no-op) rather
-          // than silently returning.
         }
-      } else if (onLinkChild) {
-        // Card-zone drop — link as child (rejects existing parents).
-        const freshValid = targetValid(tasks, dragging, intent.parentId);
-        if (freshValid) onLinkChild(dragging, intent.parentId);
-        return;
       }
-    }
 
-    if (intent?.kind === "card" && intent.taskId) {
-      if (!intent.position && onLinkChild) {
-        // center → make-child (re-validate against UNFILTERED tasks — fixes E1)
-        const freshValid = targetValid(tasks, dragging, intent.taskId);
-        if (freshValid) onLinkChild(dragging, intent.taskId);
-        return;
-      }
-      if (intent.position && onReorder) {
-        // edge → reorder
-        const targetIndex = colTasks.findIndex((t) => t.id === intent.taskId);
-        let beforeId: string | null = null;
-        let afterId: string | null = null;
-        if (intent.position === "before") {
-          afterId = intent.taskId;
-          beforeId = targetIndex > 0 ? colTasks[targetIndex - 1].id : null;
-        } else {
-          beforeId = intent.taskId;
-          afterId =
-            targetIndex < colTasks.length - 1
-              ? colTasks[targetIndex + 1].id
-              : null;
+      if (intent?.kind === "card" && intent.taskId) {
+        if (!intent.position && onLinkChild) {
+          // center → make-child (re-validate against UNFILTERED tasks — fixes E1)
+          const freshValid = targetValid(tasks, dragging, intent.taskId);
+          if (freshValid) onLinkChild(dragging, intent.taskId);
+          return;
         }
-        onReorder(dragging, colId, beforeId, afterId);
-        return;
+        if (intent.position && onReorder) {
+          // edge → reorder
+          const targetIndex = colTasks.findIndex(
+            (t) => t.id === intent.taskId,
+          );
+          let beforeId: string | null = null;
+          let afterId: string | null = null;
+          if (intent.position === "before") {
+            afterId = intent.taskId;
+            beforeId = targetIndex > 0 ? colTasks[targetIndex - 1].id : null;
+          } else {
+            beforeId = intent.taskId;
+            afterId =
+              targetIndex < colTasks.length - 1
+                ? colTasks[targetIndex + 1].id
+                : null;
+          }
+          onReorder(dragging, colId, beforeId, afterId);
+          return;
+        }
       }
-    }
 
-    // Fallback: dropped on column background → append to bottom
-    onDrop(dragging, colId);
+      // Fallback: dropped on column background → append to bottom
+      onDrop(dragging, colId);
+    } finally {
+      // A drop is terminal: release the drag context on EVERY path. A guard
+      // that rejects the drop, or a callback that throws, must never leave the
+      // board holding a live drag session.
+      dropIntentRef.current = null;
+      setDropIntent(null);
+      setMakeChildTarget(null);
+      dragTaskIdRef.current = null;
+      setDragTaskId(null);
+      dragSession.end();
+      clearDragDomState();
+    }
   }
 
   function handleDragEnd() {
@@ -498,9 +532,10 @@ export function KanbanBoard({
     setDropIntent(null);
     setMakeChildTarget(null);
     setDragOver(null);
-    e.dataTransfer.effectAllowed = "move";
-    // D1: Firefox requires setData() to initiate HTML5 drag.
+    // D1: Firefox requires setData() to initiate HTML5 drag. Guarded so an
+    // absent dataTransfer cannot abort the registration done above.
     try {
+      e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", childId);
     } catch {
       /* test environments may throw */

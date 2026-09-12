@@ -1029,6 +1029,11 @@ body.proto-resizing-panel {
 .child-link-row:hover {
  background: var(--p-hover);
 }
+/* Drag source marker — added on dragstart, removed on dragend (and by the
+   board's window-level dragend cleanup). Mirrors .task-card.dragging. */
+.child-link-row.dragging {
+ opacity: 0.4;
+}
 .child-link-dot {
  width: 6px;
  height: 6px;

@@ -95,6 +95,60 @@ describe("RelationsSection", () => {
       fireEvent.drop(slot);
       expect(onTreeReparent).toHaveBeenCalledWith(other.id, "p1");
     });
+
+    it("a drop without a latched intent still releases the drag session", () => {
+      const task = makeTask("p1", "Parent");
+      const other = makeTask("d1", "Drag");
+      dragSession.begin(other.id);
+      const { container } = render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, other]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+      act(() => {
+        window.dispatchEvent(new Event("dragstart"));
+      });
+      const group = container.querySelector(
+        '[data-role="relation-group-children"]',
+      );
+      expect(group).toBeInTheDocument();
+      // No dragover latched an intent → the drop changes nothing…
+      fireEvent.drop(group!);
+      // …but it must still release the drag session the board also reads.
+      expect(dragSession.get()).toBeNull();
+    });
+
+    it("a rejected reparent still releases the drag session", () => {
+      const parent = makeTask("p1", "Parent");
+      const child = makeTask("c1", "Child", [
+        { taskId: "p1", type: "parent" },
+      ]);
+      // Dragging the ancestor itself → dropping it on its own descendant is
+      // rejected by canReparent.
+      dragSession.begin(parent.id);
+      const onTreeReparent = vi.fn();
+      const { container } = render(
+        <RelationsSection
+          task={parent}
+          allTasks={[parent, child]}
+          onUpdateLinks={vi.fn()}
+          onTreeReparent={onTreeReparent}
+        />,
+      );
+      act(() => {
+        window.dispatchEvent(new Event("dragstart"));
+      });
+      const row = container.querySelector(
+        '[data-task-id="c1"]',
+      ) as HTMLElement;
+      expect(row).toBeInTheDocument();
+      fireEvent.dragOver(row);
+      fireEvent.drop(row);
+      expect(onTreeReparent).not.toHaveBeenCalled();
+      expect(dragSession.get()).toBeNull();
+    });
   });
 
   it("header renders summary chips plus the always-visible children tree", () => {

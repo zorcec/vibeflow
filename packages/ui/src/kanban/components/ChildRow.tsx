@@ -62,18 +62,35 @@ export function ChildRow({
                                         ? (e) => {
                                                   const id = child?.id;
                                                   if (!id) return;
-                                                  e.dataTransfer.effectAllowed =
-                                                          "move";
+                                                  e.stopPropagation();
+                                                  // Register the drag source FIRST — the
+                                                  // board latches the dragged id here.
+                                                  // dataTransfer is best-effort only (some
+                                                  // environments provide none), so it must
+                                                  // never be able to abort registration.
+                                                  onRowDragStart(e, id);
                                                   try {
+                                                          e.dataTransfer.effectAllowed =
+                                                                  "move";
                                                           e.dataTransfer.setData(
                                                                   "text/plain",
                                                                   id,
                                                           );
                                                   } catch {
-                                                          /* setData may throw in some test environments — id travels via dragSession */
+                                                          /* no dataTransfer — the drag session already carries the id */
                                                   }
-                                                  e.stopPropagation();
-                                                  onRowDragStart(e, id);
+                                                  e.currentTarget.classList.add(
+                                                          "dragging",
+                                                  );
+                                          }
+                                        : undefined
+                        }
+                        onDragEnd={
+                                onRowDragStart
+                                        ? (e) => {
+                                                  e.currentTarget.classList.remove(
+                                                          "dragging",
+                                                  );
                                           }
                                         : undefined
                         }
