@@ -272,7 +272,13 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   childCount={childCount}
                   onRemove={onRemove}
                   removeTitle={removeTitle}
-                  onRowDragStart={dndActive ? handleRowDragStart : undefined}
+                  // A rendered row always represents a task, so it is always a
+                  // drag source. `dndActive` only decides whether this tree
+                  // accepts drop *intents* (the flat relation groups in the
+                  // detail panel deliberately do not) — gating the source on it
+                  // left those rows inert: no dragstart, no dragSession entry,
+                  // so a drag from them could never resolve a target.
+                  onRowDragStart={handleRowDragStart}
                   onRowDragOver={dndActive ? handleRowDragOver : undefined}
                   onRowDrop={dndActive ? onRowDrop : undefined}
                 />
