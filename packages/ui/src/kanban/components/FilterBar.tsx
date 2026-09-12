@@ -5,18 +5,18 @@ import { getTagColors } from '../tag-colors';
 
 const STATUS_FILTERS: { id: TaskStatus | 'all'; label: string; dot: string }[] = [
   { id: 'all',         label: 'All',        dot: '' },
-  { id: 'todo',        label: 'Todo',       dot: 'var(--p-amber)' },
-  { id: 'in-progress', label: 'In Progress',dot: 'var(--p-blue)' },
-  { id: 'review',      label: 'Review',     dot: 'var(--p-purple)' },
+  { id: 'todo',        label: 'Todo',       dot: 'var(--t-warning)' },
+  { id: 'in-progress', label: 'In Progress',dot: 'var(--t-accent)' },
+  { id: 'review',      label: 'Review',     dot: 'var(--t-secondary)' },
 ];
 
 const STATUS_ACTIVE_STYLE: Partial<Record<TaskStatus | 'all', React.CSSProperties>> = {
-  'todo':        { background: 'color-mix(in srgb, var(--p-amber) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--p-amber) 38%, transparent)', color: 'var(--p-amber-300)' },
-  'in-progress': { background: 'color-mix(in srgb, var(--p-blue) 16%, transparent)',  border: '1px solid color-mix(in srgb, var(--p-blue) 38%, transparent)',  color: 'var(--p-blue-200)' },
-  'review':      { background: 'color-mix(in srgb, var(--p-purple) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--p-purple) 38%, transparent)', color: 'var(--p-purple-300)' },
-  'done':        { background: 'color-mix(in srgb, var(--p-green) 14%, transparent)',  border: '1px solid color-mix(in srgb, var(--p-green) 32%, transparent)',   color: 'var(--p-green-300)' },
-  'backlog':     { background: 'color-mix(in srgb, var(--p-text-g) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--p-text-g) 32%, transparent)',  color: 'var(--p-text-m)' },
-  'all':         { background: 'color-mix(in srgb, var(--p-blue) 12%, transparent)',   border: '1px solid color-mix(in srgb, var(--p-blue) 32%, transparent)',   color: 'var(--p-blue-200)' },
+  'todo':        { background: 'color-mix(in srgb, var(--t-warning) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--t-warning) 38%, transparent)', color: 'var(--t-warning-subtle)' },
+  'in-progress': { background: 'color-mix(in srgb, var(--t-accent) 16%, transparent)',  border: '1px solid color-mix(in srgb, var(--t-accent) 38%, transparent)',  color: 'var(--t-accent-subtle)' },
+  'review':      { background: 'color-mix(in srgb, var(--t-secondary) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--t-secondary) 38%, transparent)', color: 'var(--t-secondary-soft)' },
+  'done':        { background: 'color-mix(in srgb, var(--t-success) 14%, transparent)',  border: '1px solid color-mix(in srgb, var(--t-success) 32%, transparent)',   color: 'var(--t-success-subtle)' },
+  'backlog':     { background: 'color-mix(in srgb, var(--t-text-ghost) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--t-text-ghost) 32%, transparent)',  color: 'var(--t-text-muted)' },
+  'all':         { background: 'color-mix(in srgb, var(--t-accent) 12%, transparent)',   border: '1px solid color-mix(in srgb, var(--t-accent) 32%, transparent)',   color: 'var(--t-accent-subtle)' },
 };
 
 export interface FilterState {
@@ -94,12 +94,12 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
   const pill: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 5, padding: '3px 10px',
     borderRadius: 6, fontSize: 11, cursor: 'pointer', border: '1px solid transparent',
-    background: 'transparent', color: 'var(--p-text-f)', transition: 'all .12s', fontFamily: 'inherit',
+    background: 'transparent', color: 'var(--t-text-faint)', transition: 'all .12s', fontFamily: 'inherit',
     fontWeight: 500,
   };
 
   const dropBtn: React.CSSProperties = {
-    ...pill, background: 'var(--p-card)', border: '1px solid var(--p-border)', color: 'var(--p-text-f)',
+    ...pill, background: 'var(--t-card)', border: '1px solid var(--t-border)', color: 'var(--t-text-faint)',
     padding: '3px 10px', position: 'relative',
   };
 
@@ -108,7 +108,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       data-proto-id="filter-bar"
       style={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px',
-        background: 'var(--p-surface)', borderBottom: '1px solid var(--p-border)', flexShrink: 0,
+        background: 'var(--t-surface)', borderBottom: '1px solid var(--t-border)', flexShrink: 0,
       }}
       onClick={() => { setTypeOpen(false); setUserOpen(false); setTagOpen(false); }}
     >
@@ -123,14 +123,14 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
               key={sf.id}
               data-status={sf.id}
               style={{ ...pill, ...activeStyle }}
-              onMouseOver={e => { if (!isActive) { e.currentTarget.style.background = 'var(--p-hover)'; e.currentTarget.style.color = 'var(--p-text-m)'; } }}
-              onMouseOut={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--p-text-f)'; } }}
+              onMouseOver={e => { if (!isActive) { e.currentTarget.style.background = 'var(--t-hover)'; e.currentTarget.style.color = 'var(--t-text-muted)'; } }}
+              onMouseOut={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--t-text-faint)'; } }}
               onClick={handleStatusClick}
             >
               {sf.dot && <span style={{ width: 6, height: 6, borderRadius: '50%', background: sf.dot, flexShrink: 0, display: 'inline-block' }} />}
               {sf.label}
               {count != null && (
-                <span style={{ color: isActive ? 'inherit' : 'var(--p-border-t)', fontSize: 10, opacity: 0.8 }}>{count}</span>
+                <span style={{ color: isActive ? 'inherit' : 'var(--t-border-faint)', fontSize: 10, opacity: 0.8 }}>{count}</span>
               )}
             </button>
           );
@@ -144,15 +144,15 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
 
       {/* Active filter chips */}
       {filter.user && (
-        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:100, background:'color-mix(in srgb, var(--p-purple) 10%, transparent)', border:'1px solid color-mix(in srgb, var(--p-purple) 24%, transparent)', fontSize:10, color:'var(--p-purple-300)' }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:100, background:'color-mix(in srgb, var(--t-secondary) 10%, transparent)', border:'1px solid color-mix(in srgb, var(--t-secondary) 24%, transparent)', fontSize:10, color:'var(--t-secondary-soft)' }}>
           {filter.user}
-          <button onClick={() => setUser(null)} style={{ display:'flex', background:'none', border:'none', color:'var(--p-purple-300)', cursor:'pointer', padding:0, lineHeight:1 }}><X style={{ width:10, height:10 }} /></button>
+          <button onClick={() => setUser(null)} style={{ display:'flex', background:'none', border:'none', color:'var(--t-secondary-soft)', cursor:'pointer', padding:0, lineHeight:1 }}><X style={{ width:10, height:10 }} /></button>
         </span>
       )}
       {filter.type && (
-        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:100, background:'color-mix(in srgb, var(--p-blue) 10%, transparent)', border:'1px solid color-mix(in srgb, var(--p-blue) 24%, transparent)', fontSize:10, color:'var(--p-cyan-300)' }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:100, background:'color-mix(in srgb, var(--t-accent) 10%, transparent)', border:'1px solid color-mix(in srgb, var(--t-accent) 24%, transparent)', fontSize:10, color:'var(--t-cyan-soft)' }}>
           {filter.type}
-          <button onClick={() => setType(null)} style={{ display:'flex', background:'none', border:'none', color:'var(--p-cyan-300)', cursor:'pointer', padding:0, lineHeight:1 }}><X style={{ width:10, height:10 }} /></button>
+          <button onClick={() => setType(null)} style={{ display:'flex', background:'none', border:'none', color:'var(--t-cyan-soft)', cursor:'pointer', padding:0, lineHeight:1 }}><X style={{ width:10, height:10 }} /></button>
         </span>
       )}
       {(filter.tags ?? []).map(tag => {
@@ -168,7 +168,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       {/* Tags filter */}
       <div style={{ position: 'relative' }}>
         <button
-          style={{ ...dropBtn, color: (filter.tags ?? []).length ? 'var(--p-green-300)' : 'var(--p-text-f)', borderColor: (filter.tags ?? []).length ? 'color-mix(in srgb, var(--p-green) 36%, transparent)' : 'var(--p-border)', opacity: allTagsInBoard.length ? 1 : 0.55 }}
+          style={{ ...dropBtn, color: (filter.tags ?? []).length ? 'var(--t-success-subtle)' : 'var(--t-text-faint)', borderColor: (filter.tags ?? []).length ? 'color-mix(in srgb, var(--t-success) 36%, transparent)' : 'var(--t-border)', opacity: allTagsInBoard.length ? 1 : 0.55 }}
           onClick={(e) => {
             e.stopPropagation();
             if (!allTagsInBoard.length) return;
@@ -178,17 +178,17 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
         >
           <Tag style={{ width: 12, height: 12 }} />
           Tags
-          {(filter.tags ?? []).length > 0 && <span style={{ fontSize: 9, background: 'color-mix(in srgb, var(--p-green) 20%, transparent)', color: 'var(--p-green-300)', borderRadius: 100, padding: '0 4px' }}>{(filter.tags ?? []).length}</span>}
+          {(filter.tags ?? []).length > 0 && <span style={{ fontSize: 9, background: 'color-mix(in srgb, var(--t-success) 20%, transparent)', color: 'var(--t-success-subtle)', borderRadius: 100, padding: '0 4px' }}>{(filter.tags ?? []).length}</span>}
           <ChevronDown style={{ width: 12, height: 12 }} />
         </button>
         {tagOpen && allTagsInBoard.length > 0 && (
           <div
-            style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:160, background:'var(--p-card)', border:'1px solid var(--p-border-s)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
+            style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:160, background:'var(--t-card)', border:'1px solid var(--t-border-strong)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
             onClick={(e) => e.stopPropagation()}
           >
             {(filter.tags ?? []).length > 0 && (
               <button
-                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--p-text-f)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--p-border)' }}
+                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--t-text-faint)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--t-border)' }}
                 onClick={() => onFilter({ ...filter, tags: [] })}
               >Clear tag filters</button>
             )}
@@ -198,9 +198,9 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
               return (
                 <button
                   key={tag}
-                  style={{ width:'100%', textAlign:'left', padding:'6px 12px', fontSize:11, color:'var(--p-text-m)', background: isActive ? 'var(--p-hover)' : 'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--p-hover)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = isActive ? 'var(--p-hover)' : 'none'; }}
+                  style={{ width:'100%', textAlign:'left', padding:'6px 12px', fontSize:11, color:'var(--t-text-muted)', background: isActive ? 'var(--t-hover)' : 'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--t-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = isActive ? 'var(--t-hover)' : 'none'; }}
                   onClick={() => toggleTag(tag)}
                 >
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, border: `1px solid ${border}`, flexShrink: 0 }} />
@@ -216,7 +216,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       {/* User filter */}
       <div style={{ position: 'relative' }}>
         <button
-          style={{ ...dropBtn, color: filter.user ? 'var(--p-purple-300)' : 'var(--p-text-f)', borderColor: filter.user ? 'color-mix(in srgb, var(--p-purple) 36%, transparent)' : 'var(--p-border)', opacity: authors.length ? 1 : 0.55 }}
+          style={{ ...dropBtn, color: filter.user ? 'var(--t-secondary-soft)' : 'var(--t-text-faint)', borderColor: filter.user ? 'color-mix(in srgb, var(--t-secondary) 36%, transparent)' : 'var(--t-border)', opacity: authors.length ? 1 : 0.55 }}
           onClick={(e) => {
             e.stopPropagation();
             if (!authors.length) return;
@@ -230,18 +230,18 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
         </button>
         {userOpen && authors.length > 0 && (
           <div
-            style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:160, background:'var(--p-card)', border:'1px solid var(--p-border-s)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
+            style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:160, background:'var(--t-card)', border:'1px solid var(--t-border-strong)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--p-text-f)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--p-border)' }}
+              style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--t-text-faint)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--t-border)' }}
               onClick={() => setUser(null)}
             >All users</button>
             {authors.map(u => (
               <button
                 key={u}
-                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.user === u ? 'var(--p-purple-300)' : 'var(--p-text-m)', background: filter.user === u ? 'color-mix(in srgb, var(--p-purple) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
-                onMouseOver={e => { if (filter.user !== u) e.currentTarget.style.background = 'var(--p-hover)'; }}
+                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.user === u ? 'var(--t-secondary-soft)' : 'var(--t-text-muted)', background: filter.user === u ? 'color-mix(in srgb, var(--t-secondary) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
+                onMouseOver={e => { if (filter.user !== u) e.currentTarget.style.background = 'var(--t-hover)'; }}
                 onMouseOut={e => { if (filter.user !== u) e.currentTarget.style.background = 'none'; }}
                 onClick={() => setUser(u)}
               >{u}</button>
@@ -253,7 +253,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       {/* Type filter */}
       <div style={{ position: 'relative' }}>
           <button
-            style={{ ...dropBtn, color: filter.type ? 'var(--p-cyan-300)' : 'var(--p-text-f)', borderColor: filter.type ? 'color-mix(in srgb, var(--p-blue) 36%, transparent)' : 'var(--p-border)', opacity: types.length ? 1 : 0.55 }}
+            style={{ ...dropBtn, color: filter.type ? 'var(--t-cyan-soft)' : 'var(--t-text-faint)', borderColor: filter.type ? 'color-mix(in srgb, var(--t-accent) 36%, transparent)' : 'var(--t-border)', opacity: types.length ? 1 : 0.55 }}
             onClick={(e) => {
               e.stopPropagation();
               if (!types.length) return;
@@ -266,18 +266,18 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           </button>
           {typeOpen && types.length > 0 && (
             <div
-              style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:140, background:'var(--p-card)', border:'1px solid var(--p-border-s)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
+              style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:140, background:'var(--t-card)', border:'1px solid var(--t-border-strong)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
               onClick={(e) => e.stopPropagation()}
             >
               <button
-                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--p-text-f)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--p-border)' }}
+                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--t-text-faint)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--t-border)' }}
                 onClick={() => setType(null)}
               >All types</button>
               {types.map(t => (
                 <button
                   key={t}
-                  style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.type === t ? 'var(--p-cyan-300)' : 'var(--p-text-m)', background: filter.type === t ? 'color-mix(in srgb, var(--p-blue) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
-                  onMouseOver={e => { if (filter.type !== t) e.currentTarget.style.background = 'var(--p-hover)'; }}
+                  style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.type === t ? 'var(--t-cyan-soft)' : 'var(--t-text-muted)', background: filter.type === t ? 'color-mix(in srgb, var(--t-accent) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
+                  onMouseOver={e => { if (filter.type !== t) e.currentTarget.style.background = 'var(--t-hover)'; }}
                   onMouseOut={e => { if (filter.type !== t) e.currentTarget.style.background = 'none'; }}
                   onClick={() => setType(t)}
                 >{t}</button>
@@ -287,24 +287,24 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       </div>
 
       {/* View toggle */}
-      <div style={{ display:'flex', alignItems:'center', background:'var(--p-card)', border:'1px solid var(--p-border)', borderRadius:8, padding:2, gap:0 }}>
+      <div style={{ display:'flex', alignItems:'center', background:'var(--t-card)', border:'1px solid var(--t-border)', borderRadius:8, padding:2, gap:0 }}>
         <button
           title="Board view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'board' ? 'var(--p-surface)' : 'none', color: view === 'board' ? 'var(--p-text-sub)' : 'var(--p-text-g)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
+          style={{ padding:'4px 7px', borderRadius:5, background: view === 'board' ? 'var(--t-surface)' : 'none', color: view === 'board' ? 'var(--t-text-sub)' : 'var(--t-text-ghost)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
           onClick={(e) => { e.stopPropagation(); onViewChange?.('board'); }}
         >
           <LayoutDashboard style={{ width:13, height:13 }} />
         </button>
         <button
           title="Compact view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'compact' ? 'var(--p-surface)' : 'none', color: view === 'compact' ? 'var(--p-text-sub)' : 'var(--p-text-g)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
+          style={{ padding:'4px 7px', borderRadius:5, background: view === 'compact' ? 'var(--t-surface)' : 'none', color: view === 'compact' ? 'var(--t-text-sub)' : 'var(--t-text-ghost)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
           onClick={(e) => { e.stopPropagation(); onViewChange?.('compact'); }}
         >
           <Rows3 style={{ width:13, height:13 }} />
         </button>
         <button
           title="List view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'list' ? 'var(--p-surface)' : 'none', color: view === 'list' ? 'var(--p-text-sub)' : 'var(--p-text-g)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
+          style={{ padding:'4px 7px', borderRadius:5, background: view === 'list' ? 'var(--t-surface)' : 'none', color: view === 'list' ? 'var(--t-text-sub)' : 'var(--t-text-ghost)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
           onClick={(e) => { e.stopPropagation(); onViewChange?.('list'); }}
         >
           <List style={{ width:13, height:13 }} />

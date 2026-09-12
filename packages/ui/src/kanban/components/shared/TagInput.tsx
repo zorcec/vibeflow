@@ -81,8 +81,8 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
         style={{
           display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center',
           padding: '5px 8px', borderRadius: 8,
-          border: `1px solid ${open ? 'var(--p-blue)' : 'var(--p-border)'}`,
-          background: 'var(--p-input)',
+          border: `1px solid ${open ? 'var(--t-accent)' : 'var(--t-border)'}`,
+          background: 'var(--t-input)',
           cursor: disabled ? 'not-allowed' : 'text',
           opacity: disabled ? 0.6 : 1,
           minHeight: 34, transition: 'border-color .12s',
@@ -101,7 +101,7 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
             onKeyDown={handleKeyDown}
             style={{
               background: 'none', border: 'none', outline: 'none',
-              fontSize: 12, color: 'var(--p-text)', minWidth: 80, flex: 1,
+              fontSize: 12, color: 'var(--t-text)', minWidth: 80, flex: 1,
               padding: 0, lineHeight: '1.4',
             }}
           />
@@ -112,7 +112,7 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
         <div
           style={{
             position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-            background: 'var(--p-card)', border: '1px solid var(--p-border-s)',
+            background: 'var(--t-card)', border: '1px solid var(--t-border-strong)',
             borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
             zIndex: 50, overflow: 'hidden',
           }}
@@ -129,9 +129,9 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
                   width: '100%', textAlign: 'left', padding: '6px 10px',
                   display: 'flex', alignItems: 'center', gap: 6,
                   background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 12, color: 'var(--p-text-m)',
+                  fontSize: 12, color: 'var(--t-text-muted)',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--p-hover)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--t-hover)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
               >
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, border: `1px solid ${border}`, flexShrink: 0 }} />
@@ -146,15 +146,15 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
               style={{
                 width: '100%', textAlign: 'left', padding: '6px 10px',
                 display: 'flex', alignItems: 'center', gap: 6,
-                background: 'none', border: suggestions.length > 0 ? '1px solid var(--p-border)' : 'none',
+                background: 'none', border: suggestions.length > 0 ? '1px solid var(--t-border)' : 'none',
                 borderLeft: 'none', borderRight: 'none', borderBottom: 'none',
-                cursor: 'pointer', fontSize: 12, color: 'var(--p-text-g)',
+                cursor: 'pointer', fontSize: 12, color: 'var(--t-text-ghost)',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--p-hover)'; e.currentTarget.style.color = 'var(--p-text-m)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--p-text-g)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--t-hover)'; e.currentTarget.style.color = 'var(--t-text-muted)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--t-text-ghost)'; }}
             >
               <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
-              Create "<strong style={{ color: 'var(--p-text)' }}>{input.trim()}</strong>"
+              Create "<strong style={{ color: 'var(--t-text)' }}>{input.trim()}</strong>"
             </button>
           )}
         </div>

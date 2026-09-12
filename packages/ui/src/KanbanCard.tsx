@@ -36,7 +36,7 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
       onDragEnd={handleDragEnd}
       onClick={() => handlers.onCardClick?.(task)}
       style={{
-        background: "var(--p-card)",
+        background: "var(--t-card)",
         border: `1px solid ${borderColor}`,
         borderRadius: 10,
         padding: "11px 13px",
@@ -50,15 +50,15 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
       onMouseEnter={(e) => {
         const el = e.currentTarget;
         el.style.borderColor =
-          "color-mix(in srgb, var(--p-blue) 50%, transparent)";
-        el.style.background = "var(--p-hover)";
+          "color-mix(in srgb, var(--t-accent) 50%, transparent)";
+        el.style.background = "var(--t-hover)";
         el.style.boxShadow = "0 4px 16px rgba(0,0,0,0.3)";
         el.style.transform = "translateY(-1px)";
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget;
         el.style.borderColor = borderColor;
-        el.style.background = "var(--p-card)";
+        el.style.background = "var(--t-card)";
         el.style.boxShadow = "";
         el.style.transform = "";
       }}
@@ -76,7 +76,7 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
           style={{
             fontSize: 12,
             fontWeight: 600,
-            color: isDone ? "var(--p-text-g)" : "var(--p-text)",
+            color: isDone ? "var(--t-text-ghost)" : "var(--t-text)",
             textDecoration: isDone ? "line-through" : "none",
             lineHeight: 1.4,
             flex: 1,
@@ -96,7 +96,7 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
         <p
           style={{
             fontSize: 10.5,
-            color: "var(--p-text-g)",
+            color: "var(--t-text-ghost)",
             margin: 0,
             overflow: "hidden",
             display: "-webkit-box",
@@ -129,7 +129,7 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
               alignItems: "center",
               gap: 2,
               fontSize: 10,
-              color: "var(--p-text-f)",
+              color: "var(--t-text-faint)",
             }}
           >
             <MessageCircle style={{ width: 10, height: 10 }} />
@@ -143,7 +143,7 @@ export function KanbanCard({ task, col, handlers, onDragStart }: Props) {
               alignItems: "center",
               gap: 2,
               fontSize: 10,
-              color: "var(--p-text-f)",
+              color: "var(--t-text-faint)",
             }}
           >
             <Paperclip style={{ width: 10, height: 10 }} />

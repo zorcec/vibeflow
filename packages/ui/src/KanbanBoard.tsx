@@ -65,7 +65,7 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
         flex: 1,
         minHeight: 0,
         scrollbarWidth: "thin",
-        scrollbarColor: "var(--p-border-t) transparent",
+        scrollbarColor: "var(--t-border-faint) transparent",
       }}
     >
       {columns.map((col) => {
@@ -98,8 +98,8 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                 gap: 8,
                 padding: "7px 10px",
                 borderRadius: 8,
-                background: "var(--p-surface)",
-                border: `1px solid ${isOver ? col.color : "var(--p-border)"}`,
+                background: "var(--t-surface)",
+                border: `1px solid ${isOver ? col.color : "var(--t-border)"}`,
                 transition: "border-color .15s",
               }}
             >
@@ -119,8 +119,8 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                 style={{
                   fontSize: 11,
                   fontWeight: 700,
-                  color: "var(--p-text-g)",
-                  background: "var(--p-hover)",
+                  color: "var(--t-text-ghost)",
+                  background: "var(--t-hover)",
                   borderRadius: 4,
                   padding: "1px 6px",
                 }}
@@ -159,8 +159,8 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
               {addingIn === col.id ? (
                 <div
                   style={{
-                    background: "var(--p-card)",
-                    border: "1px solid var(--p-border-s)",
+                    background: "var(--t-card)",
+                    border: "1px solid var(--t-border-strong)",
                     borderRadius: 8,
                     padding: 8,
                     display: "flex",
@@ -181,12 +181,12 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                       }
                     }}
                     style={{
-                      background: "var(--p-input)",
-                      border: "1px solid var(--p-border-t)",
+                      background: "var(--t-input)",
+                      border: "1px solid var(--t-border-faint)",
                       borderRadius: 6,
                       padding: "5px 8px",
                       fontSize: 12,
-                      color: "var(--p-text)",
+                      color: "var(--t-text)",
                       outline: "none",
                       width: "100%",
                       boxSizing: "border-box",
@@ -199,9 +199,9 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                         flex: 1,
                         padding: "4px 0",
                         borderRadius: 6,
-                        background: "var(--p-blue)",
+                        background: "var(--t-accent)",
                         border: "none",
-                        color: "#fff",
+                        color: "var(--t-white)",
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: "pointer",
@@ -217,9 +217,9 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                       style={{
                         padding: "4px 10px",
                         borderRadius: 6,
-                        background: "var(--p-hover)",
-                        border: "1px solid var(--p-border)",
-                        color: "var(--p-text-m)",
+                        background: "var(--t-hover)",
+                        border: "1px solid var(--t-border)",
+                        color: "var(--t-text-muted)",
                         fontSize: 11,
                         cursor: "pointer",
                       }}
@@ -237,9 +237,9 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                     gap: 5,
                     padding: "5px 8px",
                     borderRadius: 8,
-                    border: "1px dashed var(--p-border)",
+                    border: "1px dashed var(--t-border)",
                     background: "transparent",
-                    color: "var(--p-text-g)",
+                    color: "var(--t-text-ghost)",
                     fontSize: 11,
                     cursor: "pointer",
                     transition: "all .12s",
@@ -253,8 +253,8 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
                   }}
                   onMouseLeave={(e) => {
                     const el = e.currentTarget;
-                    el.style.borderColor = "var(--p-border)";
-                    el.style.color = "var(--p-text-g)";
+                    el.style.borderColor = "var(--t-border)";
+                    el.style.color = "var(--t-text-ghost)";
                     el.style.background = "transparent";
                   }}
                 >

@@ -46,9 +46,9 @@ const TYPE_LABELS: Record<TaskLinkType, string> = {
 
 /** Colors per relation type — parent is blue (matches children), relates purple, blocks red. */
 const TYPE_COLORS: Record<TaskLinkType, string> = {
-  parent: "#60a5fa",
-  relates: "#a78bfa",
-  blocks: "#f87171",
+  parent: "var(--t-rel-parent)",
+  relates: "var(--t-rel-related)",
+  blocks: "var(--t-rel-blocks)",
 };
 
 /* ── Component ────────────────────────────────────────────────────────────── */
@@ -401,12 +401,12 @@ export default function RelationsSection({
                 style={{
                   margin: 0,
                   fontSize: 13,
-                  color: "var(--p-text-f)",
+                  color: "var(--t-text-faint)",
                   lineHeight: 1.6,
                 }}
               >
                 Unlink{" "}
-                <strong style={{ color: "var(--p-text)" }}>
+                <strong style={{ color: "var(--t-text)" }}>
                   &ldquo;{confirmRemove.childTitle}&rdquo;
                 </strong>
                 ?
@@ -415,7 +415,7 @@ export default function RelationsSection({
                 style={{
                   margin: "8px 0 0",
                   fontSize: 12,
-                  color: "var(--p-text-m)",
+                  color: "var(--t-text-muted)",
                   lineHeight: 1.5,
                 }}
               >
@@ -431,12 +431,12 @@ export default function RelationsSection({
               style={{
                 margin: 0,
                 fontSize: 13,
-                color: "var(--p-text-f)",
+                color: "var(--t-text-faint)",
                 lineHeight: 1.6,
               }}
             >
               Unlink{" "}
-              <strong style={{ color: "var(--p-text)" }}>
+              <strong style={{ color: "var(--t-text)" }}>
                 &ldquo;{confirmRemove?.childTitle}&rdquo;
               </strong>
               ? It will become a root task.

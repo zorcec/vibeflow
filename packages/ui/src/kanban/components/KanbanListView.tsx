@@ -10,39 +10,39 @@ const STATUS_COLORS: Record<
   { text: string; bg: string; border: string }
 > = {
   backlog: {
-    text: "var(--p-text-m)",
-    bg: "color-mix(in srgb, var(--p-text-g) 14%, transparent)",
-    border: "color-mix(in srgb, var(--p-text-g) 30%, transparent)",
+    text: "var(--t-text-muted)",
+    bg: "color-mix(in srgb, var(--t-text-ghost) 14%, transparent)",
+    border: "color-mix(in srgb, var(--t-text-ghost) 30%, transparent)",
   },
   todo: {
-    text: "var(--p-amber-300)",
-    bg: "color-mix(in srgb, var(--p-amber) 14%, transparent)",
-    border: "color-mix(in srgb, var(--p-amber) 30%, transparent)",
+    text: "var(--t-warning-subtle)",
+    bg: "color-mix(in srgb, var(--t-warning) 14%, transparent)",
+    border: "color-mix(in srgb, var(--t-warning) 30%, transparent)",
   },
   "in-progress": {
-    text: "var(--p-blue-200)",
-    bg: "color-mix(in srgb, var(--p-blue) 14%, transparent)",
-    border: "color-mix(in srgb, var(--p-blue) 30%, transparent)",
+    text: "var(--t-accent-subtle)",
+    bg: "color-mix(in srgb, var(--t-accent) 14%, transparent)",
+    border: "color-mix(in srgb, var(--t-accent) 30%, transparent)",
   },
   review: {
-    text: "var(--p-purple-300)",
-    bg: "color-mix(in srgb, var(--p-purple) 14%, transparent)",
-    border: "color-mix(in srgb, var(--p-purple) 30%, transparent)",
+    text: "var(--t-secondary-soft)",
+    bg: "color-mix(in srgb, var(--t-secondary) 14%, transparent)",
+    border: "color-mix(in srgb, var(--t-secondary) 30%, transparent)",
   },
   done: {
-    text: "var(--p-green-300)",
-    bg: "color-mix(in srgb, var(--p-green) 12%, transparent)",
-    border: "color-mix(in srgb, var(--p-green) 30%, transparent)",
+    text: "var(--t-success-subtle)",
+    bg: "color-mix(in srgb, var(--t-success) 12%, transparent)",
+    border: "color-mix(in srgb, var(--t-success) 30%, transparent)",
   },
 };
 
 const TYPE_ICONS: Record<string, string> = TASK_TYPE_ICONS;
 
 const PRIORITY_COLORS: Record<string, string> = {
-  Critical: "var(--p-red)",
-  High: "var(--p-amber-300)",
-  Medium: "var(--p-text-m)",
-  Low: "var(--p-text-f)",
+  Critical: "var(--t-danger)",
+  High: "var(--t-warning-subtle)",
+  Medium: "var(--t-text-muted)",
+  Low: "var(--t-text-faint)",
 };
 
 const STATUS_ORDER: TaskStatus[] = [
@@ -73,8 +73,8 @@ function SkeletonListRow() {
         gap: 10,
         padding: "6px 10px",
         borderRadius: 8,
-        border: "1px solid var(--p-border-t)",
-        background: "var(--p-bg-2)",
+        border: "1px solid var(--t-border-faint)",
+        background: "var(--t-bg-raised)",
         animation: "skeleton-pulse 1.5s ease-in-out infinite",
       }}
     >
@@ -83,14 +83,14 @@ function SkeletonListRow() {
           width: 14,
           height: 14,
           borderRadius: 3,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
         }}
       />
       <div
         style={{
           height: 12,
           borderRadius: 4,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
           width: "60%",
         }}
       />
@@ -98,7 +98,7 @@ function SkeletonListRow() {
         style={{
           height: 18,
           borderRadius: 10,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
           width: 44,
         }}
       />
@@ -106,7 +106,7 @@ function SkeletonListRow() {
         style={{
           height: 18,
           borderRadius: 10,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
           width: 36,
         }}
       />
@@ -181,7 +181,7 @@ export function KanbanListView({
                       width: 18,
                       height: 18,
                       borderRadius: 5,
-                      background: "var(--p-border-s)",
+                      background: "var(--t-border-strong)",
                       animation: "skeleton-pulse 1.5s ease-in-out infinite",
                     }}
                   />
@@ -199,7 +199,7 @@ export function KanbanListView({
                     style={{
                       height: 14,
                       borderRadius: 4,
-                      background: "var(--p-border-s)",
+                      background: "var(--t-border-strong)",
                       width: 16,
                       animation: "skeleton-pulse 1.5s ease-in-out infinite",
                     }}
@@ -264,9 +264,9 @@ export function KanbanListView({
                       width: 18,
                       height: 18,
                       borderRadius: 5,
-                      border: "1px solid var(--p-border-t)",
-                      background: "var(--p-surface)",
-                      color: "var(--p-text-m)",
+                      border: "1px solid var(--t-border-faint)",
+                      background: "var(--t-surface)",
+                      color: "var(--t-text-muted)",
                       fontSize: 10,
                       cursor: "pointer",
                       display: "inline-flex",
@@ -292,7 +292,7 @@ export function KanbanListView({
                   >
                     {status}
                   </span>
-                  <span style={{ fontSize: 11, color: "var(--p-text-g)" }}>
+                  <span style={{ fontSize: 11, color: "var(--t-text-ghost)" }}>
                     {group.length}
                   </span>
                   <button
@@ -360,7 +360,7 @@ export function KanbanListView({
         <div
           style={{
             textAlign: "center",
-            color: "var(--p-text-g)",
+            color: "var(--t-text-ghost)",
             fontSize: 13,
             marginTop: 60,
           }}
@@ -411,11 +411,11 @@ function ListRow({
         padding: "6px 10px",
         borderRadius: 8,
         background: dragOver
-          ? "color-mix(in srgb, var(--p-blue) 10%, transparent)"
+          ? "color-mix(in srgb, var(--t-accent) 10%, transparent)"
           : hovered
-            ? "var(--p-hover)"
+            ? "var(--t-hover)"
             : "transparent",
-        border: `1px solid ${dragOver ? "color-mix(in srgb, var(--p-blue) 40%, transparent)" : hovered ? "var(--p-border)" : "transparent"}`,
+        border: `1px solid ${dragOver ? "color-mix(in srgb, var(--t-accent) 40%, transparent)" : hovered ? "var(--t-border)" : "transparent"}`,
         cursor: "grab",
         transition: "background .1s,border-color .1s",
         userSelect: "none",
@@ -453,7 +453,7 @@ function ListRow({
             style={{
               fontSize: 13,
               fontWeight: 500,
-              color: "var(--p-text)",
+              color: "var(--t-text)",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -474,10 +474,10 @@ function ListRow({
                 padding: "1px 6px",
                 borderRadius: 10,
                 background:
-                  "color-mix(in srgb, var(--p-purple) 14%, transparent)",
+                  "color-mix(in srgb, var(--t-secondary) 14%, transparent)",
                 border:
-                  "1px solid color-mix(in srgb, var(--p-purple) 30%, transparent)",
-                color: "var(--p-purple-300)",
+                  "1px solid color-mix(in srgb, var(--t-secondary) 30%, transparent)",
+                color: "var(--t-secondary-soft)",
                 flexShrink: 0,
                 fontFamily: "monospace",
               }}
@@ -490,7 +490,7 @@ function ListRow({
           <div
             style={{
               fontSize: 11,
-              color: "var(--p-text-g)",
+              color: "var(--t-text-ghost)",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -511,7 +511,7 @@ function ListRow({
           alignItems: "center",
           gap: 3,
           fontSize: 11,
-          color: commentCount > 0 ? "var(--p-text-m)" : "var(--p-border-t)",
+          color: commentCount > 0 ? "var(--t-text-muted)" : "var(--t-border-faint)",
           background: "none",
           border: "none",
           cursor: "pointer",
@@ -536,7 +536,7 @@ function ListRow({
             alignItems: "center",
             gap: 3,
             fontSize: 11,
-            color: "var(--p-blue-300)",
+            color: "var(--t-accent-soft)",
             background: "none",
             border: "none",
             cursor: "pointer",

@@ -22,6 +22,7 @@ import {
   maxSortKey,
   HeaderActionButton,
   getDescendants,
+  applyInitialTheme,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -571,7 +572,7 @@ export function App() {
   }, [wsConnected]);
 
   React.useEffect(() => {
-    document.body.setAttribute("data-theme", "dark");
+    applyInitialTheme();
   }, []);
 
   // Allow #task-<id> deep-links from markdown references in comments/descriptions.

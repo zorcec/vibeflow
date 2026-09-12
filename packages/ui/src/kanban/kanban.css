@@ -2,47 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ══════════════════════════════════════════════
-   THEME TOKENS — single source of truth for all colors.
-  Dark values are the defaults (in :root).
-   React inline styles reference these as var(--p-*).
-   ══════════════════════════════════════════════ */
-:root {
- --p-bg: #020c1b;
- --p-surface: #080f1e;
- --p-card: #0a0f1e;
- --p-input: #050d1a;
- --p-hover: #0d1f38;
- --p-border: #1e293b;
- --p-border-s: #1e3a5f;
- --p-border-t: #334155;
- --p-text: #e2e8f0;
- --p-text-sub: #cbd5e1;
- --p-text-m: #94a3b8;
- --p-text-f: #64748b;
- --p-text-g: #475569;
- --p-white: #ffffff;
- --p-blue: #2563eb;
- --p-blue-700: #1d4ed8;
- --p-blue-300: #60a5fa;
- --p-blue-200: #93c5fd;
- --p-purple: #a78bfa;
- --p-purple-300: #c4b5fd;
- --p-cyan: #22d3ee;
- --p-cyan-300: #7dd3fc;
- --p-teal: #2dd4bf;
- --p-amber: #f59e0b;
- --p-amber-300: #fcd34d;
- --p-green: #22c55e;
- --p-green-300: #6ee7b7;
- --p-red: #f87171;
- --p-red-500: #ef4444;
- --p-fg-3: #9ca3af;
- --p-bg-2: #0f172a;
- --p-bg-3: #1e293b;
- --p-shadow-lg: 0 8px 24px rgba(2, 6, 23, 0.28);
- --p-overlay: rgba(15, 23, 42, 0.2);
-}
+/* THEME TOKENS — the single source of truth is themes.css (semantic --t-*
+   tier + per-theme --p-* primitives). It is prepended before this file in the
+   generated bundle, so no :root primitive redeclaration lives here: a later
+   :root block would out-cascade the [data-theme] blocks and freeze every theme
+   to its dark values. Component CSS below references the tokens via var(). */
 
 /* ── Global fonts + scrollbar ── */
 html,

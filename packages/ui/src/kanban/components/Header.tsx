@@ -110,10 +110,10 @@ export function Header({
               <div
                 style={{
                   width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                  background: 'linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)',
+                  background: 'linear-gradient(135deg, var(--t-border-strong) 0%, var(--t-border) 100%)',
                   border: '1px solid rgba(37,99,235,0.3)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 13, fontWeight: 700, color: '#93c5fd', letterSpacing: '-0.01em',
+                  fontSize: 13, fontWeight: 700, color: 'var(--t-accent-subtle)', letterSpacing: '-0.01em',
                 }}
                 title={displayProjectName}
               >
@@ -131,7 +131,7 @@ export function Header({
               <div
                 id="header-live-pill"
                 className="flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                style={{ background: 'color-mix(in srgb, var(--p-green) 30%, transparent)', border: '1px solid color-mix(in srgb, var(--p-green) 28%, transparent)' }}
+                style={{ background: 'color-mix(in srgb, var(--t-success) 30%, transparent)', border: '1px solid color-mix(in srgb, var(--t-success) 28%, transparent)' }}
               >
                 <div
                   className="w-1.5 h-1.5 rounded-full bg-green-400"
@@ -214,9 +214,9 @@ export function Header({
           {hashQuery !== null && dropdownTags.length > 0 && (
             <div
               ref={dropdownRef}
-              style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--p-card)', border: '1px solid var(--p-border-s)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 50, overflow: 'hidden' }}
+              style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--t-card)', border: '1px solid var(--t-border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 50, overflow: 'hidden' }}
             >
-              <div style={{ padding: '5px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--p-text-g)', borderBottom: '1px solid var(--p-border)' }}>
+              <div style={{ padding: '5px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--t-text-ghost)', borderBottom: '1px solid var(--t-border)' }}>
                 Tags
               </div>
               {dropdownTags.map((tag, i) => {
@@ -226,17 +226,17 @@ export function Header({
                     key={tag}
                     onMouseDown={(e) => { e.preventDefault(); selectTag(tag); }}
                     onMouseEnter={() => setDropdownIdx(i)}
-                    style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: i === dropdownIdx ? 'var(--p-hover)' : 'none', border: 'none', cursor: 'pointer' }}
+                    style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: i === dropdownIdx ? 'var(--t-hover)' : 'none', border: 'none', cursor: 'pointer' }}
                   >
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: 'var(--p-text-m)' }}>{tag}</span>
+                    <span style={{ fontSize: 12, color: 'var(--t-text-muted)' }}>{tag}</span>
                     <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', padding: '1px 7px', borderRadius: 100, fontSize: 10, background: bg, color: text, border: `1px solid ${border}` }}>
                       tag
                     </span>
                   </button>
                 );
               })}
-              <div style={{ padding: '5px 10px', fontSize: 10, color: 'var(--p-text-g)', borderTop: '1px solid var(--p-border)' }}>
+              <div style={{ padding: '5px 10px', fontSize: 10, color: 'var(--t-text-ghost)', borderTop: '1px solid var(--t-border)' }}>
                 ↑↓ navigate · Enter select · Esc close
               </div>
             </div>
@@ -271,12 +271,12 @@ export function Header({
         >
           <div
             id="shortcuts-modal"
-            style={{ background: 'var(--p-card)', border: '1px solid var(--p-border-s)', borderRadius: 14, padding: '20px 24px', minWidth: 320, maxWidth: 420, boxShadow: 'var(--p-shadow-lg)' }}
+            style={{ background: 'var(--t-card)', border: '1px solid var(--t-border-strong)', borderRadius: 14, padding: '20px 24px', minWidth: 320, maxWidth: 420, boxShadow: 'var(--t-shadow-lg)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--p-text)' }}>Keyboard Shortcuts</span>
-              <button onClick={() => setShortcutsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--p-text-f)', padding: 2 }}><X style={{ width: 14, height: 14 }} /></button>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t-text)' }}>Keyboard Shortcuts</span>
+              <button onClick={() => setShortcutsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t-text-faint)', padding: 2 }}><X style={{ width: 14, height: 14 }} /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
@@ -286,8 +286,8 @@ export function Header({
                 ['Alt+F', 'Focus task search'],
               ].map(([key, desc]) => (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <kbd style={{ fontSize: 10, fontFamily: 'monospace', background: 'var(--p-surface)', border: '1px solid var(--p-border-t)', borderRadius: 4, padding: '2px 7px', color: 'var(--p-text-sub)', flexShrink: 0 }}>{key}</kbd>
-                  <span style={{ fontSize: 12, color: 'var(--p-text-m)' }}>{desc}</span>
+                  <kbd style={{ fontSize: 10, fontFamily: 'monospace', background: 'var(--t-surface)', border: '1px solid var(--t-border-faint)', borderRadius: 4, padding: '2px 7px', color: 'var(--t-text-sub)', flexShrink: 0 }}>{key}</kbd>
+                  <span style={{ fontSize: 12, color: 'var(--t-text-muted)' }}>{desc}</span>
                 </div>
               ))}
             </div>

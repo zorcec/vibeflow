@@ -47,9 +47,9 @@ export function DeleteConfirmDialog({
             style={{
               padding: "7px 16px",
               borderRadius: 8,
-              background: "var(--p-hover)",
-              border: "1px solid var(--p-border)",
-              color: "var(--p-text-m)",
+              background: "var(--t-hover)",
+              border: "1px solid var(--t-border)",
+              color: "var(--t-text-muted)",
               fontSize: 13,
               cursor: "pointer",
               transition: "background 0.15s",
@@ -64,9 +64,9 @@ export function DeleteConfirmDialog({
             style={{
               padding: "7px 16px",
               borderRadius: 8,
-              background: danger ? "#dc2626" : "var(--p-hover)",
-              border: danger ? "none" : "1px solid var(--p-border)",
-              color: danger ? "#fff" : "var(--p-text-f)",
+              background: danger ? "var(--t-danger-strong)" : "var(--t-hover)",
+              border: danger ? "none" : "1px solid var(--t-border)",
+              color: danger ? "var(--t-white)" : "var(--t-text-faint)",
               fontSize: 13,
               fontWeight: 600,
               cursor: loading ? "wait" : "pointer",
@@ -84,12 +84,12 @@ export function DeleteConfirmDialog({
           style={{
             margin: 0,
             fontSize: 13,
-            color: "var(--p-text-f)",
+            color: "var(--t-text-faint)",
             lineHeight: 1.6,
           }}
         >
           This task has{" "}
-          <strong style={{ color: "var(--p-text)" }}>
+          <strong style={{ color: "var(--t-text)" }}>
             {childCount} child task{childCount === 1 ? "" : "s"}
           </strong>
           . What should happen to them?
@@ -150,9 +150,9 @@ function DeleteModeOption({
         padding: "9px 12px",
         borderRadius: 8,
         border: checked
-          ? "1px solid var(--p-blue, #60a5fa)"
-          : "1px solid var(--p-border)",
-        background: checked ? "var(--p-hover)" : "transparent",
+          ? "1px solid var(--t-accent)"
+          : "1px solid var(--t-border)",
+        background: checked ? "var(--t-hover)" : "transparent",
         cursor: "pointer",
       }}
     >
@@ -162,7 +162,7 @@ function DeleteModeOption({
         name="delete-children-mode"
         checked={checked}
         onChange={onSelect}
-        style={{ marginTop: 2, accentColor: "var(--p-blue, #60a5fa)" }}
+        style={{ marginTop: 2, accentColor: "var(--t-accent)" }}
       />
       <span>
         <span
@@ -170,7 +170,7 @@ function DeleteModeOption({
             display: "block",
             fontSize: 13,
             fontWeight: 600,
-            color: warning ? "#f87171" : "var(--p-text-f)",
+            color: warning ? "var(--t-danger)" : "var(--t-text-faint)",
           }}
         >
           {title}
@@ -179,7 +179,7 @@ function DeleteModeOption({
           style={{
             display: "block",
             fontSize: 12,
-            color: "var(--p-text-m)",
+            color: "var(--t-text-muted)",
             marginTop: 2,
           }}
         >

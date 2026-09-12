@@ -111,6 +111,23 @@
   --t-syntax-number: #67e8f9;
   --t-syntax-bool: #fb923c;
   --t-syntax-null: #f87171;
+
+  /* Extended semantic palette — theme-aware aliases of the primitive tier.
+     Declared on :root so they resolve against whichever theme block wins on
+     <html>, matching how the core --t-bg/--t-text/--t-border aliases work. */
+  --t-accent-strong: var(--p-blue-700);
+  --t-accent-soft: var(--p-blue-300);
+  --t-accent-subtle: var(--p-blue-200);
+  --t-secondary: var(--p-purple);
+  --t-secondary-soft: var(--p-purple-300);
+  --t-cyan: var(--p-cyan);
+  --t-cyan-soft: var(--p-cyan-300);
+  --t-pink-soft: var(--p-pink-300);
+  --t-warning-subtle: var(--p-amber-300);
+  --t-success-subtle: var(--p-green-300);
+  --t-white: var(--p-white);
+  --t-bg-raised: var(--p-bg-2);
+  --t-shadow-lg: var(--p-shadow-lg);
 }
 
 /* ── Dark (explicit — same as default) ── */

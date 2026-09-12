@@ -99,3 +99,18 @@ export type {
   DropIntentKind,
   TreeReorderPlan,
 } from "./task-links";
+
+// Theme resolver + persistence (shared by every kanban consumer)
+export {
+  THEMES,
+  THEME_STORAGE_KEY,
+  DEFAULT_THEME,
+  isTheme,
+  getStoredTheme,
+  setStoredTheme,
+  clearStoredTheme,
+  resolveInitialTheme,
+  applyTheme,
+  applyInitialTheme,
+} from "./theme";
+export type { Theme } from "./theme";

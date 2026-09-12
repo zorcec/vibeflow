@@ -131,21 +131,21 @@ export function TaskDetailsTab({
                   alignItems: "center",
                   gap: 4,
                   fontSize: 11,
-                  color: "var(--p-text-g)",
+                  color: "var(--t-text-ghost)",
                   background: "none",
-                  border: "1px solid var(--p-border-t)",
+                  border: "1px solid var(--t-border-faint)",
                   borderRadius: 6,
                   padding: "3px 8px",
                   cursor: "pointer",
                   transition: "color .12s, border-color .12s",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--p-amber-300)";
-                  e.currentTarget.style.borderColor = "var(--p-amber-300)";
+                  e.currentTarget.style.color = "var(--t-warning-subtle)";
+                  e.currentTarget.style.borderColor = "var(--t-warning-subtle)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--p-text-g)";
-                  e.currentTarget.style.borderColor = "var(--p-border-t)";
+                  e.currentTarget.style.color = "var(--t-text-ghost)";
+                  e.currentTarget.style.borderColor = "var(--t-border-faint)";
                 }}
               >
                 ↩ Discard changes
@@ -165,10 +165,10 @@ export function TaskDetailsTab({
             id="dp-screenshot-preview"
             style={{
               border:
-                "1px solid color-mix(in srgb, var(--p-border-t) 70%, transparent)",
+                "1px solid color-mix(in srgb, var(--t-border-faint) 70%, transparent)",
               borderRadius: 10,
               overflow: "hidden",
-              background: "var(--p-card)",
+              background: "var(--t-card)",
             }}
           >
             <button
@@ -179,7 +179,7 @@ export function TaskDetailsTab({
                 border: "none",
                 padding: 0,
                 background:
-                  "linear-gradient(135deg, var(--p-border), var(--p-bg))",
+                  "linear-gradient(135deg, var(--t-border), var(--t-bg))",
                 cursor: "pointer",
                 display: "block",
                 overflow: "hidden",
@@ -203,14 +203,14 @@ export function TaskDetailsTab({
                 alignItems: "center",
                 gap: 8,
                 padding: "8px 10px",
-                borderTop: "1px solid var(--p-border)",
-                background: "var(--p-surface)",
+                borderTop: "1px solid var(--t-border)",
+                background: "var(--t-surface)",
               }}
             >
               <span
                 style={{
                   fontSize: 10,
-                  color: "var(--p-text-f)",
+                  color: "var(--t-text-faint)",
                   flex: 1,
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -225,7 +225,7 @@ export function TaskDetailsTab({
                 onClick={() => onFilePreview(firstImage.name, screenshotUrl)}
                 style={{
                   fontSize: 10,
-                  color: "var(--p-text-m)",
+                  color: "var(--t-text-muted)",
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",
@@ -239,7 +239,7 @@ export function TaskDetailsTab({
                 onClick={() => setConfirmDeleteScreenshot(firstImage.name)}
                 style={{
                   fontSize: 10,
-                  color: "var(--p-red)",
+                  color: "var(--t-danger)",
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",
@@ -322,7 +322,7 @@ export function TaskDetailsTab({
               id="dp-annotated-text"
               style={{
                 gridColumn: "1 / -1",
-                background: "var(--p-card)",
+                background: "var(--t-card)",
                 borderRadius: 8,
                 padding: "8px 10px",
               }}
@@ -330,7 +330,7 @@ export function TaskDetailsTab({
               <div
                 style={{
                   fontSize: 9,
-                  color: "var(--p-border-t)",
+                  color: "var(--t-border-faint)",
                   marginBottom: 2,
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
@@ -341,7 +341,7 @@ export function TaskDetailsTab({
               <div
                 style={{
                   fontSize: 11,
-                  color: "var(--p-text-f)",
+                  color: "var(--t-text-faint)",
                   fontStyle: "italic",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
@@ -381,7 +381,7 @@ function MetaTile({
     <div
       id={id}
       style={{
-        background: "var(--p-card)",
+        background: "var(--t-card)",
         borderRadius: 8,
         padding: "8px 10px",
       }}
@@ -389,7 +389,7 @@ function MetaTile({
       <div
         style={{
           fontSize: 9,
-          color: "var(--p-border-t)",
+          color: "var(--t-border-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -400,8 +400,8 @@ function MetaTile({
       <div
         style={{
           fontSize: 11,
-          color: "var(--p-text-f)",
-          borderBottom: "1px solid var(--p-border)",
+          color: "var(--t-text-faint)",
+          borderBottom: "1px solid var(--t-border)",
           paddingBottom: 4,
           display: "flex",
           alignItems: "center",
@@ -441,7 +441,7 @@ function CommitTile({
     <div
       id="dp-commit"
       style={{
-        background: "var(--p-card)",
+        background: "var(--t-card)",
         borderRadius: 8,
         padding: "8px 10px",
         cursor: "default",
@@ -455,7 +455,7 @@ function CommitTile({
       <div
         style={{
           fontSize: 9,
-          color: "var(--p-border-t)",
+          color: "var(--t-border-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -471,7 +471,7 @@ function CommitTile({
             rel="noopener noreferrer"
             style={{
               fontSize: 10,
-              color: "var(--p-blue-300)",
+              color: "var(--t-accent-soft)",
               fontFamily: "monospace",
               textDecoration: "none",
             }}
@@ -484,7 +484,7 @@ function CommitTile({
           <span
             style={{
               fontSize: 10,
-              color: "var(--p-text-f)",
+              color: "var(--t-text-faint)",
               fontFamily: "monospace",
             }}
             title={
@@ -501,10 +501,10 @@ function CommitTile({
           <span
             style={{
               fontSize: 9,
-              color: "var(--p-blue)",
-              background: "color-mix(in srgb, var(--p-blue) 12%, transparent)",
+              color: "var(--t-accent)",
+              background: "color-mix(in srgb, var(--t-accent) 12%, transparent)",
               border:
-                "1px solid color-mix(in srgb, var(--p-blue) 25%, transparent)",
+                "1px solid color-mix(in srgb, var(--t-accent) 25%, transparent)",
               borderRadius: 10,
               padding: "0 5px",
               fontWeight: 600,
@@ -523,7 +523,7 @@ function BranchTile({ branchName }: { branchName: string }) {
     <div
       id="dp-branch"
       style={{
-        background: "var(--p-card)",
+        background: "var(--t-card)",
         borderRadius: 8,
         padding: "8px 10px",
         cursor: "default",
@@ -533,7 +533,7 @@ function BranchTile({ branchName }: { branchName: string }) {
       <div
         style={{
           fontSize: 9,
-          color: "var(--p-border-t)",
+          color: "var(--t-border-faint)",
           marginBottom: 2,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
@@ -544,7 +544,7 @@ function BranchTile({ branchName }: { branchName: string }) {
       <div
         style={{
           fontSize: 10,
-          color: "var(--p-green-300)",
+          color: "var(--t-success-subtle)",
           fontFamily: "monospace",
         }}
       >
@@ -587,8 +587,8 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
       style={{
         borderRadius: 8,
         border:
-          "1px solid color-mix(in srgb, var(--p-red) 30%, var(--p-border))",
-        background: "color-mix(in srgb, var(--p-red) 4%, var(--p-card))",
+          "1px solid color-mix(in srgb, var(--t-danger) 30%, var(--t-border))",
+        background: "color-mix(in srgb, var(--t-danger) 4%, var(--t-card))",
         overflow: "hidden",
       }}
     >
@@ -599,15 +599,15 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
           gap: 6,
           padding: "6px 10px",
           borderBottom:
-            "1px solid color-mix(in srgb, var(--p-red) 20%, var(--p-border))",
-          background: "color-mix(in srgb, var(--p-red) 8%, var(--p-card))",
+            "1px solid color-mix(in srgb, var(--t-danger) 20%, var(--t-border))",
+          background: "color-mix(in srgb, var(--t-danger) 8%, var(--t-card))",
         }}
       >
         <span
           style={{
             fontSize: 10,
             fontWeight: 700,
-            color: "color-mix(in srgb, var(--p-red) 80%, var(--p-text-sub))",
+            color: "color-mix(in srgb, var(--t-danger) 80%, var(--t-text-sub))",
             letterSpacing: "0.05em",
             textTransform: "uppercase",
           }}
@@ -615,7 +615,7 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
           Console Logs
         </span>
         <span
-          style={{ fontSize: 9, color: "var(--p-text-g)", marginLeft: "auto" }}
+          style={{ fontSize: 9, color: "var(--t-text-ghost)", marginLeft: "auto" }}
         >
           captured at submission
         </span>
@@ -642,10 +642,10 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
                 fontSize: 10,
                 lineHeight: 1.5,
                 color: isError
-                  ? "var(--p-red)"
+                  ? "var(--t-danger)"
                   : isWarn
-                    ? "var(--p-amber-300)"
-                    : "var(--p-text-f)",
+                    ? "var(--t-warning-subtle)"
+                    : "var(--t-text-faint)",
                 wordBreak: "break-all",
               }}
             >
@@ -657,7 +657,7 @@ function ConsoleLogsSection({ logs }: { logs: string }) {
           <div
             style={{
               fontSize: 10,
-              color: "var(--p-text-g)",
+              color: "var(--t-text-ghost)",
               fontStyle: "italic",
             }}
           >

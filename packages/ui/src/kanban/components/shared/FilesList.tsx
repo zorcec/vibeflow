@@ -38,7 +38,7 @@ export function FilesList({
     return (
       <p
         style={{
-          color: "var(--p-text-g)",
+          color: "var(--t-text-ghost)",
           fontSize: 12,
           textAlign: "center",
           padding: "16px 0",
@@ -52,7 +52,7 @@ export function FilesList({
     return (
       <p
         style={{
-          color: "var(--p-red-500)",
+          color: "var(--t-danger-strong)",
           fontSize: 12,
           textAlign: "center",
           padding: "8px 0",
@@ -66,7 +66,7 @@ export function FilesList({
     return (
       <p
         style={{
-          color: "var(--p-text-g)",
+          color: "var(--t-text-ghost)",
           fontSize: 12,
           textAlign: "center",
           padding: "16px 0",
@@ -116,12 +116,12 @@ export function FilesList({
               alignItems: "center",
               gap: 6,
               background: "none",
-              border: "1px solid var(--p-border)",
+              border: "1px solid var(--t-border)",
               borderRadius: 8,
               padding: "6px 10px",
               width: "100%",
               cursor: "pointer",
-              color: "var(--p-text-f)",
+              color: "var(--t-text-faint)",
               fontSize: 11,
               fontWeight: 500,
             }}
@@ -138,7 +138,7 @@ export function FilesList({
             </span>
             <span
               style={{
-                background: "var(--p-border)",
+                background: "var(--t-border)",
                 borderRadius: 4,
                 padding: "1px 5px",
                 fontSize: 9,
@@ -163,7 +163,7 @@ export function FilesList({
               {systemFiles.map(renderFile)}
               <p
                 style={{
-                  color: "var(--p-text-f)",
+                  color: "var(--t-text-faint)",
                   fontSize: 10,
                   margin: "2px 0 0",
                   fontStyle: "italic",

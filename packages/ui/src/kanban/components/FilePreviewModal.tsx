@@ -91,11 +91,11 @@ function tokenizeLine(line: string): TokenizedLine {
 }
 
 const TOKEN_STYLES: Record<JsonToken["type"], React.CSSProperties> = {
-  key: { color: "#c084fc" },
-  string: { color: "#86efac" },
-  number: { color: "#67e8f9" },
-  bool: { color: "#fb923c" },
-  null: { color: "#f87171" },
+  key: { color: "var(--t-syntax-key)" },
+  string: { color: "var(--t-syntax-string)" },
+  number: { color: "var(--t-syntax-number)" },
+  bool: { color: "var(--t-syntax-bool)" },
+  null: { color: "var(--t-syntax-null)" },
   punct: { color: "inherit" },
 };
 
@@ -220,8 +220,8 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
             style={{
               borderRadius: 8,
               overflow: "hidden",
-              border: "1px solid var(--p-border)",
-              background: "var(--p-card)",
+              border: "1px solid var(--t-border)",
+              background: "var(--t-card)",
               display: "inline-block",
               width: "100%",
             }}
@@ -245,12 +245,12 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <div
             id="file-preview-md"
             style={{
-              background: "var(--p-input)",
-              border: "1px solid var(--p-border-s)",
+              background: "var(--t-input)",
+              border: "1px solid var(--t-border-strong)",
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
-              color: "var(--p-text-sub)",
+              color: "var(--t-text-sub)",
               lineHeight: 1.65,
             }}
           >
@@ -269,8 +269,8 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
           <pre
             id="file-preview-json"
             style={{
-              background: "var(--p-input)",
-              border: "1px solid var(--p-border-s)",
+              background: "var(--t-input)",
+              border: "1px solid var(--t-border-strong)",
               borderRadius: 8,
               padding: "12px 16px",
               fontSize: 12,

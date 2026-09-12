@@ -18,33 +18,33 @@ const COLUMNS: Column[] = [
   {
     id: "backlog",
     label: "Backlog",
-    color: "var(--p-text-f)",
-    accent: "color-mix(in srgb, var(--p-text-g) 25%, transparent)",
+    color: "var(--t-text-faint)",
+    accent: "color-mix(in srgb, var(--t-text-ghost) 25%, transparent)",
   },
   {
     id: "todo",
     label: "Todo",
-    color: "var(--p-amber)",
-    accent: "color-mix(in srgb, var(--p-amber) 18%, transparent)",
+    color: "var(--t-warning)",
+    accent: "color-mix(in srgb, var(--t-warning) 18%, transparent)",
   },
   {
     id: "in-progress",
     label: "In Progress",
-    color: "var(--p-blue)",
-    accent: "color-mix(in srgb, var(--p-blue) 18%, transparent)",
+    color: "var(--t-accent)",
+    accent: "color-mix(in srgb, var(--t-accent) 18%, transparent)",
     glow: true,
   },
   {
     id: "review",
     label: "Review",
-    color: "var(--p-purple)",
-    accent: "color-mix(in srgb, var(--p-purple) 18%, transparent)",
+    color: "var(--t-secondary)",
+    accent: "color-mix(in srgb, var(--t-secondary) 18%, transparent)",
   },
   {
     id: "done",
     label: "Done",
-    color: "var(--p-green)",
-    accent: "color-mix(in srgb, var(--p-green) 18%, transparent)",
+    color: "var(--t-success)",
+    accent: "color-mix(in srgb, var(--t-success) 18%, transparent)",
   },
 ];
 
@@ -57,9 +57,9 @@ function SkeletonCard() {
     <div
       style={{
         borderRadius: 8,
-        border: "1px solid var(--p-border-t)",
+        border: "1px solid var(--t-border-faint)",
         padding: "10px 12px",
-        background: "var(--p-bg-2)",
+        background: "var(--t-bg-raised)",
         marginBottom: 6,
         animation: "skeleton-pulse 1.5s ease-in-out infinite",
       }}
@@ -68,7 +68,7 @@ function SkeletonCard() {
         style={{
           height: 12,
           borderRadius: 4,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
           width: "75%",
           marginBottom: 8,
         }}
@@ -77,7 +77,7 @@ function SkeletonCard() {
         style={{
           height: 10,
           borderRadius: 4,
-          background: "var(--p-border-s)",
+          background: "var(--t-border-strong)",
           width: "50%",
           marginBottom: 8,
         }}
@@ -87,7 +87,7 @@ function SkeletonCard() {
           style={{
             height: 18,
             borderRadius: 10,
-            background: "var(--p-border-s)",
+            background: "var(--t-border-strong)",
             width: 48,
           }}
         />
@@ -95,7 +95,7 @@ function SkeletonCard() {
           style={{
             height: 18,
             borderRadius: 10,
-            background: "var(--p-border-s)",
+            background: "var(--t-border-strong)",
             width: 36,
           }}
         />
@@ -657,7 +657,7 @@ export function KanbanBoard({
             top: 1,
             height: 4,
             borderRadius: 2,
-            background: "var(--p-border-t)",
+            background: "var(--t-border-faint)",
             cursor: "pointer",
             pointerEvents: "auto",
             transition: "background 0.15s",
@@ -665,7 +665,7 @@ export function KanbanBoard({
           }}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLDivElement).style.background =
-              "var(--p-text-g)";
+              "var(--t-text-ghost)";
           }}
           onMouseLeave={(e) => {
             if (
@@ -674,7 +674,7 @@ export function KanbanBoard({
               )
             )
               (e.currentTarget as HTMLDivElement).style.background =
-                "var(--p-border-t)";
+                "var(--t-border-faint)";
           }}
         />
       </div>
@@ -863,7 +863,7 @@ function KanbanColumn({
             borderRadius: 4,
             border: "none",
             background: "transparent",
-            color: addHovered ? col.color : "var(--p-text-g)",
+            color: addHovered ? col.color : "var(--t-text-ghost)",
             cursor: "pointer",
             transition: "color .15s",
             padding: 0,
@@ -885,11 +885,11 @@ function KanbanColumn({
         ) : tasks.length === 0 ? (
           <div
             style={{
-              border: "1px dashed var(--p-border-t)",
+              border: "1px dashed var(--t-border-faint)",
               borderRadius: 8,
               padding: "10px 8px",
               fontSize: 11,
-              color: "var(--p-text-f)",
+              color: "var(--t-text-faint)",
               textAlign: "center",
             }}
           >
@@ -988,12 +988,12 @@ function KanbanColumn({
               <div
                 data-fit-chip
                 style={{
-                  background: "var(--p-card)",
-                  border: "2px dashed var(--p-border-t)",
+                  background: "var(--t-card)",
+                  border: "2px dashed var(--t-border-faint)",
                   borderRadius: 10,
                   padding: "11px 13px",
                   fontSize: 12,
-                  color: "var(--p-text-g)",
+                  color: "var(--t-text-ghost)",
                   textAlign: "center",
                   lineHeight: 1.4,
                   opacity: 0.7,

@@ -43,7 +43,7 @@ type ActivityItem = FileActivityItem | CommentActivityItem | LifecycleActivityIt
 function SourceBadge({ source }: { source?: 'cli' | 'web' }) {
   if (source !== 'cli') return null;
   return (
-    <span title="Via CLI (agent)" style={{ fontSize: 9, color: 'var(--p-green-300)', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 4, padding: '0 4px', fontFamily: 'monospace', lineHeight: '16px', flexShrink: 0 }}>
+    <span title="Via CLI (agent)" style={{ fontSize: 9, color: 'var(--t-success-subtle)', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 4, padding: '0 4px', fontFamily: 'monospace', lineHeight: '16px', flexShrink: 0 }}>
       &gt;_
     </span>
   );
@@ -176,21 +176,21 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
   }, [editingId]);
 
   if (loading) {
-    return <p style={{ color: 'var(--p-text-g)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>Loading…</p>;
+    return <p style={{ color: 'var(--t-text-ghost)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>Loading…</p>;
   }
   if (error) {
-    return <p style={{ color: 'var(--p-red-500)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>Failed to load.</p>;
+    return <p style={{ color: 'var(--t-danger-strong)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>Failed to load.</p>;
   }
   if (activity.length === 0) {
-    return <p style={{ color: 'var(--p-text-g)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No activity yet.</p>;
+    return <p style={{ color: 'var(--t-text-ghost)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No activity yet.</p>;
   }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Activity header — eye icon toggle for system updates, only shown when updates exist */}
       {updateCount > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0 4px', flexShrink: 0, borderBottom: '1px solid var(--p-border)', marginBottom: 4 }}>
-          <span style={{ fontSize: 9, color: 'var(--p-text-g)', flex: 1, letterSpacing: '0.04em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0 4px', flexShrink: 0, borderBottom: '1px solid var(--t-border)', marginBottom: 4 }}>
+          <span style={{ fontSize: 9, color: 'var(--t-text-ghost)', flex: 1, letterSpacing: '0.04em' }}>
             {!showUpdates ? `${updateCount} system event${updateCount !== 1 ? 's' : ''} hidden` : ''}
           </span>
           <button
@@ -203,13 +203,13 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
             style={{
               all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center',
               justifyContent: 'center', width: 22, height: 22, borderRadius: 5,
-              color: showUpdates ? 'var(--p-text-m)' : 'var(--p-text-g)',
+              color: showUpdates ? 'var(--t-text-muted)' : 'var(--t-text-ghost)',
               transition: 'color .12s, background .12s',
             }}
             title={showUpdates ? 'Hide system events' : `Show ${updateCount} system event${updateCount !== 1 ? 's' : ''}`}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--p-text)'; e.currentTarget.style.background = 'var(--p-hover)'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--t-text)'; e.currentTarget.style.background = 'var(--t-hover)'; }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = showUpdates ? 'var(--p-text-m)' : 'var(--p-text-g)';
+              e.currentTarget.style.color = showUpdates ? 'var(--t-text-muted)' : 'var(--t-text-ghost)';
               e.currentTarget.style.background = 'transparent';
             }}
           >
@@ -233,20 +233,20 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
             {/* Group header — shown when there is an identified author */}
             {showGroupHeader && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0 2px', marginTop: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: isAgent ? 'var(--p-purple)' : 'var(--p-blue-300)', flexShrink: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: isAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)', flexShrink: 0 }}>
                   {group.author}
                 </span>
-                <span style={{ fontSize: 10, color: 'var(--p-text-g)', flexShrink: 0 }}>
+                <span style={{ fontSize: 10, color: 'var(--t-text-ghost)', flexShrink: 0 }}>
                   {`${formatDate(group.oldestSortKey)} – ${formatDate(group.newestSortKey)}`}
                 </span>
-                <span style={{ fontSize: 10, color: 'var(--p-border-t)', flexShrink: 0, marginLeft: 2 }}>
+                <span style={{ fontSize: 10, color: 'var(--t-border-faint)', flexShrink: 0, marginLeft: 2 }}>
                   ({group.items.length} activities)
                 </span>
               </div>
             )}
 
             {/* Items in the group — indented when grouped */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: isGrouped ? 4 : 8, paddingLeft: isGrouped ? 8 : 0, borderLeft: isGrouped ? '1.5px solid var(--p-border)' : 'none', marginLeft: isGrouped ? 4 : 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: isGrouped ? 4 : 8, paddingLeft: isGrouped ? 8 : 0, borderLeft: isGrouped ? '1.5px solid var(--t-border)' : 'none', marginLeft: isGrouped ? 4 : 0 }}>
               {group.items.map((item, iIdx) => renderActivityItem(item, iIdx, gIdx, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview))}
             </div>
           </div>
@@ -297,12 +297,12 @@ function renderActivityItem(
   if (item.kind === 'lifecycle') {
     return (
       <div key={`lifecycle-${item.sortKey}-${gIdx}-${iIdx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '2px 0' }}>
-        <span style={{ fontSize: 11, color: 'var(--p-purple)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>{item.icon}</span>
+        <span style={{ fontSize: 11, color: 'var(--t-secondary)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>{item.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--p-text-m)', fontStyle: 'italic' }}>{item.label}</span>
+            <span style={{ fontSize: 11, color: 'var(--t-text-muted)', fontStyle: 'italic' }}>{item.label}</span>
             {!isGrouped && (
-              <span style={{ fontSize: 10, color: 'var(--p-text-g)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
+              <span style={{ fontSize: 10, color: 'var(--t-text-ghost)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
             )}
           </div>
         </div>
@@ -317,25 +317,25 @@ function renderActivityItem(
     const needsTooltip = item.from.length > trimLen || item.to.length > trimLen;
     return (
       <div key={`change-${item.sortKey}-${gIdx}-${iIdx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '2px 0' }}>
-        <span style={{ fontSize: 11, color: 'var(--p-blue)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
+        <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--p-blue-300)' }}>👤 {item.actor}</span>}
+            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>👤 {item.actor}</span>}
             {!isGrouped && <SourceBadge source={item.source} />}
-            <span style={{ fontSize: 11, color: 'var(--p-text-m)' }}>
-              changed <strong style={{ color: 'var(--p-text)' }}>{item.field}</strong>
+            <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>
+              changed <strong style={{ color: 'var(--t-text)' }}>{item.field}</strong>
             </span>
             {!isGrouped && (
-              <span style={{ fontSize: 10, color: 'var(--p-text-g)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
+              <span style={{ fontSize: 10, color: 'var(--t-text-ghost)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
             )}
           </div>
           <div
             title={needsTooltip ? `${item.from} → ${item.to}` : undefined}
-            style={{ marginTop: 2, fontSize: 11, color: 'var(--p-text-g)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}
+            style={{ marginTop: 2, fontSize: 11, color: 'var(--t-text-ghost)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}
           >
-            <span style={{ color: 'var(--p-red)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fromTrimmed}</span>
-            <span style={{ color: 'var(--p-text-g)' }}>→</span>
-            <span style={{ color: 'var(--p-green)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTrimmed}</span>
+            <span style={{ color: 'var(--t-danger)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fromTrimmed}</span>
+            <span style={{ color: 'var(--t-text-ghost)' }}>→</span>
+            <span style={{ color: 'var(--t-success)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTrimmed}</span>
           </div>
         </div>
       </div>
@@ -367,7 +367,7 @@ function renderActivityItem(
 
   if (isSystem) {
     return (
-      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--p-text-g)', fontStyle: 'italic' }}>
+      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--t-text-ghost)', fontStyle: 'italic' }}>
         <span style={{ opacity: 0.6 }}>⬡</span>
         <span>{c.text}</span>
         {!isGrouped && <span style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.6 }}>{formatDate(c.createdAt)}</span>}
@@ -380,21 +380,21 @@ function renderActivityItem(
       {!isGrouped && (
         <div className="flex items-center justify-between gap-1.5 text-xs mb-0.5">
           <div className="flex items-center gap-1.5">
-            <span style={{ color: isDeleted ? 'var(--p-text-g)' : (isAgent ? 'var(--p-purple)' : 'var(--p-blue-300)') }}>
+            <span style={{ color: isDeleted ? 'var(--t-text-ghost)' : (isAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)') }}>
               {isAgent ? '🤖 Agent' : `👤 ${c.authorName ?? gitUserName}`}
             </span>
             <SourceBadge source={c.source} />
-            <span style={{ color: 'var(--p-text-g)' }}>
+            <span style={{ color: 'var(--t-text-ghost)' }}>
               {formatDate(c.createdAt)}{!isDeleted && c.updatedAt ? ' · edited' : ''}{isDeleted ? ' · deleted' : ''}
             </span>
           </div>
           {canEdit && (
             <div className="flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
               <button onClick={() => { setEditingId(c.id); setEditText(c.text); }} className="p-1 rounded hover:bg-slate-700 transition-colors" title="Edit">
-                <span style={{ fontSize: 11, color: 'var(--p-text-m)' }}>✎</span>
+                <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>✎</span>
               </button>
               <button onClick={() => onRequestDelete(c)} className="p-1 rounded hover:bg-red-900/40 transition-colors" title="Delete">
-                <span style={{ fontSize: 11, color: 'var(--p-text-m)' }}>✕</span>
+                <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>✕</span>
               </button>
             </div>
           )}
@@ -402,16 +402,16 @@ function renderActivityItem(
       )}
       {isGrouped && (
         <div className="flex items-center justify-between gap-1.5" style={{ marginBottom: 2 }}>
-          <span style={{ fontSize: 10, color: 'var(--p-text-g)' }}>
+          <span style={{ fontSize: 10, color: 'var(--t-text-ghost)' }}>
             {formatDate(c.createdAt)}{!isDeleted && c.updatedAt ? ' · edited' : ''}{isDeleted ? ' · deleted' : ''}
           </span>
           {canEdit && (
             <div className="flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
               <button onClick={() => { setEditingId(c.id); setEditText(c.text); }} className="p-1 rounded hover:bg-slate-700 transition-colors" title="Edit">
-                <span style={{ fontSize: 11, color: 'var(--p-text-m)' }}>✎</span>
+                <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>✎</span>
               </button>
               <button onClick={() => onRequestDelete(c)} className="p-1 rounded hover:bg-red-900/40 transition-colors" title="Delete">
-                <span style={{ fontSize: 11, color: 'var(--p-text-m)' }}>✕</span>
+                <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>✕</span>
               </button>
             </div>
           )}
@@ -426,21 +426,21 @@ function renderActivityItem(
             baseRows={4}
             maxRows={12}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void onEdit(c, editText).then(() => setEditingId(null)); } }}
-            style={{ width: '100%', background: 'var(--p-input)', border: '1px solid var(--p-border-s)', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'var(--p-text)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            style={{ width: '100%', background: 'var(--t-input)', border: '1px solid var(--t-border-strong)', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'var(--t-text)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-            <button onClick={() => setEditingId(null)} style={{ padding: '4px 10px', background: 'var(--p-surface)', border: 'none', borderRadius: 5, fontSize: 11, color: 'var(--p-text-sub)', cursor: 'pointer' }}>Cancel</button>
-            <button onClick={async () => { await onEdit(c, editText); setEditingId(null); }} style={{ padding: '4px 10px', background: 'var(--p-blue)', border: 'none', borderRadius: 5, fontSize: 11, color: 'var(--p-white)', cursor: 'pointer' }}>Save</button>
+            <button onClick={() => setEditingId(null)} style={{ padding: '4px 10px', background: 'var(--t-surface)', border: 'none', borderRadius: 5, fontSize: 11, color: 'var(--t-text-sub)', cursor: 'pointer' }}>Cancel</button>
+            <button onClick={async () => { await onEdit(c, editText); setEditingId(null); }} style={{ padding: '4px 10px', background: 'var(--t-accent)', border: 'none', borderRadius: 5, fontSize: 11, color: 'var(--t-white)', cursor: 'pointer' }}>Save</button>
           </div>
         </div>
       ) : isDeleted ? (
-        <div style={{ padding: '8px 14px', fontSize: 12, color: 'var(--p-text-g)', fontStyle: 'italic', background: 'var(--p-input)', border: '1px dashed var(--p-border)', borderRadius: 8 }}>
+        <div style={{ padding: '8px 14px', fontSize: 12, color: 'var(--t-text-ghost)', fontStyle: 'italic', background: 'var(--t-input)', border: '1px dashed var(--t-border)', borderRadius: 8 }}>
           Comment deleted
         </div>
       ) : (
         <MarkdownPreview
           markdown={c.text}
-          style={{ background: 'var(--p-input)', border: '1px solid var(--p-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--p-text-sub)', lineHeight: 1.6 }}
+          style={{ background: 'var(--t-input)', border: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
         />
       )}
     </div>

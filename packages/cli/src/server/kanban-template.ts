@@ -51,7 +51,7 @@ function getReactShell(opts: KanbanOptions): string {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>${KANBAN_CSS}</style>
 </head>
-<body class="h-screen overflow-hidden flex flex-col" style="background:#020c1b;">
+<body class="h-screen overflow-hidden flex flex-col" style="background:var(--t-bg);">
   <div id="root"></div>
   <script>window.__PORT__ = ${opts.port}; window.__CLI_VERSION__ = ${JSON.stringify(opts.cliVersion ?? "")}; window.__VIBEFLOW_USER__ = ${JSON.stringify(getCurrentUserId())}; ${getSaasModeScript(opts)}</script>
   <script>${KANBAN_BUNDLE}</script>

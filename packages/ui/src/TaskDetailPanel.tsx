@@ -56,10 +56,10 @@ interface Props {
 const input: React.CSSProperties = {
   width: "100%",
   padding: "7px 10px",
-  border: "1px solid var(--p-border-s)",
+  border: "1px solid var(--t-border-strong)",
   borderRadius: 8,
-  background: "var(--p-input)",
-  color: "var(--p-text)",
+  background: "var(--t-input)",
+  color: "var(--t-text)",
   fontSize: 13,
   fontFamily: "inherit",
   outline: "none",
@@ -70,7 +70,7 @@ const input: React.CSSProperties = {
 const metaLabel: React.CSSProperties = {
   fontSize: 10,
   fontWeight: 600,
-  color: "var(--p-text-g)",
+  color: "var(--t-text-ghost)",
   textTransform: "uppercase",
   letterSpacing: "0.04em",
   marginBottom: 6,
@@ -80,11 +80,11 @@ const dpTab = (active: boolean): React.CSSProperties => ({
   padding: "8px 14px",
   fontSize: 12,
   fontWeight: 500,
-  color: active ? "var(--p-blue-300)" : "var(--p-text-g)",
+  color: active ? "var(--t-accent-soft)" : "var(--t-text-ghost)",
   cursor: "pointer",
   background: "none",
   border: "none",
-  borderBottom: active ? "2px solid var(--p-blue)" : "2px solid transparent",
+  borderBottom: active ? "2px solid var(--t-accent)" : "2px solid transparent",
   transition: "color .12s, border-color .12s",
 });
 
@@ -269,8 +269,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
           width: 420,
           maxWidth: "92vw",
           zIndex: 50,
-          background: "var(--p-surface)",
-          borderLeft: "1px solid var(--p-border-s)",
+          background: "var(--t-surface)",
+          borderLeft: "1px solid var(--t-border-strong)",
           boxShadow: "-8px 0 32px rgba(0,0,0,0.4)",
           display: "flex",
           flexDirection: "column",
@@ -283,8 +283,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
         <div
           style={{
             padding: "12px 16px 10px",
-            borderBottom: "1px solid var(--p-border)",
-            background: "var(--p-surface)",
+            borderBottom: "1px solid var(--t-border)",
+            background: "var(--t-surface)",
             flexShrink: 0,
           }}
         >
@@ -306,22 +306,22 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                 borderRadius: 6,
                 border: "1px solid transparent",
                 background: "transparent",
-                color: "var(--p-text)",
+                color: "var(--t-text)",
                 outline: "none",
                 fontFamily: "inherit",
                 transition: "border-color .12s, background .12s",
               }}
-              onFocus={(e) => { e.target.style.borderColor = "var(--p-blue)"; e.target.style.background = "var(--p-input)"; }}
+              onFocus={(e) => { e.target.style.borderColor = "var(--t-accent)"; e.target.style.background = "var(--t-input)"; }}
               onBlurCapture={(e) => { e.target.style.borderColor = "transparent"; e.target.style.background = "transparent"; }}
             />
             {saving && (
-              <span style={{ fontSize: 10, color: "var(--p-text-g)", flexShrink: 0 }}>saving…</span>
+              <span style={{ fontSize: 10, color: "var(--t-text-ghost)", flexShrink: 0 }}>saving…</span>
             )}
             <button
               onClick={handlers.onClose}
-              style={{ width: 26, height: 26, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, border: "none", background: "transparent", color: "var(--p-text-g)", cursor: "pointer" }}
-              onMouseOver={(e) => { e.currentTarget.style.background = "var(--p-hover)"; e.currentTarget.style.color = "var(--p-text-m)"; }}
-              onMouseOut={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--p-text-g)"; }}
+              style={{ width: 26, height: 26, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, border: "none", background: "transparent", color: "var(--t-text-ghost)", cursor: "pointer" }}
+              onMouseOver={(e) => { e.currentTarget.style.background = "var(--t-hover)"; e.currentTarget.style.color = "var(--t-text-muted)"; }}
+              onMouseOut={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--t-text-ghost)"; }}
             >
               <X style={{ width: 14, height: 14 }} />
             </button>
@@ -329,7 +329,7 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
 
           {/* Status buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, color: "var(--p-text-g)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 2 }}>Status</span>
+            <span style={{ fontSize: 10, color: "var(--t-text-ghost)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.04em", marginRight: 2 }}>Status</span>
             {statuses.map((s) => {
               const isActive = task?.status === s.id;
               return (
@@ -339,17 +339,17 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                   style={{
                     padding: "3px 10px",
                     borderRadius: 6,
-                    border: `1px solid ${isActive ? s.color : "var(--p-border)"}`,
+                    border: `1px solid ${isActive ? s.color : "var(--t-border)"}`,
                     background: isActive ? `color-mix(in srgb, ${s.color} 15%, transparent)` : "none",
-                    color: isActive ? s.color : "var(--p-text-g)",
+                    color: isActive ? s.color : "var(--t-text-ghost)",
                     fontSize: 11,
                     fontWeight: 500,
                     cursor: "pointer",
                     transition: "all .12s",
                     fontFamily: "inherit",
                   }}
-                  onMouseOver={(e) => { if (!isActive) { e.currentTarget.style.borderColor = "var(--p-border-t)"; e.currentTarget.style.color = "var(--p-text-m)"; } }}
-                  onMouseOut={(e) => { if (!isActive) { e.currentTarget.style.borderColor = "var(--p-border)"; e.currentTarget.style.color = "var(--p-text-g)"; } }}
+                  onMouseOver={(e) => { if (!isActive) { e.currentTarget.style.borderColor = "var(--t-border-faint)"; e.currentTarget.style.color = "var(--t-text-muted)"; } }}
+                  onMouseOut={(e) => { if (!isActive) { e.currentTarget.style.borderColor = "var(--t-border)"; e.currentTarget.style.color = "var(--t-text-ghost)"; } }}
                 >
                   {s.label}
                 </button>
@@ -362,8 +362,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
         <div
           style={{
             display: "flex",
-            borderBottom: "1px solid var(--p-border)",
-            background: "var(--p-surface)",
+            borderBottom: "1px solid var(--t-border)",
+            background: "var(--t-surface)",
             flexShrink: 0,
           }}
         >
@@ -390,14 +390,14 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                 {showDescPreview && description ? (
                   <button
                     onClick={() => setShowDescPreview(false)}
-                    style={{ display: "block", width: "100%", textAlign: "left", background: "var(--p-input)", border: "1px solid var(--p-border-s)", borderRadius: 8, padding: "8px 10px", cursor: "text", minHeight: 60 }}
-                    onMouseOver={(e) => { e.currentTarget.style.borderColor = "var(--p-border-t)"; }}
-                    onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--p-border-s)"; }}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: "var(--t-input)", border: "1px solid var(--t-border-strong)", borderRadius: 8, padding: "8px 10px", cursor: "text", minHeight: 60 }}
+                    onMouseOver={(e) => { e.currentTarget.style.borderColor = "var(--t-border-faint)"; }}
+                    onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--t-border-strong)"; }}
                     title="Click to edit"
                   >
                     <MarkdownPreview
                       markdown={description}
-                      style={{ fontSize: 12, color: "var(--p-text-sub)", lineHeight: 1.65 }}
+                      style={{ fontSize: 12, color: "var(--t-text-sub)", lineHeight: 1.65 }}
                     />
                   </button>
                 ) : (
@@ -416,8 +416,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                       lineHeight: 1.6,
                       resize: "vertical",
                     }}
-                    onFocus={(e) => { e.target.style.borderColor = "var(--p-blue)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
-                    onBlurCapture={(e) => { e.target.style.borderColor = "var(--p-border-s)"; e.target.style.boxShadow = ""; }}
+                    onFocus={(e) => { e.target.style.borderColor = "var(--t-accent)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
+                    onBlurCapture={(e) => { e.target.style.borderColor = "var(--t-border-strong)"; e.target.style.boxShadow = ""; }}
                   />
                 )}
               </div>
@@ -460,13 +460,13 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                 style={{ flex: 1, padding: "12px 16px", overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}
               >
                 {commentsLoading && (
-                  <p style={{ color: "var(--p-text-g)", fontSize: 12, textAlign: "center", padding: "16px 0" }}>Loading…</p>
+                  <p style={{ color: "var(--t-text-ghost)", fontSize: 12, textAlign: "center", padding: "16px 0" }}>Loading…</p>
                 )}
                 {commentsError && (
-                  <p style={{ color: "var(--p-red)", fontSize: 12, textAlign: "center", padding: "8px 0" }}>{commentsError}</p>
+                  <p style={{ color: "var(--t-danger)", fontSize: 12, textAlign: "center", padding: "8px 0" }}>{commentsError}</p>
                 )}
                 {!commentsLoading && !commentsError && comments.length === 0 && (
-                  <p style={{ color: "var(--p-text-g)", fontSize: 12, textAlign: "center", padding: "16px 0" }}>No comments yet.</p>
+                  <p style={{ color: "var(--t-text-ghost)", fontSize: 12, textAlign: "center", padding: "16px 0" }}>No comments yet.</p>
                 )}
                 {comments.map((c) => (
                   <CommentBubble
@@ -480,16 +480,16 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
               </div>
 
               {/* Comment input */}
-              <div style={{ borderTop: "1px solid var(--p-border)", padding: "10px 16px 14px", flexShrink: 0 }}>
+              <div style={{ borderTop: "1px solid var(--t-border)", padding: "10px 16px 14px", flexShrink: 0 }}>
                 {showCommentPreview && commentInput.trim() ? (
                   <button
                     onClick={() => setShowCommentPreview(false)}
-                    style={{ display: "block", width: "100%", textAlign: "left", background: "var(--p-input)", border: "1px solid var(--p-border-s)", borderRadius: 8, padding: "8px 10px", cursor: "text", minHeight: 54 }}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: "var(--t-input)", border: "1px solid var(--t-border-strong)", borderRadius: 8, padding: "8px 10px", cursor: "text", minHeight: 54 }}
                     title="Click to edit"
                   >
                     <MarkdownPreview
                       markdown={commentInput}
-                      style={{ fontSize: 12, color: "var(--p-text-sub)", lineHeight: 1.65 }}
+                      style={{ fontSize: 12, color: "var(--t-text-sub)", lineHeight: 1.65 }}
                     />
                   </button>
                 ) : (
@@ -515,8 +515,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                         lineHeight: 1.6,
                         resize: "none",
                       }}
-                      onFocus={(e) => { e.target.style.borderColor = "var(--p-blue)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
-                      onBlurCapture={(e) => { e.target.style.borderColor = "var(--p-border-s)"; e.target.style.boxShadow = ""; }}
+                      onFocus={(e) => { e.target.style.borderColor = "var(--t-accent)"; e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
+                      onBlurCapture={(e) => { e.target.style.borderColor = "var(--t-border-strong)"; e.target.style.boxShadow = ""; }}
                     />
                     <button
                       disabled={commentSubmitting || !commentInput.trim()}
@@ -531,11 +531,11 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        background: commentInput.trim() ? "var(--p-purple)" : "var(--p-border)",
+                        background: commentInput.trim() ? "var(--t-secondary)" : "var(--t-border)",
                         border: "none",
                         borderRadius: 6,
                         cursor: commentInput.trim() ? "pointer" : "default",
-                        color: "var(--p-white)",
+                        color: "var(--t-white)",
                         transition: "background .15s",
                       }}
                     >
@@ -552,12 +552,12 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
         <div
           style={{
             padding: "10px 16px 12px",
-            borderTop: "1px solid var(--p-border)",
+            borderTop: "1px solid var(--t-border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: 8,
-            background: "var(--p-surface)",
+            background: "var(--t-surface)",
             flexShrink: 0,
           }}
         >
@@ -565,9 +565,9 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
             onClick={() => setShowDeleteConfirm(true)}
             disabled={deleting}
             style={{
-              color: "var(--p-red)",
+              color: "var(--t-danger)",
               background: "none",
-              border: "1px solid var(--p-border-t)",
+              border: "1px solid var(--t-border-faint)",
               borderRadius: 7,
               padding: "5px 12px",
               fontSize: 12,
@@ -579,8 +579,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
               opacity: deleting ? 0.5 : 1,
               transition: "border-color .15s",
             }}
-            onMouseOver={(e) => { if (!deleting) e.currentTarget.style.borderColor = "var(--p-red)"; }}
-            onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--p-border-t)"; }}
+            onMouseOver={(e) => { if (!deleting) e.currentTarget.style.borderColor = "var(--t-danger)"; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--t-border-faint)"; }}
           >
             <Trash2 style={{ width: 12, height: 12 }} />
             {deleting ? "Deleting…" : "Delete"}
@@ -593,14 +593,14 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
               fontSize: 12,
               fontWeight: 500,
               cursor: "pointer",
-              border: "1px solid var(--p-border-t)",
-              background: "var(--p-hover)",
-              color: "var(--p-text-m)",
+              border: "1px solid var(--t-border-faint)",
+              background: "var(--t-hover)",
+              color: "var(--t-text-muted)",
               fontFamily: "inherit",
               transition: "border-color .15s",
             }}
-            onMouseOver={(e) => { e.currentTarget.style.borderColor = "var(--p-text-g)"; }}
-            onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--p-border-t)"; }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = "var(--t-text-ghost)"; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = "var(--t-border-faint)"; }}
           >
             Close
           </button>
@@ -611,29 +611,29 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
           style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", background: "rgba(2,12,27,0.80)" }}
           onClick={(e) => { if (e.target === e.currentTarget && !deleting) setShowDeleteConfirm(false); }}
         >
-          <div style={{ background: "var(--p-surface)", border: "1px solid var(--p-border-s)", borderRadius: 16, padding: "28px 32px", width: "100%", maxWidth: 400, boxShadow: "var(--p-shadow-lg)", position: "relative" }}>
-            <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting} style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", cursor: "pointer", color: "var(--p-text-g)", padding: 4, display: "flex", borderRadius: 6 }}>
+          <div style={{ background: "var(--t-surface)", border: "1px solid var(--t-border-strong)", borderRadius: 16, padding: "28px 32px", width: "100%", maxWidth: 400, boxShadow: "var(--t-shadow-lg)", position: "relative" }}>
+            <button onClick={() => setShowDeleteConfirm(false)} disabled={deleting} style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", cursor: "pointer", color: "var(--t-text-ghost)", padding: 4, display: "flex", borderRadius: 6 }}>
               <X style={{ width: 16, height: 16 }} />
             </button>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-              <Trash2 style={{ width: 20, height: 20, color: "#f87171" }} />
+              <Trash2 style={{ width: 20, height: 20, color: "var(--t-danger)" }} />
             </div>
-            <h2 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 700, color: "var(--p-text)" }}>Delete task?</h2>
-            <p style={{ margin: "0 0 6px", fontSize: 13, color: "var(--p-text-f)", lineHeight: 1.6 }}>
-              You are about to permanently delete <strong style={{ color: "var(--p-text-m)" }}>{task?.title || "this task"}</strong>.
+            <h2 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 700, color: "var(--t-text)" }}>Delete task?</h2>
+            <p style={{ margin: "0 0 6px", fontSize: 13, color: "var(--t-text-faint)", lineHeight: 1.6 }}>
+              You are about to permanently delete <strong style={{ color: "var(--t-text-muted)" }}>{task?.title || "this task"}</strong>.
             </p>
-            <p style={{ margin: "0 0 22px", fontSize: 12, color: "var(--p-text-g)", lineHeight: 1.5 }}>This action cannot be undone.</p>
+            <p style={{ margin: "0 0 22px", fontSize: 12, color: "var(--t-text-ghost)", lineHeight: 1.5 }}>This action cannot be undone.</p>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => void handleDelete()}
                 disabled={deleting}
-                style={{ flex: 1, padding: "9px 14px", borderRadius: 8, background: "#dc2626", border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: deleting ? "wait" : "pointer", opacity: deleting ? 0.6 : 1 }}
+                style={{ flex: 1, padding: "9px 14px", borderRadius: 8, background: "var(--t-danger-strong)", border: "none", color: "var(--t-white)", fontSize: 13, fontWeight: 600, cursor: deleting ? "wait" : "pointer", opacity: deleting ? 0.6 : 1 }}
               >{deleting ? "Deleting…" : "Delete task"}</button>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
                 disabled={deleting}
-                style={{ padding: "9px 16px", borderRadius: 8, background: "var(--p-hover)", border: "1px solid var(--p-border)", color: "var(--p-text-m)", fontSize: 13, cursor: "pointer" }}
+                style={{ padding: "9px 16px", borderRadius: 8, background: "var(--t-hover)", border: "1px solid var(--t-border)", color: "var(--t-text-muted)", fontSize: 13, cursor: "pointer" }}
               >Cancel</button>
             </div>
           </div>
@@ -661,7 +661,7 @@ function CommentBubble({
 
   if (isSystem) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, color: "var(--p-text-g)", fontStyle: "italic" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", fontSize: 11, color: "var(--t-text-ghost)", fontStyle: "italic" }}>
         <span style={{ opacity: 0.5 }}>⬡</span>
         <span>{comment.body}</span>
         <span style={{ marginLeft: "auto", flexShrink: 0, opacity: 0.6, fontFamily: "monospace" }}>
@@ -674,8 +674,8 @@ function CommentBubble({
   return (
     <div
       style={{
-        background: isAgent ? "rgba(99,102,241,0.06)" : "var(--p-card)",
-        border: `1px solid ${isAgent ? "rgba(99,102,241,0.2)" : "var(--p-border)"}`,
+        background: isAgent ? "rgba(99,102,241,0.06)" : "var(--t-card)",
+        border: `1px solid ${isAgent ? "rgba(99,102,241,0.2)" : "var(--t-border)"}`,
         borderRadius: 10,
         padding: "9px 11px",
         display: "flex",
@@ -689,14 +689,14 @@ function CommentBubble({
           style={{
             fontSize: 11,
             fontWeight: 600,
-            color: isAgent ? "var(--p-purple-300)" : "var(--p-text-m)",
+            color: isAgent ? "var(--t-secondary-soft)" : "var(--t-text-muted)",
           }}
         >
           {isAgent ? "🤖 Agent" : comment.author}
         </span>
-        {comment.edited && <span style={{ fontSize: 9, color: "var(--p-text-g)", fontStyle: "italic" }}>(edited)</span>}
+        {comment.edited && <span style={{ fontSize: 9, color: "var(--t-text-ghost)", fontStyle: "italic" }}>(edited)</span>}
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 10, color: "var(--p-text-g)", fontFamily: "monospace" }}>
+        <span style={{ fontSize: 10, color: "var(--t-text-ghost)", fontFamily: "monospace" }}>
           {formatRelativeDate(comment.createdAt)}
         </span>
         {canDelete && !isAgent && (
@@ -708,13 +708,13 @@ function CommentBubble({
               background: "none",
               border: "none",
               cursor: deleting ? "wait" : "pointer",
-              color: "var(--p-text-g)",
+              color: "var(--t-text-ghost)",
               padding: "0 2px",
               display: "flex",
               opacity: deleting ? 0.5 : 1,
             }}
-            onMouseOver={(e) => { e.currentTarget.style.color = "var(--p-red)"; }}
-            onMouseOut={(e) => { e.currentTarget.style.color = "var(--p-text-g)"; }}
+            onMouseOver={(e) => { e.currentTarget.style.color = "var(--t-danger)"; }}
+            onMouseOut={(e) => { e.currentTarget.style.color = "var(--t-text-ghost)"; }}
           >
             <Trash2 style={{ width: 11, height: 11 }} />
           </button>
@@ -725,7 +725,7 @@ function CommentBubble({
       <div
         // renderMarkdown() HTML-escapes &, <, > before processing — no raw user HTML
         dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.body) }}
-        style={{ fontSize: 12, color: "var(--p-text-sub)", lineHeight: 1.65 }}
+        style={{ fontSize: 12, color: "var(--t-text-sub)", lineHeight: 1.65 }}
       />
     </div>
   );
@@ -733,11 +733,11 @@ function CommentBubble({
 
 function MetaTile({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "var(--p-card)", borderRadius: 8, padding: "7px 10px" }}>
-      <div style={{ fontSize: 9, color: "var(--p-text-g)", marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+    <div style={{ background: "var(--t-card)", borderRadius: 8, padding: "7px 10px" }}>
+      <div style={{ fontSize: 9, color: "var(--t-text-ghost)", marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.04em" }}>
         {label}
       </div>
-      <div style={{ fontSize: 11, color: "var(--p-text-f)" }}>{children}</div>
+      <div style={{ fontSize: 11, color: "var(--t-text-faint)" }}>{children}</div>
     </div>
   );
 }

@@ -49,9 +49,9 @@ export function ModalBase({ open, onClose, icon, title, headerActions, width, ma
     >
       <div className="modal-box" style={{ width: width ?? 'min(420px, 95vw)', maxHeight, ...boxStyle }}>
         {hasHeader && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--p-border)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--t-border)', flexShrink: 0 }}>
             {icon && <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>{icon}</span>}
-            {title && <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--p-text)', flex: 1, minWidth: 0 }}>{title}</span>}
+            {title && <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t-text)', flex: 1, minWidth: 0 }}>{title}</span>}
             {headerActions && <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' }}>{headerActions}</div>}
           </div>
         )}
@@ -59,7 +59,7 @@ export function ModalBase({ open, onClose, icon, title, headerActions, width, ma
           {children}
         </div>
         {footer && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '10px 18px', borderTop: '1px solid var(--p-border)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '10px 18px', borderTop: '1px solid var(--t-border)', flexShrink: 0 }}>
             {footer}
           </div>
         )}

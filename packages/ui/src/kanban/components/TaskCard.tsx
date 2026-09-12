@@ -76,7 +76,7 @@ export function resolveTaskCardBorderColor(
             priority === "Critical" ? 0.36 : priority === "High" ? 0.3 : 0.24;
       return (
             withHexAlpha(statusColor, alpha) ??
-            "color-mix(in srgb, var(--p-text-g) 40%, transparent)"
+            "color-mix(in srgb, var(--t-text-ghost) 40%, transparent)"
       );
 }
 
@@ -100,13 +100,13 @@ const DONE_INNER_ROW_STYLE: React.CSSProperties = {
 const DONE_CHECK_ICON_STYLE: React.CSSProperties = {
       width: 12,
       height: 12,
-      color: "color-mix(in srgb, var(--p-green) 55%, transparent)",
+      color: "color-mix(in srgb, var(--t-success) 55%, transparent)",
       flexShrink: 0,
 };
 const DONE_TITLE_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
-      color: "var(--p-text-m)",
+      color: "var(--t-text-muted)",
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap",
@@ -115,7 +115,7 @@ const DONE_TITLE_STYLE: React.CSSProperties = {
 const VERIFIED_BADGE_STYLE: React.CSSProperties = {
       fontSize: 9,
       fontWeight: 700,
-      color: "#22c55e",
+      color: "var(--t-success)",
       background: "rgba(34,197,94,0.12)",
       border: "1px solid rgba(34,197,94,0.3)",
       borderRadius: 4,
@@ -135,7 +135,7 @@ const SPINNER_SHRINK_STYLE: React.CSSProperties = { flexShrink: 0 };
 const CARD_TITLE_TEXT_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
-      color: "var(--p-text)",
+      color: "var(--t-text)",
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap",
@@ -148,7 +148,7 @@ const DESC_THUMB_ROW_STYLE: React.CSSProperties = {
 };
 const DESC_TEXT_STYLE: React.CSSProperties = {
       fontSize: 10,
-      color: "var(--p-text-g)",
+      color: "var(--t-text-ghost)",
       lineHeight: "1.45",
       overflow: "hidden",
       display: "-webkit-box",
@@ -166,7 +166,7 @@ const THUMB_IMG_STYLE: React.CSSProperties = {
       height: 34,
       borderRadius: 6,
       objectFit: "cover",
-      border: "1px solid color-mix(in srgb, var(--p-border) 90%, transparent)",
+      border: "1px solid color-mix(in srgb, var(--t-border) 90%, transparent)",
       display: "block",
       cursor: "pointer",
 };
@@ -299,7 +299,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           ...DONE_TITLE_STYLE,
                                           ...(isDone
                                                 ? {}
-                                                : { color: "var(--p-text)" }),
+                                                : { color: "var(--t-text)" }),
                                     }}
                               >
                                     {task.title}
@@ -320,7 +320,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           <span
                                                 style={{
                                                       fontSize: 9,
-                                                      color: "var(--p-text-m)",
+                                                      color: "var(--t-text-muted)",
                                                       flexShrink: 0,
                                                 }}
                                           >
@@ -373,7 +373,7 @@ export const TaskCard = React.memo(function TaskCard({
                               ? {
                                       boxShadow: [
                                             blockers.length > 0
-                                                  ? "inset 3px 0 0 0 var(--p-red, #f87171)"
+                                                  ? "inset 3px 0 0 0 var(--t-danger)"
                                                   : null,
                                             liveActivity
                                                   ? "0 0 0 2px rgba(59,130,246,0.14)"
@@ -411,7 +411,7 @@ export const TaskCard = React.memo(function TaskCard({
                                                       height: 6,
                                                       borderRadius: "50%",
                                                       background:
-                                                            "var(--p-blue-500, #3b82f6)",
+                                                            "var(--t-accent-contrast)",
                                                       flexShrink: 0,
                                                 }}
                                                 title="Unread"
@@ -478,14 +478,14 @@ export const TaskCard = React.memo(function TaskCard({
                                                                   borderRadius: 8,
                                                                   objectFit:
                                                                         "cover",
-                                                                  border: "1px solid color-mix(in srgb, var(--p-border) 96%, transparent)",
+                                                                  border: "1px solid color-mix(in srgb, var(--t-border) 96%, transparent)",
                                                                   boxShadow:
-                                                                        "0 10px 24px color-mix(in srgb, var(--p-bg) 75%, transparent)",
+                                                                        "0 10px 24px color-mix(in srgb, var(--t-bg) 75%, transparent)",
                                                                   pointerEvents:
                                                                         "none",
                                                                   zIndex: 9999,
                                                                   background:
-                                                                        "var(--p-bg)",
+                                                                        "var(--t-bg)",
                                                             }}
                                                       />,
                                                       document.body,
@@ -509,7 +509,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           padding: "1px 6px",
                                           borderRadius: 6,
                                           background: "rgba(59,130,246,0.12)",
-                                          color: "#60a5fa",
+                                          color: "var(--t-accent-soft)",
                                           whiteSpace: "nowrap",
                                           overflow: "hidden",
                                           textOverflow: "ellipsis",
@@ -537,15 +537,15 @@ export const TaskCard = React.memo(function TaskCard({
                               }
                               color={
                                     hasNewComments
-                                          ? "var(--p-purple)"
+                                          ? "var(--t-secondary)"
                                           : commentCount > 0
-                                            ? "var(--p-text-m)"
-                                            : "var(--p-border-t)"
+                                            ? "var(--t-text-muted)"
+                                            : "var(--t-border-faint)"
                               }
                               hoverColor={
                                     hasNewComments
-                                          ? "var(--p-purple-300)"
-                                          : "var(--p-text)"
+                                          ? "var(--t-secondary-soft)"
+                                          : "var(--t-text)"
                               }
                               title={
                                     commentCount > 0
@@ -553,7 +553,7 @@ export const TaskCard = React.memo(function TaskCard({
                                           : "Add comment"
                               }
                               badge={hasNewComments}
-                              badgeColor="var(--p-purple)"
+                              badgeColor="var(--t-secondary)"
                               onClick={(e) => {
                                     e.stopPropagation();
                                     onOpen(task, "comments");
@@ -568,13 +568,13 @@ export const TaskCard = React.memo(function TaskCard({
                               label={fileCount > 0 ? String(fileCount) : ""}
                               color={
                                     fileCount > 0
-                                          ? "var(--p-blue-300)"
-                                          : "var(--p-border-t)"
+                                          ? "var(--t-accent-soft)"
+                                          : "var(--t-border-faint)"
                               }
                               hoverColor={
                                     fileCount > 0
-                                          ? "var(--p-cyan-300)"
-                                          : "var(--p-text-sub)"
+                                          ? "var(--t-cyan-soft)"
+                                          : "var(--t-text-sub)"
                               }
                               title={
                                     fileCount > 0
@@ -598,7 +598,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree — activate to ${expanded ? "collapse" : "expand"}`}
                                     style={{
                                           fontSize: 9,
-                                          color: "var(--p-text-m)",
+                                          color: "var(--t-text-muted)",
                                           cursor: "pointer",
                                           flexShrink: 0,
                                     }}
@@ -785,7 +785,7 @@ function CardIconButton({
                         borderRadius: 3,
                         border: "none",
                         background: hovered
-                              ? "color-mix(in srgb, var(--p-text-m) 10%, transparent)"
+                              ? "color-mix(in srgb, var(--t-text-muted) 10%, transparent)"
                               : "transparent",
                         cursor: "pointer",
                         fontSize: 9,
@@ -841,7 +841,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                     fontSize: 9,
                     fontWeight: 600,
                     border: "1px solid rgba(244,114,182,0.35)",
-                    color: "#f9a8d4",
+                    color: "var(--t-pink-soft)",
                     background: "rgba(157,23,77,0.28)",
                     flexShrink: 0,
                     maxWidth: 110,
@@ -858,7 +858,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                     fontSize: 9,
                     fontWeight: 600,
                     border: "1px solid rgba(59,130,246,0.35)",
-                    color: "#93c5fd",
+                    color: "var(--t-accent-subtle)",
                     background: "rgba(30,58,138,0.28)",
                     flexShrink: 0,
                     maxWidth: 110,

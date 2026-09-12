@@ -58,7 +58,7 @@ function PasteHintBanner({
         background: "rgba(37,99,235,0.08)",
         border: "1px solid rgba(37,99,235,0.18)",
         fontSize: 11,
-        color: "var(--p-blue-300)",
+        color: "var(--t-accent-soft)",
         flexShrink: 0,
       }}
     >
@@ -75,7 +75,7 @@ function PasteHintBanner({
           border: "none",
           cursor: "pointer",
           padding: 2,
-          color: "var(--p-blue-300)",
+          color: "var(--t-accent-soft)",
           opacity: 0.7,
           display: "flex",
           alignItems: "center",
@@ -852,7 +852,7 @@ export function DetailPanel({
               borderRadius: 6,
               margin: "8px 12px 0",
               fontSize: 12,
-              color: "#f97316",
+              color: "var(--t-agent)",
               fontWeight: 500,
             }}
           >
@@ -883,23 +883,23 @@ export function DetailPanel({
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: 6,
-                  border: "1px solid var(--p-border-t)",
+                  border: "1px solid var(--t-border-faint)",
                   background: "transparent",
-                  color: "var(--p-text-g)",
+                  color: "var(--t-text-ghost)",
                   cursor: "pointer",
                   transition: "background .12s,color .12s",
                   fontSize: 14,
                   lineHeight: 1,
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.background = "var(--p-border)";
-                  e.currentTarget.style.color = "var(--p-blue-300)";
-                  e.currentTarget.style.borderColor = "var(--p-blue)";
+                  e.currentTarget.style.background = "var(--t-border)";
+                  e.currentTarget.style.color = "var(--t-accent-soft)";
+                  e.currentTarget.style.borderColor = "var(--t-accent)";
                 }}
                 onMouseOut={(e) => {
                   e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = "var(--p-text-g)";
-                  e.currentTarget.style.borderColor = "var(--p-border-t)";
+                  e.currentTarget.style.color = "var(--t-text-ghost)";
+                  e.currentTarget.style.borderColor = "var(--t-border-faint)";
                 }}
               >
                 ←
@@ -941,8 +941,8 @@ export function DetailPanel({
                 background: "transparent",
               }}
               onFocus={(e) => {
-                e.currentTarget.style.borderColor = "var(--p-blue)";
-                e.currentTarget.style.background = "var(--p-input)";
+                e.currentTarget.style.borderColor = "var(--t-accent)";
+                e.currentTarget.style.background = "var(--t-input)";
               }}
               onBlur={(e) => {
                 e.currentTarget.style.borderColor = "transparent";
@@ -968,20 +968,20 @@ export function DetailPanel({
                     alignItems: "center",
                     justifyContent: "center",
                     borderRadius: 4,
-                    border: "1px solid var(--p-border-t)",
+                    border: "1px solid var(--t-border-faint)",
                     background: "none",
-                    color: "var(--p-text-g)",
+                    color: "var(--t-text-ghost)",
                     cursor: "pointer",
                     fontSize: 13,
                     lineHeight: 1,
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--p-amber-300)";
-                    e.currentTarget.style.borderColor = "var(--p-amber-300)";
+                    e.currentTarget.style.color = "var(--t-warning-subtle)";
+                    e.currentTarget.style.borderColor = "var(--t-warning-subtle)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.color = "var(--p-text-g)";
-                    e.currentTarget.style.borderColor = "var(--p-border-t)";
+                    e.currentTarget.style.color = "var(--t-text-ghost)";
+                    e.currentTarget.style.borderColor = "var(--t-border-faint)";
                   }}
                 >
                   ↩
@@ -1000,18 +1000,18 @@ export function DetailPanel({
                 borderRadius: 6,
                 border: "none",
                 background: "transparent",
-                color: "var(--p-text-g)",
+                color: "var(--t-text-ghost)",
                 cursor: "pointer",
                 transition: "background .12s,color .12s",
                 pointerEvents: "auto",
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.background = "var(--p-border)";
-                e.currentTarget.style.color = "var(--p-text-m)";
+                e.currentTarget.style.background = "var(--t-border)";
+                e.currentTarget.style.color = "var(--t-text-muted)";
               }}
               onMouseOut={(e) => {
                 e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--p-text-g)";
+                e.currentTarget.style.color = "var(--t-text-ghost)";
               }}
             >
               <X style={{ width: 14, height: 14 }} />
@@ -1030,7 +1030,7 @@ export function DetailPanel({
                   fontSize: 10,
                   fontWeight: 600,
                   border: "1px solid rgba(244,114,182,0.35)",
-                  color: "#f9a8d4",
+                  color: "var(--t-pink-soft)",
                   background: "rgba(157,23,77,0.28)",
                 }}
               >
@@ -1054,7 +1054,7 @@ export function DetailPanel({
             <span
               style={{
                 fontSize: 10,
-                color: "var(--p-text-g)",
+                color: "var(--t-text-ghost)",
                 fontWeight: 500,
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
@@ -1091,7 +1091,7 @@ export function DetailPanel({
             >
               <span
                 style={{
-                  color: "var(--p-purple-300)",
+                  color: "var(--t-secondary-soft)",
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                 }}
@@ -1115,9 +1115,9 @@ export function DetailPanel({
                   fontSize: 12,
                   padding: "4px 8px",
                   borderRadius: 6,
-                  border: "1px solid var(--p-border)",
-                  background: "var(--p-input)",
-                  color: "var(--p-text)",
+                  border: "1px solid var(--t-border)",
+                  background: "var(--t-input)",
+                  color: "var(--t-text)",
                   fontFamily: "monospace",
                 }}
               />
@@ -1127,11 +1127,11 @@ export function DetailPanel({
                 style={{
                   padding: "4px 12px",
                   borderRadius: 6,
-                  border: "1px solid var(--p-purple)",
+                  border: "1px solid var(--t-secondary)",
                   background: branchName.trim()
-                    ? "var(--p-purple)"
-                    : "var(--p-border)",
-                  color: "#fff",
+                    ? "var(--t-secondary)"
+                    : "var(--t-border)",
+                  color: "var(--t-white)",
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: branchName.trim() ? "pointer" : "not-allowed",
@@ -1145,9 +1145,9 @@ export function DetailPanel({
                 style={{
                   padding: "4px 10px",
                   borderRadius: 6,
-                  border: "1px solid var(--p-border)",
+                  border: "1px solid var(--t-border)",
                   background: "transparent",
-                  color: "var(--p-text-g)",
+                  color: "var(--t-text-ghost)",
                   fontSize: 11,
                   cursor: "pointer",
                 }}
@@ -1177,7 +1177,7 @@ export function DetailPanel({
               {commentCount > 0 && (
                 <span
                   id="dp-activity-count"
-                  style={{ color: "var(--p-text-g)", fontSize: 10 }}
+                  style={{ color: "var(--t-text-ghost)", fontSize: 10 }}
                 >
                   ({commentCount})
                 </span>
@@ -1192,7 +1192,7 @@ export function DetailPanel({
               {fileCount > 0 && (
                 <span
                   id="dp-file-count"
-                  style={{ color: "var(--p-text-g)", fontSize: 10 }}
+                  style={{ color: "var(--t-text-ghost)", fontSize: 10 }}
                 >
                   ({fileCount})
                 </span>
@@ -1268,7 +1268,7 @@ export function DetailPanel({
                   flexWrap: "wrap",
                   flexShrink: 0,
                   marginTop: 12,
-                  borderTop: "1px solid var(--p-border)",
+                  borderTop: "1px solid var(--t-border)",
                   paddingTop: 10,
                 }}
               >
@@ -1306,7 +1306,7 @@ export function DetailPanel({
                     className="relations-error"
                     style={{
                       fontSize: 11,
-                      color: "var(--p-red, #f87171)",
+                      color: "var(--t-danger)",
                       marginTop: 4,
                     }}
                   >
@@ -1328,7 +1328,7 @@ export function DetailPanel({
             {/* Comment input at top */}
             <div
               style={{
-                borderBottom: "1px solid var(--p-border)",
+                borderBottom: "1px solid var(--t-border)",
                 paddingBottom: 8,
                 flexShrink: 0,
               }}
@@ -1384,7 +1384,7 @@ export function DetailPanel({
             />
             <div
               style={{
-                borderTop: "1px solid var(--p-border)",
+                borderTop: "1px solid var(--t-border)",
                 paddingTop: 8,
                 flexShrink: 0,
                 display: "flex",
@@ -1401,7 +1401,7 @@ export function DetailPanel({
                   style={{
                     width: "100%",
                     fontSize: 11,
-                    color: "var(--p-red)",
+                    color: "var(--t-danger)",
                     background: "rgba(255,80,80,0.08)",
                     border: "1px solid rgba(255,80,80,0.2)",
                     borderRadius: 5,
@@ -1418,20 +1418,20 @@ export function DetailPanel({
                   gap: 6,
                   cursor: "pointer",
                   padding: "6px 10px",
-                  background: "var(--p-card)",
-                  border: "1px solid var(--p-border)",
+                  background: "var(--t-card)",
+                  border: "1px solid var(--t-border)",
                   borderRadius: 8,
-                  color: "var(--p-text-m)",
+                  color: "var(--t-text-muted)",
                   fontSize: 12,
                   transition: "all .15s",
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = "var(--p-border-t)";
-                  e.currentTarget.style.color = "var(--p-text)";
+                  e.currentTarget.style.borderColor = "var(--t-border-faint)";
+                  e.currentTarget.style.color = "var(--t-text)";
                 }}
                 onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = "var(--p-border)";
-                  e.currentTarget.style.color = "var(--p-text-m)";
+                  e.currentTarget.style.borderColor = "var(--t-border)";
+                  e.currentTarget.style.color = "var(--t-text-muted)";
                 }}
               >
                 <Upload style={{ width: 12, height: 12 }} />
@@ -1447,7 +1447,7 @@ export function DetailPanel({
               <span
                 style={{
                   fontSize: 11,
-                  color: "var(--p-border-t)",
+                  color: "var(--t-border-faint)",
                   marginLeft: "auto",
                 }}
               >
@@ -1464,9 +1464,9 @@ export function DetailPanel({
               id="dp-delete"
               onClick={() => setShowDeleteConfirm(true)}
               style={{
-                color: "var(--p-red)",
+                color: "var(--t-danger)",
                 background: "none",
-                border: "1px solid var(--p-border-t)",
+                border: "1px solid var(--t-border-faint)",
                 borderRadius: 7,
                 padding: "5px 12px",
                 fontSize: 12,
@@ -1475,10 +1475,10 @@ export function DetailPanel({
                 transition: "all .15s",
               }}
               onMouseOver={(e) => {
-                e.currentTarget.style.borderColor = "var(--p-red)";
+                e.currentTarget.style.borderColor = "var(--t-danger)";
               }}
               onMouseOut={(e) => {
-                e.currentTarget.style.borderColor = "var(--p-border-t)";
+                e.currentTarget.style.borderColor = "var(--t-border-faint)";
               }}
             >
               Delete
@@ -1491,7 +1491,7 @@ export function DetailPanel({
                 <span
                   style={{
                     fontSize: 11,
-                    color: "var(--p-blue-300)",
+                    color: "var(--t-accent-soft)",
                     marginRight: 8,
                     background: "rgba(37,99,235,0.1)",
                     border: "1px solid rgba(37,99,235,0.25)",
@@ -1513,17 +1513,17 @@ export function DetailPanel({
                   fontSize: 12,
                   fontWeight: 500,
                   cursor: "pointer",
-                  border: "1px solid var(--p-border-t)",
-                  background: "var(--p-border)",
-                  color: "var(--p-text-sub)",
+                  border: "1px solid var(--t-border-faint)",
+                  background: "var(--t-border)",
+                  color: "var(--t-text-sub)",
                   fontFamily: "inherit",
                   transition: "all .15s",
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = "var(--p-text-g)";
+                  e.currentTarget.style.borderColor = "var(--t-text-ghost)";
                 }}
                 onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = "var(--p-border-t)";
+                  e.currentTarget.style.borderColor = "var(--t-border-faint)";
                 }}
               >
                 Cancel
@@ -1537,17 +1537,17 @@ export function DetailPanel({
                   fontSize: 12,
                   fontWeight: 500,
                   cursor: "pointer",
-                  border: "1px solid var(--p-blue-700)",
-                  background: "var(--p-blue)",
-                  color: "var(--p-white)",
+                  border: "1px solid var(--t-accent-strong)",
+                  background: "var(--t-accent)",
+                  color: "var(--t-white)",
                   fontFamily: "inherit",
                   transition: "background .15s",
                 }}
                 onMouseOver={(e) => {
-                  e.currentTarget.style.background = "var(--p-blue-700)";
+                  e.currentTarget.style.background = "var(--t-accent-strong)";
                 }}
                 onMouseOut={(e) => {
-                  e.currentTarget.style.background = "var(--p-blue)";
+                  e.currentTarget.style.background = "var(--t-accent)";
                 }}
               >
                 Add Task
@@ -1557,7 +1557,7 @@ export function DetailPanel({
             <span
               style={{
                 fontSize: 11,
-                color: "var(--p-text-g)",
+                color: "var(--t-text-ghost)",
                 padding: "5px 4px",
               }}
             >
@@ -1594,13 +1594,13 @@ export function DetailPanel({
         >
           <div
             style={{
-              background: "var(--p-surface)",
-              border: "1px solid var(--p-border-s)",
+              background: "var(--t-surface)",
+              border: "1px solid var(--t-border-strong)",
               borderRadius: 16,
               padding: "28px 32px",
               width: "100%",
               maxWidth: 480,
-              boxShadow: "var(--p-shadow-lg)",
+              boxShadow: "var(--t-shadow-lg)",
               position: "relative",
             }}
           >
@@ -1618,7 +1618,7 @@ export function DetailPanel({
               }}
             >
               <Upload
-                style={{ width: 20, height: 20, color: "var(--p-purple)" }}
+                style={{ width: 20, height: 20, color: "var(--t-secondary)" }}
               />
             </div>
             <h2
@@ -1626,7 +1626,7 @@ export function DetailPanel({
                 margin: "0 0 8px",
                 fontSize: 17,
                 fontWeight: 700,
-                color: "var(--p-text)",
+                color: "var(--t-text)",
               }}
             >
               Send comment?
@@ -1635,7 +1635,7 @@ export function DetailPanel({
               style={{
                 margin: "0 0 22px",
                 fontSize: 13,
-                color: "var(--p-text-f)",
+                color: "var(--t-text-faint)",
                 lineHeight: 1.6,
               }}
             >
@@ -1651,9 +1651,9 @@ export function DetailPanel({
                   flex: 1,
                   padding: "9px 14px",
                   borderRadius: 8,
-                  background: "var(--p-purple)",
+                  background: "var(--t-secondary)",
                   border: "none",
-                  color: "#fff",
+                  color: "var(--t-white)",
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -1672,9 +1672,9 @@ export function DetailPanel({
                 style={{
                   padding: "9px 16px",
                   borderRadius: 8,
-                  background: "var(--p-hover)",
-                  border: "1px solid var(--p-border)",
-                  color: "var(--p-text-m)",
+                  background: "var(--t-hover)",
+                  border: "1px solid var(--t-border)",
+                  color: "var(--t-text-muted)",
                   fontSize: 13,
                   cursor: "pointer",
                 }}
@@ -1687,9 +1687,9 @@ export function DetailPanel({
                 style={{
                   padding: "9px 16px",
                   borderRadius: 8,
-                  background: "var(--p-hover)",
-                  border: "1px solid var(--p-border)",
-                  color: "var(--p-text-m)",
+                  background: "var(--t-hover)",
+                  border: "1px solid var(--t-border)",
+                  color: "var(--t-text-muted)",
                   fontSize: 13,
                   cursor: "pointer",
                 }}
@@ -1716,12 +1716,12 @@ function DpMetaRow({ task }: { task: Task }) {
           alignItems: "center",
           gap: 4,
           padding: "2px 8px",
-          background: "color-mix(in srgb, var(--p-purple) 14%, transparent)",
+          background: "color-mix(in srgb, var(--t-secondary) 14%, transparent)",
           border:
-            "1px solid color-mix(in srgb, var(--p-purple) 36%, transparent)",
+            "1px solid color-mix(in srgb, var(--t-secondary) 36%, transparent)",
           borderRadius: 100,
           fontSize: 10,
-          color: "var(--p-purple-300)",
+          color: "var(--t-secondary-soft)",
           fontFamily: "monospace",
         }}
       >
@@ -1758,7 +1758,7 @@ function DpMetaRow({ task }: { task: Task }) {
             borderRadius: 6,
             overflow: "hidden",
             border:
-              "1px solid color-mix(in srgb, var(--p-blue) 15%, transparent)",
+              "1px solid color-mix(in srgb, var(--t-accent) 15%, transparent)",
             fontSize: 10,
             fontFamily: "monospace",
             whiteSpace: "nowrap",
@@ -1768,8 +1768,8 @@ function DpMetaRow({ task }: { task: Task }) {
             title={[fileLine, selectorText].filter(Boolean).join(" · ")}
             style={{
               padding: "2px 6px",
-              background: "color-mix(in srgb, var(--p-blue) 10%, transparent)",
-              color: "var(--p-blue-300)",
+              background: "color-mix(in srgb, var(--t-accent) 10%, transparent)",
+              color: "var(--t-accent-soft)",
             }}
           >
             {display}
@@ -1780,10 +1780,10 @@ function DpMetaRow({ task }: { task: Task }) {
               style={{
                 padding: "2px 6px",
                 background:
-                  "color-mix(in srgb, var(--p-border) 72%, transparent)",
-                color: "var(--p-text-g)",
+                  "color-mix(in srgb, var(--t-border) 72%, transparent)",
+                color: "var(--t-text-ghost)",
                 borderLeft:
-                  "1px solid color-mix(in srgb, var(--p-blue) 18%, transparent)",
+                  "1px solid color-mix(in srgb, var(--t-accent) 18%, transparent)",
               }}
             >
               {urlDisplay}
@@ -1811,12 +1811,12 @@ function DpMetaRow({ task }: { task: Task }) {
           alignItems: "center",
           gap: 4,
           padding: "2px 8px",
-          background: "color-mix(in srgb, var(--p-purple) 10%, transparent)",
+          background: "color-mix(in srgb, var(--t-secondary) 10%, transparent)",
           border:
-            "1px solid color-mix(in srgb, var(--p-purple) 24%, transparent)",
+            "1px solid color-mix(in srgb, var(--t-secondary) 24%, transparent)",
           borderRadius: 100,
           fontSize: 10,
-          color: "var(--p-purple-300)",
+          color: "var(--t-secondary-soft)",
         }}
       >
         ↩ report back

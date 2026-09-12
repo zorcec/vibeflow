@@ -6,11 +6,11 @@ import type { ReorderPatch } from "./utils";
 /** Canonical status colors — single source of truth for dots/badges.
  * Values match the DetailPanel dp-status-btn.active-* text colors. */
 export const STATUS_COLORS: Record<string, string> = {
- backlog: "#94a3b8",
- todo: "#f59e0b",
- "in-progress": "#60a5fa",
- review: "#a855f7",
- done: "#22c55e",
+ backlog: "var(--t-status-backlog)",
+ todo: "var(--t-status-todo)",
+ "in-progress": "var(--t-status-progress)",
+ review: "var(--t-status-review)",
+ done: "var(--t-status-done)",
 };
 
 /** Return all children of a task.

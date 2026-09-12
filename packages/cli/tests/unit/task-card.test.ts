@@ -13,7 +13,7 @@ describe("resolveTaskCardBorderColor", () => {
 
   it("falls back when color is not a valid hex value", () => {
     expect(resolveTaskCardBorderColor("rgba(59,130,246,1)")).toBe(
-      "color-mix(in srgb, var(--p-text-g) 40%, transparent)",
+      "color-mix(in srgb, var(--t-text-ghost) 40%, transparent)",
     );
   });
 });

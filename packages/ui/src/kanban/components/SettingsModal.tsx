@@ -57,15 +57,15 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
       onClose={onClose}
       id="settings-modal"
       width="min(460px, 95vw)"
-      icon={<Settings style={{ width: 14, height: 14, color: 'var(--p-text-g)' }} />}
+      icon={<Settings style={{ width: 14, height: 14, color: 'var(--t-text-ghost)' }} />}
       title="Settings"
       headerActions={
         <button
           id="settings-close"
           onClick={onClose}
-          style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--p-text-g)', cursor: 'pointer', transition: 'background .12s,color .12s' }}
-          onMouseOver={(e) => { e.currentTarget.style.background = 'var(--p-surface)'; e.currentTarget.style.color = 'var(--p-text-m)'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--p-text-g)'; }}
+          style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--t-text-ghost)', cursor: 'pointer', transition: 'background .12s,color .12s' }}
+          onMouseOver={(e) => { e.currentTarget.style.background = 'var(--t-surface)'; e.currentTarget.style.color = 'var(--t-text-muted)'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--t-text-ghost)'; }}
         >
           <X style={{ width: 14, height: 14 }} />
         </button>
@@ -81,9 +81,9 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
           <button
             id="settings-apply"
             onClick={handleApply}
-            style={{ padding: '5px 14px', fontSize: 12, fontWeight: 500, borderRadius: 6, border: '1px solid color-mix(in srgb, var(--p-purple) 55%, transparent)', background: 'color-mix(in srgb, var(--p-purple) 18%, transparent)', color: 'var(--p-purple-300)', cursor: 'pointer', transition: 'background .12s' }}
-            onMouseOver={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-purple) 28%, transparent)'; }}
-            onMouseOut={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--p-purple) 18%, transparent)'; }}
+            style={{ padding: '5px 14px', fontSize: 12, fontWeight: 500, borderRadius: 6, border: '1px solid color-mix(in srgb, var(--t-secondary) 55%, transparent)', background: 'color-mix(in srgb, var(--t-secondary) 18%, transparent)', color: 'var(--t-secondary-soft)', cursor: 'pointer', transition: 'background .12s' }}
+            onMouseOver={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--t-secondary) 28%, transparent)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--t-secondary) 18%, transparent)'; }}
           >Apply</button>
         </div>
       }
@@ -117,7 +117,7 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
                 style={{ width: 14, height: 14, accentColor: col.color, cursor: 'pointer' }}
               />
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: 'var(--p-text-m)' }}>{col.label}</span>
+              <span style={{ fontSize: 13, color: 'var(--t-text-muted)' }}>{col.label}</span>
             </label>
           ))}
         </div>
@@ -141,7 +141,7 @@ export function SettingsModal({ open, visibleCols, settings, onClose, onSave }: 
             onChange={setAutoComment}
           />
           {/* Separator between comment and branch/commit/push options */}
-          <div style={{ height: 1, background: 'var(--p-border)', marginTop: -4, marginBottom: -4 }} />
+          <div style={{ height: 1, background: 'var(--t-border)', marginTop: -4, marginBottom: -4 }} />
           <WorkflowToggle
             id="settings-create-branch"
             label="Require branch per task"
@@ -182,13 +182,13 @@ function WorkflowToggle({ id, label, description, value, onChange }: WorkflowTog
   return (
     <div>
       <div className="dp-meta-label" style={{ marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 11, color: 'var(--p-text-g)', marginBottom: 10 }}>{description}</div>
+      <div style={{ fontSize: 11, color: 'var(--t-text-ghost)', marginBottom: 10 }}>{description}</div>
       <div id={id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => onChange(!value)}>
         <div style={{ position: 'relative', width: 36, height: 20, flexShrink: 0 }}>
-          <div style={{ width: 36, height: 20, borderRadius: 10, background: value ? 'var(--p-purple)' : 'var(--p-card)', border: `1px solid ${value ? 'var(--p-purple-300)' : 'var(--p-border)'}`, transition: 'all .15s' }} />
-          <div style={{ position: 'absolute', top: 3, left: value ? 18 : 3, width: 14, height: 14, borderRadius: '50%', background: value ? 'var(--p-purple-300)' : 'var(--p-text-muted)', transition: 'all .15s' }} />
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: value ? 'var(--t-secondary)' : 'var(--t-card)', border: `1px solid ${value ? 'var(--t-secondary-soft)' : 'var(--t-border)'}`, transition: 'all .15s' }} />
+          <div style={{ position: 'absolute', top: 3, left: value ? 18 : 3, width: 14, height: 14, borderRadius: '50%', background: value ? 'var(--t-secondary-soft)' : 'var(--t-text-muted)', transition: 'all .15s' }} />
         </div>
-        <span style={{ fontSize: 12, color: 'var(--p-text-g)' }}>{value ? 'On' : 'Off'}</span>
+        <span style={{ fontSize: 12, color: 'var(--t-text-ghost)' }}>{value ? 'On' : 'Off'}</span>
       </div>
     </div>
   );

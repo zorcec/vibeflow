@@ -18,7 +18,7 @@ export interface KanbanTask {
 export interface KanbanColumn {
   id: string;
   label: string;
-  /** CSS color value (var(--p-*) or hex) */
+  /** CSS color value (var(--t-*) or hex) */
   color: string;
   accent?: string;
 }

@@ -128,6 +128,9 @@ describe("Kanban board", () => {
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
+      // The board now follows the system preference when no theme is stored, so
+      // pin the dark scheme for the colour-sensitive assertions in this file.
+      colorScheme: "dark",
     });
     page = await context.newPage();
 
@@ -1085,15 +1088,63 @@ describe("Kanban board", () => {
     expect(hasPriorityDot).toBe(false);
   });
 
-  it("keeps kanban in dark theme", async () => {
+  it("renders dark for a dark system preference with no theme toggle", async () => {
     await page.waitForSelector("#header-project-name");
-    const initialTheme = await page.evaluate(() =>
-      document.body.getAttribute("data-theme"),
+    // No stored preference → the board follows prefers-color-scheme (dark here).
+    const storedTheme = await page.evaluate(() =>
+      document.documentElement.getAttribute("data-theme"),
     );
-    expect(initialTheme).toBe("dark");
+    expect(storedTheme).toBeNull();
+    const bodyBg = await page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
+    expect(bodyBg).toBe("rgb(2, 12, 27)");
 
     const toggleCount = await page.locator("#btn-theme-toggle").count();
     expect(toggleCount).toBe(0);
+  });
+
+  it("follows a light system preference when no theme is stored", async () => {
+    const lightContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      colorScheme: "light",
+    });
+    const lightPage = await lightContext.newPage();
+    await lightPage.goto(`${BASE}/kanban`);
+    await lightPage.waitForSelector("#kanban-board");
+    const bodyBg = await lightPage.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
+    expect(bodyBg).toBe("rgb(248, 250, 252)");
+    const themeAttr = await lightPage.evaluate(() =>
+      document.documentElement.getAttribute("data-theme"),
+    );
+    expect(themeAttr).toBeNull();
+    await lightContext.close();
+  });
+
+  it("applies and persists an explicitly stored theme", async () => {
+    const themeContext = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      colorScheme: "dark",
+    });
+    const themePage = await themeContext.newPage();
+    await themePage.goto(`${BASE}/kanban`);
+    await themePage.waitForSelector("#kanban-board");
+    await themePage.evaluate(() =>
+      localStorage.setItem("vibeflow.kanban.theme", "light"),
+    );
+    await themePage.reload();
+    await themePage.waitForSelector("#kanban-board");
+    const bodyBg = await themePage.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
+    expect(bodyBg).toBe("rgb(248, 250, 252)");
+    const themeAttr = await themePage.evaluate(() =>
+      document.documentElement.getAttribute("data-theme"),
+    );
+    expect(themeAttr).toBe("light");
+    await themeContext.close();
   });
 
   it("uses readable select controls and aligned comments send button", async () => {
@@ -2555,6 +2606,7 @@ describe("Task reference navigation", () => {
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
+      colorScheme: "dark",
     });
     page = await context.newPage();
 

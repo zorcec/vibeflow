@@ -163,12 +163,12 @@ export function MarkdownEditableField({
       style={{
         cursor: 'text',
         minHeight: previewMinHeight,
-        background: 'var(--p-input)',
-        border: '1px solid var(--p-border-s)',
+        background: 'var(--t-input)',
+        border: '1px solid var(--t-border-strong)',
         borderRadius: 8,
         padding: 10,
         fontSize: 12,
-        color: 'var(--p-text-sub)',
+        color: 'var(--t-text-sub)',
         lineHeight: 1.7,
         overflow: 'auto',
         maxHeight: previewMaxHeight,
@@ -176,7 +176,7 @@ export function MarkdownEditableField({
     >
       {(previewValue ?? value).trim()
         ? <MarkdownPreview markdown={previewValue ?? value} />
-        : <span style={{ color: 'var(--p-border-t)' }}>{previewEmptyText ?? placeholder}</span>}
+        : <span style={{ color: 'var(--t-border-faint)' }}>{previewEmptyText ?? placeholder}</span>}
     </div>
   ) : (
     <div style={{ position: 'relative' }}>
@@ -218,10 +218,10 @@ export function MarkdownEditableField({
             width: dropdownAnchor.width - 16,
             top: dropdownAnchor.top,
             transform: 'translateY(-100%)',
-            border: '1px solid var(--p-border-s)',
-            background: 'var(--p-card)',
+            border: '1px solid var(--t-border-strong)',
+            background: 'var(--t-card)',
             borderRadius: 8,
-            boxShadow: 'var(--p-shadow-lg)',
+            boxShadow: 'var(--t-shadow-lg)',
             overflow: 'hidden',
             zIndex: 9999,
           }}
@@ -241,17 +241,17 @@ export function MarkdownEditableField({
                 gap: 8,
                 textAlign: 'left',
                 border: 'none',
-                borderBottom: '1px solid var(--p-border)',
+                borderBottom: '1px solid var(--t-border)',
                 background: 'transparent',
-                color: 'var(--p-text-sub)',
+                color: 'var(--t-text-sub)',
                 padding: '7px 10px',
                 fontSize: 11,
                 cursor: 'pointer',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--p-hover)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--t-hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <span style={{ fontFamily: 'monospace', color: 'var(--p-blue-300)' }}>#{item.id}</span>
+              <span style={{ fontFamily: 'monospace', color: 'var(--t-accent-soft)' }}>#{item.id}</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
             </button>
           ))}
