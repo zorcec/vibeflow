@@ -42,6 +42,36 @@ function renderCard(task: Task, allTasks: Task[], extra: object = {}) {
   );
 }
 
+/** Card wired to a parent shell that applies the persisted expandedBy update,
+ *  the same round-trip the CLI kanban and web kanban perform. */
+function ControlledCard({
+  task,
+  allTasks,
+  userId = "user-1",
+}: {
+  task: Task;
+  allTasks: Task[];
+  userId?: string;
+}) {
+  const [current, setCurrent] = React.useState(task);
+  return (
+    <TaskCard
+      task={current}
+      col={col}
+      allTasks={allTasks}
+      onOpen={vi.fn()}
+      onDragStart={vi.fn()}
+      currentUserId={userId}
+      onToggleExpanded={(_, expanded) =>
+        setCurrent((prev) => ({
+          ...prev,
+          expandedBy: expanded ? [userId] : [],
+        }))
+      }
+    />
+  );
+}
+
 describe("TaskCard children toggle chip", () => {
   it("renders toggle chip + children zone when leaf descendants exist", () => {
     const { container } = renderCard(makeTask(), [makeTask(), child]);
@@ -64,7 +94,9 @@ describe("TaskCard children toggle chip", () => {
   });
 
   it("click toggles the zone in both directions and keeps chip visible when expanded", () => {
-    const { container } = renderCard(makeTask(), [makeTask(), child]);
+    const { container } = render(
+      <ControlledCard task={makeTask()} allTasks={[makeTask(), child]} />,
+    );
     const chip = container.querySelector('[data-role="children-toggle"]')!;
     expect(chip).toHaveAttribute("aria-expanded", "false");
 
@@ -79,6 +111,52 @@ describe("TaskCard children toggle chip", () => {
     expect(
       container.querySelector('[data-role="children-block"]'),
     ).toHaveAttribute("data-expanded", "false");
+  });
+
+  it("renders expanded from task.expandedBy for the current user (survives reload)", () => {
+    const { container } = renderCard(
+      makeTask({ expandedBy: ["user-1"] }),
+      [makeTask(), child],
+      { currentUserId: "user-1" },
+    );
+    expect(
+      container.querySelector('[data-role="children-toggle"]'),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      container.querySelector('[data-role="children-block"]'),
+    ).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("stays collapsed when another user expanded the card", () => {
+    const { container } = renderCard(
+      makeTask({ expandedBy: ["user-2"] }),
+      [makeTask(), child],
+      { currentUserId: "user-1" },
+    );
+    expect(
+      container.querySelector('[data-role="children-toggle"]'),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("reports the next expanded state to onToggleExpanded instead of keeping local state", () => {
+    const onToggleExpanded = vi.fn();
+    const { container } = renderCard(makeTask(), [makeTask(), child], {
+      currentUserId: "user-1",
+      onToggleExpanded,
+    });
+    const chip = container.querySelector('[data-role="children-toggle"]')!;
+    fireEvent.click(chip);
+    expect(onToggleExpanded).toHaveBeenCalledWith("parent-task-id", true);
+    // Uncontrolled: without the parent applying the update nothing expands.
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("uncontrolled without currentUserId: no chip expansion state, no unread dot", () => {
+    const { container } = renderCard(makeTask(), [makeTask(), child]);
+    expect(screen.queryByTitle("Unread")).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="children-toggle"]'),
+    ).toHaveAttribute("aria-expanded", "false");
   });
 
   it("chip click does not open the card and shows count label when collapsed", () => {
@@ -162,5 +240,28 @@ describe("TaskCard children toggle chip", () => {
     expect(
       rerender.container.querySelector('[data-role="children-toggle"]'),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("TaskCard unread dot", () => {
+  it("renders the dot when the current user is not in openedBy", () => {
+    renderCard(makeTask(), [makeTask()], { currentUserId: "user-1" });
+    expect(screen.getByTitle("Unread")).toBeInTheDocument();
+  });
+
+  it("hides the dot once the current user opened the task", () => {
+    renderCard(makeTask({ openedBy: ["user-1"] }), [makeTask()], {
+      currentUserId: "user-1",
+    });
+    expect(screen.queryByTitle("Unread")).not.toBeInTheDocument();
+  });
+
+  it("shows the dot when openedBy only lists another user", () => {
+    // Regression: the dot keyed off a localStorage value nothing ever wrote,
+    // so it rendered on every card forever.
+    renderCard(makeTask({ openedBy: ["user-2"] }), [makeTask()], {
+      currentUserId: "user-1",
+    });
+    expect(screen.getByTitle("Unread")).toBeInTheDocument();
   });
 });

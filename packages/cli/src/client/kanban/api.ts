@@ -5,10 +5,22 @@ import type {
   KanbanApi,
 } from "@vibeflow-tools/ui/kanban";
 
+/**
+ * Per-user read state calls the CLI board issues on top of the shared
+ * KanbanApi. The shared components never call these themselves — the board
+ * shell wires them to card events.
+ */
+export interface KanbanReadStateApi {
+  /** Records the current user as having opened a task (persistent read state). */
+  markOpened(taskId: string): Promise<void>;
+  /** Adds/removes the current user from the task's persisted expanded set. */
+  setTaskExpanded(taskId: string, expanded: boolean): Promise<void>;
+}
+
 const BASE = window.location.origin;
 const API = `${BASE}/api/tasks`;
 
-export const api: KanbanApi = {
+export const api: KanbanApi & KanbanReadStateApi = {
   async getTasks(): Promise<{ tasks: Task[] }> {
     const r = await fetch(`${API}?_=${Date.now()}`, { cache: "no-store" });
     return r.json() as Promise<{ tasks: Task[] }>;
@@ -56,6 +68,22 @@ export const api: KanbanApi = {
   async detachTask(id: string): Promise<void> {
     await fetch(`${API}/${encodeURIComponent(id)}/detach`, {
       method: "POST",
+    });
+  },
+
+  /** Record the current user as having opened a task (persistent read state). */
+  async markOpened(taskId: string): Promise<void> {
+    await fetch(`${API}/${encodeURIComponent(taskId)}/opened`, {
+      method: "POST",
+    });
+  },
+
+  /** Persist the current user's expand/collapse choice for a card. */
+  async setTaskExpanded(taskId: string, expanded: boolean): Promise<void> {
+    await fetch(`${API}/${encodeURIComponent(taskId)}/expanded`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expanded }),
     });
   },
 

@@ -57,6 +57,10 @@ const IS_ADMIN =
 // SAFETY: __CLI_VERSION__ is injected by the CLI server into the kanban HTML.
 const CLI_VERSION =
   (window as unknown as { __CLI_VERSION__?: string }).__CLI_VERSION__ ?? "";
+// SAFETY: __VIBEFLOW_USER__ is injected by the CLI server into the kanban HTML
+// (process.env.USER ?? USERNAME) so per-user task state matches the CLI writer.
+const CURRENT_USER_ID =
+  (window as unknown as { __VIBEFLOW_USER__?: string }).__VIBEFLOW_USER__ ?? "";
 
 type PushState = "idle" | "pushing" | "done" | "error";
 
@@ -828,6 +832,13 @@ export function App() {
           links: Array.isArray(incoming.links)
             ? (incoming.links as TaskLink[])
             : (existing?.links ?? []),
+          // Per-user state — carried through WS updates, never dropped.
+          openedBy: Array.isArray(incoming.openedBy)
+            ? (incoming.openedBy as string[])
+            : existing?.openedBy,
+          expandedBy: Array.isArray(incoming.expandedBy)
+            ? (incoming.expandedBy as string[])
+            : existing?.expandedBy,
         };
 
         const next = prev.filter((t) => t.id !== id);
@@ -1044,6 +1055,35 @@ export function App() {
         });
     } catch {
       void loadTasks();
+    }
+  }
+
+  /** Persist the current user's card expand/collapse choice. Optimistic so the
+   * inline tree reacts immediately; the server echoes the same value back. */
+  async function setTaskExpanded(taskId: string, expanded: boolean) {
+    if (!CURRENT_USER_ID) return;
+    const previous = tasksRef.current.find((t) => t.id === taskId);
+    const snapshot = previous?.expandedBy ?? [];
+    const nextExpandedBy = expanded
+      ? [...new Set([...snapshot, CURRENT_USER_ID])]
+      : snapshot.filter((id) => id !== CURRENT_USER_ID);
+    setTasks((prev) => {
+      const next = prev.map((t) =>
+        t.id === taskId ? { ...t, expandedBy: nextExpandedBy } : t,
+      );
+      tasksRef.current = next;
+      return next;
+    });
+    try {
+      await api.setTaskExpanded(taskId, expanded);
+    } catch {
+      setTasks((prev) => {
+        const next = prev.map((t) =>
+          t.id === taskId ? { ...t, expandedBy: snapshot } : t,
+        );
+        tasksRef.current = next;
+        return next;
+      });
     }
   }
 
@@ -1385,6 +1425,9 @@ export function App() {
     // the user is starting a new navigation context.
     setNavHistory([]);
     setPanelState({ open: true, task, tab, addColumnId });
+    // Opening a card marks it read for the current user (persistent read state),
+    // mirroring `tasks --get`. The server broadcasts the updated task back.
+    if (task?.id) void api.markOpened(task.id);
   }
 
   /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
@@ -1562,6 +1605,10 @@ export function App() {
             onLinkChild={linkChild}
             onTreeReorder={handleTreeReorder}
             onTreeReparent={handleTreeReparent}
+            currentUserId={CURRENT_USER_ID}
+            onToggleExpanded={(taskId, expanded) =>
+              void setTaskExpanded(taskId, expanded)
+            }
           />
         )}
 

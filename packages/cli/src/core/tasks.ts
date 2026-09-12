@@ -131,6 +131,14 @@ function normalizeComment(c: Record<string, unknown>): TaskComment {
   };
 }
 
+/** Filters a raw persisted user-id list, keeping only non-empty strings. */
+function normalizeUserIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
 function normalizeTask(raw: Record<string, unknown>): Task {
   const normalizedType = (() => {
     if (typeof raw.type !== "string") return undefined;
@@ -237,6 +245,10 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         }));
       return result.length > 0 ? result : undefined;
     })(),
+    // Per-user state must survive every read-modify-write round-trip;
+    // normalizeTask is the single gateway for both.
+    openedBy: normalizeUserIds(raw.openedBy),
+    expandedBy: normalizeUserIds(raw.expandedBy),
   };
 }
 
@@ -696,6 +708,35 @@ export function markTaskOpened(
     task.openedBy.push(userId);
     writeFileSync(filePath, JSON.stringify(task, null, 2) + "\n");
   }
+}
+
+/** Stable id for per-user task state (openedBy / expandedBy). */
+export function getCurrentUserId(): string {
+  return process.env.USER ?? process.env.USERNAME ?? "agent";
+}
+
+/**
+ * Persists a user's card expand/collapse choice. Expanding adds the userId to
+ * expandedBy; collapsing removes it. Returns the updated task, or null when
+ * the task does not exist. Unchanged state is not rewritten.
+ */
+export function setTaskExpanded(
+  projectDir: string,
+  taskId: string,
+  userId: string,
+  expanded: boolean,
+): Task | null {
+  const filePath = findTaskFilePath(projectDir, taskId);
+  if (!filePath) return null;
+  const task = readTaskFile(filePath);
+  if (!task) return null;
+  const current = task.expandedBy ?? [];
+  if (current.includes(userId) === expanded) return task;
+  task.expandedBy = expanded
+    ? [...current, userId]
+    : current.filter((id) => id !== userId);
+  writeFileSync(filePath, JSON.stringify(task, null, 2) + "\n");
+  return task;
 }
 
 /**

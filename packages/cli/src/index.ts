@@ -8,6 +8,7 @@ import {
   updateTask,
   formatTaskForAgent,
   markTaskOpened,
+  getCurrentUserId,
   renderTaskForAgent,
   renderAgentInstructions,
   generateTaskId,
@@ -923,8 +924,7 @@ program
             return;
           }
           // Mark task as opened by current user
-          const currentUser =
-            process.env.USER ?? process.env.USERNAME ?? "agent";
+          const currentUser = getCurrentUserId();
           markTaskOpened(projectDir, task.id, currentUser);
 
           const structuredComments = listComments(projectDir, task.id).sort(

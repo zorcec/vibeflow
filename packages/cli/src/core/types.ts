@@ -133,6 +133,8 @@ export interface Task {
   links?: TaskLink[];
   /** User IDs/emails who have opened this task (persistent read state). */
   openedBy?: string[];
+  /** User IDs/emails who expanded this card's children inline (persistent UI state). */
+  expandedBy?: string[];
 }
 
 export interface ProtoConfig {

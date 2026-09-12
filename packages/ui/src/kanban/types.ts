@@ -57,6 +57,8 @@ export interface Task {
   links?: TaskLink[];
   /** User IDs who have opened this task (persistent read state). */
   openedBy?: string[];
+  /** User IDs who expanded this card's children inline (persistent UI state). */
+  expandedBy?: string[];
 }
 
 export interface Comment {

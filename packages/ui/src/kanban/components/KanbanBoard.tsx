@@ -143,6 +143,10 @@ interface Props {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
+  /** Current user's id — drives the per-user unread dot and expanded state. */
+  currentUserId?: string;
+  /** Persists a card's expand/collapse choice for the current user. */
+  onToggleExpanded?: (taskId: string, expanded: boolean) => void;
 }
 
 export function KanbanBoard({
@@ -158,6 +162,8 @@ export function KanbanBoard({
   onLinkChild,
   onTreeReorder,
   onTreeReparent,
+  currentUserId,
+  onToggleExpanded,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
@@ -573,6 +579,8 @@ export function KanbanBoard({
               treeIntent={dropIntent}
               onTreeIntent={handleTreeIntent}
               onTreeRowDragStart={handleTreeRowDragStart}
+              currentUserId={currentUserId}
+              onToggleExpanded={onToggleExpanded}
             />
           );
         })}
@@ -653,6 +661,10 @@ interface ColumnProps {
   compact?: boolean;
   /** True while a card drag is active — fit-screen hiding is suspended. */
   isDragging?: boolean;
+  /** Current user's id — drives the per-user unread dot and expanded state. */
+  currentUserId?: string;
+  /** Persists a card's expand/collapse choice for the current user. */
+  onToggleExpanded?: (taskId: string, expanded: boolean) => void;
 }
 
 function KanbanColumn({
@@ -679,6 +691,8 @@ function KanbanColumn({
   makeChildTarget,
   compact,
   isDragging,
+  currentUserId,
+  onToggleExpanded,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
   // B3: fit-screen — stable declarative overflow handling. The scroll
@@ -888,6 +902,8 @@ function KanbanColumn({
                     treeIntent={treeIntent}
                     onTreeIntent={onTreeIntent}
                     onTreeRowDragStart={onTreeRowDragStart}
+                    currentUserId={currentUserId}
+                    onToggleExpanded={onToggleExpanded}
                   />
                   {isReorderTarget && dropIntent!.position === "after" && (
                     <div

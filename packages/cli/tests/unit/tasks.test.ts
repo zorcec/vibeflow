@@ -27,6 +27,9 @@ import {
   renderAgentInstructions,
   normalizeEscapeSequences,
   detachParent,
+  setTaskExpanded,
+  markTaskOpened,
+  getCurrentUserId,
 } from "../../src/core/tasks.js";
 import type { Task, TaskComment } from "../../src/core/types.js";
 import type { FileInfo } from "../../src/core/files.js";
@@ -379,7 +382,7 @@ describe("CRUD operations", () => {
     });
 
     it("does not cascade to siblings or unrelated tasks", () => {
-      const { parent, childA, childB } = makeTree();
+      const { parent } = makeTree();
       // Add an unrelated task
       const unrelated = createTask(tempDir, {
         title: "unrelated",
@@ -2173,5 +2176,144 @@ describe("detachParent", () => {
     const cAfter = readTaskFile(findTaskFilePath(tempDir, c.id)!);
     const cParentLink = cAfter?.links?.find((l) => l.type === "parent");
     expect(cParentLink?.taskId).toBe(a.id);
+  });
+});
+
+describe("setTaskExpanded", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-expanded-"));
+    ensureTaskDirs(tempDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function makeCard(title = "Card") {
+    return createTask(tempDir, {
+      title,
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+  }
+
+  it("returns null for a non-existent task", () => {
+    expect(setTaskExpanded(tempDir, "missing", "alice", true)).toBeNull();
+  });
+
+  it("expanding adds the user id and persists it to the task file", () => {
+    const task = makeCard();
+    const updated = setTaskExpanded(tempDir, task.id, "alice", true);
+    expect(updated?.expandedBy).toEqual(["alice"]);
+    const persisted = readTaskFile(findTaskFilePath(tempDir, task.id)!);
+    expect(persisted?.expandedBy).toEqual(["alice"]);
+  });
+
+  it("collapsing removes only that user's id", () => {
+    const task = makeCard();
+    setTaskExpanded(tempDir, task.id, "alice", true);
+    setTaskExpanded(tempDir, task.id, "bob", true);
+    const updated = setTaskExpanded(tempDir, task.id, "alice", false);
+    expect(updated?.expandedBy).toEqual(["bob"]);
+  });
+
+  it("expanding twice does not duplicate the user id", () => {
+    const task = makeCard();
+    setTaskExpanded(tempDir, task.id, "alice", true);
+    const updated = setTaskExpanded(tempDir, task.id, "alice", true);
+    expect(updated?.expandedBy).toEqual(["alice"]);
+  });
+
+  it("collapsing a user who never expanded leaves other users untouched", () => {
+    const task = makeCard();
+    setTaskExpanded(tempDir, task.id, "alice", true);
+    const updated = setTaskExpanded(tempDir, task.id, "bob", false);
+    expect(updated?.expandedBy).toEqual(["alice"]);
+  });
+});
+
+describe("markTaskOpened", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-opened-"));
+    ensureTaskDirs(tempDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function makeCard(title = "Card") {
+    return createTask(tempDir, {
+      title,
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+  }
+
+  it("keeps other users' read state when a second user opens the task", () => {
+    const task = makeCard();
+    markTaskOpened(tempDir, task.id, "alice");
+    markTaskOpened(tempDir, task.id, "bob");
+    const persisted = readTaskFile(findTaskFilePath(tempDir, task.id)!);
+    expect(persisted?.openedBy).toEqual(["alice", "bob"]);
+  });
+
+  it("does not duplicate a user that already opened the task", () => {
+    const task = makeCard();
+    markTaskOpened(tempDir, task.id, "alice");
+    markTaskOpened(tempDir, task.id, "alice");
+    const persisted = readTaskFile(findTaskFilePath(tempDir, task.id)!);
+    expect(persisted?.openedBy).toEqual(["alice"]);
+  });
+
+  it("survives an unrelated updateTask write (per-user state is not wiped)", () => {
+    const task = makeCard();
+    markTaskOpened(tempDir, task.id, "alice");
+    setTaskExpanded(tempDir, task.id, "alice", true);
+    updateTask(tempDir, task.id, { status: "in-progress" });
+    const persisted = readTaskFile(findTaskFilePath(tempDir, task.id)!);
+    expect(persisted?.status).toBe("in-progress");
+    expect(persisted?.openedBy).toEqual(["alice"]);
+    expect(persisted?.expandedBy).toEqual(["alice"]);
+  });
+
+  it("ignores a missing task", () => {
+    expect(() => markTaskOpened(tempDir, "missing", "alice")).not.toThrow();
+  });
+});
+
+describe("getCurrentUserId", () => {
+  const originalUser = process.env.USER;
+  const originalUsername = process.env.USERNAME;
+
+  afterEach(() => {
+    if (originalUser === undefined) delete process.env.USER;
+    else process.env.USER = originalUser;
+    if (originalUsername === undefined) delete process.env.USERNAME;
+    else process.env.USERNAME = originalUsername;
+  });
+
+  it("prefers USER over USERNAME", () => {
+    process.env.USER = "alice";
+    process.env.USERNAME = "bob";
+    expect(getCurrentUserId()).toBe("alice");
+  });
+
+  it("falls back to USERNAME when USER is unset", () => {
+    delete process.env.USER;
+    process.env.USERNAME = "bob";
+    expect(getCurrentUserId()).toBe("bob");
+  });
+
+  it("falls back to 'agent' when neither is set", () => {
+    delete process.env.USER;
+    delete process.env.USERNAME;
+    expect(getCurrentUserId()).toBe("agent");
   });
 });

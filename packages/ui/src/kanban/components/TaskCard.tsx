@@ -49,6 +49,10 @@ interface Props {
       onDetach?: (taskId: string) => void;
       /** Reactive drag-active flag — forwarded to RecursiveChildrenTree for empty-slot visibility. */
       isDragging?: boolean;
+      /** Current user's id — drives the per-user unread dot and inline expanded state. */
+      currentUserId?: string;
+      /** Persists the current user's expand/collapse choice for this card. */
+      onToggleExpanded?: (taskId: string, expanded: boolean) => void;
 }
 
 function isImageFileName(name: string): boolean {
@@ -191,6 +195,8 @@ export const TaskCard = React.memo(function TaskCard({
       onTreeRowDragStart,
       onDetach,
       isDragging,
+      currentUserId,
+      onToggleExpanded,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -203,7 +209,10 @@ export const TaskCard = React.memo(function TaskCard({
       const [childChipRect, setChildChipRect] = React.useState<DOMRect | null>(
             null,
       );
-      const [expanded, setExpanded] = React.useState(false);
+      // Expanded state is per user and persisted on the task (expandedBy) — not
+      // in-memory, so it survives a reload.
+      const expanded =
+            !!currentUserId && (task.expandedBy ?? []).includes(currentUserId);
       const thumbRef = React.useRef<HTMLImageElement>(null);
       const childChipRef = React.useRef<HTMLSpanElement>(null);
       const childHoverTimeout = React.useRef<ReturnType<
@@ -250,6 +259,11 @@ export const TaskCard = React.memo(function TaskCard({
 
       function handleClick() {
             onOpen(task);
+      }
+
+      function toggleExpanded(next: boolean) {
+            setShowChildPopover(false);
+            onToggleExpanded?.(task.id, next);
       }
 
       // Compact view (any lane) or done column: single-row card
@@ -384,12 +398,8 @@ export const TaskCard = React.memo(function TaskCard({
                         )}
                         {/* Unopened indicator: blue dot if task has not been opened by current user */}
                         {(() => {
-                              const currentUserId =
-                                    typeof window !== "undefined"
-                                          ? (localStorage.getItem(
-                                                  "vibeflow-user-id",
-                                            ) ?? "anonymous")
-                                          : "anonymous";
+                              // Unknown user id → cannot tell, so never claim unread.
+                              if (!currentUserId) return null;
                               const isOpened = (task.openedBy ?? []).includes(
                                     currentUserId,
                               );
@@ -627,9 +637,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     }}
                                     onClick={(e) => {
                                           e.stopPropagation();
-                                          const next = !expanded;
-                                          setExpanded(next);
-                                          setShowChildPopover(false);
+                                          toggleExpanded(!expanded);
                                     }}
                                     onKeyDown={(e) => {
                                           if (
@@ -637,12 +645,9 @@ export const TaskCard = React.memo(function TaskCard({
                                                 e.key === " "
                                           ) {
                                                 e.stopPropagation();
-                                                const next = !expanded;
-                                                setExpanded(next);
-                                                setShowChildPopover(false);
+                                                toggleExpanded(!expanded);
                                           } else if (e.key === "Escape") {
-                                                setExpanded(false);
-                                                setShowChildPopover(false);
+                                                toggleExpanded(false);
                                           }
                                     }}
                               >

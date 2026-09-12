@@ -39,6 +39,9 @@ import {
   ensureTaskDirs,
   readTaskFile,
   findTaskFilePath,
+  markTaskOpened,
+  setTaskExpanded,
+  getCurrentUserId,
 } from "../core/tasks.js";
 import {
   listComments,
@@ -647,6 +650,49 @@ function registerTaskApi(
           status: d.status,
         })),
       },
+    });
+    res.json({ success: true, task: updated });
+  });
+
+  // POST /api/tasks/:id/opened — record that the current user opened this task.
+  // Mirrors `tasks --get`; the board fires it when a card is opened.
+  app.post("/api/tasks/:id/opened", (req, res) => {
+    const { id } = req.params;
+    const filePath = findTaskFilePath(projectDir, id);
+    if (!filePath) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+    markTaskOpened(projectDir, id, getCurrentUserId());
+    const task = readTaskFile(filePath);
+    broadcast({
+      type: "task-changed",
+      taskId: id,
+      action: "update",
+      task: { ...task!, fileCount: getFileCount(projectDir, id) },
+    });
+    res.json({ success: true });
+  });
+
+  // POST /api/tasks/:id/expanded — persist the current user's expand/collapse
+  // choice for a card's inline children (body: { expanded: boolean }).
+  app.post("/api/tasks/:id/expanded", (req, res) => {
+    const { id } = req.params;
+    const updated = setTaskExpanded(
+      projectDir,
+      id,
+      getCurrentUserId(),
+      req.body?.expanded === true,
+    );
+    if (!updated) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+    broadcast({
+      type: "task-changed",
+      taskId: updated.id,
+      action: "update",
+      task: { ...updated, fileCount: getFileCount(projectDir, updated.id) },
     });
     res.json({ success: true, task: updated });
   });

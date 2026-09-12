@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KANBAN_CSS } from "./kanban-css.gen.js";
 import { KANBAN_BUNDLE } from "./kanban-bundle.gen.js";
+import { getCurrentUserId } from "../core/tasks.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,7 +26,8 @@ export interface KanbanOptions {
 
 function getLegacyHtml(port: number): string {
   const found = LEGACY_CANDIDATES.find((p) => existsSync(p));
-  if (!found) throw new Error("kanban-template.html not found in expected locations");
+  if (!found)
+    throw new Error("kanban-template.html not found in expected locations");
   return readFileSync(found, "utf8").replaceAll("__PORT__", String(port));
 }
 
@@ -35,7 +37,8 @@ function getSaasModeScript(opts: KanbanOptions): string {
 }
 
 // eslint-disable-next-line no-secrets/no-secrets -- base64-encoded SVG favicon, not a credential
-const FAVICON_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOCAxOCIgZmlsbD0ibm9uZSI+PHJlY3Qgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iNCIgZmlsbD0iIzI1NjNlYiIvPjxyZWN0IHg9IjIuNSIgeT0iNSIgd2lkdGg9IjIiIGhlaWdodD0iOCIgcng9IjEiIGZpbGw9IndoaXRlIiBvcGFjaXR5PSIwLjciLz48cmVjdCB4PSI2LjUiIHk9IjIiIHdpZHRoPSIyIiBoZWlnaHQ9IjE0IiByeD0iMSIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIxMC41IiB5PSI2IiB3aWR0aD0iMiIgaGVpZ2h0PSI2IiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuNyIvPjxyZWN0IHg9IjE0LjUiIHk9IjQiIHdpZHRoPSIyIiBoZWlnaHQ9IjEwIiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuODUiLz48L3N2Zz4=";
+const FAVICON_DATA_URI =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOCAxOCIgZmlsbD0ibm9uZSI+PHJlY3Qgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iNCIgZmlsbD0iIzI1NjNlYiIvPjxyZWN0IHg9IjIuNSIgeT0iNSIgd2lkdGg9IjIiIGhlaWdodD0iOCIgcng9IjEiIGZpbGw9IndoaXRlIiBvcGFjaXR5PSIwLjciLz48cmVjdCB4PSI2LjUiIHk9IjIiIHdpZHRoPSIyIiBoZWlnaHQ9IjE0IiByeD0iMSIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIxMC41IiB5PSI2IiB3aWR0aD0iMiIgaGVpZ2h0PSI2IiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuNyIvPjxyZWN0IHg9IjE0LjUiIHk9IjQiIHdpZHRoPSIyIiBoZWlnaHQ9IjEwIiByeD0iMSIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuODUiLz48L3N2Zz4=";
 
 function getReactShell(opts: KanbanOptions): string {
   return `<!DOCTYPE html>
@@ -50,7 +53,7 @@ function getReactShell(opts: KanbanOptions): string {
 </head>
 <body class="h-screen overflow-hidden flex flex-col" style="background:#020c1b;">
   <div id="root"></div>
-  <script>window.__PORT__ = ${opts.port}; window.__CLI_VERSION__ = ${JSON.stringify(opts.cliVersion ?? "")}; ${getSaasModeScript(opts)}</script>
+  <script>window.__PORT__ = ${opts.port}; window.__CLI_VERSION__ = ${JSON.stringify(opts.cliVersion ?? "")}; window.__VIBEFLOW_USER__ = ${JSON.stringify(getCurrentUserId())}; ${getSaasModeScript(opts)}</script>
   <script>${KANBAN_BUNDLE}</script>
 </body>
 </html>`;
@@ -60,8 +63,8 @@ function getReactShell(opts: KanbanOptions): string {
 export function getKanbanHtml(port: number): string;
 export function getKanbanHtml(opts: KanbanOptions): string;
 export function getKanbanHtml(portOrOpts: number | KanbanOptions): string {
-  const opts: KanbanOptions = typeof portOrOpts === "number" ? { port: portOrOpts } : portOrOpts;
+  const opts: KanbanOptions =
+    typeof portOrOpts === "number" ? { port: portOrOpts } : portOrOpts;
   if (KANBAN_BUNDLE) return getReactShell(opts);
   return getLegacyHtml(opts.port);
 }
-
