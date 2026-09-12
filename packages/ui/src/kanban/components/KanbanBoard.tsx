@@ -332,7 +332,10 @@ export function KanbanBoard({
   function handleCardDragOver(e: React.DragEvent, taskId: string) {
     e.preventDefault();
     e.stopPropagation();
-    const dragging = dragTaskIdRef.current;
+    // Resolve like handleDrop: a drag source may register only through the
+    // session singleton (detail-panel tree rows never write the card ref),
+    // and without the fallback the card never gets an intent.
+    const dragging = dragTaskIdRef.current ?? dragSession.get();
     if (!dragging) return;
     const wrapperEl = e.currentTarget as HTMLElement;
     // RC1: classify against the card ARTICLE rect, not the wrapper.
@@ -376,7 +379,9 @@ export function KanbanBoard({
   function handleChildrenZoneDragOver(e: React.DragEvent, parentId: string) {
     e.preventDefault();
     e.stopPropagation();
-    const dragging = dragTaskIdRef.current;
+    // Same session fallback as handleCardDragOver — session-only drag sources
+    // would otherwise leave the children zone (the make-child affordance) inert.
+    const dragging = dragTaskIdRef.current ?? dragSession.get();
     if (!dragging) return;
     const valid = targetValid(filtered, dragging, parentId);
     const task = filtered.find((t) => t.id === parentId);
@@ -924,10 +929,12 @@ function KanbanColumn({
                     onOpenChild={onOpenTask}
                     onDragStart={onDragStart}
                     isDragging={isDragging}
-                    onChildrenZoneDragOver={
-                      isDragging
-                        ? (e) => onChildrenZoneDragOver(e, task.id)
-                        : undefined
+                    // Not gated on isDragging: a session-only drag source (the
+                    // detail panel's tree rows) never sets dragTaskId, so the
+                    // gate would make the zone swallow every dragover without
+                    // ever resolving a drop. The handler guards itself.
+                    onChildrenZoneDragOver={(e) =>
+                      onChildrenZoneDragOver(e, task.id)
                     }
                     onChildrenZoneDragLeave={
                       isDragging ? onChildrenZoneDragLeave : undefined
