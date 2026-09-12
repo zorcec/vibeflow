@@ -29,8 +29,9 @@ export {
   initialSortKeys,
   compareTaskOrder,
   computeReorder,
+  computeBackfillPlan, // one-time sortKey backfill planner (see docs/plans/sortkey-fix.md)
 } from "./utils";
-export type { ReorderPatch, ReorderResult } from "./utils";
+export type { ReorderPatch, ReorderResult, BackfillTask } from "./utils";
 
 // Kanban components
 export { KanbanBoard, COLUMNS } from "./components/KanbanBoard";

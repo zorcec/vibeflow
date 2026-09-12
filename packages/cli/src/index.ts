@@ -15,6 +15,7 @@ import {
   ensureTaskDirs,
   findTaskFilePath,
   claimNextTaskAtomic,
+  writeSortKeyMinimal,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
@@ -22,6 +23,8 @@ import { readConfig } from "./core/config.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
+import { PROTO_DIR } from "./core/types.js";
+import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
 import {
   taskRelations,
@@ -48,7 +51,7 @@ import {
   type SaasTask,
 } from "./saas/client.js";
 import { readWorkspace } from "./auth/workspace.js";
-import { readFileSync, existsSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import chalk from "chalk";
 import {
@@ -757,6 +760,10 @@ program
     "Preview what would change without modifying anything (mutations only)",
   )
   .option(
+    "--reindex-sort-keys",
+    "One-time maintenance: re-key keyless and same-column duplicate tasks so the rendered order survives (idempotent; honors --dry-run/--json)",
+  )
+  .option(
     "--fields <fields>",
     "Comma-separated list of fields to include in output (list/get modes)",
   )
@@ -794,6 +801,7 @@ program
         fields?: string;
         skipVerify?: boolean;
         priority?: string;
+        reindexSortKeys?: boolean;
       },
     ) => {
       async function runTasks() {
@@ -806,7 +814,9 @@ program
               ? "edit"
               : opts.get
                 ? "get"
-                : "list";
+                : opts.reindexSortKeys
+                  ? "reindex"
+                  : "list";
         capture("command_run", {
           command: "tasks",
           subcommand: taskSubcommand,
@@ -827,7 +837,191 @@ program
           return;
         }
 
-        // ── Get single task mode ───────────────────────────────────────────
+        // ── Reindex sort keys (one-time maintenance) ────────────────────────
+        // Re-key the tasks the comparator cannot order (keyless / 'n' / same-
+        // column duplicates) without touching the well-formed, column-unique
+        // keys around them. Only `sortKey` is written via updateTask, so links
+        // are untouched; updateTask bumps `updated`, which is harmless once
+        // keys decide order but does show on "last modified" surfaces.
+        if (opts.reindexSortKeys) {
+          if (
+            opts.add ||
+            opts.edit !== undefined ||
+            opts.get ||
+            opts.next ||
+            opts.commit
+          ) {
+            outputError({
+              code: "E_USAGE",
+              message:
+                "--reindex-sort-keys cannot be combined with --add/--edit/--get/--next/--commit",
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          const projectDir = resolve(dir);
+          const allTasks = listTasks(projectDir);
+          // Reproduce exactly what the board renders: the server maps
+          // `created` -> `createdAt` and leaves `updatedAt` unset on initial
+          // load, so this is the order compareTaskOrder sees at render time.
+          const view = allTasks.map((t) => ({
+            id: t.id,
+            status: t.status,
+            sortKey: t.sortKey,
+            createdAt: t.created,
+          }));
+          const patches = computeBackfillPlan(view);
+          const titles = new Map(allTasks.map((t) => [t.id, t.title]));
+          const oldKeys = new Map(allTasks.map((t) => [t.id, t.sortKey]));
+          const manifest = patches.map((p) => ({
+            id: p.id,
+            oldKey: oldKeys.get(p.id) ?? null,
+            newKey: p.sortKey,
+          }));
+
+          if (opts.dryRun) {
+            if (opts.json) {
+              console.log(
+                JSON.stringify(
+                  {
+                    dryRun: true,
+                    count: manifest.length,
+                    anchorRule:
+                      "whole-store unique keys (a key duplicated anywhere is re-keyed)",
+                    patches: manifest,
+                  },
+                  null,
+                  2,
+                ),
+              );
+            } else {
+              console.log(
+                chalk.yellow(
+                  `  [dry-run] Would reindex ${manifest.length} task sortKey(s):`,
+                ),
+              );
+              // Deviation from the plan, recorded so the next reader sees it:
+              // the plan specified per-column anchors, but a same-column
+              // duplicate sitting between two equal cross-column anchors cannot
+              // be order-preserved. Whole-store uniqueness can. +9 tasks vs
+              // per-column. See docs/plans/sortkey-fix.md §7, correction 8.
+              console.log(
+                chalk.dim(
+                  "  Anchor rule: whole-store unique keys — a key duplicated anywhere is re-keyed, so mixed-status sibling groups keep their order.",
+                ),
+              );
+              for (const m of manifest) {
+                console.log(
+                  chalk.dim(`    ${m.id}  ${titles.get(m.id) ?? ""}`),
+                );
+                console.log(
+                  chalk.dim(`      ${m.oldKey ?? "(none)"} → ${m.newKey}`),
+                );
+              }
+            }
+            return;
+          }
+
+          let written = 0;
+          for (const p of patches) {
+            // Write minimally ON PURPOSE. `updateTask` re-serialises through
+            // normalizeTask, which drops legacy fields (the singleton `commit`
+            // among them — that once cost 18 commit SHAs), reorders keys and
+            // adds defaults. This command must touch only `sortKey`/`updated`.
+            // Do NOT refactor it back onto updateTask.
+            if (writeSortKeyMinimal(projectDir, p.id, p.sortKey)) written++;
+          }
+
+          // Machine-readable manifest (outside tasks/, so it never enters the
+          // store listing). No git operations are performed anywhere here.
+          // Only written when the run actually changed something: a re-run is
+          // idempotent (zero patches) and must not clobber the record of the
+          // apply that did the work.
+          const manifestPath = join(
+            projectDir,
+            PROTO_DIR,
+            "reindex-sort-keys-manifest.json",
+          );
+          if (manifest.length > 0) {
+            writeFileSync(
+              manifestPath,
+              JSON.stringify(
+                { generatedAt: new Date().toISOString(), patches: manifest },
+                null,
+                2,
+              ),
+              "utf-8",
+            );
+          }
+
+          // In-command post-assert: no keyless tasks, no same-column dup groups.
+          const after = listTasks(projectDir);
+          const keyless = after.filter((t) => !t.sortKey);
+          const openKeyless = keyless.filter((t) => t.status !== "done");
+          const byStatus = new Map<string, Map<string, number>>();
+          for (const t of after) {
+            if (!t.sortKey) continue;
+            const counts = byStatus.get(t.status) ?? new Map<string, number>();
+            counts.set(t.sortKey, (counts.get(t.sortKey) ?? 0) + 1);
+            byStatus.set(t.status, counts);
+          }
+          const dupOffenders: string[] = [];
+          for (const [status, counts] of byStatus) {
+            for (const [key, n] of counts) {
+              if (n > 1) dupOffenders.push(`${status}: ${key} ×${n}`);
+            }
+          }
+          const ok =
+            openKeyless.length === 0 &&
+            keyless.length === 0 &&
+            dupOffenders.length === 0;
+
+          if (opts.json) {
+            console.log(
+              JSON.stringify(
+                {
+                  success: ok,
+                  written,
+                  manifestPath,
+                  remainingKeyless: keyless.length,
+                  sameColumnDuplicateGroups: dupOffenders.length,
+                  patches: manifest,
+                },
+                null,
+                2,
+              ),
+            );
+          } else if (ok) {
+            console.log(
+              chalk.green(
+                `✓ Reindexed ${written} task sortKey(s); 0 keyless, 0 same-column duplicate groups.`,
+              ),
+            );
+            console.log(
+              chalk.dim(
+                "  Anchor rule: whole-store unique keys — a key duplicated anywhere is re-keyed, so mixed-status sibling groups keep their order. See docs/plans/sortkey-fix.md §7.",
+              ),
+            );
+            console.log(chalk.dim(`  manifest: ${manifestPath}`));
+            console.log(
+              chalk.dim(
+                "  note: only sortKey changed; updateTask also bumped each task's `updated` timestamp.",
+              ),
+            );
+          } else {
+            console.log(
+              chalk.red(
+                `✗ Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
+              ),
+            );
+            for (const o of dupOffenders) console.log(chalk.dim(`    ${o}`));
+          }
+          if (!ok) process.exitCode = ExitCode.GENERAL;
+          return;
+        }
+
+        // ── Get single task mode ───────────────────────────────────────
         if (opts.get) {
           const getTaskMode = await getMode();
           if (getTaskMode === "saas") {

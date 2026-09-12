@@ -21,7 +21,7 @@ import {
   compareTasksByPriorityThenCreated,
 } from "./types.js";
 import type { FileInfo } from "./files.js";
-import { taskLockPath } from "./lock.js";
+import { taskLockPath, withFileLockSync } from "./lock.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 
 export function generateTaskId(): string {
@@ -274,6 +274,77 @@ export function writeTaskJsonAt(filePath: string, task: Task): void {
   renameSync(tmp, filePath);
 }
 
+/**
+ * Minimal, byte-preserving sortKey writer for maintenance commands.
+ *
+ * The ordinary write path (`updateTask` → `normalizeTask` → `writeTaskJson`)
+ * re-serializes the task through a fixed schema: it DROPS fields it does not
+ * know (e.g. the legacy singleton `commit` string), reorders keys, and adds
+ * defaulted fields (`verified`). A maintenance backfill must change only
+ * `sortKey` (plus bump `updated`), so this edits the raw JSON text in place,
+ * preserving every other field and its order, then JSON-validates the result
+ * before writing.
+ *
+ * **Do NOT refactor the reindex command onto `updateTask`.** Doing so silently
+ * destroys legacy fields again — it once dropped 18 commit SHAs that existed
+ * only in the singular `commit` field.
+ *
+ * Returns false without writing when the file is missing or the edit would not
+ * produce valid JSON.
+ */
+export function writeSortKeyMinimal(
+  projectDir: string,
+  taskId: string,
+  sortKey: string,
+): boolean {
+  const filePath = findTaskFilePath(projectDir, taskId);
+  if (!filePath) return false;
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf-8");
+  } catch {
+    return false;
+  }
+  const updatedAt = new Date().toISOString();
+  let next = text;
+
+  // Set sortKey in place, or insert it just above `updated` when absent.
+  if (/"sortKey"\s*:\s*"[^"]*"/.test(next)) {
+    next = next.replace(/"sortKey"\s*:\s*"[^"]*"/, `"sortKey": "${sortKey}"`);
+  } else {
+    const anchor = /\n(\s*)"updated"\s*:/.exec(next);
+    if (!anchor) return false;
+    next = next.replace(
+      anchor[0],
+      `\n${anchor[1]}"sortKey": "${sortKey}",${anchor[0]}`,
+    );
+  }
+
+  // Bump `updated` (insert when a legacy file has none).
+  if (/"updated"\s*:\s*"[^"]*"/.test(next)) {
+    next = next.replace(/"updated"\s*:\s*"[^"]*"/, `"updated": "${updatedAt}"`);
+  } else {
+    if (!/\n\}\s*$/.test(next)) return false;
+    next = next.replace(/\n\}\s*$/, `,\n  "updated": "${updatedAt}"\n}`);
+  }
+
+  try {
+    const parsed = JSON.parse(next) as { id?: string; sortKey?: string };
+    if (parsed.id !== taskId || parsed.sortKey !== sortKey) return false;
+  } catch {
+    return false;
+  }
+
+  const tmp = filePath + ".tmp";
+  writeFileSync(tmp, next, "utf-8");
+  renameSync(tmp, filePath);
+  // Invalidate the monotonic ceiling: a backfill re-keys many tasks at once
+  // without going through createTask/updateTask, so the cache may now be low.
+  // The next create rescans once and re-seeds it.
+  invalidateSortKeyCeiling(projectDir);
+  return true;
+}
+
 // ── CRUD operations ────────────────────────────────────────────────────────
 
 /**
@@ -314,24 +385,122 @@ export function createTask(
     return "Medium";
   })();
 
-  const task: Task = {
-    ...input,
-    title: normalizeEscapeSequences(input.title ?? "").trim(),
-    description: normalizeEscapeSequences(input.description ?? "").trim(),
-    priority: normalizedPriority,
-    // Hardening: every task must carry a well-formed sortKey so it stays
-    // orderable in its column. The board supplies one on create; the CLI, MCP
-    // and HTTP paths did not. Seed with the same key the board gives the first
-    // task of an empty column — no full-store scan per create. Existing
-    // keyless tasks are normalised on read/reorder.
-    sortKey: input.sortKey ?? generateSortKeyBetween(null, null),
-    id: generateTaskId(),
-    created: new Date().toISOString(),
-    comments: [],
-    files: [],
-  };
-  writeTaskJson(projectDir, task);
-  return task;
+  // Serialise the scan + write across processes: a CLI `tasks --add` racing
+  // the long-lived `serve` process could otherwise read the same max and mint a
+  // duplicate pair (which drag normalization does NOT heal — duplicate numeric
+  // keys are not a "legacy" state).
+  const lock = taskLockPath(projectDir, ".store-create");
+  return withFileLockSync(lock, () => {
+    // The ceiling is read (and, on a cold store, seeded + cached) inside the
+    // same cross-process lock that guards the write, so back-to-back creates
+    // from this or another process never mint the same key.
+    const ceiling = maxStoreSortKey(projectDir);
+    const sortKey = input.sortKey ?? generateSortKeyBetween(ceiling, null);
+    const task: Task = {
+      ...input,
+      title: normalizeEscapeSequences(input.title ?? "").trim(),
+      description: normalizeEscapeSequences(input.description ?? "").trim(),
+      priority: normalizedPriority,
+      // Every create must mint a key that sorts after everything already in the
+      // store, or dragging a newly created task misplaces it. Regression story:
+      // commit 3e169ab seeded `generateSortKeyBetween(null, null)` here — a
+      // CONSTANT `0000000001000000` — so every create on every surface (board,
+      // CLI --add, HTTP, tRPC, MCP) collided on one key (10 tasks by the end of
+      // that day). The old comment claimed "the board supplies one on create" —
+      // false: DetailPanel sends no sortKey and api.createTask just POSTs, so the
+      // board fell through to the constant too.
+      //
+      // The ceiling comes from the cached sidecar (0.06s scan only on a cold
+      // store); `stress.test.ts` proved a per-create full scan is O(n²).
+      sortKey,
+      id: generateTaskId(),
+      created: new Date().toISOString(),
+      comments: [],
+      files: [],
+    };
+    writeTaskJson(projectDir, task);
+    // Raise (never lower) the ceiling so the next create stays O(1).
+    if (!ceiling || sortKey > ceiling) {
+      writeSortKeyCeiling(projectDir, sortKey);
+    }
+    return task;
+  });
+}
+
+/**
+ * Value `createTask` must mint ABOVE: the highest key the store is known to
+ * need, cached in a sidecar next to the task store so a create stays O(1)
+ * instead of rescanning every task file (which was O(n²) in bulk and blew the
+ * `stress.test.ts` budget: 5000 creates went from 0.7s to ~115s).
+ *
+ * The sidecar is a strictly MONOTONIC ceiling: seeded from a full scan when
+ * absent or corrupt, raised to every key this module mints or writes, never
+ * lowered. Minting `ceiling + gap` therefore always lands above every key we
+ * know about, and an over-high ceiling is harmless (it only widens the gap).
+ *
+ * Whole-store, not per-status: tree sibling groups span statuses, so a
+ * per-column ceiling could tie inside a mixed-status sibling group.
+ *
+ * Out-of-band writes (a `git pull`, a hand-edit) that introduce a higher key
+ * WITHOUT going through this module can leave the ceiling low; the failure mode
+ * is a possible duplicate key, which `tasks --reindex-sort-keys` heals. Delete
+ * `.vibeflow/.sortkey-ceiling` to force a full rescan.
+ *
+ * Keys are zero-padded fixed-width decimals, so `>` (string comparison) matches
+ * numeric order — integers sort before `integer.fraction`, and the fractional
+ * segments compare left-to-right.
+ */
+export function maxStoreSortKey(projectDir: string): string | null {
+  const cached = readSortKeyCeiling(projectDir);
+  if (cached) return cached;
+  const scanned = scanStoreMaxSortKey(projectDir);
+  if (scanned) writeSortKeyCeiling(projectDir, scanned);
+  return scanned;
+}
+
+function sortKeyCeilingPath(projectDir: string): string {
+  return join(projectDir, PROTO_DIR, ".sortkey-ceiling");
+}
+
+function readSortKeyCeiling(projectDir: string): string | null {
+  try {
+    const raw = readFileSync(sortKeyCeilingPath(projectDir), "utf-8").trim();
+    return /^\d+(\.\d+)?$/.test(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSortKeyCeiling(projectDir: string, key: string): void {
+  try {
+    const path = sortKeyCeilingPath(projectDir);
+    mkdirSync(join(projectDir, PROTO_DIR), { recursive: true });
+    const tmp = path + ".tmp";
+    writeFileSync(tmp, key, "utf-8");
+    renameSync(tmp, path);
+  } catch {
+    /* a missing ceiling only costs a rescan, never correctness */
+  }
+}
+
+/** Drop the cache so the next `maxStoreSortKey` rescans the store. */
+function invalidateSortKeyCeiling(projectDir: string): void {
+  try {
+    unlinkSync(sortKeyCeilingPath(projectDir));
+  } catch {
+    /* already absent */
+  }
+}
+
+/** Full scan for the highest well-formed key in the store, or `null` when none. */
+function scanStoreMaxSortKey(projectDir: string): string | null {
+  let max: string | null = null;
+  for (const { task } of collectTaskFiles(projectDir)) {
+    const key = task.sortKey;
+    if (!key || !/^\d+(\.\d+)?$/.test(key)) continue;
+    if (max === null || key > max) max = key;
+  }
+  return max;
 }
 
 /** Reads and parses a task JSON file. */
@@ -436,6 +605,25 @@ export function updateTask(
       updated: new Date().toISOString(),
     };
     writeTaskJson(projectDir, updated);
+    // Keep the monotonic sortKey ceiling above any key an update writes (a drag
+    // appended to the bottom raises the store max). Done under the same lock
+    // creates use, because the ceiling is a read-modify-write; best-effort so a
+    // lock timeout can never fail the update.
+    if (updated.sortKey) {
+      try {
+        const current = readSortKeyCeiling(projectDir);
+        if (!current || updated.sortKey > current) {
+          withFileLockSync(taskLockPath(projectDir, ".store-create"), () => {
+            const latest = readSortKeyCeiling(projectDir);
+            if (!latest || (updated.sortKey as string) > latest) {
+              writeSortKeyCeiling(projectDir, updated.sortKey as string);
+            }
+          });
+        }
+      } catch {
+        /* a stale ceiling only costs a rescan, never correctness */
+      }
+    }
     // If the task moved from flat layout to date-based, remove the old flat file
     if (
       existingPath &&

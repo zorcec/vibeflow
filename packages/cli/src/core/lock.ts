@@ -96,6 +96,28 @@ function releaseFileLock(lockPath: string): void {
   }
 }
 
+/**
+ * Synchronous variant of {@link withTaskLock} for callers that cannot await
+ * (e.g. `createTask`). Acquires the same cross-process O_EXCL lockfile and
+ * releases it after `fn`.
+ *
+ * No in-process promise chain: a synchronous `fn` cannot interleave with other
+ * work on the event loop, so cross-process mutual exclusion is all that is
+ * needed here.
+ */
+export function withFileLockSync<T>(
+  lockPath: string,
+  fn: () => T,
+  opts?: { timeoutMs?: number; staleMs?: number },
+): T {
+  acquireFileLock(lockPath, opts?.timeoutMs ?? 5_000, opts?.staleMs ?? 10_000);
+  try {
+    return fn();
+  } finally {
+    releaseFileLock(lockPath);
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
