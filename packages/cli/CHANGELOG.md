@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.14.0
+
+### Minor Changes
+
+- e786873: Remove-link dialog: child-aware confirmation with move-up/delete-children radio options, server-side detach endpoint, and board-level wiring.
+- ffcbd90: What's New modal surfaces an aggregated Highlights region from manually tagged `### Highlights` changeset subsections.
+
+  ### Highlights
+
+  - Changelog Highlights region pins the biggest changes on top of the What's New modal
+
+- 73a9ef0: Kanban delete dialog offers recursive delete: parent with children now shows keep / unlink / delete-whole-subtree options
+- 52f63e2: Kanban card expand/collapse state is now persisted per user and restored across reloads; the unread indicator only shows for tasks you have not opened.
+
+  ### Highlights
+
+  - Card children stay expanded after a page reload — the choice is stored per user on the task and re-applied from the payload.
+  - The blue unread dot now compares against the real board user id instead of a placeholder, so it clears as soon as you open a task.
+
+- 0f091ed: Parent task concept: tasks can now be linked hierarchically with parent-child relationships. Children group under their parent in the kanban board with a ⤷N chip that morphs to a chevron on hover. The expanded tree shows child rows with status dots, priority badges, and inline drag-and-drop for reparenting up to 8 levels deep. The detail panel has a Relations area listing children, parents and blocked tasks, with click-through navigation. Parent links survive workspace sync, and a link pointing at a task that is no longer present is flagged as an orphan rather than silently dropped. The delete dialog offers recursive subtree deletion, and the detach dialog allows unlinking children without deleting them.
+
+  ### Highlights
+
+  - Parent-child task linking: attach children to any task, see them grouped in the board
+  - Tree view with expand/collapse, inline drag-and-drop reparenting
+  - Recursive delete: delete a parent and all its descendants in one action
+
+- 1940099: Kanban task details panel lists every relation type: the Relations area now renders one group per non-empty relation type — CHILDREN as a recursive tree, plus PARENTS, BLOCKS and RELATED as flat rows with a hover Unlink action. `related` and `blocks` links were previously visible only as count chips. The card's in-card children tree is unchanged.
+- 52d34dd: Fix kanban drag/order correctness. `tasks --add` and every other create surface now mint a unique, monotonic `sortKey` derived from the store maximum instead of the constant `0000000001000000` that every create collided on (the collision made a card dropped between two such cards jump past both). A new one-time maintenance command, `tasks --reindex-sort-keys` (honors `--dry-run` and `--json`, idempotent, order-preserving), heals the existing keyless and duplicate-key tasks by re-keying them in rendered order while leaving well-formed, store-unique keys untouched. The reindex writes only `sortKey`/`updated` through a byte-preserving path, so legacy fields (such as the singleton `commit`) are never dropped.
+- 3c6915e: `vibeflow tasks --add --parent <task-id>` creates a task as a child of an existing task in one command. `--parent` accepts a full id or a unique prefix (resolved the same way `--get`/`--set-parent` resolve ids), writes the same `parent` link the `--edit --set-parent` path writes (`links: [{ taskId, type: "parent" }]`), and rejects a dangling target with the same wording. It is `--add`-only; without `--add` it prints a usage error. The MCP `create_task` tool and `POST /api/tasks` accept the same optional `parent`, and `--add --json` returns the new task with its `links` field. `--edit` keeps using `--set-parent` / `--no-parent` unchanged.
+
+### Patch Changes
+
+- 77f8c09: Fix task `author` attribution: `tasks --add` and status transitions now stamp the task-store git identity, so an agent-created or transitioned task shows the same author as a human-created one.
+- 0b9ac7d: Cascade done status to descendants: when a parent task is moved to done, all children and grandchildren are also marked done. Server-side authoritative cascade in PATCH handler + client-side optimistic update in kanban drag-drop.
+- 9cead5d: Server: accept legacy comment IDs in `isValidCommentId` (and the matching tRPC `commentIdSchema`). SaaS-era IDs (10–14 lowercase alphanumerics such as `mnrrhpi0f9mxv`) and hand-written `-`/`_` slugs (e.g. `fix-comment-1`) no longer 400 on comment PATCH/DELETE. Traversal and non-conforming IDs are still rejected.
+- 70b9a4c: Kanban drag-and-drop: drag state is now released on every drop outcome, so a drop onto a child row or children zone can no longer leave the board stuck. The drop handler clears the drag context in a `finally` (a rejected/ignored drop counts too), the window-level `dragend` cleanup also strips leftover `dragging`/`dnd-*` classes from the DOM, tree child rows register their drag source before touching `dataTransfer` and clear their own drag marker on `dragend`, and a rejected reparent in the detail-panel relations tree releases the drag session instead of leaving it latched.
+- Kanban card children toggle reworked: the child-count chip sits at the end of the card footer and morphs into a chevron on hover or focus, pointing up while the tree is expanded. The floating chevron at the card's bottom edge is gone. In-progress child rows show a small loading indicator in place of the tree chevron.
+- 5574ca7: Kanban board drag & drop: reordering cards in a column now persists the intended order.
+
+  - A column reorder uses the shared `computeReorder` plan, but only the dragged card's `sortKey` was written back — the plan's normalization patches (which assign real keys to keyless siblings) were applied to local state only. Since a task without a `sortKey` always sorts after every keyed task, the dragged card jumped to the top of the column on the next load, so the drop silently did nothing. The reorder now persists the dragged card plus every normalization patch, and a partial failure self-heals by reloading.
+  - The same normalization is now applied when a card is dragged out of a parent onto a column background, so it lands at the bottom of a mostly-keyless column instead of jumping above it.
+
+- dfa209b: fix(kanban): anchor a no-neighbour drop to the store max, not the initial constant
+
+  A drag that had no neighbour in its target column — a parented task dropped on
+  an empty column, or a task reordered when it is its parent's only child — called
+  `computeReorder` with no before/after key. That fell through to
+  `generateSortKeyBetween(null, null)`, the store's initial constant
+  `0000000001000000`, which another task already owned (`fd1ddc21`), minting a
+  cross-column duplicate and pinning the dropped card to the top of its column.
+
+  `computeReorder` now accepts the store's highest key as an append anchor, used
+  only when both neighbours are absent; the card, column and tree drop paths pass
+  it (`maxSortKey` over the loaded tasks). An empty store still mints the initial
+  key, as before. Adds `maxSortKey` to the shared kanban utils and regression
+  tests for the empty-column, only-child and mixed-width-fractional cases.
+
+- 830ae8a: Kanban task-details Relations area: PARENTS / BLOCKS / RELATED rows are draggable again.
+
+  `RecursiveChildrenTree` wired a row's drag source through the same `dndActive` flag that decides whether the tree accepts drop intents. The flat relation groups in the detail panel deliberately pass no drop intent, so their rows silently lost the drag source too: no `draggable`, no `dragSession` entry, and a drag started from them could never resolve a target. A rendered row always represents a task, so it is now always a drag source; drop-intent handling stays exclusive to the CHILDREN tree. Task `9cd3f4bb` was the only task in the store whose sole relation is `related`, so it was the one where every relation row was inert.
+
+- 0eceae7: Kanban board: the children tree of a card now starts flush with the card's own content edge. The root level of the tree no longer pays a nesting step — only the levels below it do — so the collapsed tree sits noticeably tighter, while the 14px step between nested levels is unchanged. The detail panel's children tree keeps its root step so its rows stay aligned under the CHILDREN group label, and the depth-8 cap is unaffected.
+- bcd5d87: **Kanban drag & drop fix.** Drag & drop could look completely dead on boards with parent-child tasks. The card and children-zone `dragover` handlers resolved the dragged task from the board's card ref alone, so a drag started from the detail-panel relations tree — the one source that registers through the `dragSession` singleton without writing the card ref — never produced a drop intent. The drop then silently fell back to a column status change (or nothing at all). Both handlers now use the same `dragSession.get()` fallback that `handleDrop` already used, and the children-zone handler is no longer gated on board-only `isDragging` state, so the zone stops swallowing the `dragover`.
+
+  Reported as a shipped regression after the previous kanban drop-state release; covered by new `KanbanBoard.session-drag` tests.
+
+- 3a4ba1b: Kanban tree drag & drop reliability: sibling reordering now persists the intended order, and a child nested under another child can be dragged back to the root parent.
+
+  - Reordering siblings computed a `sortKey` around neighbours that had never been reordered, but only the dragged task's key was written. Sibling order falls back to timestamps when a task has no `sortKey`, so the drag appeared to do nothing (or landed in the wrong slot). The reorder/reparent drop now uses the shared `computeTreeReorder` plan and persists its normalization patches too.
+  - Dropping an already-parented task on a card centre or a card's children zone was rejected by the single-parent rule, so a grandchild could not be moved back to its root/ancestor parent. Those drops now reparent the task instead of doing nothing.
+
+- Kanban visual polish: columns now highlight clearly on drag-over with the column's accent colour instead of a faint dashed outline, and the children tree renders as an unbroken spine across nested subtrees with aligned status badges.
+- 072790d: Add unused-symbol detection and remove dead code.
+
+  Internal only — no runtime behaviour change. The repo previously had no ESLint, so `tsc --noEmit` never flagged unused imports/locals. A single `@typescript-eslint/no-unused-vars` rule now gates unused symbols for `pnpm lint`, unused symbols in the CLI and prototyping sources were removed, and three unreferenced UI files (`Board.tsx`, `TaskCard.tsx`, `TaskList.tsx`) were deleted.
+
+- 7309f08: MCP `update_task` now accepts a `links` array, so an agent can set, replace, or clear a task's parent/relates/blocks links. The field was missing from the tool's input schema, so Zod silently dropped it and `update_task` reported success while the link was never written. The array replaces the task's full link set (pass `[]` to clear), and each entry is validated against the post-replace state with the same self-link, dangling-target, duplicate and cycle checks the `--set-parent` path uses.
+- e119486: Move DeleteConfirmDialog to shared @vibeflow-tools/ui/kanban package so both CLI and web use the same radio-list delete confirmation component. Web app re-exports from shared (deletes stale local copy).
+- f97ab8d: Task details: the parent relation type label is now plain "Child of" instead of "Child of →". The trailing arrow was redundant next to the target row and read as a stray glyph in the add-link type picker.
+- a279c33: Fix a stale `.sortkey-ceiling` sidecar: after `--reindex-sort-keys` (which deletes the sidecar) the next `updateTask` re-seeded the monotonic ceiling from the single task it had just written. When that task did not sort last, the following `tasks --add` minted `thatKey + gap` and landed mid-store instead of appending. `updateTask` now rescans for the true store max via `maxStoreSortKey` when the cache is absent, matching the create path.
+- 3e169ab: Auto-assign a `sortKey` when a task is created without one, so tasks created via the CLI, MCP or HTTP API always carry a well-formed column ordering key.
+- beb7472: Add `--set-parent <task-id>` and `--no-parent` options to `tasks --edit` for setting, replacing, or clearing a task's parent link (validated: parent must exist, no self-parenting, no cycles).
+- 6ec23aa: Rename "Remove" to "Unlink" in task details — unlink only removes parent link (never deletes). Delete children only via the Delete dialog (2 modes: roots / recursive).
+
 ## 0.13.0
 
 ### Minor Changes
