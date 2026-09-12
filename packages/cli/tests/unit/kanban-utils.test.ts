@@ -3,6 +3,7 @@ import {
   compareTaskOrder,
   computeReorder,
   computeBackfillPlan,
+  generateSortKeyBetween,
   type BackfillTask,
   type ReorderPatch,
 } from "@vibeflow-tools/ui/kanban";
@@ -135,6 +136,46 @@ describe("computeReorder", () => {
       .map((t) => t.id);
 
     expect(finalOrder).toEqual(["C", "B", "A"]);
+  });
+
+  // Regression: a drop with no neighbour in the target column (empty column, or
+  // the dragged task is the column's only task) used to fall through to
+  // generateSortKeyBetween(null, null) — the store's initial constant
+  // `0000000001000000` — which already belongs to another column's task and
+  // minted a cross-column duplicate (observed: fd1ddc21).
+  it("anchors a no-neighbour drop after the store max, not the initial constant", () => {
+    const storeMax = "0000024263628904";
+    const result = computeReorder([], "dragged", null, null, storeMax);
+    expect(result.newSortKey).not.toBe("0000000001000000");
+    expect(result.newSortKey > storeMax).toBe(true);
+    // And the old behaviour only survives when the store is genuinely empty.
+    expect(computeReorder([], "dragged", null, null, null).newSortKey).toBe(
+      "0000000001000000",
+    );
+  });
+});
+
+describe("generateSortKeyBetween mixed-width invariant", () => {
+  // The store carries 27 keys of the 33-char fractional form
+  // `0000000002249999.00000000NN000000` next to 1124 16-char integer keys.
+  // compareTaskOrder is a plain lexicographic `<`/`>` on the string, so the
+  // generator must produce a key that lands strictly between its neighbours
+  // under that same comparison — not a numeric comparison, and not a length-
+  // dependent one.
+  it("places a 33-char fractional key strictly between its 16-char neighbours", () => {
+    const before = "0000000002249999";
+    const after = "0000000002250000";
+    const key = generateSortKeyBetween(before, after);
+    expect(key).toBe("0000000002249999.0000000001000000");
+    expect(key.length).toBe(33);
+    // Plain string comparison (what compareTaskOrder uses).
+    expect(before < key).toBe(true);
+    expect(key < after).toBe(true);
+    // And the comparator agrees.
+    expect(compareTaskOrder({ sortKey: before }, { sortKey: key })).toBe(-1);
+    expect(compareTaskOrder({ sortKey: key }, { sortKey: after })).toBe(-1);
+    expect(compareTaskOrder({ sortKey: key }, { sortKey: before })).toBe(1);
+    expect(compareTaskOrder({ sortKey: after }, { sortKey: key })).toBe(1);
   });
 });
 

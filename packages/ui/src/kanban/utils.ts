@@ -187,13 +187,30 @@ export interface ReorderResult {
  * @param taskId   - The task being dragged.
  * @param beforeId - The task that will be immediately before the dropped position, or null.
  * @param afterId  - The task that will be immediately after the dropped position, or null.
+ * @param appendAnchorKey - Highest key already in the store. Used as the
+ *   before-anchor when the drop has no neighbour in the target column (empty
+ *   column, or the dragged task is the only sibling). Without it a no-neighbour
+ *   drop falls through to `generateSortKeyBetween(null, null)` — the constant
+ *   `0000000001000000` — which already exists elsewhere in the store and mints a
+ *   cross-column duplicate. Pass null only when the store is genuinely empty.
+ * @param keyUniverse - Every task the caller can see. The board loads the whole
+ *   store, so the drag paths pass it; `colTasks` alone cannot tell whether a
+ *   candidate key is already taken in another column. Two uses: it supersedes
+ *   `appendAnchorKey` as the append anchor, and a mid-insert candidate that is
+ *   already taken is re-minted into the free gap instead of being written twice.
  */
 export function computeReorder(
   colTasks: Array<{ id: string; sortKey?: string | null }>,
   taskId: string,
   beforeId: string | null,
   afterId: string | null,
+  appendAnchorKey: string | null = null,
+  keyUniverse?: Array<{ id?: string; sortKey?: string | null }> | null,
 ): ReorderResult {
+  const storeMax =
+    keyUniverse && keyUniverse.length > 0
+      ? maxSortKey(keyUniverse)
+      : appendAnchorKey;
   const keyMap = new Map<string, string | null>();
   let lastNumericKey: string | null = null;
   for (const t of colTasks) {
@@ -206,7 +223,10 @@ export function computeReorder(
   const normalizationPatches: ReorderPatch[] = [];
   const legacyTasks = colTasks.filter((t) => !t.sortKey || t.sortKey === "n");
   if (legacyTasks.length > 0) {
-    let prevKey = lastNumericKey;
+    // Seed legacy keying from the store max when the column has no keyed task,
+    // for the same reason as the dropped task below: the bare (null, null)
+    // seed is the store's initial constant and can duplicate an existing key.
+    let prevKey = lastNumericKey ?? storeMax;
     for (const t of legacyTasks) {
       const normalizedKey = generateSortKeyBetween(prevKey, null);
       keyMap.set(t.id, normalizedKey);
@@ -218,7 +238,35 @@ export function computeReorder(
 
   const beforeKey = beforeId ? (keyMap.get(beforeId) ?? null) : null;
   const afterKey = afterId ? (keyMap.get(afterId) ?? null) : null;
-  const newSortKey = generateSortKeyBetween(beforeKey, afterKey);
+  // Appending (no after-neighbour): anchor ABOVE the store max, so the minted
+  // key is unique by construction. Anchoring on the last column/sibling key
+  // instead emits `thatKey + INITIAL_GAP` onto the store's shared 1e6 lattice,
+  // which routinely lands on a task in another column — measured on the real
+  // store, one background drop duplicated `a472f35e`'s key. Append-last order
+  // is preserved because the store max is >= every column/sibling key.
+  const anchor =
+    afterKey === null &&
+    storeMax !== null &&
+    (beforeKey === null || storeMax > beforeKey)
+      ? storeMax
+      : beforeKey;
+  let newSortKey = generateSortKeyBetween(anchor, afterKey);
+
+  // The neighbours only bound the interval — they do not reserve it. A
+  // mid-insert candidate can land exactly on a key used elsewhere in the store
+  // (and a re-keyed legacy sibling's fresh key is taken too). Shrink into the
+  // free gap instead of writing a duplicate the reindex has to heal later.
+  if (keyUniverse && keyUniverse.length > 0) {
+    const taken = new Set<string>([
+      ...keyUniverse
+        .filter((t) => t?.id !== taskId && t?.sortKey)
+        .map((t) => t.sortKey as string),
+      ...normalizationPatches.map((p) => p.sortKey),
+    ]);
+    for (let guard = 0; taken.has(newSortKey) && guard < 64; guard++) {
+      newSortKey = generateSortKeyBetween(anchor, newSortKey);
+    }
+  }
 
   return { newSortKey, normalizationPatches };
 }
@@ -234,6 +282,23 @@ export interface BackfillTask {
 
 /** A well-formed key: a zero-padded integer, optionally with fractional level. */
 const WELL_FORMED_KEY = /^\d+(\.\d+)?$/;
+
+/**
+ * Highest well-formed key in a task list, or null when none is well-formed.
+ * Counterpart of the CLI server's `maxStoreSortKey` scan; the drag paths use it
+ * as the append anchor for a drop with no neighbour in its target column.
+ */
+export function maxSortKey(
+  tasks: Array<{ sortKey?: string | null }>,
+): string | null {
+  let max: string | null = null;
+  for (const t of tasks) {
+    const key = t.sortKey;
+    if (!key || !WELL_FORMED_KEY.test(key)) continue;
+    if (max === null || key > max) max = key;
+  }
+  return max;
+}
 
 /**
  * Plan a one-time sortKey backfill that preserves the comparator's rendered

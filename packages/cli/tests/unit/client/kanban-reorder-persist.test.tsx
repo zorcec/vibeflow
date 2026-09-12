@@ -13,15 +13,24 @@
  * persisted (pre-fix) and passes once the patches are written too.
  */
 import React, { act } from "react";
-import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { compareTaskOrder } from "@vibeflow-tools/ui/kanban";
 import type { Task } from "@vibeflow-tools/ui/kanban";
 import { App } from "../../../src/client/kanban/App.js";
 
 // React 18 warns about state updates outside act() unless this is set.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean })
-  .IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
 
@@ -179,7 +188,9 @@ describe("Kanban card reorder persists normalization patches", () => {
       '[data-column-id="todo"]',
     ) as HTMLElement;
     await act(async () => {
-      dispatchDrag(mustCard("a"), "dragstart", { dataTransfer: dataTransfer() });
+      dispatchDrag(mustCard("a"), "dragstart", {
+        dataTransfer: dataTransfer(),
+      });
     });
     await act(async () => {
       dispatchDrag(wrapperC, "dragover", { clientY: 39 });
@@ -191,6 +202,94 @@ describe("Kanban card reorder persists normalization patches", () => {
     await flush();
 
     // What the user sees after the next read: re-sort persisted server truth.
+    const persisted = serverTasks
+      .filter((t) => t.status === "todo")
+      .sort(compareTaskOrder)
+      .map((t) => t.id);
+    expect(persisted).toEqual(["b", "c", "a"]);
+  });
+
+  // Regression: dragging a parented task onto an EMPTY column used to call
+  // computeReorder with no neighbours → generateSortKeyBetween(null, null) →
+  // the constant `0000000001000000`, duplicating fd1ddc21 (a live task that
+  // already held it) and landing the card at the top of every column.
+  it("a parented child dropped on an empty column gets a real key, not the initial constant", async () => {
+    serverTasks = [
+      { id: "p", title: "P", status: "todo", sortKey: "0000000002000000" },
+      {
+        id: "x",
+        title: "X",
+        status: "todo",
+        sortKey: "0000000003000000",
+        links: [{ taskId: "p", type: "parent" }],
+      },
+    ];
+    mockApi();
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    await renderApp();
+
+    // x is parented, so its drag source is the nested tree row.
+    const row = container.querySelector(
+      '[data-role="child-link-row"][data-task-id="x"]',
+    ) as HTMLElement | null;
+    expect(row).not.toBeNull();
+    const emptyColumn = container.querySelector(
+      '[data-column-id="backlog"]',
+    ) as HTMLElement;
+    expect(emptyColumn).not.toBeNull();
+
+    await act(async () => {
+      dispatchDrag(row!, "dragstart", { dataTransfer: dataTransfer() });
+    });
+    await act(async () => {
+      dispatchDrag(emptyColumn, "dragover", {});
+    });
+    await act(async () => {
+      dispatchDrag(emptyColumn, "drop");
+    });
+    await flush();
+    await flush();
+
+    const x = serverTasks.find((t) => t.id === "x")!;
+    expect(x.status).toBe("backlog");
+    expect(x.sortKey).not.toBe("0000000001000000");
+    // Anchored after the store max (x's own 3000000 → +INITIAL_GAP).
+    expect(x.sortKey! > "0000000003000000").toBe(true);
+  });
+
+  // Regression: a PARENTLESS card dropped on the column background PATCHed
+  // only {status}. Inside the card's own column that sent the status it
+  // already had — a literal no-op (no key write, no order change, no
+  // broadcast) that looked to the user like the drop never happened.
+  it("a parentless card dropped on the column background persists an append key, not a status-only no-op", async () => {
+    serverTasks = [
+      makeTask("a", "2026-01-01T00:00:00Z"),
+      makeTask("b", "2026-01-02T00:00:00Z"),
+      makeTask("c", "2026-01-03T00:00:00Z"),
+    ];
+    mockApi();
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    await renderApp();
+
+    const column = container.querySelector(
+      '[data-column-id="todo"]',
+    ) as HTMLElement;
+    await act(async () => {
+      dispatchDrag(mustCard("a"), "dragstart", {
+        dataTransfer: dataTransfer(),
+      });
+    });
+    // Drop on the column background (not on a card): a column intent.
+    await act(async () => {
+      dispatchDrag(column, "dragover", { clientY: 200 });
+    });
+    await act(async () => {
+      dispatchDrag(column, "drop");
+    });
+    await flush();
+    await flush();
+
+    expect(serverTasks.find((t) => t.id === "a")?.sortKey).toBeTruthy();
     const persisted = serverTasks
       .filter((t) => t.status === "todo")
       .sort(compareTaskOrder)

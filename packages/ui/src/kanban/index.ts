@@ -29,6 +29,7 @@ export {
   initialSortKeys,
   compareTaskOrder,
   computeReorder,
+  maxSortKey,
   computeBackfillPlan, // one-time sortKey backfill planner (see docs/plans/sortkey-fix.md)
 } from "./utils";
 export type { ReorderPatch, ReorderResult, BackfillTask } from "./utils";

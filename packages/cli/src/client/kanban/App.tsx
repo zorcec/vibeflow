@@ -19,6 +19,7 @@ import {
   computeReorder,
   compareTaskOrder,
   computeTreeReorder,
+  maxSortKey,
   HeaderActionButton,
   getDescendants,
 } from "@vibeflow-tools/ui/kanban";
@@ -1242,11 +1243,6 @@ export function App() {
     const task = tasksRef.current.find((t) => t.id === taskId);
     const links = task?.links ?? [];
     const hasParent = links.some((l) => l?.type === "parent");
-    if (!hasParent) {
-      await patchTask(taskId, { status });
-      return;
-    }
-    const nextLinks = links.filter((l) => l?.type !== "parent");
     const colTasks = tasksRef.current
       .filter((t) => t?.status === status && t.id !== taskId)
       .sort(compareTaskOrder);
@@ -1260,8 +1256,24 @@ export function App() {
       taskId,
       colTasks[colTasks.length - 1]?.id ?? null,
       null,
+      maxSortKey(tasksRef.current),
+      tasksRef.current,
     );
-    await patchTask(taskId, { status, links: nextLinks, sortKey: newSortKey });
+    // A parentless task dropped on the column background used to PATCH only
+    // {status}. That discarded the drop position entirely: a same-column drop
+    // sent the status it already had, which is a literal no-op (no key write,
+    // no order change, no broadcast) and looked like the drop never happened.
+    // The append key is persisted for parentless tasks too.
+    if (hasParent) {
+      const nextLinks = links.filter((l) => l?.type !== "parent");
+      await patchTask(taskId, {
+        status,
+        links: nextLinks,
+        sortKey: newSortKey,
+      });
+    } else {
+      await patchTask(taskId, { status, sortKey: newSortKey });
+    }
     for (const patch of normalizationPatches)
       await patchTask(patch.id, { sortKey: patch.sortKey });
   }
@@ -1277,7 +1289,14 @@ export function App() {
       .filter((t) => t.status === newStatus)
       .sort(compareTaskOrder);
 
-    const result = computeReorder(colTasks, taskId, beforeId, afterId);
+    const result = computeReorder(
+      colTasks,
+      taskId,
+      beforeId,
+      afterId,
+      maxSortKey(tasksRef.current),
+      tasksRef.current,
+    );
     const newSortKey = explicitSortKey ?? result.newSortKey;
     const normalizationPatches = result.normalizationPatches;
 

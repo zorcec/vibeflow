@@ -44,6 +44,7 @@ const DRAG_CLASSES = [
 function BoardHarness({
   initial,
   removeId,
+  onReorder,
   onLinkChild,
   onTreeReparent,
 }: {
@@ -51,6 +52,12 @@ function BoardHarness({
   /** Removed from the board mid-drag to simulate a live update taking the drag
    *  source away while the drag is still in flight. */
   removeId?: string | null;
+  onReorder?: (
+    draggedId: string,
+    status: string,
+    beforeId: string | null,
+    afterId: string | null,
+  ) => void;
   onLinkChild?: (draggedId: string, parentId: string) => void;
   onTreeReparent?: (
     draggedId: string,
@@ -81,7 +88,9 @@ function BoardHarness({
       searchQuery=""
       onOpenPanel={vi.fn()}
       onDrop={vi.fn()}
-      onReorder={vi.fn()}
+      onReorder={(draggedId, status, beforeId, afterId) =>
+        onReorder?.(draggedId, status, beforeId, afterId)
+      }
       onLinkChild={(draggedId, parentId) => {
         onLinkChild?.(draggedId, parentId);
         link(draggedId, parentId);
@@ -96,6 +105,19 @@ function BoardHarness({
 
 function card(container: HTMLElement, id: string): HTMLElement | null {
   return container.querySelector(`article[data-task-id="${id}"]`);
+}
+
+/** jsdom has no DragEvent: a bubbling MouseEvent carries the clientY that the
+ *  drop-band classifier reads. */
+function dragOverAt(el: Element, clientY: number) {
+  fireEvent(
+    el,
+    new MouseEvent("dragover", { bubbles: true, cancelable: true, clientY }),
+  );
+}
+
+function dropAt(el: Element) {
+  fireEvent(el, new Event("drop", { bubbles: true, cancelable: true }));
 }
 
 /** The column wrapper that owns the card-level dragover/drop intent. */
@@ -263,5 +285,60 @@ describe("KanbanBoard drag-and-drop invariants", () => {
     expect(dragArtifacts(container)).toEqual([]);
     // And the board still accepts the next drag.
     expectControllerAlive(container, "d1", "a1");
+  });
+
+  it("an edge drop stays a reorder after the make-child pill has appeared", () => {
+    // Regression: once the make-child pill showed for a card, every later
+    // dragover on that card was pinned to "center", so the only drop that can
+    // reorder relative to a card — its top/bottom edge — silently became a
+    // make-child. Reproduced against the running board with real DragEvents:
+    // hovering the centre and then the top edge dropped as a parent link and
+    // the card left its column.
+    const alpha = makeTask("a1", "Alpha");
+    const beta = makeTask("b1", "Beta");
+    const onReorder = vi.fn();
+    const onLinkChild = vi.fn();
+    const { container } = render(
+      <BoardHarness
+        initial={[alpha, beta]}
+        onReorder={onReorder}
+        onLinkChild={onLinkChild}
+      />,
+    );
+
+    // jsdom has no layout: give the target article a rect so the drop bands are
+    // deterministic (band = max(32, min(56, floor(120 * 0.28))) = 33px).
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const rect =
+        this.getAttribute("data-task-id") === "b1"
+          ? { top: 100, height: 120 }
+          : { top: 0, height: 0 };
+      return {
+        ...rect,
+        bottom: rect.top + rect.height,
+        left: 0,
+        right: 200,
+        width: 200,
+        x: 0,
+        y: rect.top,
+      } as DOMRect;
+    };
+
+    try {
+      fireEvent.dragStart(card(container, "a1")!, {
+        dataTransfer: dataTransfer(),
+      });
+      // 1. cross the card centre — the make-child pill appears
+      dragOverAt(cardWrapper(container, "b1"), 160);
+      // 2. move to the top edge — must still classify as an edge (reorder)
+      dragOverAt(cardWrapper(container, "b1"), 104);
+      dropAt(cardWrapper(container, "b1"));
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+
+    expect(onReorder).toHaveBeenCalledTimes(1);
+    expect(onLinkChild).not.toHaveBeenCalled();
   });
 });

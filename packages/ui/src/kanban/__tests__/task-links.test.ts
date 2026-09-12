@@ -326,6 +326,24 @@ describe("computeTreeReorder (sibling order plan)", () => {
     expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
   });
 
+  // Regression: the only child (or a parent with no other children) is a
+  // no-neighbour drop too. It must anchor after the store max, not mint the
+  // store's initial constant `0000000001000000` (a cross-column duplicate).
+  it("anchors an only-child reorder after the store max, not the constant", () => {
+    const only = [
+      makeTask({ id: "r" }),
+      makeTask({
+        id: "a",
+        sortKey: "0000024263628904",
+        links: [{ taskId: "r", type: "parent" }],
+      }),
+    ];
+    const plan = computeTreeReorder(only, "a", "r", null, "after");
+    expect(plan).not.toBeNull();
+    expect(plan!.newSortKey).not.toBe("0000000001000000");
+    expect(plan!.newSortKey > "0000024263628904").toBe(true);
+  });
+
   it("appends last when the target is not among the siblings", () => {
     const plan = computeTreeReorder(keyless, "a", "r", "missing", "after");
     const next = applyPlan(keyless, "a", plan!);
