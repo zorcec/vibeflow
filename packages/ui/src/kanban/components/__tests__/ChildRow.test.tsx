@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ChildRow } from "../ChildRow";
+import { TREE_INDENT_PX } from "../tree-constants";
 import type { Task } from "../../types";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -127,6 +128,7 @@ describe("ChildRow", () => {
   });
 
   it("renders no guide lines at any depth, indents via flat left padding", () => {
+    const base = 2; // minimal (inline/detail) base row padding
     const { container, unmount } = render(
       <ChildRow child={makeTask()} variant="inline" depth={1} />,
     );
@@ -134,19 +136,27 @@ describe("ChildRow", () => {
     expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
     expect(document.querySelector(".tree-guide")).not.toBeInTheDocument();
     expect(document.querySelector(".tree-guide--last")).not.toBeInTheDocument();
-    // Minimal (inline) base 2px + 1 level × 14px
-    expect(row).toHaveStyle({ paddingLeft: "16px" });
+    // Inline (card tree) root row — base padding only, no nesting step.
+    expect(row).toHaveStyle({ paddingLeft: `${base}px` });
     unmount();
 
-    const rerender = render(
+    // Each level below the root adds exactly one TREE_INDENT_PX step.
+    const nested = render(
+      <ChildRow child={makeTask()} variant="inline" depth={3} />,
+    );
+    expect(
+      nested.container.querySelector("[data-role='child-link-row']"),
+    ).toHaveStyle({ paddingLeft: `${base + 2 * TREE_INDENT_PX}px` });
+    nested.unmount();
+
+    // Detail-panel rows keep the root step so they align under the
+    // relation-group label (dot + gap = one step).
+    const detail = render(
       <ChildRow child={makeTask()} variant="detail" depth={3} />,
     );
-    const deepRow = rerender.container.querySelector(
-      "[data-role='child-link-row']",
-    );
-    expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
-    // Detail base 2px + 3 levels × 14px
-    expect(deepRow).toHaveStyle({ paddingLeft: "44px" });
+    expect(
+      detail.container.querySelector("[data-role='child-link-row']"),
+    ).toHaveStyle({ paddingLeft: `${base + 3 * TREE_INDENT_PX}px` });
   });
 
   it("renders no guides when depth is absent (popover)", () => {

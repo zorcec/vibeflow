@@ -10,12 +10,11 @@ import {
 import type { DropIntent } from "../task-links";
 import { compareTaskOrder } from "../utils";
 import { ChildRow } from "./ChildRow";
+import { MAX_TREE_DEPTH, TREE_INDENT_PX } from "./tree-constants";
 
-/** Depth indentation per nesting level (px). */
-export const TREE_INDENT_PX = 14;
-
-/** Failsafe, not a design limit. */
-export const MAX_TREE_DEPTH = 8;
+// Public API (re-exported by the kanban index) — defined in tree-constants so
+// ChildRow can read the indent step without a circular import.
+export { MAX_TREE_DEPTH, TREE_INDENT_PX } from "./tree-constants";
 
 interface RecursiveChildrenTreeProps {
   /** The parent whose children to render. */

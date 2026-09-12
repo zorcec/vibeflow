@@ -1,6 +1,7 @@
 import React from "react";
 import type { Task } from "../types";
 import { getStatusColor, shortId } from "../task-links";
+import { TREE_INDENT_PX } from "./tree-constants";
 
 interface ChildRowProps {
   child: Task;
@@ -43,10 +44,14 @@ export function ChildRow({
   const isHollow = guideDepth >= 2;
   const draggable = Boolean(onRowDragStart) && Boolean(child?.id);
   const title = child?.title ?? "(untitled)";
-  // Flat indent per depth level (no guide lines): base row padding +
-  // one 14px slot per level so hierarchy still reads. Slot width must
-  // stay in sync with TREE_INDENT_PX (14).
-  const indentPx = (isMinimal ? 2 : 2.5) + guideDepth * 14;
+  // Flat indent per depth level (no guide lines): the row's own base
+  // padding + one TREE_INDENT_PX step per nesting level. The card-zone
+  // tree (inline) starts its root level (1 = direct child) at the base
+  // padding only — the root pays no step and each level below it pays
+  // one. The detail panel keeps the historical root step so its rows
+  // stay aligned under the relation-group label (dot + gap = one step).
+  const nestingSteps = isInline ? Math.max(guideDepth - 1, 0) : guideDepth;
+  const indentPx = (isMinimal ? 2 : 2.5) + nestingSteps * TREE_INDENT_PX;
   return (
     <button
       className={`child-link-row child-link-row--${variant}${isOrphan ? " child-row--orphan" : ""}`}
