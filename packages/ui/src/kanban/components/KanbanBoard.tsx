@@ -7,6 +7,7 @@ import {
   classifyForDropIntent,
   targetValid,
   canReparent,
+  canDropAsChild,
   getParent,
   dragSession,
 } from "../task-links";
@@ -347,7 +348,9 @@ export function KanbanBoard({
     const pillVisible =
       makeChildTarget?.taskId === taskId && makeChildTarget?.isZone === false;
     const { zone } = classifyForDropIntent(wrapperEl, e.clientY, pillVisible);
-    const valid = targetValid(filtered, dragging, taskId);
+    // Parentless task → link; already-parented task → reparent (the
+    // single-parent rule rejects the link, not the move).
+    const valid = canDropAsChild(filtered, dragging, taskId);
 
     if (zone === "center") {
       const task = filtered.find((t) => t.id === taskId);
@@ -383,7 +386,7 @@ export function KanbanBoard({
     // would otherwise leave the children zone (the make-child affordance) inert.
     const dragging = dragTaskIdRef.current ?? dragSession.get();
     if (!dragging) return;
-    const valid = targetValid(filtered, dragging, parentId);
+    const valid = canDropAsChild(filtered, dragging, parentId);
     const task = filtered.find((t) => t.id === parentId);
     // Zone intent overwrites any card intent (single ref, no cross-nulling)
     dropIntentRef.current = { kind: "zone", parentId };
@@ -454,18 +457,26 @@ export function KanbanBoard({
             // than silently returning.
           }
         } else if (onLinkChild) {
-          // Card-zone drop — link as child (rejects existing parents).
+          // Card-zone drop — link a parentless task as a child, otherwise
+          // reparent the already-parented task (single-parent rule rejects
+          // the link, not the move — this is how a nested child is dragged
+          // back to a root/ancestor card).
           const freshValid = targetValid(tasks, dragging, intent.parentId);
           if (freshValid) onLinkChild(dragging, intent.parentId);
+          else if (canReparent(tasks, dragging, intent.parentId))
+            onTreeReparent?.(dragging, intent.parentId);
           return;
         }
       }
 
       if (intent?.kind === "card" && intent.taskId) {
         if (!intent.position && onLinkChild) {
-          // center → make-child (re-validate against UNFILTERED tasks — fixes E1)
+          // center → make-child (re-validate against UNFILTERED tasks — fixes E1).
+          // Falls back to reparent for an already-parented task.
           const freshValid = targetValid(tasks, dragging, intent.taskId);
           if (freshValid) onLinkChild(dragging, intent.taskId);
+          else if (canReparent(tasks, dragging, intent.taskId))
+            onTreeReparent?.(dragging, intent.taskId);
           return;
         }
         if (intent.position && onReorder) {

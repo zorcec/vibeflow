@@ -1,5 +1,7 @@
 // ── Task link helpers (pure, mirrors CLI task-links.ts) ──────────────────
 import type { Task, TaskLinkType } from "./types";
+import { compareTaskOrder, computeReorder } from "./utils";
+import type { ReorderPatch } from "./utils";
 
 /** Canonical status colors — single source of truth for dots/badges.
  * Values match the DetailPanel dp-status-btn.active-* text colors. */
@@ -385,6 +387,91 @@ export function targetValid(
   const draggedTask = allTasks.find((t) => t.id === draggedId);
   if (draggedTask?.links?.some((l) => l.type === "parent")) return false;
   return true;
+}
+
+/**
+ * Whether dropping draggedId on targetId as a child is actionable at all.
+ * A parentless task links (`targetValid`); an already-parented task reparents
+ * instead — the single-parent rule rejects the link, not the move, so a
+ * nested child can still be dragged up to another card or ancestor.
+ */
+export function canDropAsChild(
+  allTasks: Task[],
+  draggedId: string,
+  targetId: string,
+): boolean {
+  if (!draggedId || !targetId) return false;
+  return (
+    targetValid(allTasks, draggedId, targetId) ||
+    canReparent(allTasks, draggedId, targetId)
+  );
+}
+
+/** Key plan for a children-tree sibling reorder / reparent drop. */
+export interface TreeReorderPlan {
+  /** The dragged task's new sort key — persist it on the dragged task. */
+  newSortKey: string;
+  /**
+   * Re-keyed legacy siblings (no sortKey, or the legacy `'n'`). They MUST be
+   * persisted together with `newSortKey`: compareTaskOrder sorts keyless
+   * tasks after every keyed task, so the key computed around an unapplied
+   * keyless neighbour lands the dragged task before it, not next to it.
+   */
+  normalizationPatches: ReorderPatch[];
+}
+
+/**
+ * Resolve the sort key for a sibling reorder inside one parent.
+ *
+ * Sibling order is the order the tree renders (compareTaskOrder): keyed tasks
+ * ascending, keyless tasks after them by timestamp. `targetId`/`position`
+ * describe the drop relative to a rendered sibling; the dragged task is
+ * excluded from the neighbour search (it is the one moving). A missing/absent
+ * target appends last, which is what a zone or children-zone drop means.
+ *
+ * Returns the dragged key plus the normalization patches the caller must
+ * apply alongside it — applying only the key is what made sibling order
+ * unreliable for tasks that never carried a sortKey.
+ */
+export function computeTreeReorder(
+  allTasks: Task[],
+  draggedId: string,
+  parentId: string,
+  targetId: string | null,
+  position: "before" | "after" = "after",
+): TreeReorderPlan | null {
+  if (!draggedId || !parentId) return null;
+  const siblings = getChildren(allTasks ?? [], parentId)
+    .filter((t) => t?.id && t.id !== draggedId)
+    .sort(compareTaskOrder);
+
+  let beforeId: string | null = null;
+  let afterId: string | null = null;
+  const targetIndex = targetId
+    ? siblings.findIndex((t) => t.id === targetId)
+    : -1;
+
+  if (targetIndex >= 0) {
+    if (position === "before") {
+      afterId = targetId;
+      beforeId = targetIndex > 0 ? siblings[targetIndex - 1].id : null;
+    } else {
+      beforeId = targetId;
+      afterId =
+        targetIndex < siblings.length - 1 ? siblings[targetIndex + 1].id : null;
+    }
+  } else {
+    // No target (or target not among the new siblings) → append last.
+    beforeId = siblings[siblings.length - 1]?.id ?? null;
+  }
+
+  const { newSortKey, normalizationPatches } = computeReorder(
+    siblings.map((t) => ({ id: t.id, sortKey: t.sortKey })),
+    draggedId,
+    beforeId,
+    afterId,
+  );
+  return { newSortKey, normalizationPatches };
 }
 
 /** Position for a child popover anchored to a DOMRect. */

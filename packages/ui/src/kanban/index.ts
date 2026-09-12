@@ -82,6 +82,8 @@ export {
   classifyForDropIntent,
   classifyTreeRowIntent,
   canReparent,
+  canDropAsChild,
+  computeTreeReorder,
   dragSession,
   getDescendants,
   DROP_BAND_RATIO,
@@ -93,4 +95,5 @@ export type {
   DetailRelationsGroups,
   DropIntent,
   DropIntentKind,
+  TreeReorderPlan,
 } from "./task-links";

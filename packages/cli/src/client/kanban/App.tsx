@@ -18,6 +18,7 @@ import {
   FilePreviewModal,
   computeReorder,
   compareTaskOrder,
+  computeTreeReorder,
   generateSortKeyBetween,
   HeaderActionButton,
   getDescendants,
@@ -1125,8 +1126,9 @@ export function App() {
     }
   }
 
-  /** Tree sibling reorder — compute the sortKey between the sorted siblings
-   * under parentId and persist it with a single patchTask. */
+  /** Tree sibling reorder — resolve the drop against the rendered sibling
+   * order with the shared computeTreeReorder plan, then persist the dragged
+   * key plus every normalization patch the plan returns. */
   async function handleTreeReorder(
     draggedId: string,
     targetId: string,
@@ -1135,36 +1137,26 @@ export function App() {
   ) {
     if (!draggedId || !targetId || !parentId) return;
     if (draggedId === targetId) return;
-    const siblings = tasksRef.current
-      .filter((t) =>
-        t?.links?.some((l) => l?.type === "parent" && l?.taskId === parentId),
-      )
-      .filter((t) => t.id !== draggedId)
-      .sort(compareTaskOrder);
-    const targetIndex = siblings.findIndex((t) => t.id === targetId);
-    if (targetIndex < 0) return;
-    let beforeId: string | null = null;
-    let afterId: string | null = null;
-    if (position === "before") {
-      afterId = targetId;
-      beforeId = targetIndex > 0 ? siblings[targetIndex - 1].id : null;
-    } else {
-      beforeId = targetId;
-      afterId =
-        targetIndex < siblings.length - 1 ? siblings[targetIndex + 1].id : null;
-    }
-    // Reuse the column-reorder key math on the sibling list.
-    const { newSortKey } = computeReorder(
-      siblings.map((t) => ({ id: t.id, sortKey: t.sortKey })),
+    const plan = computeTreeReorder(
+      tasksRef.current,
       draggedId,
-      beforeId,
-      afterId,
+      parentId,
+      targetId,
+      position,
     );
-    await patchTask(draggedId, { sortKey: newSortKey });
+    if (!plan) return;
+    await patchTask(draggedId, { sortKey: plan.newSortKey });
+    // Persist the re-keyed keyless siblings too: compareTaskOrder sorts a
+    // keyless task after every keyed one, so persisting only the dragged key
+    // lands it before those siblings on the next read.
+    for (const patch of plan.normalizationPatches)
+      await patchTask(patch.id, { sortKey: patch.sortKey });
   }
 
-  /** Tree reparent — replace the parent link and assign an order sortKey
-   * in ONE PATCH, with snapshot revert on failure (mirrors linkChild). */
+  /** Tree reparent — replace the parent link and assign an order sortKey with
+   * snapshot revert on failure (mirrors linkChild). The key comes from the
+   * same shared computeTreeReorder plan as a same-parent reorder, plus its
+   * normalization patches for keyless siblings. */
   async function handleTreeReparent(
     draggedId: string,
     newParentId: string,
@@ -1176,54 +1168,39 @@ export function App() {
     const task = tasksRef.current.find((t) => t.id === draggedId);
     const existingLinks = task?.links ?? [];
     const snapshot = [...existingLinks];
+    const previousSortKey = task?.sortKey;
     const newLink = { taskId: newParentId, type: "parent" as const };
     const nextLinks = [
       ...existingLinks.filter((l) => l?.type !== "parent"),
       newLink,
     ];
     // Order among the new siblings: around the drop target, else append-last.
-    const siblings = tasksRef.current
-      .filter((t) =>
-        t?.links?.some(
-          (l) => l?.type === "parent" && l?.taskId === newParentId,
-        ),
-      )
-      .filter((t) => t.id !== draggedId)
-      .sort(compareTaskOrder);
-    let beforeId: string | null = null;
-    let afterId: string | null = null;
-    if (targetId) {
-      const targetIndex = siblings.findIndex((t) => t.id === targetId);
-      if (targetIndex >= 0) {
-        if ((position ?? "after") === "before") {
-          afterId = targetId;
-          beforeId = targetIndex > 0 ? siblings[targetIndex - 1].id : null;
-        } else {
-          beforeId = targetId;
-          afterId =
-            targetIndex < siblings.length - 1
-              ? siblings[targetIndex + 1].id
-              : null;
-        }
-      } else {
-        beforeId =
-          siblings.length > 0 ? siblings[siblings.length - 1].id : null;
-      }
-    } else {
-      beforeId = siblings.length > 0 ? siblings[siblings.length - 1].id : null;
-    }
-    const { newSortKey } = computeReorder(
-      siblings.map((t) => ({ id: t.id, sortKey: t.sortKey })),
+    const plan = computeTreeReorder(
+      tasksRef.current,
       draggedId,
-      beforeId,
-      afterId,
+      newParentId,
+      targetId ?? null,
+      position ?? "after",
+    );
+    if (!plan) return;
+    const { newSortKey, normalizationPatches } = plan;
+    // Snapshot the pre-drop keys of any keyless siblings so a failed PATCH can
+    // revert them together with the dragged task.
+    const patchSnapshot = new Map(
+      normalizationPatches.map((p) => [
+        p.id,
+        tasksRef.current.find((t) => t.id === p.id)?.sortKey,
+      ]),
     );
     setTasks((prev) => {
-      const next = prev.map((t) =>
-        t.id === draggedId
-          ? { ...t, links: nextLinks, sortKey: newSortKey }
-          : t,
+      const keys = new Map(
+        normalizationPatches.map((p) => [p.id, p.sortKey] as const),
       );
+      const next = prev.map((t) => {
+        if (t.id === draggedId)
+          return { ...t, links: nextLinks, sortKey: newSortKey };
+        return keys.has(t.id) ? { ...t, sortKey: keys.get(t.id) } : t;
+      });
       tasksRef.current = next;
       return next;
     });
@@ -1239,14 +1216,20 @@ export function App() {
           return next;
         });
       }
+      for (const patch of normalizationPatches)
+        await patchTask(patch.id, { sortKey: patch.sortKey });
     } catch (err) {
       console.warn(
         `[Vibeflow] Failed to reparent: ${err instanceof Error ? err.message : String(err)}`,
       );
       setTasks((prev) => {
-        const next = prev.map((t) =>
-          t.id === draggedId ? { ...t, links: snapshot } : t,
-        );
+        const next = prev.map((t) => {
+          if (t.id === draggedId)
+            return { ...t, links: snapshot, sortKey: previousSortKey };
+          return patchSnapshot.has(t.id)
+            ? { ...t, sortKey: patchSnapshot.get(t.id) }
+            : t;
+        });
         tasksRef.current = next;
         return next;
       });

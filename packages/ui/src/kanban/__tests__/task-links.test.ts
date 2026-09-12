@@ -10,8 +10,13 @@ import {
   resolveRootTask,
   classifyTreeRowIntent,
   canReparent,
+  canDropAsChild,
+  computeTreeReorder,
+  targetValid,
   dragSession,
 } from "../task-links";
+import { compareTaskOrder } from "../utils";
+import type { ReorderPatch } from "../utils";
 import type { Task } from "../types";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -203,5 +208,132 @@ describe("dragSession singleton", () => {
     dragSession.end();
     dragSession.begin("");
     expect(dragSession.get()).toBeNull();
+  });
+});
+
+describe("canDropAsChild (link OR reparent)", () => {
+  const tasks = [
+    makeTask({ id: "root" }),
+    makeTask({ id: "a", links: [{ taskId: "root", type: "parent" }] }),
+    makeTask({ id: "grandchild", links: [{ taskId: "a", type: "parent" }] }),
+    makeTask({ id: "free" }),
+  ];
+
+  it("allows a parentless task (link path)", () => {
+    expect(canDropAsChild(tasks, "free", "root")).toBe(true);
+  });
+
+  it("allows an already-parented task (reparent path)", () => {
+    // Single-parent rule rejects the link, but the move must still be offered.
+    expect(targetValid(tasks, "a", "free")).toBe(false);
+    expect(canDropAsChild(tasks, "a", "free")).toBe(true);
+  });
+
+  it("allows moving a nested child back to a higher ancestor", () => {
+    expect(canDropAsChild(tasks, "grandchild", "root")).toBe(true);
+  });
+
+  it("rejects self and descendant targets", () => {
+    expect(canDropAsChild(tasks, "a", "a")).toBe(false);
+    expect(canDropAsChild(tasks, "a", "grandchild")).toBe(false);
+  });
+
+  it("rejects empty ids (null-safe)", () => {
+    expect(canDropAsChild(tasks, "", "root")).toBe(false);
+    expect(canDropAsChild(tasks, "a", "")).toBe(false);
+  });
+});
+
+describe("computeTreeReorder (sibling order plan)", () => {
+  function siblingOrder(tasks: Task[], parentId: string): string[] {
+    return tasks
+      .filter((t) =>
+        t?.links?.some((l) => l?.type === "parent" && l?.taskId === parentId),
+      )
+      .sort(compareTaskOrder)
+      .map((t) => t.id);
+  }
+
+  /** Apply a plan exactly like the CLI kanban does (dragged key + patches). */
+  function applyPlan(
+    tasks: Task[],
+    draggedId: string,
+    plan: { newSortKey: string; normalizationPatches: ReorderPatch[] },
+  ): Task[] {
+    const keys = new Map(
+      plan.normalizationPatches.map((p) => [p.id, p.sortKey] as const),
+    );
+    keys.set(draggedId, plan.newSortKey);
+    return tasks.map((t) =>
+      keys.has(t.id) ? { ...t, sortKey: keys.get(t.id) } : t,
+    );
+  }
+
+  const keyless = [
+    makeTask({ id: "r", updatedAt: "2026-01-01" }),
+    makeTask({
+      id: "a",
+      updatedAt: "2026-01-02",
+      links: [{ taskId: "r", type: "parent" }],
+    }),
+    makeTask({
+      id: "b",
+      updatedAt: "2026-01-03",
+      links: [{ taskId: "r", type: "parent" }],
+    }),
+  ];
+
+  it("keyless siblings: a plan exists and applying it yields the intended order", () => {
+    expect(siblingOrder(keyless, "r")).toEqual(["a", "b"]);
+    const plan = computeTreeReorder(keyless, "a", "r", "b", "after");
+    expect(plan).not.toBeNull();
+    // The keyless neighbour must be re-keyed, otherwise compareTaskOrder keeps
+    // it after every keyed task and the drag appears to do nothing.
+    expect(plan!.normalizationPatches.map((p) => p.id)).toContain("b");
+    const next = applyPlan(keyless, "a", plan!);
+    expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
+  });
+
+  it("keyless siblings: drag the middle sibling before the first", () => {
+    const plan = computeTreeReorder(keyless, "b", "r", "a", "before");
+    const next = applyPlan(keyless, "b", plan!);
+    expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
+  });
+
+  it("fully keyed siblings need no normalization patches", () => {
+    const keyed = [
+      makeTask({ id: "r" }),
+      makeTask({
+        id: "a",
+        sortKey: "0000000001000000",
+        links: [{ taskId: "r", type: "parent" }],
+      }),
+      makeTask({
+        id: "b",
+        sortKey: "0000000002000000",
+        links: [{ taskId: "r", type: "parent" }],
+      }),
+    ];
+    const plan = computeTreeReorder(keyed, "a", "r", "b", "after");
+    expect(plan!.normalizationPatches).toEqual([]);
+    const next = applyPlan(keyed, "a", plan!);
+    expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
+  });
+
+  it("appends last when there is no target (zone/children-zone drop)", () => {
+    const plan = computeTreeReorder(keyless, "a", "r", null, "after");
+    const next = applyPlan(keyless, "a", plan!);
+    expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
+  });
+
+  it("appends last when the target is not among the siblings", () => {
+    const plan = computeTreeReorder(keyless, "a", "r", "missing", "after");
+    const next = applyPlan(keyless, "a", plan!);
+    expect(siblingOrder(next, "r")).toEqual(["b", "a"]);
+  });
+
+  it("returns null for missing ids (null-safe)", () => {
+    expect(computeTreeReorder(keyless, "", "r", "b", "after")).toBeNull();
+    expect(computeTreeReorder(keyless, "a", "", "b", "after")).toBeNull();
   });
 });
