@@ -71,6 +71,8 @@ export const CreateTaskInput = z.object({
   url: z.string().optional(),
   selector: z.string().default("/"),
   cssSelector: z.string().optional(),
+  // Optional explicit ordering key; core auto-assigns one when omitted.
+  sortKey: z.string().optional(),
 });
 export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
@@ -287,6 +289,7 @@ export async function createTask(
       url: input.url,
       selector: input.selector,
       cssSelector: input.cssSelector,
+      sortKey: input.sortKey,
       // Same identity source as the CLI and the board so agent-created tasks
       // match human-created ones.
       author: ctx.userId ?? getGitUser(ctx.projectDir).name,

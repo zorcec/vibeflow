@@ -186,6 +186,34 @@ describe("CRUD operations", () => {
     expect(task.description).toBe("Line 1\nLine 2");
   });
 
+  it("createTask assigns a well-formed sortKey when none is supplied and persists it", () => {
+    const task = createTask(tempDir, {
+      title: "Needs a key",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+
+    expect(task.sortKey).toMatch(/^\d{16}$/);
+    const fromDisk = listTasks(tempDir).find((t) => t.id === task.id);
+    expect(fromDisk?.sortKey).toBe(task.sortKey);
+  });
+
+  it("createTask preserves an explicitly supplied sortKey", () => {
+    const supplied = "0000000000000042";
+    const task = createTask(tempDir, {
+      title: "Explicit key",
+      description: "",
+      status: "todo",
+      selector: "/",
+      sortKey: supplied,
+    });
+
+    expect(task.sortKey).toBe(supplied);
+    const fromDisk = listTasks(tempDir).find((t) => t.id === task.id);
+    expect(fromDisk?.sortKey).toBe(supplied);
+  });
+
   it("listTasks returns empty array for non-existent dir", () => {
     expect(listTasks(tempDir)).toEqual([]);
   });

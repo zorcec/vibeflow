@@ -22,6 +22,7 @@ import {
 } from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath } from "./lock.js";
+import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 
 export function generateTaskId(): string {
   // 15 random bytes → 30-char lowercase hex, 120 bits of entropy — essentially zero collision probability
@@ -318,6 +319,12 @@ export function createTask(
     title: normalizeEscapeSequences(input.title ?? "").trim(),
     description: normalizeEscapeSequences(input.description ?? "").trim(),
     priority: normalizedPriority,
+    // Hardening: every task must carry a well-formed sortKey so it stays
+    // orderable in its column. The board supplies one on create; the CLI, MCP
+    // and HTTP paths did not. Seed with the same key the board gives the first
+    // task of an empty column — no full-store scan per create. Existing
+    // keyless tasks are normalised on read/reorder.
+    sortKey: input.sortKey ?? generateSortKeyBetween(null, null),
     id: generateTaskId(),
     created: new Date().toISOString(),
     comments: [],
