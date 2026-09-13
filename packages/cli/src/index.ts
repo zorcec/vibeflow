@@ -2392,9 +2392,12 @@ program
 
           // Research report upload + gate already handled above (before SaaS path)
 
-          // Reset verified flag when claiming a task for new work
+          // Reset the verify flag when claiming a task for new work. Clear it
+          // to `undefined` (omit the key) rather than writing `false`, so the
+          // persisted value stays tri-state: `false` uniquely means the last
+          // verify FAILED, while absence means never verified / reset.
           if (opts.setStatus === "in-progress") {
-            updates.verified = false;
+            updates.verified = undefined;
           }
 
           const updated = updateTask(dir, resolvedTaskId, updates);

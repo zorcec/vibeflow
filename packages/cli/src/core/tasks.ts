@@ -219,7 +219,11 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         )
       : undefined,
     sortKey: raw.sortKey ? String(raw.sortKey) : undefined,
-    verified: raw.verified === true,
+    // Tri-state: true = last verify passed, false = last verify FAILED,
+    // undefined = never verified. Absence must survive normalization —
+    // collapsing it to false would erase the failed/never-verified distinction
+    // the kanban UI relies on (see the three-state verify indicator).
+    verified: typeof raw.verified === "boolean" ? raw.verified : undefined,
     branchName: raw.branchName ? String(raw.branchName) : undefined,
     baseline:
       raw.baseline && typeof raw.baseline === "object"

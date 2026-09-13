@@ -22,6 +22,7 @@ import {
 } from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
+import { VerifyIndicator, verifyState } from "./VerifyIndicator";
 
 interface Props {
       task: Task;
@@ -112,19 +113,6 @@ const DONE_TITLE_STYLE: React.CSSProperties = {
       whiteSpace: "nowrap",
       flex: 1,
 };
-const VERIFIED_BADGE_STYLE: React.CSSProperties = {
-      fontSize: 9,
-      fontWeight: 700,
-      color: "var(--t-success)",
-      background: "rgba(34,197,94,0.12)",
-      border: "1px solid rgba(34,197,94,0.3)",
-      borderRadius: 4,
-      padding: "1px 5px",
-      marginLeft: 6,
-      flexShrink: 0,
-      letterSpacing: 0.5,
-};
-
 const CARD_TITLE_ROW_STYLE: React.CSSProperties = {
       display: "flex",
       alignItems: "center",
@@ -200,6 +188,9 @@ export const TaskCard = React.memo(function TaskCard({
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
+      // Tri-state verify result — drives the leading-slot glyph in both
+      // branches. "none" leaves the slot to the status glyph.
+      const verify = verifyState(task);
       const [showThumbPreview, setShowThumbPreview] = React.useState(false);
       const [thumbRect, setThumbRect] = React.useState<{
             top: number;
@@ -289,15 +280,23 @@ export const TaskCard = React.memo(function TaskCard({
                         onClick={handleClick}
                   >
                         <div style={DONE_INNER_ROW_STYLE}>
-                              {isDone ? (
-                                    <CheckCircle
-                                          style={DONE_CHECK_ICON_STYLE}
-                                    />
+                              {/* Leading slot: a verify verdict outranks the
+                                  neutral status glyph (verified/done both sit
+                                  here); with no verdict, the status glyph is
+                                  unchanged. */}
+                              {verify === "none" ? (
+                                    isDone ? (
+                                          <CheckCircle
+                                                style={DONE_CHECK_ICON_STYLE}
+                                          />
+                                    ) : (
+                                          <span
+                                                className={dotClass}
+                                                style={{ flexShrink: 0 }}
+                                          />
+                                    )
                               ) : (
-                                    <span
-                                          className={dotClass}
-                                          style={{ flexShrink: 0 }}
-                                    />
+                                    <VerifyIndicator state={verify} size={12} />
                               )}
                               <span
                                     style={{
@@ -338,11 +337,6 @@ export const TaskCard = React.memo(function TaskCard({
                                                       `📎${fileCount}`}
                                           </span>
                                     )}
-                              {isDone && task.verified && (
-                                    <span style={VERIFIED_BADGE_STYLE}>
-                                          ✓ VERIFIED
-                                    </span>
-                              )}
                         </div>
                   </article>
             );
@@ -400,6 +394,12 @@ export const TaskCard = React.memo(function TaskCard({
                                     className="spinner"
                                     style={SPINNER_SHRINK_STYLE}
                               />
+                        )}
+                        {/* Verify verdict sits in the leading slot beside the
+                            in-flight spinner (a verified task can also be
+                            in-progress). No verdict → no extra glyph. */}
+                        {verify !== "none" && (
+                              <VerifyIndicator state={verify} />
                         )}
                         {/* Unopened indicator: blue dot if task has not been opened by current user */}
                         {(() => {

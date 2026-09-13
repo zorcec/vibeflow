@@ -573,6 +573,70 @@ describe("runVerify — CLI entry point", () => {
 
     stderrSpy.mockRestore();
   });
+
+  it("failed verify tells the agent to fix and re-run", async () => {
+    // A run that finishes with issues (not an infra error) must end with an
+    // explicit next step — re-run `vibeflow verify <id>`.
+    mockPage.waitForSelector.mockRejectedValue(new Error("Timeout"));
+    const logs: string[] = [];
+    const consoleSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation((...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      });
+
+    await runVerify(tempDir, "test-task-123", { json: false });
+
+    const out = logs.join("\n");
+    expect(out).toContain(
+      "Verification failed — fix the issues above, then re-run:",
+    );
+    expect(out).toContain("vibeflow verify test-task-123");
+
+    consoleSpy.mockRestore();
+  });
+
+  it("retryable VerifyError (no baseline) prints the re-run instruction", async () => {
+    vi.mocked(tasksModule.readTaskFile).mockReturnValue(
+      makeTask({ baseline: undefined }),
+    );
+    const originalExitCode = process.exitCode;
+    const writes: string[] = [];
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    await runVerify(tempDir, "test-task-123", {});
+
+    expect(writes.join("")).toContain(
+      "re-run: vibeflow verify test-task-123",
+    );
+
+    process.exitCode = originalExitCode;
+    stderrSpy.mockRestore();
+  });
+
+  it("does NOT print the re-run instruction for E_NOT_FOUND", async () => {
+    vi.mocked(tasksModule.findTaskFilePath).mockReturnValue(null);
+    const originalExitCode = process.exitCode;
+    const writes: string[] = [];
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    await runVerify(tempDir, "nonexistent", {});
+
+    expect(writes.join("")).not.toContain("re-run: vibeflow verify");
+
+    process.exitCode = originalExitCode;
+    stderrSpy.mockRestore();
+  });
 });
 
 describe("verifyTask — evidence storage", () => {

@@ -251,3 +251,78 @@ describe("ChildRow", () => {
     });
   });
 });
+
+describe("ChildRow verify indicator (three states)", () => {
+  it("tree row: verified renders success glyph and no chevron", () => {
+    const { container } = render(
+      <ChildRow
+        child={makeTask({ status: "review", verified: true })}
+        variant="inline"
+        depth={1}
+      />,
+    );
+    const icon = container.querySelector('[data-verify-state="verified"]');
+    expect(icon).toBeInTheDocument();
+    expect(icon).toHaveAttribute("aria-label", "Verified");
+    expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
+  });
+
+  it("tree row: verified=false renders warning glyph and no chevron", () => {
+    const { container } = render(
+      <ChildRow
+        child={makeTask({ status: "review", verified: false })}
+        variant="inline"
+        depth={1}
+      />,
+    );
+    const icon = container.querySelector('[data-verify-state="failed"]');
+    expect(icon).toBeInTheDocument();
+    expect(icon).toHaveAttribute("aria-label", "Verification failed");
+    expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
+  });
+
+  it("tree row: undefined keeps today's chevron", () => {
+    const { container } = render(
+      <ChildRow child={makeTask({ status: "review" })} variant="inline" />,
+    );
+    expect(container.querySelector("[data-verify-state]")).not.toBeInTheDocument();
+    expect(container.querySelector(".child-link-chevron")).toBeInTheDocument();
+  });
+
+  it("tree row: in-progress + verified keeps the loader and adds the glyph", () => {
+    const { container } = render(
+      <ChildRow
+        child={makeTask({ status: "in-progress", verified: true })}
+        variant="inline"
+      />,
+    );
+    expect(container.querySelector(".child-link-spinner")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-verify-state="verified"]'),
+    ).toBeInTheDocument();
+  });
+
+  it("popover dot variant: verified swaps the dot for the glyph, undefined keeps it", () => {
+    const verified = render(
+      <ChildRow
+        child={makeTask({ status: "review", verified: true })}
+        variant="popover"
+      />,
+    );
+    expect(
+      verified.container.querySelector('[data-verify-state="verified"]'),
+    ).toBeInTheDocument();
+    expect(
+      verified.container.querySelector(".child-link-dot"),
+    ).not.toBeInTheDocument();
+    verified.unmount();
+
+    const plain = render(
+      <ChildRow child={makeTask({ status: "review" })} variant="popover" />,
+    );
+    expect(
+      plain.container.querySelector("[data-verify-state]"),
+    ).not.toBeInTheDocument();
+    expect(plain.container.querySelector(".child-link-dot")).toBeInTheDocument();
+  });
+});

@@ -2,6 +2,7 @@ import React from "react";
 import type { Task } from "../types";
 import { getStatusColor, shortId } from "../task-links";
 import { TREE_INDENT_PX } from "./tree-constants";
+import { VerifyIndicator, verifyState } from "./VerifyIndicator";
 
 interface ChildRowProps {
   child: Task;
@@ -44,6 +45,9 @@ export function ChildRow({
   const isHollow = guideDepth >= 2;
   const draggable = Boolean(onRowDragStart) && Boolean(child?.id);
   const title = child?.title ?? "(untitled)";
+  // Tri-state verify result for the leading slot. "none" leaves the slot to
+  // the status glyph (chevron/dot) or the in-progress loader.
+  const verify = verifyState(child);
   // Flat indent per depth level (no guide lines): the row's own base
   // padding + one TREE_INDENT_PX step per nesting level. The card-zone
   // tree (inline) starts its root level (1 = direct child) at the base
@@ -121,27 +125,36 @@ export function ChildRow({
           : undefined
       }
     >
-      {/* Chevron on spine (tree variants) — status-colored, in-flow.
-                            In-progress rows show the minimal loader instead.
-                            Popover keeps the legacy dot below. */}
+      {/* Leading slot (tree variants): the status-colored chevron, or the
+                            spinner while in-progress. A verify verdict replaces the
+                            chevron, and rides BESIDE the spinner because "in flight"
+                            and "verified" are different facts. Popover keeps the dot,
+                            upgraded to the same verdict glyph. */}
       {isMinimal ? (
-        child?.status === "in-progress" ? (
-          <span
-            className="spinner child-link-spinner"
-            role="status"
-            aria-label="In progress"
-          />
-        ) : (
-          <span
-            className="child-link-chevron"
-            aria-hidden="true"
-            style={{
-              color: getStatusColor(child?.status),
-            }}
-          >
-            ›
-          </span>
-        )
+        <>
+          {child?.status === "in-progress" && (
+            <span
+              className="spinner child-link-spinner"
+              role="status"
+              aria-label="In progress"
+            />
+          )}
+          {verify !== "none" ? (
+            <VerifyIndicator state={verify} size={10} />
+          ) : child?.status === "in-progress" ? null : (
+            <span
+              className="child-link-chevron"
+              aria-hidden="true"
+              style={{
+                color: getStatusColor(child?.status),
+              }}
+            >
+              ›
+            </span>
+          )}
+        </>
+      ) : verify !== "none" ? (
+        <VerifyIndicator state={verify} size={10} />
       ) : (
         <span
           className={`child-link-dot child-link-dot--on-line${isHollow ? " child-link-dot--hollow" : ""}`}

@@ -178,6 +178,44 @@ describe("checkReviewTransition", () => {
     }
   });
 
+  it("VERIFY_REQUIRED when verified is absent (never verified, tri-state)", () => {
+    // `verified` omitted entirely normalizes to undefined — still falsy, so
+    // the gate must block exactly as it does for an explicit `false`.
+    const tasksDir = join(tmpDir, ".vibeflow", "tasks");
+    mkdirSync(tasksDir, { recursive: true });
+    writeFileSync(
+      join(tasksDir, "task-absent.json"),
+      JSON.stringify({
+        id: "task-absent",
+        title: "No verdict",
+        description: "",
+        status: "in-progress",
+        type: "Task",
+        priority: "Medium",
+        selector: ".submit-btn",
+        url: "https://example.com",
+        created: new Date().toISOString(),
+      }),
+    );
+    const baselineDir = getFilesDir(tmpDir, "task-absent");
+    mkdirSync(baselineDir, { recursive: true });
+    writeFileSync(join(baselineDir, "baseline.json"), "{}");
+
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-absent",
+      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({ requireVerifyBeforeReview: true }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REQUIRED");
+    }
+  });
+
   it("passes verify gate for unverified UI task when no baseline evidence exists", () => {
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",

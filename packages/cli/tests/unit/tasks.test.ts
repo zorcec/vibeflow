@@ -2345,3 +2345,90 @@ describe("getCurrentUserId", () => {
     expect(getCurrentUserId()).toBe("agent");
   });
 });
+
+describe("verified flag is tri-state", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-verified-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function seedVerified(id: string, value: boolean | undefined) {
+    const file = findTaskFilePath(tempDir, id)!;
+    const raw = JSON.parse(readFileSync(file, "utf-8"));
+    if (value === undefined) delete raw.verified;
+    else raw.verified = value;
+    writeFileSync(file, JSON.stringify(raw, null, 2));
+    return file;
+  }
+
+  it("normalizeTask preserves absent / true / false distinctly", () => {
+    const task = createTask(tempDir, {
+      title: "Tri-state",
+      description: "",
+      status: "todo",
+      selector: "#a",
+    });
+
+    const absent = seedVerified(task.id, undefined);
+    expect(readTaskFile(absent)!.verified).toBeUndefined();
+
+    const passed = seedVerified(task.id, true);
+    expect(readTaskFile(passed)!.verified).toBe(true);
+
+    const failed = seedVerified(task.id, false);
+    expect(readTaskFile(failed)!.verified).toBe(false);
+  });
+
+  it("listTasks keeps the three states distinct (no false collapse)", () => {
+    const a = createTask(tempDir, {
+      title: "never",
+      description: "",
+      status: "todo",
+      selector: "#a",
+    });
+    const b = createTask(tempDir, {
+      title: "passed",
+      description: "",
+      status: "todo",
+      selector: "#b",
+    });
+    const c = createTask(tempDir, {
+      title: "failed",
+      description: "",
+      status: "todo",
+      selector: "#c",
+    });
+    seedVerified(a.id, undefined);
+    seedVerified(b.id, true);
+    seedVerified(c.id, false);
+
+    const byId = new Map(listTasks(tempDir).map((t) => [t.id, t.verified]));
+    expect(byId.get(a.id)).toBeUndefined();
+    expect(byId.get(b.id)).toBe(true);
+    expect(byId.get(c.id)).toBe(false);
+  });
+
+  it("updateTask with verified: undefined omits the key (reset, not false)", () => {
+    const task = createTask(tempDir, {
+      title: "reset",
+      description: "",
+      status: "todo",
+      selector: "#a",
+    });
+    updateTask(tempDir, task.id, { verified: true });
+    expect(readTaskFile(findTaskFilePath(tempDir, task.id)!)!.verified).toBe(
+      true,
+    );
+
+    updateTask(tempDir, task.id, { verified: undefined });
+    const file = findTaskFilePath(tempDir, task.id)!;
+    expect(readTaskFile(file)!.verified).toBeUndefined();
+    // On-disk shape stays `absent | true | false` — the key is dropped, not set null.
+    expect("verified" in JSON.parse(readFileSync(file, "utf-8"))).toBe(false);
+  });
+});

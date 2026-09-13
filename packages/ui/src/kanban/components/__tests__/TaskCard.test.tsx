@@ -265,3 +265,108 @@ describe("TaskCard unread dot", () => {
     expect(screen.getByTitle("Unread")).toBeInTheDocument();
   });
 });
+
+const reviewCol: Column = {
+  id: "review",
+  label: "Review",
+  color: "#a855f7",
+  accent: "#a855f7",
+};
+const doneCol: Column = {
+  id: "done",
+  label: "Done",
+  color: "#22c55e",
+  accent: "#22c55e",
+};
+const inProgressCol: Column = {
+  id: "in-progress",
+  label: "In Progress",
+  color: "#3b82f6",
+  accent: "#3b82f6",
+};
+
+describe("TaskCard verify indicator (three states)", () => {
+  it("renders the success glyph for verified=true in the REVIEW column", () => {
+    // The review column is the case the old isDone-gated chip could never
+    // reach, even though verify runs before review.
+    const { container } = renderCard(
+      makeTask({ status: "review", verified: true }),
+      [],
+      { col: reviewCol },
+    );
+    const icon = container.querySelector('[data-verify-state="verified"]');
+    expect(icon).toBeInTheDocument();
+    expect(icon).toHaveAttribute("aria-label", "Verified");
+    expect(
+      container.querySelector('[data-verify-state="failed"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the warning glyph for verified=false in the REVIEW column", () => {
+    const { container } = renderCard(
+      makeTask({ status: "review", verified: false }),
+      [],
+      { col: reviewCol },
+    );
+    const icon = container.querySelector('[data-verify-state="failed"]');
+    expect(icon).toBeInTheDocument();
+    expect(icon).toHaveAttribute("aria-label", "Verification failed");
+  });
+
+  it("renders no glyph when verified is undefined (never verified)", () => {
+    const { container } = renderCard(makeTask({ status: "review" }), [], {
+      col: reviewCol,
+    });
+    expect(container.querySelector("[data-verify-state]")).not.toBeInTheDocument();
+  });
+
+  it("the three states render distinct output", () => {
+    const seen = [true, false, undefined].map((verified) => {
+      const { container, unmount } = renderCard(
+        makeTask({ status: "review", verified }),
+        [],
+        { col: reviewCol },
+      );
+      const glyph = container.querySelector("[data-verify-state]");
+      const state = glyph?.getAttribute("data-verify-state") ?? "none";
+      unmount();
+      return state;
+    });
+    expect(seen).toEqual(["verified", "failed", "none"]);
+  });
+
+  it("done + verified shows ONE indicator and drops the old ✓ VERIFIED chip", () => {
+    const { container } = renderCard(
+      makeTask({ status: "done", verified: true }),
+      [],
+      { col: doneCol },
+    );
+    expect(
+      container.querySelector('[data-verify-state="verified"]'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/VERIFIED/)).not.toBeInTheDocument();
+  });
+
+  it("in-progress + verified keeps the spinner and adds the glyph", () => {
+    const { container } = renderCard(
+      makeTask({ status: "in-progress", verified: true }),
+      [],
+      { col: inProgressCol },
+    );
+    expect(container.querySelector(".spinner")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-verify-state="verified"]'),
+    ).toBeInTheDocument();
+  });
+
+  it("compact branch shows the glyph too", () => {
+    const { container } = renderCard(
+      makeTask({ status: "review", verified: false }),
+      [],
+      { col: reviewCol, compact: true },
+    );
+    expect(
+      container.querySelector('[data-verify-state="failed"]'),
+    ).toBeInTheDocument();
+  });
+});

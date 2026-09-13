@@ -444,9 +444,11 @@ export async function updateTask(
     if (input.branch) updates.branchName = input.branch;
     if (linksProvided) updates.links = linksUpdate;
 
-    // Verified reset on in-progress (parity with CLI edit path)
+    // Verify reset on in-progress (parity with CLI edit path). Clear the flag
+    // (omit the key) instead of writing `false`, so `false` keeps its unique
+    // meaning — "the last verify FAILED" — and absence means never verified.
     if (input.status === "in-progress") {
-      updates.verified = false;
+      updates.verified = undefined;
     }
 
     // Author attribution on status changes (parity with the CLI --edit path):

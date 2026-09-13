@@ -427,7 +427,7 @@ describe("MCP update_task gates", () => {
     expect(readGateTaskFromDisk(task.id).status).toBe("review");
   });
 
-  it("4: in-progress on verified task — verified reset", async () => {
+  it("4: in-progress on verified task — verify flag cleared", async () => {
     const task = await assertJsonTextContent(
       await callTool(client, "create_task", { title: "gate 4" }),
     );
@@ -446,7 +446,11 @@ describe("MCP update_task gates", () => {
     if (GATED) {
       const parsed = await assertJsonTextContent(res);
       expect(parsed.status).toBe("in-progress");
-      expect(readTaskFromDisk(env.projectDir, task.id).verified).toBe(false);
+      // Claiming clears the tri-state flag (absent), rather than writing
+      // `false` — `false` is reserved for an actual failed verify.
+      expect(
+        readTaskFromDisk(env.projectDir, task.id).verified,
+      ).toBeUndefined();
     } else {
       // [now] MCP wrapper has no verified reset — CLI-only today.
       const parsed = await assertJsonTextContent(res);

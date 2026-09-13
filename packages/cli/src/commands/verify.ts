@@ -49,6 +49,13 @@ export class VerifyError extends Error {
   }
 }
 
+/**
+ * `VerifyError` codes where "fix the cause and re-run" is misleading — the run
+ * cannot be retried as-is: the task id is missing/invalid, or the user
+ * cancelled the run.
+ */
+const NON_RETRYABLE_VERIFY_CODES = new Set(["E_CANCELLED", "E_NOT_FOUND"]);
+
 // ── Playwright lazy loader ─────────────────────────────────────────────────
 async function loadPlaywright(): Promise<typeof import("playwright")> {
   try {
@@ -898,6 +905,16 @@ export async function runVerify(
         if (err.suggestion) {
           process.stderr.write(chalk.dim(`  ${err.suggestion}\n`));
         }
+        // Tell the agent the run is not finished: fix the cause and retry.
+        // Skipped when retrying cannot help (missing/invalid task id, or a
+        // run the user cancelled).
+        if (!NON_RETRYABLE_VERIFY_CODES.has(err.code)) {
+          process.stderr.write(
+            chalk.yellow(
+              `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
+            ),
+          );
+        }
       }
       process.exitCode = ExitCode.GENERAL;
     } else {
@@ -911,6 +928,11 @@ export async function runVerify(
         );
       } else {
         process.stderr.write(chalk.red(`✗ Verification failed: ${msg}\n`));
+        process.stderr.write(
+          chalk.yellow(
+            `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
+          ),
+        );
       }
       process.exitCode = ExitCode.GENERAL;
     }
@@ -1032,12 +1054,10 @@ function printResult(result: VerifyResult): void {
   console.log();
   if (!result.ok) {
     console.log(
-      chalk.yellow("  ⚠ Verification failed — move to in-progress and fix:"),
-    );
-    console.log(
-      chalk.dim(
-        `    vibeflow tasks --edit ${result.taskId} --set-status in-progress`,
+      chalk.yellow(
+        "  ✗ Verification failed — fix the issues above, then re-run:",
       ),
     );
+    console.log(chalk.dim(`    vibeflow verify ${result.taskId}`));
   }
 }
