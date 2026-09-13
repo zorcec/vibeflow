@@ -46,6 +46,7 @@ export {
 export { FilterBar } from "./components/FilterBar";
 export type { FilterState } from "./components/FilterBar";
 export { SettingsModal } from "./components/SettingsModal";
+export type { AppearanceSlotHandle } from "./components/SettingsModal";
 export { ConfirmModal } from "./components/ConfirmModal";
 export {
   DeleteConfirmDialog,

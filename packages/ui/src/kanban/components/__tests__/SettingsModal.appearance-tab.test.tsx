@@ -13,8 +13,11 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { SettingsModal } from "../SettingsModal";
+import type { AppearanceSlotHandle } from "../SettingsModal";
 
-function renderModal(props: Partial<React.ComponentProps<typeof SettingsModal>> = {}) {
+function renderModal(
+  props: Partial<React.ComponentProps<typeof SettingsModal>> = {},
+) {
   return render(
     <SettingsModal
       open
@@ -67,5 +70,76 @@ describe("SettingsModal tabs", () => {
     });
     fireEvent.click(tabButton("Appearance"));
     expect(screen.getByTestId("appearance-slot")).toBeInTheDocument();
+  });
+});
+
+/** Fake slot content: proves the modal's lifecycle is theme-agnostic. */
+function SlotSpy({
+  slot,
+  onUndo,
+  onCommit,
+}: {
+  slot: AppearanceSlotHandle;
+  onUndo: () => void;
+  onCommit: () => void;
+}) {
+  React.useEffect(() => {
+    slot.registerUndo(onUndo);
+    slot.registerCommit(onCommit);
+  }, [slot, onUndo, onCommit]);
+  return <div data-testid="appearance-slot">slot</div>;
+}
+
+describe("SettingsModal appearance slot lifecycle", () => {
+  it("rewinds a render-function slot on Cancel and never commits", () => {
+    const onUndo = vi.fn();
+    const onCommit = vi.fn();
+    renderModal({
+      appearance: (slot) => (
+        <SlotSpy slot={slot} onUndo={onUndo} onCommit={onCommit} />
+      ),
+      appearanceTab: { label: "Theme" },
+    });
+    fireEvent.click(tabButton("Theme"));
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("commits a render-function slot on Apply and does not rewind", () => {
+    const onUndo = vi.fn();
+    const onCommit = vi.fn();
+    renderModal({
+      appearance: (slot) => (
+        <SlotSpy slot={slot} onUndo={onUndo} onCommit={onCommit} />
+      ),
+      appearanceTab: { label: "Theme" },
+    });
+    fireEvent.click(tabButton("Theme"));
+    fireEvent.click(screen.getByText("Apply"));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onUndo).not.toHaveBeenCalled();
+  });
+
+  it("hands the slot a fresh session on every open", () => {
+    const sessions: AppearanceSlotHandle["state"][] = [];
+    const modal = (open: boolean) => (
+      <SettingsModal
+        open={open}
+        visibleCols={["todo"]}
+        settings={{}}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        appearance={(slot) => {
+          sessions.push(slot.state);
+          return <div />;
+        }}
+      />
+    );
+    const { rerender } = render(modal(true));
+    const firstSession = sessions[sessions.length - 1];
+    rerender(modal(false));
+    rerender(modal(true));
+    expect(sessions[sessions.length - 1]).not.toBe(firstSession);
   });
 });

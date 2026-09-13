@@ -4,6 +4,36 @@ import type { TaskStatus, AppSettings } from "../types";
 import { COLUMNS } from "./KanbanBoard";
 import { ModalBase } from "./ModalBase";
 
+/**
+ * Lifecycle handle the modal hands its `appearance` slot when `appearance` is a
+ * render function. The modal stays appearance-agnostic: it only knows a slot
+ * may stage a live preview, commit it on Apply, and rewind it on dismissal.
+ * What those mean is entirely the slot's business.
+ */
+export interface AppearanceSlotHandle {
+  /**
+   * Slot-owned state for the current open. Fresh on every open and stable for
+   * as long as the modal stays open — even if the slot unmounts because the
+   * user visits another tab — so a staged preview and the opening snapshot
+   * survive without leaking into a later open. The modal never inspects it.
+   */
+  readonly state: Record<string, unknown>;
+  /** Register the rewind the modal runs when dismissed WITHOUT Apply. */
+  registerUndo(undo: () => void): void;
+  /** Register the commit the modal runs on Apply, just before it closes. */
+  registerCommit(commit: () => void): void;
+}
+
+interface AppearanceSession {
+  state: Record<string, unknown>;
+  undo: (() => void) | null;
+  commit: (() => void) | null;
+}
+
+function createAppearanceSession(): AppearanceSession {
+  return { state: {}, undo: null, commit: null };
+}
+
 type SettingsTab = "board" | "enforcement" | "appearance";
 
 interface Props {
@@ -17,8 +47,14 @@ interface Props {
    * kanban passes its theme switcher here; keeping it a slot (the modal itself
    * stays appearance-agnostic) means no other consumer of this shared component
    * gets theme UI it did not ask for.
+   *
+   * May be a render function to take part in the modal's open/dismiss/apply
+   * lifecycle — see `AppearanceSlotHandle`. A plain node keeps the original
+   * fire-and-forget behaviour and is never rewound.
    */
-  appearance?: React.ReactNode;
+  appearance?:
+    | React.ReactNode
+    | ((slot: AppearanceSlotHandle) => React.ReactNode);
   /**
    * Tab label + icon hosting `appearance`. Optional so the shared modal never
    * hardcodes a "theme" concept — the surface names its own tab. Ignored when
@@ -65,6 +101,31 @@ export function SettingsModal({
   const [requireVerifyBeforeReview, setRequireVerifyBeforeReview] =
     React.useState(settings.requireVerifyBeforeReview ?? false);
 
+  // One appearance session per open: the slot's opening snapshot and staged
+  // preview must never survive into the next time the modal opens. Adjusting
+  // state during render (React's documented pattern for deriving state from a
+  // changed prop) means the slot only ever sees the session for this open.
+  const [appearanceSession, setAppearanceSession] = React.useState(
+    createAppearanceSession,
+  );
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setAppearanceSession(createAppearanceSession());
+  }
+  const slotHandle = React.useMemo<AppearanceSlotHandle>(
+    () => ({
+      state: appearanceSession.state,
+      registerUndo(undo: () => void) {
+        appearanceSession.undo = undo;
+      },
+      registerCommit(commit: () => void) {
+        appearanceSession.commit = commit;
+      },
+    }),
+    [appearanceSession],
+  );
+
   React.useEffect(() => {
     if (!open) return;
     const m: Record<TaskStatus, boolean> = {} as Record<TaskStatus, boolean>;
@@ -89,12 +150,26 @@ export function SettingsModal({
       createBranch,
       requireVerifyBeforeReview,
     });
+    appearanceSession.commit?.();
+    onClose();
+  }
+
+  // Cancel, the X, Escape and the backdrop are all a real undo: rewind the
+  // appearance slot's live preview before closing. Apply is the only path that
+  // keeps staged appearance changes.
+  function handleDismiss() {
+    appearanceSession.undo?.();
     onClose();
   }
 
   function toggleCol(id: TaskStatus) {
     setColState((prev) => ({ ...prev, [id]: !prev[id] }));
   }
+
+  // Render the slot once per render; a render-function slot receives the
+  // lifecycle handle, a plain node is passed through untouched.
+  const appearanceContent =
+    typeof appearance === "function" ? appearance(slotHandle) : appearance;
 
   // The appearance tab exists only when a surface supplies the slot, so every
   // other consumer keeps the original two tabs.
@@ -113,7 +188,7 @@ export function SettingsModal({
   return (
     <ModalBase
       open={open}
-      onClose={onClose}
+      onClose={handleDismiss}
       id="settings-modal"
       width="min(460px, 95vw)"
       icon={
@@ -125,7 +200,7 @@ export function SettingsModal({
       headerActions={
         <button
           id="settings-close"
-          onClick={onClose}
+          onClick={handleDismiss}
           style={{
             width: 26,
             height: 26,
@@ -155,7 +230,7 @@ export function SettingsModal({
         <div style={{ display: "flex", gap: 8 }}>
           <button
             id="settings-cancel"
-            onClick={onClose}
+            onClick={handleDismiss}
             className="dp-status-btn"
             style={{ padding: "5px 14px", fontSize: 12 }}
           >
@@ -267,7 +342,7 @@ export function SettingsModal({
             gap: 12,
           }}
         >
-          {appearance}
+          {appearanceContent}
         </div>
       )}
 
