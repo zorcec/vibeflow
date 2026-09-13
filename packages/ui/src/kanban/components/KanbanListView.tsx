@@ -1,7 +1,6 @@
 import React from "react";
 import { MessageCircle, Paperclip, Flag } from "lucide-react";
 import type { Task, TaskStatus, LiveActivity } from "../types";
-import { groupTasksByRoot } from "../task-links";
 import { LiveActivityBadge } from "./TaskCard";
 import { TASK_TYPE_ICONS } from "../../task-types";
 
@@ -146,12 +145,14 @@ export function KanbanListView({
     : tasks;
 
   const grouped = React.useMemo(() => {
-    // Match board columns: only show standalone (root / ungrouped) tasks.
-    // Children are displayed inside their parent card, not as separate rows.
-    const { standalone } = groupTasksByRoot(filtered);
+    // A status group is a view of STATUS, exactly like a board column: every
+    // task lands in the bucket matching its OWN status, parented or not. This
+    // view has no children tree, so filtering children out here made a parented
+    // task unreachable in the list view entirely (eeb96429). Row order is left
+    // as the caller's (the board applies `compareTaskOrder` itself).
     const map = new Map<TaskStatus, Task[]>();
     for (const s of STATUS_ORDER) map.set(s, []);
-    for (const t of standalone) {
+    for (const t of filtered) {
       const bucket = map.get(t.status) ?? [];
       bucket.push(t);
     }
