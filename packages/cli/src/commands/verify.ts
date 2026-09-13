@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { resolve, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { statSync, readdirSync, unlinkSync } from "node:fs";
-import { findTaskFilePath, readTaskFile, updateTask } from "../core/tasks.js";
+import { findTaskFilePath, readTaskFile } from "../core/tasks.js";
 import { saveFile, getFilesDir, getFilePath } from "../core/files.js";
 import { addComment } from "../core/comments.js";
 import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
@@ -412,8 +412,7 @@ export async function verifyTask(
                 for (const [prop, afterVal] of Object.entries(
                   element.after as Record<string, string>,
                 )) {
-                  if (!Object.prototype.hasOwnProperty.call(baseStyles, prop))
-                    continue;
+                  if (!Object.hasOwn(baseStyles, prop)) continue;
                   const baseVal = baseStyles[prop];
                   if (baseVal !== afterVal) {
                     propDiff[prop] = [baseVal, afterVal as string];
@@ -457,7 +456,13 @@ export async function verifyTask(
     }
 
     // ── 15. Build result ────────────────────────────────────────────────
-    const result = buildResult(
+    // `result.ok` is evidence, NOT a verdict: it reports whether the annotated
+    // element still resolves and whether the page logged NEW console errors.
+    // It cannot tell whether the task was accomplished, so verify stops here
+    // and writes nothing — the AGENT judges correctness and attests with
+    // `--verified` / `--verify-failed` at the review transition (see
+    // core/verify-attestation.ts and core/review-gate.ts Gate 4).
+    return buildResult(
       task.id,
       task.description,
       baseline,
@@ -466,13 +471,6 @@ export async function verifyTask(
       evidenceFiles,
       selector,
     );
-
-    // Mark task as verified only when verification passes (no selector issues, no console errors).
-    // Persist the actual verdict: a failed re-verify must clear a stale pass,
-    // otherwise the review gate accepts a task whose latest verification failed.
-    updateTask(absProjectDir, taskId, { verified: result.ok });
-
-    return result;
   } finally {
     await context?.close();
     await browser?.close();
@@ -948,7 +946,7 @@ export async function addVerifySystemComment(
   taskId: string,
   result: VerifyResult,
 ): Promise<void> {
-  const commentText = `**Verification ${result.ok ? "✅ passed" : "⚠️ issues detected"}**\n\n${result.verdict}`;
+  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n_verify collects evidence only — it does not set the \`verified\` flag. The agent judges correctness and attests with \`--verified\`._\n\n${result.verdict}`;
   addComment(projectDir, taskId, "agent", commentText, undefined, "system");
 }
 
@@ -958,6 +956,25 @@ function printResult(result: VerifyResult): void {
   console.log();
   console.log(`  ${statusIcon} Evidences collected for task ${result.taskId}`);
   console.log(chalk.dim("─".repeat(60)));
+  // `ok` is a page-health signal, printed as EVIDENCE, not as a verdict.
+  console.log(
+    `  Page-health evidence (result.ok): ${result.ok ? chalk.green("true") : chalk.yellow("false")}`,
+  );
+  console.log(
+    chalk.dim(
+      "  ok = the annotated element still resolves AND the page logged no NEW console errors.",
+    ),
+  );
+  console.log(
+    chalk.dim(
+      "  That is all it proves — it CANNOT tell whether you did what the task asked.",
+    ),
+  );
+  console.log(
+    chalk.dim(
+      "  verify does NOT set the 'verified' flag; YOU judge correctness and attest with --verified.",
+    ),
+  );
   console.log(chalk.dim(`  Verdict: ${result.verdict}`));
   console.log();
 
@@ -1032,30 +1049,40 @@ function printResult(result: VerifyResult): void {
   console.log(chalk.dim(`    vibeflow verify element_info ${result.taskId}`));
   console.log(chalk.dim(`    vibeflow verify html_diff ${result.taskId}`));
   console.log();
-  console.log(chalk.cyan("  Review evidences:"));
+  console.log(chalk.cyan("  Next — the correctness verdict is YOURS to make:"));
   console.log(
     chalk.dim(
-      "    1. Check if the fix is confirmed (styles match expectations)",
+      "    1. Compare the evidence above with what the task actually asked for.",
     ),
   );
   console.log(
     chalk.dim(
-      `    2. If confirmed → vibeflow tasks --edit ${result.taskId} --set-status review --comment "Verified: <what you confirmed>"`,
+      `    2. Implemented correctly → vibeflow tasks --edit ${result.taskId} --set-status review --verified --comment "<what you confirmed>"`,
     ),
-  );
-  console.log(
-    chalk.dim("    3. If not sure → leave a comment explaining uncertainty"),
   );
   console.log(
     chalk.dim(
-      `    4. If wrong → vibeflow tasks --edit ${result.taskId} --set-status in-progress`,
+      "       --verified is your attestation; the review gate requires it on annotated tasks.",
     ),
+  );
+  console.log(
+    chalk.dim(
+      `    3. Implemented WRONG → record it and go back to fix it: --set-status in-progress --verify-failed`,
+    ),
+  );
+  console.log(
+    chalk.dim(
+      "       Never submit work you know is incomplete.",
+    ),
+  );
+  console.log(
+    chalk.dim("    4. Not sure → leave a comment explaining the uncertainty"),
   );
   console.log();
   if (!result.ok) {
     console.log(
       chalk.yellow(
-        "  ✗ Verification failed — fix the issues above, then re-run:",
+        "  ⚠ Page-health evidence is not clean — fix the issues above, then re-run:",
       ),
     );
     console.log(chalk.dim(`    vibeflow verify ${result.taskId}`));

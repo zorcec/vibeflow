@@ -396,6 +396,26 @@ describe("verifyTask — happy paths", () => {
     );
   });
 
+  it("does NOT write the verified flag — the agent attests, verify only collects evidence", async () => {
+    const result = await verifyTask(tempDir, "test-task-123");
+
+    expect(result.ok).toBe(true);
+    // verify stopped deciding: `result.ok` is page-health evidence, and the
+    // `verified` attestation is written by the agent at the review transition.
+    expect(tasksModule.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("does NOT write the verified flag when page-health evidence is not clean", async () => {
+    mockPage.waitForSelector.mockRejectedValue(new Error("Timeout"));
+
+    const result = await verifyTask(tempDir, "test-task-123");
+
+    expect(result.ok).toBe(false);
+    // A failed run must not persist `verified: false` either — `false` means
+    // "the agent verified and the work is WRONG", not "the page looks broken".
+    expect(tasksModule.updateTask).not.toHaveBeenCalled();
+  });
+
   it("returns selectorResolves: false when element not found", async () => {
     mockPage.waitForSelector.mockRejectedValue(
       new Error("Timeout 10000ms exceeded"),
@@ -494,13 +514,13 @@ describe("verifyTask — system comments", () => {
       expect.any(String),
       "test-task-123",
       "agent",
-      expect.stringContaining("✅ passed"),
+      expect.stringContaining("✅ clean (element resolves, no new console errors)"),
       undefined,
       "system",
     );
   });
 
-  it("writes system comment with 'issues detected' when verification has issues", async () => {
+  it("writes system comment with 'not clean' when the page-health evidence has issues", async () => {
     mockPage.waitForSelector.mockRejectedValue(new Error("Timeout"));
 
     await runVerify(tempDir, "test-task-123", { json: false });
@@ -509,10 +529,19 @@ describe("verifyTask — system comments", () => {
       expect.any(String),
       "test-task-123",
       "agent",
-      expect.stringContaining("⚠️ issues detected"),
+      expect.stringContaining("⚠️ not clean"),
       undefined,
       "system",
     );
+  });
+
+  it("system comment says the run does not set the verified flag", async () => {
+    await runVerify(tempDir, "test-task-123", { json: false });
+
+    const commentText = vi.mocked(commentsModule.addComment).mock
+      .calls[0][3] as string;
+    expect(commentText).toContain("does not set the `verified` flag");
+    expect(commentText).toContain("--verified");
   });
 });
 
@@ -574,6 +603,25 @@ describe("runVerify — CLI entry point", () => {
     stderrSpy.mockRestore();
   });
 
+  it("prints result.ok as page-health EVIDENCE and states that verify sets nothing", async () => {
+    const logs: string[] = [];
+    const consoleSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation((...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      });
+
+    await runVerify(tempDir, "test-task-123", { json: false });
+
+    const out = logs.join("\n");
+    expect(out).toContain("Page-health evidence (result.ok):");
+    expect(out).toContain("CANNOT tell whether you did what the task asked");
+    expect(out).toContain("verify does NOT set the 'verified' flag");
+    expect(out).toContain("--verified");
+
+    consoleSpy.mockRestore();
+  });
+
   it("failed verify tells the agent to fix and re-run", async () => {
     // A run that finishes with issues (not an infra error) must end with an
     // explicit next step — re-run `vibeflow verify <id>`.
@@ -589,7 +637,7 @@ describe("runVerify — CLI entry point", () => {
 
     const out = logs.join("\n");
     expect(out).toContain(
-      "Verification failed — fix the issues above, then re-run:",
+      "Page-health evidence is not clean — fix the issues above, then re-run:",
     );
     expect(out).toContain("vibeflow verify test-task-123");
 
@@ -611,9 +659,7 @@ describe("runVerify — CLI entry point", () => {
 
     await runVerify(tempDir, "test-task-123", {});
 
-    expect(writes.join("")).toContain(
-      "re-run: vibeflow verify test-task-123",
-    );
+    expect(writes.join("")).toContain("re-run: vibeflow verify test-task-123");
 
     process.exitCode = originalExitCode;
     stderrSpy.mockRestore();

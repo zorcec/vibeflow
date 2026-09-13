@@ -3,7 +3,7 @@ import { checkReviewTransition } from "../../src/core/review-gate.js";
 import { getFilesDir } from "../../src/core/files.js";
 import type { ProtoSettings } from "../../src/core/settings.js";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 function makeSettings(overrides: Partial<ProtoSettings> = {}): ProtoSettings {
@@ -37,7 +37,9 @@ function createTaskFile(
 ) {
   const tasksDir = join(dir, ".vibeflow", "tasks");
   mkdirSync(tasksDir, { recursive: true });
-  const task = {
+  // `verified` is tri-state: omit the key entirely when the caller does not
+  // specify a verdict, so the store models "nothing assessed yet".
+  const task: Record<string, unknown> = {
     id: taskId,
     title: "Test Task",
     description: "",
@@ -46,9 +48,9 @@ function createTaskFile(
     priority: "Medium" as const,
     selector: opts.selector ?? "/",
     url: opts.url ?? undefined,
-    verified: opts.verified ?? false,
     created: new Date().toISOString(),
   };
+  if (opts.verified !== undefined) task.verified = opts.verified;
   writeFileSync(join(tasksDir, `${taskId}.json`), JSON.stringify(task));
   return task;
 }
@@ -152,17 +154,13 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("VERIFY_REQUIRED for UI task when requireVerifyBeforeReview ON and baseline exists", () => {
+  it("VERIFY_REQUIRED for an annotated task with no attestation on the transition", () => {
+    // Nothing assessed yet (`verified` absent), so the gate needs the AGENT's
+    // positive attestation and blocks.
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
-      verified: false,
     });
-    // Baseline must live at the real evidence path (getFilesDir), i.e.
-    // `.vibeflow/tasks/files/<taskId>` — this is where verify writes it.
-    const baselineDir = getFilesDir(tmpDir, "task-123");
-    mkdirSync(baselineDir, { recursive: true });
-    writeFileSync(join(baselineDir, "baseline.json"), "{}");
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
@@ -175,65 +173,175 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REQUIRED");
+      expect(result.suggestion).toContain("--verified");
     }
   });
 
-  it("VERIFY_REQUIRED when verified is absent (never verified, tri-state)", () => {
-    // `verified` omitted entirely normalizes to undefined — still falsy, so
-    // the gate must block exactly as it does for an explicit `false`.
-    const tasksDir = join(tmpDir, ".vibeflow", "tasks");
-    mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(
-      join(tasksDir, "task-absent.json"),
-      JSON.stringify({
-        id: "task-absent",
-        title: "No verdict",
-        description: "",
-        status: "in-progress",
-        type: "Task",
-        priority: "Medium",
-        selector: ".submit-btn",
-        url: "https://example.com",
-        created: new Date().toISOString(),
-      }),
-    );
-    const baselineDir = getFilesDir(tmpDir, "task-absent");
-    mkdirSync(baselineDir, { recursive: true });
-    writeFileSync(join(baselineDir, "baseline.json"), "{}");
-
-    const result = checkReviewTransition(
-      tmpDir,
-      "task-absent",
-      { comment: "done", commitMessage: "fix: x", skipVerify: false },
-      {
-        projectDir: tmpDir,
-        settings: makeSettings({ requireVerifyBeforeReview: true }),
-      },
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("VERIFY_REQUIRED");
-    }
-  });
-
-  it("passes verify gate for unverified UI task when no baseline evidence exists", () => {
+  it("ALLOWS review when the transition carries the positive attestation", () => {
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
-      verified: false,
     });
-    // No baseline.json at the real evidence path — task was auto-created
-    // without annotation, so the gate must skip.
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      { comment: "done", verified: true },
       {
         projectDir: tmpDir,
-        settings: makeSettings({ requireVerifyBeforeReview: true }),
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
       },
     );
     expect(result.ok).toBe(true);
+  });
+
+  it("BLOCKS review when the store says verified:true but the transition carries no attestation", () => {
+    // A stored flag is not the attestation — a stale `true` (written under the
+    // old mechanical model, or by an earlier transition) must not carry a task
+    // into review.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+      verified: true,
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REQUIRED");
+    }
+  });
+
+  it("BLOCKS review with verified:false — attested as NOT implemented correctly", () => {
+    // The core new behaviour: `false` is a completed verdict that the work is
+    // WRONG, so it can never be submittable to review.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verified: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+    }
+  });
+
+  it("BLOCKS review with verified:false even when skipVerify is true", () => {
+    // --skip-verify skips the requirement to verify; it cannot overrule the
+    // agent's own "this is NOT correct" verdict.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verified: false, skipVerify: true },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+    }
+  });
+
+  it("BLOCKS review with verified:false for a task without URL/selector too", () => {
+    createTaskFile(tmpDir, "task-123", { selector: "/", url: undefined });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verified: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+    }
+  });
+
+  it("BLOCKS review when the store carries verified:false and no attestation is given", () => {
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+      verified: false,
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+    }
+  });
+
+  it("VERIFY_REQUIRED for an annotated task with no baseline file (no silent skip)", () => {
+    // The gate used to probe `<files>/baseline.json` and pass silently when it
+    // was missing. It must not: an annotated task needs the attestation.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    expect(
+      existsSync(join(getFilesDir(tmpDir, "task-123"), "baseline.json")),
+    ).toBe(false);
+
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({ requireVerifyBeforeReview: true }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REQUIRED");
+    }
   });
 
   it("passes verify gate when skipVerify is true", () => {
@@ -258,31 +366,11 @@ describe("checkReviewTransition", () => {
   });
 
   it("passes verify gate for non-UI task (no selector/url)", () => {
+    // Scope: the attestation gate covers ANNOTATED tasks only, because
+    // `vibeflow verify` needs an annotation baseline to produce evidence.
     createTaskFile(tmpDir, "task-123", {
       selector: "/",
       url: undefined,
-      verified: false,
-    });
-    const result = checkReviewTransition(
-      tmpDir,
-      "task-123",
-      { comment: "done" },
-      {
-        projectDir: tmpDir,
-        settings: makeSettings({
-          requireVerifyBeforeReview: true,
-          autoCommit: false,
-        }),
-      },
-    );
-    expect(result.ok).toBe(true);
-  });
-
-  it("passes verify gate when task is already verified", () => {
-    createTaskFile(tmpDir, "task-123", {
-      selector: ".submit-btn",
-      url: "https://example.com",
-      verified: true,
     });
     const result = checkReviewTransition(
       tmpDir,

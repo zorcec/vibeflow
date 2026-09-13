@@ -117,8 +117,45 @@ describe("renderAgentInstructions", () => {
   it("includes verify gate setting when requireVerifyBeforeReview is true", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: true });
     expect(text).toContain("Verify gate ON");
-    expect(text).toContain("vibeflow verify before setting status to review");
-    expect(text).toContain("skipped for tasks without URL/selector");
+    expect(text).toContain("need your --verified attestation at review");
+    expect(text).toContain("cannot make that call");
+  });
+
+  it("states that verify gathers evidence, cannot judge, and that the agent attests", () => {
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: true,
+      autoCommit: true,
+      autoComment: true,
+    });
+    // (1) verify collects evidence and sets nothing
+    expect(text).toContain(
+      "collect the EVIDENCE — it does NOT set the 'verified' flag",
+    );
+    // (2) what verify actually proves — and what it cannot
+    expect(text).toContain(
+      "verify only checks that your annotated element still resolves",
+    );
+    expect(text).toContain("no NEW console errors");
+    expect(text).toContain("CANNOT tell whether you did what the ticket asked");
+    // (3) the AGENT must attest, and the attestation is required at review
+    expect(text).toContain(
+      "--verified is YOUR attestation that the task IS implemented correctly",
+    );
+    expect(text).toContain("requires it on annotated (URL + selector) tasks");
+    expect(text).toContain(
+      "record --verify-failed instead — that does NOT pass the gate",
+    );
+    expect(text).toContain("--set-status review --verified");
+  });
+
+  it("keeps the evidence wording when the verify gate is OFF, without the attestation", () => {
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: false,
+    });
+    expect(text).toContain("it does NOT set the 'verified' flag");
+    expect(text).not.toContain("--set-status review --verified");
   });
 
   it("excludes verify gate setting when requireVerifyBeforeReview is false", () => {

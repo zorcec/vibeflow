@@ -749,7 +749,15 @@ program
   )
   .option(
     "--skip-verify",
-    "Skip the verify-before-review gate (for non-UI tasks, the gate is automatically skipped)",
+    "Skip the verify attestation gate (only annotated tasks — URL + selector — are gated)",
+  )
+  .option(
+    "--verified",
+    "Agent attestation: YOU verified the work and the task IS implemented correctly (required at review for annotated tasks)",
+  )
+  .option(
+    "--verify-failed",
+    "Agent attestation: you verified the work and the task is NOT implemented correctly (records verified:false; the review gate rejects it)",
   )
   .option(
     "--limit <n>",
@@ -800,6 +808,8 @@ program
         dryRun?: boolean;
         fields?: string;
         skipVerify?: boolean;
+        verified?: boolean;
+        verifyFailed?: boolean;
         priority?: string;
         reindexSortKeys?: boolean;
       },
@@ -1889,6 +1899,11 @@ program
                 '  vibeflow tasks [dir] --edit <task-id> [--title "new title"] [--set-status backlog|todo|in-progress|review|done] [--description "new description"] [--set-parent <task-id> | --no-parent]',
               ),
             );
+            console.log(
+              chalk.cyan(
+                "  verification attestation: [--verified | --verify-failed]  (agent-only; --verified is required at review for annotated tasks)",
+              ),
+            );
             console.log();
             console.log("Examples:");
             console.log(
@@ -2025,6 +2040,24 @@ program
             return;
           }
 
+          // ── Agent verification attestation ────────────────────────────────
+          // `verified` is written by the AGENT, never by `vibeflow verify`:
+          // verify only proves the annotated element resolves and that no NEW
+          // console errors appeared, which cannot tell whether the task was
+          // accomplished. Resolve the flag pair once, before the review gate.
+          const { resolveVerifyAttestation } = await import(
+            "./core/verify-attestation.js"
+          );
+          const attestation = resolveVerifyAttestation({
+            verified: opts.verified,
+            verifyFailed: opts.verifyFailed,
+          });
+          if (!attestation.ok) {
+            console.log(chalk.red(`✗ ${attestation.message}`));
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
           // ── Settings-based enforcement on review ─────────────────────────
           const editMode = await getMode();
           const projectDir = resolve(dir);
@@ -2047,9 +2080,7 @@ program
               return;
             }
             const content = readFileSync(reportPath);
-            const { saveFile: saveTaskFile } = await import(
-              "./core/files.js"
-            );
+            const { saveFile: saveTaskFile } = await import("./core/files.js");
             saveTaskFile(
               projectDir,
               reportTaskId!,
@@ -2076,6 +2107,7 @@ program
                 commitMessage: opts.commitMessage,
                 branch: opts.branch,
                 skipVerify: opts.skipVerify,
+                verified: attestation.value,
               },
               { projectDir, settings },
             );
@@ -2224,6 +2256,8 @@ program
                   ? "(cleared)"
                   : (opts.setParent ?? "(cleared)");
             if (opts.branch) dryUpdates.branchName = opts.branch;
+            if (attestation.value !== undefined)
+              dryUpdates.verified = attestation.value;
             if (opts.json) {
               console.log(
                 JSON.stringify(
@@ -2394,10 +2428,19 @@ program
 
           // Reset the verify flag when claiming a task for new work. Clear it
           // to `undefined` (omit the key) rather than writing `false`, so the
-          // persisted value stays tri-state: `false` uniquely means the last
-          // verify FAILED, while absence means never verified / reset.
+          // persisted value stays tri-state: `true` = the agent verified the
+          // task IS implemented correctly, `false` = the agent verified it is
+          // NOT, absence = nothing assessed yet.
           if (opts.setStatus === "in-progress") {
             updates.verified = undefined;
+          }
+
+          // Agent attestation, applied after the reset-on-claim above: the reset
+          // is the default for a claim that carries no verdict, while a verdict
+          // passed deliberately in the same call (e.g. in-progress + --verify-failed)
+          // is what gets recorded.
+          if (attestation.value !== undefined) {
+            updates.verified = attestation.value;
           }
 
           const updated = updateTask(dir, resolvedTaskId, updates);

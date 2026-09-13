@@ -1192,6 +1192,40 @@ export function renderAgentInstructions(opts: {
   // When requireVerifyBeforeReview is ON, verify comes BEFORE review.
   // When OFF, verify comes after review (optional step).
   const verifyBeforeReview = opts.requireVerifyBeforeReview;
+  // Shared verify-step wording, used by every branch that lists verify. It must
+  // state all three facts: verify only gathers evidence; it does not set
+  // `verified` and cannot judge correctness; the agent must attest itself and
+  // the review gate requires that attestation.
+  const verifyEvidenceLines: string[] = [];
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       verify only checks that your annotated element still resolves and that the page logged",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       no NEW console errors. It CANNOT tell whether you did what the ticket asked — YOU judge that.",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       Did you actually accomplish the task? If not, set it back to in-progress and fix it.",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       Never submit work you know is incomplete.",
+  );
+  const verifyAttestationLines: string[] = [];
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyAttestationLines.push(
+    "       --verified is YOUR attestation that the task IS implemented correctly. The review gate",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyAttestationLines.push(
+    "       requires it on annotated (URL + selector) tasks. If you verified and the task is WRONG,",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyAttestationLines.push(
+    "       record --verify-failed instead — that does NOT pass the gate; fix the work first.",
+  );
   if (verifyBeforeReview) {
     // Verify gate ON: verify → review
     if (autoCommit) {
@@ -1203,18 +1237,16 @@ export function renderAgentInstructions(opts: {
       );
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
-        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>   (collect the EVIDENCE — it does NOT set the 'verified' flag)`,
       );
-      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-      lines.push(
-        "       If verification fails, set task back to in-progress and fix.",
-      );
-      const reviewArgs = ["--set-status review"];
+      lines.push(...verifyEvidenceLines);
+      const reviewArgs = ["--set-status review", "--verified"];
       if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
       if (autoComment) reviewArgs.push('--comment "<report>"');
       lines.push(
         `    ${createBranch ? "6" : "5"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
       );
+      lines.push(...verifyAttestationLines);
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
         "       CLI will commit staged changes and link the commit SHA automatically.",
@@ -1228,17 +1260,15 @@ export function renderAgentInstructions(opts: {
       );
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
-        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+        `    ${createBranch ? "5" : "4"}. vibeflow verify <id>   (collect the EVIDENCE — it does NOT set the 'verified' flag)`,
       );
-      // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-      lines.push(
-        "       If verification fails, set task back to in-progress and fix.",
-      );
-      const reviewArgs = ["--set-status review"];
+      lines.push(...verifyEvidenceLines);
+      const reviewArgs = ["--set-status review", "--verified"];
       if (autoComment) reviewArgs.push('--comment "<report>"');
       lines.push(
         `    ${createBranch ? "6" : "5"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
       );
+      lines.push(...verifyAttestationLines);
     }
   } else {
     // Verify gate OFF: review → verify (optional)
@@ -1275,12 +1305,9 @@ export function renderAgentInstructions(opts: {
     const verifyStep = createBranch ? "6" : "5";
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      `    ${verifyStep}. vibeflow verify <id>  (verify the fix — check the evidences it produces)`,
+      `    ${verifyStep}. vibeflow verify <id>  (optional here — collect the EVIDENCE; it does NOT set the 'verified' flag)`,
     );
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(
-      "       If verification fails, set task back to in-progress and fix.",
-    );
+    lines.push(...verifyEvidenceLines);
   }
   if (autoComment) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -1332,7 +1359,15 @@ export function renderAgentInstructions(opts: {
   if (opts.requireVerifyBeforeReview) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "  [setting] Verify gate ON: run vibeflow verify before setting status to review (skipped for tasks without URL/selector).",
+      "  [setting] Verify gate ON: tasks WITH a URL + selector need your --verified attestation at review.",
+    );
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push(
+      "    --verified is YOUR judgement that the task IS implemented correctly; vibeflow verify only",
+    );
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push(
+      "    gathers evidence (element resolves + no new console errors) and cannot make that call.",
     );
   }
   if (opts.hasResearchTasks) {

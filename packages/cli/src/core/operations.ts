@@ -98,6 +98,12 @@ export const UpdateTaskInput = z.object({
   comment: z.string().optional(),
   commitMessage: z.string().optional(),
   skipVerify: z.boolean().default(false),
+  // Agent attestation for `verified` (parity with the CLI's --verified /
+  // --verify-failed): true = the agent verified the task IS implemented
+  // correctly, false = verified and it is NOT. `vibeflow verify` never writes
+  // this flag — only the agent does, and review-gate.ts Gate 4 requires the
+  // positive value on the review transition itself.
+  verified: z.boolean().optional(),
   dryRun: z.boolean().default(false),
   // Replace semantics for the task's links (matches the HTTP PATCH route):
   // the array becomes the full link set and an empty array clears every link.
@@ -389,6 +395,7 @@ export async function updateTask(
           comment: input.comment,
           commitMessage: input.commitMessage,
           skipVerify: input.skipVerify,
+          verified: input.verified,
         },
         { projectDir: ctx.projectDir, settings },
       );
@@ -445,10 +452,17 @@ export async function updateTask(
     if (linksProvided) updates.links = linksUpdate;
 
     // Verify reset on in-progress (parity with CLI edit path). Clear the flag
-    // (omit the key) instead of writing `false`, so `false` keeps its unique
-    // meaning — "the last verify FAILED" — and absence means never verified.
+    // (omit the key) instead of writing `false`, so the tri-state survives:
+    // true = verified correct, false = verified WRONG, absent = not assessed.
     if (input.status === "in-progress") {
       updates.verified = undefined;
+    }
+
+    // Agent attestation, applied after the reset-on-claim above (parity with the
+    // CLI): the reset is the default for a claim without a verdict, while an
+    // explicit verdict passed in the same call is what gets recorded.
+    if (input.verified !== undefined) {
+      updates.verified = input.verified;
     }
 
     // Author attribution on status changes (parity with the CLI --edit path):
