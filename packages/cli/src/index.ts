@@ -719,7 +719,7 @@ program
   )
   .option(
     "--comment <text>",
-    "Implementation report comment (required when setting status to review)",
+    "Report comment — written with any status; required when setting status to review",
   )
   .option(
     "--commit-message <msg>",
@@ -1879,7 +1879,8 @@ program
             opts.reportFile ||
             opts.verified ||
             opts.verifyFailed ||
-            opts.unsetVerified;
+            opts.unsetVerified ||
+            opts.comment?.trim();
 
           if (!taskId || !hasEdits) {
             if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -2199,12 +2200,21 @@ program
               );
             }
 
-            if (opts.setStatus === "review" && opts.comment?.trim()) {
+            if (opts.comment?.trim()) {
               const commented = await addSaasComment(
                 taskId,
                 opts.comment.trim(),
               );
-              if (commented.ok) console.log(chalk.dim("  comment: added"));
+              if (commented.ok) {
+                console.log(chalk.dim("  comment: added"));
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Comment was NOT saved: ${commented.error.message}`,
+                  ),
+                );
+                process.exitCode = ExitCode.GENERAL;
+              }
             }
 
             const saasEditNextActions = opts.setStatus
@@ -2466,16 +2476,22 @@ program
             return;
           }
 
-          // Add comment BEFORE the git commit attempt. This guarantees the comment is
-          // always persisted even if auto-commit fails (e.g., nothing staged, git error).
-          if (opts.setStatus === "review" && opts.comment?.trim()) {
-            addComment(
-              resolve(dir),
-              resolvedTaskId,
-              "agent",
-              opts.comment.trim(),
-            );
-            console.log(chalk.dim(`  comment: added`));
+          // A comment is written whenever --comment is supplied, whatever the
+          // status. It must be AWAITED before reporting success: addComment is
+          // async and takes a task lock, so an un-awaited call is a floating
+          // promise that races process exit and silently loses the comment.
+          let commentError: string | undefined;
+          if (opts.comment?.trim()) {
+            try {
+              await addComment(
+                resolve(dir),
+                resolvedTaskId,
+                "agent",
+                opts.comment.trim(),
+              );
+            } catch (err) {
+              commentError = err instanceof Error ? err.message : String(err);
+            }
           }
 
           const localEditNextActions = opts.setStatus
@@ -2490,7 +2506,7 @@ program
             console.log(
               JSON.stringify(
                 {
-                  success: true,
+                  success: !commentError,
                   task: updated,
                   next_actions: localEditNextActions,
                 },
@@ -2505,14 +2521,24 @@ program
             );
             if (parentDisplay !== undefined)
               console.log(chalk.dim(`  parent: ${parentDisplay}`));
+            if (opts.comment?.trim()) {
+              if (commentError) {
+                console.log(
+                  chalk.red(`✗ Comment was NOT saved: ${commentError}`),
+                );
+              } else {
+                console.log(chalk.dim(`  comment: added`));
+              }
+            }
             if (localEditNextActions.length > 0)
               printNextHint(localEditNextActions);
           }
+          if (commentError) process.exitCode = ExitCode.GENERAL;
 
           // ── Auto-commit (runs after task status + comment are already saved) ──────
           // Keeping this after updateTask/addComment ensures comment is preserved even
           // when git commit fails. Failure sets exitCode=1 but does NOT undo the task.
-          if (opts.setStatus === "review") {
+          if (opts.setStatus === "review" && !commentError) {
             const autoDir = resolve(dir);
             const autoSettings = loadSettings(autoDir);
             if (autoSettings.autoCommit && opts.commitMessage?.trim()) {
