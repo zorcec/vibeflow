@@ -93,6 +93,9 @@ export const updateTaskSchema = z.object({
       .max(100)
       .nullish(),
     author: z.string().max(255).nullish(),
+    // Tri-state agent attestation: true = verified correct, false = verified
+    // wrong, null = clear to absent. Absent (omitted) leaves it untouched.
+    verified: z.boolean().nullish(),
     sortKey: z.string().optional(),
     tags: z.array(z.string().max(50)).max(20).optional(),
     links: z

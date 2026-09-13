@@ -209,6 +209,44 @@ describe("push — import API interaction", () => {
     expect(body.workspaceId).toBe("explicit-ws");
   });
 
+  // Round-trip input: the push payload is the ONLY route a local verdict takes
+  // to the server, so it must carry the tri-state verbatim and omit the key when
+  // the task was never assessed (absent must not become false server-side).
+  it("carries verified into the pushed JSON; an unassessed task omits the key", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-attested",
+      title: "Attested",
+      status: "review",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      verified: true,
+    });
+    createTaskFile(projectDir, {
+      id: "task-unassessed",
+      title: "Unassessed",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ imported: 2, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    const byId = Object.fromEntries(
+      (body.tasks as Array<{ id: string }>).map((t) => [t.id, t]),
+    ) as Record<string, Record<string, unknown>>;
+    expect(byId["task-attested"].verified).toBe(true);
+    expect("verified" in byId["task-unassessed"]).toBe(false);
+  });
+
   it("reports failure and sets process.exitCode on API error", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
@@ -416,7 +454,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
   it("uploads files when idMap has mappings and files exist", async () => {
     const projectDir = makeTempProject();
-    const taskPath = createTaskFile(projectDir, {
+    createTaskFile(projectDir, {
       id: "task-files",
       title: "With files",
       status: "todo",

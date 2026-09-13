@@ -80,6 +80,8 @@ export interface SaasTask {
   createdAt: string;
   updatedAt: string;
   branchName?: string | null;
+  /** Tri-state agent attestation: true/false = verdict, null/absent = not assessed. */
+  verified?: boolean | null;
   comments?: SaasComment[];
   files?: Array<{
     name: string;
@@ -160,6 +162,8 @@ export async function updateSaasTask(
     description?: string;
     priority?: string;
     branchName?: string;
+    /** Tri-state attestation: true/false = verdict, null = clear to absent. */
+    verified?: boolean | null;
   },
 ): Promise<SaasResult<{ task: SaasTask; warning?: string }>> {
   const headers = await getBearerHeaders();
@@ -169,12 +173,14 @@ export async function updateSaasTask(
       error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
     };
 
-  const body: Record<string, string> = {};
+  const body: Record<string, unknown> = {};
   if (patch.status !== undefined) body.status = toSaasStatus(patch.status);
   if (patch.title !== undefined) body.title = patch.title;
   if (patch.description !== undefined) body.description = patch.description;
   if (patch.priority !== undefined) body.priority = patch.priority;
   if (patch.branchName !== undefined) body.branchName = patch.branchName;
+  // Send `null` explicitly to clear — undefined means "no change".
+  if (patch.verified !== undefined) body.verified = patch.verified;
 
   try {
     const res = await fetch(

@@ -211,6 +211,73 @@ describe("updateSaasTask", () => {
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
   });
+
+  it("sends verified:true in the PATCH body", async () => {
+    mockFetch({ task: SAMPLE_TASK });
+    await updateSaasTask("task-1", { verified: true });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body.verified).toBe(true);
+  });
+
+  it("sends verified:false as a real verdict", async () => {
+    mockFetch({ task: SAMPLE_TASK });
+    await updateSaasTask("task-1", { verified: false });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body.verified).toBe(false);
+  });
+
+  it("sends verified:null to clear the verdict (not false)", async () => {
+    mockFetch({ task: SAMPLE_TASK });
+    await updateSaasTask("task-1", { verified: null });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect("verified" in body).toBe(true);
+    expect(body.verified).toBeNull();
+    expect(body.verified).not.toBe(false);
+  });
+
+  it("omits verified when no verdict is supplied (leaves the server value untouched)", async () => {
+    mockFetch({ task: SAMPLE_TASK });
+    await updateSaasTask("task-1", { title: "New Title" });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect("verified" in body).toBe(false);
+  });
+});
+
+describe("fetchSaasTasks — verified tri-state round-trip", () => {
+  it("preserves verified:true and verified:false from the server", async () => {
+    mockFetch({
+      tasks: [
+        { ...SAMPLE_TASK, id: "a", verified: true },
+        { ...SAMPLE_TASK, id: "b", verified: false },
+      ],
+      boardId: "board-1",
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.tasks.find((t) => t.id === "a")?.verified).toBe(true);
+      expect(result.data.tasks.find((t) => t.id === "b")?.verified).toBe(false);
+    }
+  });
+
+  // Absent stays absent on the wire — it must not arrive as false.
+  it("preserves an absent verdict as null, never false", async () => {
+    mockFetch({
+      tasks: [
+        { ...SAMPLE_TASK, id: "absent-null", verified: null },
+        { ...SAMPLE_TASK, id: "absent-missing" },
+      ],
+      boardId: "board-1",
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const byId = Object.fromEntries(result.data.tasks.map((t) => [t.id, t.verified]));
+      expect(byId["absent-null"]).toBeNull();
+      expect(byId["absent-null"]).not.toBe(false);
+      expect(byId["absent-missing"]).toBeUndefined();
+    }
+  });
 });
 
 describe("addSaasComment", () => {
