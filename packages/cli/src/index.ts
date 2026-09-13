@@ -52,7 +52,7 @@ import {
 } from "./saas/client.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
 import {
   capture,
@@ -2549,12 +2549,27 @@ program
                     }
                   }
                 } else {
-                  // Task status and comment are already saved — only the commit failed.
+                  // Task status and comment are ALREADY saved — only the commit failed.
+                  // Say so plainly: the old wording implied nothing was written.
+                  const taskFilePath = findTaskFilePath(
+                    autoDir,
+                    taskForCommit.id,
+                  );
+                  const relTaskPath = taskFilePath
+                    ? relative(autoDir, taskFilePath)
+                    : `.vibeflow/tasks/<date>/${taskForCommit.id}.json`;
                   console.log(
-                    chalk.red(
-                      "✗ git commit failed — ensure changes are staged with 'git add'",
+                    chalk.yellow(
+                      "⚠ Task WAS updated (status + comment saved), but the commit did NOT happen.",
                     ),
                   );
+                  console.log(
+                    chalk.dim(
+                      `  stage the task's own file, then commit manually: git add ${relTaskPath}`,
+                    ),
+                  );
+                  if (commitResult.error)
+                    console.log(chalk.dim(`  reason: ${commitResult.error}`));
                   process.exitCode = ExitCode.GENERAL;
                 }
               }

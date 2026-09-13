@@ -2,21 +2,18 @@ import {
   describe,
   it,
   expect,
-  beforeAll,
-  afterAll,
   beforeEach,
   afterEach,
 } from "vitest";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   mkdirSync,
   rmSync,
   writeFileSync,
-  existsSync,
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { commitTaskChanges } from "../../src/core/git.js";
 import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 
@@ -48,6 +45,11 @@ function initGitRepo(dir: string) {
   });
 }
 
+function taskFilePath(dir: string, taskId: string): string {
+  const dateSubdir = new Date().toISOString().slice(0, 10);
+  return join(dir, ".vibeflow", "tasks", dateSubdir, `${taskId}.json`);
+}
+
 function createTaskFile(
   dir: string,
   taskId: string,
@@ -72,6 +74,33 @@ function createTaskFile(
   return task;
 }
 
+/** Stage an exact path (never `git add -A`). */
+function stage(dir: string, relPath: string) {
+  execFileSync("git", ["add", "--", relPath], {
+    cwd: dir,
+    env: gitEnv,
+    stdio: "ignore",
+  });
+}
+
+/** Files in the latest commit, one repo-relative path per line. */
+function committedFiles(dir: string): string[] {
+  return execSync("git show --name-only --format= HEAD", {
+    cwd: dir,
+    env: gitEnv,
+  })
+    .toString()
+    .split("\n")
+    .filter(Boolean);
+}
+
+function stagedFiles(dir: string): string[] {
+  return execSync("git diff --cached --name-only", { cwd: dir, env: gitEnv })
+    .toString()
+    .split("\n")
+    .filter(Boolean);
+}
+
 describe("commitTaskChanges", () => {
   let tmpDir: string;
 
@@ -84,12 +113,10 @@ describe("commitTaskChanges", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("commits staged changes and returns SHA", () => {
+  it("commits the task's own staged file and returns SHA", () => {
     const taskId = "test-task-001";
     createTaskFile(tmpDir, taskId);
-    // Stage a file
-    writeFileSync(join(tmpDir, "test.txt"), "hello");
-    execSync("git add test.txt", { cwd: tmpDir, env: gitEnv, stdio: "ignore" });
+    stage(tmpDir, relative(tmpDir, taskFilePath(tmpDir, taskId)));
 
     const result = commitTaskChanges(tmpDir, taskId, "feat: add test file");
     expect(result.ok).toBe(true);
@@ -101,26 +128,15 @@ describe("commitTaskChanges", () => {
   it("appends commit record to task file", () => {
     const taskId = "test-task-002";
     createTaskFile(tmpDir, taskId);
-    writeFileSync(join(tmpDir, "file2.txt"), "content");
-    execSync("git add file2.txt", {
-      cwd: tmpDir,
-      env: gitEnv,
-      stdio: "ignore",
-    });
+    stage(tmpDir, relative(tmpDir, taskFilePath(tmpDir, taskId)));
 
     const result = commitTaskChanges(tmpDir, taskId, "fix: something");
     expect(result.ok).toBe(true);
 
     // Read the task file and verify commits were appended
-    const dateSubdir = new Date().toISOString().slice(0, 10);
-    const taskPath = join(
-      tmpDir,
-      ".vibeflow",
-      "tasks",
-      dateSubdir,
-      `${taskId}.json`,
+    const task = JSON.parse(
+      readFileSync(taskFilePath(tmpDir, taskId), "utf-8"),
     );
-    const task = JSON.parse(readFileSync(taskPath, "utf-8"));
     expect(task.commits).toHaveLength(1);
     expect(task.commits[0].message).toBe("fix: something");
     expect(task.commits[0].sha).toMatch(/^[0-9a-f]{40}$/);
@@ -130,12 +146,7 @@ describe("commitTaskChanges", () => {
   it("uses [proto:<id>] tag in commit message", () => {
     const taskId = "test-task-003";
     createTaskFile(tmpDir, taskId);
-    writeFileSync(join(tmpDir, "file3.txt"), "data");
-    execSync("git add file3.txt", {
-      cwd: tmpDir,
-      env: gitEnv,
-      stdio: "ignore",
-    });
+    stage(tmpDir, relative(tmpDir, taskFilePath(tmpDir, taskId)));
 
     const result = commitTaskChanges(tmpDir, taskId, "chore: update");
     expect(result.ok).toBe(true);
@@ -148,15 +159,18 @@ describe("commitTaskChanges", () => {
     expect(log).toContain(`[proto:${taskId}]`);
   });
 
-  it("returns error when no staged changes", () => {
+  it("returns error when the task's own file is not staged", () => {
     const taskId = "test-task-004";
     createTaskFile(tmpDir, taskId);
-    // Nothing staged
+    // Nothing staged — and a foreign staged file must NOT make the commit succeed.
+    writeFileSync(join(tmpDir, "foreign.txt"), "another lane's work");
+    stage(tmpDir, "foreign.txt");
 
     const result = commitTaskChanges(tmpDir, taskId, "empty commit");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBeDefined();
+      expect(result.error).toContain(taskId);
+      expect(result.error).toContain("git add");
     }
   });
 
@@ -170,27 +184,57 @@ describe("commitTaskChanges", () => {
       },
     ];
     createTaskFile(tmpDir, taskId, existingCommits);
-    writeFileSync(join(tmpDir, "file5.txt"), "data");
-    execSync("git add file5.txt", {
-      cwd: tmpDir,
-      env: gitEnv,
-      stdio: "ignore",
-    });
+    stage(tmpDir, relative(tmpDir, taskFilePath(tmpDir, taskId)));
 
     const result = commitTaskChanges(tmpDir, taskId, "second commit");
     expect(result.ok).toBe(true);
 
-    const dateSubdir = new Date().toISOString().slice(0, 10);
-    const taskPath = join(
-      tmpDir,
-      ".vibeflow",
-      "tasks",
-      dateSubdir,
-      `${taskId}.json`,
+    const task = JSON.parse(
+      readFileSync(taskFilePath(tmpDir, taskId), "utf-8"),
     );
-    const task = JSON.parse(readFileSync(taskPath, "utf-8"));
     expect(task.commits).toHaveLength(2);
     expect(task.commits[0].sha).toBe("abc123");
     expect(task.commits[1].message).toBe("second commit");
+  });
+
+  // Regression for the shared-index corruption: two lanes share one index, so a
+  // plain `git commit` swept lane A's staged file into lane B's commit.
+  it("does not sweep another lane's staged file into the commit", () => {
+    const taskId = "test-task-006";
+    createTaskFile(tmpDir, taskId);
+
+    // Lane A stages its own unrelated file.
+    writeFileSync(join(tmpDir, "lane-a.txt"), "lane A work");
+    stage(tmpDir, "lane-a.txt");
+    // Lane B stages its task file.
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    stage(tmpDir, relTask);
+
+    const result = commitTaskChanges(tmpDir, taskId, "task B only");
+    expect(result.ok).toBe(true);
+
+    // The commit contains ONLY lane B's task file — not lane A's file.
+    expect(committedFiles(tmpDir)).toEqual([relTask]);
+    // Lane A's file is still staged, untouched, for its own owner to commit.
+    expect(stagedFiles(tmpDir)).toContain("lane-a.txt");
+  });
+
+  it("commits staged screenshots under the task's attachment directory", () => {
+    const taskId = "test-task-007";
+    createTaskFile(tmpDir, taskId);
+    const filesDir = join(tmpDir, ".vibeflow", "tasks", "files", taskId);
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "shot.png"), "png-bytes");
+
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    const relShot = relative(tmpDir, join(filesDir, "shot.png"));
+    stage(tmpDir, relTask);
+    stage(tmpDir, relShot);
+
+    const result = commitTaskChanges(tmpDir, taskId, "task + screenshot");
+    expect(result.ok).toBe(true);
+
+    const committed = committedFiles(tmpDir).sort();
+    expect(committed).toEqual([relShot, relTask].sort());
   });
 });
