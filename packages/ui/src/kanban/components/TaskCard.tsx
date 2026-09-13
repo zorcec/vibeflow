@@ -249,8 +249,13 @@ export const TaskCard = React.memo(function TaskCard({
             : null;
 
       function handleDragStart(e: React.DragEvent) {
+            // Capture the element before the dispatch returns — React nulls
+            // `currentTarget` once it does.
+            const card = e.currentTarget as HTMLElement;
             onDragStart(e, task.id);
-            e.currentTarget.classList.add("dragging");
+            // Deferred out of the dragstart dispatch: a DOM write inside it
+            // races Chromium's native drag initiation and aborts the session.
+            setTimeout(() => card.classList.add("dragging"), 0);
       }
 
       function handleDragEnd(e: React.DragEvent) {

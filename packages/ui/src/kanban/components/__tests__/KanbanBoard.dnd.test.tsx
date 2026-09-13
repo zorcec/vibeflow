@@ -233,13 +233,18 @@ describe("KanbanBoard drag-and-drop invariants", () => {
     expectControllerAlive(container, "d1", "b1");
   });
 
-  it("strips imperative drag classes when only the window-level dragend runs", () => {
+  it("strips imperative drag classes when only the window-level dragend runs", async () => {
     const alpha = makeTask("a1", "Alpha");
     const beta = makeTask("b1", "Beta");
     const { container } = render(<BoardHarness initial={[alpha, beta]} />);
 
     const source = card(container, "a1")!;
     fireEvent.dragStart(source, { dataTransfer: dataTransfer() });
+    // The `dragging` mark lands one macrotask after dragstart; writing it
+    // inside the dispatch would race the browser's native drag initiation.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(source.classList.contains("dragging")).toBe(true);
     // An intent class as React would have applied it to the drop target.
     const target = cardWrapper(container, "b1");
@@ -340,5 +345,60 @@ describe("KanbanBoard drag-and-drop invariants", () => {
 
     expect(onReorder).toHaveBeenCalledTimes(1);
     expect(onLinkChild).not.toHaveBeenCalled();
+  });
+
+  it("drops correctly before the deferred dragstart visuals have landed", () => {
+    // Regression guard for the drag-abort fix: `handleDragStart` defers every
+    // React write out of the `dragstart` dispatch (a synchronous state flush
+    // there aborts Chromium's native drag), so the whole dragover → drop path
+    // must resolve its source from `dragTaskIdRef`/`dragSession` alone. Every
+    // event below is dispatched with ZERO ticks elapsed after dragstart: no
+    // re-render has run yet, so the drag visuals are still absent.
+    const alpha = makeTask("a1", "Alpha");
+    const beta = makeTask("b1", "Beta");
+    const onReorder = vi.fn();
+    const { container } = render(
+      <BoardHarness initial={[alpha, beta]} onReorder={onReorder} />,
+    );
+
+    // jsdom has no layout: give the target article a rect so the top-edge band
+    // is deterministic.
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const isTarget = this.getAttribute("data-task-id") === "b1";
+      const top = isTarget ? 100 : 0;
+      const height = isTarget ? 120 : 0;
+      return {
+        top,
+        height,
+        bottom: top + height,
+        left: 0,
+        right: 200,
+        width: 200,
+        x: 0,
+        y: top,
+      } as DOMRect;
+    };
+
+    try {
+      fireEvent.dragStart(card(container, "a1")!, {
+        dataTransfer: dataTransfer(),
+      });
+      // The drag-source visuals are deferred — nothing re-rendered yet.
+      expect(
+        container.querySelector('[data-role="empty-child-slot"]'),
+      ).toBeNull();
+      dragOverAt(cardWrapper(container, "b1"), 104);
+      dropAt(cardWrapper(container, "b1"));
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+
+    expect(onReorder).toHaveBeenCalledWith(
+      "a1",
+      "todo",
+      expect.any(String),
+      "b1",
+    );
   });
 });

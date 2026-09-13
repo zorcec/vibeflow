@@ -83,7 +83,11 @@ export function ChildRow({
               } catch {
                 /* no dataTransfer — the drag session already carries the id */
               }
-              e.currentTarget.classList.add("dragging");
+              // Deferred out of the dragstart dispatch: a DOM write inside it
+              // races Chromium's native drag initiation and aborts the
+              // session. `currentTarget` is null once the dispatch returns.
+              const row = e.currentTarget as HTMLElement;
+              setTimeout(() => row.classList.add("dragging"), 0);
             }
           : undefined
       }

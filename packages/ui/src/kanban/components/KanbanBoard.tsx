@@ -203,6 +203,11 @@ export function KanbanBoard({
     isZone: boolean;
   } | null>(null);
   const dragTaskIdRef = React.useRef<string | null>(null);
+  /** Pending macrotask that publishes the drag-source visuals (see
+   * `deferDragStartVisuals`). Cancelled when the drag ends first. */
+  const dragStartVisualsRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   const filtered = searchQuery
     ? tasks.filter(
@@ -286,6 +291,7 @@ export function KanbanBoard({
   React.useEffect(() => {
     function onWindowDragEnd() {
       dragTaskIdRef.current = null;
+      cancelDeferredDragStartVisuals();
       setDragTaskId(null);
       dropIntentRef.current = null;
       setDropIntent(null);
@@ -301,16 +307,66 @@ export function KanbanBoard({
     return () => window.removeEventListener("dragend", onWindowDragEnd);
   }, []);
 
+  // A dragstart that never gets its macrotask (unmounted in between) must not
+  // paint drag visuals into a later mount.
+  React.useEffect(() => {
+    return () => {
+      if (dragStartVisualsRef.current !== null) {
+        clearTimeout(dragStartVisualsRef.current);
+        dragStartVisualsRef.current = null;
+      }
+    };
+  }, []);
+
+  /** Drop a pending dragstart visual update (the drag ended first). */
+  function cancelDeferredDragStartVisuals() {
+    if (dragStartVisualsRef.current === null) return;
+    clearTimeout(dragStartVisualsRef.current);
+    dragStartVisualsRef.current = null;
+  }
+
+  /** Publish the drag-source visuals one macrotask after `dragstart`.
+   *
+   * A React state update inside the `dragstart` dispatch is flushed
+   * synchronously (discrete event), so the board re-renders while Chromium is
+   * still initiating the native drag — drag-image capture and pointer grab
+   * happen after the dispatch returns. The structural DOM mutations of that
+   * re-render (empty child slots, column styles) race the initiation and abort
+   * the session: `dragstart` → `dragend` a few pixels later with zero
+   * dragenter/dragover/drop.
+   *
+   * The drag source is already registered synchronously in `dragTaskIdRef` and
+   * the `dragSession` singleton — those are what every drag-path handler reads
+   * — so the rendering state can safely land a tick later. */
+  function deferDragStartVisuals(taskId: string) {
+    cancelDeferredDragStartVisuals();
+    dragStartVisualsRef.current = setTimeout(() => {
+      dragStartVisualsRef.current = null;
+      // The drag may have ended (or been replaced) before the macrotask ran.
+      const active = dragTaskIdRef.current ?? dragSession.get();
+      if (active !== taskId) return;
+      setDragTaskId(taskId);
+      // Leftover visuals from a previous session are cleared here too, so the
+      // dragstart dispatch carries no React writes at all. A dragover that
+      // landed in the meantime already owns the intent — never clobber it.
+      if (dropIntentRef.current === null) {
+        setDropIntent(null);
+        setMakeChildTarget(null);
+        setDragOver(null);
+      }
+    }, 0);
+  }
+
   function handleDragStart(e: React.DragEvent, taskId: string) {
     if (!taskId) return;
+    // Everything in this handler must stay synchronous AND free of React
+    // writes: `dragTaskIdRef` + `dragSession` are the drag-source
+    // registration, the rendering state is deferred (see
+    // `deferDragStartVisuals`).
     dragTaskIdRef.current = taskId;
-    setDragTaskId(taskId);
     dragSession.begin(taskId);
     // Reset drop intent — fresh start for each drag session
     dropIntentRef.current = null;
-    setDropIntent(null);
-    setMakeChildTarget(null);
-    setDragOver(null);
     // D1: Firefox requires setData() to initiate HTML5 drag. Guarded: some
     // environments expose no dataTransfer, and a throw here must not abort the
     // drag registration that already happened above.
@@ -320,6 +376,7 @@ export function KanbanBoard({
     } catch {
       /* test environments may throw */
     }
+    deferDragStartVisuals(taskId);
   }
 
   function handleDragOver(e: React.DragEvent, colId: string) {
@@ -509,6 +566,7 @@ export function KanbanBoard({
       setDropIntent(null);
       setMakeChildTarget(null);
       dragTaskIdRef.current = null;
+      cancelDeferredDragStartVisuals();
       setDragTaskId(null);
       dragSession.end();
       clearDragDomState();
@@ -517,6 +575,7 @@ export function KanbanBoard({
 
   function handleDragEnd() {
     dragTaskIdRef.current = null;
+    cancelDeferredDragStartVisuals();
     setDragTaskId(null);
     setDragOver(null);
     dropIntentRef.current = null;
@@ -536,16 +595,13 @@ export function KanbanBoard({
   }
 
   /** Row dragstart mirror — tree rows are not cards, so they set the board
-   * drag source explicitly (ref + state + session). */
+   * drag source explicitly (ref + session synchronously, rendering state
+   * deferred — same rule as `handleDragStart`). */
   function handleTreeRowDragStart(e: React.DragEvent, childId: string) {
     if (!childId) return;
     dragTaskIdRef.current = childId;
-    setDragTaskId(childId);
     dragSession.begin(childId);
     dropIntentRef.current = null;
-    setDropIntent(null);
-    setMakeChildTarget(null);
-    setDragOver(null);
     // D1: Firefox requires setData() to initiate HTML5 drag. Guarded so an
     // absent dataTransfer cannot abort the registration done above.
     try {
@@ -554,6 +610,7 @@ export function KanbanBoard({
     } catch {
       /* test environments may throw */
     }
+    deferDragStartVisuals(childId);
   }
 
   {

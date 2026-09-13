@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ChildRow } from "../ChildRow";
 import { TREE_INDENT_PX } from "../tree-constants";
@@ -204,7 +204,7 @@ describe("ChildRow", () => {
       );
     });
 
-    it("marks the row while dragging and clears the mark on dragend", () => {
+    it("marks the row while dragging and clears the mark on dragend", async () => {
       render(
         <ChildRow
           child={makeTask()}
@@ -215,6 +215,11 @@ describe("ChildRow", () => {
       const row = dragRow();
       expect(row.classList.contains("dragging")).toBe(false);
       fireEvent.dragStart(row);
+      // The mark lands one macrotask after dragstart; writing it inside the
+      // dispatch would race the browser's native drag initiation.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
       expect(row.classList.contains("dragging")).toBe(true);
       fireEvent.dragEnd(row);
       expect(row.classList.contains("dragging")).toBe(false);
