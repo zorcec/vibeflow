@@ -82,7 +82,7 @@ describe("summarizeStyleDiff", () => {
       { key: "a", selector: "div.a", prop: "margin", from: "0", to: "10px" },
     ];
 
-    const result = summarizeStyleDiff(changes);
+    const result = summarizeStyleDiff(changes, false);
     expect(result.total).toBe(3);
     expect(result.elementCount).toBe(2);
     expect(result.topChanges[0].prop).toBe("color");

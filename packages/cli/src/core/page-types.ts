@@ -57,6 +57,10 @@ export interface PageHtmlDiff {
 export interface StyleDiffResult {
   total: number;
   elementCount: number;
+  /**
+   * Mirrors the source snapshot's `truncated` flag — true means the diff is
+   * computed over a capped subset and cannot speak for the rest of the page.
+   */
   truncated: boolean;
   topChanges: Array<{ prop: string; elements: number }>;
 }
@@ -77,6 +81,11 @@ export interface StyleQueryResult {
 /** Result of html_query children/text/attributes */
 export interface HtmlQueryResult {
   queryType: "children" | "text" | "attributes";
+  /**
+   * True when either compared snapshot was capped at MAX_ELEMENTS. Elements
+   * beyond the cap were never compared, so the matches are a partial view.
+   */
+  truncated: boolean;
   matches: Array<{
     selector: string;
     details: string;

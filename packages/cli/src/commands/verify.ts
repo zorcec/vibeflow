@@ -13,7 +13,18 @@ import { readConfig } from "../core/config.js";
 import { RELEVANT_STYLES } from "../core/page-selector.js";
 
 /** Hard cap on page-wide captured elements — keeps evidence files manageable. */
-const MAX_ELEMENTS = 1000;
+export const MAX_ELEMENTS = 1000;
+
+/**
+ * Warning shown when the page-wide capture hit MAX_ELEMENTS.
+ *
+ * A capped capture is a silent subset: the diff only sees the first
+ * MAX_ELEMENTS elements, so "no changes" for anything beyond the cap proves
+ * nothing. The agent must never read this result as a clean pass.
+ */
+export function captureTruncationWarning(maxElements: number): string {
+  return `WARNING: capture truncated at ${maxElements} elements — elements beyond the cap were NOT compared. "No change" results for those elements are unreliable.`;
+}
 
 // Baseline and auth state are now stored in task.json (§6, §7).
 
@@ -35,6 +46,11 @@ export interface VerifyResult {
   diff: DiffResult;
   evidenceFiles: string[];
   verdict: string;
+  /**
+   * True when the page-wide capture exceeded MAX_ELEMENTS. The diff is then a
+   * partial view and MUST NOT be read as a clean pass.
+   */
+  captureTruncated: boolean;
 }
 
 // ── Error types (§9.4) ────────────────────────────────────────────────────
@@ -363,7 +379,7 @@ export async function verifyTask(
     const diff = computeDiff(baseline, afterSnapshot);
 
     // ── 13. Store evidence files ────────────────────────────────────────
-    const evidenceFiles = await storeEvidence(
+    const { files: evidenceFiles, pageTruncated } = await storeEvidence(
       absProjectDir,
       taskId,
       baseline,
@@ -434,6 +450,10 @@ export async function verifyTask(
             const pageDiffJson = JSON.stringify(
               {
                 totalChanged: Object.keys(pageDiff).length,
+                // Carry the snapshot's real truncation state into the page diff
+                // so a consumer of this file cannot mistake a capped subset for
+                // the whole page.
+                truncated: afterPage.truncated === true,
                 elements: pageDiff,
               },
               null,
@@ -470,6 +490,8 @@ export async function verifyTask(
       diff,
       evidenceFiles,
       selector,
+      undefined,
+      pageTruncated,
     );
   } finally {
     await context?.close();
@@ -722,8 +744,11 @@ async function storeEvidence(
   consoleErrors: string[],
   page?: import("playwright").Page,
   selector?: string,
-): Promise<string[]> {
+): Promise<{ files: string[]; pageTruncated: boolean }> {
   const files: string[] = [];
+  // Whether the page-wide capture hit MAX_ELEMENTS. Read from the snapshot it
+  // writes, not recomputed — the snapshot is the single source of truth.
+  let pageTruncated = false;
 
   // Clean up old evidence files before storing new ones
   const filesDir = getFilesDir(projectDir, taskId);
@@ -774,6 +799,7 @@ async function storeEvidence(
         maxElements: MAX_ELEMENTS,
       });
       if (allStyles) {
+        pageTruncated = allStyles.truncated === true;
         const json = JSON.stringify(allStyles, null, 2);
         saveFile(
           projectDir,
@@ -829,7 +855,7 @@ async function storeEvidence(
     files.push(join(getFilesDir(projectDir, taskId), "baseline.json"));
   }
 
-  return files;
+  return { files, pageTruncated };
 }
 
 // ── Result builder ────────────────────────────────────────────────────────
@@ -842,6 +868,7 @@ function buildResult(
   evidenceFiles: string[],
   selector: string,
   overrideVerdict?: string,
+  captureTruncated = false,
 ): VerifyResult {
   const ok = diff.selectorResolves && diff.newConsoleErrors.length === 0;
   const verdict = overrideVerdict ?? summarizeDiff(diff, selector);
@@ -863,6 +890,7 @@ function buildResult(
     diff,
     evidenceFiles,
     verdict,
+    captureTruncated,
   };
 }
 
@@ -946,16 +974,25 @@ export async function addVerifySystemComment(
   taskId: string,
   result: VerifyResult,
 ): Promise<void> {
-  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n_verify collects evidence only — it does not set the \`verified\` flag. The agent judges correctness and attests with \`--verified\`._\n\n${result.verdict}`;
+  const truncation = result.captureTruncated
+    ? `> **${captureTruncationWarning(MAX_ELEMENTS)}**\n\n`
+    : "";
+  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n${truncation}_verify collects evidence only — it does not set the \`verified\` flag. The agent judges correctness and attests with \`--verified\`._\n\n${result.verdict}`;
   addComment(projectDir, taskId, "agent", commentText, undefined, "system");
 }
 
 // ── Human-readable output ─────────────────────────────────────────────────
-function printResult(result: VerifyResult): void {
+export function printResult(result: VerifyResult): void {
   const statusIcon = result.ok ? chalk.green("✅") : chalk.yellow("⚠️");
   console.log();
   console.log(`  ${statusIcon} Evidences collected for task ${result.taskId}`);
   console.log(chalk.dim("─".repeat(60)));
+  // Printed before the evidence itself: a capped capture makes every "no
+  // change" line below unsound, so the agent must read this first.
+  if (result.captureTruncated) {
+    console.log(chalk.yellow.bold(`  ${captureTruncationWarning(MAX_ELEMENTS)}`));
+    console.log();
+  }
   // `ok` is a page-health signal, printed as EVIDENCE, not as a verdict.
   console.log(
     `  Page-health evidence (result.ok): ${result.ok ? chalk.green("true") : chalk.yellow("false")}`,

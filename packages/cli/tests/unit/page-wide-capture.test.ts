@@ -23,8 +23,18 @@ type CaptureResult = ReturnType<typeof capturePageWideElements>;
  * evaluate it in a fresh scope with no access to this module's bindings.
  */
 function runFromSerializedSource(input: CaptureInput): CaptureResult {
+  const source = capturePageWideElements.toString();
+  // Stryker instruments the module with `stryMutAct_<hash>(...)` activation and
+  // `stryCov_<hash>(...)` coverage calls whose helpers live in the instrumented
+  // module's scope. A `new Function` body only sees global scope, so the
+  // serialized copy would throw "stry..._<hash> is not defined" and abort the
+  // mutation dry run. Install a no-op global per helper so the self-containment
+  // assertion still executes the serialized source under mutation testing.
+  for (const name of new Set(source.match(/stry(?:MutAct|Cov)_\w+/g) ?? [])) {
+    (globalThis as Record<string, unknown>)[name] = () => false;
+  }
   const factory = new Function(
-    `return (${capturePageWideElements.toString()})`,
+    `return (${source})`,
   ) as () => (input: CaptureInput) => CaptureResult;
   return factory()(input);
 }

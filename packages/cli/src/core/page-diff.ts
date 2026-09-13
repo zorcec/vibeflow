@@ -61,9 +61,16 @@ export function diffPageStyles(
   return { changes, added, removed };
 }
 
-/** Produce the compact summary for style_diff. */
+/**
+ * Produce the compact summary for style_diff.
+ *
+ * `truncated` is passed through from the source snapshot — never recomputed
+ * here. The snapshot is the single source of truth for whether the capture hit
+ * MAX_ELEMENTS; hardcoding it made a capped diff look complete (false negative).
+ */
 export function summarizeStyleDiff(
   changes: PageStyleChange[],
+  truncated: boolean,
 ): StyleDiffResult {
   const byProp = new Map<string, Set<string>>();
   for (const c of changes) {
@@ -77,7 +84,7 @@ export function summarizeStyleDiff(
 
   const elementCount = new Set(changes.map((c) => c.key)).size;
 
-  return { total: changes.length, elementCount, truncated: false, topChanges };
+  return { total: changes.length, elementCount, truncated, topChanges };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +161,11 @@ export function queryChildChanges(
     matches.push({ selector: afterEl.selector, details: detail });
   }
 
-  return { queryType: "children", matches };
+  return {
+    queryType: "children",
+    truncated: baseline.truncated || after.truncated,
+    matches,
+  };
 }
 
 /** Compare visible text between two snapshots. */
@@ -175,7 +186,11 @@ export function queryTextChanges(
     });
   }
 
-  return { queryType: "text", matches };
+  return {
+    queryType: "text",
+    truncated: baseline.truncated || after.truncated,
+    matches,
+  };
 }
 
 /** Compare data-attributes between two snapshots. */
@@ -205,7 +220,11 @@ export function queryAttributeChanges(
     }
   }
 
-  return { queryType: "attributes", matches };
+  return {
+    queryType: "attributes",
+    truncated: baseline.truncated || after.truncated,
+    matches,
+  };
 }
 
 // ---------------------------------------------------------------------------

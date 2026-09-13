@@ -1,0 +1,5 @@
+---
+"@vibeflow-tools/cli": patch
+---
+
+Surface page-capture truncation in `vibeflow verify`. The page-wide capture stops at 1000 elements and records `truncated: true` on the snapshot, but nothing read that flag: the style summary hardcoded `truncated: false` and the flag never reached the result, so a page larger than the cap produced a diff over a silent subset while the agent was told nothing had been skipped — a false negative, the one failure mode that cannot be noticed. Verify now carries the snapshot's real value through to the result, the page diff and the structure queries, and prints a prominent warning in the same voice as its other warnings (`WARNING: capture truncated at 1000 elements — elements beyond the cap were NOT compared. "No change" results for those elements are unreliable.`) both in the CLI output and in the system comment it writes. The `style_query` and `html_query` tools report the flag and attach the same warning to their output. No change to what `verified` means: a truncated run still leaves the correctness verdict to the agent, it just can no longer be mistaken for a complete one.

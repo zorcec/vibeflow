@@ -9,6 +9,7 @@ import {
   queryTextChanges,
   queryAttributeChanges,
 } from "../core/page-diff.js";
+import { MAX_ELEMENTS, captureTruncationWarning } from "./verify.js";
 
 // ── Tool set ─────────────────────────────────────────────────────────────
 export const VERIFY_TOOLS = new Set([
@@ -103,7 +104,7 @@ export function queryStyle(
     // SAFETY: ev.allStyles is loaded from verify-all-styles.json which is written by
     // the inline capturePageSnapshot() in verify.ts and conforms to PageSnapshot.
     // The JSON.parse round-trip strips the type, so we cast through unknown to restore it.
-    const snap = ev.allStyles as unknown as { elements: Record<string, { selector: string; tag: string; childCount: number; baseline: Record<string, string> | null; after: Record<string, string> | null }> };
+    const snap = ev.allStyles as unknown as { truncated?: boolean; elements: Record<string, { selector: string; tag: string; childCount: number; baseline: Record<string, string> | null; after: Record<string, string> | null }> };
     const matches: Array<{ selector: string; tag: string; childCount: number; from: string; to: string; isRelevant: boolean }> = [];
     for (const [, el] of Object.entries(snap.elements)) {
       const baseVal = el.baseline?.[property] ?? null;
@@ -124,7 +125,16 @@ export function queryStyle(
         });
       }
     }
-    return { ok: true, tool: "style_query", taskId: ev.taskId, property, matches };
+    return {
+      ok: true,
+      tool: "style_query",
+      taskId: ev.taskId,
+      property,
+      // Propagate the snapshot's real flag: a capped capture means these
+      // matches are a partial view of the page.
+      truncated: snap.truncated === true,
+      matches,
+    };
   }
 
   // Legacy single-element mode
@@ -278,6 +288,12 @@ export async function runVerifyTool(
     default:
       result = { ok: false, error: `Unknown tool: ${tool}` };
       break;
+  }
+
+  // A truncated capture makes every page-wide result a partial view. Attach the
+  // warning to the tool's own output so it cannot be missed alongside the data.
+  if ((result as { truncated?: boolean }).truncated === true) {
+    result.warning = captureTruncationWarning(MAX_ELEMENTS);
   }
 
   if (opts.json) {
