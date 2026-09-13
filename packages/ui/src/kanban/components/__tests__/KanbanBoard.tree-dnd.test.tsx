@@ -1,5 +1,13 @@
 import React from "react";
-import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { KanbanBoard } from "../KanbanBoard";
@@ -109,7 +117,9 @@ function Harness({
 }
 
 function card(container: HTMLElement, id: string): HTMLElement {
-  return container.querySelector(`article[data-task-id="${id}"]`) as HTMLElement;
+  return container.querySelector(
+    `article[data-task-id="${id}"]`,
+  ) as HTMLElement;
 }
 function cardWrapper(container: HTMLElement, id: string): HTMLElement {
   return card(container, id).parentElement as HTMLElement;

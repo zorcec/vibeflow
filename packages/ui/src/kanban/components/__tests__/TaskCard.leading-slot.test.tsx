@@ -111,8 +111,7 @@ function titleOffsetReservation(container: HTMLElement): {
 function titleRow(container: HTMLElement): HTMLElement {
       const title = [...container.querySelectorAll("span")].find(
             (s) =>
-                  s.style.fontWeight === "600" &&
-                  s.style.fontSize === "11.5px",
+                  s.style.fontWeight === "600" && s.style.fontSize === "11.5px",
       );
       if (!title?.parentElement) throw new Error("no card title rendered");
       return title.parentElement;
@@ -163,7 +162,8 @@ function expectedMarks({
       isUnread: boolean;
       compact: boolean;
 }): string[] {
-      if (showsVerifyVerdict(laneId) && verified !== undefined) return ["verify"];
+      if (showsVerifyVerdict(laneId) && verified !== undefined)
+            return ["verify"];
       if (laneId === "in-progress") return ["activity"];
       if (laneId === "done") return ["done"];
       if (isUnread) return ["unread"];
@@ -176,7 +176,13 @@ const VERIFY_STATES: Array<{ label: string; verified: boolean | undefined }> = [
       { label: "none", verified: undefined },
 ];
 
-const LANES: TaskStatus[] = ["backlog", "todo", "in-progress", "review", "done"];
+const LANES: TaskStatus[] = [
+      "backlog",
+      "todo",
+      "in-progress",
+      "review",
+      "done",
+];
 
 describe("leading slot mark arbitration", () => {
       it("gives the slot to the verdict over every other cue", () => {
@@ -217,21 +223,29 @@ describe("leading slot mark arbitration", () => {
                   }),
             ).toEqual(["activity"]);
             expect(
-                  resolveLeadingSlotMarks({ ...read, isDone: true, isUnread: true }),
+                  resolveLeadingSlotMarks({
+                        ...read,
+                        isDone: true,
+                        isUnread: true,
+                  }),
             ).toEqual(["done"]);
-            expect(resolveLeadingSlotMarks({ ...read, isUnread: true })).toEqual([
-                  "unread",
-            ]);
+            expect(
+                  resolveLeadingSlotMarks({ ...read, isUnread: true }),
+            ).toEqual(["unread"]);
             expect(resolveLeadingSlotMarks(read)).toEqual([]);
             // The neutral lane dot belongs to the single-row layout alone.
-            expect(resolveLeadingSlotMarks({ ...read, layout: "row" })).toEqual([
-                  "status",
-            ]);
+            expect(resolveLeadingSlotMarks({ ...read, layout: "row" })).toEqual(
+                  ["status"],
+            );
       });
 
       it("never returns more than one mark, whatever the combination", () => {
             for (const layout of ["card", "row"] as const) {
-                  for (const verify of ["verified", "failed", "none"] as const) {
+                  for (const verify of [
+                        "verified",
+                        "failed",
+                        "none",
+                  ] as const) {
                         for (const isInProgress of [true, false]) {
                               for (const isDone of [true, false]) {
                                     for (const isUnread of [true, false]) {
@@ -260,8 +274,12 @@ describe("leading slot mark arbitration", () => {
       });
 
       it("reserves the widest mark of the layout", () => {
-            expect(leadingSlotWidth("card")).toBeGreaterThanOrEqual(GLYPH_MIN_SIZE);
-            expect(leadingSlotWidth("row")).toBeGreaterThanOrEqual(GLYPH_MIN_SIZE);
+            expect(leadingSlotWidth("card")).toBeGreaterThanOrEqual(
+                  GLYPH_MIN_SIZE,
+            );
+            expect(leadingSlotWidth("row")).toBeGreaterThanOrEqual(
+                  GLYPH_MIN_SIZE,
+            );
       });
 
       it("shows a verdict in the review and done lanes only", () => {
@@ -270,7 +288,10 @@ describe("leading slot mark arbitration", () => {
             ).toEqual(["review", "done"]);
             for (const laneId of LANES) {
                   expect(
-                        displayedVerifyState({ status: laneId, verified: true }),
+                        displayedVerifyState({
+                              status: laneId,
+                              verified: true,
+                        }),
                   ).toBe(showsVerifyVerdict(laneId) ? "verified" : "none");
             }
       });
@@ -346,7 +367,11 @@ describe("leading slot rendering", () => {
                   for (const { verified } of VERIFY_STATES) {
                         for (const openedBy of [[], ["user-1"]]) {
                               const { container, unmount } = renderCard(
-                                    makeTask({ status: laneId, verified, openedBy }),
+                                    makeTask({
+                                          status: laneId,
+                                          verified,
+                                          openedBy,
+                                    }),
                                     { col: lane(laneId) },
                               );
                               widths.add(slotWidth(container));
@@ -401,9 +426,13 @@ describe("leading slot rendering", () => {
                               { col: lane(status) },
                         );
                         expect(slotMarks(container)).toEqual(["verify"]);
-                        expect(container.querySelector('[title="Unread"]')).toBeNull();
                         expect(
-                              container.querySelector('[data-leading-mark="done"]'),
+                              container.querySelector('[title="Unread"]'),
+                        ).toBeNull();
+                        expect(
+                              container.querySelector(
+                                    '[data-leading-mark="done"]',
+                              ),
                         ).toBeNull();
                         unmount();
                   }
@@ -445,7 +474,9 @@ describe("leading slot rendering", () => {
                   verified.container.querySelector("[data-verify-state]"),
             ).toHaveAttribute("aria-label", "Verified — implemented correctly");
             expect(
-                  failed.container.querySelector('[data-verify-state="failed"]'),
+                  failed.container.querySelector(
+                        '[data-verify-state="failed"]',
+                  ),
             ).toHaveAttribute(
                   "aria-label",
                   "Failed verification — not implemented correctly",
@@ -498,6 +529,8 @@ describe("leading slot rendering", () => {
                   { col: lane("review") },
             );
             expect(slotMarks(container)).toEqual(["unread"]);
-            expect(container.querySelector('[title="Unread"]')).toBeInTheDocument();
+            expect(
+                  container.querySelector('[title="Unread"]'),
+            ).toBeInTheDocument();
       });
 });

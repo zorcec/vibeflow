@@ -4,7 +4,9 @@ import { renderAgentInstructions } from "../../src/core/tasks.js";
 describe("renderAgentInstructions", () => {
   it("includes workflow steps", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
-    expect(text).toContain("vibeflow tasks --edit <id> --set-status in-progress");
+    expect(text).toContain(
+      "vibeflow tasks --edit <id> --set-status in-progress",
+    );
     expect(text).toContain("<implement the change>");
   });
 
@@ -14,13 +16,19 @@ describe("renderAgentInstructions", () => {
   });
 
   it("includes auto-commit workflow when autoCommit is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: true,
+    });
     expect(text).toContain("git add <files>");
     expect(text).toContain("--commit-message");
   });
 
   it("includes non-auto-commit workflow when autoCommit is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoCommit: false });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: false,
+    });
     expect(text).toContain("vibeflow tasks --commit --task <id>");
   });
 
@@ -29,7 +37,9 @@ describe("renderAgentInstructions", () => {
     expect(text).toContain("Research tasks: NEVER generate code");
     expect(text).toContain("--report-file");
     expect(text).toContain("Create the report file locally first");
-    expect(text).toContain("saved next to the task and deleted from the original path");
+    expect(text).toContain(
+      "saved next to the task and deleted from the original path",
+    );
     expect(text).toContain("findings, options considered");
   });
 
@@ -42,7 +52,10 @@ describe("renderAgentInstructions", () => {
   });
 
   it("includes bug task rules when hasBugTasks is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, hasBugTasks: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      hasBugTasks: true,
+    });
     expect(text).toContain("Bug tasks: Reproduce the bug first");
     expect(text).toContain("· Symptom:");
     expect(text).toContain("· Root cause:");
@@ -65,57 +78,86 @@ describe("renderAgentInstructions", () => {
 
   it("includes critical warnings", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
-    expect(text).toContain("CRITICAL: NEVER edit .vibeflow/ task files directly.");
-    expect(text).toContain("CRITICAL: NEVER set a task status to \"done\".");
+    expect(text).toContain(
+      "CRITICAL: NEVER edit .vibeflow/ task files directly.",
+    );
+    expect(text).toContain('CRITICAL: NEVER set a task status to "done".');
   });
 
   it("includes auto-push setting when autoPush is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoPush: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoPush: true,
+    });
     expect(text).toContain("Auto-push ON");
   });
 
   it("excludes auto-push setting when autoPush is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoPush: false });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoPush: false,
+    });
     expect(text).not.toContain("Auto-push ON");
   });
 
   it("includes commit-message arg when autoCommit is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoCommit: true });
-    expect(text).toContain('--commit-message');
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: true,
+    });
+    expect(text).toContain("--commit-message");
   });
 
   it("excludes commit-message arg when autoCommit is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoCommit: false });
-    expect(text).not.toContain('--commit-message');
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoCommit: false,
+    });
+    expect(text).not.toContain("--commit-message");
   });
 
   it("includes comment format section when autoComment is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoComment: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoComment: true,
+    });
     expect(text).toContain("Comment format (--comment):");
     expect(text).toContain("Auto-comment ON");
   });
 
   it("excludes comment format section when autoComment is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, autoComment: false });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      autoComment: false,
+    });
     expect(text).not.toContain("Comment format (--comment):");
     expect(text).not.toContain("Auto-comment ON");
   });
 
   it("includes branch creation instructions when createBranch is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, createBranch: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      createBranch: true,
+    });
     expect(text).toContain("Create branch ON");
     expect(text).toContain("git checkout -b");
     expect(text).toContain("Create a branch FIRST");
   });
 
   it("excludes branch creation instructions when createBranch is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, createBranch: false });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      createBranch: false,
+    });
     expect(text).not.toContain("Create branch ON");
     expect(text).not.toContain("git checkout -b");
   });
 
   it("includes verify gate setting when requireVerifyBeforeReview is true", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: true });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: true,
+    });
     expect(text).toContain("Verify gate ON");
     expect(text).toContain("need your --verified attestation at review");
     expect(text).toContain("cannot make that call");
@@ -159,7 +201,10 @@ describe("renderAgentInstructions", () => {
   });
 
   it("excludes verify gate setting when requireVerifyBeforeReview is false", () => {
-    const text = renderAgentInstructions({ hasResearchTasks: false, requireVerifyBeforeReview: false });
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: false,
+    });
     expect(text).not.toContain("Verify gate ON");
   });
 

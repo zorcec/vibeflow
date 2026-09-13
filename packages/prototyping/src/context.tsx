@@ -86,29 +86,26 @@ export function VariantProvider({
   // Track which scopes already have a VariantSwitcher rendered (dedup per scope)
   const registeredSwitchers = useRef(new Set<string>());
 
-  const registerScope = useCallback(
-    (name: string, variantNames: string[]) => {
-      setScopes((prev) => {
-        // Avoid unnecessary re-renders if scope already registered with same names
-        const existing = prev[name];
-        if (
-          existing &&
-          existing.variantNames.length === variantNames.length &&
-          existing.variantNames.every((v, i) => v === variantNames[i])
-        ) {
-          return prev;
-        }
-        const firstKey = variantNames[0] ?? "default";
-        const activeVariant = resolveActiveVariant(
-          name,
-          variantNames,
-          existing?.activeVariant ?? firstKey,
-        );
-        return { ...prev, [name]: { activeVariant, variantNames } };
-      });
-    },
-    [],
-  );
+  const registerScope = useCallback((name: string, variantNames: string[]) => {
+    setScopes((prev) => {
+      // Avoid unnecessary re-renders if scope already registered with same names
+      const existing = prev[name];
+      if (
+        existing &&
+        existing.variantNames.length === variantNames.length &&
+        existing.variantNames.every((v, i) => v === variantNames[i])
+      ) {
+        return prev;
+      }
+      const firstKey = variantNames[0] ?? "default";
+      const activeVariant = resolveActiveVariant(
+        name,
+        variantNames,
+        existing?.activeVariant ?? firstKey,
+      );
+      return { ...prev, [name]: { activeVariant, variantNames } };
+    });
+  }, []);
 
   const getActiveVariant = useCallback(
     (name: string): string => {
@@ -117,19 +114,16 @@ export function VariantProvider({
     [scopes],
   );
 
-  const setActiveVariant = useCallback(
-    (name: string, variant: string) => {
-      setScopes((prev) => {
-        const existing = prev[name];
-        if (!existing) return prev;
-        if (existing.activeVariant === variant) return prev;
-        return { ...prev, [name]: { ...existing, activeVariant: variant } };
-      });
-      writeVariantToUrl(name, variant);
-      writeVariantToStorage(name, variant);
-    },
-    [],
-  );
+  const setActiveVariant = useCallback((name: string, variant: string) => {
+    setScopes((prev) => {
+      const existing = prev[name];
+      if (!existing) return prev;
+      if (existing.activeVariant === variant) return prev;
+      return { ...prev, [name]: { ...existing, activeVariant: variant } };
+    });
+    writeVariantToUrl(name, variant);
+    writeVariantToStorage(name, variant);
+  }, []);
 
   const toggleUiVisible = useCallback(() => {
     setUiVisible((prev) => {
@@ -169,8 +163,6 @@ export function VariantProvider({
   };
 
   return (
-    <VariantContext.Provider value={value}>
-      {children}
-    </VariantContext.Provider>
+    <VariantContext.Provider value={value}>{children}</VariantContext.Provider>
   );
 }

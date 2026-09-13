@@ -26,13 +26,13 @@ export const VERDICT_LANES: readonly string[] = ["review", "done"];
 
 /** Whether a lane id (or a child's own status) renders a verify verdict. */
 export function showsVerifyVerdict(columnId: string | undefined): boolean {
-  return columnId !== undefined && VERDICT_LANES.includes(columnId);
+ return columnId !== undefined && VERDICT_LANES.includes(columnId);
 }
 
 export function verifyState(task: { verified?: boolean }): VerifyState {
-  if (task.verified === true) return "verified";
-  if (task.verified === false) return "failed";
-  return "none";
+ if (task.verified === true) return "verified";
+ if (task.verified === false) return "failed";
+ return "none";
 }
 
 /**
@@ -42,16 +42,16 @@ export function verifyState(task: { verified?: boolean }): VerifyState {
  * cannot drift between the card layouts and the child rows.
  */
 export function displayedVerifyState(task: {
-  verified?: boolean;
-  status?: TaskStatus;
+ verified?: boolean;
+ status?: TaskStatus;
 }): VerifyState {
-  return showsVerifyVerdict(task.status) ? verifyState(task) : "none";
+ return showsVerifyVerdict(task.status) ? verifyState(task) : "none";
 }
 
 interface VerifyIndicatorProps {
-  state: VerifyState;
-  /** Optical size in px — match the neighbouring slot glyph (11 card, 10 tree row). */
-  size?: number;
+ state: VerifyState;
+ /** Optical size in px — match the neighbouring slot glyph (11 card, 10 tree row). */
+ size?: number;
 }
 
 /**
@@ -61,26 +61,26 @@ interface VerifyIndicatorProps {
  * the state never relies on colour alone.
  */
 export function VerifyIndicator({ state, size = 11 }: VerifyIndicatorProps) {
-  if (state === "none") return null;
-  const verified = state === "verified";
-  const Icon = verified ? CheckCircle : AlertCircle;
-  const label = verified
-    ? "Verified — implemented correctly"
-    : "Failed verification — not implemented correctly";
-  return (
-    <span
-      className={`verify-indicator verify-indicator--${state}`}
-      data-verify-state={state}
-      role="img"
-      aria-label={label}
-      title={label}
-      style={{
-        display: "inline-flex",
-        flexShrink: 0,
-        color: verified ? "var(--t-success)" : "var(--t-warning)",
-      }}
-    >
-      <Icon aria-hidden="true" style={{ width: size, height: size }} />
-    </span>
-  );
+ if (state === "none") return null;
+ const verified = state === "verified";
+ const Icon = verified ? CheckCircle : AlertCircle;
+ const label = verified
+  ? "Verified — implemented correctly"
+  : "Failed verification — not implemented correctly";
+ return (
+  <span
+   className={`verify-indicator verify-indicator--${state}`}
+   data-verify-state={state}
+   role="img"
+   aria-label={label}
+   title={label}
+   style={{
+    display: "inline-flex",
+    flexShrink: 0,
+    color: verified ? "var(--t-success)" : "var(--t-warning)",
+   }}
+  >
+   <Icon aria-hidden="true" style={{ width: size, height: size }} />
+  </span>
+ );
 }

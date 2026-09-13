@@ -267,7 +267,9 @@ describe("ChildRow verify indicator (three states)", () => {
       "aria-label",
       "Verified — implemented correctly",
     );
-    expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".child-link-chevron"),
+    ).not.toBeInTheDocument();
   });
 
   it("tree row: verified=false renders warning glyph and no chevron", () => {
@@ -284,14 +286,18 @@ describe("ChildRow verify indicator (three states)", () => {
       "aria-label",
       "Failed verification — not implemented correctly",
     );
-    expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
+    expect(
+      container.querySelector(".child-link-chevron"),
+    ).not.toBeInTheDocument();
   });
 
   it("tree row: undefined keeps today's chevron", () => {
     const { container } = render(
       <ChildRow child={makeTask({ status: "review" })} variant="inline" />,
     );
-    expect(container.querySelector("[data-verify-state]")).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-verify-state]"),
+    ).not.toBeInTheDocument();
     expect(container.querySelector(".child-link-chevron")).toBeInTheDocument();
   });
 
@@ -329,6 +335,8 @@ describe("ChildRow verify indicator (three states)", () => {
     expect(
       plain.container.querySelector("[data-verify-state]"),
     ).not.toBeInTheDocument();
-    expect(plain.container.querySelector(".child-link-dot")).toBeInTheDocument();
+    expect(
+      plain.container.querySelector(".child-link-dot"),
+    ).toBeInTheDocument();
   });
 });

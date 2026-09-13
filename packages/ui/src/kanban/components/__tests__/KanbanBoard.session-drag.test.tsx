@@ -17,15 +17,17 @@ import type { Task } from "../../types";
 const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
 
 beforeAll(() => {
-  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
   // jsdom returns a zero rect, so every dragover would classify as a top edge.
   // A deterministic 40px-tall card makes a mid-card dragover classify as the
   // center (make-child) band, the gesture these tests exercise.
-  Element.prototype.getBoundingClientRect = () => ({
+  Element.prototype.getBoundingClientRect = () =>
+    ({
       top: 0,
       bottom: 40,
       left: 0,
@@ -35,7 +37,7 @@ beforeAll(() => {
       x: 0,
       y: 0,
       toJSON() {},
-    } as DOMRect);
+    }) as DOMRect;
 });
 
 afterAll(() => {
@@ -215,9 +217,9 @@ describe("KanbanBoard session-registered drag sources", () => {
 
     expect(onDrop).toHaveBeenCalledWith("a1", "backlog");
     expect(
-      card(container, "a1").closest("[data-column-id]")?.getAttribute(
-        "data-column-id",
-      ),
+      card(container, "a1")
+        .closest("[data-column-id]")
+        ?.getAttribute("data-column-id"),
     ).toBe("backlog");
   });
 

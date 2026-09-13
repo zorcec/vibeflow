@@ -1507,7 +1507,8 @@ function useCors(app: express.Application): void {
       // SAFETY: Local dev server — restrict CORS to localhost and 127.0.0.1
       const isLocal =
         /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
-        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin);
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
+        origin === "null"; // file:// URLs send origin: null
       // pi-lens-ignore: no-server-bind-wildcard
       res.setHeader(
         "Access-Control-Allow-Origin",

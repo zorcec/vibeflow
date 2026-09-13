@@ -1,16 +1,16 @@
 /**
-  * Theme registry — the single source of truth for which themes exist and the
-  * display metadata that every consumer reads. A theme is DATA: one entry here
-  * plus one `--t-*` token block in themes.css. Adding a theme therefore needs no
-  * component edit, and `Theme`/`THEMES` are derived from this list rather than a
-  * hand-maintained union.
-  *
-  * Display fields: `id` (the `data-theme` value), `name`, `description`, `base`
-  * (light/dark ink hint) and `preview` (3-4 representative swatch colours). The
-  * token map itself lives in themes.css; `__tests__/theme-contract.test.ts`
-  * reads that file and fails if a registered theme is missing tokens or drops
-  * below a contrast floor.
-  */
+ * Theme registry — the single source of truth for which themes exist and the
+ * display metadata that every consumer reads. A theme is DATA: one entry here
+ * plus one `--t-*` token block in themes.css. Adding a theme therefore needs no
+ * component edit, and `Theme`/`THEMES` are derived from this list rather than a
+ * hand-maintained union.
+ *
+ * Display fields: `id` (the `data-theme` value), `name`, `description`, `base`
+ * (light/dark ink hint) and `preview` (3-4 representative swatch colours). The
+ * token map itself lives in themes.css; `__tests__/theme-contract.test.ts`
+ * reads that file and fails if a registered theme is missing tokens or drops
+ * below a contrast floor.
+ */
 
 export type ThemeBase = "dark" | "light";
 
@@ -52,8 +52,7 @@ export const THEME_REGISTRY = [
   {
     id: "rose-pine-dawn",
     name: "Rosé Pine Dawn",
-    description:
-      "Warm paper light with muted rose, pine and iris accents.",
+    description: "Warm paper light with muted rose, pine and iris accents.",
     base: "light",
     preview: ["#faf4ed", "#286983", "#b4637a", "#ea9d34"],
   },
@@ -82,9 +81,9 @@ export type Theme = (typeof THEME_REGISTRY)[number]["id"];
 export const THEMES: readonly Theme[] = THEME_REGISTRY.map((entry) => entry.id);
 
 /** Fallback used when a concrete theme is required. The rendered default is
-  *  still driven by themes.css :root (dark) plus the prefers-color-scheme
-  *  media query, so `resolveInitialTheme()` returns null until the user has an
-  *  explicit preference. */
+ *  still driven by themes.css :root (dark) plus the prefers-color-scheme
+ *  media query, so `resolveInitialTheme()` returns null until the user has an
+ *  explicit preference. */
 export const DEFAULT_THEME: Theme = "dark";
 
 const DEFINITIONS_BY_ID = new Map<string, ThemeDefinition>(

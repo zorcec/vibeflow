@@ -514,7 +514,9 @@ describe("verifyTask — system comments", () => {
       expect.any(String),
       "test-task-123",
       "agent",
-      expect.stringContaining("✅ clean (element resolves, no new console errors)"),
+      expect.stringContaining(
+        "✅ clean (element resolves, no new console errors)",
+      ),
       undefined,
       "system",
     );

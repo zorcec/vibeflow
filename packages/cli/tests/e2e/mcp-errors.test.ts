@@ -155,7 +155,10 @@ describe("MCP error paths", () => {
       await callTool(client, "create_task", { title: "verify target" }),
     );
     await assertMcpErrorContent(
-      await callTool(client, "verify_task", { id: created.id, url: "nota-url" }),
+      await callTool(client, "verify_task", {
+        id: created.id,
+        url: "nota-url",
+      }),
       -32602,
     );
     await assertServerUsable(client);
@@ -207,7 +210,12 @@ describe("MCP error paths", () => {
     const task = await assertJsonTextContent(
       await callTool(client, "create_task", { title: "attach control" }),
     );
-    for (const filename of ["..\\evil.md", "sub/dir.md", "a\u0000b.md", "a\u0001b.md"]) {
+    for (const filename of [
+      "..\\evil.md",
+      "sub/dir.md",
+      "a\u0000b.md",
+      "a\u0001b.md",
+    ]) {
       const res = await callTool(client, "attach_file", {
         id: task.id,
         filename,
@@ -322,7 +330,10 @@ describe("MCP error paths", () => {
     await callTool(client, "add_comment", { id: NONEXISTENT_ID, text: "x" });
     await callTool(client, "export_prompt", { id: NONEXISTENT_ID });
     await callTool(client, "claim_next_task", { dryRun: false });
-    await callTool(client, "verify_task", { id: NONEXISTENT_ID, url: "nota-url" });
+    await callTool(client, "verify_task", {
+      id: NONEXISTENT_ID,
+      url: "nota-url",
+    });
     const parsed = await assertJsonTextContent(
       await callTool(client, "list_tasks", { limit: 0 }),
     );

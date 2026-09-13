@@ -135,9 +135,7 @@ describe("classifyDropZone (card drop bands)", () => {
     for (const height of HEIGHTS) {
       const rect = { top: 100, height };
       const band = Math.floor((height - DROP_BAND_MIN_CENTRE_PX) / 2);
-      expect(height - 2 * band).toBeGreaterThanOrEqual(
-        DROP_BAND_MIN_CENTRE_PX,
-      );
+      expect(height - 2 * band).toBeGreaterThanOrEqual(DROP_BAND_MIN_CENTRE_PX);
       expect(classifyDropZone(rect, rect.top + band)).toBe("center");
       expect(classifyDropZone(rect, rect.top + height - band)).toBe("center");
     }

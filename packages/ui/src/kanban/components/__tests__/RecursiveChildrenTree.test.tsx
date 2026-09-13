@@ -289,7 +289,11 @@ describe("RecursiveChildrenTree", () => {
 
     it("renders the given nodes instead of the parent's children, including their subtree", () => {
       const { container } = render(
-        <RecursiveChildrenTree parentId="p1" allTasks={tasks} nodes={[related]} />,
+        <RecursiveChildrenTree
+          parentId="p1"
+          allTasks={tasks}
+          nodes={[related]}
+        />,
       );
       // r1 (given node) + x1 (r1's child, resolved normally).
       expect(

@@ -323,7 +323,9 @@ describe("TaskCard verify indicator (three states)", () => {
     const { container } = renderCard(makeTask({ status: "review" }), [], {
       col: reviewCol,
     });
-    expect(container.querySelector("[data-verify-state]")).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-verify-state]"),
+    ).not.toBeInTheDocument();
   });
 
   it("the three states render distinct output", () => {

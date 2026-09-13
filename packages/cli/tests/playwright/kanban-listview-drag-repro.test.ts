@@ -308,9 +308,7 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
 
     const target = rows.find((r) => r.id === targetId);
     expect(target, "in-progress target row must be visible").toBeTruthy();
-    const source = rows.find(
-      (r) => r.status === "review" && r.id !== targetId,
-    );
+    const source = rows.find((r) => r.status === "review" && r.id !== targetId);
     expect(source, "a visible review source row is required").toBeTruthy();
 
     const before = await getTask(source!.id);
@@ -344,9 +342,10 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
       dragoverCount,
       `expected dragover events. log=${raw}`,
     ).toBeGreaterThanOrEqual(1);
-    expect(dropCount, `expected a drop event. log=${raw}`).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      dropCount,
+      `expected a drop event. log=${raw}`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       after.status,
       `drop must have persisted a status change. log=${raw}`,
@@ -379,9 +378,10 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
       "[probe] scrolled visible rows:",
       JSON.stringify(rows.map((r) => ({ id: r.id, status: r.status }))),
     );
-    expect(rows.length, "expected visible rows after scrolling").toBeGreaterThanOrEqual(
-      3,
-    );
+    expect(
+      rows.length,
+      "expected visible rows after scrolling",
+    ).toBeGreaterThanOrEqual(3);
 
     const source = rows[2];
     const targetRow = rows[0];
@@ -401,7 +401,10 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
       },
       { id: source.id, x: source.x, y: source.top + source.height / 2 },
     );
-    console.log("[probe] scrolled source under pointer:", JSON.stringify(under));
+    console.log(
+      "[probe] scrolled source under pointer:",
+      JSON.stringify(under),
+    );
     expect(
       under.draggableTaskId,
       "pointer must start on the draggable source row",
@@ -435,8 +438,9 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
       dragoverCount,
       `expected dragover events. log=${raw}`,
     ).toBeGreaterThanOrEqual(1);
-    expect(dropCount, `expected a drop event. log=${raw}`).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      dropCount,
+      `expected a drop event. log=${raw}`,
+    ).toBeGreaterThanOrEqual(1);
   });
 });

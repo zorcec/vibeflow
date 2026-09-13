@@ -15,7 +15,7 @@ export function renderIndicators(): void {
   if (!state.indicatorsVisible || state.tasks.length === 0) return;
 
   const currentPath = location.pathname;
-  const pageTasks = state.tasks.filter(t => !t.url || t.url === currentPath);
+  const pageTasks = state.tasks.filter((t) => !t.url || t.url === currentPath);
   if (pageTasks.length === 0) return;
 
   // Group by CSS selector for DOM lookup (prefer cssSelector, fall back to selector)
@@ -32,18 +32,25 @@ export function renderIndicators(): void {
   for (const sel of Object.keys(bySelector)) {
     const group = bySelector[sel];
     let targetEl: Element | null;
-    try { targetEl = document.querySelector(sel); } catch { continue; }
+    try {
+      targetEl = document.querySelector(sel);
+    } catch {
+      continue;
+    }
     if (!targetEl) continue;
 
     const rect = targetEl.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
-    if (rect.bottom < 0 || rect.top > vpH || rect.right < 0 || rect.left > vpW) continue;
+    if (rect.bottom < 0 || rect.top > vpH || rect.right < 0 || rect.left > vpW)
+      continue;
 
-    const activeTasks = group.filter(t => t.status !== "done");
+    const activeTasks = group.filter((t) => t.status !== "done");
     const allDone = activeTasks.length === 0;
     if (allDone && !state.sidebarShowDone) continue;
 
-    const indicator = el("div", { className: "vibeflow-task-indicator" + (allDone ? " all-done" : "") });
+    const indicator = el("div", {
+      className: "vibeflow-task-indicator" + (allDone ? " all-done" : ""),
+    });
     indicator.textContent = allDone ? "✓" : String(activeTasks.length);
     indicator.style.left = `${rect.right - 10}px`;
     indicator.style.top = `${rect.top - 10}px`;
@@ -56,7 +63,12 @@ export function renderIndicators(): void {
     indicator.addEventListener("mouseleave", (e: MouseEvent) => {
       if (state.tooltipPinned) return;
       const rel = e.relatedTarget as Node | null;
-      if (state.activeTooltip && rel && (rel === state.activeTooltip || state.activeTooltip.contains(rel))) return;
+      if (
+        state.activeTooltip &&
+        rel &&
+        (rel === state.activeTooltip || state.activeTooltip.contains(rel))
+      )
+        return;
       hideIndicatorTooltip();
     });
     indicator.addEventListener("click", (e: Event) => {
@@ -85,12 +97,18 @@ export function scheduleRenderIndicators(): void {
 
 function hideIndicatorTooltip(): void {
   if (state.tooltipPinned) return;
-  if (state.activeTooltip) { state.activeTooltip.remove(); state.activeTooltip = null; }
+  if (state.activeTooltip) {
+    state.activeTooltip.remove();
+    state.activeTooltip = null;
+  }
 }
 
 function forceHideTooltip(): void {
   state.tooltipPinned = false;
-  if (state.activeTooltip) { state.activeTooltip.remove(); state.activeTooltip = null; }
+  if (state.activeTooltip) {
+    state.activeTooltip.remove();
+    state.activeTooltip = null;
+  }
 }
 
 function showIndicatorTooltip(indicator: HTMLElement, group: Task[]): void {
@@ -100,7 +118,10 @@ function showIndicatorTooltip(indicator: HTMLElement, group: Task[]): void {
   const tooltip = el("div", { className: "vibeflow-task-tooltip" });
 
   const closeBtn = el("button", { className: "tooltip-close-btn" }, "✕");
-  closeBtn.addEventListener("click", (e: Event) => { e.stopPropagation(); forceHideTooltip(); });
+  closeBtn.addEventListener("click", (e: Event) => {
+    e.stopPropagation();
+    forceHideTooltip();
+  });
   tooltip.appendChild(closeBtn);
 
   for (const task of group) {
@@ -146,10 +167,14 @@ export function setupInteractionDebounce(host: HTMLElement): void {
 }
 
 export function setupClickOutsideTooltipClose(host: HTMLElement): void {
-  document.addEventListener("click", (e: MouseEvent) => {
-    if (!state.tooltipPinned || !state.activeTooltip) return;
-    const path = e.composedPath ? e.composedPath() : [e.target as Node];
-    if (path.includes(host)) return;
-    forceHideTooltip();
-  }, true);
+  document.addEventListener(
+    "click",
+    (e: MouseEvent) => {
+      if (!state.tooltipPinned || !state.activeTooltip) return;
+      const path = e.composedPath ? e.composedPath() : [e.target as Node];
+      if (path.includes(host)) return;
+      forceHideTooltip();
+    },
+    true,
+  );
 }

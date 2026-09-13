@@ -1070,11 +1070,7 @@ function printResult(result: VerifyResult): void {
       `    3. Implemented WRONG → record it and go back to fix it: --set-status in-progress --verify-failed`,
     ),
   );
-  console.log(
-    chalk.dim(
-      "       Never submit work you know is incomplete.",
-    ),
-  );
+  console.log(chalk.dim("       Never submit work you know is incomplete."));
   console.log(
     chalk.dim("    4. Not sure → leave a comment explaining the uncertainty"),
   );

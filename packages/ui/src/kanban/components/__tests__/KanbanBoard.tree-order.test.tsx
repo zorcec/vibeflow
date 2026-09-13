@@ -1,5 +1,13 @@
 import React from "react";
-import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { KanbanBoard } from "../KanbanBoard";
@@ -128,8 +136,18 @@ describe("KanbanBoard tree DnD — sibling reorder order", () => {
     // children. Rendered order is oldest-first: A, B.
     const initial = [
       makeTask("r1", "Root"),
-      makeTask("a1", "Child A", [{ type: "parent", taskId: "r1" }], "2026-01-01"),
-      makeTask("b1", "Child B", [{ type: "parent", taskId: "r1" }], "2026-01-02"),
+      makeTask(
+        "a1",
+        "Child A",
+        [{ type: "parent", taskId: "r1" }],
+        "2026-01-01",
+      ),
+      makeTask(
+        "b1",
+        "Child B",
+        [{ type: "parent", taskId: "r1" }],
+        "2026-01-02",
+      ),
     ];
     const { container } = render(<Harness initial={initial} />);
 
@@ -148,8 +166,18 @@ describe("KanbanBoard tree DnD — sibling reorder order", () => {
   it("reorders a keyless sibling before another (drop before a sibling)", () => {
     const initial = [
       makeTask("r1", "Root"),
-      makeTask("a1", "Child A", [{ type: "parent", taskId: "r1" }], "2026-01-01"),
-      makeTask("b1", "Child B", [{ type: "parent", taskId: "r1" }], "2026-01-02"),
+      makeTask(
+        "a1",
+        "Child A",
+        [{ type: "parent", taskId: "r1" }],
+        "2026-01-01",
+      ),
+      makeTask(
+        "b1",
+        "Child B",
+        [{ type: "parent", taskId: "r1" }],
+        "2026-01-02",
+      ),
     ];
     const { container } = render(<Harness initial={initial} />);
 

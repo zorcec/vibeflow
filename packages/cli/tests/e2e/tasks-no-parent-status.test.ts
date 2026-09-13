@@ -14,12 +14,7 @@
  * touched.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  rmSync,
-  readdirSync,
-  readFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnCli } from "./mcp-helpers.js";
@@ -107,10 +102,10 @@ async function setStatus(
   id: string,
   status: string,
 ): Promise<void> {
-  const res = await spawnCli(
-    ["tasks", "--edit", id, "--set-status", status],
-    { cwd: store, home },
-  );
+  const res = await spawnCli(["tasks", "--edit", id, "--set-status", status], {
+    cwd: store,
+    home,
+  });
   expect(res.code, `set-status failed: ${res.stderr}`).toBe(0);
 }
 
@@ -127,10 +122,10 @@ describe("e2e: tasks --edit --no-parent preserves status", () => {
     expect(parentIdOf(before), "child should start parented").toBe(parentId);
     expect(before?.status).toBe("todo");
 
-    const res = await spawnCli(
-      ["tasks", "--edit", childId, "--no-parent"],
-      { cwd: store, home },
-    );
+    const res = await spawnCli(["tasks", "--edit", childId, "--no-parent"], {
+      cwd: store,
+      home,
+    });
     expect(res.code, `--no-parent failed: ${res.stderr}`).toBe(0);
 
     const after = byId(store, childId);
@@ -147,10 +142,10 @@ describe("e2e: tasks --edit --no-parent preserves status", () => {
     const childId = await createTask(store, home, "child task", parentId);
     await setStatus(store, home, childId, "in-progress");
 
-    const res = await spawnCli(
-      ["tasks", "--edit", childId, "--no-parent"],
-      { cwd: store, home },
-    );
+    const res = await spawnCli(["tasks", "--edit", childId, "--no-parent"], {
+      cwd: store,
+      home,
+    });
     expect(res.code, `--no-parent failed: ${res.stderr}`).toBe(0);
 
     const after = byId(store, childId);
@@ -158,7 +153,7 @@ describe("e2e: tasks --edit --no-parent preserves status", () => {
     expect(after?.status, "status must remain in-progress").toBe("in-progress");
   });
 
-  it("--set-parent \"\" also preserves status", async () => {
+  it('--set-parent "" also preserves status', async () => {
     const store = freshDir("vf-noparent-empty-");
     const home = freshDir("vf-noparent-home-");
 

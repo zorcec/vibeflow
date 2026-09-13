@@ -66,9 +66,9 @@ describe("classifyForDropIntent — short cards keep a reachable centre zone", (
         "center",
       );
       expect(classifyForDropIntent(wrapper, TOP + 2, false).zone).toBe("top");
-      expect(
-        classifyForDropIntent(wrapper, TOP + height - 2, false).zone,
-      ).toBe("bottom");
+      expect(classifyForDropIntent(wrapper, TOP + height - 2, false).zone).toBe(
+        "bottom",
+      );
     }
   });
 });

@@ -243,9 +243,7 @@ describe("sortKey ceiling cache", () => {
       description: "",
       sortKey: "0000000009000000",
     });
-    expect((low.data?.sortKey ?? "") < (high.data?.sortKey ?? "")).toBe(
-      true,
-    );
+    expect((low.data?.sortKey ?? "") < (high.data?.sortKey ?? "")).toBe(true);
 
     // Simulate the reindex invalidating the cache.
     rmSync(sidecar());

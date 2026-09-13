@@ -1210,9 +1210,7 @@ export function renderAgentInstructions(opts: {
     "       Did you actually accomplish the task? If not, set it back to in-progress and fix it.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       Never submit work you know is incomplete.",
-  );
+  verifyEvidenceLines.push("       Never submit work you know is incomplete.");
   const verifyAttestationLines: string[] = [];
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyAttestationLines.push(

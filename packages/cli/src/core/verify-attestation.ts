@@ -18,15 +18,15 @@
 
 /** The attestation flags as they arrive from `tasks --edit`. */
 export interface VerifyAttestationFlags {
-  /** `--verified`: the agent verified and the task IS implemented correctly. */
-  verified?: boolean;
-  /** `--verify-failed`: the agent verified and the task is NOT correct. */
-  verifyFailed?: boolean;
+ /** `--verified`: the agent verified and the task IS implemented correctly. */
+ verified?: boolean;
+ /** `--verify-failed`: the agent verified and the task is NOT correct. */
+ verifyFailed?: boolean;
 }
 
 export type VerifyAttestationResolution =
-  | { ok: true; value: boolean | undefined }
-  | { ok: false; message: string };
+ | { ok: true; value: boolean | undefined }
+ | { ok: false; message: string };
 
 /**
  * Map the flag pair onto the tri-state value. Neither flag resolves to
@@ -34,16 +34,16 @@ export type VerifyAttestationResolution =
  * together are contradictory because they assert opposite verdicts.
  */
 export function resolveVerifyAttestation(
-  flags: VerifyAttestationFlags,
+ flags: VerifyAttestationFlags,
 ): VerifyAttestationResolution {
-  if (flags.verified && flags.verifyFailed) {
-    return {
-      ok: false,
-      message:
-        "--verified says the task IS implemented correctly, --verify-failed says it is NOT — pass at most one.",
-    };
-  }
-  if (flags.verified) return { ok: true, value: true };
-  if (flags.verifyFailed) return { ok: true, value: false };
-  return { ok: true, value: undefined };
+ if (flags.verified && flags.verifyFailed) {
+  return {
+   ok: false,
+   message:
+    "--verified says the task IS implemented correctly, --verify-failed says it is NOT — pass at most one.",
+  };
+ }
+ if (flags.verified) return { ok: true, value: true };
+ if (flags.verifyFailed) return { ok: true, value: false };
+ return { ok: true, value: undefined };
 }

@@ -124,8 +124,7 @@ async function reviewCardRects(page: Page): Promise<CardRect[]> {
           x: r.x + r.width / 2,
           top: r.y,
           height: r.height,
-          visible:
-            r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight,
+          visible: r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight,
         };
       })
       .filter((c) => c.visible)
@@ -233,7 +232,9 @@ describe("kanban DnD with a real pointer (drag-abort regression)", () => {
       const moved = await moveWithDragHandover(
         page,
         source.x + (target.x - source.x) * t,
-        source.top + source.height / 2 + (targetBandY - (source.top + source.height / 2)) * t,
+        source.top +
+          source.height / 2 +
+          (targetBandY - (source.top + source.height / 2)) * t,
       );
       if (!moved) {
         dragHandover = false;
@@ -254,16 +255,18 @@ describe("kanban DnD with a real pointer (drag-abort regression)", () => {
 
     // The browser handed the drag session to the client — it did not die
     // inside the dragstart dispatch.
-    expect(dragHandover, `the browser never claimed the drag. ${diagnostics}`).toBe(
-      true,
-    );
+    expect(
+      dragHandover,
+      `the browser never claimed the drag. ${diagnostics}`,
+    ).toBe(true);
     expect(
       dragoverOnCard,
       `expected >=1 dragover on a task card. ${diagnostics}`,
     ).toBeGreaterThanOrEqual(1);
-    expect(drops, `expected a drop event. ${diagnostics}`).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      drops,
+      `expected a drop event. ${diagnostics}`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       patches.some((url) => url.includes(`/api/tasks/${source.id}`)),
       `expected a PATCH for the dragged card. ${diagnostics}`,

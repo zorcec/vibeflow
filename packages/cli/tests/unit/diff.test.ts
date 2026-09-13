@@ -65,13 +65,17 @@ describe("computeDiff", () => {
     // Capture asymmetry is not a value change. The annotation baseline stores
     // only RELEVANT_STYLES; a wider after snapshot must not invent changes.
     const baseline = makeSnapshot({ computedStyles: { color: "#000" } });
-    const after = makeSnapshot({ computedStyles: { color: "#000", padding: "8px" } });
+    const after = makeSnapshot({
+      computedStyles: { color: "#000", padding: "8px" },
+    });
     const diff = computeDiff(baseline, after);
     expect(diff.stylesChanged).toEqual({});
   });
 
   it("ignores properties present only in the baseline snapshot", () => {
-    const baseline = makeSnapshot({ computedStyles: { color: "#000", padding: "8px" } });
+    const baseline = makeSnapshot({
+      computedStyles: { color: "#000", padding: "8px" },
+    });
     const after = makeSnapshot({ computedStyles: { color: "#000" } });
     const diff = computeDiff(baseline, after);
     expect(diff.stylesChanged).toEqual({});
@@ -170,7 +174,9 @@ describe("summarizeDiff", () => {
       positionChanged: false,
       newConsoleErrors: [],
     };
-    expect(summarizeDiff(diff, ".submit")).toBe("no structural changes detected");
+    expect(summarizeDiff(diff, ".submit")).toBe(
+      "no structural changes detected",
+    );
   });
 
   it("reports HTML changed", () => {

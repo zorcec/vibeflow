@@ -10,19 +10,19 @@
  * directory expect.
  */
 const GIT_LOCATION_ENV_VARS = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_COMMON_DIR",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_PREFIX",
+ "GIT_DIR",
+ "GIT_WORK_TREE",
+ "GIT_INDEX_FILE",
+ "GIT_OBJECT_DIRECTORY",
+ "GIT_COMMON_DIR",
+ "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+ "GIT_PREFIX",
 ] as const;
 
 export function gitEnvWithCleanLocation(
-  base: NodeJS.ProcessEnv = process.env,
+ base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = { ...base };
-  for (const key of GIT_LOCATION_ENV_VARS) delete env[key];
-  return env;
+ const env = { ...base };
+ for (const key of GIT_LOCATION_ENV_VARS) delete env[key];
+ return env;
 }

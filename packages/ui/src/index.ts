@@ -5,7 +5,12 @@ export { VibeflowIcon } from "./VibeflowIcon";
 export { KanbanBoard } from "./KanbanBoard";
 export { KanbanCard } from "./KanbanCard";
 export { TaskDetailPanel } from "./TaskDetailPanel";
-export type { TaskComment, TaskDetailPanelHandlers, StatusConfig, TaskPriority } from "./TaskDetailPanel";
+export type {
+  TaskComment,
+  TaskDetailPanelHandlers,
+  StatusConfig,
+  TaskPriority,
+} from "./TaskDetailPanel";
 export { StatusBadge } from "./StatusBadge";
 export { TypeBadge } from "./TypeBadge";
 export { PriorityBadge } from "./PriorityBadge";
@@ -53,4 +58,3 @@ export type {
 
 // Kanban app components (shared between CLI and web)
 export * from "./kanban";
-
