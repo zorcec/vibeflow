@@ -1447,6 +1447,84 @@ export function App() {
     if (task?.id) void api.markOpened(task.id);
   }
 
+  /** Distance kept between the card and the edge of the visible board band. */
+  const BOARD_EDGE_PAD_PX = 8;
+  /** Narrowest the board may be squeezed to. Below this the panel is covering
+   *  the board anyway (a phone-width viewport leaves no room for both), and a
+   *  0-width board would only make the board's own scrollbar misbehave. */
+  const MIN_BOARD_BAND_PX = 280;
+
+  // Window width drives how much of the board the panel leaves visible, and a
+  // window resize while the panel is open is exactly when a card can slip under
+  // it — so the value the inset and the scroll effect read has to be live.
+  const [viewportWidth, setViewportWidth] = React.useState(
+    () => window.innerWidth,
+  );
+  React.useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  /** Board inset while the panel is open — the panel's live width, clamped so
+   *  the board always keeps a band of its own. */
+  const boardRightInset = panelState.open
+    ? Math.max(0, Math.min(panelWidth, viewportWidth - MIN_BOARD_BAND_PX))
+    : 0;
+
+  /** Net horizontal offset this effect has added to the board while the panel
+   *  is open. Closing the panel takes it back off, so a scroll the user made
+   *  themselves keeps its relative position instead of being undone. */
+  const boardScrollRestoreRef = React.useRef(0);
+
+  // The detail panel is an absolutely positioned overlay: it is drawn on top of
+  // the board, and the board is inset by the panel's *live* width while the
+  // panel is open (`rightInset`), so the board's box is exactly the band the
+  // user can see. Without moving the board, a card in a right-hand lane is
+  // covered by the panel the moment it is clicked — and the board could not be
+  // scrolled to it either (at 1440x900 its scroll range was only 64px), so the
+  // card read as "gone" until the panel was closed. Bringing the clicked card
+  // into the visible band is what keeps the board truthful about where the task
+  // is (aa9cf784).
+  React.useEffect(() => {
+    const board = document.getElementById("kanban-board");
+    if (!board) return;
+
+    const taskId = panelState.open ? (panelState.task?.id ?? null) : null;
+    if (!taskId) {
+      // Closing the panel widens the board back to full width, which clamps its
+      // scroll range — so undo the offset we added rather than restoring an
+      // absolute position the browser has already clamped past.
+      const applied = boardScrollRestoreRef.current;
+      boardScrollRestoreRef.current = 0;
+      if (applied !== 0) board.scrollLeft -= applied;
+      return;
+    }
+
+    const card = board.querySelector<HTMLElement>(
+      `[data-task-id="${taskId}"]`,
+    );
+    if (!card) return;
+    const cardRect = card.getBoundingClientRect();
+    const boardRect = board.getBoundingClientRect();
+    // The board's own box IS the visible band (the panel is inset out of it), so
+    // the geometry does not depend on the panel's slide-in animation.
+    const bandLeft = boardRect.left + BOARD_EDGE_PAD_PX;
+    const bandRight = boardRect.right - BOARD_EDGE_PAD_PX;
+    if (bandRight - bandLeft < cardRect.width) return;
+    const delta =
+      cardRect.right > bandRight
+        ? cardRect.right - bandRight
+        : cardRect.left < bandLeft
+          ? cardRect.left - bandLeft
+          : 0;
+    if (delta === 0) return; // already visible — the wide viewport case
+    const before = board.scrollLeft;
+    board.scrollLeft = before + delta;
+    // Record what actually landed — the browser clamps to the scroll range.
+    boardScrollRestoreRef.current += board.scrollLeft - before;
+  }, [panelState.open, panelState.task?.id, panelWidth, viewportWidth]);
+
   /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
    *  Pushes the current task to nav history so the back button works. */
   function navigateToTask(nextTask: Task) {
@@ -1626,6 +1704,7 @@ export function App() {
             onToggleExpanded={(taskId, expanded) =>
               void setTaskExpanded(taskId, expanded)
             }
+            rightInset={boardRightInset}
           />
         )}
 

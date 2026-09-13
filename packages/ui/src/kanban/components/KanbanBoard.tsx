@@ -167,6 +167,16 @@ interface Props {
   currentUserId?: string;
   /** Persists a card's expand/collapse choice for the current user. */
   onToggleExpanded?: (taskId: string, expanded: boolean) => void;
+  /**
+   * Width, in px, reserved on the board's right edge while the detail panel is
+   * open. The panel is an absolutely positioned overlay, so on a viewport
+   * narrower than board + panel it covers whatever column sits under it —
+   * including the card the user just clicked. Insetting the board by the
+   * panel's live width keeps the board's own box equal to the band the user can
+   * actually see, which is what lets the board scroll a clicked card clear of
+   * the panel (aa9cf784). 0 (or absent) leaves the board full width.
+   */
+  rightInset?: number;
 }
 
 export function KanbanBoard({
@@ -184,6 +194,7 @@ export function KanbanBoard({
   onTreeReparent,
   currentUserId,
   onToggleExpanded,
+  rightInset,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
@@ -627,7 +638,14 @@ export function KanbanBoard({
         id="kanban-board"
         ref={boardRef}
         className="flex-1 flex overflow-x-auto overflow-y-hidden"
-        style={{ padding: "16px 20px", gap: 16 }}
+        style={{
+          padding: "16px 20px",
+          gap: 16,
+          // Reserve the panel's width so the board's box is exactly the visible
+          // band — see `rightInset`. Undefined (not 0) so the wide case where no
+          // inset is needed renders byte-identically to before.
+          marginRight: rightInset || undefined,
+        }}
         onDragEnd={handleDragEnd}
       >
         {cols.map((col) => {
