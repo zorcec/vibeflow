@@ -4,6 +4,7 @@ import type { Task, Column, TaskStatus, LiveActivity } from "../types";
 import { TaskCard } from "./TaskCard";
 import { laneReservesLeadingSlot } from "./TaskCardLeadingSlot";
 import {
+  groupTasksByRoot,
   classifyForDropIntent,
   targetValid,
   canReparent,
@@ -722,15 +723,15 @@ export function KanbanBoard({
     deferDragStartVisuals(childId);
   }
 
-  /* Columns are a view of STATUS: every task — parented or not — is rendered as
-     a card in the column matching its OWN status. The children tree inside a
-     parent's card is the view of the RELATION, not the only place a child
-     exists; a child used to be rendered there alone, so a parented task was
-     invisible in its own status column (eeb96429) even though the CLI lists it
-     as ordinary work (`tasks --status`, `tasks --next`). Ordering is unchanged:
-     `compareTaskOrder` is what `groupTasksByRoot` sorted the same tasks with. */
-  const orderedTasks = React.useMemo(
-    () => [...filtered].sort(compareTaskOrder),
+  {
+    /* Group all tasks by root: a child is rendered ONLY as a row inside its
+       parent's card, never as a standalone card in its own status column.
+       OWNER DECISION: a child belongs to its parent on the board — the
+       relationship is the only place a child appears. Its verify verdict shows
+       on its child row (ChildRow), not on a card of its own. */
+  }
+  const { standalone: allStandalone } = React.useMemo(
+    () => groupTasksByRoot(filtered, compareTaskOrder),
     [filtered],
   );
 
@@ -753,7 +754,7 @@ export function KanbanBoard({
         {cols.map((col) => {
           const colTasks = isLoading
             ? []
-            : orderedTasks.filter((t) => t.status === col.id);
+            : allStandalone.filter((t) => t.status === col.id);
 
           // Done column: show latest modified tasks first (reverse order)
           const displayTasks =
