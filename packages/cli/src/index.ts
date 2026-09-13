@@ -1860,7 +1860,8 @@ program
             opts.title ||
             opts.setStatus ||
             opts.description ||
-            wantsParentChange;
+            wantsParentChange ||
+            opts.reportFile;
 
           if (!taskId || !hasEdits) {
             if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -1921,6 +1922,46 @@ program
               }
             }
             return;
+          }
+
+          // ── --report-file preconditions (validated before any mutation) ──
+          // The flag only means something when a Research task moves to review.
+          // Fail loudly instead of silently ignoring an impossible upload.
+          let reportTaskId: string | undefined;
+          if (opts.reportFile) {
+            if (opts.setStatus !== "review") {
+              console.log(
+                chalk.red("✗ --report-file requires --set-status review"),
+              );
+              console.log(
+                chalk.dim(
+                  `  Example: vibeflow tasks --edit ${taskId} --set-status review --report-file report.md`,
+                ),
+              );
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+            const reportTask = listTasks(resolve(dir)).find(
+              (t) => t.id === taskId || t.id.startsWith(taskId),
+            );
+            if (!reportTask) {
+              console.log(chalk.red(`✗ Task not found: ${taskId}`));
+              console.log(
+                chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
+              );
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
+            }
+            if ((reportTask.type ?? "").toLowerCase() !== "research") {
+              console.log(
+                chalk.red(
+                  `✗ --report-file is only supported for Research tasks (this task has type: ${reportTask.type || "none"}).`,
+                ),
+              );
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+            reportTaskId = reportTask.id;
           }
 
           if (opts.setStatus === "done") {
@@ -1989,47 +2030,38 @@ program
           const projectDir = resolve(dir);
           const settings = loadSettings(projectDir);
           // ── Research report upload (CLI side-effect — must run before gate)
+          // Task existence / type / transition were validated above, so only
+          // the report file itself is left to check here.
           if (opts.setStatus === "review" && opts.reportFile) {
-            const tasks = listTasks(projectDir);
-            const editedTask = tasks.find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            );
-            if (
-              editedTask &&
-              (editedTask.type ?? "").toLowerCase() === "research"
-            ) {
-              const reportPath = resolve(opts.reportFile);
-              if (!existsSync(reportPath)) {
-                console.log(
-                  chalk.red(`✗ Report file not found: ${reportPath}`),
-                );
-                process.exitCode = ExitCode.NOT_FOUND;
-                return;
-              }
-              if (!/\.md$/i.test(reportPath)) {
-                console.log(
-                  chalk.red("✗ Report file must be a Markdown (.md) file"),
-                );
-                process.exitCode = ExitCode.USAGE;
-                return;
-              }
-              const content = readFileSync(reportPath);
-              const { saveFile: saveTaskFile } = await import(
-                "./core/files.js"
-              );
-              saveTaskFile(
-                projectDir,
-                editedTask.id,
-                basename(reportPath),
-                content,
-              );
-              unlinkSync(reportPath);
-              console.log(
-                chalk.green(
-                  `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
-                ),
-              );
+            const reportPath = resolve(opts.reportFile);
+            if (!existsSync(reportPath)) {
+              console.log(chalk.red(`✗ Report file not found: ${reportPath}`));
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
             }
+            if (!/\.md$/i.test(reportPath)) {
+              console.log(
+                chalk.red("✗ Report file must be a Markdown (.md) file"),
+              );
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+            const content = readFileSync(reportPath);
+            const { saveFile: saveTaskFile } = await import(
+              "./core/files.js"
+            );
+            saveTaskFile(
+              projectDir,
+              reportTaskId!,
+              basename(reportPath),
+              content,
+            );
+            unlinkSync(reportPath);
+            console.log(
+              chalk.green(
+                `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
+              ),
+            );
           }
           // ── Unified review gate (shared with MCP + PATCH) ──────────────
           if (opts.setStatus === "review") {
