@@ -1501,12 +1501,8 @@ export function App() {
       return;
     }
 
-    // Card, not child row: a parented task is now rendered in its own status
-    // column AND as a row in its parent's tree, so `data-task-id` is not unique
-    // document-wide any more. The row is a drop/reorder affordance, never the
-    // card to reveal.
     const card = board.querySelector<HTMLElement>(
-      `article.task-card[data-task-id="${taskId}"]`,
+      `[data-task-id="${taskId}"]`,
     );
     if (!card) return;
     const cardRect = card.getBoundingClientRect();

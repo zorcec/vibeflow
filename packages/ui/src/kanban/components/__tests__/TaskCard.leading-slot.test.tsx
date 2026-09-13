@@ -80,10 +80,21 @@ function slotMarks(container: HTMLElement): string[] {
 
 function slotWidth(container: HTMLElement): number {
       const el = container.querySelector<HTMLElement>(
+            '[data-role="leading-slot"]',
+      );
+      if (!el) throw new Error("no leading slot rendered");
+      return parseFloat(el.style.width);
+}
+
+/**
+ * Whether anything is rendered in the leading position at all — the mark box, or
+ * (in older revisions) a spacer. A markless card must now render NOTHING here, so
+ * this is the assertion that the phantom gutter is gone rather than merely quiet.
+ */
+function leadingSlotEl(container: HTMLElement): HTMLElement | null {
+      return container.querySelector<HTMLElement>(
             '[data-role="leading-slot"], [data-role="leading-slot-spacer"]',
       );
-      if (!el) throw new Error("no leading slot or spacer rendered");
-      return parseFloat(el.style.width);
 }
 
 /**
@@ -93,30 +104,6 @@ function slotWidth(container: HTMLElement): number {
  */
 function leadingSlotBox(container: HTMLElement): HTMLElement | null {
       return container.querySelector<HTMLElement>('[data-role="leading-slot"]');
-}
-
-/**
- * What the title's x-offset is made of: the reserved widths of everything before
- * the title in its row. jsdom does no layout, so the reservation stands in for a
- * client rect — and it is the reservation that must stay constant across a lane.
- */
-function titleOffsetReservation(container: HTMLElement): {
-      reserved: number;
-      preceding: number;
-} {
-      const row = titleRow(container);
-      const title = container.querySelector<HTMLElement>(
-            '[data-role="card-title"]',
-      ) as HTMLElement;
-      const preceding = [...row.children].slice(
-            0,
-            [...row.children].indexOf(title),
-      ) as HTMLElement[];
-      const reserved = preceding.reduce(
-            (sum, el) => sum + (parseFloat(el.style.width || "0") || 0),
-            0,
-      );
-      return { reserved, preceding: preceding.length };
 }
 
 /**
@@ -355,22 +342,27 @@ describe("leading slot rendering", () => {
                                     expect(marks.length).toBeLessThanOrEqual(1);
                                     expect(marks).toEqual(expected);
 
-                                    // (b) the slot reserves its width regardless
-                                    // of the mark, so the title cannot move.
-                                    expect(slotWidth(container)).toBe(
-                                          expectedWidth,
-                                    );
-                                    expect(
-                                          slotWidth(container),
-                                    ).toBeGreaterThanOrEqual(
-                                          marks.length * GLYPH_MIN_SIZE,
-                                    );
-                                    expect(
-                                          titleOffsetReservation(container),
-                                    ).toEqual({
-                                          reserved: expectedWidth,
-                                          preceding: 1,
-                                    });
+                                    // (b) the slot exists IFF a mark is drawn.
+                                    // A markless card renders NOTHING in the
+                                    // leading position — no box, no spacer — so
+                                    // there is no phantom gutter (8545aeca).
+                                    // Title alignment across a lane is a
+                                    // deliberate casualty of that choice
+                                    // (owner option B, Sep 2026).
+                                    if (expected.length === 0) {
+                                          expect(
+                                                leadingSlotEl(container),
+                                          ).toBeNull();
+                                    } else {
+                                          expect(slotWidth(container)).toBe(
+                                                expectedWidth,
+                                          );
+                                          expect(
+                                                slotWidth(container),
+                                          ).toBeGreaterThanOrEqual(
+                                                marks.length * GLYPH_MIN_SIZE,
+                                          );
+                                    }
                                     unmount();
                               }
                         });
@@ -378,14 +370,17 @@ describe("leading slot rendering", () => {
             }
       }
 
-      it("keeps the reserved width and title offset constant for every card of a lane", () => {
-            // The bug-2 acceptance criterion: within review and done, the title's
-            // x-offset must not depend on the marks. Both lanes are swept over
-            // all verify states, read and unread.
-            for (const laneId of ["review", "done"] as const) {
-                  const widths = new Set<number>();
-                  const reservations = new Set<number>();
-                  const marks = new Set<string>();
+      it("renders a slot only for cards that draw a mark, in every lane", () => {
+            // The deliverable of the owner's option B: a markless card has NO
+            // leading element at all. This is what removes the phantom gutter —
+            // reserving the width with a spacer hid the fake badge but kept the
+            // gap, which the owner rejected twice.
+            //
+            // NOTE: title x-offset is deliberately NOT constant across a lane any
+            // more. Every card that draws nothing starts its title at the row's
+            // left edge instead of after an empty gutter. That trade was made on
+            // purpose; do not "restore" alignment without re-reading 8545aeca.
+            for (const laneId of LANES) {
                   for (const { verified } of VERIFY_STATES) {
                         for (const openedBy of [[], ["user-1"]]) {
                               const { container, unmount } = renderCard(
@@ -396,21 +391,21 @@ describe("leading slot rendering", () => {
                                     }),
                                     { col: lane(laneId) },
                               );
-                              widths.add(slotWidth(container));
-                              reservations.add(
-                                    titleOffsetReservation(container).reserved,
-                              );
-                              slotMarks(container).forEach((m) => marks.add(m));
+                              const drawn = slotMarks(container);
+                              if (drawn.length === 0) {
+                                    expect(
+                                          leadingSlotEl(container),
+                                    ).toBeNull();
+                              } else {
+                                    expect(slotWidth(container)).toBe(
+                                          leadingSlotWidth(
+                                                layoutFor(laneId, false),
+                                          ),
+                                    );
+                              }
                               unmount();
                         }
                   }
-                  // The lane really does render more than one kind of mark, so
-                  // the constant width above is not vacuous.
-                  expect(marks.size).toBeGreaterThan(1);
-                  expect([...widths]).toEqual([
-                        leadingSlotWidth(layoutFor(laneId, false)),
-                  ]);
-                  expect([...reservations]).toEqual([...widths]);
             }
       });
 
@@ -531,47 +526,42 @@ describe("leading slot rendering", () => {
             }
       });
 
-      it("renders no mark at all for an opened card with no verdict", () => {
+      it("renders no mark and NO space for an opened card with no verdict", () => {
             const { container } = renderCard(
                   makeTask({ status: "review", openedBy: ["user-1"] }),
                   { col: lane("review") },
             );
             expect(slotMarks(container)).toEqual([]);
-            // …and the reserved space is still there, so the title does not move.
-            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
-            expect(titleOffsetReservation(container)).toEqual({
-                  reserved: leadingSlotWidth("card"),
-                  preceding: 1,
-            });
+            // Nothing at all in the leading position: no box and no spacer. The
+            // title starts at the row's left edge.
+            expect(leadingSlotEl(container)).toBeNull();
       });
 
-      it("draws no padded box for a markless card in a lane that reserves (8545aeca)", () => {
-            // The owner-reported phantom space: in review, a card with no verdict
-            // rendered an empty 11px `<span data-role="leading-slot">`. To the eye
-            // that is a badge that failed to load. The space must be kept — the
-            // title's x-offset depends on it — but it must not be a BOX.
+      it("draws nothing at all for a markless card, even in a lane that has marks (8545aeca)", () => {
+            // The owner-reported phantom space, and the second attempt at it.
+            // First revision painted an empty 11px box on every card; the second
+            // reserved the width with an invisible spacer. Both left a visible
+            // gap before the title. The owner rejected the gap, so a markless
+            // card now renders NOTHING — no box, no spacer.
             const { container } = renderCard(
                   makeTask({ status: "review", openedBy: ["user-1"] }),
                   { col: lane("review"), reserveLeadingSlot: true },
             );
             expect(leadingSlotBox(container)).toBeNull();
-            expect(slotMarks(container)).toEqual([]);
             expect(
                   container.querySelector('[data-role="leading-slot-spacer"]'),
-            ).toBeInTheDocument();
-            // Alignment is unchanged: the space is still reserved.
-            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
+            ).toBeNull();
+            expect(leadingSlotEl(container)).toBeNull();
+            expect(slotMarks(container)).toEqual([]);
       });
 
-      it("draws the mark box, and no spacer, when a card has a verdict", () => {
+      it("draws the mark box when a card has a verdict", () => {
             const { container } = renderCard(
                   makeTask({ status: "review", verified: true }),
                   { col: lane("review") },
             );
             expect(leadingSlotBox(container)).not.toBeNull();
-            expect(
-                  container.querySelector('[data-role="leading-slot-spacer"]'),
-            ).toBeNull();
+            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
       });
 
       it("shows the unread dot alone when there is no verdict", () => {
@@ -834,10 +824,14 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
       });
 
-      it("keeps reserving when the caller does not know its lane (default)", () => {
+      it("draws nothing for a markless card whatever the caller knows about its lane", () => {
+            // `reserve` used to control whether the width was held open for a
+            // markless card. That reservation is gone (owner option B), so the
+            // flag no longer changes what is rendered — a card with no mark has
+            // no leading element on any caller.
             const { container } = renderCard(read({ status: "todo" }));
             expect(slotMarks(container)).toEqual([]);
-            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
+            expect(leadingSlotEl(container)).toBeNull();
       });
 
       it("gives the row layout's lane-dot fallback a real box in kanban.css", () => {

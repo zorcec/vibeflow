@@ -171,27 +171,28 @@ export interface LeadingSlotProps extends LeadingSlotInput {
 }
 
 /**
- * Renders the leading mark inside a fixed-width box. `data-role="leading-slot"`
+ * Renders the leading mark for a card's title row. `data-role="leading-slot"`
  * and `data-leading-mark` are what the layout tests bind to.
  *
- * TWO DIFFERENT THINGS, and conflating them is what produced the phantom gutter:
+ * A card that resolves NO mark renders NOTHING — no box, and no reserved space.
  *
- *   - RESERVING the width — the lane-level `reserve` answer. Every card in a lane
- *     that draws marks must start its title at the same x-offset (b0545910), so a
- *     markless card in such a lane still needs the space.
- *   - DRAWING a box — only a card that resolves a mark should paint anything.
+ * The history here is worth keeping, because two earlier attempts each fixed half
+ * of it:
  *
- * The old markup honoured the first by always painting an empty 11px `<span>`. To
- * the eye that is indistinguishable from a badge that failed to load — the phantom
- * space of 8545aeca. It is fixed by reserving with a NULL MARKER instead of a box:
- * an empty element with the same width, no `data-role`, no border and no
- * background, i.e. pure layout space that cannot look like a mark.
+ *   - b0545910 wanted every title in a lane at the same x-offset, and got it by
+ *     painting the slot on every card. A markless card therefore carried an empty
+ *     11px box — visually a badge that had failed to load. That is the phantom
+ *     space of 8545aeca.
+ *   - 8545aeca then reserved the width with an invisible spacer instead. That hid
+ *     the fake badge but kept the gap, which is still wrong: the owner asked for
+ *     the space to be REMOVED, not made neutral.
  *
- * So:
- *
- *   marks.length > 0   ->  the real mark box, at the lane's width
- *   marks.length === 0 AND the lane reserves  ->  an invisible spacer of that width
- *   marks.length === 0 AND the lane does not  ->  nothing at all
+ * The alignment goal and the reserved-gap goal turned out to be in conflict, and
+ * alignment lost: titles in a lane with mixed marks no longer share one x-offset.
+ * That is the owner's explicit choice (option B, Sep 2026) — a visible empty gap
+ * before a title reads as a broken badge, and that is worse than a ragged left
+ * edge. So `reserve` no longer has any effect on rendering; it is retained only
+ * so existing callers do not break.
  */
 export function LeadingSlot({
      verify,
@@ -200,7 +201,6 @@ export function LeadingSlot({
      isDone,
      isUnread,
      columnId,
-     reserve = true,
 }: LeadingSlotProps) {
      const marks = resolveLeadingSlotMarks({
           verify,
@@ -209,20 +209,8 @@ export function LeadingSlot({
           isDone,
           isUnread,
      });
+     if (marks.length === 0) return null;
      const width = leadingSlotWidth(layout);
-     if (marks.length === 0) {
-          // Space without a box: keeps the title aligned, draws no mark. `aria-hidden`
-          // and no data-role so nothing — test hook, screen reader, or stylesheet —
-          // can mistake it for a rendered verdict.
-          if (!reserve) return null;
-          return (
-               <span
-                    aria-hidden="true"
-                    data-role="leading-slot-spacer"
-                    style={{ flexShrink: 0, width, minWidth: width }}
-               />
-          );
-     }
      const size = layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
      return (
           <span

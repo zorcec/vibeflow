@@ -74,11 +74,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
     return page.evaluate((id) => {
       const board = document.getElementById("kanban-board");
       const panel = document.getElementById("detail-panel-container");
-      // Card only: a parented task also renders as a row inside its parent's
-      // card, so `data-task-id` is no longer unique document-wide.
-      const el = document.querySelector<HTMLElement>(
-        `article.task-card[data-task-id="${id}"]`,
-      );
+      const el = document.querySelector<HTMLElement>(`[data-task-id="${id}"]`);
       const boardScrollLeft = board?.scrollLeft ?? -1;
       if (!el) return { inDom: false, boardScrollLeft };
       const r = el.getBoundingClientRect();
@@ -91,7 +87,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
       return {
         inDom: true,
         rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
-        topIsSelf: !!centre?.closest(`article.task-card[data-task-id="${id}"]`),
+        topIsSelf: !!centre?.closest(`[data-task-id="${id}"]`),
         clearOfPanel: panelRect ? r.right <= panelRect.left : true,
         insideBoard: boardRect
           ? r.left >= boardRect.left - 1 && r.right <= boardRect.right + 1
@@ -104,9 +100,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
   /** Real pointer press + release on the card's centre. */
   async function clickCard(page: Page, taskId: string): Promise<void> {
     const centre = await page.evaluate((id) => {
-      const el = document.querySelector<HTMLElement>(
-        `article.task-card[data-task-id="${id}"]`,
-      );
+      const el = document.querySelector<HTMLElement>(`[data-task-id="${id}"]`);
       if (!el) throw new Error(`card ${id} not found`);
       const r = el.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -132,8 +126,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
     await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#kanban-board", { timeout: 15000 });
     await page.waitForFunction(
-      (id) =>
-        !!document.querySelector(`article.task-card[data-task-id="${id}"]`),
+      (id) => !!document.querySelector(`[data-task-id="${id}"]`),
       reviewTaskId,
       { timeout: 15000 },
     );
