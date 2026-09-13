@@ -2850,9 +2850,7 @@ program
         // peer here would contradict the board. `--children` includes them.
         // Counted AFTER the other filters so the footer describes this query.
         const matchingChildren = filtered.filter(isChildTask);
-        const hiddenChildCount = opts.children
-          ? 0
-          : matchingChildren.length;
+        const hiddenChildCount = opts.children ? 0 : matchingChildren.length;
         if (!opts.children) {
           filtered = filtered.filter((t) => !isChildTask(t));
         }

@@ -132,7 +132,12 @@ describe("getChildTasks / summariseChildren", () => {
   it("omits priority when the child has none", () => {
     const bare = [
       { id: "p", links: [] },
-      { id: "c", title: "c", status: "done", links: [{ taskId: "p", type: "parent" }] },
+      {
+        id: "c",
+        title: "c",
+        status: "done",
+        links: [{ taskId: "p", type: "parent" }],
+      },
     ] as unknown as Task[];
     expect(summariseChildren(bare, "p")).toEqual([
       { id: "c", title: "c", status: "done" },

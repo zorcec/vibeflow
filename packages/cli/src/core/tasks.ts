@@ -294,7 +294,10 @@ function scrubResearchVerified(task: Task): Task {
 
 export function writeTaskJson(projectDir: string, task: Task): void {
   const scrubbed = scrubResearchVerified(task);
-  const dateDir = join(getTasksDir(projectDir), getDateSubdir(scrubbed.created));
+  const dateDir = join(
+    getTasksDir(projectDir),
+    getDateSubdir(scrubbed.created),
+  );
   mkdirSync(dateDir, { recursive: true });
   const filePath = join(dateDir, `${scrubbed.id}.json`);
   // Write to a temp file then rename for atomic replacement (prevents torn reads).
@@ -310,7 +313,11 @@ export function writeTaskJson(projectDir: string, task: Task): void {
  */
 export function writeTaskJsonAt(filePath: string, task: Task): void {
   const tmp = filePath + ".tmp";
-  writeFileSync(tmp, JSON.stringify(scrubResearchVerified(task), null, 2), "utf-8");
+  writeFileSync(
+    tmp,
+    JSON.stringify(scrubResearchVerified(task), null, 2),
+    "utf-8",
+  );
   renameSync(tmp, filePath);
 }
 
