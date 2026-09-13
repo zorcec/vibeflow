@@ -108,20 +108,45 @@ describe("ThemeSwitcher", () => {
     expect(el.querySelector("legend")?.textContent).toBe("Theme");
   });
 
-  it("renders registry labels, descriptions and preview swatches", () => {
+  it("renders a compact chip per theme: label, swatch, no description row", () => {
     const el = mount();
-    // Every concrete theme is data-driven: label, hint and 4 swatches.
+    // Every concrete theme is data-driven: label, four-swatch identity, and its
+    // description kept reachable only as a tooltip rather than a visible row.
     for (const id of ["rose-pine-dawn", "dracula", "gruvbox-dark"]) {
       const tile = el.querySelector<HTMLElement>(
         `[data-theme-option="${id}"]`,
       )!;
-      expect(tile.querySelector(".theme-option-label")?.textContent).toBeTruthy();
-      expect(tile.querySelector(".theme-option-hint")?.textContent).toBeTruthy();
+      expect(
+        tile.querySelector(".theme-option-label")?.textContent,
+      ).toBeTruthy();
       expect(tile.querySelectorAll(".theme-option-swatch")).toHaveLength(4);
+      expect(tile.getAttribute("title")).toBeTruthy();
     }
+    // Minimalism contract: the verbose per-option hint row is gone.
+    expect(el.querySelector(".theme-option-hint")).toBeNull();
     // System is not a registry theme, so it keeps the monitor glyph, no swatches.
-    const system = el.querySelector<HTMLElement>('[data-theme-option="system"]')!;
+    const system = el.querySelector<HTMLElement>(
+      '[data-theme-option="system"]',
+    )!;
     expect(system.querySelectorAll(".theme-option-swatch")).toHaveLength(0);
+  });
+
+  it("marks only the selected chip with a check", () => {
+    mount();
+    // Exactly one check, on the selected chip, so the state reads at a glance.
+    expect(document.querySelectorAll(".theme-option-check")).toHaveLength(1);
+    act(() => {
+      radios()
+        .find((r) => r.value === "dark")!
+        .click();
+    });
+    const checks = document.querySelectorAll(".theme-option-check");
+    expect(checks).toHaveLength(1);
+    expect(
+      checks[0]
+        .closest("[data-theme-option]")
+        ?.getAttribute("data-theme-option"),
+    ).toBe("dark");
   });
 
   it("selects a curated registry theme without any component edit", () => {

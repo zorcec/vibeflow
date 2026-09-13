@@ -4,7 +4,7 @@ import type { TaskStatus, AppSettings } from "../types";
 import { COLUMNS } from "./KanbanBoard";
 import { ModalBase } from "./ModalBase";
 
-type SettingsTab = "board" | "enforcement";
+type SettingsTab = "board" | "enforcement" | "appearance";
 
 interface Props {
   open: boolean;
@@ -13,13 +13,22 @@ interface Props {
   onClose: () => void;
   onSave: (visibleCols: TaskStatus[], settings: Partial<AppSettings>) => void;
   /**
-   * Surface-specific appearance controls, rendered at the bottom of the Board
-   * tab. The CLI kanban passes its theme switcher here; keeping it a slot (the
-   * modal itself stays theme-agnostic) means no other consumer of this shared
-   * component gets theme UI it did not ask for.
+   * Surface-specific appearance controls, rendered in their own tab. The CLI
+   * kanban passes its theme switcher here; keeping it a slot (the modal itself
+   * stays appearance-agnostic) means no other consumer of this shared component
+   * gets theme UI it did not ask for.
    */
   appearance?: React.ReactNode;
+  /**
+   * Tab label + icon hosting `appearance`. Optional so the shared modal never
+   * hardcodes a "theme" concept — the surface names its own tab. Ignored when
+   * `appearance` is absent.
+   */
+  appearanceTab?: { label?: string; icon?: React.ReactNode };
 }
+
+/** Id of the extra tab that hosts the `appearance` slot. */
+const APPEARANCE_TAB: SettingsTab = "appearance";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "board", label: "Board", icon: <Layout className="w-3.5 h-3.5" /> },
@@ -37,6 +46,7 @@ export function SettingsModal({
   onClose,
   onSave,
   appearance,
+  appearanceTab,
 }: Props) {
   const [activeTab, setActiveTab] = React.useState<SettingsTab>("board");
   const [colState, setColState] = React.useState<Record<TaskStatus, boolean>>(
@@ -85,6 +95,20 @@ export function SettingsModal({
   function toggleCol(id: TaskStatus) {
     setColState((prev) => ({ ...prev, [id]: !prev[id] }));
   }
+
+  // The appearance tab exists only when a surface supplies the slot, so every
+  // other consumer keeps the original two tabs.
+  const tabs: { id: SettingsTab; label: string; icon?: React.ReactNode }[] =
+    appearance
+      ? [
+          ...TABS,
+          {
+            id: APPEARANCE_TAB,
+            label: appearanceTab?.label ?? "Appearance",
+            icon: appearanceTab?.icon,
+          },
+        ]
+      : TABS;
 
   return (
     <ModalBase
@@ -169,7 +193,7 @@ export function SettingsModal({
     >
       {/* Tab bar */}
       <div className="dp-tabs">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -230,18 +254,20 @@ export function SettingsModal({
               </span>
             </label>
           ))}
-          {appearance && (
-            <>
-              <div
-                style={{
-                  height: 1,
-                  background: "var(--t-border)",
-                  marginTop: 4,
-                }}
-              />
-              {appearance}
-            </>
-          )}
+        </div>
+      )}
+
+      {/* Tab: Appearance — hosts the surface-supplied `appearance` slot */}
+      {activeTab === APPEARANCE_TAB && appearance && (
+        <div
+          style={{
+            padding: "14px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          {appearance}
         </div>
       )}
 

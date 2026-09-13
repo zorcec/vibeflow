@@ -1,12 +1,15 @@
 /**
  * CLI-kanban-only theme switcher, mounted from the CLI kanban App through
- * `SettingsModal`'s `appearance` slot. Keeping it behind a slot means no other
- * consumer of the shared modal renders theme UI it did not ask for.
+ * `SettingsModal`'s `appearance` slot (its own "Theme" tab). Keeping it behind
+ * a slot means no other consumer of the shared modal renders theme UI it did
+ * not ask for.
  *
  * The option list comes from the shared THEME_REGISTRY, so shipping a new theme
  * is one registry entry + one token block — this component never needs editing.
- * Labels, descriptions and preview swatches are all registry data; the icon is
- * only a fallback for entries without swatches.
+ * The control is deliberately minimal: one compact chip per choice, showing the
+ * registry preview swatch and the theme name. Descriptions stay reachable as a
+ * native tooltip and the group hint is screen-reader-only, so the picker reads
+ * as a tight swatch grid rather than six descriptive rows.
  *
  * All persistence/application goes through the shared resolver in
  * `@vibeflow-tools/ui/kanban` (setStoredTheme / clearStoredTheme / applyTheme).
@@ -15,7 +18,7 @@
  * `@media (prefers-color-scheme)` fallback decides again.
  */
 import React from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Palette, Sun } from "lucide-react";
 import {
   THEME_REGISTRY,
   applyTheme,
@@ -45,13 +48,21 @@ export const THEME_PREFERENCES: readonly ThemePreference[] = [
   ...THEME_REGISTRY.map((entry) => entry.id),
 ];
 
+/**
+ * Tab descriptor for the shared SettingsModal's `appearance` slot. Keeps the
+ * "Theme" label and icon in this CLI-only module, so the shared modal stays
+ * theme-agnostic.
+ */
+export const themeSwitcherTab = {
+  label: "Theme",
+  icon: <Palette className="w-3.5 h-3.5" />,
+};
+
 function metaFor(preference: ThemePreference): ThemeDefinition {
-  return preference === "system"
-    ? SYSTEM_META
-    : getThemeDefinition(preference);
+  return preference === "system" ? SYSTEM_META : getThemeDefinition(preference);
 }
 
-/** Registry preview colours as a small swatch grid (the theme's identity). */
+/** Registry preview colours as one 4-quadrant swatch (the theme's identity). */
 function ThemeSwatches({ preview }: { preview: readonly string[] }) {
   if (preview.length === 0) return null;
   return (
@@ -76,12 +87,12 @@ function ThemeGlyph({
   meta: ThemeDefinition;
   isSystem: boolean;
 }) {
-  if (isSystem) return <Monitor style={{ width: 14, height: 14 }} />;
+  if (isSystem) return <Monitor style={{ width: 15, height: 15 }} />;
   if (meta.preview.length > 0) return <ThemeSwatches preview={meta.preview} />;
   return meta.base === "light" ? (
-    <Sun style={{ width: 14, height: 14 }} />
+    <Sun style={{ width: 15, height: 15 }} />
   ) : (
-    <Moon style={{ width: 14, height: 14 }} />
+    <Moon style={{ width: 15, height: 15 }} />
   );
 }
 
@@ -115,9 +126,8 @@ export function ThemeSwitcher() {
 
   return (
     <fieldset className="theme-switcher">
-      <legend className="dp-meta-label" style={{ marginBottom: 8 }}>
-        Theme
-      </legend>
+      {/* Group name for assistive tech; the tab already says "Theme" visibly. */}
+      <legend className="theme-switcher-legend">Theme</legend>
       <div className="theme-switcher-options">
         {THEME_PREFERENCES.map((id) => {
           const selected = preference === id;
@@ -129,6 +139,7 @@ export function ThemeSwitcher() {
               data-selected={selected}
               data-theme-option={id}
               data-base={meta.base}
+              title={meta.description}
             >
               <input
                 type="radio"
@@ -142,12 +153,10 @@ export function ThemeSwitcher() {
               <span className="theme-option-icon">
                 <ThemeGlyph meta={meta} isSystem={id === "system"} />
               </span>
-              <span className="theme-option-text">
-                <span className="theme-option-label">{meta.name}</span>
-                <span className="theme-option-hint" title={meta.description}>
-                  {meta.description}
-                </span>
-              </span>
+              <span className="theme-option-label">{meta.name}</span>
+              {selected && (
+                <Check className="theme-option-check" aria-hidden="true" />
+              )}
             </label>
           );
         })}
