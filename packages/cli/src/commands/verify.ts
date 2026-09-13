@@ -10,14 +10,10 @@ import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
 import { ExitCode } from "../core/exit-codes.js";
 import { readConfig } from "../core/config.js";
-import {
-  buildKey,
-  buildDisplaySelector,
-  filterStyles,
-  childSignature,
-  normalizeText,
-  RELEVANT_STYLES,
-} from "../core/page-selector.js";
+import { RELEVANT_STYLES } from "../core/page-selector.js";
+
+/** Hard cap on page-wide captured elements — keeps evidence files manageable. */
+const MAX_ELEMENTS = 1000;
 
 // Baseline and auth state are now stored in task.json (§6, §7).
 
@@ -350,8 +346,8 @@ export async function verifyTask(
     if (pageBaselinePath) {
       try {
         pageBaseline = JSON.parse(readFileSync(pageBaselinePath, "utf-8"));
-      } catch {
-        // File corrupted, skip page diff
+      } catch (err) {
+        warnEvidenceCapture(`page baseline ${pageBaselineFile}`, err);
       }
     }
 
@@ -443,8 +439,8 @@ export async function verifyTask(
               join(getFilesDir(absProjectDir, taskId), "verify-page-diff.json"),
             );
           }
-        } catch {
-          // Page diff generation failed — not fatal
+        } catch (err) {
+          warnEvidenceCapture("verify-page-diff.json", err);
         }
       }
     }
@@ -524,6 +520,184 @@ async function captureSnapshot(
   };
 }
 
+/**
+ * Record a non-fatal evidence-capture failure.
+ *
+ * Capture failures used to be swallowed by bare `catch {}` blocks, which hid
+ * the page-wide capture defect for months. Never hide them again.
+ */
+function warnEvidenceCapture(file: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.warn(chalk.yellow(`  ⚠ Could not capture ${file}: ${msg}`));
+}
+
+/**
+ * Page-wide capture callback for `page.evaluate()`.
+ *
+ * Playwright serializes this function's SOURCE and evaluates it in the browser,
+ * so it must be fully self-contained: every helper is declared inside and the
+ * only argument is plain, JSON-serializable data. Passing helper functions as
+ * arguments throws "Attempting to serialize unexpected value", which silently
+ * disabled `verify-all-styles.json` and every page-wide query tool.
+ *
+ * The inlined helpers mirror `page-selector.ts` (buildKey, buildDisplaySelector,
+ * filterStyles, childSignature, normalizeText) in behaviour.
+ */
+export function capturePageWideElements(input: {
+  styles: string[];
+  maxElements: number;
+}): {
+  version: 1;
+  capturedAt: string;
+  truncated: boolean;
+  elements: Record<string, unknown>;
+} {
+  const { styles, maxElements } = input;
+
+  function buildKey(el: Element): string {
+    const path: number[] = [];
+    let current: Element | null = el;
+    while (current && current !== document.documentElement) {
+      const parentEl: HTMLElement | null = current.parentElement;
+      if (!parentEl) break;
+      const index = Array.from(parentEl.children).indexOf(current as Element);
+      path.unshift(index);
+      current = parentEl;
+    }
+    return path.join("/");
+  }
+
+  function buildDisplaySelector(el: Element): string {
+    const tag = el.tagName.toLowerCase();
+
+    const taskId = el.getAttribute("data-task-id");
+    if (taskId) return `${tag}.task-card[data-task-id=${taskId}]`;
+
+    const status = el.getAttribute("data-status");
+    if (status && el.classList.contains("column-scroll"))
+      return `${tag}.column-scroll[data-status=${status}]`;
+
+    const colId = el.getAttribute("data-column-id");
+    if (colId) return `${tag}[data-column-id=${colId}]`;
+
+    const classes = Array.from(el.classList).slice(0, 2);
+    let selector = tag;
+    if (classes.length) selector += "." + classes.join(".");
+
+    const parent = el.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(
+        (c) => c.tagName === el.tagName,
+      );
+      if (siblings.length > 1) {
+        const idx = siblings.indexOf(el) + 1;
+        selector += `:nth-of-type(${idx})`;
+      }
+    }
+
+    return selector;
+  }
+
+  function filterStyles(
+    el: Element,
+    props: string[],
+  ): Record<string, string> {
+    const computed = window.getComputedStyle(el);
+    const result: Record<string, string> = {};
+    for (const prop of props) {
+      result[prop] = computed.getPropertyValue(prop);
+    }
+    return result;
+  }
+
+  function normalizeText(text: string, limit = 200): string {
+    return text.replace(/\s+/g, " ").trim().slice(0, limit);
+  }
+
+  function childSignature(children: Element[]): string[] {
+    const counts = new Map<string, number>();
+    for (const child of children) {
+      const tag = child.tagName.toLowerCase();
+      const classes = Array.from(child.classList).slice(0, 2).join(".");
+      const key = classes ? `${tag}.${classes}` : tag;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([key, count]) => `${key} ×${count}`)
+      .slice(0, 10);
+  }
+
+  const elements: Record<string, unknown> = {};
+  let count = 0;
+  let truncated = false;
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node: Node) {
+        if (count >= maxElements) return NodeFilter.FILTER_REJECT;
+        const el = node as HTMLElement;
+        if (
+          el.classList.length > 0 ||
+          el.hasAttribute("data-task-id") ||
+          el.hasAttribute("data-status") ||
+          el.hasAttribute("data-column-id")
+        )
+          return NodeFilter.FILTER_ACCEPT;
+        return NodeFilter.FILTER_SKIP;
+      },
+    },
+  );
+  const queue: Element[] = [];
+  let n: Node | null;
+  while ((n = walker.nextNode())) queue.push(n as Element);
+  for (const el of queue) {
+    if (count >= maxElements) {
+      truncated = true;
+      break;
+    }
+    const key = buildKey(el);
+    const children = Array.from(el.children);
+    const dataAttrs: Record<string, string> = {};
+    for (const a of Array.from(el.attributes)) {
+      if (a.name.startsWith("data-")) dataAttrs[a.name.slice(5)] = a.value;
+    }
+    let position = { x: 0, y: 0, width: 0, height: 0 };
+    try {
+      const r = el.getBoundingClientRect();
+      position = {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      };
+    } catch {
+      /* getBoundingClientRect can fail on hidden elements */
+    }
+    elements[key] = {
+      key,
+      selector: buildDisplaySelector(el),
+      tag: el.tagName.toLowerCase(),
+      classes: Array.from(el.classList),
+      dataAttrs,
+      parentKey: el.parentElement ? buildKey(el.parentElement) : "",
+      childCount: children.length,
+      childSignature: childSignature(children),
+      text: normalizeText(el.textContent ?? ""),
+      position,
+      baseline: filterStyles(el, styles),
+      after: filterStyles(el, styles),
+    };
+    count++;
+  }
+  return {
+    version: 1,
+    capturedAt: new Date().toISOString(),
+    truncated,
+    elements,
+  };
+}
+
 // ── Evidence storage (§13.1) ──────────────────────────────────────────────
 async function storeEvidence(
   projectDir: string,
@@ -573,113 +747,18 @@ async function storeEvidence(
       const html = await page.content();
       saveFile(projectDir, taskId, "verify-page.html", Buffer.from(html));
       files.push(join(getFilesDir(projectDir, taskId), "verify-page.html"));
-    } catch {
-      // Capture failed — not fatal
+    } catch (err) {
+      warnEvidenceCapture("verify-page.html", err);
     }
 
-    // verify-all-styles.json — page-wide element styles for query tools
-    // Uses shared helpers from page-selector.ts passed to page.evaluate()
+    // verify-all-styles.json — page-wide element styles for query tools.
+    // The callback is serialized by Playwright and evaluated in the page, so it
+    // is fully self-contained (helpers inlined) and receives plain data only.
     try {
-      const MAX_ELEMENTS = 1000;
-      const allStyles = await page.evaluate(
-        ({
-          buildKeyFn,
-          buildSelectorFn,
-          filterStylesFn,
-          childSignatureFn,
-          normalizeTextFn,
-          styles,
-          maxElements,
-        }: {
-          buildKeyFn: (el: Element) => string;
-          buildSelectorFn: (el: Element) => string;
-          filterStylesFn: (el: Element, s: string[]) => Record<string, string>;
-          childSignatureFn: (c: Element[]) => string[];
-          normalizeTextFn: (t: string) => string;
-          styles: string[];
-          maxElements: number;
-        }) => {
-          const elements: Record<string, unknown> = {};
-          let count = 0;
-          let truncated = false;
-          const walker = document.createTreeWalker(
-            document.body,
-            NodeFilter.SHOW_ELEMENT,
-            {
-              acceptNode(node: Node) {
-                if (count >= maxElements) return NodeFilter.FILTER_REJECT;
-                const el = node as HTMLElement;
-                if (
-                  el.classList.length > 0 ||
-                  el.hasAttribute("data-task-id") ||
-                  el.hasAttribute("data-status") ||
-                  el.hasAttribute("data-column-id")
-                )
-                  return NodeFilter.FILTER_ACCEPT;
-                return NodeFilter.FILTER_SKIP;
-              },
-            },
-          );
-          const queue: Element[] = [];
-          let n: Node | null;
-          while ((n = walker.nextNode())) queue.push(n as Element);
-          for (const el of queue) {
-            if (count >= maxElements) {
-              truncated = true;
-              break;
-            }
-            const key = buildKeyFn(el);
-            const children = Array.from(el.children);
-            const dataAttrs: Record<string, string> = {};
-            for (const a of Array.from(el.attributes)) {
-              if (a.name.startsWith("data-"))
-                dataAttrs[a.name.slice(5)] = a.value;
-            }
-            let position = { x: 0, y: 0, width: 0, height: 0 };
-            try {
-              const r = el.getBoundingClientRect();
-              position = {
-                x: Math.round(r.x),
-                y: Math.round(r.y),
-                width: Math.round(r.width),
-                height: Math.round(r.height),
-              };
-            } catch {
-              /* getBoundingClientRect can fail on hidden elements */
-            }
-            elements[key] = {
-              key,
-              selector: buildSelectorFn(el),
-              tag: el.tagName.toLowerCase(),
-              classes: Array.from(el.classList),
-              dataAttrs,
-              parentKey: el.parentElement ? buildKeyFn(el.parentElement) : "",
-              childCount: children.length,
-              childSignature: childSignatureFn(children),
-              text: normalizeTextFn(el.textContent ?? ""),
-              position,
-              baseline: filterStylesFn(el, styles),
-              after: filterStylesFn(el, styles),
-            };
-            count++;
-          }
-          return {
-            version: 1,
-            capturedAt: new Date().toISOString(),
-            truncated,
-            elements,
-          };
-        },
-        {
-          buildKeyFn: buildKey,
-          buildSelectorFn: buildDisplaySelector,
-          filterStylesFn: filterStyles,
-          childSignatureFn: childSignature,
-          normalizeTextFn: normalizeText,
-          styles: RELEVANT_STYLES,
-          maxElements: MAX_ELEMENTS,
-        },
-      );
+      const allStyles = await page.evaluate(capturePageWideElements, {
+        styles: RELEVANT_STYLES,
+        maxElements: MAX_ELEMENTS,
+      });
       if (allStyles) {
         const json = JSON.stringify(allStyles, null, 2);
         saveFile(
@@ -692,8 +771,8 @@ async function storeEvidence(
           join(getFilesDir(projectDir, taskId), "verify-all-styles.json"),
         );
       }
-    } catch {
-      // Capture failed — not fatal
+    } catch (err) {
+      warnEvidenceCapture("verify-all-styles.json", err);
     }
 
     // verify-screenshot.png
@@ -703,8 +782,8 @@ async function storeEvidence(
       files.push(
         join(getFilesDir(projectDir, taskId), "verify-screenshot.png"),
       );
-    } catch {
-      // Capture failed — not fatal
+    } catch (err) {
+      warnEvidenceCapture("verify-screenshot.png", err);
     }
 
     // verify-element.html
@@ -723,8 +802,8 @@ async function storeEvidence(
         files.push(
           join(getFilesDir(projectDir, taskId), "verify-element.html"),
         );
-      } catch {
-        // Capture failed — not fatal
+      } catch (err) {
+        warnEvidenceCapture("verify-element.html", err);
       }
     }
   }
