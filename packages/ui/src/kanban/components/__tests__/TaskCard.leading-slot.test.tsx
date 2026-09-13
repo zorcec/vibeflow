@@ -1,12 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { TaskCard } from "../TaskCard";
 import {
+      laneReservesLeadingSlot,
       leadingSlotWidth,
       resolveLeadingSlotMarks,
 } from "../TaskCardLeadingSlot";
-import { displayedVerifyState, showsVerifyVerdict } from "../VerifyIndicator";
+import {
+      displayedVerifyState,
+      showsVerifyVerdict,
+} from "../VerifyIndicator";
 import type { Task, TaskStatus, Column } from "../../types";
 
 /**
@@ -45,10 +52,12 @@ function renderCard(
             col = lane("todo"),
             compact = false,
             currentUserId = "user-1",
+            reserveLeadingSlot,
       }: {
             col?: Column;
             compact?: boolean;
             currentUserId?: string;
+            reserveLeadingSlot?: boolean;
       } = {},
 ) {
       return render(
@@ -58,6 +67,7 @@ function renderCard(
                   compact={compact}
                   allTasks={[]}
                   currentUserId={currentUserId}
+                  reserveLeadingSlot={reserveLeadingSlot}
                   onOpen={vi.fn()}
                   onDragStart={vi.fn()}
             />,
@@ -162,7 +172,7 @@ function expectedMarks({
       isUnread: boolean;
       compact: boolean;
 }): string[] {
-      if (showsVerifyVerdict(laneId) && verified !== undefined)
+      if (showsVerifyVerdict({ status: laneId }) && verified !== undefined)
             return ["verify"];
       if (laneId === "in-progress") return ["activity"];
       if (laneId === "done") return ["done"];
@@ -284,7 +294,9 @@ describe("leading slot mark arbitration", () => {
 
       it("shows a verdict in the review and done lanes only", () => {
             expect(
-                  LANES.filter((laneId) => showsVerifyVerdict(laneId)),
+                  LANES.filter((laneId) =>
+                        showsVerifyVerdict({ status: laneId, type: "Task" }),
+                  ),
             ).toEqual(["review", "done"]);
             for (const laneId of LANES) {
                   expect(
@@ -292,7 +304,11 @@ describe("leading slot mark arbitration", () => {
                               status: laneId,
                               verified: true,
                         }),
-                  ).toBe(showsVerifyVerdict(laneId) ? "verified" : "none");
+                  ).toBe(
+                        showsVerifyVerdict({ status: laneId })
+                              ? "verified"
+                              : "none",
+                  );
             }
       });
 });
@@ -532,5 +548,256 @@ describe("leading slot rendering", () => {
             expect(
                   container.querySelector('[title="Unread"]'),
             ).toBeInTheDocument();
+      });
+});
+
+/**
+ * The task TYPE gate (bb308ad4).
+ *
+ * The verdict gate used to read only the lane: `displayedVerifyState` returned
+ * whatever verdict the store held for ANY task in review/done, so a Research task
+ * — which can never be UI-verified, because `vibeflow verify` needs an annotation
+ * baseline and the CLI forbids Research tasks from producing code — rendered the
+ * amber "failed verification" glyph. These assert the type gate on top of the
+ * lane gate, through `displayedVerifyState` (the one predicate the card and the
+ * child row both read), and pin the default chosen for the types the owner did
+ * not name.
+ */
+describe("verify verdict type gate (bb308ad4)", () => {
+      it("never shows a verdict for a Research task, in review or done, whatever the stored value", () => {
+            for (const status of ["review", "done"] as const) {
+                  for (const verified of [true, false, undefined]) {
+                        expect(
+                              displayedVerifyState({
+                                    status,
+                                    type: "Research",
+                                    verified,
+                              }),
+                        ).toBe("none");
+                  }
+            }
+      });
+
+      it("matches the type case-insensitively and ignores surrounding whitespace", () => {
+            for (const type of ["research", "RESEARCH", " Research "]) {
+                  expect(
+                        displayedVerifyState({
+                              status: "review",
+                              type,
+                              verified: true,
+                        }),
+                  ).toBe("none");
+            }
+      });
+
+      it("still shows the verdict for Task and Bug in every state", () => {
+            for (const type of ["Task", "Bug"] as const) {
+                  for (const { label, verified } of [
+                        { label: "verified", verified: true },
+                        { label: "failed", verified: false },
+                  ]) {
+                        expect(
+                              displayedVerifyState({
+                                    status: "review",
+                                    type,
+                                    verified,
+                              }),
+                        ).toBe(label);
+                  }
+            }
+      });
+
+      it("shows the verdict for Enhancement, Feature, Chore and an absent type", () => {
+            // The default chosen for the types the owner did not name. Every
+            // non-{Task,Bug,Research} value resolves to the generic Task
+            // (`TypeBadge`, `getTaskTypeIcon(type ?? "Task")`, and the CLI's
+            // `normalizeTaskType`), and the owner's rule names Task — so they all
+            // SHOW, including the 239 untyped tasks, which count as a Task.
+            for (const type of [
+                  "Enhancement",
+                  "Feature",
+                  "Chore",
+                  null,
+                  undefined,
+                  "[object Object]",
+            ]) {
+                  expect(
+                        displayedVerifyState({
+                              status: "review",
+                              type,
+                              verified: true,
+                        }),
+                  ).toBe("verified");
+            }
+      });
+
+      it("keeps the lane gate on top of the type gate", () => {
+            for (const status of ["backlog", "todo", "in-progress"] as const) {
+                  expect(
+                        displayedVerifyState({
+                              status,
+                              type: "Task",
+                              verified: true,
+                        }),
+                  ).toBe("none");
+            }
+      });
+
+      it("renders no indicator for a Research task in review and in done", () => {
+            for (const status of ["review", "done"] as const) {
+                  for (const verified of [true, false]) {
+                        const { container, unmount } = renderCard(
+                              makeTask({ status, type: "Research", verified }),
+                              { col: lane(status) },
+                        );
+                        expect(
+                              container.querySelector("[data-verify-state]"),
+                        ).not.toBeInTheDocument();
+                        expect(slotMarks(container)).not.toContain("verify");
+                        unmount();
+                  }
+            }
+      });
+
+      it("still renders the verdict for a Bug and a Task in review and in done", () => {
+            for (const status of ["review", "done"] as const) {
+                  for (const type of ["Task", "Bug"] as const) {
+                        for (const verified of [true, false]) {
+                              const { container, unmount } = renderCard(
+                                    makeTask({ status, type, verified }),
+                                    { col: lane(status) },
+                              );
+                              expect(slotMarks(container)).toEqual(["verify"]);
+                              expect(
+                                    container
+                                          .querySelector("[data-verify-state]")
+                                          ?.getAttribute("data-verify-state"),
+                              ).toBe(verified ? "verified" : "failed");
+                              unmount();
+                        }
+                  }
+            }
+      });
+});
+
+/**
+ * Lane-scoped leading-slot reservation (8545aeca).
+ *
+ * `leadingSlotWidth` was reserved unconditionally, so a card that resolved no
+ * mark still got an empty 11px (card) / 12px (row) gutter before its title —
+ * visible on e.g. 52ea1bdd. The reservation exists only to keep the titles of
+ * the SAME lane aligned (b0545910), so it is now decided once per lane by
+ * `laneReservesLeadingSlot`: a lane that draws at least one mark reserves for
+ * every card in it (titles stay aligned, the gutter is the alignment column); a
+ * lane that draws no mark reserves nothing (no gutter).
+ */
+describe("lane-scoped leading slot reservation (8545aeca)", () => {
+      const read = (overrides: Partial<Task> = {}) =>
+            makeTask({ openedBy: ["user-1"], ...overrides });
+
+      it("reserves when at least one card of the lane draws a mark", () => {
+            expect(
+                  laneReservesLeadingSlot(
+                        [
+                              read({ id: "a", status: "review", verified: true }),
+                              read({ id: "b", status: "review" }),
+                        ],
+                        { laneId: "review", compact: false, currentUserId: "user-1" },
+                  ),
+            ).toBe(true);
+      });
+
+      it("reserves nothing when no card of the lane draws a mark", () => {
+            expect(
+                  laneReservesLeadingSlot([read({ id: "a", status: "todo" })], {
+                        laneId: "todo",
+                        compact: false,
+                        currentUserId: "user-1",
+                  }),
+            ).toBe(false);
+      });
+
+      it("reserves an in-progress lane — every card draws the spinner", () => {
+            expect(
+                  laneReservesLeadingSlot(
+                        [read({ status: "in-progress" })],
+                        {
+                              laneId: "in-progress",
+                              compact: false,
+                              currentUserId: "user-1",
+                        },
+                  ),
+            ).toBe(true);
+      });
+
+      it("reserves a row-layout lane — the lane dot is its fallback mark", () => {
+            expect(
+                  laneReservesLeadingSlot([read({ status: "review" })], {
+                        laneId: "review",
+                        compact: true,
+                        currentUserId: "user-1",
+                  }),
+            ).toBe(true);
+      });
+
+      it("counts an unread card as a mark", () => {
+            expect(
+                  laneReservesLeadingSlot(
+                        [makeTask({ status: "todo", openedBy: [] })],
+                        { laneId: "todo", compact: false, currentUserId: "user-1" },
+                  ),
+            ).toBe(true);
+      });
+
+      it("shares the verdict type gate: a Research verdict is not a mark", () => {
+            expect(
+                  laneReservesLeadingSlot(
+                        [read({ status: "review", type: "Research", verified: true })],
+                        { laneId: "review", compact: false, currentUserId: "user-1" },
+                  ),
+            ).toBe(false);
+      });
+
+      it("renders no slot at all — and no gap — when the lane reserves nothing", () => {
+            const { container } = renderCard(read({ status: "todo" }), {
+                  col: lane("todo"),
+                  reserveLeadingSlot: false,
+            });
+            expect(
+                  container.querySelector('[data-role="leading-slot"]'),
+            ).toBeNull();
+            expect(
+                  container.querySelector('[data-role="card-title"]'),
+            ).not.toBeNull();
+      });
+
+      it("still draws a mark in the reserved width if one resolves", () => {
+            const { container } = renderCard(
+                  read({ status: "review", verified: true }),
+                  { col: lane("review"), reserveLeadingSlot: false },
+            );
+            expect(slotMarks(container)).toEqual(["verify"]);
+            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
+      });
+
+      it("keeps reserving when the caller does not know its lane (default)", () => {
+            const { container } = renderCard(read({ status: "todo" }));
+            expect(slotMarks(container)).toEqual([]);
+            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
+      });
+
+      it("gives the row layout's lane-dot fallback a real box in kanban.css", () => {
+            const css = readFileSync(
+                  resolve(
+                        dirname(fileURLToPath(import.meta.url)),
+                        "../../kanban.css",
+                  ),
+                  "utf-8",
+            );
+            // `.sd-*` declared only a background, so the row fallback mark rendered
+            // 0px wide and the 12px reservation hid a mark with no box.
+            const rule = css.match(/\.sd-backlog,[\s\S]*?\}/);
+            expect(rule?.[0]).toMatch(/width:\s*7px/);
+            expect(rule?.[0]).toMatch(/height:\s*7px/);
       });
 });

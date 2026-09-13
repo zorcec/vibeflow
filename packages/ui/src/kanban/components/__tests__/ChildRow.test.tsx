@@ -339,4 +339,22 @@ describe("ChildRow verify indicator (three states)", () => {
       plain.container.querySelector(".child-link-dot"),
     ).toBeInTheDocument();
   });
+
+  it("tree row: a Research child never shows a verdict, whatever the stored value", () => {
+    for (const verified of [true, false]) {
+      const { container, unmount } = render(
+        <ChildRow
+          child={makeTask({ status: "review", type: "Research", verified })}
+          variant="inline"
+          depth={1}
+        />,
+      );
+      expect(
+        container.querySelector("[data-verify-state]"),
+      ).not.toBeInTheDocument();
+      // The row falls back to its chevron, exactly as for an unverified child.
+      expect(container.querySelector(".child-link-chevron")).toBeInTheDocument();
+      unmount();
+    }
+  });
 });

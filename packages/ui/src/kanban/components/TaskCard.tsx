@@ -48,6 +48,12 @@ interface Props {
       currentUserId?: string;
       /** Persists the current user's expand/collapse choice for this card. */
       onToggleExpanded?: (taskId: string, expanded: boolean) => void;
+      /**
+       * Whether this card's lane reserves the leading slot's width — the
+       * lane-level answer from `laneReservesLeadingSlot`. Defaults to true, so a
+       * caller that does not know its lane keeps the b0545910 alignment.
+       */
+      reserveLeadingSlot?: boolean;
 }
 
 function isImageFileName(name: string): boolean {
@@ -172,6 +178,7 @@ export const TaskCard = React.memo(function TaskCard({
       isDragging,
       currentUserId,
       onToggleExpanded,
+      reserveLeadingSlot,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -276,6 +283,7 @@ export const TaskCard = React.memo(function TaskCard({
                                     isInProgress={isInProgress}
                                     isDone={isDone}
                                     isUnread={isUnread}
+                                    reserve={reserveLeadingSlot}
                               />
                               <span
                                     data-role="card-title"
@@ -376,6 +384,7 @@ export const TaskCard = React.memo(function TaskCard({
                               isInProgress={isInProgress}
                               isDone={isDone}
                               isUnread={isUnread}
+                              reserve={reserveLeadingSlot}
                         />
                         <span
                               data-role="card-title"

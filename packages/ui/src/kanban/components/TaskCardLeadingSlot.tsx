@@ -1,6 +1,11 @@
 import React from "react";
 import { CheckCircle } from "lucide-react";
-import { VerifyIndicator, type VerifyState } from "./VerifyIndicator";
+import type { Task } from "../types";
+import {
+      VerifyIndicator,
+      displayedVerifyState,
+      type VerifyState,
+} from "./VerifyIndicator";
 
 /**
  * The leading slot at the head of a card's title row.
@@ -25,10 +30,10 @@ import { VerifyIndicator, type VerifyState } from "./VerifyIndicator";
  * agreeing: both read the same precedence, and only the *rendering* of a mark
  * differs between them (a loader in one, a pulsing dot in the other).
  *
- * The verdict itself is gated to the review and done lanes — see
- * `showsVerifyVerdict` in ./VerifyIndicator — so the `verify` this slot receives
- * is already "none" everywhere else; that is why no lane can pair a verdict with
- * a loader.
+ * The verdict itself is gated to the review and done lanes AND to the types that
+ * can be verified — see `showsVerifyVerdict` in ./VerifyIndicator — so the
+ * `verify` this slot receives is already "none" for every other lane and type;
+ * that is why no lane can pair a verdict with a loader.
  */
 export type LeadingSlotMark =
       | "verify"
@@ -57,13 +62,68 @@ const MARK_BOX_STYLE: React.CSSProperties = {
 };
 
 /**
- * Width reserved for the slot: the widest mark the layout can draw. Reserving it
- * keeps the title's x-offset identical for every card in a lane, whatever mark
- * happens to render — the fix for the slot that grew to three marks and pushed
- * the title around.
+ * Width reserved for the slot: the widest mark the layout can draw.
+ * Reserving it keeps the title's x-offset identical for every card in a lane,
+ * whatever mark happens to render — the fix for the slot that grew to three
+ * marks and pushed the title around (b0545910).
+ *
+ * Only a lane that actually draws at least one mark may reserve it — see
+ * `laneReservesLeadingSlot`. A lane where no card resolves a mark has nothing to
+ * align to, so it reserves nothing and the title sits flush (8545aeca).
  */
 export function leadingSlotWidth(layout: LeadingSlotLayout): number {
       return layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
+}
+
+/** The lane facts `laneReservesLeadingSlot` needs to resolve a card's marks. */
+export interface LeadingSlotLane {
+      /** The lane id the cards sit in (a task status). */
+      laneId: string;
+      /** The card layout this lane renders — the compact view uses the row layout. */
+      compact?: boolean;
+      currentUserId?: string;
+}
+
+/**
+ * Whether a lane must reserve the leading slot's width.
+ *
+ * The reservation exists only to keep titles aligned between cards of the SAME
+ * lane (b0545910), so it is needed only when the lane draws at least one mark. In
+ * a lane where every card resolves no mark — every card read, none verified, none
+ * in-flight — reserving would leave an empty gutter before every title, which is
+ * the phantom gap of 8545aeca.
+ *
+ * Call this ONCE per lane and pass the result down; asking each card to scan its
+ * siblings would be O(n²). It reuses `resolveLeadingSlotMarks`, so the lane's
+ * answer and the card's own marks cannot drift.
+ */
+export function laneReservesLeadingSlot(
+      tasks: readonly Task[],
+      { laneId, compact, currentUserId }: LeadingSlotLane,
+): boolean {
+      const layout = layoutForLane(laneId, compact);
+      const isInProgress = laneId === "in-progress";
+      const isDone = laneId === "done";
+      return tasks.some(
+            (task) =>
+                  resolveLeadingSlotMarks({
+                        verify: displayedVerifyState(task),
+                        layout,
+                        isInProgress,
+                        isDone,
+                        isUnread:
+                              !!currentUserId &&
+                              !(task.openedBy ?? []).includes(currentUserId),
+                  }).length > 0,
+      );
+}
+
+/** The layout a lane renders in: the done lane and the compact view use one row. */
+function layoutForLane(
+      laneId: string,
+      compact: boolean | undefined,
+): LeadingSlotLayout {
+      return compact || laneId === "done" ? "row" : "card";
 }
 
 export interface LeadingSlotInput {
@@ -102,11 +162,21 @@ export function resolveLeadingSlotMarks({
 export interface LeadingSlotProps extends LeadingSlotInput {
       /** Lane id — names the row layout's neutral status dot. */
       columnId: string;
+      /**
+       * Whether this card's lane reserves the slot's width — the lane-level
+       * answer from `laneReservesLeadingSlot`. Defaults to reserving, so a caller
+       * that does not know its lane keeps the b0545910 alignment guarantee.
+       */
+      reserve?: boolean;
 }
 
 /**
  * Renders the leading mark inside a fixed-width box. `data-role="leading-slot"`
  * and `data-leading-mark` are what the layout tests bind to.
+ *
+ * Renders nothing at all — not an empty box — when the lane reserves no width
+ * and this card draws no mark: the title row's flex `gap` would otherwise leave
+ * a 5px gap even around a zero-width box.
  */
 export function LeadingSlot({
       verify,
@@ -115,6 +185,7 @@ export function LeadingSlot({
       isDone,
       isUnread,
       columnId,
+      reserve = true,
 }: LeadingSlotProps) {
       const marks = resolveLeadingSlotMarks({
             verify,
@@ -123,6 +194,7 @@ export function LeadingSlot({
             isDone,
             isUnread,
       });
+      if (!reserve && marks.length === 0) return null;
       const width = leadingSlotWidth(layout);
       const size = layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
       return (

@@ -24,9 +24,52 @@ export type VerifyState = "verified" | "failed" | "none";
  */
 export const VERDICT_LANES: readonly string[] = ["review", "done"];
 
-/** Whether a lane id (or a child's own status) renders a verify verdict. */
-export function showsVerifyVerdict(columnId: string | undefined): boolean {
- return columnId !== undefined && VERDICT_LANES.includes(columnId);
+/**
+ * Task types that can never carry a UI verify verdict (bb308ad4).
+ *
+ * `vibeflow verify` needs an annotation baseline (selector + URL) to collect
+ * evidence, and the CLI forbids Research tasks from producing code at all — they
+ * deliver a findings report. So a stored `verified` value on a Research task
+ * attests to a UI change that was never made: the amber badge is a lie. Nothing
+ * else is excluded — see `showsVerifyVerdict`.
+ */
+export const UNVERIFIABLE_TASK_TYPES: readonly string[] = ["Research"];
+
+/**
+ * THE gate for the verify verdict — the one place the policy lives. A verdict is
+ * drawn only when BOTH hold:
+ *
+ * 1. the lane is review/done (a verdict assesses reviewed/finished work), and
+ * 2. the task's type can be verified at all — see `UNVERIFIABLE_TASK_TYPES`.
+ *
+ * The gate reads the TYPE, never whether a value happens to be stored: a
+ * Research task with `verified: true` is just as absent from the board as one
+ * with `false`.
+ *
+ * Types the store carries but the board does not model — Enhancement, Feature,
+ * Chore, and the 239 tasks with no type at all — all SHOW. They resolve to the
+ * generic Task everywhere else (`TypeBadge`, `getTaskTypeIcon(type ?? "Task")`,
+ * CLI `normalizeTaskType` maps every non-{Task,Bug,Research} value to the
+ * generic Task), and the owner's rule names Task, so an untyped card counts as a
+ * Task and keeps whatever verdict it carries. Only Research is excluded. To
+ * change the policy, change `UNVERIFIABLE_TASK_TYPES` — nothing else reads a
+ * task type.
+ */
+export function showsVerifyVerdict(task: {
+ status?: TaskStatus;
+ type?: unknown;
+}): boolean {
+ if (task.status === undefined || !VERDICT_LANES.includes(task.status))
+  return false;
+ return !isUnverifiableType(task.type);
+}
+
+function isUnverifiableType(type: unknown): boolean {
+ if (typeof type !== "string") return false;
+ const normalized = type.trim().toLowerCase();
+ return UNVERIFIABLE_TASK_TYPES.some(
+  (candidate) => candidate.toLowerCase() === normalized,
+ );
 }
 
 export function verifyState(task: { verified?: boolean }): VerifyState {
@@ -37,15 +80,17 @@ export function verifyState(task: { verified?: boolean }): VerifyState {
 
 /**
  * The verdict a surface should DRAW for a task: its tri-state verdict, or
- * "none" in the lanes that do not show one. Every surface reads the verdict
- * through this function, so the review/done gate lives in exactly one place and
- * cannot drift between the card layouts and the child rows.
+ * "none" in the lanes or task types that do not show one. Every surface reads
+ * the verdict through this function, so the lane gate and the type gate live in
+ * exactly one place and cannot drift between the card layouts, the leading slot
+ * and the child rows.
  */
 export function displayedVerifyState(task: {
  verified?: boolean;
  status?: TaskStatus;
+ type?: unknown;
 }): VerifyState {
- return showsVerifyVerdict(task.status) ? verifyState(task) : "none";
+ return showsVerifyVerdict(task) ? verifyState(task) : "none";
 }
 
 interface VerifyIndicatorProps {

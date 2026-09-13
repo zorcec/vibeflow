@@ -2,6 +2,7 @@ import React from "react";
 import { Plus } from "lucide-react";
 import type { Task, Column, TaskStatus, LiveActivity } from "../types";
 import { TaskCard } from "./TaskCard";
+import { laneReservesLeadingSlot } from "./TaskCardLeadingSlot";
 import {
   groupTasksByRoot,
   classifyForDropIntent,
@@ -863,6 +864,16 @@ function KanbanColumn({
 
   const dotClass = col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
 
+  // Whether this lane reserves the leading slot width, computed ONCE for the lane
+  // (8545aeca). A lane where no card draws a mark reserves nothing, so no empty
+  // gutter appears before its titles; a lane that draws marks reserves for every
+  // card in it, which is what keeps their titles aligned (b0545910).
+  const reserveLeadingSlot = React.useMemo(
+    () =>
+      laneReservesLeadingSlot(tasks, { laneId: col.id, compact, currentUserId }),
+    [tasks, col.id, compact, currentUserId],
+  );
+
   // DONE_LIMIT is only a fallback cap for the done lane before measurement
   // arrives. Once measured, the done lane fits to the real screen height.
   const DONE_LIMIT = 10;
@@ -1030,6 +1041,7 @@ function KanbanColumn({
                     onTreeRowDragStart={onTreeRowDragStart}
                     currentUserId={currentUserId}
                     onToggleExpanded={onToggleExpanded}
+                    reserveLeadingSlot={reserveLeadingSlot}
                   />
                   {isReorderTarget && dropIntent!.position === "after" && (
                     <div

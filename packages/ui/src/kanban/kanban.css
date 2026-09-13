@@ -219,6 +219,20 @@ body {
  border-radius: 50%;
  flex-shrink: 0;
 }
+/* The `.sd-*` colour classes carry their own box as well: the leading slot's
+   row-layout fallback mark is `sd-<lane>` WITHOUT `.status-dot`, so it rendered
+   0px and left a phantom 12px gutter (8545aeca). Same size as the column
+   header's dot, which keeps its own rule harmless. */
+.sd-backlog,
+.sd-todo,
+.sd-inprogress,
+.sd-review,
+.sd-done {
+ width: 7px;
+ height: 7px;
+ border-radius: 50%;
+ flex-shrink: 0;
+}
 .sd-backlog {
  background: var(--t-status-backlog);
 }
