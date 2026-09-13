@@ -263,7 +263,10 @@ describe("ChildRow verify indicator (three states)", () => {
     );
     const icon = container.querySelector('[data-verify-state="verified"]');
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute("aria-label", "Verified");
+    expect(icon).toHaveAttribute(
+      "aria-label",
+      "Verified — implemented correctly",
+    );
     expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
   });
 
@@ -277,7 +280,10 @@ describe("ChildRow verify indicator (three states)", () => {
     );
     const icon = container.querySelector('[data-verify-state="failed"]');
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute("aria-label", "Verification failed");
+    expect(icon).toHaveAttribute(
+      "aria-label",
+      "Failed verification — not implemented correctly",
+    );
     expect(container.querySelector(".child-link-chevron")).not.toBeInTheDocument();
   });
 
@@ -289,7 +295,7 @@ describe("ChildRow verify indicator (three states)", () => {
     expect(container.querySelector(".child-link-chevron")).toBeInTheDocument();
   });
 
-  it("tree row: in-progress + verified keeps the loader and adds the glyph", () => {
+  it("tree row: in-progress + verified keeps the loader and hides the verdict", () => {
     const { container } = render(
       <ChildRow
         child={makeTask({ status: "in-progress", verified: true })}
@@ -299,7 +305,7 @@ describe("ChildRow verify indicator (three states)", () => {
     expect(container.querySelector(".child-link-spinner")).toBeInTheDocument();
     expect(
       container.querySelector('[data-verify-state="verified"]'),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
   it("popover dot variant: verified swaps the dot for the glyph, undefined keeps it", () => {

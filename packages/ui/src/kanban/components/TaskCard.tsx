@@ -1,18 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import {
-      MessageCircle,
-      Paperclip,
-      CheckCircle,
-      Eye,
-      Lock,
-      ChevronDown,
-} from "lucide-react";
+import { MessageCircle, Paperclip, Eye, Lock, ChevronDown } from "lucide-react";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
-import { getTaskTypeColor, TASK_TYPE_ICONS } from "../../task-types";
+import { getTaskTypeColor } from "../../task-types";
 import { TagPills } from "./shared/TagPills";
 import {
       getBlockers,
@@ -22,7 +15,8 @@ import {
 } from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
-import { VerifyIndicator, verifyState } from "./VerifyIndicator";
+import { displayedVerifyState } from "./VerifyIndicator";
+import { LeadingSlot } from "./TaskCardLeadingSlot";
 
 interface Props {
       task: Task;
@@ -98,12 +92,6 @@ const DONE_INNER_ROW_STYLE: React.CSSProperties = {
       alignItems: "center",
       gap: 5,
 };
-const DONE_CHECK_ICON_STYLE: React.CSSProperties = {
-      width: 12,
-      height: 12,
-      color: "color-mix(in srgb, var(--t-success) 55%, transparent)",
-      flexShrink: 0,
-};
 const DONE_TITLE_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
@@ -119,7 +107,6 @@ const CARD_TITLE_ROW_STYLE: React.CSSProperties = {
       gap: 5,
       minWidth: 0,
 };
-const SPINNER_SHRINK_STYLE: React.CSSProperties = { flexShrink: 0 };
 const CARD_TITLE_TEXT_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
@@ -188,9 +175,13 @@ export const TaskCard = React.memo(function TaskCard({
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
-      // Tri-state verify result — drives the leading-slot glyph in both
-      // branches. "none" leaves the slot to the status glyph.
-      const verify = verifyState(task);
+      // Verdict to draw, already gated to the review/done lanes by
+      // displayedVerifyState. "none" leaves the slot to the status glyphs.
+      const verify = displayedVerifyState(task);
+      // Unknown viewer id → cannot tell if the task was opened, so never claim
+      // unread. Read by the leading slot in both branches.
+      const isUnread =
+            !!currentUserId && !(task.openedBy ?? []).includes(currentUserId);
       const [showThumbPreview, setShowThumbPreview] = React.useState(false);
       const [thumbRect, setThumbRect] = React.useState<{
             top: number;
@@ -264,8 +255,6 @@ export const TaskCard = React.memo(function TaskCard({
 
       // Compact view (any lane) or done column: single-row card
       if (compact || isDone) {
-            const dotClass =
-                  col.id === "in-progress" ? "sd-inprogress" : `sd-${col.id}`;
             return (
                   <article
                         className="task-card"
@@ -280,25 +269,16 @@ export const TaskCard = React.memo(function TaskCard({
                         onClick={handleClick}
                   >
                         <div style={DONE_INNER_ROW_STYLE}>
-                              {/* Leading slot: a verify verdict outranks the
-                                  neutral status glyph (verified/done both sit
-                                  here); with no verdict, the status glyph is
-                                  unchanged. */}
-                              {verify === "none" ? (
-                                    isDone ? (
-                                          <CheckCircle
-                                                style={DONE_CHECK_ICON_STYLE}
-                                          />
-                                    ) : (
-                                          <span
-                                                className={dotClass}
-                                                style={{ flexShrink: 0 }}
-                                          />
-                                    )
-                              ) : (
-                                    <VerifyIndicator state={verify} size={12} />
-                              )}
+                              <LeadingSlot
+                                    layout="row"
+                                    columnId={col.id}
+                                    verify={verify}
+                                    isInProgress={isInProgress}
+                                    isDone={isDone}
+                                    isUnread={isUnread}
+                              />
                               <span
+                                    data-role="card-title"
                                     style={{
                                           ...DONE_TITLE_STYLE,
                                           ...(isDone
@@ -389,43 +369,20 @@ export const TaskCard = React.memo(function TaskCard({
             >
                   {/* Row 1: title [screenshot-thumb] */}
                   <div style={CARD_TITLE_ROW_STYLE}>
-                        {isInProgress && (
-                              <span
-                                    className="spinner"
-                                    style={SPINNER_SHRINK_STYLE}
-                              />
-                        )}
-                        {/* Verify verdict sits in the leading slot beside the
-                            in-flight spinner (a verified task can also be
-                            in-progress). No verdict → no extra glyph. */}
-                        {verify !== "none" && (
-                              <VerifyIndicator state={verify} />
-                        )}
-                        {/* Unopened indicator: blue dot if task has not been opened by current user */}
-                        {(() => {
-                              // Unknown user id → cannot tell, so never claim unread.
-                              if (!currentUserId) return null;
-                              const isOpened = (task.openedBy ?? []).includes(
-                                    currentUserId,
-                              );
-                              if (!isOpened) {
-                                    return (
-                                          <span
-                                                style={{
-                                                      width: 6,
-                                                      height: 6,
-                                                      borderRadius: "50%",
-                                                      background:
-                                                            "var(--t-accent-contrast)",
-                                                      flexShrink: 0,
-                                                }}
-                                                title="Unread"
-                                          />
-                                    );
-                              }
-                              return null;
-                        })()}
-                        <span style={CARD_TITLE_TEXT_STYLE}>{task.title}</span>
+                        <LeadingSlot
+                              layout="card"
+                              columnId={col.id}
+                              verify={verify}
+                              isInProgress={isInProgress}
+                              isDone={isDone}
+                              isUnread={isUnread}
+                        />
+                        <span
+                              data-role="card-title"
+                              style={CARD_TITLE_TEXT_STYLE}
+                        >
+                              {task.title}
+                        </span>
                   </div>
 
                   {/* Description + screenshot thumbnail */}

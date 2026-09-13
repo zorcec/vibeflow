@@ -296,7 +296,10 @@ describe("TaskCard verify indicator (three states)", () => {
     );
     const icon = container.querySelector('[data-verify-state="verified"]');
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute("aria-label", "Verified");
+    expect(icon).toHaveAttribute(
+      "aria-label",
+      "Verified — implemented correctly",
+    );
     expect(
       container.querySelector('[data-verify-state="failed"]'),
     ).not.toBeInTheDocument();
@@ -310,7 +313,10 @@ describe("TaskCard verify indicator (three states)", () => {
     );
     const icon = container.querySelector('[data-verify-state="failed"]');
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute("aria-label", "Verification failed");
+    expect(icon).toHaveAttribute(
+      "aria-label",
+      "Failed verification — not implemented correctly",
+    );
   });
 
   it("renders no glyph when verified is undefined (never verified)", () => {
@@ -347,7 +353,7 @@ describe("TaskCard verify indicator (three states)", () => {
     expect(screen.queryByText(/VERIFIED/)).not.toBeInTheDocument();
   });
 
-  it("in-progress + verified keeps the spinner and adds the glyph", () => {
+  it("in-progress + verified keeps the spinner and hides the verdict (verdicts live in review/done)", () => {
     const { container } = renderCard(
       makeTask({ status: "in-progress", verified: true }),
       [],
@@ -356,7 +362,7 @@ describe("TaskCard verify indicator (three states)", () => {
     expect(container.querySelector(".spinner")).toBeInTheDocument();
     expect(
       container.querySelector('[data-verify-state="verified"]'),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
   it("compact branch shows the glyph too", () => {
