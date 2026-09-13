@@ -46,7 +46,7 @@ vibeflow tasks --next
 ## Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
@@ -186,7 +186,7 @@ The overlay is a Shadow DOM panel injected into any page — HTML prototypes or 
 The overlay can be injected into any page three ways:
 
 | Method | Best for | CSP-safe |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | **Bookmarklet** (recommended) | Any page, including production apps | Yes |
 | **Script tag** | Pages you control the HTML of | No |
 | **DevTools console** | Quick one-off sessions | Yes |
@@ -215,6 +215,7 @@ You browse your app  →  click to annotate  →  task created with context
 Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts via CDN — the annotation contract tells your LLM to use exactly these libraries.
 
 **Rules:**
+
 - One file per screen — name after the route (`login.html`, `dashboard.html`)
 - Every meaningful element gets a `data-vibeflow-id` — kebab-case, globally unique
 - Navigate between pages with relative links: `<a href="./page.html">`

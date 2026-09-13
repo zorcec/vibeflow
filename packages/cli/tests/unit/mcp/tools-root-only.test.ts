@@ -62,7 +62,8 @@ describe("mcp list_tasks root/child contract", () => {
     const res = await listTasks(ctx, { limit: 0 } as never);
 
     expect(res.ok).toBe(true);
-    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } }).data;
+    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } })
+      .data;
     expect(data.tasks.map((t) => t.id)).toEqual(["root"]);
     expect(data.hiddenChildren).toBe(2);
   });
@@ -73,7 +74,8 @@ describe("mcp list_tasks root/child contract", () => {
 
     const res = await listTasks(ctx, { limit: 0, children: true } as never);
 
-    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } }).data;
+    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } })
+      .data;
     expect(data.tasks.map((t) => t.id).sort()).toEqual(["kid-a", "root"]);
     expect(data.hiddenChildren).toBe(0);
   });
@@ -93,7 +95,8 @@ describe("mcp list_tasks root/child contract", () => {
 
     const res = await listTasks(ctx, { limit: 0, status: "todo" } as never);
 
-    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } }).data;
+    const data = (res as { data: { tasks: Task[]; hiddenChildren: number } })
+      .data;
     expect(data.tasks.map((t) => t.id)).toEqual(["root"]);
     // kid-done is filtered out by status before the child count is taken.
     expect(data.hiddenChildren).toBe(1);
