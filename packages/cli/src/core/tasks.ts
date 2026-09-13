@@ -29,6 +29,15 @@ export function generateTaskId(): string {
   return randomBytes(15).toString("hex");
 }
 
+/**
+ * A Research task produces a report; it has no annotated UI element to verify,
+ * so the `verified` attestation (and the tri-state UI it drives) does not apply
+ * to it. See the read and write scrubbers below and `review-gate.ts`.
+ */
+export function isResearchType(type: string | undefined): boolean {
+  return (type ?? "").toLowerCase() === "research";
+}
+
 // ── Directory helpers ──────────────────────────────────────────────────────
 export function getTasksDir(projectDir: string): string {
   return join(projectDir, PROTO_DIR, TASKS_DIR);
@@ -223,7 +232,17 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     // undefined = never verified. Absence must survive normalization —
     // collapsing it to false would erase the failed/never-verified distinction
     // the kanban UI relies on (see the three-state verify indicator).
-    verified: typeof raw.verified === "boolean" ? raw.verified : undefined,
+    //
+    // Research tasks NEVER carry a verdict: they have no UI to verify, so any
+    // boolean here is meaningless — and under tri-state semantics a stale
+    // `false` reads as "verified as NOT implemented correctly", an active lie.
+    // Force absence here whatever wrote the value, so the invariant survives
+    // legacy data, hand edits, and any writer that bypasses the write scrub.
+    verified: isResearchType(normalizedType)
+      ? undefined
+      : typeof raw.verified === "boolean"
+        ? raw.verified
+        : undefined,
     branchName: raw.branchName ? String(raw.branchName) : undefined,
     baseline:
       raw.baseline && typeof raw.baseline === "object"
@@ -257,13 +276,30 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   };
 }
 
+/**
+ * Write-side scrub for the Research invariant: drop `verified` before a Research
+ * task is serialised, so the value never reaches disk.
+ *
+ * Defence in depth, not the safety net. The read scrub in `normalizeTask` is what
+ * makes the value unobservable and is sufficient for correctness; this stops the
+ * bad state from existing on disk at all, and from being inherited if the task's
+ * type is later changed back to a verifiable one.
+ */
+function scrubResearchVerified(task: Task): Task {
+  if (!isResearchType(task.type) || task.verified === undefined) return task;
+  const scrubbed = { ...task };
+  delete scrubbed.verified;
+  return scrubbed;
+}
+
 export function writeTaskJson(projectDir: string, task: Task): void {
-  const dateDir = join(getTasksDir(projectDir), getDateSubdir(task.created));
+  const scrubbed = scrubResearchVerified(task);
+  const dateDir = join(getTasksDir(projectDir), getDateSubdir(scrubbed.created));
   mkdirSync(dateDir, { recursive: true });
-  const filePath = join(dateDir, `${task.id}.json`);
+  const filePath = join(dateDir, `${scrubbed.id}.json`);
   // Write to a temp file then rename for atomic replacement (prevents torn reads).
   const tmp = filePath + ".tmp";
-  writeFileSync(tmp, JSON.stringify(task, null, 2), "utf-8");
+  writeFileSync(tmp, JSON.stringify(scrubbed, null, 2), "utf-8");
   renameSync(tmp, filePath);
 }
 
@@ -274,7 +310,7 @@ export function writeTaskJson(projectDir: string, task: Task): void {
  */
 export function writeTaskJsonAt(filePath: string, task: Task): void {
   const tmp = filePath + ".tmp";
-  writeFileSync(tmp, JSON.stringify(task, null, 2), "utf-8");
+  writeFileSync(tmp, JSON.stringify(scrubResearchVerified(task), null, 2), "utf-8");
   renameSync(tmp, filePath);
 }
 
@@ -603,11 +639,11 @@ export function updateTask(
     const existingPath = findTaskFilePath(projectDir, taskId);
     const task = existingPath ? readTaskFile(existingPath) : null;
     if (!task) return null;
-    const updated: Task = {
+    const updated: Task = scrubResearchVerified({
       ...task,
       ...updates,
       updated: new Date().toISOString(),
-    };
+    });
     writeTaskJson(projectDir, updated);
     // Keep the monotonic sortKey ceiling above any key an update writes (a drag
     // appended to the bottom raises the store max). Read through

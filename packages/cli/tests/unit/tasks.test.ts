@@ -2432,3 +2432,92 @@ describe("verified flag is tri-state", () => {
     expect("verified" in JSON.parse(readFileSync(file, "utf-8"))).toBe(false);
   });
 });
+
+describe("research tasks never carry a verified value", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-research-verified-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function seedVerified(id: string, value: boolean): string {
+    const file = findTaskFilePath(tempDir, id)!;
+    const raw = JSON.parse(readFileSync(file, "utf-8"));
+    raw.verified = value;
+    writeFileSync(file, JSON.stringify(raw, null, 2));
+    return file;
+  }
+
+  function createTyped(id: string, type: string) {
+    return createTask(tempDir, {
+      title: id,
+      description: "",
+      status: "todo",
+      selector: "#a",
+      type,
+    });
+  }
+
+  it("normalizeTask drops verified:true on a Research task", () => {
+    const task = createTyped("research-true", "Research");
+    const file = seedVerified(task.id, true);
+    expect(readTaskFile(file)!.verified).toBeUndefined();
+  });
+
+  it("normalizeTask drops verified:false on a Research task", () => {
+    const task = createTyped("research-false", "Research");
+    const file = seedVerified(task.id, false);
+    expect(readTaskFile(file)!.verified).toBeUndefined();
+  });
+
+  it("listTasks never surfaces a verdict for a Research task", () => {
+    const withTrue = createTyped("research-list-true", "Research");
+    const withFalse = createTyped("research-list-false", "Research");
+    seedVerified(withTrue.id, true);
+    seedVerified(withFalse.id, false);
+
+    const byId = new Map(listTasks(tempDir).map((t) => [t.id, t.verified]));
+    expect(byId.get(withTrue.id)).toBeUndefined();
+    expect(byId.get(withFalse.id)).toBeUndefined();
+  });
+
+  it("updateTask cannot persist a verdict on a Research task (write scrub)", () => {
+    const task = createTyped("research-write", "Research");
+    const updated = updateTask(tempDir, task.id, { verified: true });
+    expect(updated!.verified).toBeUndefined();
+
+    const file = findTaskFilePath(tempDir, task.id)!;
+    expect("verified" in JSON.parse(readFileSync(file, "utf-8"))).toBe(false);
+  });
+
+  it("the guard does not over-reach: a Task with verified:true/false round-trips", () => {
+    const task = createTyped("task-roundtrip", "Task");
+    const file = findTaskFilePath(tempDir, task.id)!;
+    for (const value of [true, false]) {
+      seedVerified(task.id, value);
+      expect(readTaskFile(file)!.verified).toBe(value);
+    }
+  });
+
+  it("the guard does not over-reach: a Bug with verified:true/false round-trips", () => {
+    const task = createTyped("bug-roundtrip", "Bug");
+    const file = findTaskFilePath(tempDir, task.id)!;
+    for (const value of [true, false]) {
+      seedVerified(task.id, value);
+      expect(readTaskFile(file)!.verified).toBe(value);
+    }
+  });
+
+  it("a Feature/Enhancement with a verdict still round-trips", () => {
+    for (const type of ["Feature", "Enhancement"]) {
+      const task = createTyped(`other-${type}`, type);
+      const file = findTaskFilePath(tempDir, task.id)!;
+      seedVerified(task.id, false);
+      expect(readTaskFile(file)!.verified).toBe(false);
+    }
+  });
+});

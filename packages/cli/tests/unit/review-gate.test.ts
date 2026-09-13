@@ -416,6 +416,111 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(true);
   });
 
+  // Regression for the reproduced case: Research task 9f6e1ac7 carries
+  // url + selector '#main'. Before the fix the type-blind `isAnnotated` check
+  // made the gate demand a verification attestation the task can never produce,
+  // so the review transition was refused until --skip-verify.
+  it("does NOT demand an attestation for a Research task with url + selector (9f6e1ac7)", () => {
+    createTaskFile(tmpDir, "9f6e1ac7", {
+      type: "Research",
+      selector: "#main",
+      url: "https://example.com/report",
+    });
+    const filesDir = join(
+      tmpDir,
+      ".vibeflow",
+      "tasks",
+      "files",
+      "9f6e1ac7",
+    );
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "report.md"), "# Research Report");
+
+    const result = checkReviewTransition(
+      tmpDir,
+      "9f6e1ac7",
+      { comment: "added findings" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("Research exemption is independent of the report gate: no .md yields RESEARCH_REPORT_REQUIRED, not VERIFY_REQUIRED", () => {
+    createTaskFile(tmpDir, "task-123", {
+      type: "Research",
+      selector: "#main",
+      url: "https://example.com/report",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("RESEARCH_REPORT_REQUIRED");
+  });
+
+  it("refuses LOUDLY when --verified is passed on a Research review transition", () => {
+    createTaskFile(tmpDir, "task-123", {
+      type: "Research",
+      selector: "#main",
+      url: "https://example.com/report",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verified: true },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+    }
+  });
+
+  it("refuses LOUDLY when --verify-failed is passed on a Research review transition", () => {
+    createTaskFile(tmpDir, "task-123", {
+      type: "Research",
+      selector: "#main",
+      url: "https://example.com/report",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verified: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+    }
+  });
+
   it("passes gates in order: comment → commit → branch → verify → research", () => {
     createTaskFile(tmpDir, "task-123", { type: "Task" });
     const result = checkReviewTransition(

@@ -12,7 +12,11 @@
  * accepts a `verified` field (mass-assignment whitelist) nor runs this gate.
  */
 import type { ProtoSettings } from "./settings.js";
-import { findTaskFilePath, readTaskFile } from "./tasks.js";
+import {
+  findTaskFilePath,
+  isResearchType,
+  readTaskFile,
+} from "./tasks.js";
 import { listFiles } from "./files.js";
 
 export interface ReviewGateContext {
@@ -94,66 +98,89 @@ export function checkReviewTransition(
     };
   }
 
-  // Gate 4a: an explicit negative attestation can never reach review — for ANY
-  // task, and even with --skip-verify. --skip-verify skips the requirement to
-  // verify; it cannot overrule the agent's own "this is NOT correct" verdict.
-  if (opts.verified === false) {
-    return {
-      ok: false,
-      code: "VERIFY_FAILED_ATTESTED",
-      message:
-        "You attested that this task is NOT implemented correctly — it cannot go to review",
-      suggestion:
-        'Fix the implementation and attest again, or park it: --set-status in-progress --verify-failed --comment "what is wrong"',
-    };
-  }
+  // Read the task once — Gate 4 (verify) and Gate 5 (research report) both need it.
+  const taskFilePath = findTaskFilePath(projectDir, taskId);
+  const task = taskFilePath ? readTaskFile(taskFilePath) : null;
 
-  // Gate 4b: the verify ATTESTATION.
+  // Gate 4: the verify attestation. Research tasks are EXEMPT entirely — they
+  // have no annotated UI element to verify (their deliverable is a report), so
+  // demanding an attestation is unsatisfiable. This is the fix for the
+  // reproduced case where a Research task carrying url + selector '#main'
+  // (9f6e1ac7) had its review transition refused until --skip-verify.
   //
-  // The agent writes `verified`, not `vibeflow verify` (verify only proves the
-  // annotated element resolves and that no NEW console errors appeared; it
-  // cannot tell whether the task was accomplished). So this gate demands the
-  // positive attestation carried BY THIS TRANSITION, never a value left in the
-  // store: a stored `true` may be stale, and a stored `false` is the agent's
-  // verdict that the work is WRONG.
-  if (ctx.settings.requireVerifyBeforeReview && !opts.skipVerify) {
-    if (opts.verified !== true) {
-      const taskFilePath = findTaskFilePath(projectDir, taskId);
-      const task = taskFilePath ? readTaskFile(taskFilePath) : null;
-      // Scope: annotated tasks (selector + URL). `vibeflow verify` needs an
-      // annotation baseline, so a task without one can never be asked to
-      // produce its evidence. The gate deliberately does NOT depend on that
-      // baseline existing — its absence used to skip the gate silently.
-      const hasSelector =
-        task?.cssSelector || (task?.selector && task.selector !== "/");
-      const isAnnotated = Boolean(hasSelector && task?.url);
+  // A verdict on a Research task is meaningless under the tri-state semantics
+  // (a stored `false` would read as "verified as NOT implemented correctly", an
+  // active lie), so a verdict passed on this transition is refused LOUDLY
+  // rather than dropped silently — this CLI already has too many silent no-ops.
+  if (isResearchType(task?.type)) {
+    if (opts.verified !== undefined) {
+      return {
+        ok: false,
+        code: "RESEARCH_VERIFY_NOT_ALLOWED",
+        message:
+          "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
+        suggestion:
+          "Drop --verified / --verify-failed; submit the Research task with its .md report instead",
+      };
+    }
+  } else {
+    // Gate 4a: an explicit negative attestation can never reach review — for ANY
+    // task, and even with --skip-verify. --skip-verify skips the requirement to
+    // verify; it cannot overrule the agent's own "this is NOT correct" verdict.
+    if (opts.verified === false) {
+      return {
+        ok: false,
+        code: "VERIFY_FAILED_ATTESTED",
+        message:
+          "You attested that this task is NOT implemented correctly — it cannot go to review",
+        suggestion:
+          'Fix the implementation and attest again, or park it: --set-status in-progress --verify-failed --comment "what is wrong"',
+      };
+    }
 
-      if (isAnnotated) {
-        if (task?.verified === false) {
+    // Gate 4b: the verify ATTESTATION.
+    //
+    // The agent writes `verified`, not `vibeflow verify` (verify only proves the
+    // annotated element resolves and that no NEW console errors appeared; it
+    // cannot tell whether the task was accomplished). So this gate demands the
+    // positive attestation carried BY THIS TRANSITION, never a value left in the
+    // store: a stored `true` may be stale, and a stored `false` is the agent's
+    // verdict that the work is WRONG.
+    if (ctx.settings.requireVerifyBeforeReview && !opts.skipVerify) {
+      if (opts.verified !== true) {
+        // Scope: annotated tasks (selector + URL). `vibeflow verify` needs an
+        // annotation baseline, so a task without one can never be asked to
+        // produce its evidence. The gate deliberately does NOT depend on that
+        // baseline existing — its absence used to skip the gate silently.
+        const hasSelector =
+          task?.cssSelector || (task?.selector && task.selector !== "/");
+        const isAnnotated = Boolean(hasSelector && task?.url);
+
+        if (isAnnotated) {
+          if (task?.verified === false) {
+            return {
+              ok: false,
+              code: "VERIFY_FAILED_ATTESTED",
+              message:
+                "This task carries your verdict that it is NOT implemented correctly — it cannot go to review",
+              suggestion:
+                'Fix the implementation, then attest with --verified; or park it: --set-status in-progress --verify-failed --comment "what is wrong"',
+            };
+          }
           return {
             ok: false,
-            code: "VERIFY_FAILED_ATTESTED",
+            code: "VERIFY_REQUIRED",
             message:
-              "This task carries your verdict that it is NOT implemented correctly — it cannot go to review",
-            suggestion:
-              'Fix the implementation, then attest with --verified; or park it: --set-status in-progress --verify-failed --comment "what is wrong"',
+              "Annotated tasks need your verification attestation before review",
+            suggestion: `Run: vibeflow verify ${taskId} — then judge the evidence yourself and add --verified to the review transition`,
           };
         }
-        return {
-          ok: false,
-          code: "VERIFY_REQUIRED",
-          message:
-            "Annotated tasks need your verification attestation before review",
-          suggestion: `Run: vibeflow verify ${taskId} — then judge the evidence yourself and add --verified to the review transition`,
-        };
       }
     }
   }
 
   // Gate 5: research gate — type research needs a .md report
-  const taskFilePath = findTaskFilePath(projectDir, taskId);
-  const task = taskFilePath ? readTaskFile(taskFilePath) : null;
-  if (task && (task.type ?? "").toLowerCase() === "research") {
+  if (task && isResearchType(task.type)) {
     const attachedFiles = listFiles(projectDir, taskId);
     const hasMdFile = attachedFiles.some((f) => /\.md$/i.test(f.name));
     if (!hasMdFile) {
