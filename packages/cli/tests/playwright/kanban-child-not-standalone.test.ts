@@ -102,7 +102,9 @@ describe("a parented task is not a standalone card (parent/child view)", () => {
       links: [{ taskId: childId, type: "parent" }],
     });
     browser = await chromium.launch({ headless: true });
-    context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     page = await context.newPage();
     await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#kanban-board", { timeout: 15000 });
@@ -135,29 +137,32 @@ describe("a parented task is not a standalone card (parent/child view)", () => {
   });
 
   it("renders the child as a row inside its parent's card", async () => {
-    const tree = await page.evaluate((ids) => {
-      const rowFor = (id: string) =>
-        document.querySelector<HTMLElement>(
-          `[data-role="child-link-row"][data-task-id="${id}"]`,
-        );
-      const cardFor = (id: string) =>
-        document.querySelector<HTMLElement>(
-          `article.task-card[data-task-id="${id}"]`,
-        );
-      const parentCard = cardFor(ids.parentId);
-      const childRow = rowFor(ids.childId);
-      const grandchildRow = rowFor(ids.grandchildId);
-      const columnOf = (el: Element | null) =>
-        (el?.closest("[data-column-id]") as HTMLElement | null)?.dataset
-          .columnId ?? null;
-      return {
-        parentCardInColumn: columnOf(parentCard),
-        parentCardContainsChildRow: !!parentCard?.contains(childRow ?? null),
-        childRowInColumn: columnOf(childRow),
-        childRowExists: !!childRow,
-        grandchildRowExists: !!grandchildRow,
-      };
-    }, { parentId, childId, grandchildId });
+    const tree = await page.evaluate(
+      (ids) => {
+        const rowFor = (id: string) =>
+          document.querySelector<HTMLElement>(
+            `[data-role="child-link-row"][data-task-id="${id}"]`,
+          );
+        const cardFor = (id: string) =>
+          document.querySelector<HTMLElement>(
+            `article.task-card[data-task-id="${id}"]`,
+          );
+        const parentCard = cardFor(ids.parentId);
+        const childRow = rowFor(ids.childId);
+        const grandchildRow = rowFor(ids.grandchildId);
+        const columnOf = (el: Element | null) =>
+          (el?.closest("[data-column-id]") as HTMLElement | null)?.dataset
+            .columnId ?? null;
+        return {
+          parentCardInColumn: columnOf(parentCard),
+          parentCardContainsChildRow: !!parentCard?.contains(childRow ?? null),
+          childRowInColumn: columnOf(childRow),
+          childRowExists: !!childRow,
+          grandchildRowExists: !!grandchildRow,
+        };
+      },
+      { parentId, childId, grandchildId },
+    );
 
     // The nesting itself is the requirement: the child exists only under the
     // parent, and both live in the parent's column.
