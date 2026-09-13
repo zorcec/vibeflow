@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { checkReviewTransition } from "../../src/core/review-gate.js";
+import { getFilesDir } from "../../src/core/files.js";
 import type { ProtoSettings } from "../../src/core/settings.js";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -157,8 +158,9 @@ describe("checkReviewTransition", () => {
       url: "https://example.com",
       verified: false,
     });
-    // Create baseline.json so verify gate fires
-    const baselineDir = join(tmpDir, ".vibeflow", "files", "task-123");
+    // Baseline must live at the real evidence path (getFilesDir), i.e.
+    // `.vibeflow/tasks/files/<taskId>` — this is where verify writes it.
+    const baselineDir = getFilesDir(tmpDir, "task-123");
     mkdirSync(baselineDir, { recursive: true });
     writeFileSync(join(baselineDir, "baseline.json"), "{}");
     const result = checkReviewTransition(
@@ -174,6 +176,26 @@ describe("checkReviewTransition", () => {
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REQUIRED");
     }
+  });
+
+  it("passes verify gate for unverified UI task when no baseline evidence exists", () => {
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+      verified: false,
+    });
+    // No baseline.json at the real evidence path — task was auto-created
+    // without annotation, so the gate must skip.
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({ requireVerifyBeforeReview: true }),
+      },
+    );
+    expect(result.ok).toBe(true);
   });
 
   it("passes verify gate when skipVerify is true", () => {

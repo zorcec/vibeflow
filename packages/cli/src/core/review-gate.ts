@@ -7,7 +7,7 @@
  */
 import type { ProtoSettings } from "./settings.js";
 import { findTaskFilePath, readTaskFile } from "./tasks.js";
-import { listFiles } from "./files.js";
+import { listFiles, getFilesDir } from "./files.js";
 import { join } from "path";
 import { existsSync } from "fs";
 
@@ -94,9 +94,12 @@ export function checkReviewTransition(
       const isUiTask = Boolean(hasSelector && hasUrl);
 
       if (isUiTask && !task.verified) {
-        // Skip gate if no baseline.json exists — task was auto-created without annotation
-        const filesDir = join(projectDir, ".vibeflow", "files", taskId);
-        const hasBaseline = existsSync(join(filesDir, "baseline.json"));
+        // Skip gate if no baseline.json exists — task was auto-created without annotation.
+        // Evidence lives where getFilesDir() writes it (`.vibeflow/tasks/files/<id>`),
+        // so the gate must probe that path, not a hardcoded one.
+        const hasBaseline = existsSync(
+          join(getFilesDir(projectDir, taskId), "baseline.json"),
+        );
         if (hasBaseline) {
           return {
             ok: false,
