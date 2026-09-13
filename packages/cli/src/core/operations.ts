@@ -56,6 +56,12 @@ export const ListTasksInput = z.object({
   tag: z.array(z.string()).optional(),
   limit: z.number().min(0).default(5),
   fields: z.array(z.string()).optional(),
+  /**
+   * Include child tasks. Default false: only ROOT tasks are listed, matching
+   * the board, where a child is rendered inside its parent's card rather than
+   * as a peer. See `isChildTask` in ./tasks.js.
+   */
+  children: z.boolean().default(false),
 });
 export type ListTasksInputType = z.infer<typeof ListTasksInput>;
 
@@ -175,10 +181,14 @@ export type PushTasksInputType = z.infer<typeof PushTasksInput>;
 export async function listTasks(
   ctx: OperationContext,
   input: ListTasksInputType,
-): Promise<OperationResult<{ tasks: Task[]; total: number }>> {
+): Promise<
+  OperationResult<{ tasks: Task[]; total: number; hiddenChildren: number }>
+> {
   try {
     // Dynamic import to avoid circular dependencies
-    const { listTasks: coreListTasks } = await import("../core/tasks.js");
+    const { listTasks: coreListTasks, isChildTask } = await import(
+      "../core/tasks.js"
+    );
     let tasks = coreListTasks(ctx.projectDir);
 
     // Apply filters
@@ -195,6 +205,17 @@ export async function listTasks(
       tasks = tasks.filter(
         (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
       );
+    }
+
+    // OWNER DECISION: list ROOT tasks only unless asked otherwise. A child
+    // belongs to its parent, so listing it as a peer would contradict the
+    // board, which renders it inside the parent's card. Mirrors the CLI's
+    // `tasks` / `--children` behaviour.
+    const hiddenChildren = input.children
+      ? 0
+      : tasks.filter(isChildTask).length;
+    if (!input.children) {
+      tasks = tasks.filter((t) => !isChildTask(t));
     }
 
     const total = tasks.length;
@@ -220,7 +241,7 @@ export async function listTasks(
       });
     }
 
-    return { ok: true, data: { tasks, total } };
+    return { ok: true, data: { tasks, total, hiddenChildren } };
   } catch (err) {
     return {
       ok: false,
@@ -542,9 +563,13 @@ export async function claimNextTask(
 ): Promise<OperationResult<Task>> {
   try {
     if (ctx.dryRun) {
-      const { listTasks: coreListTasks } = await import("../core/tasks.js");
+      const { listTasks: coreListTasks, isChildTask } = await import(
+        "../core/tasks.js"
+      );
       let tasks = coreListTasks(ctx.projectDir);
       tasks = tasks.filter((t) => t.status === "todo");
+      // Parity with the atomic path: never a child. The root is the unit of work.
+      tasks = tasks.filter((t) => !isChildTask(t));
       if (input.type) tasks = tasks.filter((t) => t.type === input.type);
       if (input.tag && input.tag.length > 0) {
         tasks = tasks.filter(
@@ -575,6 +600,8 @@ export async function claimNextTask(
         user: input.user,
         tag: input.tag,
         author: ctx.userId,
+        // OWNER DECISION: never claim a child. The root carries its children.
+        rootsOnly: true,
       },
     );
 

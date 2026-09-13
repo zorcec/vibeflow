@@ -60,10 +60,18 @@ export const manifest: ToolManifest[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters. Returns task list with configurable fields.",
+      "List tasks with optional filters. Returns task list with configurable fields. ROOT tasks only by default — a task with a parent belongs to that parent, so set children:true to include them. The response's hiddenChildren reports how many matched but were omitted.",
     cliRef: {
       command: "tasks",
-      flags: ["--status", "--type", "--user", "--tag", "--limit", "--fields"],
+      flags: [
+        "--status",
+        "--type",
+        "--user",
+        "--tag",
+        "--limit",
+        "--fields",
+        "--children",
+      ],
     },
     category: "task-read",
     annotations: {
@@ -160,7 +168,7 @@ export const manifest: ToolManifest[] = [
     name: "claim_next_task",
     title: "Claim next task",
     description:
-      "Claim the highest-priority todo task and set it to in-progress.",
+      "Claim the highest-priority ROOT task in todo and set it to in-progress. Never claims a child: a root is the unit of work, so work through its children after claiming it. Mirrors 'vibeflow tasks --next'.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],

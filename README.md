@@ -79,12 +79,13 @@ Serve HTML prototypes with the annotation overlay — click any element to creat
 Full task management from the command line — designed to be agent-friendly.
 
 ```bash
-# Pick the next task (auto-claims a todo task)
-vibeflow tasks --next                             # picks highest-priority todo task
-vibeflow tasks --next --type Bug                  # next bug task only
+# Pick the next task (auto-claims a ROOT task in todo)
+vibeflow tasks --next                             # highest-priority ROOT task in todo
+vibeflow tasks --next --type Bug                  # next bug ROOT task only
 
 # List tasks
-vibeflow tasks                                    # all tasks (default: 20 most recent)
+vibeflow tasks                                    # ROOT tasks only (default: 20 most recent)
+vibeflow tasks --children                         # include child tasks
 vibeflow tasks --limit 0                          # show all tasks (no limit)
 vibeflow tasks --json                             # machine-readable JSON output
 
@@ -113,6 +114,36 @@ vibeflow tasks --edit <id> --set-status review \
 **Task types:** Task · Bug · Feature · Enhancement · Research  
 **Task statuses:** backlog → todo → in-progress → review → done  
 **Priorities:** Critical · High · Medium · Low
+
+#### Root and child tasks
+
+A task with a `parent` link is a **child**; a task without one is a **root**. The CLI hands an agent
+whole units of work, so both listing and claiming operate on roots:
+
+- `vibeflow tasks` lists **root tasks only**. A child belongs to its parent and is rendered inside
+  that parent's card on the board, so listing it as a peer would contradict the board. The footer
+  reports how many children the query matched — `· 3 child tasks hidden (use --children)` — so they
+  are never hidden silently. Pass `--children` to include them.
+- `vibeflow tasks --next` claims **only a root whose own status is `todo`**, and never a child. The
+  result carries that root's children with their ids, titles and statuses, so the agent sees what
+  remains without a second call. Claiming a root does **not** cascade to its children — the agent
+  walks them.
+- `vibeflow tasks --get <id>` is deliberately **unfiltered**: it resolves any task, child or root,
+  so a child is always reachable by id.
+
+```bash
+# A root with children, claimed as one unit of work
+vibeflow tasks --next
+#   ▶ NEXT TASK — Status moved to in-progress. Implement this now:
+#   [in-progress] Rebuild the settings page
+#     ↓ 2 child tasks (1 done)
+#       [done]        a1b2c3d4  Remove the legacy toggle
+#       [todo]        e5f6a7b8  Add the keyboard shortcut
+```
+
+Because `--next` only considers roots whose own status is `todo`, a child in `todo` whose parent is
+in `backlog`, `in-progress` or `done` is not returned by `--next`. Move the root to `todo` to make the
+whole unit claimable.
 
 ### `vibeflow watch [dir]`
 
@@ -174,7 +205,7 @@ You browse your app  →  click to annotate  →  task created with context
 
 1. **Overlay** — embed the bookmarklet or script into your app, click any element to annotate
 2. **Kanban** — open the board to see all tasks at a glance, create new ones directly
-3. **Tasks** — `vibeflow tasks --next` picks the highest-priority task with full context for your agent
+3. **Tasks** — `vibeflow tasks --next` claims the highest-priority **root** task in todo, and returns it with its children — the whole unit of work, with full context for your agent
 4. **Iterate** — agent implements, browser reloads, annotate again
 
 ---
