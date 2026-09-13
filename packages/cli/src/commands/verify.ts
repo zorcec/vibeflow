@@ -165,7 +165,8 @@ export async function verifyTask(
   }
 
   // ── 6. Launch Playwright ──────────────────────────────────────────────
-  if (opts.signal?.aborted) throw new VerifyError("E_CANCELLED", "Verification cancelled.");
+  if (opts.signal?.aborted)
+    throw new VerifyError("E_CANCELLED", "Verification cancelled.");
   const pw = await loadPlaywright();
 
   let browser: import("playwright").Browser | undefined;
@@ -396,14 +397,17 @@ export async function verifyTask(
               )?.after;
               if (baselineStyles) {
                 element.baseline = baselineStyles;
-                // Compute per-property diff
+                // Compute per-property diff. Compare ONLY properties present on
+                // both sides — an after-only property is a capture asymmetry,
+                // not a value change (same rule as computeDiff).
+                const baseStyles = baselineStyles as Record<string, string>;
                 const propDiff: Record<string, [string, string]> = {};
                 for (const [prop, afterVal] of Object.entries(
                   element.after as Record<string, string>,
                 )) {
-                  const baseVal = (baselineStyles as Record<string, string>)[
-                    prop
-                  ];
+                  if (!Object.prototype.hasOwnProperty.call(baseStyles, prop))
+                    continue;
+                  const baseVal = baseStyles[prop];
                   if (baseVal !== afterVal) {
                     propDiff[prop] = [baseVal, afterVal as string];
                   }
@@ -481,16 +485,24 @@ async function captureSnapshot(
     .evaluate((el) => el.outerHTML)
     .catch(() => "");
 
+  // Capture the SAME property set as the annotation baseline.
+  //
+  // The baseline is captured by the overlay via `filterStyles(el,
+  // RELEVANT_STYLES)`. This path used to enumerate ALL computed styles
+  // (~476-609 properties in chromium), so `computeDiff` reported every
+  // after-only property as a `"" -> value` change — a no-op page produced
+  // hundreds of false changes. The property list is passed as a plain array
+  // argument (serializable); the loop lives inside the callback because
+  // Playwright serializes the function source and cannot resolve imports.
   const computedStyles = await element
-    .evaluate((el) => {
+    .evaluate((el, props: string[]) => {
       const styles = window.getComputedStyle(el);
       const result: Record<string, string> = {};
-      for (let i = 0; i < styles.length; i++) {
-        const prop = styles[i];
+      for (const prop of props) {
         result[prop] = styles.getPropertyValue(prop);
       }
       return result;
-    })
+    }, RELEVANT_STYLES)
     .catch(() => ({}));
 
   const boundingBox = await element.boundingBox().catch(() => null);
@@ -598,10 +610,7 @@ export function capturePageWideElements(input: {
     return selector;
   }
 
-  function filterStyles(
-    el: Element,
-    props: string[],
-  ): Record<string, string> {
+  function filterStyles(el: Element, props: string[]): Record<string, string> {
     const computed = window.getComputedStyle(el);
     const result: Record<string, string> = {};
     for (const prop of props) {

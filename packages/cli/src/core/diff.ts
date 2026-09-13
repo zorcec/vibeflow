@@ -42,16 +42,22 @@ export function computeDiff(
   const htmlChanged = baseline.outerHTML !== after.outerHTML;
 
   // Per-property computed style comparison.
+  //
+  // Compare ONLY properties recorded on BOTH sides. A property present only in
+  // the baseline (or only in the after snapshot) is NOT a value change — it is
+  // a capture asymmetry. Reporting it as a change is what buried the real diff
+  // in hundreds of `"" -> value` false positives (both capture paths are now
+  // aligned on RELEVANT_STYLES, so a mismatch here means stale/mismatched
+  // evidence, not a real change). Deliberately ignored rather than surfaced:
+  // the shared property set is the contract, not a superset.
   const stylesChanged: Record<string, [string, string]> = {};
-  const allKeys = new Set([
-    ...Object.keys(baseline.computedStyles),
-    ...Object.keys(after.computedStyles),
-  ]);
-  for (const key of allKeys) {
+  for (const key of Object.keys(baseline.computedStyles)) {
+    if (!Object.prototype.hasOwnProperty.call(after.computedStyles, key))
+      continue;
     const bVal = baseline.computedStyles[key];
     const aVal = after.computedStyles[key];
     if (bVal !== aVal) {
-      stylesChanged[key] = [bVal ?? "", aVal ?? ""];
+      stylesChanged[key] = [bVal, aVal];
     }
   }
 

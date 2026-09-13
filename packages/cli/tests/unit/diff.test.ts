@@ -61,22 +61,36 @@ describe("computeDiff", () => {
     });
   });
 
-  it("detects new style properties", () => {
+  it("ignores properties present only in the after snapshot", () => {
+    // Capture asymmetry is not a value change. The annotation baseline stores
+    // only RELEVANT_STYLES; a wider after snapshot must not invent changes.
     const baseline = makeSnapshot({ computedStyles: { color: "#000" } });
     const after = makeSnapshot({ computedStyles: { color: "#000", padding: "8px" } });
     const diff = computeDiff(baseline, after);
-    expect(diff.stylesChanged).toEqual({
-      padding: ["", "8px"],
-    });
+    expect(diff.stylesChanged).toEqual({});
   });
 
-  it("detects removed style properties", () => {
+  it("ignores properties present only in the baseline snapshot", () => {
     const baseline = makeSnapshot({ computedStyles: { color: "#000", padding: "8px" } });
     const after = makeSnapshot({ computedStyles: { color: "#000" } });
     const diff = computeDiff(baseline, after);
-    expect(diff.stylesChanged).toEqual({
-      padding: ["8px", ""],
+    expect(diff.stylesChanged).toEqual({});
+  });
+
+  it("reports exactly the properties present on both sides that differ", () => {
+    // The real regression: a much wider after snapshot must yield ONE change,
+    // not one change per extra property.
+    const baseline = makeSnapshot({
+      computedStyles: { color: "#000", padding: "8px" },
     });
+    const afterMap: Record<string, string> = {
+      color: "#fff",
+      padding: "8px",
+    };
+    for (let i = 0; i < 500; i++) afterMap[`extra-prop-${i}`] = "value";
+    const after = makeSnapshot({ computedStyles: afterMap });
+    const diff = computeDiff(baseline, after);
+    expect(diff.stylesChanged).toEqual({ color: ["#000", "#fff"] });
   });
 
   it("detects position shifts beyond tolerance", () => {
@@ -142,7 +156,8 @@ describe("computeDiff", () => {
     const diff = computeDiff(baseline, after);
     expect(diff.selectorResolves).toBe(false);
     expect(diff.htmlChanged).toBe(true);
-    expect(Object.keys(diff.stylesChanged).length).toBeGreaterThan(0);
+    // No property exists on both sides -> no value changes reported.
+    expect(diff.stylesChanged).toEqual({});
   });
 });
 
