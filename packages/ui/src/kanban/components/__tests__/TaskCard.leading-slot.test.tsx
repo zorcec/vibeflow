@@ -10,10 +10,7 @@ import {
       leadingSlotWidth,
       resolveLeadingSlotMarks,
 } from "../TaskCardLeadingSlot";
-import {
-      displayedVerifyState,
-      showsVerifyVerdict,
-} from "../VerifyIndicator";
+import { displayedVerifyState, showsVerifyVerdict } from "../VerifyIndicator";
 import type { Task, TaskStatus, Column } from "../../types";
 
 /**
@@ -82,17 +79,26 @@ function slotMarks(container: HTMLElement): string[] {
 }
 
 function slotWidth(container: HTMLElement): number {
-      const slot = container.querySelector<HTMLElement>(
-            '[data-role="leading-slot"]',
+      const el = container.querySelector<HTMLElement>(
+            '[data-role="leading-slot"], [data-role="leading-slot-spacer"]',
       );
-      if (!slot) throw new Error("no leading slot rendered");
-      return parseFloat(slot.style.width);
+      if (!el) throw new Error("no leading slot or spacer rendered");
+      return parseFloat(el.style.width);
 }
 
 /**
- * What the title's x-offset is made of: the reserved widths of everything the
- * slot puts before the title. jsdom does no layout, so the reservation stands in
- * for a client rect — and it is the reservation that the fix makes constant.
+ * Whether the leading position holds a PADDED BOX (which can look like a mark)
+ * rather than a bare spacer. The phantom gutter of 8545aeca was an empty box, so
+ * this is what the fix is asserted against.
+ */
+function leadingSlotBox(container: HTMLElement): HTMLElement | null {
+      return container.querySelector<HTMLElement>('[data-role="leading-slot"]');
+}
+
+/**
+ * What the title's x-offset is made of: the reserved widths of everything before
+ * the title in its row. jsdom does no layout, so the reservation stands in for a
+ * client rect — and it is the reservation that must stay constant across a lane.
  */
 function titleOffsetReservation(container: HTMLElement): {
       reserved: number;
@@ -531,12 +537,41 @@ describe("leading slot rendering", () => {
                   { col: lane("review") },
             );
             expect(slotMarks(container)).toEqual([]);
-            // …and the reserved slot is still there, so the title does not move.
+            // …and the reserved space is still there, so the title does not move.
             expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
             expect(titleOffsetReservation(container)).toEqual({
                   reserved: leadingSlotWidth("card"),
                   preceding: 1,
             });
+      });
+
+      it("draws no padded box for a markless card in a lane that reserves (8545aeca)", () => {
+            // The owner-reported phantom space: in review, a card with no verdict
+            // rendered an empty 11px `<span data-role="leading-slot">`. To the eye
+            // that is a badge that failed to load. The space must be kept — the
+            // title's x-offset depends on it — but it must not be a BOX.
+            const { container } = renderCard(
+                  makeTask({ status: "review", openedBy: ["user-1"] }),
+                  { col: lane("review"), reserveLeadingSlot: true },
+            );
+            expect(leadingSlotBox(container)).toBeNull();
+            expect(slotMarks(container)).toEqual([]);
+            expect(
+                  container.querySelector('[data-role="leading-slot-spacer"]'),
+            ).toBeInTheDocument();
+            // Alignment is unchanged: the space is still reserved.
+            expect(slotWidth(container)).toBe(leadingSlotWidth("card"));
+      });
+
+      it("draws the mark box, and no spacer, when a card has a verdict", () => {
+            const { container } = renderCard(
+                  makeTask({ status: "review", verified: true }),
+                  { col: lane("review") },
+            );
+            expect(leadingSlotBox(container)).not.toBeNull();
+            expect(
+                  container.querySelector('[data-role="leading-slot-spacer"]'),
+            ).toBeNull();
       });
 
       it("shows the unread dot alone when there is no verdict", () => {
@@ -699,10 +734,18 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(
                   laneReservesLeadingSlot(
                         [
-                              read({ id: "a", status: "review", verified: true }),
+                              read({
+                                    id: "a",
+                                    status: "review",
+                                    verified: true,
+                              }),
                               read({ id: "b", status: "review" }),
                         ],
-                        { laneId: "review", compact: false, currentUserId: "user-1" },
+                        {
+                              laneId: "review",
+                              compact: false,
+                              currentUserId: "user-1",
+                        },
                   ),
             ).toBe(true);
       });
@@ -719,14 +762,11 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
 
       it("reserves an in-progress lane — every card draws the spinner", () => {
             expect(
-                  laneReservesLeadingSlot(
-                        [read({ status: "in-progress" })],
-                        {
-                              laneId: "in-progress",
-                              compact: false,
-                              currentUserId: "user-1",
-                        },
-                  ),
+                  laneReservesLeadingSlot([read({ status: "in-progress" })], {
+                        laneId: "in-progress",
+                        compact: false,
+                        currentUserId: "user-1",
+                  }),
             ).toBe(true);
       });
 
@@ -744,7 +784,11 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(
                   laneReservesLeadingSlot(
                         [makeTask({ status: "todo", openedBy: [] })],
-                        { laneId: "todo", compact: false, currentUserId: "user-1" },
+                        {
+                              laneId: "todo",
+                              compact: false,
+                              currentUserId: "user-1",
+                        },
                   ),
             ).toBe(true);
       });
@@ -752,8 +796,18 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
       it("shares the verdict type gate: a Research verdict is not a mark", () => {
             expect(
                   laneReservesLeadingSlot(
-                        [read({ status: "review", type: "Research", verified: true })],
-                        { laneId: "review", compact: false, currentUserId: "user-1" },
+                        [
+                              read({
+                                    status: "review",
+                                    type: "Research",
+                                    verified: true,
+                              }),
+                        ],
+                        {
+                              laneId: "review",
+                              compact: false,
+                              currentUserId: "user-1",
+                        },
                   ),
             ).toBe(false);
       });

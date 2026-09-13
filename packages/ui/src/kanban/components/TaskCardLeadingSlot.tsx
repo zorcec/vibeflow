@@ -2,9 +2,9 @@ import React from "react";
 import { CheckCircle } from "lucide-react";
 import type { Task } from "../types";
 import {
-      VerifyIndicator,
-      displayedVerifyState,
-      type VerifyState,
+     VerifyIndicator,
+     displayedVerifyState,
+     type VerifyState,
 } from "./VerifyIndicator";
 
 /**
@@ -36,11 +36,11 @@ import {
  * that is why no lane can pair a verdict with a loader.
  */
 export type LeadingSlotMark =
-      | "verify"
-      | "activity"
-      | "done"
-      | "unread"
-      | "status";
+     | "verify"
+     | "activity"
+     | "done"
+     | "unread"
+     | "status";
 
 /** Which card layout owns the slot. */
 export type LeadingSlotLayout = "card" | "row";
@@ -56,9 +56,9 @@ const ROW_MARK_SIZE = 12;
 const ACTIVITY_SPINNER_SIZE = 11;
 
 const MARK_BOX_STYLE: React.CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      flexShrink: 0,
+     display: "inline-flex",
+     alignItems: "center",
+     flexShrink: 0,
 };
 
 /**
@@ -72,16 +72,16 @@ const MARK_BOX_STYLE: React.CSSProperties = {
  * align to, so it reserves nothing and the title sits flush (8545aeca).
  */
 export function leadingSlotWidth(layout: LeadingSlotLayout): number {
-      return layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
+     return layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
 }
 
 /** The lane facts `laneReservesLeadingSlot` needs to resolve a card's marks. */
 export interface LeadingSlotLane {
-      /** The lane id the cards sit in (a task status). */
-      laneId: string;
-      /** The card layout this lane renders — the compact view uses the row layout. */
-      compact?: boolean;
-      currentUserId?: string;
+     /** The lane id the cards sit in (a task status). */
+     laneId: string;
+     /** The card layout this lane renders — the compact view uses the row layout. */
+     compact?: boolean;
+     currentUserId?: string;
 }
 
 /**
@@ -98,195 +98,222 @@ export interface LeadingSlotLane {
  * answer and the card's own marks cannot drift.
  */
 export function laneReservesLeadingSlot(
-      tasks: readonly Task[],
-      { laneId, compact, currentUserId }: LeadingSlotLane,
+     tasks: readonly Task[],
+     { laneId, compact, currentUserId }: LeadingSlotLane,
 ): boolean {
-      const layout = layoutForLane(laneId, compact);
-      const isInProgress = laneId === "in-progress";
-      const isDone = laneId === "done";
-      return tasks.some(
-            (task) =>
-                  resolveLeadingSlotMarks({
-                        verify: displayedVerifyState(task),
-                        layout,
-                        isInProgress,
-                        isDone,
-                        isUnread:
-                              !!currentUserId &&
-                              !(task.openedBy ?? []).includes(currentUserId),
-                  }).length > 0,
-      );
+     const layout = layoutForLane(laneId, compact);
+     const isInProgress = laneId === "in-progress";
+     const isDone = laneId === "done";
+     return tasks.some(
+          (task) =>
+               resolveLeadingSlotMarks({
+                    verify: displayedVerifyState(task),
+                    layout,
+                    isInProgress,
+                    isDone,
+                    isUnread:
+                         !!currentUserId &&
+                         !(task.openedBy ?? []).includes(currentUserId),
+               }).length > 0,
+     );
 }
 
 /** The layout a lane renders in: the done lane and the compact view use one row. */
 function layoutForLane(
-      laneId: string,
-      compact: boolean | undefined,
+     laneId: string,
+     compact: boolean | undefined,
 ): LeadingSlotLayout {
-      return compact || laneId === "done" ? "row" : "card";
+     return compact || laneId === "done" ? "row" : "card";
 }
 
 export interface LeadingSlotInput {
-      /**
-       * Verdict to draw, already gated to the lanes that show one by
-       * `verifyState`. "none" leaves the slot to the status marks.
-       */
-      verify: VerifyState;
-      layout: LeadingSlotLayout;
-      /** The card sits in the in-progress lane. */
-      isInProgress: boolean;
-      /** The card sits in the done lane. */
-      isDone: boolean;
-      /** The viewer has not opened this task. */
-      isUnread: boolean;
+     /**
+      * Verdict to draw, already gated to the lanes that show one by
+      * `verifyState`. "none" leaves the slot to the status marks.
+      */
+     verify: VerifyState;
+     layout: LeadingSlotLayout;
+     /** The card sits in the in-progress lane. */
+     isInProgress: boolean;
+     /** The card sits in the done lane. */
+     isDone: boolean;
+     /** The viewer has not opened this task. */
+     isUnread: boolean;
 }
 
 /** The single mark the slot draws, or nothing at all. */
 export function resolveLeadingSlotMarks({
-      verify,
-      layout,
-      isInProgress,
-      isDone,
-      isUnread,
+     verify,
+     layout,
+     isInProgress,
+     isDone,
+     isUnread,
 }: LeadingSlotInput): LeadingSlotMark[] {
-      if (verify !== "none") return ["verify"];
-      if (isInProgress) return ["activity"];
-      if (isDone) return ["done"];
-      if (isUnread) return ["unread"];
-      // The neutral lane dot belongs to the single-row layout alone: the
-      // multi-row card colours its border with the lane colour instead.
-      if (layout === "row") return ["status"];
-      return [];
+     if (verify !== "none") return ["verify"];
+     if (isInProgress) return ["activity"];
+     if (isDone) return ["done"];
+     if (isUnread) return ["unread"];
+     // The neutral lane dot belongs to the single-row layout alone: the
+     // multi-row card colours its border with the lane colour instead.
+     if (layout === "row") return ["status"];
+     return [];
 }
 
 export interface LeadingSlotProps extends LeadingSlotInput {
-      /** Lane id — names the row layout's neutral status dot. */
-      columnId: string;
-      /**
-       * Whether this card's lane reserves the slot's width — the lane-level
-       * answer from `laneReservesLeadingSlot`. Defaults to reserving, so a caller
-       * that does not know its lane keeps the b0545910 alignment guarantee.
-       */
-      reserve?: boolean;
+     /** Lane id — names the row layout's neutral status dot. */
+     columnId: string;
+     /**
+      * Whether this card's lane reserves the slot's width — the lane-level
+      * answer from `laneReservesLeadingSlot`. Defaults to reserving, so a caller
+      * that does not know its lane keeps the b0545910 alignment guarantee.
+      */
+     reserve?: boolean;
 }
 
 /**
  * Renders the leading mark inside a fixed-width box. `data-role="leading-slot"`
  * and `data-leading-mark` are what the layout tests bind to.
  *
- * Renders nothing at all — not an empty box — when the lane reserves no width
- * and this card draws no mark: the title row's flex `gap` would otherwise leave
- * a 5px gap even around a zero-width box.
+ * TWO DIFFERENT THINGS, and conflating them is what produced the phantom gutter:
+ *
+ *   - RESERVING the width — the lane-level `reserve` answer. Every card in a lane
+ *     that draws marks must start its title at the same x-offset (b0545910), so a
+ *     markless card in such a lane still needs the space.
+ *   - DRAWING a box — only a card that resolves a mark should paint anything.
+ *
+ * The old markup honoured the first by always painting an empty 11px `<span>`. To
+ * the eye that is indistinguishable from a badge that failed to load — the phantom
+ * space of 8545aeca. It is fixed by reserving with a NULL MARKER instead of a box:
+ * an empty element with the same width, no `data-role`, no border and no
+ * background, i.e. pure layout space that cannot look like a mark.
+ *
+ * So:
+ *
+ *   marks.length > 0   ->  the real mark box, at the lane's width
+ *   marks.length === 0 AND the lane reserves  ->  an invisible spacer of that width
+ *   marks.length === 0 AND the lane does not  ->  nothing at all
  */
 export function LeadingSlot({
-      verify,
-      layout,
-      isInProgress,
-      isDone,
-      isUnread,
-      columnId,
-      reserve = true,
+     verify,
+     layout,
+     isInProgress,
+     isDone,
+     isUnread,
+     columnId,
+     reserve = true,
 }: LeadingSlotProps) {
-      const marks = resolveLeadingSlotMarks({
-            verify,
-            layout,
-            isInProgress,
-            isDone,
-            isUnread,
-      });
-      if (!reserve && marks.length === 0) return null;
-      const width = leadingSlotWidth(layout);
-      const size = layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
-      return (
-            <span
-                  data-role="leading-slot"
-                  data-marks={marks.length}
-                  style={{
-                        ...MARK_BOX_STYLE,
-                        justifyContent: "flex-start",
-                        width,
-                        minWidth: width,
-                  }}
-            >
-                  {marks.map((mark) => (
-                        <span
-                              key={mark}
-                              data-leading-mark={mark}
-                              style={MARK_BOX_STYLE}
-                        >
-                              {renderMark(mark, {
-                                    verify,
-                                    size,
-                                    layout,
-                                    columnId,
-                              })}
-                        </span>
-                  ))}
-            </span>
-      );
+     const marks = resolveLeadingSlotMarks({
+          verify,
+          layout,
+          isInProgress,
+          isDone,
+          isUnread,
+     });
+     const width = leadingSlotWidth(layout);
+     if (marks.length === 0) {
+          // Space without a box: keeps the title aligned, draws no mark. `aria-hidden`
+          // and no data-role so nothing — test hook, screen reader, or stylesheet —
+          // can mistake it for a rendered verdict.
+          if (!reserve) return null;
+          return (
+               <span
+                    aria-hidden="true"
+                    data-role="leading-slot-spacer"
+                    style={{ flexShrink: 0, width, minWidth: width }}
+               />
+          );
+     }
+     const size = layout === "card" ? CARD_MARK_SIZE : ROW_MARK_SIZE;
+     return (
+          <span
+               data-role="leading-slot"
+               data-marks={marks.length}
+               style={{
+                    ...MARK_BOX_STYLE,
+                    justifyContent: "flex-start",
+                    width,
+                    minWidth: width,
+               }}
+          >
+               {marks.map((mark) => (
+                    <span
+                         key={mark}
+                         data-leading-mark={mark}
+                         style={MARK_BOX_STYLE}
+                    >
+                         {renderMark(mark, {
+                              verify,
+                              size,
+                              layout,
+                              columnId,
+                         })}
+                    </span>
+               ))}
+          </span>
+     );
 }
 
 function renderMark(
-      mark: LeadingSlotMark,
-      {
-            verify,
-            size,
-            layout,
-            columnId,
-      }: {
-            verify: VerifyState;
-            size: number;
-            layout: LeadingSlotLayout;
-            columnId: string;
-      },
+     mark: LeadingSlotMark,
+     {
+          verify,
+          size,
+          layout,
+          columnId,
+     }: {
+          verify: VerifyState;
+          size: number;
+          layout: LeadingSlotLayout;
+          columnId: string;
+     },
 ): React.ReactNode {
-      switch (mark) {
-            case "verify":
-                  return <VerifyIndicator state={verify} size={size} />;
-            case "activity":
-                  // The row layout already expresses in-flight work with the
-                  // pulsing lane dot; the multi-row card uses the spinner.
-                  return layout === "row" ? (
-                        laneDot(columnId)
-                  ) : (
-                        <span
-                              className="spinner"
-                              style={{
-                                    width: ACTIVITY_SPINNER_SIZE,
-                                    height: ACTIVITY_SPINNER_SIZE,
-                                    flexShrink: 0,
-                              }}
-                        />
-                  );
-            case "done":
-                  return (
-                        <CheckCircle
-                              style={{
-                                    width: size,
-                                    height: size,
-                                    color: "color-mix(in srgb, var(--t-success) 55%, transparent)",
-                                    flexShrink: 0,
-                              }}
-                        />
-                  );
-            case "unread":
-                  return (
-                        <span
-                              title="Unread"
-                              style={{
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: "50%",
-                                    background: "var(--t-accent-contrast)",
-                                    flexShrink: 0,
-                              }}
-                        />
-                  );
-            case "status":
-                  return laneDot(columnId);
-      }
+     switch (mark) {
+          case "verify":
+               return <VerifyIndicator state={verify} size={size} />;
+          case "activity":
+               // The row layout already expresses in-flight work with the
+               // pulsing lane dot; the multi-row card uses the spinner.
+               return layout === "row" ? (
+                    laneDot(columnId)
+               ) : (
+                    <span
+                         className="spinner"
+                         style={{
+                              width: ACTIVITY_SPINNER_SIZE,
+                              height: ACTIVITY_SPINNER_SIZE,
+                              flexShrink: 0,
+                         }}
+                    />
+               );
+          case "done":
+               return (
+                    <CheckCircle
+                         style={{
+                              width: size,
+                              height: size,
+                              color: "color-mix(in srgb, var(--t-success) 55%, transparent)",
+                              flexShrink: 0,
+                         }}
+                    />
+               );
+          case "unread":
+               return (
+                    <span
+                         title="Unread"
+                         style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: "50%",
+                              background: "var(--t-accent-contrast)",
+                              flexShrink: 0,
+                         }}
+                    />
+               );
+          case "status":
+               return laneDot(columnId);
+     }
 }
 
 function laneDot(columnId: string): React.ReactNode {
-      return <span className={`sd-${columnId}`} style={{ flexShrink: 0 }} />;
+     return <span className={`sd-${columnId}`} style={{ flexShrink: 0 }} />;
 }
