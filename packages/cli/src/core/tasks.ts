@@ -790,6 +790,62 @@ export function detachParent(projectDir: string, taskId: string): Task | null {
  * **Re-entrancy contract:** This function uses `withTaskLock` internally;
  * callers must not call `withTaskLock` on the same lockPath from within `fn`.
  */
+/**
+ * The id of a task's parent, if it has a parent link. A `parent` link whose
+ * target is missing from the store still counts: the task is parented, so the
+ * board renders it inside a tree rather than as its own card.
+ */
+export function getParentId(task: Task): string | undefined {
+  const link = (task.links ?? []).find((l) => l.type === "parent");
+  return link?.taskId;
+}
+
+/**
+ * Whether a task belongs to a tree rather than standing on its own.
+ *
+ * A task is a CHILD when it carries a `parent` link. Whether that parent still
+ * exists is deliberately not consulted: the board groups a parented task under
+ * its root, so a dangling link would otherwise make the task invisible in both
+ * places — not a root (it has a link) and not a child row (no parent to nest
+ * it under). Treating it as a child keeps the two surfaces agreeing and leaves
+ * it reachable via `--get`, which is never filtered.
+ */
+export function isChildTask(task: Task): boolean {
+  return getParentId(task) !== undefined;
+}
+
+/** Direct children of `parentId`, in the store's natural order. */
+export function getChildTasks(allTasks: Task[], parentId: string): Task[] {
+  return allTasks.filter((t) => getParentId(t) === parentId);
+}
+
+/**
+ * A task's children with the minimum an agent needs to judge what remains:
+ * id, title, status. Kept deliberately narrow so `--next` can inline the whole
+ * unit of work without dumping every child's description into the result.
+ */
+export interface ChildSummary {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority?: string;
+}
+
+export function summariseChildren(
+  allTasks: Task[],
+  parentId: string,
+): ChildSummary[] {
+  return getChildTasks(allTasks, parentId).map((c) => ({
+    id: c.id,
+    title: c.title,
+    status: c.status,
+    ...(c.priority ? { priority: c.priority } : {}),
+  }));
+}
+
+/**
+ * Export signature for the claim primitive.
+ */
 export function claimNextTaskAtomic(
   projectDir: string,
   opts: {
@@ -797,6 +853,12 @@ export function claimNextTaskAtomic(
     user?: string;
     tag?: string[];
     author?: string;
+    /**
+     * Only consider ROOT tasks — never a task that has a parent. The owner's
+     * decision for `--next`: an agent is given the root unit of work, and the
+     * root carries its children, rather than being handed a fragment of one.
+     */
+    rootsOnly?: boolean;
   } = {},
 ): Task | null {
   const lock = taskLockPath(projectDir, "claim");
@@ -842,6 +904,11 @@ export function claimNextTaskAtomic(
       filtered = filtered.filter(
         (t) => t.tags && opts.tag!.every((tag) => t.tags!.includes(tag)),
       );
+    }
+    if (opts.rootsOnly) {
+      // A parented task is not a candidate. The caller gets the root instead,
+      // with the child reported alongside it.
+      filtered = filtered.filter((t) => !isChildTask(t));
     }
     // 3. Sort by priority then created ascending.
     filtered.sort(compareTasksByPriorityThenCreated);

@@ -15,6 +15,8 @@ import {
   ensureTaskDirs,
   findTaskFilePath,
   claimNextTaskAtomic,
+  summariseChildren,
+  isChildTask,
   writeSortKeyMinimal,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
@@ -731,7 +733,11 @@ program
   )
   .option(
     "--next",
-    "Pick the next available todo task, move it to in-progress, and output it ready to work on",
+    "Pick the next available ROOT task in todo, move it to in-progress, and output it ready to work on (never returns a child; the root's children are reported alongside it)",
+  )
+  .option(
+    "--children",
+    "Include child tasks in the listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Has no effect with --next, which never returns a child.",
   )
   .option(
     "--tag <tag>",
@@ -801,6 +807,7 @@ program
         commit?: boolean;
         get?: string;
         next?: boolean;
+        children?: boolean;
         task?: string;
         message?: string;
         comment?: string;
@@ -1389,6 +1396,9 @@ program
             user: opts.user,
             tag: opts.tag,
             author: getGitUser(nextProjectDir).name,
+            // OWNER DECISION: --next never returns a child. The root is the unit
+            // of work; its children come back alongside it.
+            rootsOnly: true,
           });
 
           if (!nextUpdated) {
@@ -1411,18 +1421,23 @@ program
             "set-status:in-progress",
             nextUpdated.id,
           );
+          // The root is the unit of work: report its children and their
+          // statuses alongside it, so the agent can see what remains without a
+          // second call. Empty for a childless root.
+          const nextLocalChildren = summariseChildren(
+            listTasks(nextProjectDir),
+            nextUpdated.id,
+          );
           if (opts.json) {
-            console.log(
-              JSON.stringify(
-                {
-                  success: true,
-                  task: nextUpdated,
-                  next_actions: nextLocalNextActions,
-                },
-                null,
-                2,
-              ),
-            );
+            const nextLocalPayload: Record<string, unknown> = {
+              success: true,
+              task: nextUpdated,
+              next_actions: nextLocalNextActions,
+            };
+            if (nextLocalChildren.length > 0) {
+              nextLocalPayload.children = nextLocalChildren;
+            }
+            console.log(JSON.stringify(nextLocalPayload, null, 2));
             return;
           }
 
@@ -1486,6 +1501,30 @@ program
             }
           }
           console.log();
+          // The root is the unit of work — surface its children and their statuses
+          // so the agent sees what remains without a second call.
+          if (nextLocalChildren.length > 0) {
+            const doneCount = nextLocalChildren.filter(
+              (c) => c.status === "done",
+            ).length;
+            console.log(
+              chalk.bold(
+                `  ↓ ${nextLocalChildren.length} child task${nextLocalChildren.length === 1 ? "" : "s"} (${doneCount} done)`,
+              ),
+            );
+            for (const child of nextLocalChildren) {
+              const statusColour =
+                child.status === "done"
+                  ? chalk.green
+                  : child.status === "in-progress"
+                    ? chalk.blue
+                    : chalk.dim;
+              console.log(
+                `    ${statusColour(`[${child.status}]`)} ${chalk.dim(child.id)} ${child.title}`,
+              );
+            }
+            console.log();
+          }
           console.log(
             chalk.yellow(
               "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
@@ -2806,6 +2845,18 @@ program
             opts.tag!.every((tag) => (t.tags ?? []).includes(tag)),
           );
 
+        // OWNER DECISION: list ROOT tasks only by default. A child belongs to its
+        // parent and is rendered inside its card on the board, so listing it as a
+        // peer here would contradict the board. `--children` includes them.
+        // Counted AFTER the other filters so the footer describes this query.
+        const matchingChildren = filtered.filter(isChildTask);
+        const hiddenChildCount = opts.children
+          ? 0
+          : matchingChildren.length;
+        if (!opts.children) {
+          filtered = filtered.filter((t) => !isChildTask(t));
+        }
+
         const taskLimit =
           opts.limit === undefined ? 5 : parseInt(opts.limit, 10);
 
@@ -2892,7 +2943,16 @@ program
                 ` (showing ${taskLimit} of ${totalFiltered} matching — use --limit 0 for all)`,
               )
             : "";
-        console.log(chalk.dim(formatStatusSummary(all)) + limitSuffix);
+        // Never hide existence silently: name the flag that reveals the children.
+        const childSuffix =
+          hiddenChildCount > 0
+            ? chalk.dim(
+                ` · ${hiddenChildCount} child task${hiddenChildCount === 1 ? "" : "s"} hidden (use --children)`,
+              )
+            : "";
+        console.log(
+          chalk.dim(formatStatusSummary(all)) + limitSuffix + childSuffix,
+        );
       }
       async function runTasksAndFlush() {
         try {
