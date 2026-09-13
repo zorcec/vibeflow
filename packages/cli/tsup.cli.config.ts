@@ -36,6 +36,8 @@ export default defineConfig({
     const {
       copyFileSync,
       chmodSync,
+      existsSync,
+      readFileSync,
       readdirSync: rds,
     } = await import("node:fs");
     copyFileSync("dist/cli/index.js", "dist/index.js");
@@ -44,20 +46,38 @@ export default defineConfig({
     } catch {
       /* optional */
     }
-    for (const f of rds("dist/cli/").filter((n: string) =>
-      /^(chunk|workspace|files|review-gate|git|verify-attestation)-/.test(n) &&
-      !n.endsWith(".d.ts"),
+    // Copy EVERY emitted runtime module from dist/cli into dist — no
+    // hand-maintained allowlist.
+    //
+    // This used to be a regex allowlist
+    // (`/^(chunk|workspace|files|review-gate|git|verify-attestation)-/`).
+    // Forgetting to extend it when a new dynamic import landed shipped a broken
+    // dist that neither the build nor the source-importing unit tests caught:
+    // `verify-attestation` was emitted but never synced, so every
+    // `vibeflow tasks --edit` crashed with ERR_MODULE_NOT_FOUND (ticket
+    // afd745a3). A glob has no per-chunk list to forget.
+    for (const f of rds("dist/cli/").filter(
+      (n: string) => n.endsWith(".js") && n !== "index.js",
     )) {
-      try {
-        copyFileSync(`dist/cli/${f}`, `dist/${f}`);
-      } catch {
-        /* ignore */
-      }
+      copyFileSync(`dist/cli/${f}`, `dist/${f}`);
+    }
+    // Fail the build loudly if the packaged entry references a module that is
+    // not on disk. tests/e2e/tsup-chunk-sync.test.ts asserts the same invariant
+    // against the packaged output; this stops a broken dist being produced at all.
+    const specifiers = [
+      ...readFileSync("dist/index.js", "utf-8").matchAll(
+        /(?:import|from)\s*\(?\s*["'](\.\/[^"']+)["']/g,
+      ),
+    ].map((m) => m[1]);
+    const missing = specifiers.filter((s) => !existsSync(`dist/${s.slice(2)}`));
+    if (missing.length > 0) {
+      throw new Error(
+        `[tsup] dist/index.js references modules that were not synced: ${missing.join(", ")}`,
+      );
     }
     for (const dir of ["dist", "dist/cli"]) {
       try {
         for (const f of rds(dir).filter((n: string) => n.endsWith(".map"))) {
-          rds; // eslint-disable-line
           const { rmSync } = await import("node:fs");
           rmSync(`${dir}/${f}`, { force: true });
         }
