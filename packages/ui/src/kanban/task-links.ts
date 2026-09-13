@@ -213,20 +213,54 @@ export const DROP_BAND_RATIO = 0.28;
 export const DROP_BAND_MIN_PX = 32;
 export const DROP_BAND_MAX_PX = 56;
 
+/** Smallest centre zone guaranteed on a card. Without this cap the
+ *  32px minimum band consumes both halves of any card ≤64px tall, leaving
+ *  no centre zone at all — every drop classified as top/bottom, so
+ *  make-child (centre drop) was unreachable. Exported for unit testing. */
+export const DROP_BAND_MIN_CENTRE_PX = 10;
+
 /** Tree-row specific bands — tree rows are ~22px tall, so the 32px
  *  card min band makes center (make-child) unreachable. */
 export const TREE_DROP_BAND_MIN_PX = 5;
 export const TREE_DROP_BAND_MAX_PX = 10;
 
+/** Smallest centre zone guaranteed on a tree row. Tree rows are ~22px,
+ *  which already leaves a centre zone; the cap only protects unusually
+ *  short rows from losing make-child. Exported for unit testing. */
+export const TREE_DROP_BAND_MIN_CENTRE_PX = 4;
+
+/** Band for one edge of a rect. Starts as 28% of height clamped to
+ *  [minPx, maxPx], then is capped so a centre zone of at least
+ *  `minCentrePx` always remains (and the band itself never drops below
+ *  1px). */
+function edgeBand(
+ height: number,
+ minPx: number,
+ maxPx: number,
+ minCentrePx: number,
+): number {
+ const ratioBand = Math.max(
+  minPx,
+  Math.min(maxPx, Math.floor(height * DROP_BAND_RATIO)),
+ );
+ const maxBand = Math.max(1, Math.floor((height - minCentrePx) / 2));
+ return Math.min(ratioBand, maxBand);
+}
+
 /** Classify a drop position within a card into top/bottom/center bands.
- * Top and bottom bands are 28% of height, clamped to [32px, 56px].
+ * Top and bottom bands are 28% of height, clamped to [32px, 56px] and
+ * capped so a centre zone of at least DROP_BAND_MIN_CENTRE_PX remains.
  * The remainder is center. */
 export function classifyDropZone(
  rect: { top: number; height: number },
  clientY: number,
 ): "top" | "center" | "bottom" {
- const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
- const band = Math.max(DROP_BAND_MIN_PX, Math.min(DROP_BAND_MAX_PX, rawBand));
+ const band = edgeBand(
+  rect.height,
+  DROP_BAND_MIN_PX,
+  DROP_BAND_MAX_PX,
+  DROP_BAND_MIN_CENTRE_PX,
+ );
  if (clientY < rect.top + band) return "top";
  if (clientY > rect.top + rect.height - band) return "bottom";
  return "center";
@@ -234,15 +268,17 @@ export function classifyDropZone(
 
 /** Classify a drop position within a tree row using tree-specific bands.
  * Tree rows are ~22px tall, so we use much smaller bands [5px, 10px]
- * to make the center (make-child) zone reachable. */
+ * to make the center (make-child) zone reachable; the band is also capped
+ * so a centre zone of at least TREE_DROP_BAND_MIN_CENTRE_PX remains. */
 export function classifyTreeDropZone(
  rect: { top: number; height: number },
  clientY: number,
 ): "top" | "center" | "bottom" {
- const rawBand = Math.floor(rect.height * DROP_BAND_RATIO);
- const band = Math.max(
+ const band = edgeBand(
+  rect.height,
   TREE_DROP_BAND_MIN_PX,
-  Math.min(TREE_DROP_BAND_MAX_PX, rawBand),
+  TREE_DROP_BAND_MAX_PX,
+  TREE_DROP_BAND_MIN_CENTRE_PX,
  );
  if (clientY < rect.top + band) return "top";
  if (clientY > rect.top + rect.height - band) return "bottom";

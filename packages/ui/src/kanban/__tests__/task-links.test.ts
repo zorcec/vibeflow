@@ -8,12 +8,15 @@ import {
   groupDetailRelations,
   groupTasksByRoot,
   resolveRootTask,
+  classifyDropZone,
+  classifyTreeDropZone,
   classifyTreeRowIntent,
   canReparent,
   canDropAsChild,
   computeTreeReorder,
   targetValid,
   dragSession,
+  DROP_BAND_MIN_CENTRE_PX,
 } from "../task-links";
 import { compareTaskOrder } from "../utils";
 import type { ReorderPatch } from "../utils";
@@ -103,6 +106,65 @@ describe("task-links null-entry safety (P0 board-blank regression)", () => {
     const blockers = [null, makeTask()] as unknown as Task[];
     const label = blockers.map((b) => b?.title ?? "Untitled").join(", ");
     expect(label).toBe("Untitled, Test task");
+  });
+});
+
+describe("classifyDropZone (card drop bands)", () => {
+  // Card heights seen on the board: normal cards are 40–64px, tall cards
+  // (expanded/details) 100px+. Before the centre cap, the 32px minimum
+  // band consumed both halves of a ≤64px card, so the centre zone was
+  // empty and make-child (centre drop) was unreachable.
+  const HEIGHTS = [40, 48, 56, 64, 100, 160];
+
+  it("classifies the exact card centre as 'center' for every height", () => {
+    for (const height of HEIGHTS) {
+      const rect = { top: 100, height };
+      expect(classifyDropZone(rect, rect.top + height / 2)).toBe("center");
+    }
+  });
+
+  it("keeps the top/bottom reorder bands reachable near the edges", () => {
+    for (const height of HEIGHTS) {
+      const rect = { top: 100, height };
+      expect(classifyDropZone(rect, rect.top + 2)).toBe("top");
+      expect(classifyDropZone(rect, rect.top + height - 2)).toBe("bottom");
+    }
+  });
+
+  it("guarantees a centre zone of at least DROP_BAND_MIN_CENTRE_PX px", () => {
+    for (const height of HEIGHTS) {
+      const rect = { top: 100, height };
+      const band = Math.floor((height - DROP_BAND_MIN_CENTRE_PX) / 2);
+      expect(height - 2 * band).toBeGreaterThanOrEqual(
+        DROP_BAND_MIN_CENTRE_PX,
+      );
+      expect(classifyDropZone(rect, rect.top + band)).toBe("center");
+      expect(classifyDropZone(rect, rect.top + height - band)).toBe("center");
+    }
+  });
+
+  it("leaves tall-card bands unchanged (28% ratio, 32–56px clamp)", () => {
+    // 120px → floor(120 * 0.28) = 33px band [33px, 56px] before and after.
+    const rect = { top: 100, height: 120 };
+    expect(classifyDropZone(rect, rect.top + 32)).toBe("top");
+    expect(classifyDropZone(rect, rect.top + 33)).toBe("center");
+    expect(classifyDropZone(rect, rect.top + 88)).toBe("bottom");
+  });
+});
+
+describe("classifyTreeDropZone (tree-row bands)", () => {
+  it("keeps a centre zone on a typical ~22px row", () => {
+    const rect = { top: 0, height: 22 };
+    expect(classifyTreeDropZone(rect, 4)).toBe("top");
+    expect(classifyTreeDropZone(rect, 11)).toBe("center");
+    expect(classifyTreeDropZone(rect, 20)).toBe("bottom");
+  });
+
+  it("keeps a centre zone on an unusually short row", () => {
+    const rect = { top: 0, height: 12 };
+    expect(classifyTreeDropZone(rect, 1)).toBe("top");
+    expect(classifyTreeDropZone(rect, 6)).toBe("center");
+    expect(classifyTreeDropZone(rect, 11)).toBe("bottom");
   });
 });
 

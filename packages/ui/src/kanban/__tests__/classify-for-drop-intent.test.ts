@@ -57,3 +57,18 @@ describe("classifyForDropIntent — the make-child pill must not pin the whole c
     ).toBe("bottom");
   });
 });
+
+describe("classifyForDropIntent — short cards keep a reachable centre zone", () => {
+  it("classifies centre/edges of 40–64px cards", () => {
+    for (const height of [40, 48, 56, 64]) {
+      const wrapper = cardWrapper(TOP, height);
+      expect(classifyForDropIntent(wrapper, TOP + height / 2, false).zone).toBe(
+        "center",
+      );
+      expect(classifyForDropIntent(wrapper, TOP + 2, false).zone).toBe("top");
+      expect(
+        classifyForDropIntent(wrapper, TOP + height - 2, false).zone,
+      ).toBe("bottom");
+    }
+  });
+});
