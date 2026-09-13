@@ -359,7 +359,7 @@ export function SettingsModal({
           <WorkflowToggle
             id="settings-verify-before-review"
             label="Require verify before review"
-            description="CLI enforces vibeflow verify before setting status to review (skipped for tasks without URL/selector). The 'verified' flag persists until the task is moved back to in-progress."
+            description="Tasks with a URL and selector need your --verified attestation at review. Cleared when the task returns to in-progress."
             value={requireVerifyBeforeReview}
             onChange={setRequireVerifyBeforeReview}
           />
