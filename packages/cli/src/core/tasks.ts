@@ -1195,8 +1195,22 @@ export function renderAgentInstructions(opts: {
   // Shared verify-step wording, used by every branch that lists verify. It must
   // state all three facts: verify only gathers evidence; it does not set
   // `verified` and cannot judge correctness; the agent must attest itself and
-  // the review gate requires that attestation.
+  // the review gate requires that attestation. It must also tell the agent to
+  // ALWAYS attempt verification (annotated or not), and to CLEAR the flag via
+  // --unset-verified when a task genuinely cannot be verified here.
   const verifyEvidenceLines: string[] = [];
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       ALWAYS attempt verification — even with no baseline and no ground truth. Verify what you CAN:",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       does the artifact actually satisfy what this ticket asked?",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       Annotated UI task (URL + selector): run 'vibeflow verify <id>' AND reason about the result.",
+  );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
     "       verify only checks that your annotated element still resolves and that the page logged",
@@ -1207,7 +1221,43 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
+    "       Counterexamples that PASS verify but are still WRONG: making a button green when the ticket",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       said red, or fixing a different bug than the ticket describes.",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       Non-UI task (docs, rename, copy, links, config): no automated check exists — inspect the artifact",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       yourself, e.g. rename → grep the old string and assert ZERO occurrences; links → resolve every",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       href and assert none 404; README → confirm every referenced file exists and is actually shipped",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       in the package's files list; command reference → confirm each documented command exists in --help.",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
     "       Did you actually accomplish the task? If not, set it back to in-progress and fix it.",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       If the task genuinely CANNOT be verified here, CLEAR the flag so no badge shows:",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "         vibeflow tasks --edit <id> --unset-verified",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       (absent = not assessed — the honest state for an unverifiable task; --verify-failed means verified WRONG.)",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push("       Never submit work you know is incomplete.");

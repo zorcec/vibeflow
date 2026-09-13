@@ -45,7 +45,7 @@ export default defineConfig({
       /* optional */
     }
     for (const f of rds("dist/cli/").filter((n: string) =>
-      /^(chunk|workspace|files|review-gate|git)-/.test(n) &&
+      /^(chunk|workspace|files|review-gate|git|verify-attestation)-/.test(n) &&
       !n.endsWith(".d.ts"),
     )) {
       try {

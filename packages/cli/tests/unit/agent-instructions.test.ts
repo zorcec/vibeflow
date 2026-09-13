@@ -212,4 +212,56 @@ describe("renderAgentInstructions", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
     expect(text).not.toContain("Verify gate ON");
   });
+
+  it("tells the agent to ALWAYS attempt verification, even without ground truth", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("ALWAYS attempt verification");
+    expect(text).toContain("even with no baseline and no ground truth");
+    expect(text).toContain(
+      "does the artifact actually satisfy what this ticket asked?",
+    );
+  });
+
+  it("names the counterexamples that PASS verify but are still wrong", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("making a button green when the ticket");
+    expect(text).toContain(
+      "fixing a different bug than the ticket describes",
+    );
+  });
+
+  it("explains how to verify a non-UI task by inspecting the artifact", () => {
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("Non-UI task (docs, rename, copy, links, config)");
+    expect(text).toContain("grep the old string and assert ZERO occurrences");
+    expect(text).toContain("resolve every");
+    expect(text).toContain("assert none 404");
+    expect(text).toContain("in the package's files list");
+    expect(text).toContain("documented command exists in --help");
+  });
+
+  it("tells the agent to clear an unverifiable task so no badge shows", () => {
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: true,
+      autoCommit: true,
+      autoComment: true,
+    });
+    expect(text).toContain("CLEAR the flag so no badge shows");
+    expect(text).toContain(
+      "vibeflow tasks --edit <id> --unset-verified",
+    );
+    expect(text).toContain("absent = not assessed");
+    expect(text).toContain("--verify-failed means verified WRONG");
+  });
+
+  it("keeps the always-verify and clearing guidance when the gate is OFF", () => {
+    const text = renderAgentInstructions({
+      hasResearchTasks: false,
+      requireVerifyBeforeReview: false,
+    });
+    expect(text).toContain("ALWAYS attempt verification");
+    expect(text).toContain("Non-UI task (docs, rename, copy, links, config)");
+    expect(text).toContain("vibeflow tasks --edit <id> --unset-verified");
+  });
 });

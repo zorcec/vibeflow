@@ -9,17 +9,40 @@ import { resolveVerifyAttestation } from "../../src/core/verify-attestation.js";
 describe("resolveVerifyAttestation", () => {
   it("resolves --verified to true", () => {
     const res = resolveVerifyAttestation({ verified: true });
-    expect(res).toEqual({ ok: true, value: true });
+    expect(res).toEqual({ ok: true, value: true, clear: false });
   });
 
   it("resolves --verify-failed to false (a completed negative verdict)", () => {
     const res = resolveVerifyAttestation({ verifyFailed: true });
-    expect(res).toEqual({ ok: true, value: false });
+    expect(res).toEqual({ ok: true, value: false, clear: false });
+  });
+
+  it("resolves --unset-verified to absence via clear (not a value)", () => {
+    const res = resolveVerifyAttestation({ unset: true });
+    expect(res).toEqual({ ok: true, value: undefined, clear: true });
   });
 
   it("resolves no flag to undefined (nothing assessed — leave the store alone)", () => {
     const res = resolveVerifyAttestation({});
-    expect(res).toEqual({ ok: true, value: undefined });
+    expect(res).toEqual({ ok: true, value: undefined, clear: false });
+  });
+
+  it("rejects --unset-verified combined with --verified as contradictory", () => {
+    const res = resolveVerifyAttestation({ unset: true, verified: true });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).toContain("--unset-verified");
+      expect(res.message).toContain("--verified");
+    }
+  });
+
+  it("rejects --unset-verified combined with --verify-failed as contradictory", () => {
+    const res = resolveVerifyAttestation({ unset: true, verifyFailed: true });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).toContain("--unset-verified");
+      expect(res.message).toContain("--verify-failed");
+    }
   });
 
   it("rejects --verified together with --verify-failed as contradictory", () => {
@@ -39,7 +62,8 @@ describe("resolveVerifyAttestation", () => {
     const res = resolveVerifyAttestation({
       verified: false,
       verifyFailed: false,
+      unset: false,
     });
-    expect(res).toEqual({ ok: true, value: undefined });
+    expect(res).toEqual({ ok: true, value: undefined, clear: false });
   });
 });

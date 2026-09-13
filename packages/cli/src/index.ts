@@ -760,6 +760,10 @@ program
     "Agent attestation: you verified the work and the task is NOT implemented correctly (records verified:false; the review gate rejects it)",
   )
   .option(
+    "--unset-verified",
+    "Clear the verify verdict back to absent so no badge shows. Use when a task genuinely cannot be verified; distinct from --verify-failed, which records verified:false (verified as WRONG)",
+  )
+  .option(
     "--limit <n>",
     "Limit how many tasks are returned in list mode (default: 5; use 0 for unlimited)",
   )
@@ -810,6 +814,7 @@ program
         skipVerify?: boolean;
         verified?: boolean;
         verifyFailed?: boolean;
+        unsetVerified?: boolean;
         priority?: string;
         reindexSortKeys?: boolean;
       },
@@ -1871,7 +1876,10 @@ program
             opts.setStatus ||
             opts.description ||
             wantsParentChange ||
-            opts.reportFile;
+            opts.reportFile ||
+            opts.verified ||
+            opts.verifyFailed ||
+            opts.unsetVerified;
 
           if (!taskId || !hasEdits) {
             if (opts.type && !validateTypeFilter(opts.type)) return;
@@ -1901,7 +1909,7 @@ program
             );
             console.log(
               chalk.cyan(
-                "  verification attestation: [--verified | --verify-failed]  (agent-only; --verified is required at review for annotated tasks)",
+                "  verification attestation: [--verified | --verify-failed | --unset-verified]  (agent-only; --verified is required at review for annotated tasks; --unset-verified clears to absent — no badge)",
               ),
             );
             console.log();
@@ -2051,6 +2059,7 @@ program
           const attestation = resolveVerifyAttestation({
             verified: opts.verified,
             verifyFailed: opts.verifyFailed,
+            unset: opts.unsetVerified,
           });
           if (!attestation.ok) {
             console.log(chalk.red(`✗ ${attestation.message}`));
@@ -2256,7 +2265,8 @@ program
                   ? "(cleared)"
                   : (opts.setParent ?? "(cleared)");
             if (opts.branch) dryUpdates.branchName = opts.branch;
-            if (attestation.value !== undefined)
+            if (attestation.clear) dryUpdates.verified = "(cleared)";
+            else if (attestation.value !== undefined)
               dryUpdates.verified = attestation.value;
             if (opts.json) {
               console.log(
@@ -2438,8 +2448,11 @@ program
           // Agent attestation, applied after the reset-on-claim above: the reset
           // is the default for a claim that carries no verdict, while a verdict
           // passed deliberately in the same call (e.g. in-progress + --verify-failed)
-          // is what gets recorded.
-          if (attestation.value !== undefined) {
+          // is what gets recorded. `--unset-verified` clears the key (absent = not
+          // assessed) — distinct from --verify-failed, which stores false (WRONG).
+          if (attestation.clear) {
+            updates.verified = undefined;
+          } else if (attestation.value !== undefined) {
             updates.verified = attestation.value;
           }
 
