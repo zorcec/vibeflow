@@ -277,3 +277,282 @@ describe("kanban DnD with a real pointer (drag-abort regression)", () => {
     ).not.toBe(before.sortKey);
   }, 60000);
 });
+
+// ── Edge auto-scroll reachability (d4814bb7) ────────────────────────────────
+
+/**
+ * The drag itself works (87748ad). What did NOT work is REACHING a target that
+ * starts off-screen: a tall lane's rows below the fold, and the done lane
+ * clipped off the right edge of a narrow viewport. Neither container scrolled
+ * itself during a drag, so the pointer had nowhere to go — and the board's own
+ * horizontal range was only a couple of hundred px, so no amount of holding
+ * helped.
+ *
+ * Both cases below drive a REAL pointer to the container's edge and HOLD it
+ * there. That is the only way to observe auto-scroll: a synthetic drop event
+ * cannot scroll anything, and the `dragover` stream alone never moves the
+ * content.
+ */
+describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
+  let browser: Browser;
+  let tempDir: string;
+  let instance: ServeInstance;
+
+  const PORT = 3972;
+  const BASE = `http://localhost:${PORT}`;
+  const API = `http://localhost:${PORT}/api/tasks`;
+  const CARDS = 15;
+
+  async function addTask(body: Record<string, unknown>): Promise<string> {
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selector: "#autoscroll", ...body }),
+    });
+    const j = (await r.json()) as { task?: { id: string } };
+    if (!j.task) throw new Error(`create failed: ${JSON.stringify(j)}`);
+    return j.task.id;
+  }
+
+  async function taskStatus(id: string): Promise<{ sortKey?: string; status?: string }> {
+    const r = await fetch(`${API}/${id}`);
+    return (await r.json()) as { sortKey?: string; status?: string };
+  }
+
+  async function laneScrollTop(page: Page, laneId: string): Promise<number> {
+    return page.evaluate(
+      (id) =>
+        document.querySelector<HTMLElement>(
+          `#kanban-board [data-column-id="${id}"] .column-scroll`,
+        )?.scrollTop ?? -1,
+      laneId,
+    );
+  }
+
+  async function laneBox(page: Page, laneId: string) {
+    return page.evaluate((id) => {
+      const el = document.querySelector(`#kanban-board [data-column-id="${id}"]`);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    }, laneId);
+  }
+
+  async function release(page: Page): Promise<void> {
+    await Promise.race([
+      page.mouse.up(),
+      new Promise<void>((resolve) => setTimeout(resolve, DRAG_HANDOVER_MS)),
+    ]);
+    await page.waitForTimeout(900);
+  }
+
+  beforeAll(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "dnd-autoscroll-"));
+    instance = await serve(undefined, {
+      port: PORT,
+      open: false,
+      projectDir: tempDir,
+    });
+    for (let i = 0; i < CARDS; i++) {
+      await addTask({
+        title: `SCROLL CARD ${String(i).padStart(2, "0")}`,
+        status: "review",
+        sortKey: String(i + 1).padStart(16, "0"),
+      });
+    }
+    browser = await chromium.launch({ headless: true });
+  }, 60000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await instance?.close?.();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("scrolls a tall lane so a card below the fold becomes the drop target", async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1310, height: 720 },
+    });
+    const page = await context.newPage();
+    const patches: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "PATCH") patches.push(req.url());
+    });
+    await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#kanban-board", { timeout: 15000 });
+    await page.waitForFunction(
+      (n) =>
+        document.querySelectorAll(
+          '#kanban-board [data-column-id="review"] article.task-card',
+        ).length === n,
+      CARDS,
+      { timeout: 15000 },
+    );
+
+    const visible = await reviewCardRects(page);
+    expect(visible.length).toBeGreaterThanOrEqual(3);
+    const source = visible[0];
+    const lastVisible = visible[visible.length - 1];
+    const lane = await laneBox(page, "review");
+    expect(lane).not.toBeNull();
+    const scrollTopBefore = await laneScrollTop(page, "review");
+
+    await page.mouse.move(source.x, source.top + source.height / 2);
+    await page.mouse.down();
+    // A few capped moves to the lane's bottom edge; the last one is the edge
+    // itself, and the pointer then HOLDS there while the loop scrolls.
+    let handedOver = true;
+    for (let i = 1; i <= 6; i++) {
+      const t = i / 6;
+      const moved = await moveWithDragHandover(
+        page,
+        source.x,
+        source.top + source.height / 2 + (lane!.bottom - 4 - (source.top + source.height / 2)) * t,
+      );
+      if (!moved) {
+        handedOver = false;
+        break;
+      }
+      await page.waitForTimeout(20);
+    }
+    expect(
+      handedOver,
+      "the browser never claimed the drag — it died at dragstart",
+    ).toBe(true);
+
+    // HOLD at the edge; the lane must scroll itself.
+    await page.waitForTimeout(1200);
+    const scrollTopDuringHold = await laneScrollTop(page, "review");
+    expect(
+      scrollTopDuringHold,
+      `holding at the lane's bottom edge must auto-scroll it (before=${scrollTopBefore}, during=${scrollTopDuringHold})`,
+    ).toBeGreaterThan(scrollTopBefore);
+
+    // Nudge once more so the browser re-hit-tests the newly revealed row, then
+    // drop. The pointer never left the lane.
+    await moveWithDragHandover(page, source.x, lane!.bottom - 4);
+    await release(page);
+
+    const after = await taskStatus(source.id);
+    const lastVisibleAfter = await taskStatus(lastVisible.id);
+    expect(
+      patches.some((url) => url.includes(`/api/tasks/${source.id}`)),
+      `expected a PATCH for the dragged card (patches=${JSON.stringify(patches)})`,
+    ).toBe(true);
+    // The drop landed below every card that was reachable before the scroll —
+    // i.e. on a target the pointer could not have reached without auto-scroll.
+    expect(
+      String(after.sortKey) > String(lastVisibleAfter.sortKey),
+      `the card must land below the pre-scroll fold (dragged=${after.sortKey}, lastVisible=${lastVisibleAfter.sortKey})`,
+    ).toBe(true);
+
+    await context.close();
+  }, 90000);
+
+  for (const viewport of [
+    { width: 1310, height: 720, label: "1310px (done lane clipped)" },
+    { width: 900, height: 700, label: "900px (done lane off-screen)" },
+  ]) {
+    it(`scrolls the board so the ${viewport.label} done lane is reachable`, async () => {
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+      });
+      const page = await context.newPage();
+      const patches: string[] = [];
+      page.on("request", (req) => {
+        if (req.method() === "PATCH") patches.push(req.url());
+      });
+      await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("#kanban-board", { timeout: 15000 });
+      await page.waitForFunction(
+        (n) =>
+          document.querySelectorAll(
+            '#kanban-board [data-column-id="review"] article.task-card',
+          ).length === n,
+        CARDS,
+        { timeout: 15000 },
+      );
+
+      const doneBefore = await laneBox(page, "done");
+      const boardState = () =>
+        page.evaluate(() => {
+          const board = document.getElementById("kanban-board")!;
+          return {
+            scrollLeft: board.scrollLeft,
+            maxScroll: board.scrollWidth - board.clientWidth,
+          };
+        });
+      const before = await boardState();
+      expect(
+        doneBefore!.right > viewport.width,
+        `the done lane must start clipped at ${viewport.width}px (right=${doneBefore!.right})`,
+      ).toBe(true);
+
+      // Pick the topmost visible review card, then hold the pointer ~40px from
+      // the right edge: after the board scrolls to its maximum that point sits
+      // inside the done lane.
+      const visible = await reviewCardRects(page);
+      const source = visible[0];
+      const edgeX = viewport.width - 40;
+      const edgeY = Math.round((doneBefore!.top + doneBefore!.bottom) / 2);
+
+      await page.mouse.move(source.x, source.top + source.height / 2);
+      await page.mouse.down();
+      let handedOver = true;
+      for (let i = 1; i <= 8; i++) {
+        const t = i / 8;
+        const moved = await moveWithDragHandover(
+          page,
+          source.x + (edgeX - source.x) * t,
+          source.top + source.height / 2 + (edgeY - (source.top + source.height / 2)) * t,
+        );
+        if (!moved) {
+          handedOver = false;
+          break;
+        }
+        await page.waitForTimeout(20);
+      }
+      expect(handedOver, "the browser never claimed the drag").toBe(true);
+
+      await page.waitForTimeout(1200);
+      const during = await boardState();
+      expect(
+        during.scrollLeft,
+        `holding at the board's right edge must auto-scroll it (before=${before.scrollLeft}, during=${during.scrollLeft})`,
+      ).toBeGreaterThan(before.scrollLeft);
+
+      // The clipped lane is now on-screen and is what the pointer is over.
+      const doneDuring = await laneBox(page, "done");
+      expect(doneDuring!.right).toBeLessThanOrEqual(viewport.width + 1);
+      const underPointer = await page.evaluate(
+        (p) => {
+          const el = document.elementFromPoint(p.x, p.y);
+          return (
+            el?.closest("[data-column-id]")?.getAttribute("data-column-id") ??
+            null
+          );
+        },
+        { x: edgeX, y: edgeY },
+      );
+      expect(
+        underPointer,
+        `the done lane must be reachable where the pointer is held (got ${underPointer})`,
+      ).toBe("done");
+
+      await moveWithDragHandover(page, edgeX, edgeY);
+      await release(page);
+
+      const after = await taskStatus(source.id);
+      expect(
+        patches.some((url) => url.includes(`/api/tasks/${source.id}`)),
+        `expected a PATCH for the dragged card (patches=${JSON.stringify(patches)})`,
+      ).toBe(true);
+      expect(
+        after.status,
+        "the drop must have moved the card into the done lane",
+      ).toBe("done");
+
+      await context.close();
+    }, 90000);
+  }
+});

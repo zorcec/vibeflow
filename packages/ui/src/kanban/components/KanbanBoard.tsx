@@ -125,6 +125,46 @@ function clearDragDomState(): void {
     .forEach((el) => el.classList.remove(...DRAG_STATE_CLASSES));
 }
 
+/** How close to a scroll container's edge the pointer must be, in px, before
+ *  the container scrolls itself during a drag. Wide enough to be reachable
+ *  without hunting for the last pixel, narrow enough that the band the user
+ *  aims at is still a normal drop target. */
+export const DRAG_AUTOSCROLL_EDGE_PX = 60;
+
+/** Fastest auto-scroll, in px per animation frame (~60fps → ~840px/s). */
+export const DRAG_AUTOSCROLL_MAX_SPEED_PX = 14;
+
+/**
+ * Scroll delta for ONE animation frame at `position` inside the axis
+ * [`start`, `end`]. The speed ramps up as the pointer approaches either edge,
+ * so entering the zone nudges the container and holding at the edge keeps it
+ * moving at full speed — a pointer held OUTSIDE the box (distance < 0) counts as
+ * full penetration rather than stopping.
+ *
+ * Returns 0 in the interior, and 0 on an axis that cannot scroll. A box
+ * narrower than two edge zones is not an error: the NEARER edge wins, with ties
+ * going to the start, which is why the start band is tested first.
+ */
+export function dragAutoScrollDelta(
+  position: number,
+  start: number,
+  end: number,
+  edge: number = DRAG_AUTOSCROLL_EDGE_PX,
+): number {
+  if (end <= start) return 0;
+  const fromStart = position - start;
+  const fromEnd = end - position;
+  const penetration = (distance: number) =>
+    Math.max(0, Math.min(1, 1 - distance / edge));
+  if (fromStart < edge && fromStart <= fromEnd) {
+    return -Math.ceil(DRAG_AUTOSCROLL_MAX_SPEED_PX * penetration(fromStart));
+  }
+  if (fromEnd < edge) {
+    return Math.ceil(DRAG_AUTOSCROLL_MAX_SPEED_PX * penetration(fromEnd));
+  }
+  return 0;
+}
+
 interface Props {
   tasks: Task[];
   visibleCols: TaskStatus[];
@@ -328,6 +368,64 @@ export function KanbanBoard({
       }
     };
   }, []);
+
+  /** Edge auto-scroll while a drag is in flight (d4814bb7).
+   *
+   * A drop target that starts off-screen was unreachable: the board overflows a
+   * narrow viewport (at 1310px the done lane is clipped off the right edge) and
+   * a tall lane's rows sit below the fold — neither scrolls itself during a
+   * drag, so the pointer had nowhere to go. Two axes, two containers:
+   * `#kanban-board` scrolls horizontally, and the `.column-scroll` under the
+   * pointer scrolls vertically.
+   *
+   * The loop deliberately writes NO React state — only scroll offsets. A React
+   * write inside the drag is what aborted the native session (87748ad), so the
+   * auto-scroll must stay a pure DOM side effect. It also never writes a drop
+   * intent: scrolling re-runs the browser's hit-testing, which re-fires
+   * dragover, so the existing handlers stay the only source of drop targets and
+   * the drop-band classification (385e4f9) is untouched. Torn down with the
+   * drag, so drop/dragend/Escape all cancel it. */
+  React.useEffect(() => {
+    if (dragTaskId === null) return;
+    const board = boardRef.current;
+    if (!board) return;
+
+    let pointer: { x: number; y: number } | null = null;
+    // Capture phase: card and tree dragover handlers stopPropagation, so a
+    // bubble-phase listener would miss most of the drag.
+    const trackPointer = (e: DragEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+    };
+    board.addEventListener("dragover", trackPointer, true);
+
+    let frame = 0;
+    const step = () => {
+      const p = pointer;
+      if (p) {
+        const boardRect = board.getBoundingClientRect();
+        const dx = dragAutoScrollDelta(p.x, boardRect.left, boardRect.right);
+        if (dx !== 0) board.scrollLeft += dx;
+        // Vertical: only the lane the pointer is over scrolls.
+        const scrollables = Array.from(
+          board.querySelectorAll<HTMLElement>(".column-scroll"),
+        );
+        for (const el of scrollables) {
+          const r = el.getBoundingClientRect();
+          if (p.x < r.left || p.x > r.right) continue;
+          const dy = dragAutoScrollDelta(p.y, r.top, r.bottom);
+          if (dy !== 0) el.scrollTop += dy;
+          break;
+        }
+      }
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      board.removeEventListener("dragover", trackPointer, true);
+    };
+  }, [dragTaskId]);
 
   /** Drop a pending dragstart visual update (the drag ended first). */
   function cancelDeferredDragStartVisuals() {
@@ -873,7 +971,11 @@ function KanbanColumn({
   // card in it, which is what keeps their titles aligned (b0545910).
   const reserveLeadingSlot = React.useMemo(
     () =>
-      laneReservesLeadingSlot(tasks, { laneId: col.id, compact, currentUserId }),
+      laneReservesLeadingSlot(tasks, {
+        laneId: col.id,
+        compact,
+        currentUserId,
+      }),
     [tasks, col.id, compact, currentUserId],
   );
 
