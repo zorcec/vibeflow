@@ -4,7 +4,7 @@
  * Tests each MCP tool operation with various inputs.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, globSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -42,6 +42,16 @@ function createTestTask(overrides: Partial<Task> = {}): Task {
   mkdirSync(dateDir, { recursive: true });
   writeFileSync(join(dateDir, `${task.id}.json`), JSON.stringify(task, null, 2));
   return task;
+}
+
+/** Read the persisted task JSON from disk (flat or date-subdir layout). */
+function readStoredTask(id: string): Task {
+  const flat = join(testDir, ".vibeflow", "tasks", `${id}.json`);
+  const file = existsSync(flat)
+    ? flat
+    : globSync(join(testDir, ".vibeflow", "tasks", "*", `${id}.json`))[0];
+  if (!file) throw new Error(`no persisted task file for ${id}`);
+  return JSON.parse(readFileSync(file, "utf-8")) as Task;
 }
 
 beforeEach(() => {
@@ -228,6 +238,44 @@ describe("update_task", () => {
     );
     expect(result.ok).toBe(true);
     expect(result.steps).toContain("Dry run: task would be updated");
+  });
+
+  // Tri-state parity with the CLI: verified:null CLEARS the verdict (absent),
+  // it does NOT store false — false is the positive claim that the task is wrong.
+  it("verified:null clears a stored verdict to absent", async () => {
+    createTestTask({ id: "task-1", verified: true });
+
+    const result = await updateTask(ctx, { id: "task-1", verified: null });
+    expect(result.ok).toBe(true);
+    expect(result.data?.verified).toBeUndefined();
+    // Absence must be the missing KEY, not a false value.
+    expect(readStoredTask("task-1").verified).toBeUndefined();
+    expect("verified" in readStoredTask("task-1")).toBe(false);
+  });
+
+  it("verified:false stores false and is NOT treated as a clear", async () => {
+    createTestTask({ id: "task-1", verified: true });
+
+    const result = await updateTask(ctx, { id: "task-1", verified: false });
+    expect(result.ok).toBe(true);
+    expect(result.data?.verified).toBe(false);
+    expect(readStoredTask("task-1").verified).toBe(false);
+    expect("verified" in readStoredTask("task-1")).toBe(true);
+  });
+
+  it("verified:true stores true", async () => {
+    createTestTask({ id: "task-1" });
+
+    const result = await updateTask(ctx, { id: "task-1", verified: true });
+    expect(result.ok).toBe(true);
+    expect(readStoredTask("task-1").verified).toBe(true);
+  });
+
+  it("omitting verified leaves an existing verdict untouched", async () => {
+    createTestTask({ id: "task-1", verified: true });
+
+    await updateTask(ctx, { id: "task-1", title: "Renamed" });
+    expect(readStoredTask("task-1").verified).toBe(true);
   });
 });
 

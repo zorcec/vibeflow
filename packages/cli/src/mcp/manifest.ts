@@ -126,7 +126,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and replacing the task's links (parent/relates/blocks; pass an empty array to clear). Pass verified:true to attest that the task IS implemented correctly — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and replacing the task's links (parent/relates/blocks; pass an empty array to clear). Pass verified:true to attest that the task IS implemented correctly — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself. Pass verified:false to record that it is NOT implemented correctly. Pass verified:null to CLEAR the verdict back to absent (parity with --unset-verified) — the honest state for a task that cannot be assessed here, and distinct from false, which is a completed verdict of failure.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -140,6 +140,7 @@ export const manifest: ToolManifest[] = [
         "--skip-verify",
         "--verified",
         "--verify-failed",
+        "--unset-verified",
         "--set-parent",
         "--no-parent",
       ],

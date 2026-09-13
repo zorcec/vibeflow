@@ -57,6 +57,29 @@ function diskLinks(
   return raw.links as Array<{ taskId: string; type: string }> | undefined;
 }
 
+/** Read one raw persisted field — proves the KEY itself is present/absent. */
+function diskField(
+  projectDir: string,
+  taskId: string,
+  field: string,
+): unknown {
+  const file = findTaskFile(projectDir, taskId);
+  if (!file) throw new Error(`no task file on disk for ${taskId}`);
+  return (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)[
+    field
+  ];
+}
+
+function hasDiskField(
+  projectDir: string,
+  taskId: string,
+  field: string,
+): boolean {
+  const file = findTaskFile(projectDir, taskId);
+  if (!file) throw new Error(`no task file on disk for ${taskId}`);
+  return field in (JSON.parse(readFileSync(file, "utf-8")) as object);
+}
+
 describe("MCP tools happy paths", () => {
   let env: McpTestEnv;
   let client: McpClient;
@@ -571,6 +594,47 @@ describe("MCP tools happy paths", () => {
         { taskId: parent.id, type: "parent" },
         { taskId: blocker.id, type: "blocks" },
       ]);
+    });
+  });
+
+  // ── 12. update_task — verify tri-state (clear via null over the wire) ──
+
+  describe("update_task verify tri-state", () => {
+    it("12a: verified:null clears a stored verdict to absent", async () => {
+      const r = await callTool(client, "create_task", {
+        title: "Attested task",
+      });
+      const task = await assertJsonTextContent(r);
+
+      const set = await callTool(client, "update_task", {
+        id: task.id,
+        verified: true,
+      });
+      expect((await assertJsonTextContent(set)).verified).toBe(true);
+      expect(diskField(env.projectDir, task.id, "verified")).toBe(true);
+
+      const cleared = await callTool(client, "update_task", {
+        id: task.id,
+        verified: null,
+      });
+      expect((await assertJsonTextContent(cleared)).verified).toBeUndefined();
+      // Absence is the missing KEY — not a false value.
+      expect(hasDiskField(env.projectDir, task.id, "verified")).toBe(false);
+    });
+
+    it("12b: verified:false stores false and is NOT a clear", async () => {
+      const r = await callTool(client, "create_task", {
+        title: "Failed task",
+      });
+      const task = await assertJsonTextContent(r);
+
+      const set = await callTool(client, "update_task", {
+        id: task.id,
+        verified: false,
+      });
+      expect((await assertJsonTextContent(set)).verified).toBe(false);
+      expect(diskField(env.projectDir, task.id, "verified")).toBe(false);
+      expect(hasDiskField(env.projectDir, task.id, "verified")).toBe(true);
     });
   });
 });

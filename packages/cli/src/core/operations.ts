@@ -99,11 +99,14 @@ export const UpdateTaskInput = z.object({
   commitMessage: z.string().optional(),
   skipVerify: z.boolean().default(false),
   // Agent attestation for `verified` (parity with the CLI's --verified /
-  // --verify-failed): true = the agent verified the task IS implemented
-  // correctly, false = verified and it is NOT. `vibeflow verify` never writes
-  // this flag — only the agent does, and review-gate.ts Gate 4 requires the
-  // positive value on the review transition itself.
-  verified: z.boolean().optional(),
+  // --verify-failed / --unset-verified): true = the agent verified the task IS
+  // implemented correctly, false = verified and it is NOT, null = CLEAR the
+  // verdict back to absent (parity with --unset-verified) — the honest state
+  // for a task that cannot be assessed here, and NOT the same as false.
+  // Omitting the field leaves any stored verdict untouched. `vibeflow verify`
+  // never writes this flag — only the agent does, and review-gate.ts Gate 4
+  // requires the positive value on the review transition itself.
+  verified: z.boolean().nullable().optional(),
   dryRun: z.boolean().default(false),
   // Replace semantics for the task's links (matches the HTTP PATCH route):
   // the array becomes the full link set and an empty array clears every link.
@@ -395,7 +398,9 @@ export async function updateTask(
           comment: input.comment,
           commitMessage: input.commitMessage,
           skipVerify: input.skipVerify,
-          verified: input.verified,
+          // `null` (clear) is not an attestation, so the gate sees it as an
+          // absent verdict — it can never satisfy Gate 4's positive requirement.
+          verified: input.verified ?? undefined,
         },
         { projectDir: ctx.projectDir, settings },
       );
@@ -459,9 +464,14 @@ export async function updateTask(
     }
 
     // Agent attestation, applied after the reset-on-claim above (parity with the
-    // CLI): the reset is the default for a claim without a verdict, while an
-    // explicit verdict passed in the same call is what gets recorded.
-    if (input.verified !== undefined) {
+    // CLI): the reset is the default for a claim without a verdict, an explicit
+    // verdict in the same call is what gets recorded, and an explicit `null`
+    // clears the key (parity with --unset-verified) so the store stays
+    // tri-state. `null` is a clear, never `false`: false is the positive claim
+    // that the task IS wrong.
+    if (input.verified === null) {
+      updates.verified = undefined;
+    } else if (input.verified !== undefined) {
       updates.verified = input.verified;
     }
 
