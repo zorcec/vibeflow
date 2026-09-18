@@ -1,5 +1,140 @@
 # Changelog
 
+## 0.15.0
+
+### Minor Changes
+
+- be7ffc3: ### Highlights
+
+  - Theming support: pick from six curated themes — Dark, Light, High contrast, Rosé Pine Dawn, Dracula and Gruvbox Dark — in Settings → Theme, where each is a swatch chip with a live preview. Apply commits it, Cancel reverts. Built on design tokens, so every surface (board, cards, detail panel, modals) follows the theme.
+  - Parent / child and related / blocks with a tree view and drag & drop: nest tasks to any depth and see children as an expandable tree; record BLOCKS and RELATED alongside PARENTS and CHILDREN. Every relation is drag & drop — edge drop reorders, centre drop re-parents — and the result persists across reloads.
+
+- 9bd33ee: List and claim root tasks only, and return a root's children with it.
+
+  `vibeflow tasks` now lists ROOT tasks only — a task with a parent is not shown as a peer, because it belongs to its parent, matching how the board renders it. A footer reports how many child tasks the query matched and names the flag that reveals them, so the count is never hidden silently. Pass `--children` to include them.
+
+  `vibeflow tasks --next` now considers only root tasks whose own status is `todo`. It never claims a child: the root is the unit of work, and the result carries that root's children with their ids, titles and statuses so an agent can see what remains without a second call. `--get <id>` is unaffected and still resolves any task, child or root.
+
+  The MCP tools follow the same rule: `list_tasks` returns roots only (set `children: true` to include them, and read `hiddenChildren` for how many were omitted), and `claim_next_task` never claims a child.
+
+### Patch Changes
+
+- be35afc: `verified` is now an agent attestation instead of a mechanical verdict. Until now `vibeflow verify` wrote the flag itself from two page facts — the annotated element still resolved and the page logged no NEW console errors — and nothing else. That cannot tell whether the task was accomplished, so a task asking for a green button could be shipped red and still come back `verified: true`. Verify now stops at evidence: it still produces the diff, the snapshot artifacts and the verdict, and it prints its `ok` signal clearly labelled as page-health evidence, but it no longer writes `verified` or decides anything.
+
+  The agent decides, and attests when it moves the task to review: `tasks --edit <id> --set-status review --verified` records "I verified this and the task IS implemented correctly", while `--verify-failed` records the opposite verdict ("I verified this and it is NOT correct") instead of leaving the state unknown. `--verified` is required by the review gate for annotated tasks (those with a URL and a selector), the rest of the gates unchanged. `verified: false` can never reach review: the transition is rejected whether the agent attested the failure on this transition, attested it earlier, or carries it from before. A stored `true` no longer satisfies the gate either — an attestation must be carried by the transition that moves the task to review, so a stale or mechanically-written value cannot over-claim.
+
+  Claiming a task still resets the flag to absent, and the tri-state keeps its meaning: `true` = verified, implemented correctly; `false` = verified, NOT implemented correctly; absent = nothing assessed yet. Passing the verdict flags with a claim records it explicitly, so an agent can park a task it verified as wrong. The generated agent instructions now say all of this in place of the old "verify the fix" line, which never mentioned that verify sets nothing or what it actually proves. The MCP `update_task` tool accepts the same `verified` boolean for parity; the human/UI PATCH path still cannot set or require the attestation.
+
+- b1a21bb: Fix `--comment` being silently discarded outside a review transition.
+
+  The comment was written only when `--set-status review` was also passed, so adding a note to a todo, backlog or in-progress task accepted the flag and then threw the text away. The CLI printed `comment: added` unconditionally and before the write resolved, so the loss was invisible.
+
+  The comment is now written for any status, awaited, and reported only after the write succeeds — with a real error and a non-zero exit code on failure. `--comment` alone is also treated as an edit, so it no longer falls through to the help output.
+
+- 1ec93d3: Scope the review auto-commit to the task's own file and attachments instead of committing the whole shared index.
+
+  Concurrent agent lanes share one git index in one working tree, so the CLI's plain `git commit` committed whatever any lane had staged: a lane's screenshots and task JSON could land inside a different task's commit, and a foreign deletion was once swept into an unrelated commit. `git show <sha>` then lied about what a task changed. The auto-commit now commits only staged paths that belong to the task being recorded — its `.vibeflow/tasks/<date>/<id>.json` and files under `.vibeflow/tasks/files/<id>/` — and leaves any other lane's staged files untouched.
+
+  When the task's own file is not staged the commit no longer runs, and the failure message now says the task WAS updated (its status and comment are already saved) and names the exact path to stage, rather than the old wording that implied nothing had been written.
+
+- 2a98eb8: The CLI build now syncs every emitted chunk into `dist` and fails loudly if any is missing.
+
+  `tsup`'s onSuccess hook copies the code-split chunks the packaged entry
+  (`dist/index.js`) loads. That copy step was a hand-maintained regex allowlist, and
+  forgetting to extend it when a new dynamic import was added shipped a broken package:
+  `verify-attestation` was emitted but never synced, so every `vibeflow tasks --edit`
+  crashed with `ERR_MODULE_NOT_FOUND`. The build succeeded and the unit suite stayed
+  green, because the tests import from `src/`, not from `dist/`.
+
+  The allowlist is replaced by a glob that copies every emitted `.js` module, and the
+  build now asserts that every relative import in the packaged entry resolves on disk,
+  so a broken `dist` can no longer be produced. A regression test
+  (`tests/e2e/tsup-chunk-sync.test.ts`) asserts the same invariant against the built
+  output.
+
+- 9792296: Fix login test timeout caused by .vibeflow/tasks directory growth in repo root
+- 385e4f9: Fix the kanban board's centre drop (make-child) on normal-height cards. The reorder bands above and below a card were clamped to a 32px minimum with no cap, so on any card 64px or shorter the two bands overlapped and consumed the whole card: every drop classified as top or bottom, and dropping on the centre of a card silently reordered instead of nesting the task as a child. The bands are now capped so a centre zone always remains, while edge drops near the top or bottom still reorder.
+- 9d3d324: Kanban: a task opened from the In Progress, Review or Done lane is no longer left hidden behind the detail panel.
+
+  The detail panel is an absolutely positioned overlay, so on a viewport narrower than board + panel it covers the card that was just clicked — and the board's own scroll range was too small to bring that card back (at 1440x900 it was 64px), leaving closing the panel as the only recovery. The board is now inset by the panel's live width while the panel is open, and the clicked card is scrolled into the visible band once, restoring the previous scroll position when the panel closes. Wide viewports where nothing is covered are unaffected.
+
+- 1c7e9e4: Fix drag reachability: auto-scroll the board and lanes when a dragged card nears an edge.
+
+  Dragging a task to a column or row that was off-screen was previously impossible — there was no edge auto-scroll, so a lane taller or wider than the viewport (the Done column is clipped at 1310px) could not be reached at all. Dragging now scrolls the board horizontally and the lane under the pointer vertically, with the speed ramping up as the pointer approaches the edge.
+
+  The scroll zone is 60px with a maximum of 14px per frame. A pointer held outside the container counts as full penetration rather than stopping the scroll.
+
+- 87748ad: Dragging a kanban card no longer aborts the moment it starts. The dragstart handler updated React state synchronously, and React flushes those updates inside the very dispatch Chromium uses to initiate the native drag — the resulting board re-render (child drop slots inserted into every childless card, column restyling) raced the drag-image capture and killed the session. The drag then ended a few pixels in with no `dragenter`, `dragover` or `drop`, so nothing could be reordered or moved and no request was ever sent. The drag source is now registered synchronously in refs and the drag session, and every rendering side effect (the drag highlight, hover intent, source state) is deferred by one macrotask, after the browser owns the drag. Reordering, cross-column moves, make-child and tree drags all behave as before.
+- b1a21bb: Fix the empty leading gutter on unverified cards.
+
+  In a lane where any card shows a verdict, every card reserved an 11px slot — including cards with no verdict, which rendered an empty box that looked like a badge that had failed to load.
+
+  The space is still reserved, because a lane's titles must share one x-offset. It is now an invisible, non-semantic spacer rather than a mark box: `data-role="leading-slot"` exists only when a mark is actually painted.
+
+- f8d6e67: Remove the empty gap before card titles.
+
+  A card with no status mark rendered an empty slot, leaving a visible gap before
+  its title — indistinguishable from a badge that had failed to load. This affected
+  every card without a verdict in the review and done lanes, including all Research
+  tasks, which can never carry one.
+
+  A card that draws no mark now renders nothing at all: no box, and no reserved
+  space. Titles in a lane with mixed marks no longer share one x-offset; that
+  alignment guarantee is deliberately given up, because a gap that reads as a
+  broken badge is worse than a ragged left edge.
+
+- 2ffc278: Draw one status mark per kanban card. The card's leading slot was assembled inline in two places and the copies disagreed: the single-row card (the done lane and the compact view) chose one glyph, while the multi-row card appended a loader, a verify glyph and an unread dot. An in-progress card that was also verified painted up to three marks, and its title started 27px further right than the card below it; a verified review card showed the verdict plus the unread dot. Both layouts now draw the slot through one shared component that picks a single mark by a documented precedence — verify verdict, in-flight activity, done affordance, unread dot, lane dot — inside a fixed-width box, so every card in a lane starts its title at the same x. A verify verdict is also now shown only in the review and done lanes, on cards and on child rows; backlog / todo / in-progress keep their plain status glyph, which means the in-progress + verified pair (a loader beside a check) no longer renders anywhere. The verdict tooltips now state the correctness verdict — "Verified — implemented correctly" / "Failed verification — not implemented correctly" — instead of "Verification failed".
+- 1c4374c: Show all three verify states on kanban cards. The only verify marker used to be a `✓ VERIFIED` chip gated on the `done` column, but verify runs before `review`, so a verified task sitting in review — the normal end state — showed nothing, and a FAILED verify looked exactly like one that never ran. A verify verdict now rides the leading icon slot on every card and child row: a check for passed, an alert for failed, and nothing when there is no verdict. It sits beside the in-progress loader instead of replacing it, so an in-progress task that is also verified reads correctly, and it names itself (`title`/`aria-label`: "Verified" / "Verification failed") so the state never relies on colour alone. The `done` chip is replaced by this glyph so a card never carries two markers for one fact.
+
+  The persisted `verified` flag is now genuinely tri-state. Reading a task preserves an absent flag as `undefined` instead of collapsing it to `false`, and claiming a task (status → in-progress) clears the flag rather than writing `false`; `false` therefore uniquely means "the last verify failed" and `undefined` means "never verified". On a failed verify the CLI now ends with an explicit next step — "fix the issues above, then re-run: `vibeflow verify <task-id>`" — instead of stopping at the error.
+
+- 26473be: The verification badge is no longer shown on Research tasks. The verdict gate was scoped to the review and done lanes but never looked at the task's type, so a Research task that carried a `verified` value rendered the amber "failed verification" glyph — a verdict about a UI change that Research tasks never make (they produce a findings report, not code). The gate is now one predicate, read by the cards and the child rows alike, that requires a verdict lane AND a type that can be verified: Research is excluded, and the stored values are left untouched (only their display stops). Every other type the store carries still shows its verdict — Enhancement, Feature and Chore, and the tasks with no type at all, which resolve to the generic Task everywhere else in the board.
+
+  The leading status slot is no longer reserved in a lane that draws no mark. The slot's width was reserved unconditionally so that titles could not shift between cards of the same lane (the "3 marks / title moves 27px" fix), which left an empty 11px gutter before the title of any card with no mark — and an empty 12px one in the single-row (done and compact) layout, whose lane-dot fallback had a colour but no box and so rendered 0px wide. The reservation is now decided once per lane: a lane that draws at least one mark keeps reserving for all of its cards, so their titles stay aligned; a lane that draws none reserves nothing and its titles sit flush. The row layout's lane dot now has a real 7px box.
+
+- 768cd00: MCP `update_task` can now clear the `verified` attestation, matching `tasks --edit --unset-verified`.
+
+  Pass `verified: null` to remove the stored verdict and leave the task with no verdict at all — the honest state for a task that cannot be assessed on this surface. The field was previously `boolean`-only, so an MCP-based agent had no way to express "clear it": it could only leave a stale value or write `false`, and `false` is a completed verdict that the task IS implemented incorrectly, not "not assessed". `null` maps directly onto the tri-state's absent value and is distinct from `false`, which is still stored as a real failure verdict. Omitting the field continues to leave any stored verdict untouched. The tool description now spells out all three values, and the review gate treats `verified: null` as no attestation, so it can never satisfy the positive-attestation requirement.
+
+- 3d413b7: `tasks --edit --report-file` now fails loudly instead of being silently ignored. Providing the flag on a task that is not a Research task exits with a usage error and leaves the task untouched, and using the flag without `--set-status review` exits with a usage error. Previously both invocations appeared to succeed: the report was neither uploaded nor deleted, yet the status change went through.
+- 2d6699e: Research tasks can no longer carry a `verified` attestation.
+
+  A Research task produces a report and has no annotated UI element to verify, so any
+  `verified` value on it is meaningless — and under the tri-state semantics a stored
+  `false` reads as "verified as NOT implemented correctly", an active lie. The value is
+  now scrubbed on read (`normalizeTask`) and on write (`updateTask` / `writeTaskJson`),
+  so it can never be observed or persisted whatever wrote it.
+
+  The review gate no longer demands a verification attestation for a Research task, even
+  when it has a URL and selector (the reproduced case: a Research task with
+  `url` + `selector "#main"` had its review transition refused until `--skip-verify`).
+  An attestation passed on a Research review transition is now refused loudly with
+  `RESEARCH_VERIFY_NOT_ALLOWED` instead of being dropped silently. Task, Bug, Feature,
+  and Enhancement tasks are unaffected.
+
+- 6a1467e: The SaaS/online task contract now carries the `verified` tri-state instead of dropping it.
+
+  `updateTaskSchema.patch` accepts `verified` as a nullable boolean — `true`/`false` are the agent's verdicts, `null` clears it back to absent, and omitting it leaves the stored value untouched. The CLI's online client (`SaasTask`, `updateSaasTask`) understands the same tri-state, so a local `--verified` / `--verify-failed` / `--unset-verified` is no longer lost on the way to or from the server: `vibeflow push` already ships the raw task JSON, and the server now round-trips the field unchanged. An absent verdict stays absent — it is never coerced to `false`, which would report a never-assessed task as failed verification.
+
+- b7a71d5: Fix the "Require verify before review" description in Settings — it described the wrong mechanism and ran long.
+
+  The copy said the CLI "enforces vibeflow verify before setting status to review". That is not what happens: the gate requires the agent's `--verified` **attestation** at the review transition. `vibeflow verify` only gathers evidence — it cannot decide whether the task was accomplished, and it does not set the flag. The description now names the attestation, keeps the scope (tasks with a URL and selector) and the reset behaviour (cleared when the task returns to in-progress), and is roughly a third shorter.
+
+- be485d2: Cancel in the kanban Settings modal now undoes a theme changed on the Theme tab instead of leaving it applied. Selecting a theme applies a live preview only; Apply commits it, while Cancel, the X, Escape and the backdrop rewind both the applied theme and the stored preference to the value the modal opened with. The shared `SettingsModal` stays appearance-agnostic: its `appearance` slot may now be a render function that receives a per-open lifecycle handle, which is how the CLI's theme switcher takes part in Apply and Cancel. Choosing "System" reverts to whatever was stored before, including clearing the key again.
+- 8d3fd54: Move the kanban theme picker into its own Settings tab and strip it back to a compact swatch grid. The shared `SettingsModal` now renders the `appearance` slot in a dedicated tab named by the surface (`appearanceTab`) instead of appending it to the bottom of the Board tab, so the modal stays appearance-agnostic and other consumers keep their two tabs. Each choice is now one chip — the registry preview swatch plus the theme name — with the per-option descriptions reduced to a native tooltip and the group hint moved to screen-reader-only text; keyboard navigation, focus visibility, radio semantics and the selected state (a check on the active chip) are unchanged.
+- 237269f: Agent instructions now tell an agent to attempt verification on **every** task, and give it a way to record that a task genuinely cannot be verified.
+
+  Verification is no longer implied to be optional evidence. The instructions state that a UI task (one with a URL and a selector) must run `vibeflow verify <id>` **and** be judged by the agent, because verify only proves the annotated element still resolves and that the page logged no NEW console errors — it cannot tell whether the ticket was accomplished. They name the real counterexamples that pass verify but are wrong (painting a button green when the ticket said red; fixing a different bug), and spell out how to verify a non-UI task by inspecting its artifact (for a rename, grep the old string and assert zero occurrences; for links, resolve every href and assert none 404; for a README, confirm every referenced file exists and ships in the package's `files` list; for a command reference, confirm each documented command exists in `--help`).
+
+  An unverifiable task must not carry a stale or false verdict, so `verified` can now be cleared back to absent with `tasks --edit <id> --unset-verified`. Absence means "not assessed here" and the kanban renders no badge for it, whereas `--verify-failed` still means "verified as WRONG" and is rejected by the review gate. The three attestation flags are mutually exclusive; combining them fails loudly.
+
+  Also fixes a silent no-op: `tasks --edit <id> --verified` (or `--verify-failed`) with no other edit used to fall through to the browse/help output and exit 0 without writing anything, because the edit guard omitted the attestation flags. The flags are now edits, so the attestation is written (or the clear performed) instead of silently discarded. The `dist/index.js` chunk sync now also copies the dynamically-imported `verify-attestation` chunk, which the CLI edit path loads at runtime.
+
+- 6cbb1fa: Surface page-capture truncation in `vibeflow verify`. The page-wide capture stops at 1000 elements and records `truncated: true` on the snapshot, but nothing read that flag: the style summary hardcoded `truncated: false` and the flag never reached the result, so a page larger than the cap produced a diff over a silent subset while the agent was told nothing had been skipped — a false negative, the one failure mode that cannot be noticed. Verify now carries the snapshot's real value through to the result, the page diff and the structure queries, and prints a prominent warning in the same voice as its other warnings (`WARNING: capture truncated at 1000 elements — elements beyond the cap were NOT compared. "No change" results for those elements are unreliable.`) both in the CLI output and in the system comment it writes. The `style_query` and `html_query` tools report the flag and attach the same warning to their output. No change to what `verified` means: a truncated run still leaves the correctness verdict to the agent, it just can no longer be mistaken for a complete one.
+- 2d60fc9: Fix the verify-before-review gate: it now looks for `baseline.json` in the real evidence directory (`.vibeflow/tasks/files/<task-id>`) instead of a hardcoded `.vibeflow/files/<task-id>` path that never held evidence. Unverified UI tasks are once again blocked from moving to review.
+- 2e07af0: Fix page-wide verification capture: `vibeflow verify` now runs a self-contained page callback instead of passing helper functions across the Playwright boundary, so `verify-all-styles.json` (and the derived `verify-page-diff.json`) are written again and the page-wide style/HTML query tools work. Evidence-capture failures are now reported instead of being silently swallowed.
+- 7182925: Fix the verify style diff: the annotation baseline and the verify-time capture now use the same `RELEVANT_STYLES` property set, and the diff compares only properties recorded on both sides. Previously verify captured every computed style (~476 in chromium) against a 62-property baseline, so a no-op page reported ~437 false `"" → value` changes and buried the real ones.
+
 ## 0.14.0
 
 ### Minor Changes
