@@ -7,25 +7,14 @@
 - e786873: Remove-link dialog: child-aware confirmation with move-up/delete-children radio options, server-side detach endpoint, and board-level wiring.
 - ffcbd90: What's New modal surfaces an aggregated Highlights region from manually tagged `### Highlights` changeset subsections.
 
-  ### Highlights
-
-  - Changelog Highlights region pins the biggest changes on top of the What's New modal
-
 - 73a9ef0: Kanban delete dialog offers recursive delete: parent with children now shows keep / unlink / delete-whole-subtree options
 - 52f63e2: Kanban card expand/collapse state is now persisted per user and restored across reloads; the unread indicator only shows for tasks you have not opened.
-
-  ### Highlights
-
-  - Card children stay expanded after a page reload — the choice is stored per user on the task and re-applied from the payload.
-  - The blue unread dot now compares against the real board user id instead of a placeholder, so it clears as soon as you open a task.
 
 - 0f091ed: Parent task concept: tasks can now be linked hierarchically with parent-child relationships. Children group under their parent in the kanban board with a ⤷N chip that morphs to a chevron on hover. The expanded tree shows child rows with status dots, priority badges, and inline drag-and-drop for reparenting up to 8 levels deep. The detail panel has a Relations area listing children, parents and blocked tasks, with click-through navigation. Parent links survive workspace sync, and a link pointing at a task that is no longer present is flagged as an orphan rather than silently dropped. The delete dialog offers recursive subtree deletion, and the detach dialog allows unlinking children without deleting them.
 
   ### Highlights
 
-  - Parent-child task linking: attach children to any task, see them grouped in the board
-  - Tree view with expand/collapse, inline drag-and-drop reparenting
-  - Recursive delete: delete a parent and all its descendants in one action
+  - Parent-child task linking and many related improvements in the UI!
 
 - 1940099: Kanban task details panel lists every relation type: the Relations area now renders one group per non-empty relation type — CHILDREN as a recursive tree, plus PARENTS, BLOCKS and RELATED as flat rows with a hover Unlink action. `related` and `blocks` links were previously visible only as count chips. The card's in-card children tree is unchanged.
 - 52d34dd: Fix kanban drag/order correctness. `tasks --add` and every other create surface now mint a unique, monotonic `sortKey` derived from the store maximum instead of the constant `0000000001000000` that every create collided on (the collision made a card dropped between two such cards jump past both). A new one-time maintenance command, `tasks --reindex-sort-keys` (honors `--dry-run` and `--json`, idempotent, order-preserving), heals the existing keyless and duplicate-key tasks by re-keying them in rendered order while leaving well-formed, store-unique keys untouched. The reindex writes only `sortKey`/`updated` through a byte-preserving path, so legacy fields (such as the singleton `commit`) are never dropped.

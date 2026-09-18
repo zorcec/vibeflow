@@ -15,6 +15,18 @@ vi.mock("../../../src/auth/workspace.js", () => ({
 }));
 vi.mock("open", () => ({ default: vi.fn() }));
 vi.mock("@inquirer/select", () => ({ default: vi.fn() }));
+// login() -> promptPushLocalTasks may find local .vibeflow/tasks files and
+// prompt on stdin. Auto-answer so the prompt never blocks the test.
+vi.mock("node:readline", () => ({
+  default: {
+    createInterface: vi.fn(() => ({
+      question: vi.fn((_prompt: string, onAnswer: (answer: string) => void) => {
+        onAnswer("n");
+      }),
+      close: vi.fn(),
+    })),
+  },
+}));
 
 import * as tokenModule from "../../../src/auth/token.js";
 import * as settingsModule from "../../../src/core/settings.js";
@@ -286,6 +298,11 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ settings: { autoCommit: true } }),
+      })
+      // Mock tasks-listing fetch (promptPushLocalTasks)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ tasks: [] }),
       });
 
     vi.stubGlobal("fetch", fetchMock);
