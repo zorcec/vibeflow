@@ -1,13 +1,20 @@
 # Changelog
 
+## 0.16.0
+
+### Minor Changes
+
+- Replace the `--verified` / `--verify-failed` / `--unset-verified` attestation flags with a single tri-state `--set-verify pass|fail|cannot` flag plus `--verify-reason` (required for `cannot`). BREAKING: the three old flags and `--skip-verify` are removed — callers must switch to `--set-verify`. Semantics: `pass` attests the task IS implemented correctly (verified=true, green badge, review allowed); `fail` attests it is NOT correct (verified=false, amber badge, review BLOCKED); `cannot` with `--verify-reason "<why>"` clears the verdict to absent (no badge) and records the reason in the task's activity so the detail panel shows it. Omitting a verdict on an annotated task at the review transition now blocks with an error naming all three options (`--set-verify pass|fail|cannot`).
+
 ## 0.15.0
 
 ### Minor Changes
 
-- be7ffc3: ### Highlights
+- be7ffc3: Theming support: pick from six curated themes — Dark, Light, High contrast, Rosé Pine Dawn, Dracula and Gruvbox Dark — in Settings → Theme, where each is a swatch chip with a live preview. Apply commits it, Cancel reverts. Built on design tokens, so every surface (board, cards, detail panel, modals) follows the theme.
 
-  - Theming support: pick from six curated themes — Dark, Light, High contrast, Rosé Pine Dawn, Dracula and Gruvbox Dark — in Settings → Theme, where each is a swatch chip with a live preview. Apply commits it, Cancel reverts. Built on design tokens, so every surface (board, cards, detail panel, modals) follows the theme.
-  - Parent / child and related / blocks with a tree view and drag & drop: nest tasks to any depth and see children as an expandable tree; record BLOCKS and RELATED alongside PARENTS and CHILDREN. Every relation is drag & drop — edge drop reorders, centre drop re-parents — and the result persists across reloads.
+  ### Highlights
+
+  - Parent-child task linking and many related improvements in the UI!
 
 - 9bd33ee: List and claim root tasks only, and return a root's children with it.
 
@@ -146,10 +153,6 @@
 - 52f63e2: Kanban card expand/collapse state is now persisted per user and restored across reloads; the unread indicator only shows for tasks you have not opened.
 
 - 0f091ed: Parent task concept: tasks can now be linked hierarchically with parent-child relationships. Children group under their parent in the kanban board with a ⤷N chip that morphs to a chevron on hover. The expanded tree shows child rows with status dots, priority badges, and inline drag-and-drop for reparenting up to 8 levels deep. The detail panel has a Relations area listing children, parents and blocked tasks, with click-through navigation. Parent links survive workspace sync, and a link pointing at a task that is no longer present is flagged as an orphan rather than silently dropped. The delete dialog offers recursive subtree deletion, and the detach dialog allows unlinking children without deleting them.
-
-  ### Highlights
-
-  - Parent-child task linking and many related improvements in the UI!
 
 - 1940099: Kanban task details panel lists every relation type: the Relations area now renders one group per non-empty relation type — CHILDREN as a recursive tree, plus PARENTS, BLOCKS and RELATED as flat rows with a hover Unlink action. `related` and `blocks` links were previously visible only as count chips. The card's in-card children tree is unchanged.
 - 52d34dd: Fix kanban drag/order correctness. `tasks --add` and every other create surface now mint a unique, monotonic `sortKey` derived from the store maximum instead of the constant `0000000001000000` that every create collided on (the collision made a card dropped between two such cards jump past both). A new one-time maintenance command, `tasks --reindex-sort-keys` (honors `--dry-run` and `--json`, idempotent, order-preserving), heals the existing keyless and duplicate-key tasks by re-keying them in rendered order while leaving well-formed, store-unique keys untouched. The reindex writes only `sortKey`/`updated` through a byte-preserving path, so legacy fields (such as the singleton `commit`) are never dropped.

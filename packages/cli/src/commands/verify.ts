@@ -480,7 +480,7 @@ export async function verifyTask(
     // element still resolves and whether the page logged NEW console errors.
     // It cannot tell whether the task was accomplished, so verify stops here
     // and writes nothing — the AGENT judges correctness and attests with
-    // `--verified` / `--verify-failed` at the review transition (see
+    // `--set-verify pass|fail|cannot` at the review transition (see
     // core/verify-attestation.ts and core/review-gate.ts Gate 4).
     return buildResult(
       task.id,
@@ -977,7 +977,7 @@ export async function addVerifySystemComment(
   const truncation = result.captureTruncated
     ? `> **${captureTruncationWarning(MAX_ELEMENTS)}**\n\n`
     : "";
-  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n${truncation}_verify collects evidence only — it does not set the \`verified\` flag. The agent judges correctness and attests with \`--verified\`._\n\n${result.verdict}`;
+  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n${truncation}_verify collects evidence only — it does not set a verdict. The agent judges correctness and attests with \`--set-verify pass|fail|cannot\`._\n\n${result.verdict}`;
   addComment(projectDir, taskId, "agent", commentText, undefined, "system");
 }
 
@@ -1009,7 +1009,7 @@ export function printResult(result: VerifyResult): void {
   );
   console.log(
     chalk.dim(
-      "  verify does NOT set the 'verified' flag; YOU judge correctness and attest with --verified.",
+      "  verify does NOT set a verdict; YOU judge correctness and attest with --set-verify pass|fail|cannot.",
     ),
   );
   console.log(chalk.dim(`  Verdict: ${result.verdict}`));
@@ -1094,17 +1094,22 @@ export function printResult(result: VerifyResult): void {
   );
   console.log(
     chalk.dim(
-      `    2. Implemented correctly → vibeflow tasks --edit ${result.taskId} --set-status review --verified --comment "<what you confirmed>"`,
+      `    2. Implemented correctly → vibeflow tasks --edit ${result.taskId} --set-status review --set-verify pass --comment "<what you confirmed>"`,
     ),
   );
   console.log(
     chalk.dim(
-      "       --verified is your attestation; the review gate requires it on annotated tasks.",
+      "       --set-verify pass is your attestation; the review gate requires a verdict on annotated tasks.",
     ),
   );
   console.log(
     chalk.dim(
-      `    3. Implemented WRONG → record it and go back to fix it: --set-status in-progress --verify-failed`,
+      `    3. Implemented WRONG → record it and go back to fix it: --set-status in-progress --set-verify fail`,
+    ),
+  );
+  console.log(
+    chalk.dim(
+      "       Cannot verify here? → --set-status review --set-verify cannot --verify-reason \"<why>\"",
     ),
   );
   console.log(chalk.dim("       Never submit work you know is incomplete."));

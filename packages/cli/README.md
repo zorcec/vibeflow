@@ -156,11 +156,18 @@ vibeflow tasks --add --title "Adjust the tour copy" --parent <id>
 vibeflow tasks --edit <id> --set-status in-progress
 vibeflow tasks --edit <id> --title "Updated title" --description "More detail"
 
-# Mark as review (requires implementation report)
-vibeflow tasks --edit <id> --set-status review \
+# Verification verdict (agent attestation — pass/fail/cannot, one only)
+vibeflow tasks --edit <id> --set-verify pass                   # task IS implemented correctly (green badge)
+vibeflow tasks --edit <id> --set-verify fail                   # task is NOT correct (amber badge; blocks review)
+vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"  # unverifiable here (no badge; reason recorded)
+
+# Mark as review (requires implementation report; annotated URL+selector tasks also need a verdict)
+vibeflow tasks --edit <id> --set-status review --set-verify pass \
   --commit-message "fix: header layout" \
   --comment "Fixed the alignment issue by adjusting flex-wrap"
 ```
+
+`vibeflow verify <id>` only collects page-health evidence (the element resolves, no new console errors); it does not set a verdict. The agent judges correctness and attests with `--set-verify` when it moves the task to review — `pass` (implemented correctly), `fail` (not correct — blocks review), or `cannot` with `--verify-reason` (unverifiable here, recorded in the task's activity).
 
 **Task types:** Task · Bug · Feature · Enhancement · Research  
 **Task statuses:** backlog → todo → in-progress → review → done  

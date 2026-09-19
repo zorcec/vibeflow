@@ -358,8 +358,8 @@ export function SettingsModal({
         >
           <WorkflowToggle
             id="settings-verify-before-review"
-            label="Require verify before review"
-            description="Tasks with a URL and selector need your --verified attestation at review. Cleared when the task returns to in-progress."
+            label="Require a verification verdict before review"
+            description="Tasks with a URL and selector need a --set-verify verdict (pass|fail|cannot) at review. Cleared when the task returns to in-progress."
             value={requireVerifyBeforeReview}
             onChange={setRequireVerifyBeforeReview}
           />

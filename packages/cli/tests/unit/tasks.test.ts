@@ -1970,7 +1970,7 @@ describe("renderAgentInstructions", () => {
       requireVerifyBeforeReview: true,
     });
     expect(output).toContain("Verify gate ON");
-    expect(output).toContain("need your --verified attestation at review");
+    expect(output).toContain("need your --set-verify pass verdict at review");
   });
 
   it("excludes Verify gate setting when requireVerifyBeforeReview is false", () => {

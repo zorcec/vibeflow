@@ -154,9 +154,9 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("VERIFY_REQUIRED for an annotated task with no attestation on the transition", () => {
+  it("VERIFY_REQUIRED for an annotated task with no verdict on the transition", () => {
     // Nothing assessed yet (`verified` absent), so the gate needs the AGENT's
-    // positive attestation and blocks.
+    // verdict and blocks.
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
@@ -164,7 +164,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      { comment: "done", commitMessage: "fix: x" },
       {
         projectDir: tmpDir,
         settings: makeSettings({ requireVerifyBeforeReview: true }),
@@ -173,11 +173,14 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REQUIRED");
-      expect(result.suggestion).toContain("--verified");
+      // The error names all three verdict options so the agent can self-correct.
+      expect(result.suggestion).toContain("--set-verify pass");
+      expect(result.suggestion).toContain("--set-verify fail");
+      expect(result.suggestion).toContain("--set-verify cannot");
     }
   });
 
-  it("ALLOWS review when the transition carries the positive attestation", () => {
+  it("ALLOWS review when the transition carries the pass verdict", () => {
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
@@ -185,7 +188,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", verified: true },
+      { comment: "done", verifyVerdict: "pass" },
       {
         projectDir: tmpDir,
         settings: makeSettings({
@@ -197,7 +200,79 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("BLOCKS review when the store says verified:true but the transition carries no attestation", () => {
+  it("ALLOWS review with a cannot verdict when it carries a reason", () => {
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      {
+        comment: "done",
+        verifyVerdict: "cannot",
+        verifyReason: "no browser in this environment",
+      },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("REJECTS a cannot verdict without a reason (VERIFY_REASON_REQUIRED)", () => {
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verifyVerdict: "cannot" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REASON_REQUIRED");
+    }
+  });
+
+  it("REJECTS cannot without a reason even when the verify gate is OFF", () => {
+    // "cannot" REQUIRES --verify-reason unconditionally — the reason is what
+    // makes the verdict honest, so no setting can waive it.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verifyVerdict: "cannot" },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: false,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REASON_REQUIRED");
+    }
+  });
+
+  it("BLOCKS review when the store says verified:true but the transition carries no verdict", () => {
     // A stored flag is not the attestation — a stale `true` (written under the
     // old mechanical model, or by an earlier transition) must not carry a task
     // into review.
@@ -224,8 +299,8 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("BLOCKS review with verified:false — attested as NOT implemented correctly", () => {
-    // The core new behaviour: `false` is a completed verdict that the work is
+  it("BLOCKS review with a fail verdict — attested as NOT implemented correctly", () => {
+    // The core new behaviour: `fail` is a completed verdict that the work is
     // WRONG, so it can never be submittable to review.
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
@@ -234,7 +309,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", verified: false },
+      { comment: "done", verifyVerdict: "fail" },
       {
         projectDir: tmpDir,
         settings: makeSettings({
@@ -249,37 +324,12 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("BLOCKS review with verified:false even when skipVerify is true", () => {
-    // --skip-verify skips the requirement to verify; it cannot overrule the
-    // agent's own "this is NOT correct" verdict.
-    createTaskFile(tmpDir, "task-123", {
-      selector: ".submit-btn",
-      url: "https://example.com",
-    });
-    const result = checkReviewTransition(
-      tmpDir,
-      "task-123",
-      { comment: "done", verified: false, skipVerify: true },
-      {
-        projectDir: tmpDir,
-        settings: makeSettings({
-          requireVerifyBeforeReview: true,
-          autoCommit: false,
-        }),
-      },
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
-    }
-  });
-
-  it("BLOCKS review with verified:false for a task without URL/selector too", () => {
+  it("BLOCKS review with a fail verdict for a task without URL/selector too", () => {
     createTaskFile(tmpDir, "task-123", { selector: "/", url: undefined });
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", verified: false },
+      { comment: "done", verifyVerdict: "fail" },
       {
         projectDir: tmpDir,
         settings: makeSettings({
@@ -332,7 +382,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", commitMessage: "fix: x", skipVerify: false },
+      { comment: "done", commitMessage: "fix: x" },
       {
         projectDir: tmpDir,
         settings: makeSettings({ requireVerifyBeforeReview: true }),
@@ -344,7 +394,10 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("passes verify gate when skipVerify is true", () => {
+  it("ALLOWS review when a fresh pass verdict overrides a stored false", () => {
+    // A stored `false` is the agent's verdict that the work was WRONG; a fresh
+    // `pass` on THIS transition means the agent re-verified and the work now
+    // satisfies the ticket, so the fresh verdict wins.
     createTaskFile(tmpDir, "task-123", {
       selector: ".submit-btn",
       url: "https://example.com",
@@ -353,7 +406,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", skipVerify: true },
+      { comment: "done", verifyVerdict: "pass" },
       {
         projectDir: tmpDir,
         settings: makeSettings({
@@ -418,8 +471,8 @@ describe("checkReviewTransition", () => {
 
   // Regression for the reproduced case: Research task 9f6e1ac7 carries
   // url + selector '#main'. Before the fix the type-blind `isAnnotated` check
-  // made the gate demand a verification attestation the task can never produce,
-  // so the review transition was refused until --skip-verify.
+  // made the gate demand a verification verdict the task can never produce,
+  // so the review transition was refused until the old bypass flag.
   it("does NOT demand an attestation for a Research task with url + selector (9f6e1ac7)", () => {
     createTaskFile(tmpDir, "9f6e1ac7", {
       type: "Research",
@@ -473,7 +526,7 @@ describe("checkReviewTransition", () => {
     if (!result.ok) expect(result.code).toBe("RESEARCH_REPORT_REQUIRED");
   });
 
-  it("refuses LOUDLY when --verified is passed on a Research review transition", () => {
+  it("refuses LOUDLY when --set-verify pass is passed on a Research review transition", () => {
     createTaskFile(tmpDir, "task-123", {
       type: "Research",
       selector: "#main",
@@ -482,7 +535,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", verified: true },
+      { comment: "done", verifyVerdict: "pass" },
       {
         projectDir: tmpDir,
         settings: makeSettings({
@@ -497,7 +550,7 @@ describe("checkReviewTransition", () => {
     }
   });
 
-  it("refuses LOUDLY when --verify-failed is passed on a Research review transition", () => {
+  it("refuses LOUDLY when --set-verify fail is passed on a Research review transition", () => {
     createTaskFile(tmpDir, "task-123", {
       type: "Research",
       selector: "#main",
@@ -506,7 +559,7 @@ describe("checkReviewTransition", () => {
     const result = checkReviewTransition(
       tmpDir,
       "task-123",
-      { comment: "done", verified: false },
+      { comment: "done", verifyVerdict: "fail" },
       {
         projectDir: tmpDir,
         settings: makeSettings({

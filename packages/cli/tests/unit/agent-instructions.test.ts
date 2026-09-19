@@ -159,7 +159,7 @@ describe("renderAgentInstructions", () => {
       requireVerifyBeforeReview: true,
     });
     expect(text).toContain("Verify gate ON");
-    expect(text).toContain("need your --verified attestation at review");
+    expect(text).toContain("need your --set-verify pass verdict at review");
     expect(text).toContain("cannot make that call");
   });
 
@@ -182,13 +182,13 @@ describe("renderAgentInstructions", () => {
     expect(text).toContain("CANNOT tell whether you did what the ticket asked");
     // (3) the AGENT must attest, and the attestation is required at review
     expect(text).toContain(
-      "--verified is YOUR attestation that the task IS implemented correctly",
+      "--set-verify pass is YOUR attestation that the task IS implemented correctly",
     );
-    expect(text).toContain("requires it on annotated (URL + selector) tasks");
+    expect(text).toContain("requires a verdict on annotated (URL + selector) tasks");
     expect(text).toContain(
-      "record --verify-failed instead — that does NOT pass the gate",
+      "record --set-verify fail — that does NOT pass the gate",
     );
-    expect(text).toContain("--set-status review --verified");
+    expect(text).toContain("--set-status review --set-verify pass");
   });
 
   it("keeps the evidence wording when the verify gate is OFF, without the attestation", () => {
@@ -197,7 +197,7 @@ describe("renderAgentInstructions", () => {
       requireVerifyBeforeReview: false,
     });
     expect(text).toContain("it does NOT set the 'verified' flag");
-    expect(text).not.toContain("--set-status review --verified");
+    expect(text).not.toContain("--set-status review --set-verify pass");
   });
 
   it("excludes verify gate setting when requireVerifyBeforeReview is false", () => {
@@ -240,19 +240,19 @@ describe("renderAgentInstructions", () => {
     expect(text).toContain("documented command exists in --help");
   });
 
-  it("tells the agent to clear an unverifiable task so no badge shows", () => {
+  it("tells the agent to declare an unverifiable task so no badge shows", () => {
     const text = renderAgentInstructions({
       hasResearchTasks: false,
       requireVerifyBeforeReview: true,
       autoCommit: true,
       autoComment: true,
     });
-    expect(text).toContain("CLEAR the flag so no badge shows");
+    expect(text).toContain("declare it so no badge shows");
     expect(text).toContain(
-      "vibeflow tasks --edit <id> --unset-verified",
+      'vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
     );
-    expect(text).toContain("absent = not assessed");
-    expect(text).toContain("--verify-failed means verified WRONG");
+    expect(text).toContain("cannot records no verdict or badge");
+    expect(text).toContain("--set-verify fail means you verified it is WRONG");
   });
 
   it("keeps the always-verify and clearing guidance when the gate is OFF", () => {
@@ -262,6 +262,8 @@ describe("renderAgentInstructions", () => {
     });
     expect(text).toContain("ALWAYS attempt verification");
     expect(text).toContain("Non-UI task (docs, rename, copy, links, config)");
-    expect(text).toContain("vibeflow tasks --edit <id> --unset-verified");
+    expect(text).toContain(
+      'vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
+    );
   });
 });

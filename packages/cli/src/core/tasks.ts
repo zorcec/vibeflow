@@ -1307,11 +1307,12 @@ export function renderAgentInstructions(opts: {
   // When OFF, verify comes after review (optional step).
   const verifyBeforeReview = opts.requireVerifyBeforeReview;
   // Shared verify-step wording, used by every branch that lists verify. It must
-  // state all three facts: verify only gathers evidence; it does not set
-  // `verified` and cannot judge correctness; the agent must attest itself and
-  // the review gate requires that attestation. It must also tell the agent to
-  // ALWAYS attempt verification (annotated or not), and to CLEAR the flag via
-  // --unset-verified when a task genuinely cannot be verified here.
+  // state all three facts: verify only gathers evidence; it does not set a
+  // verdict and cannot judge correctness; the agent must attest itself with
+  // --set-verify and the review gate requires that verdict. It must also tell
+  // the agent to ALWAYS attempt verification (annotated or not), and to record
+  // --set-verify cannot --verify-reason "<why>" when a task genuinely cannot be
+  // verified here.
   const verifyEvidenceLines: string[] = [];
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
@@ -1363,30 +1364,34 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       If the task genuinely CANNOT be verified here, CLEAR the flag so no badge shows:",
+    "       If the task genuinely CANNOT be verified here, declare it so no badge shows:",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "         vibeflow tasks --edit <id> --unset-verified",
+    '         vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       (absent = not assessed — the honest state for an unverifiable task; --verify-failed means verified WRONG.)",
+    "       (cannot records no verdict or badge — the honest state for an unverifiable task; the reason",
+  );
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  verifyEvidenceLines.push(
+    "       is recorded in the task's activity. --set-verify fail means you verified it is WRONG.)",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push("       Never submit work you know is incomplete.");
   const verifyAttestationLines: string[] = [];
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyAttestationLines.push(
-    "       --verified is YOUR attestation that the task IS implemented correctly. The review gate",
+    "       --set-verify pass is YOUR attestation that the task IS implemented correctly. The review gate",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyAttestationLines.push(
-    "       requires it on annotated (URL + selector) tasks. If you verified and the task is WRONG,",
+    "       requires a verdict on annotated (URL + selector) tasks. If you verified and the task is",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyAttestationLines.push(
-    "       record --verify-failed instead — that does NOT pass the gate; fix the work first.",
+    "       WRONG, record --set-verify fail — that does NOT pass the gate; fix the work first.",
   );
   if (verifyBeforeReview) {
     // Verify gate ON: verify → review
@@ -1402,7 +1407,7 @@ export function renderAgentInstructions(opts: {
         `    ${createBranch ? "5" : "4"}. vibeflow verify <id>   (collect the EVIDENCE — it does NOT set the 'verified' flag)`,
       );
       lines.push(...verifyEvidenceLines);
-      const reviewArgs = ["--set-status review", "--verified"];
+      const reviewArgs = ["--set-status review", "--set-verify pass"];
       if (autoCommit) reviewArgs.push('--commit-message "<one-line summary>"');
       if (autoComment) reviewArgs.push('--comment "<report>"');
       lines.push(
@@ -1425,7 +1430,7 @@ export function renderAgentInstructions(opts: {
         `    ${createBranch ? "5" : "4"}. vibeflow verify <id>   (collect the EVIDENCE — it does NOT set the 'verified' flag)`,
       );
       lines.push(...verifyEvidenceLines);
-      const reviewArgs = ["--set-status review", "--verified"];
+      const reviewArgs = ["--set-status review", "--set-verify pass"];
       if (autoComment) reviewArgs.push('--comment "<report>"');
       lines.push(
         `    ${createBranch ? "6" : "5"}. vibeflow tasks --edit <id> ${reviewArgs.join(" ")}`,
@@ -1521,15 +1526,15 @@ export function renderAgentInstructions(opts: {
   if (opts.requireVerifyBeforeReview) {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "  [setting] Verify gate ON: tasks WITH a URL + selector need your --verified attestation at review.",
+      "  [setting] Verify gate ON: tasks WITH a URL + selector need your --set-verify pass verdict at review (or --set-verify cannot --verify-reason \"<why>\").",
     );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    --verified is YOUR judgement that the task IS implemented correctly; vibeflow verify only",
+      "    --set-verify is YOUR judgement: pass = implemented correctly, fail = NOT correct, cannot = unverifiable here.",
     );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    gathers evidence (element resolves + no new console errors) and cannot make that call.",
+      "    vibeflow verify only gathers evidence (element resolves + no new console errors) and cannot make that call.",
     );
   }
   if (opts.hasResearchTasks) {

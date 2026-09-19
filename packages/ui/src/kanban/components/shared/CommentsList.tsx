@@ -197,7 +197,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
             id="dp-toggle-updates"
             onClick={() => setShowUpdates(v => {
               const next = !v;
-              try { localStorage.setItem('vibeflow-show-updates', String(next)); } catch {}
+              try { localStorage.setItem('vibeflow-show-updates', String(next)); } catch { /* storage may be unavailable */ }
               return next;
             })}
             style={{
@@ -366,6 +366,39 @@ function renderActivityItem(
   const isEditing = editingId === c.id;
 
   if (isSystem) {
+    // A `--set-verify cannot --verify-reason "..."` verdict is recorded as a
+    // system comment (`**Cannot verify:** <reason>`). Surface it in the detail
+    // panel's activity feed as a distinct, labeled item so reviewers can see
+    // why the task carries no verdict (and no badge).
+    const cannotMatch = c.text.match(/^\*\*Cannot verify\*\*:\s*(.+)$/s);
+    if (cannotMatch) {
+      return (
+        <div
+          key={c.id}
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 6,
+            padding: '2px 0',
+            fontSize: 11,
+          }}
+        >
+          <span
+            style={{
+              color: 'var(--t-warning)',
+              flexShrink: 0,
+              paddingTop: 1,
+            }}
+          >
+            ⚠
+          </span>
+          <span style={{ flex: 1, minWidth: 0, color: 'var(--t-text-body)' }}>
+            Cannot verify — {cannotMatch[1].trim()}
+          </span>
+          {!isGrouped && <span style={{ flexShrink: 0, opacity: 0.6 }}>{formatDate(c.createdAt)}</span>}
+        </div>
+      );
+    }
     return (
       <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--t-text-body)', fontStyle: 'italic' }}>
         <span style={{ opacity: 0.6 }}>⬡</span>

@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { execSync, execFileSync } from "node:child_process";
 import { serve } from "./server/server.js";
 import {
@@ -753,21 +753,15 @@ program
     "--branch <name>",
     "Git branch name for the task (required when createBranch setting is ON and setting status to review)",
   )
-  .option(
-    "--skip-verify",
-    "Skip the verify attestation gate (only annotated tasks — URL + selector — are gated)",
+  .addOption(
+    new Option(
+      "--set-verify <verdict>",
+      "Agent verification verdict: pass (task IS implemented correctly — green badge), fail (task is NOT correct — amber badge, blocks review), cannot (unverifiable here — requires --verify-reason; records no badge)",
+    ).choices(["pass", "fail", "cannot"]),
   )
   .option(
-    "--verified",
-    "Agent attestation: YOU verified the work and the task IS implemented correctly (required at review for annotated tasks)",
-  )
-  .option(
-    "--verify-failed",
-    "Agent attestation: you verified the work and the task is NOT implemented correctly (records verified:false; the review gate rejects it)",
-  )
-  .option(
-    "--unset-verified",
-    "Clear the verify verdict back to absent so no badge shows. Use when a task genuinely cannot be verified; distinct from --verify-failed, which records verified:false (verified as WRONG)",
+    "--verify-reason <reason>",
+    "Why the task cannot be verified — REQUIRED when --set-verify cannot; recorded in the task's activity",
   )
   .option(
     "--limit <n>",
@@ -818,10 +812,8 @@ program
         tag?: string[];
         dryRun?: boolean;
         fields?: string;
-        skipVerify?: boolean;
-        verified?: boolean;
-        verifyFailed?: boolean;
-        unsetVerified?: boolean;
+        setVerify?: "pass" | "fail" | "cannot";
+        verifyReason?: string;
         priority?: string;
         reindexSortKeys?: boolean;
       },
@@ -1916,9 +1908,8 @@ program
             opts.description ||
             wantsParentChange ||
             opts.reportFile ||
-            opts.verified ||
-            opts.verifyFailed ||
-            opts.unsetVerified ||
+            opts.setVerify ||
+            opts.verifyReason?.trim() ||
             opts.comment?.trim();
 
           if (!taskId || !hasEdits) {
@@ -1949,7 +1940,7 @@ program
             );
             console.log(
               chalk.cyan(
-                "  verification attestation: [--verified | --verify-failed | --unset-verified]  (agent-only; --verified is required at review for annotated tasks; --unset-verified clears to absent — no badge)",
+                "  verification verdict (agent-only): [--set-verify pass|fail|cannot]  (required at review for annotated tasks; pass = correct, fail = NOT correct — blocks review; cannot needs --verify-reason \"<why>\" and records no badge)",
               ),
             );
             console.log();
@@ -2088,18 +2079,18 @@ program
             return;
           }
 
-          // ── Agent verification attestation ────────────────────────────────
+          // ── Agent verification verdict ────────────────────────────────────
           // `verified` is written by the AGENT, never by `vibeflow verify`:
           // verify only proves the annotated element resolves and that no NEW
           // console errors appeared, which cannot tell whether the task was
-          // accomplished. Resolve the flag pair once, before the review gate.
+          // accomplished. Resolve the tri-state flag once, before the review
+          // gate: pass → true, fail → false, cannot → absent (with a reason).
           const { resolveVerifyAttestation } = await import(
             "./core/verify-attestation.js"
           );
           const attestation = resolveVerifyAttestation({
-            verified: opts.verified,
-            verifyFailed: opts.verifyFailed,
-            unset: opts.unsetVerified,
+            setVerify: opts.setVerify,
+            verifyReason: opts.verifyReason,
           });
           if (!attestation.ok) {
             console.log(chalk.red(`✗ ${attestation.message}`));
@@ -2148,15 +2139,23 @@ program
             const { checkReviewTransition } = await import(
               "./core/review-gate.js"
             );
+            // Resolve a partial ID prefix BEFORE the gate: the gate reads the
+            // task file to decide whether it is annotated, so a short prefix
+            // (matching how --get/--edit resolve) would otherwise bypass the
+            // verdict check entirely.
+            const gateTaskId =
+              listTasks(projectDir).find(
+                (t) => t.id === taskId || t.id.startsWith(taskId),
+              )?.id ?? taskId;
             const gate = checkReviewTransition(
               projectDir,
-              taskId,
+              gateTaskId,
               {
                 comment: opts.comment,
                 commitMessage: opts.commitMessage,
                 branch: opts.branch,
-                skipVerify: opts.skipVerify,
-                verified: attestation.value,
+                verifyVerdict: attestation.verdict,
+                verifyReason: opts.verifyReason,
               },
               { projectDir, settings },
             );
@@ -2314,9 +2313,14 @@ program
                   ? "(cleared)"
                   : (opts.setParent ?? "(cleared)");
             if (opts.branch) dryUpdates.branchName = opts.branch;
-            if (attestation.clear) dryUpdates.verified = "(cleared)";
-            else if (attestation.value !== undefined)
+            if (attestation.verdict === "cannot") {
+              dryUpdates.verified = "(cleared — cannot verify)";
+              dryUpdates.verifyReason = attestation.reason;
+            } else if (attestation.clear) {
+              dryUpdates.verified = "(cleared)";
+            } else if (attestation.value !== undefined) {
               dryUpdates.verified = attestation.value;
+            }
             if (opts.json) {
               console.log(
                 JSON.stringify(
@@ -2494,12 +2498,15 @@ program
             updates.verified = undefined;
           }
 
-          // Agent attestation, applied after the reset-on-claim above: the reset
+          // Agent verdict, applied after the reset-on-claim above: the reset
           // is the default for a claim that carries no verdict, while a verdict
-          // passed deliberately in the same call (e.g. in-progress + --verify-failed)
-          // is what gets recorded. `--unset-verified` clears the key (absent = not
-          // assessed) — distinct from --verify-failed, which stores false (WRONG).
-          if (attestation.clear) {
+          // passed deliberately in the same call (e.g. in-progress +
+          // --set-verify fail) is what gets recorded. `cannot` clears the key
+          // (absent = not assessed — no badge) — distinct from `fail`, which
+          // stores false (verified WRONG).
+          if (attestation.verdict === "cannot") {
+            updates.verified = undefined;
+          } else if (attestation.clear) {
             updates.verified = undefined;
           } else if (attestation.value !== undefined) {
             updates.verified = attestation.value;
@@ -2530,6 +2537,30 @@ program
               );
             } catch (err) {
               commentError = err instanceof Error ? err.message : String(err);
+            }
+          }
+
+          // A "cannot" verdict's reason is recorded in the task's activity
+          // (system comment) so the detail panel shows why the task carries no
+          // verdict. Only reachable when the verdict + reason passed the gate.
+          if (attestation.verdict === "cannot" && attestation.reason) {
+            try {
+              await addComment(
+                resolve(dir),
+                resolvedTaskId,
+                "agent",
+                `**Cannot verify:** ${attestation.reason}`,
+                undefined,
+                "system",
+              );
+            } catch (err) {
+              const reasonError =
+                err instanceof Error ? err.message : String(err);
+              console.log(
+                chalk.yellow(
+                  `⚠ Verify reason was NOT recorded: ${reasonError}`,
+                ),
+              );
             }
           }
 

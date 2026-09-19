@@ -229,3 +229,23 @@ describe("buildChangelogResponse", () => {
     });
   });
 });
+
+describe("CHANGELOG.md highlights constraint", () => {
+  it("has exactly one ### Highlights subsection (consolidated)", () => {
+    const content = readChangelogContent() ?? "";
+    const highlightMatches = content.match(/^  ### Highlights$/gm) ?? [];
+    expect(highlightMatches).toHaveLength(1);
+  });
+
+  it("the single highlight mentions parent-child", () => {
+    const content = readChangelogContent() ?? "";
+    const lines = content.split("\n");
+    const idx = lines.findIndex((l: string) => l.trim() === "### Highlights");
+    expect(idx).toBeGreaterThan(-1);
+    const bullet = lines
+      .slice(idx + 1)
+      .find((l: string) => l.trim().startsWith("- "));
+    expect(bullet).toBeDefined();
+    expect(bullet?.toLowerCase()).toContain("parent");
+  });
+});

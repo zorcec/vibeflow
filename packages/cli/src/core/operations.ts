@@ -103,16 +103,15 @@ export const UpdateTaskInput = z.object({
   branch: z.string().optional(),
   comment: z.string().optional(),
   commitMessage: z.string().optional(),
-  skipVerify: z.boolean().default(false),
-  // Agent attestation for `verified` (parity with the CLI's --verified /
-  // --verify-failed / --unset-verified): true = the agent verified the task IS
-  // implemented correctly, false = verified and it is NOT, null = CLEAR the
-  // verdict back to absent (parity with --unset-verified) — the honest state
-  // for a task that cannot be assessed here, and NOT the same as false.
+  // Verification verdict (parity with the CLI's --set-verify / --verify-reason):
+  // "pass" => verified=true (green badge), "fail" => verified=false (amber
+  // badge, the review gate rejects it), "cannot" => verified=absent (no badge)
+  // and REQUIRES verifyReason, which is recorded in the task's activity.
   // Omitting the field leaves any stored verdict untouched. `vibeflow verify`
   // never writes this flag — only the agent does, and review-gate.ts Gate 4
-  // requires the positive value on the review transition itself.
-  verified: z.boolean().nullable().optional(),
+  // requires a verdict that lets the task through on the review transition.
+  setVerify: z.enum(["pass", "fail", "cannot"]).optional(),
+  verifyReason: z.string().optional(),
   dryRun: z.boolean().default(false),
   // Replace semantics for the task's links (matches the HTTP PATCH route):
   // the array becomes the full link set and an empty array clears every link.
@@ -418,10 +417,8 @@ export async function updateTask(
         {
           comment: input.comment,
           commitMessage: input.commitMessage,
-          skipVerify: input.skipVerify,
-          // `null` (clear) is not an attestation, so the gate sees it as an
-          // absent verdict — it can never satisfy Gate 4's positive requirement.
-          verified: input.verified ?? undefined,
+          verifyVerdict: input.setVerify,
+          verifyReason: input.verifyReason,
         },
         { projectDir: ctx.projectDir, settings },
       );
@@ -484,16 +481,17 @@ export async function updateTask(
       updates.verified = undefined;
     }
 
-    // Agent attestation, applied after the reset-on-claim above (parity with the
-    // CLI): the reset is the default for a claim without a verdict, an explicit
-    // verdict in the same call is what gets recorded, and an explicit `null`
-    // clears the key (parity with --unset-verified) so the store stays
-    // tri-state. `null` is a clear, never `false`: false is the positive claim
-    // that the task IS wrong.
-    if (input.verified === null) {
+    // Verification verdict, applied after the reset-on-claim above (parity with
+    // the CLI): the reset is the default for a claim without a verdict, an
+    // explicit verdict in the same call is what gets recorded, and "cannot"
+    // writes ABSENCE (no badge) — distinct from "fail", which stores false (the
+    // completed verdict that the task is WRONG).
+    if (input.setVerify === "pass") {
+      updates.verified = true;
+    } else if (input.setVerify === "fail") {
+      updates.verified = false;
+    } else if (input.setVerify === "cannot") {
       updates.verified = undefined;
-    } else if (input.verified !== undefined) {
-      updates.verified = input.verified;
     }
 
     // Author attribution on status changes (parity with the CLI --edit path):
@@ -519,6 +517,21 @@ export async function updateTask(
     if (input.comment) {
       const { addComment } = await import("../core/comments.js");
       addComment(ctx.projectDir, input.id, "agent", input.comment);
+    }
+
+    // A "cannot" verdict's reason is recorded in the task's activity (system
+    // comment) so the detail panel shows why the task carries no verdict. Only
+    // when the verdict and reason both survived the gate.
+    if (input.setVerify === "cannot" && input.verifyReason?.trim()) {
+      const { addComment } = await import("../core/comments.js");
+      addComment(
+        ctx.projectDir,
+        input.id,
+        "agent",
+        `**Cannot verify:** ${input.verifyReason.trim()}`,
+        undefined,
+        "system",
+      );
     }
 
     // Auto-commit after review transition (parity with CLI auto-commit path)

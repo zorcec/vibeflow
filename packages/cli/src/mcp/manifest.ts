@@ -134,7 +134,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and replacing the task's links (parent/relates/blocks; pass an empty array to clear). Pass verified:true to attest that the task IS implemented correctly — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself. Pass verified:false to record that it is NOT implemented correctly. Pass verified:null to CLEAR the verdict back to absent (parity with --unset-verified) — the honest state for a task that cannot be assessed here, and distinct from false, which is a completed verdict of failure.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and replacing the task's links (parent/relates/blocks; pass an empty array to clear). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -145,10 +145,8 @@ export const manifest: ToolManifest[] = [
         "--branch",
         "--comment",
         "--commit-message",
-        "--skip-verify",
-        "--verified",
-        "--verify-failed",
-        "--unset-verified",
+        "--set-verify",
+        "--verify-reason",
         "--set-parent",
         "--no-parent",
       ],

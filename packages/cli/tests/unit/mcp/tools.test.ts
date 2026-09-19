@@ -240,12 +240,17 @@ describe("update_task", () => {
     expect(result.steps).toContain("Dry run: task would be updated");
   });
 
-  // Tri-state parity with the CLI: verified:null CLEARS the verdict (absent),
-  // it does NOT store false — false is the positive claim that the task is wrong.
-  it("verified:null clears a stored verdict to absent", async () => {
+  // Tri-state parity with the CLI: setVerify "cannot" CLEARS the verdict
+  // (absent), it does NOT store false — false is the claim that the task is
+  // wrong, reserved for a fail verdict.
+  it("setVerify cannot clears a stored verdict to absent", async () => {
     createTestTask({ id: "task-1", verified: true });
 
-    const result = await updateTask(ctx, { id: "task-1", verified: null });
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      setVerify: "cannot",
+      verifyReason: "no env",
+    });
     expect(result.ok).toBe(true);
     expect(result.data?.verified).toBeUndefined();
     // Absence must be the missing KEY, not a false value.
@@ -253,25 +258,25 @@ describe("update_task", () => {
     expect("verified" in readStoredTask("task-1")).toBe(false);
   });
 
-  it("verified:false stores false and is NOT treated as a clear", async () => {
+  it("setVerify fail stores false and is NOT treated as a clear", async () => {
     createTestTask({ id: "task-1", verified: true });
 
-    const result = await updateTask(ctx, { id: "task-1", verified: false });
+    const result = await updateTask(ctx, { id: "task-1", setVerify: "fail" });
     expect(result.ok).toBe(true);
     expect(result.data?.verified).toBe(false);
     expect(readStoredTask("task-1").verified).toBe(false);
     expect("verified" in readStoredTask("task-1")).toBe(true);
   });
 
-  it("verified:true stores true", async () => {
+  it("setVerify pass stores true", async () => {
     createTestTask({ id: "task-1" });
 
-    const result = await updateTask(ctx, { id: "task-1", verified: true });
+    const result = await updateTask(ctx, { id: "task-1", setVerify: "pass" });
     expect(result.ok).toBe(true);
     expect(readStoredTask("task-1").verified).toBe(true);
   });
 
-  it("omitting verified leaves an existing verdict untouched", async () => {
+  it("omitting setVerify leaves an existing verdict untouched", async () => {
     createTestTask({ id: "task-1", verified: true });
 
     await updateTask(ctx, { id: "task-1", title: "Renamed" });

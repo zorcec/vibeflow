@@ -537,13 +537,13 @@ describe("verifyTask — system comments", () => {
     );
   });
 
-  it("system comment says the run does not set the verified flag", async () => {
+  it("system comment says the run does not set a verdict", async () => {
     await runVerify(tempDir, "test-task-123", { json: false });
 
     const commentText = vi.mocked(commentsModule.addComment).mock
       .calls[0][3] as string;
-    expect(commentText).toContain("does not set the `verified` flag");
-    expect(commentText).toContain("--verified");
+    expect(commentText).toContain("does not set a verdict");
+    expect(commentText).toContain("--set-verify pass|fail|cannot");
   });
 });
 
@@ -618,8 +618,8 @@ describe("runVerify — CLI entry point", () => {
     const out = logs.join("\n");
     expect(out).toContain("Page-health evidence (result.ok):");
     expect(out).toContain("CANNOT tell whether you did what the task asked");
-    expect(out).toContain("verify does NOT set the 'verified' flag");
-    expect(out).toContain("--verified");
+    expect(out).toContain("verify does NOT set a verdict");
+    expect(out).toContain("--set-verify pass|fail|cannot");
 
     consoleSpy.mockRestore();
   });

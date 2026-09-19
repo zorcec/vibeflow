@@ -75,7 +75,7 @@
 | ------ | ------- | -------- | ------- |
 | Update title | `tasks --edit <id> --title "New"` | ✅ Pass | Title updated |
 | Change status | `tasks --edit <id> --set-status in-progress` | ✅ Pass | Status changed |
-| Review with skip | `tasks --edit <id> --set-status review --skip-verify` | ✅ Pass | Works |
+| Review with verdict | `tasks --edit <id> --set-status review --set-verify pass` | ✅ Pass | Works |
 | Dry run | `tasks --edit <id> --set-status done --dry-run` | ✅ Pass | Returns preview |
 | Add comment | `tasks --edit <id> --comment "Test"` | ✅ Pass | Comment added |
 | Non-existent | `tasks --edit nonexistent --title "fail"` | ✅ Pass | Returns error |
@@ -100,9 +100,9 @@
 
 | Test | Input | Result | Notes |
 | ------ | ------- | -------- | ------- |
-| TXT file | `tasks --edit <id> --report-file test.txt --set-status review --skip-verify` | ✅ Pass | File attached |
-| MD file | `tasks --edit <id> --report-file report.md --set-status review --skip-verify` | ✅ Pass | File attached |
-| Non-existent | `tasks --edit nonexistent --report-file test.txt --set-status review --skip-verify` | ✅ Pass | Returns error |
+| TXT file | `tasks --edit <id> --report-file test.txt --set-status review --set-verify pass` | ✅ Pass | File attached |
+| MD file | `tasks --edit <id> --report-file report.md --set-status review --set-verify pass` | ✅ Pass | File attached |
+| Non-existent | `tasks --edit nonexistent --report-file test.txt --set-status review --set-verify pass` | ✅ Pass | Returns error |
 
 ### 3.8 export_prompt
 

@@ -422,7 +422,7 @@ describe("MCP update_task gates", () => {
     );
   });
 
-  it("3: status review + comment + skipVerify → ok", async () => {
+  it("3: status review + comment + setVerify pass → ok", async () => {
     const task = await assertJsonTextContent(
       await callTool(client, "create_task", { title: "gate 3" }),
     );
@@ -431,7 +431,7 @@ describe("MCP update_task gates", () => {
         id: task.id,
         status: "review",
         comment: "x",
-        skipVerify: true,
+        setVerify: "pass",
       }),
     );
     expect(parsed.status).toBe("review");

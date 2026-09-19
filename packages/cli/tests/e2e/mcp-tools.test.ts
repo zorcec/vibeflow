@@ -597,10 +597,10 @@ describe("MCP tools happy paths", () => {
     });
   });
 
-  // ── 12. update_task — verify tri-state (clear via null over the wire) ──
+  // ── 12. update_task — verify tri-state (setVerify over the wire) ──
 
   describe("update_task verify tri-state", () => {
-    it("12a: verified:null clears a stored verdict to absent", async () => {
+    it("12a: setVerify cannot (with reason) clears a stored verdict to absent", async () => {
       const r = await callTool(client, "create_task", {
         title: "Attested task",
       });
@@ -608,21 +608,22 @@ describe("MCP tools happy paths", () => {
 
       const set = await callTool(client, "update_task", {
         id: task.id,
-        verified: true,
+        setVerify: "pass",
       });
       expect((await assertJsonTextContent(set)).verified).toBe(true);
       expect(diskField(env.projectDir, task.id, "verified")).toBe(true);
 
       const cleared = await callTool(client, "update_task", {
         id: task.id,
-        verified: null,
+        setVerify: "cannot",
+        verifyReason: "no env",
       });
       expect((await assertJsonTextContent(cleared)).verified).toBeUndefined();
       // Absence is the missing KEY — not a false value.
       expect(hasDiskField(env.projectDir, task.id, "verified")).toBe(false);
     });
 
-    it("12b: verified:false stores false and is NOT a clear", async () => {
+    it("12b: setVerify fail stores false and is NOT a clear", async () => {
       const r = await callTool(client, "create_task", {
         title: "Failed task",
       });
@@ -630,7 +631,7 @@ describe("MCP tools happy paths", () => {
 
       const set = await callTool(client, "update_task", {
         id: task.id,
-        verified: false,
+        setVerify: "fail",
       });
       expect((await assertJsonTextContent(set)).verified).toBe(false);
       expect(diskField(env.projectDir, task.id, "verified")).toBe(false);
