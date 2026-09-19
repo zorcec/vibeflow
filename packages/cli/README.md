@@ -6,7 +6,7 @@ Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any
 
 🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
 
-![The Vibeflow Kanban board — backlog, todo, in-progress, review and done columns filled with typed, prioritised task cards](docs/demo/board-overview.png)
+![The Vibeflow Kanban board — backlog, todo, in-progress, review and done columns filled with typed, prioritised task cards](https://www.vibeflow.tools/assets/demo/board-overview.png)
 
 ---
 
@@ -65,7 +65,7 @@ npx @vibeflow-tools/cli tasks --next
 
 ### Drag tasks across the board
 
-![Dragging a task card between Kanban columns](docs/demo/drag-and-drop.gif)
+![Dragging a task card between Kanban columns](https://www.vibeflow.tools/assets/demo/drag-and-drop.gif)
 
 Backlog → Todo → In Progress → Review → Done. Drag a card to change its status and the
 board persists the new column and order, even after a reload. Tag, user and type filters
@@ -74,7 +74,7 @@ store — so the CLI and your agent see it immediately.
 
 ### Break work into a parent / child tree
 
-![A parent task card with its child tasks expanded as an inline tree](docs/demo/parent-tree.gif)
+![A parent task card with its child tasks expanded as an inline tree](https://www.vibeflow.tools/assets/demo/parent-tree.gif)
 
 Turn an epic into child tasks that keep their own status, priority and history. Expand
 the tree inline on the card, or create children from the terminal with
@@ -83,7 +83,7 @@ the tree inline on the card, or create children from the terminal with
 
 ### Get the whole ticket in one panel
 
-![The task detail panel with status, description, tags, priority, relations, activity and files](docs/demo/task-detail.gif)
+![The task detail panel with status, description, tags, priority, relations, activity and files](https://www.vibeflow.tools/assets/demo/task-detail.gif)
 
 Open any card for the full ticket: status, description, tags, priority, author,
 relations (children and related tasks), an activity feed and file attachments. Changes
