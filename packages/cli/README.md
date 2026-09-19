@@ -82,6 +82,13 @@ to the task instead of your Downloads folder.
 
 ---
 
+## Related Packages
+
+- [**@vibeflow-tools/prototyping**](https://www.npmjs.com/package/@vibeflow-tools/prototyping) — in-app variant switching for React with URL persistence. `npm install @vibeflow-tools/prototyping`
+- [**Live kanban demo**](https://www.vibeflow.tools/) — try the vibeflow board in your browser.
+
+---
+
 ## Commands
 
 | Command | Description |
