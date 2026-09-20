@@ -1422,8 +1422,8 @@ export function renderAgentInstructions(opts: {
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
         createBranch
-          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
-          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>" -- <files>'
+          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>" -- <files>',
       );
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
@@ -1460,8 +1460,8 @@ export function renderAgentInstructions(opts: {
       // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
       lines.push(
         createBranch
-          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"'
-          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>"',
+          ? '    4. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>" -- <files>'
+          : '    3. git add <files> && vibeflow tasks --commit --task <id> --message "<one-line summary>" -- <files>',
       );
       const reviewArgs = ["--set-status review"];
       if (autoComment) reviewArgs.push('--comment "<report>"');

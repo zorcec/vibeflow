@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { execSync, execFileSync } from "node:child_process";
-import { commitTaskChanges } from "../../src/core/git.js";
+import { commitTaskChanges, commitTaskPaths } from "../../src/core/git.js";
 import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 
 // Git exports repo-location vars (GIT_DIR, GIT_WORK_TREE, …) to hooks such as
@@ -43,6 +43,21 @@ function initGitRepo(dir: string) {
     env: gitEnv,
     stdio: "ignore",
   });
+}
+
+/** Creates the initial commit so `HEAD` exists for the nothing-to-commit cases. */
+function initialCommit(dir: string) {
+  execFileSync("git", ["commit", "--allow-empty", "-m", "init"], {
+    cwd: dir,
+    env: gitEnv,
+    stdio: "ignore",
+  });
+}
+
+function headSha(dir: string): string {
+  return execSync("git rev-parse HEAD", { cwd: dir, env: gitEnv })
+    .toString()
+    .trim();
 }
 
 function taskFilePath(dir: string, taskId: string): string {
@@ -236,5 +251,107 @@ describe("commitTaskChanges", () => {
 
     const committed = committedFiles(tmpDir).sort();
     expect(committed).toEqual([relShot, relTask].sort());
+  });
+});
+
+describe("commitTaskPaths", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    initGitRepo(tmpDir);
+    initialCommit(tmpDir);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("commits only the explicit paths and leaves other staged paths alone", () => {
+    const taskId = "paths-task-001";
+    createTaskFile(tmpDir, taskId);
+    writeFileSync(join(tmpDir, "a.txt"), "lane A content");
+    writeFileSync(join(tmpDir, "b.txt"), "lane B content");
+    stage(tmpDir, "a.txt");
+    stage(tmpDir, "b.txt");
+
+    const result = commitTaskPaths(tmpDir, taskId, "commit a only", ["a.txt"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.linkedExisting).toBe(false);
+      expect(result.committed).toEqual(["a.txt"]);
+      expect(result.foreign).toEqual([]);
+    }
+
+    // Only a.txt is in the commit; b.txt stays staged for its own owner.
+    expect(committedFiles(tmpDir)).toEqual(["a.txt"]);
+    expect(stagedFiles(tmpDir)).toContain("b.txt");
+  });
+
+  it("commits only the task's own record when no paths are given", () => {
+    const taskId = "paths-task-002";
+    createTaskFile(tmpDir, taskId);
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    stage(tmpDir, relTask);
+
+    // Another lane's staged file must be reported and left in the index.
+    writeFileSync(join(tmpDir, "foreign.txt"), "another lane's work");
+    stage(tmpDir, "foreign.txt");
+
+    const result = commitTaskPaths(tmpDir, taskId, "task record only");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.linkedExisting).toBe(false);
+      expect(result.committed).toEqual([relTask]);
+      expect(result.foreign).toEqual(["foreign.txt"]);
+    }
+
+    expect(committedFiles(tmpDir)).toEqual([relTask]);
+    expect(stagedFiles(tmpDir)).toContain("foreign.txt");
+  });
+
+  it("links existing HEAD instead of failing when the tree is clean", () => {
+    const taskId = "paths-task-003";
+    createTaskFile(tmpDir, taskId);
+    const before = headSha(tmpDir);
+
+    const result = commitTaskPaths(tmpDir, taskId, "nothing new");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.linkedExisting).toBe(true);
+      expect(result.sha).toBe(before);
+      expect(result.committed).toEqual([]);
+    }
+
+    // No new commit was created, but the task still carries the linked SHA.
+    expect(headSha(tmpDir)).toBe(before);
+    const task = JSON.parse(
+      readFileSync(taskFilePath(tmpDir, taskId), "utf-8"),
+    );
+    expect(task.commits).toHaveLength(1);
+    expect(task.commits[0].sha).toBe(before);
+  });
+
+  it("links existing HEAD when explicit paths have no changes", () => {
+    const taskId = "paths-task-004";
+    createTaskFile(tmpDir, taskId);
+    writeFileSync(join(tmpDir, "tracked.txt"), "original");
+    stage(tmpDir, "tracked.txt");
+    execFileSync("git", ["commit", "-m", "add tracked", "--", "tracked.txt"], {
+      cwd: tmpDir,
+      env: gitEnv,
+      stdio: "ignore",
+    });
+    const before = headSha(tmpDir);
+
+    const result = commitTaskPaths(tmpDir, taskId, "no changes", [
+      "tracked.txt",
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.linkedExisting).toBe(true);
+      expect(result.sha).toBe(before);
+    }
+    expect(headSha(tmpDir)).toBe(before);
   });
 });

@@ -292,7 +292,7 @@ function getNextActions(
       return [
         "implement the change",
         "run tests",
-        `commit with vibeflow tasks --commit --task ${taskId} --message "..."`,
+        `commit with vibeflow tasks --commit --task ${taskId} --message "..." -- <paths...>`,
         "set review status",
       ];
     case "set-status:review":
@@ -303,6 +303,32 @@ function getNextActions(
       ];
   }
 }
+
+/**
+ * Splits the `-- <paths...>` pathspec off the raw argv for
+ * `vibeflow tasks --commit`.
+ *
+ * Commander binds the first free operand to the command's optional `[dir]`
+ * argument, so `tasks --commit ... -- a.txt b.txt` would set dir="a.txt" and
+ * lose the first path. Everything after the `--` separator is removed from the
+ * argv handed to commander and returned as the pathspec instead. Only the
+ * `tasks --commit` form accepts a pathspec; every other `--` use is untouched.
+ */
+function splitCommitPathspec(argv: string[]): {
+  argv: string[];
+  paths: string[];
+} {
+  const sep = argv.indexOf("--");
+  // argv[0..1] are node + script; argv[2] is the sub-command.
+  if (sep === -1 || argv[2] !== "tasks") return { argv, paths: [] };
+  const before = argv.slice(0, sep);
+  if (!before.includes("--commit")) return { argv, paths: [] };
+  return { argv: before, paths: argv.slice(sep + 1) };
+}
+
+const { argv: programArgv, paths: commitPathspec } = splitCommitPathspec(
+  process.argv,
+);
 
 /** Picks only the specified fields from an object. If fields is empty, returns the object unchanged. */
 function pickFields<T extends Record<string, unknown>>(
@@ -1827,48 +1853,83 @@ program
             );
             console.log();
           }
-          const commitMsg = `${baseMsg} [proto:${task.id}]`;
           try {
-            execFileSync("git", ["commit", "-m", commitMsg], {
-              cwd: projectDir,
-              stdio: "inherit",
-            });
-            const sha = execSync("git rev-parse HEAD", { cwd: projectDir })
-              .toString()
-              .trim();
-            const commitRecord = {
-              sha,
-              message: baseMsg,
-              timestamp: new Date().toISOString(),
-            };
-            const existingCommits = task.commits ?? [];
-            updateTask(projectDir, task.id, {
-              commits: [...existingCommits, commitRecord],
-            });
+            const { commitTaskPaths } = await import("./core/git.js");
+            const result = commitTaskPaths(
+              projectDir,
+              task.id,
+              baseMsg,
+              commitPathspec,
+            );
+            if (!result.ok) {
+              console.log(chalk.red(`✗ ${result.error}`));
+              process.exitCode = ExitCode.GENERAL;
+              return;
+            }
+
+            // Visibility: with no pathspec the scope is the task's own record.
+            // Name any other staged paths so the caller knows they were left in
+            // the index on purpose rather than silently dropped.
+            if (commitPathspec.length === 0 && result.foreign.length > 0) {
+              console.log(
+                chalk.yellow(
+                  "⚠  Staged changes that do NOT belong to this task were left in the index (not committed):",
+                ),
+              );
+              for (const p of result.foreign) {
+                console.log(chalk.dim(`     ${p}`));
+              }
+              console.log(
+                chalk.dim(
+                  '   Commit explicit paths with: tasks --commit --task <id> --message "<msg>" -- <paths...>',
+                ),
+              );
+              console.log();
+            }
+
             const commitNextActions = getNextActions("commit", task.id);
             if (opts.json) {
               console.log(
                 JSON.stringify(
                   {
                     success: true,
-                    commit: sha,
+                    commit: result.sha,
+                    linkedExisting: result.linkedExisting,
+                    committed: result.committed,
+                    leftStaged: result.foreign,
                     next_actions: commitNextActions,
                   },
                   null,
                   2,
                 ),
               );
+            } else if (result.linkedExisting) {
+              // Nothing to commit is NOT a dead end: the caller's intent is to
+              // record that this task's work is in commit X, and when the work
+              // is already committed, X is HEAD.
+              const reason =
+                commitPathspec.length > 0
+                  ? `no changes to commit for: ${commitPathspec.join(", ")}`
+                  : "the task's own record has no staged changes";
+              console.log(chalk.yellow(`ℹ  Nothing to commit — ${reason}.`));
+              console.log(
+                chalk.green(`✓ Linked existing commit to task: ${task.title}`),
+              );
+              console.log(chalk.dim(`  commit: ${result.sha} (HEAD)`));
+              console.log(chalk.dim(`  proto:  ${task.id}`));
+              printNextHint(commitNextActions);
             } else {
               console.log(
                 chalk.green(`✓ Committed and linked to task: ${task.title}`),
               );
-              console.log(chalk.dim(`  commit: ${sha}`));
+              console.log(chalk.dim(`  commit: ${result.sha}`));
               console.log(chalk.dim(`  proto:  ${task.id}`));
               printNextHint(commitNextActions);
             }
 
+            // A linked HEAD created no new commit, so there is nothing to push.
             const settings = loadSettings(projectDir);
-            if (settings.autoPush) {
+            if (settings.autoPush && !result.linkedExisting) {
               console.log(
                 chalk.dim("  auto-push: pushing commit to remote..."),
               );
@@ -1886,12 +1947,15 @@ program
                 }
               }
             }
-          } catch {
+          } catch (err) {
             console.log(
               chalk.red(
                 "✗ git commit failed — ensure changes are staged with 'git add'",
               ),
             );
+            if (err instanceof Error) {
+              console.log(chalk.dim(`  reason: ${err.message}`));
+            }
             process.exitCode = ExitCode.GENERAL;
           }
           return;
@@ -3322,4 +3386,7 @@ program
     showChangelog({ all: opts.all === true });
   });
 
-program.parse();
+// `programArgv` is process.argv with the `tasks --commit` pathspec removed (see
+// splitCommitPathspec): commander cannot receive it, so it arrives via the
+// module-level `commitPathspec` instead.
+program.parse(programArgv);
