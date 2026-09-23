@@ -34,6 +34,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:browser": "vitest run --config vitest.pw.config.ts",
+    "check:readme-assets": "node scripts/check-readme-assets.mjs --online",
     "mutation": "node scripts/mutation.mjs",
     "mutation:ci": "node scripts/mutation.mjs --all",
     "lint": "tsc --noEmit",
