@@ -6,7 +6,7 @@ Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any
 
 🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
 
-![Vibeflow demo — drag tasks across the board, expand parent/child trees, open the full ticket](https://www.vibeflow.tools/assets/demo/showcase.gif)
+![Vibeflow kanban board — a task is dragged from Todo to In Progress](https://www.vibeflow.tools/assets/demo/showcase.webp)
 
 ---
 
@@ -63,7 +63,7 @@ npx @vibeflow-tools/cli tasks --next
 
 ## See It in Action
 
-![Vibeflow demo — drag tasks across the board, expand parent/child trees, open the full ticket](https://www.vibeflow.tools/assets/demo/showcase.gif)
+![Vibeflow demo — drag a task to another column, expand a parent task into its children, then open the full ticket](https://www.vibeflow.tools/assets/demo/board-flow.webp)
 
 **Drag tasks across the board** — Backlog → Todo → In Progress → Review → Done. Drag a card to change its status and the
 board persists the new column and order, even after a reload. Tag, user and type filters
