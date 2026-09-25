@@ -829,7 +829,7 @@ function registerTaskApi(
     res.json({ comments });
   });
 
-  app.post("/api/tasks/:id/comments", (req, res) => {
+  app.post("/api/tasks/:id/comments", async (req, res) => {
     const { id } = req.params;
     const { author, text, files, source } = req.body as {
       author?: string;
@@ -843,7 +843,7 @@ function registerTaskApi(
     }
     const validAuthor = author === "agent" ? "agent" : "user";
     const validSource = source === "cli" ? "cli" : "web";
-    const comment = addComment(
+    const comment = await addComment(
       projectDir,
       id,
       validAuthor,
@@ -856,14 +856,14 @@ function registerTaskApi(
     res.json({ success: true, comment });
   });
 
-  app.patch("/api/tasks/:id/comments/:commentId", (req, res) => {
+  app.patch("/api/tasks/:id/comments/:commentId", async (req, res) => {
     const { id, commentId } = req.params;
     const { text } = req.body as { text?: string };
     if (!text || !text.trim()) {
       res.status(400).json({ error: "Missing required field: text" });
       return;
     }
-    const comment = updateComment(projectDir, id, commentId, text.trim());
+    const comment = await updateComment(projectDir, id, commentId, text.trim());
     if (!comment) {
       res.status(404).json({ error: "Comment not found" });
       return;
@@ -872,9 +872,9 @@ function registerTaskApi(
     res.json({ success: true, comment });
   });
 
-  app.delete("/api/tasks/:id/comments/:commentId", (req, res) => {
+  app.delete("/api/tasks/:id/comments/:commentId", async (req, res) => {
     const { id, commentId } = req.params;
-    const ok = deleteComment(projectDir, id, commentId);
+    const ok = await deleteComment(projectDir, id, commentId);
     if (!ok) {
       res.status(404).json({ error: "Comment not found" });
       return;
