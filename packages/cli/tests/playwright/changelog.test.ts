@@ -99,13 +99,18 @@ describe("What's New changelog modal", () => {
   });
 
   it("opens the modal when the served version is newer than stored", async () => {
-    const { context, page } = await openBoard("0.0.1");
+    // Seed with the second-latest version so only the top version is "newer".
+    // Seeding with a very old version like 0.0.1 makes every section appear,
+    // because sectionsSince returns all sections newer than the stored version.
+    const seedVersion = SECOND_VERSION || "0.0.1";
+    const { context, page } = await openBoard(seedVersion);
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     const text = await modalText(page);
     expect(text).toContain("What's new in Vibeflow");
     // Shows the section for the current (top) version only.
     expect(text).toContain(TOP_VERSION);
-    if (SECOND_VERSION) {
+    if (SECOND_VERSION && seedVersion !== "0.0.1") {
+      // When seeded with the second version, only the top version should render.
       expect(text).not.toContain(SECOND_VERSION);
     }
     await context.close();
@@ -150,14 +155,14 @@ describe("What's New changelog modal", () => {
     await context.close();
   });
 
-  it("shows no Highlights region when no changeset tags one", async () => {
-    // The real CLI changelog carries no ### Highlights subsection, so the
-    // region stays hidden. Tagged rendering is covered by SSR unit tests.
+  it("shows the Highlights region when a changeset tags one", async () => {
+    // The 0.15.0 changelog entry carries a ### Highlights subsection, so the
+    // region renders. Tagged rendering is also covered by SSR unit tests.
     const { context, page } = await openBoard(null);
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     expect(await page.locator('[data-role="highlights-region"]').count()).toBe(
-      0,
+      1,
     );
     await context.close();
   });
