@@ -434,6 +434,26 @@ export async function updateTask(
       }
     }
 
+    // Research tasks cannot carry a verification verdict — same rule as
+    // the review gate, but applied to standalone setVerify too.
+    if (input.setVerify) {
+      const { isResearchType: checkResearch } = await import(
+        "../core/tasks.js",
+      );
+      if (checkResearch(existingTask.type)) {
+        return {
+          ok: false,
+          error: {
+            code: "RESEARCH_VERIFY_NOT_ALLOWED",
+            message:
+              "A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
+            suggestion:
+              "Drop --set-verify; submit the Research task with its .md report instead",
+          },
+        };
+      }
+    }
+
     // Links: replace semantics (parity with the HTTP PATCH route). Validated
     // against the post-replace state using the same helpers and wording as
     // --set-parent; rejected before any write (including dry-run).

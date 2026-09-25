@@ -237,3 +237,66 @@ describe("updateTask — verdict parity with the CLI", () => {
     expect(storedVerified(id)).toBe(false);
   });
 });
+
+describe("Research tasks — standalone setVerify rejection", () => {
+  it("RESEARCH_VERIFY_NOT_ALLOWED on standalone setVerify pass", async () => {
+    const created = await createTask(ctx(), {
+      title: "Research: survey",
+      description: "",
+      type: "Research",
+    });
+    expect(created.ok).toBe(true);
+    const id = created.data!.id;
+
+    const res = await updateTask(ctx(), { id, setVerify: "pass" });
+
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+    expect(storedVerified(id)).toBeUndefined();
+  });
+
+  it("RESEARCH_VERIFY_NOT_ALLOWED on standalone setVerify cannot", async () => {
+    const created = await createTask(ctx(), {
+      title: "Research: survey",
+      description: "",
+      type: "Research",
+    });
+    expect(created.ok).toBe(true);
+    const id = created.data!.id;
+
+    const res = await updateTask(ctx(), {
+      id,
+      setVerify: "cannot",
+      verifyReason: "no env",
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+    expect(storedVerified(id)).toBeUndefined();
+  });
+
+  it("RESEARCH_VERIFY_NOT_ALLOWED on dry-run setVerify pass — no false preview", async () => {
+    const created = await createTask(ctx(), {
+      title: "Research: survey",
+      description: "",
+      type: "Research",
+    });
+    expect(created.ok).toBe(true);
+    const id = created.data!.id;
+
+    const dryCtx: OperationContext = { ...ctx(), dryRun: true };
+    const res = await updateTask(dryCtx, { id, setVerify: "pass" });
+
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+  });
+
+  it("non-Research task still accepts standalone setVerify pass", async () => {
+    const id = await annotatedTask();
+
+    const res = await updateTask(ctx(), { id, setVerify: "pass" });
+
+    expect(res.ok).toBe(true);
+    expect(storedVerified(id)).toBe(true);
+  });
+});

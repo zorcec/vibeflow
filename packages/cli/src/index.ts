@@ -18,6 +18,7 @@ import {
   summariseChildren,
   isChildTask,
   writeSortKeyMinimal,
+  isResearchType,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
@@ -2160,6 +2161,31 @@ program
             console.log(chalk.red(`✗ ${attestation.message}`));
             process.exitCode = ExitCode.USAGE;
             return;
+          }
+
+          // ── Research tasks cannot carry a verification verdict ─────────────
+          // Standalone --set-verify on a Research task must be rejected the same
+          // way the review gate does (RESEARCH_VERIFY_NOT_ALLOWED). This covers
+          // both the real write and the --dry-run preview path.
+          if (attestation.verdict) {
+            const probeTasks = listTasks(resolve(dir));
+            const probeTask = probeTasks.find(
+              (t) => t.id === taskId || t.id.startsWith(taskId),
+            );
+            if (probeTask && isResearchType(probeTask.type)) {
+              console.log(
+                chalk.red(
+                  "\u2717 A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
+                ),
+              );
+              console.log(
+                chalk.dim(
+                  "  Drop --set-verify; submit the Research task with its .md report instead",
+                ),
+              );
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
           }
 
           // ── Settings-based enforcement on review ─────────────────────────
