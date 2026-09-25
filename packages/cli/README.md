@@ -8,6 +8,8 @@ Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any
 
 ![Vibeflow kanban board — a task is dragged from Todo to In Progress](https://www.vibeflow.tools/assets/demo/showcase.webp)
 
+▶ **[Watch the full motion demo (MP4)](https://www.vibeflow.tools/assets/demo/showcase.mp4)**
+
 ---
 
 ## Why It Matters
