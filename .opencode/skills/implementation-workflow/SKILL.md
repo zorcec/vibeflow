@@ -12,10 +12,7 @@ Before setting any task to `review`, run through this checklist:
 - [ ] **Code compiles** — build succeeds for the affected package
 - [ ] **Type-check passes** — `pnpm --filter <package> run lint` (CLI) or `pnpm --filter <package> run typecheck` (web)
 - [ ] **Unit tests pass** — `pnpm --filter <package> run test` — all green
-- [ ] **Mutation tests** — ALWAYS run before review:
-  - CLI: `cd /home/zorcec/workspace/vibeflow-workspace/vibeflow && pnpm --filter @vibeflow-tools/cli run mutation`
-  - Web-crawl: `cd /home/zorcec/workspace/vibeflow-workspace/vibeflow-private && pnpm --filter @vibeflow-tools/web-crawl run mutation`
-  - Review any surviving mutants and add tests to kill them (or confirm they are false positives)
+- [ ] **Mutation tests — DO NOT RUN unless explicitly requested.** Stryker saturates every core (~50 worker processes); concurrent runs have driven load average to 45 on a 24GB box and starved every other process. Run only when the owner asks or a ticket names it, then run it SOLO, scoped (`--mutate <path>`), and kill it when done. If skipped (the normal case), say "mutation not run (on-request only)" in the ticket comment so nobody mistakes an unrun step for a clean one.
 - [ ] **Playwright tests** — if overlay/kanban bundles changed: build first, then `pnpm --filter <package> run test:browser`
 - [ ] **Visual verification** — for UI/layout changes, open in browser and confirm it looks correct on both wide and narrow screens
 - [ ] **Changeset created** — ALWAYS run `pnpm changeset` before review. Describe what changed and why. No exceptions.
@@ -32,9 +29,12 @@ Allowed without asking:
 - Format / lint a file
 - Build a package
 
+Allowed once the change is verified:
+- `git push` to `main` — build + lint + tests green and the ticket set to `review`. Push directly; do **not** open a pull request unless the owner explicitly instructs it.
+
 Ask first:
 - Install new packages
-- `git push` or publish
+- Publish to npm / Docker / a deploy target
 - Delete or rename files
 - Run the full Playwright suite against a live server
 - Destructive file changes
