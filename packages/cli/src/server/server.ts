@@ -1312,6 +1312,9 @@ function registerKanbanRoute(app: express.Application, port: number): void {
   const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
 
   app.get("/kanban", async (_req, res) => {
+    // The client bundle is inlined into this HTML at process start — a cached
+    // copy would outlive a board restart and keep serving the old JavaScript.
+    res.set("Cache-Control", "no-store");
     const token = await readToken().catch(() => null);
     if (!token) {
       res.type("html").send(getKanbanHtml({ port, cliVersion: CLI_VERSION }));

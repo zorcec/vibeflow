@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KANBAN_CSS } from "./kanban-css.gen.js";
@@ -29,6 +29,82 @@ function getLegacyHtml(port: number): string {
   if (!found)
     throw new Error("kanban-template.html not found in expected locations");
   return readFileSync(found, "utf8").replaceAll("__PORT__", String(port));
+}
+
+/** One line, emitted at most once per process when a rebuild landed after
+ * the board process started — the served HTML still inlines the old copy. */
+export const STALE_BUNDLE_WARNING =
+  "[vibeflow] kanban: board serves a STALE inlined bundle — the bundle on " +
+  "disk was rebuilt after this process started, so the served HTML still " +
+  "contains the old JavaScript. Rebuild and restart the board process " +
+  "(a browser reload alone will not pick up the fix).";
+
+/** mtime of one file the inlined bundle was loaded from (null = not on disk). */
+export interface BundleFileMtime {
+  path: string;
+  mtimeMs: number | null;
+}
+
+function statMtime(path: string): number | null {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** Files providing the inlined bundle: the generated bundle module when it
+ * exists on disk (source/vitest runs), otherwise the bundled file this module
+ * was loaded from (dist — a rebuild rewrites or removes it). */
+function bundleSourcePaths(): string[] {
+  const gen = [
+    join(__dirname, "kanban-bundle.gen.js"),
+    join(__dirname, "kanban-bundle.gen.ts"),
+  ].filter((p) => existsSync(p));
+  return gen.length > 0 ? gen : [fileURLToPath(import.meta.url)];
+}
+
+/** Bundle mtimes recorded when this module loaded — the "inlined" copy. */
+const INLINED_BUNDLE_MTIMES: BundleFileMtime[] = bundleSourcePaths().map(
+  (path) => ({ path, mtimeMs: statMtime(path) }),
+);
+
+/** True when a rebuild landed after the bundle was inlined: a watched file is
+ * newer than the mtime recorded at load, or disappeared (a dist rebuild
+ * replaced the file this module was loaded from). */
+export function isBundleStale(
+  inlined: readonly BundleFileMtime[],
+  disk: readonly BundleFileMtime[],
+): boolean {
+  const diskByPath = new Map(disk.map((f) => [f.path, f.mtimeMs]));
+  return inlined.some((f) => {
+    if (f.mtimeMs === null) return false; // never on disk — nothing to compare
+    const now = diskByPath.get(f.path) ?? null;
+    return now === null || now > f.mtimeMs;
+  });
+}
+
+let staleBundleWarned = false;
+
+/** Emits {@link STALE_BUNDLE_WARNING} at most once per process when the bundle
+ * on disk is newer than the copy inlined at load. Called on every board HTML
+ * serve, but only stat()s and warns until the stale condition is hit. */
+export function warnIfBundleStale(
+  opts: {
+    log?: (msg: string) => void;
+    inlined?: readonly BundleFileMtime[];
+    disk?: readonly BundleFileMtime[];
+  } = {},
+): boolean {
+  if (staleBundleWarned) return false;
+  const inlined = opts.inlined ?? INLINED_BUNDLE_MTIMES;
+  const disk =
+    opts.disk ??
+    inlined.map((f) => ({ path: f.path, mtimeMs: statMtime(f.path) }));
+  if (!isBundleStale(inlined, disk)) return false;
+  (opts.log ?? console.warn)(STALE_BUNDLE_WARNING);
+  staleBundleWarned = true;
+  return true;
 }
 
 function getSaasModeScript(opts: KanbanOptions): string {
@@ -65,6 +141,9 @@ export function getKanbanHtml(opts: KanbanOptions): string;
 export function getKanbanHtml(portOrOpts: number | KanbanOptions): string {
   const opts: KanbanOptions =
     typeof portOrOpts === "number" ? { port: portOrOpts } : portOrOpts;
-  if (KANBAN_BUNDLE) return getReactShell(opts);
+  if (KANBAN_BUNDLE) {
+    warnIfBundleStale();
+    return getReactShell(opts);
+  }
   return getLegacyHtml(opts.port);
 }
