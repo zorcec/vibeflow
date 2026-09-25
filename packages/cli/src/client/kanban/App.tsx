@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type {
   Task,
   TaskStatus,
-  TaskLink,
   PanelState,
   AppSettings,
 } from "@vibeflow-tools/ui/kanban";
@@ -23,6 +22,7 @@ import {
   HeaderActionButton,
   getDescendants,
   applyInitialTheme,
+  mergeTaskFromPayload,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -737,21 +737,6 @@ export function App() {
     ) => {
       const id = String(incoming.id ?? "");
       if (!id) return;
-      const incomingCreated = incoming.created ?? incoming.createdAt;
-      const updated = incoming.updated ? String(incoming.updated) : undefined;
-      const commentCount = Array.isArray(incoming.comments)
-        ? (incoming.comments as Array<{ deleted?: boolean }>).filter(
-            (c) => !c.deleted,
-          ).length
-        : undefined;
-      // Prefer the server-computed fileCount (listFiles source, includes
-      // unregistered files on disk) over the refs-only files array length.
-      const fileCount =
-        typeof incoming.fileCount === "number"
-          ? incoming.fileCount
-          : Array.isArray(incoming.files)
-            ? incoming.files.length
-            : undefined;
       const newStatus = incoming.status
         ? (String(incoming.status) as TaskStatus)
         : undefined;
@@ -776,70 +761,7 @@ export function App() {
 
       setTasks((prev) => {
         const existing = prev.find((t) => t.id === id);
-        const mapped: Task = {
-          id,
-          title: incoming.title
-            ? String(incoming.title)
-            : (existing?.title ?? "Untitled"),
-          description:
-            incoming.description == null
-              ? (existing?.description ?? "")
-              : String(incoming.description),
-          status: (newStatus ?? existing?.status ?? "todo") as TaskStatus,
-          type: incoming.type
-            ? (String(incoming.type) as Task["type"])
-            : existing?.type,
-          priority: incoming.priority
-            ? (String(incoming.priority) as Task["priority"])
-            : existing?.priority,
-          selector: incoming.selector
-            ? String(incoming.selector)
-            : existing?.selector,
-          cssSelector: incoming.cssSelector
-            ? String(incoming.cssSelector)
-            : existing?.cssSelector,
-          file: incoming.file ? String(incoming.file) : existing?.file,
-          line:
-            typeof incoming.line === "number" ? incoming.line : existing?.line,
-          col: typeof incoming.col === "number" ? incoming.col : existing?.col,
-          component: incoming.component
-            ? String(incoming.component)
-            : existing?.component,
-          url: incoming.url ? String(incoming.url) : existing?.url,
-          reportBack:
-            incoming.reportBack === true || existing?.reportBack === true,
-          commit: incoming.commit ? String(incoming.commit) : existing?.commit,
-          commits: Array.isArray(incoming.commits)
-            ? (incoming.commits as {
-                sha: string;
-                message: string;
-                timestamp: string;
-              }[])
-            : existing?.commits,
-          commentCount: commentCount ?? existing?.commentCount,
-          fileCount: fileCount ?? existing?.fileCount,
-          createdAt: incomingCreated
-            ? String(incomingCreated)
-            : (existing?.createdAt ?? new Date().toISOString()),
-          updatedAt: updated ?? existing?.updatedAt,
-          author: incoming.author ? String(incoming.author) : existing?.author,
-          tags: Array.isArray(incoming.tags)
-            ? (incoming.tags as string[])
-            : existing?.tags,
-          sortKey: incoming.sortKey
-            ? String(incoming.sortKey)
-            : existing?.sortKey,
-          links: Array.isArray(incoming.links)
-            ? (incoming.links as TaskLink[])
-            : (existing?.links ?? []),
-          // Per-user state — carried through WS updates, never dropped.
-          openedBy: Array.isArray(incoming.openedBy)
-            ? (incoming.openedBy as string[])
-            : existing?.openedBy,
-          expandedBy: Array.isArray(incoming.expandedBy)
-            ? (incoming.expandedBy as string[])
-            : existing?.expandedBy,
-        };
+        const mapped = mergeTaskFromPayload(incoming, existing);
 
         const next = prev.filter((t) => t.id !== id);
         next.push(mapped);

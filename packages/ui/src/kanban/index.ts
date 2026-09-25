@@ -20,6 +20,9 @@ export type {
 
 // Kanban shared utilities
 export {
+  mergeTaskFromPayload,
+} from "./task-merge";
+export {
   renderMarkdown,
   isNewComments,
   markCommentsSeen,
