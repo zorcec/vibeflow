@@ -209,7 +209,8 @@ describe("Overlay on existing app (API-only / cross-origin)", () => {
       },
     });
     expect(res.status).toBe(204);
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    // Server reflects the requesting origin for localhost origins.
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3890");
     expect(res.headers.get("access-control-allow-methods")).toContain("POST");
   });
 
