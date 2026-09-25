@@ -236,3 +236,60 @@ describe("mergeTaskFromPayload — general behaviour", () => {
     expect(result.status).toBe("todo");
   });
 });
+
+describe("mergeTaskFromPayload — PATCH/drag server responses (hardening path)", () => {
+  // The board's whole-object replacement sites (patchTask, linkChild, tree
+  // reparent) previously swapped the stored task for `data.task!` directly,
+  // bypassing this helper. Any field the response omitted would vanish.
+  // These tests pin the partial-payload behaviour the merge must provide
+  // BEFORE a site is allowed to route through it.
+  it("preserves verified when the PATCH response carries the verdict", () => {
+    // PATCH never writes verified (ALLOWED_PATCH_KEYS), so the response echoes
+    // whatever is on disk — a verified review task must keep its badge.
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task", status: "review", sortKey: "0001", verified: true },
+      baseTask({ status: "review", verified: true }),
+    );
+    expect(result.verified).toBe(true);
+  });
+
+  it("CLEARS verified when the response omits it entirely (no stale pass)", () => {
+    // JSON.stringify drops `verified: undefined`, so a partial response (or a
+    // response serialised after a --set-verify cannot clear) arrives without
+    // the key. Keeping the stored value would leave a stale green badge.
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task", status: "review" },
+      baseTask({ status: "review", verified: true }),
+    );
+    expect(result.verified).toBeUndefined();
+  });
+
+  it("preserves server-computed counts from existing when the response omits them", () => {
+    // PATCH/POST responses are disk-shaped: they lack commentCount/fileCount
+    // (computed only for GET/list/broadcast). The merge must fall back to
+    // existing instead of blanking the card badges.
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task", status: "review" },
+      baseTask({ status: "review", commentCount: 4, fileCount: 2 }),
+    );
+    expect(result.commentCount).toBe(4);
+    expect(result.fileCount).toBe(2);
+  });
+
+  it("maps incoming commentCount from a broadcast-shaped response over existing", () => {
+    const result = mergeTaskFromPayload(
+      { id: "t1", comments: [{ text: "a" }, { deleted: true }] },
+      baseTask({ commentCount: 9 }),
+    );
+    expect(result.commentCount).toBe(1);
+  });
+
+  it("preserves openedBy/expandedBy when the response omits per-user state", () => {
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task", status: "review" },
+      baseTask({ openedBy: ["alice"], expandedBy: ["alice"] }),
+    );
+    expect(result.openedBy).toEqual(["alice"]);
+    expect(result.expandedBy).toEqual(["alice"]);
+  });
+});

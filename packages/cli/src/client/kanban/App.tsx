@@ -953,6 +953,30 @@ export function App() {
     ws.addEventListener("error", () => {});
   }
 
+  /** Replace a stored task with a server response through the shared merge
+   * helper (hardening for the latent PATCH/drag response path; the WS path
+   * already routes through it). A whole-object swap would silently drop any
+   * field the response omits — `verified` first among them: absence is the
+   * MEANINGFUL "no verdict" state, so falling back to the stored value would
+   * leave a stale badge after a `cannot` clear or a claim reset. It would also
+   * blank server-computed fields the PATCH response omits (commentCount,
+   * fileCount), since the merge helper preserves those from `existing`.
+   * See mergeTaskFromPayload in packages/ui/src/kanban/task-merge.ts. */
+  function applyTaskResponse(task: Task) {
+    // SAFETY: Task is an interface without an index signature, so TS rejects a
+    // direct assignment to Record<string, unknown>; every Task field is
+    // JSON-representable and mergeTaskFromPayload reads it with the same
+    // runtime guards it applies to raw WS frames.
+    const incoming = task as unknown as Record<string, unknown>;
+    setTasks((prev) => {
+      const existing = prev.find((t) => t.id === String(incoming.id));
+      const mapped = mergeTaskFromPayload(incoming, existing);
+      const next = prev.map((t) => (t.id === mapped.id ? mapped : t));
+      tasksRef.current = next;
+      return next;
+    });
+  }
+
   async function patchTask(id: string, updates: Partial<Task>) {
     const previous = tasksRef.current.find((t) => t.id === id);
     setTasks((prev) => {
@@ -969,12 +993,7 @@ export function App() {
     }
     try {
       const data = await api.updateTask(id, updates);
-      if (data.task)
-        setTasks((prev) => {
-          const next = prev.map((t) => (t.id === id ? data.task! : t));
-          tasksRef.current = next;
-          return next;
-        });
+      if (data.task) applyTaskResponse(data.task);
     } catch {
       void loadTasks();
     }
@@ -1028,13 +1047,7 @@ export function App() {
       const data = await api.updateTask(draggedId, {
         links: [...existingLinks, newLink],
       });
-      if (data.task) {
-        setTasks((prev) => {
-          const next = prev.map((t) => (t.id === draggedId ? data.task! : t));
-          tasksRef.current = next;
-          return next;
-        });
-      }
+      if (data.task) applyTaskResponse(data.task);
     } catch (err) {
       console.warn(
         `[Vibeflow] Failed to link child: ${err instanceof Error ? err.message : String(err)}`,
@@ -1133,13 +1146,7 @@ export function App() {
         links: nextLinks,
         sortKey: newSortKey,
       });
-      if (data.task) {
-        setTasks((prev) => {
-          const next = prev.map((t) => (t.id === draggedId ? data.task! : t));
-          tasksRef.current = next;
-          return next;
-        });
-      }
+      if (data.task) applyTaskResponse(data.task);
       for (const patch of normalizationPatches)
         await patchTask(patch.id, { sortKey: patch.sortKey });
     } catch (err) {
