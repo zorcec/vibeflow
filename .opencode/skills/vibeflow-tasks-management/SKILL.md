@@ -35,8 +35,25 @@ TASKS="node ../vibeflow/packages/cli/dist/cli/index.js tasks"
 2. $TASKS --edit <id> --set-status in-progress   # claim — DO THIS FIRST
 3. <implement the change>
 4. git add <files>                               # stage changes
-5. $TASKS --edit <id> --set-status review --commit-message "summary" --comment "report"
+5. $TASKS --edit <id> --set-status review --commit-message "summary" --comment "report" \
+     --set-verify pass                           # ⚠ see Verification verdict below
 ```
+
+### Verification verdict (`--set-verify pass|fail|cannot`)
+
+`vibeflow verify <id>` collects page-health EVIDENCE only — it never sets a verdict. You
+carry the verdict on the review transition itself:
+
+- **`pass`** — you attest the task IS implemented correctly (green badge). Required at
+  review for **annotated tasks** (URL + selector) when `requireVerifyBeforeReview` is on.
+- **`fail`** — the task is NOT correct (amber badge). Never passes the review gate — fix
+  the work, or park it: `--set-status in-progress --set-verify fail --comment "what is wrong"`.
+- **`cannot`** — unverifiable here; REQUIRES `--verify-reason "<why>"` (recorded in the
+  task's activity); records no badge.
+- **Research tasks must NOT carry a verdict**: on a review transition the CLI rejects it
+  (`RESEARCH_VERIFY_NOT_ALLOWED` — "Drop --set-verify; submit the Research task with its
+  .md report instead"); standalone `--set-verify` on a Research task is silently scrubbed
+  on write (no error, no value). Research reaches review on its attached `.md` alone.
 
 The CLI auto-commits the task `.json` and auto-pushes when settings are enabled.
 
