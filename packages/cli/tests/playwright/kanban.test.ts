@@ -1192,8 +1192,8 @@ describe("Kanban board", () => {
     });
 
     expect(metaStyles).not.toBeNull();
-    // #475569 — muted but readable label color
-    expect(metaStyles?.labelColor).toBe("rgb(71, 85, 105)");
+    // #64748b — muted but readable label color (theme token: --t-text-faint)
+    expect(metaStyles?.labelColor).toBe("rgb(100, 116, 139)");
     // #e2e8f0 — bright select text
     expect(metaStyles?.selectColor).toBe("rgb(226, 232, 240)");
     // #050d1a — dark background
