@@ -4,6 +4,15 @@
   "description": "Vibeflow CLI for frontend prototyping with LLM assistance — review, annotate, and iterate on HTML prototypes",
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
+  "homepage": "https://www.vibeflow.tools",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zorcec/vibeflow.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/zorcec/vibeflow/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
