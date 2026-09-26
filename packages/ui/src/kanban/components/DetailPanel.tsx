@@ -114,7 +114,6 @@ interface Props {
   isResizing?: boolean;
   api: KanbanApi;
   onClose: () => void;
-  onSave: (task: Task) => void;
   onCreate: (draft: Partial<Task>) => Promise<string | undefined>;
   onDelete: (taskId: string) => void;
   onPatch: (taskId: string, patch: Partial<Task>) => void;
@@ -203,7 +202,6 @@ export function DetailPanel({
   isResizing,
   api,
   onClose,
-  onSave,
   onCreate,
   onDelete,
   onPatch,
@@ -337,7 +335,14 @@ export function DetailPanel({
         }
         // Save any pending changes before closing (blur fires after mousedown, so save explicitly)
         autoSaveRef.current();
-        onClose();
+        // A mousedown on a task card is NOT an "outside click". Closing here collapses the
+        // board's reserved right inset (boardRightInset), so every card reflows while the
+        // button is still down: the panel disappears before the click lands and the card you
+        // pressed can end up never opening it. The click that follows decides visibility via
+        // openPanel, so save and leave the panel alone. A pending comment still raises its
+        // confirm above, before this point.
+        const pressedCard = (e.target as Element)?.closest?.("article.task-card");
+        if (!pressedCard) onClose();
       }
     }
     document.addEventListener("mousedown", handleOutsideClick);

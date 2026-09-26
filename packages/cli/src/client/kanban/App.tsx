@@ -1488,15 +1488,23 @@ export function App() {
   }
 
   function openFilePreview(name: string, url: string) {
-    // Only allow same-origin previews: reject absolute/external and non-http
-    // (e.g. javascript:) URLs so a crafted file entry cannot drive window.open.
-    const isSafeTarget =
-      (url.startsWith("/") && !url.startsWith("//")) ||
-      url.startsWith(window.location.origin + "/");
-    if (!isSafeTarget) return;
+    // Only allow same-origin previews: resolve the URL against the page origin and require
+    // it to stay there, so a crafted file entry cannot drive window.open off-site. A string
+    // prefix check is not sufficient — browsers normalise backslashes and strip tabs and
+    // newlines, so "/\\evil.com" and a tab-split "//evil.com" pass a prefix test but still
+    // resolve off-origin, and ``javascript:`` never starts with "/" at all.
+    let resolved: URL;
+    try {
+      resolved = new URL(url, window.location.origin);
+    } catch {
+      return;
+    }
+    if (resolved.origin !== window.location.origin) return;
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
     // HTML files open in a new tab for sandboxed preview; all others use the modal.
     if (/\.html?$/i.test(name)) {
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Open exactly the URL that was validated, not the raw input.
+      window.open(resolved.href, "_blank", "noopener,noreferrer");
       return;
     }
     setFilePreview({ open: true, name, url });
@@ -1690,12 +1698,6 @@ export function App() {
               api={api}
               onClose={() => {
                 setNavHistory([]);
-                setPanelState((p) => ({ ...p, open: false }));
-              }}
-              onSave={async (updates) => {
-                if (panelState.task) {
-                  await patchTask(panelState.task.id, updates);
-                }
                 setPanelState((p) => ({ ...p, open: false }));
               }}
               onCreate={async (draft) => {

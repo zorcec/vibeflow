@@ -1684,6 +1684,11 @@ describe("Kanban board", () => {
 
   // ── Drag-drop between columns ─────────────────────────────────────────────
   it("dragging a task card from todo to done changes its status", async () => {
+    // Drags use the real pointer, so the geometry under the cursor matters: the board
+    // reserves the detail panel's width while it is open, and an earlier test can leave
+    // it open. The panel no longer closes on a card mousedown (69572df1), so set the
+    // starting state explicitly instead of relying on that side effect.
+    await closePanelIfOpen(page);
     // Create a task in the todo column
     const createRes = await fetch(API, {
       method: "POST",
@@ -1733,6 +1738,8 @@ describe("Kanban board", () => {
   });
 
   it("drag-to-done status change appears in detail panel activity tab", async () => {
+    // Same geometry dependency as the drag test above — start from a closed panel.
+    await closePanelIfOpen(page);
     const title = `Activity drag test ${Date.now()}`;
     const createRes = await fetch(API, {
       method: "POST",
@@ -2622,6 +2629,202 @@ describe("Kanban board", () => {
       [parentTitle, childA, childB],
       { timeout: 10_000 },
     );
+  });
+
+  // ── Background auto-save must not change panel visibility ─────────────────
+  it("auto-save on blur while clicking another card keeps the panel open on that card", async () => {
+    // Explicit starting state — earlier tests in this file leave the panel in
+    // whatever state they ended with.
+    await closePanelIfOpen(page);
+
+    const stamp = Date.now();
+    const titleA = `Panel race victim ${stamp}`;
+    const titleB = `Panel race target ${stamp}`;
+    const newDesc = `Edited without blurring ${stamp}`;
+
+    const created: string[] = [];
+    for (const title of [titleA, titleB]) {
+      const res = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description: `original ${title}`,
+          selector: "/",
+          status: "todo",
+        }),
+      });
+      const data = (await res.json()) as {
+        success: boolean;
+        task?: { id: string };
+      };
+      expect(data.success).toBe(true);
+      expect(data.task?.id).toBeTruthy();
+      created.push(data.task!.id);
+    }
+    const [idA, idB] = created;
+    await waitForTaskOnBoard(page, titleA);
+    await waitForTaskOnBoard(page, titleB);
+
+    try {
+      // Open task A, focus its description editor, and MODIFY the description
+      // without blurring — the blur will be caused by the next card click.
+      await openTaskByTitle(page, titleA);
+      await page.waitForFunction(
+        (t) =>
+          (document.getElementById("dp-title") as HTMLInputElement | null)
+            ?.value === t,
+        titleA,
+        { timeout: 5_000 },
+      );
+      await focusDescriptionEditor(page);
+      await page.fill("#dp-desc", newDesc);
+      expect(await page.locator("#detail-panel.open").count()).toBe(1);
+
+      // Real pointer click on ANOTHER task's card: mousedown blurs the focused
+      // editor (firing the auto-save), then the click opens the panel on B.
+      await page.click(`article.task-card[data-task-id="${idB}"]`);
+
+      // (1) The panel shows the second task.
+      await page.waitForFunction(
+        (t) => {
+          const panel = document.getElementById("detail-panel");
+          const title = (
+            document.getElementById("dp-title") as HTMLInputElement | null
+          )?.value;
+          return (
+            Boolean(panel?.classList.contains("open")) && title === t
+          );
+        },
+        titleB,
+        { timeout: 5_000 },
+      );
+
+      // (2) The first task's edit actually persisted — re-read through the API.
+      // Polling also gives the async save time to run any visibility side effect.
+      const persisted = await page
+        .waitForFunction(
+          async ({ api, id, expected }) => {
+            const res = await fetch(`${api}/${id}`);
+            const data = (await res.json()) as {
+              task?: { description?: string };
+            };
+            return data.task?.description?.includes(expected) ?? false;
+          },
+          { api: API, id: idA, expected: newDesc },
+          { timeout: 8_000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      expect(persisted).toBe(true);
+
+      // (3) The panel is still open — a background save must not close it.
+      expect(await page.locator("#detail-panel.open").count()).toBe(1);
+    } finally {
+      // Leave the board clean for the tests that follow this one.
+      for (const id of created) {
+        await fetch(`${API}/${id}`, { method: "DELETE" }).catch(() => null);
+      }
+    }
+  });
+
+  // The deterministic case, and the one the suite was missing: the card you click is
+  // the one ALREADY open. Pre-fix, the outside-mousedown handler in DetailPanel closed
+  // the panel, which collapses the board's reserved right inset, so the cards reflow
+  // between mousedown and mouseup — the click can land on a different element, openPanel
+  // never runs, and the panel ends up closed with the clicked card never opening.
+  it("clicking the card that is already open keeps the panel open on it", async () => {
+    await closePanelIfOpen(page);
+    const stamp = Date.now();
+    const title = `Panel self-click ${stamp}`;
+    const newDesc = `Self-click edit ${stamp}`;
+
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        description: `original ${title}`,
+        selector: "/",
+        status: "todo",
+      }),
+    });
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
+    expect(data.success).toBe(true);
+    const id = data.task!.id;
+    await waitForTaskOnBoard(page, title);
+
+    try {
+      await openTaskByTitle(page, title);
+      await page.waitForFunction(
+        (t) =>
+          (document.getElementById("dp-title") as HTMLInputElement | null)
+            ?.value === t,
+        title,
+        { timeout: 5_000 },
+      );
+      // Edit without blurring: the click below is what blurs the editor and runs
+      // the background auto-save.
+      await focusDescriptionEditor(page);
+      await page.fill("#dp-desc", newDesc);
+      expect(await page.locator("#detail-panel.open").count()).toBe(1);
+
+      // Press-and-hold on the card: the outside-mousedown handler runs on mousedown,
+      // BEFORE any click. Pre-fix that closes the panel and collapses the board's
+      // reserved right inset, so every card reflows mid-gesture and the click can land
+      // somewhere else entirely. Sample while the button is still down.
+      const box = await page
+        .locator(`article.task-card[data-task-id="${id}"]`)
+        .boundingBox();
+      expect(box).toBeTruthy();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      const openDuringPress = await page.locator("#detail-panel.open").count();
+      const widthDuringPress = await page.evaluate(
+        () => document.getElementById("kanban-board")?.getBoundingClientRect().width,
+      );
+      await page.mouse.up();
+      expect(openDuringPress, "a mousedown on a card must not close the panel").toBe(1);
+      expect(widthDuringPress, "the board must not reflow mid-gesture").toBeLessThanOrEqual(1024);
+
+      const stillOpenOnSame = await page
+        .waitForFunction(
+          (t) => {
+            const panel = document.getElementById("detail-panel");
+            const value = (
+              document.getElementById("dp-title") as HTMLInputElement | null
+            )?.value;
+            return Boolean(panel?.classList.contains("open")) && value === t;
+          },
+          title,
+          { timeout: 5_000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      expect(stillOpenOnSame).toBe(true);
+      expect(await page.locator("#detail-panel.open").count()).toBe(1);
+
+      const persisted = await page
+        .waitForFunction(
+          async ({ api, taskId, expected }) => {
+            const r = await fetch(`${api}/${taskId}`);
+            const body = (await r.json()) as {
+              task?: { description?: string };
+            };
+            return body.task?.description?.includes(expected) ?? false;
+          },
+          { api: API, taskId: id, expected: newDesc },
+          { timeout: 8_000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      expect(persisted).toBe(true);
+    } finally {
+      await fetch(`${API}/${id}`, { method: "DELETE" }).catch(() => null);
+    }
   });
 });
 
