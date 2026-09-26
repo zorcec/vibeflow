@@ -881,6 +881,22 @@ program
           return;
         }
 
+        // ── --comment requires --edit ────────────────────────────────────
+        // --comment is read only inside the --edit block (the bare form used
+        // to fall through to list mode and silently write nothing). Fail
+        // loudly instead of pretending the comment landed.
+        if (opts.comment?.trim() && opts.edit === undefined) {
+          outputError({
+            code: "E_USAGE",
+            message: "--comment requires --edit <task-id>",
+            suggestion:
+              'vibeflow tasks --edit <id> --comment "what changed and why"',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
         // ── Reindex sort keys (one-time maintenance) ────────────────────────
         // Re-key the tasks the comparator cannot order (keyless / 'n' / same-
         // column duplicates) without touching the well-formed, column-unique

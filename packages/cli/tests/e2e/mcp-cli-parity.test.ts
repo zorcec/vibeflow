@@ -125,12 +125,10 @@ describe("manifest cliRef vs real CLI surface", () => {
     }
   });
 
-  it("PINNED divergence: bare `tasks --comment <text>` (add_comment's cliRef) silently no-ops", async () => {
-    // The manifest maps add_comment → cliRef tasks ["--comment"], but the CLI
-    // only writes a comment with --edit <id> --comment. A bare invocation
-    // exits 0 and changes nothing — a silent no-op the MCP surface does not
-    // share. Flip this to an assertion of success if the CLI ever learns the
-    // bare form, or fix the cliRef to include --edit.
+  it("bare `tasks --comment <text>` is rejected with E_USAGE instead of silently no-oping", async () => {
+    // add_comment's cliRef names the working form (--edit + --comment). The
+    // bare form used to exit 0 and change nothing — a silent no-op the MCP
+    // surface does not share. It is now a hard usage error on the CLI side.
     const projectDir = mkdtempSync(join(tmpdir(), "mcp-parity-comment-"));
     seedGitUser(projectDir);
     const created = JSON.parse(
@@ -145,13 +143,17 @@ describe("manifest cliRef vs real CLI surface", () => {
     const before = readTaskFromDisk(projectDir, taskId).comments ?? [];
 
     const res = await runCli(
-      ["tasks", "--comment", "hello from bare --comment"],
+      ["tasks", "--comment", "rejected bare --comment", "--json"],
       { cwd: projectDir, home },
     );
-    expect(res.code).toBe(0);
+    expect(res.code).toBe(2);
+    const envelope = JSON.parse(res.stderr);
+    expect(envelope.error.code).toBe("E_USAGE");
+    expect(envelope.error.message).toContain("--comment requires --edit");
+    // Nothing landed on disk — the old behaviour was a silent no-op.
     const after = readTaskFromDisk(projectDir, taskId).comments ?? [];
     expect(after.length).toBe(before.length);
-    expect(JSON.stringify(after)).not.toContain("bare --comment");
+    expect(JSON.stringify(after)).not.toContain("rejected bare --comment");
   });
 });
 

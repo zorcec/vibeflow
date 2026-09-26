@@ -230,7 +230,10 @@ export const manifest: ToolManifest[] = [
     description: "Add a comment to a task.",
     cliRef: {
       command: "tasks",
-      flags: ["--comment"],
+      // The only form that writes a comment is `tasks --edit <id> --comment`;
+      // the bare `tasks --comment` form is rejected with E_USAGE (index.ts),
+      // so naming only --comment here would point at a no-op.
+      flags: ["--edit", "--comment"],
     },
     category: "task-write",
     annotations: {
