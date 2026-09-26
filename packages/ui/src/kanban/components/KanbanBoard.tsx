@@ -382,9 +382,9 @@ export function KanbanBoard({
    * The loop deliberately writes NO React state — only scroll offsets. A React
    * write inside the drag is what aborted the native session (87748ad), so the
    * auto-scroll must stay a pure DOM side effect. It also never writes a drop
-   * intent: scrolling re-runs the browser's hit-testing, which re-fires
-   * dragover, so the existing handlers stay the only source of drop targets and
-   * the drop-band classification (385e4f9) is untouched. Torn down with the
+   * intent: scrolling re-runs the browser's hit-testing, which re-fires the
+   * drag events the loop tracks, so the existing handlers stay the only source
+   * of drop targets and the drop-band classification (385e4f9) is untouched. Torn down with the
    * drag, so drop/dragend/Escape all cancel it. */
   React.useEffect(() => {
     if (dragTaskId === null) return;
@@ -392,12 +392,27 @@ export function KanbanBoard({
     if (!board) return;
 
     let pointer: { x: number; y: number } | null = null;
-    // Capture phase: card and tree dragover handlers stopPropagation, so a
-    // bubble-phase listener would miss most of the drag.
+    // Capture phase: card and tree handlers stopPropagation, so a bubble-phase
+    // listener would miss most of the drag.
+    //
+    // Track all three position-carrying drag events, not just `dragover`.
+    // Chromium fires `dragover` only over targets that accepted the drag, and
+    // fires no drag event at all while the pointer is stationary — so a
+    // `dragover`-only input can go stale mid-gesture. Measured at a 900px
+    // viewport: the last `dragover` landed exactly on the 60px band boundary
+    // (dx=0) while the pointer kept moving 20px closer to the edge, and with
+    // the drag held there the board never scrolled. `drag` rides on the drag
+    // source and carries every pointer move regardless of what is under it;
+    // `dragenter` fires whenever the hit-test target changes — together they
+    // also cover drags whose source lives outside the board (detail-panel tree
+    // rows), where `drag` never reaches this container.
+    const TRACKED_DRAG_EVENTS = ["drag", "dragenter", "dragover"] as const;
     const trackPointer = (e: DragEvent) => {
       pointer = { x: e.clientX, y: e.clientY };
     };
-    board.addEventListener("dragover", trackPointer, true);
+    for (const type of TRACKED_DRAG_EVENTS) {
+      board.addEventListener(type, trackPointer, true);
+    }
 
     let frame = 0;
     const step = () => {
@@ -424,7 +439,9 @@ export function KanbanBoard({
 
     return () => {
       cancelAnimationFrame(frame);
-      board.removeEventListener("dragover", trackPointer, true);
+      for (const type of TRACKED_DRAG_EVENTS) {
+        board.removeEventListener(type, trackPointer, true);
+      }
     };
   }, [dragTaskId]);
 

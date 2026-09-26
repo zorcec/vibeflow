@@ -109,7 +109,11 @@ async function readDragLog(page: Page): Promise<DragRecord[]> {
   );
 }
 
-/** Visible review cards in board order, with viewport coordinates. */
+/** Review cards whose press point is inside the viewport, in board order,
+ *  with viewport coordinates. The horizontal check matters: a card whose
+ *  centre sits beyond the right edge (the review lane starts at content
+ *  x=908, i.e. off-screen at a 900px viewport) cannot be grabbed by a real
+ *  pointer — a "drag" started from x>viewport never reaches the page. */
 async function reviewCardRects(page: Page): Promise<CardRect[]> {
   return page.evaluate(() =>
     [
@@ -119,12 +123,18 @@ async function reviewCardRects(page: Page): Promise<CardRect[]> {
     ]
       .map((card) => {
         const r = card.getBoundingClientRect();
+        const x = r.x + r.width / 2;
         return {
           id: card.dataset.taskId ?? "",
-          x: r.x + r.width / 2,
+          x,
           top: r.y,
           height: r.height,
-          visible: r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight,
+          visible:
+            r.height > 0 &&
+            r.top >= 0 &&
+            r.bottom <= window.innerHeight &&
+            x >= 0 &&
+            x <= window.innerWidth,
         };
       })
       .filter((c) => c.visible)
@@ -464,14 +474,38 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
       });
       await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector("#kanban-board", { timeout: 15000 });
+      // The 1310px case above drops a card into done, so review no longer
+      // holds CARDS by the time this runs — wait for the lane to be populated,
+      // not for a fixed count (=== CARDS timed out here in full-file runs).
       await page.waitForFunction(
         (n) =>
           document.querySelectorAll(
             '#kanban-board [data-column-id="review"] article.task-card',
-          ).length === n,
-        CARDS,
+          ).length >= n,
+        1,
         { timeout: 15000 },
       );
+
+      // At 900px the review lane starts beyond the right edge (content
+      // x=908), so no review card is pressable at scrollLeft=0: a press at
+      // x=1048 never reaches the page (measured: zero dragstart, zero
+      // dragover, the auto-scroll loop inert). Wheel-scroll to the first card
+      // first — what a user would do. No-op at 1310px, where the computed
+      // target is already ≤ 0.
+      await page.evaluate(() => {
+        const board = document.getElementById("kanban-board")!;
+        const card = document.querySelector<HTMLElement>(
+          '#kanban-board [data-column-id="review"] article.task-card',
+        )!;
+        const cr = card.getBoundingClientRect();
+        const br = board.getBoundingClientRect();
+        const centerContentX =
+          cr.left - br.left + board.scrollLeft + cr.width / 2;
+        board.scrollLeft = Math.max(
+          0,
+          Math.round(centerContentX - (innerWidth - 120)),
+        );
+      });
 
       const doneBefore = await laneBox(page, "done");
       const boardState = () =>
@@ -514,7 +548,21 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
       }
       expect(handedOver, "the browser never claimed the drag").toBe(true);
 
-      await page.waitForTimeout(1200);
+      // HOLD at the edge until the board stops scrolling. A fixed 1200ms was
+      // a timing guess that covers only ~336px of the 604px range at 900px
+      // (5px/frame at 40px inside the 60px band). Polling for a stall asserts
+      // the real property — a held drag keeps scrolling until the board
+      // cannot — and a scroll that stops short leaves its final position in
+      // the assertion below.
+      let stable = 0;
+      let previous = -1;
+      const holdDeadline = Date.now() + 10000;
+      while (Date.now() < holdDeadline && stable < 4) {
+        await page.waitForTimeout(200);
+        const current = (await boardState()).scrollLeft;
+        stable = current === previous ? stable + 1 : 0;
+        previous = current;
+      }
       const during = await boardState();
       expect(
         during.scrollLeft,
@@ -523,7 +571,10 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
 
       // The clipped lane is now on-screen and is what the pointer is over.
       const doneDuring = await laneBox(page, "done");
-      expect(doneDuring!.right).toBeLessThanOrEqual(viewport.width + 1);
+      expect(
+        doneDuring!.right,
+        `the done lane must scroll into view (scrollLeft=${during.scrollLeft}/${during.maxScroll})`,
+      ).toBeLessThanOrEqual(viewport.width + 1);
       const underPointer = await page.evaluate(
         (p) => {
           const el = document.elementFromPoint(p.x, p.y);
