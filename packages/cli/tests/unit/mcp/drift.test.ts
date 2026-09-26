@@ -4,17 +4,35 @@
  * Ensures CLI commands and flags are properly mapped to MCP tools.
  * Fails if a new CLI flag is added without a corresponding MCP tool.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Command } from "commander";
 import { manifest } from "../../../src/mcp/manifest.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const srcRoot = join(__dirname, "../../../src");
 
+let createProgram: () => Command;
+
 describe("MCP drift test", () => {
+  beforeAll(async () => {
+    // Import src/index.ts for the commander tree without running the CLI or
+    // touching the network (entry guards in src/index.ts). Removed right
+    // after import: the guards evaluate at import time, and any CLI spawned
+    // from this process must parse normally.
+    process.env.VIBEFLOW_CLI_SKIP_PARSE = "1";
+    process.env.VIBEFLOW_CLI_SKIP_REFRESH = "1";
+    try {
+      ({ createProgram } = await import("../../../src/index.js"));
+    } finally {
+      delete process.env.VIBEFLOW_CLI_SKIP_PARSE;
+      delete process.env.VIBEFLOW_CLI_SKIP_REFRESH;
+    }
+  });
+
   it("every tool in manifest has required fields", () => {
     for (const tool of manifest) {
       expect(tool.name).toBeTruthy();
@@ -108,6 +126,27 @@ describe("MCP drift test", () => {
       const src = readFileSync(join(srcRoot, "mcp", f), "utf-8");
       expect(src).not.toMatch(/writeFileSync|mkdirSync\(/);
     }
+  });
+
+  it("the CLI program is introspectable without executing a command", () => {
+    const program = createProgram();
+    const names = program.commands.map((c) => c.name()).sort();
+    expect(names).toEqual([
+      "auth",
+      "changelog",
+      "kanban",
+      "login",
+      "logout",
+      "push",
+      "serve",
+      "status",
+      "tasks",
+      "telemetry",
+      "verify",
+      "watch",
+    ]);
+    // A factory, not a singleton — each call builds a fresh tree.
+    expect(createProgram()).not.toBe(program);
   });
 
   it("every cliRef flag exists on the referenced command", () => {

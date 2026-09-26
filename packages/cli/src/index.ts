@@ -167,8 +167,10 @@ function checkForUpdates(showChangelog = true): void {
     });
 }
 
-// Background: refresh SaaS settings if stale (fire-and-forget, non-blocking)
-void maybeRefreshSettings();
+// Background: refresh SaaS settings if stale (fire-and-forget, non-blocking).
+// Skipped when the module is imported for commander-tree introspection
+// (VIBEFLOW_CLI_SKIP_REFRESH=1), so importing never triggers a fetch.
+if (process.env.VIBEFLOW_CLI_SKIP_REFRESH !== "1") void maybeRefreshSettings();
 
 const STATUS_COLORS: Record<string, (s: string) => string> = {
   backlog: chalk.gray,
@@ -552,7 +554,8 @@ function printTaskDetails(
   console.log();
 }
 
-const program = new Command();
+export function createProgram(): Command {
+  const program = new Command();
 
 program
   .name("vibeflow")
@@ -3412,7 +3415,17 @@ program
     showChangelog({ all: opts.all === true });
   });
 
+  return program;
+}
+
 // `programArgv` is process.argv with the `tasks --commit` pathspec removed (see
 // splitCommitPathspec): commander cannot receive it, so it arrives via the
 // module-level `commitPathspec` instead.
-program.parse(programArgv);
+//
+// Entry guard: importing this module for introspection must not execute the
+// CLI. Tests set VIBEFLOW_CLI_SKIP_PARSE=1 / VIBEFLOW_CLI_SKIP_REFRESH=1, then
+// dynamically import, to obtain the commander tree without running a command
+// or touching the network.
+if (process.env.VIBEFLOW_CLI_SKIP_PARSE !== "1") {
+  createProgram().parse(programArgv);
+}
