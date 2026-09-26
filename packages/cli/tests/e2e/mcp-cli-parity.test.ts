@@ -109,17 +109,17 @@ describe("manifest cliRef vs real CLI surface", () => {
     }
   });
 
-  it("PINNED divergence: serverInfo.version (0.1.0) != package version — flip when fixed", async () => {
-    // src/mcp/server.ts hardcodes version: "0.1.0"; the CLI package is
-    // CLI_PKG_VERSION. Ticket 94c12ebe fixed this for the web-crawl MCP only.
+  it("serverInfo.version equals the package.json version", async () => {
+    // src/mcp/server.ts advertises CLI_VERSION (src/version.ts), the
+    // build-time define from packages/cli/package.json. A release that
+    // forgets the define, or a re-hardcode of "0.1.0", fails here.
     const env = await bootMcpServer();
     try {
       const client = newClient(env.mcpUrl);
       const res = await initialize(client);
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.result.serverInfo.version).toBe("0.1.0");
-      expect(body.result.serverInfo.version).not.toBe(CLI_PKG_VERSION);
+      expect(body.result.serverInfo.version).toBe(CLI_PKG_VERSION);
     } finally {
       await env.cleanup();
     }

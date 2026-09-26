@@ -6,6 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OperationContext, OperationResult } from "../core/operations.js";
 import { getGitUser } from "../core/git-user.js";
+import { CLI_VERSION } from "../version.js";
 import { manifest } from "./manifest.js";
 
 // ── Tool Registration ──────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ export function createMcpServer(
 ): McpServer {
   const server = new McpServer({
     name: "vibeflow",
-    version: "0.1.0",
+    version: CLI_VERSION,
   });
 
   const ctx: OperationContext = { projectDir, mode, userId: getGitUser(projectDir).name };

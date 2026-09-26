@@ -20,7 +20,7 @@ import {
   type McpClient,
   type McpTestEnv,
 } from "./mcp-helpers.js";
-import { rmSync } from "node:fs";
+import { rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -56,7 +56,13 @@ describe("MCP transport/session lifecycle", () => {
     const body = await res.json();
     expect(body.result.protocolVersion).toBeDefined();
     expect(body.result.serverInfo.name).toBe("vibeflow");
-    expect(body.result.serverInfo.version).toBe("0.1.0");
+    // serverInfo.version is the package version (src/version.ts build-time
+    // define); pinned to package.json so a hard-coded regression fails.
+    expect(body.result.serverInfo.version).toBe(
+      JSON.parse(
+        readFileSync(new URL("../../package.json", import.meta.url), "utf-8"),
+      ).version as string,
+    );
     expect(body.result.capabilities.tools.listChanged).toBeDefined();
   });
 
