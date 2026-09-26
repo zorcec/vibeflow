@@ -33,6 +33,8 @@ packages/cli/reports/
 packages/cli/.stryker-tmp/
 packages/ui-prototyping/reports/
 packages/ui-prototyping/.stryker-tmp/
+packages/prototyping/reports/
+packages/prototyping/.stryker-tmp/
 
 
 # Internal task management (not for public)
