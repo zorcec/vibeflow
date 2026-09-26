@@ -5,7 +5,7 @@
  * Fails if a new CLI flag is added without a corresponding MCP tool.
  */
 import { describe, it, expect, beforeAll } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
@@ -128,6 +128,50 @@ describe("MCP drift test", () => {
     for (const f of ["manifest.ts", "server.ts", "http.ts"]) {
       const src = readFileSync(join(srcRoot, "mcp", f), "utf-8");
       expect(src).not.toMatch(/writeFileSync|mkdirSync\(/);
+    }
+  });
+
+  it("G4 — mcp modules never parse argv or import commander", () => {
+    // readdir, not a hard-coded list: a NEW file dropped into src/mcp/ is
+    // scanned automatically. The MCP layer is a sibling of the CLI, never a
+    // second argv-driven surface (plan §3).
+    const mcpDir = join(srcRoot, "mcp");
+    const files = readdirSync(mcpDir).filter((f) => f.endsWith(".ts"));
+    expect(files.length).toBeGreaterThanOrEqual(4);
+    for (const f of files) {
+      const src = readFileSync(join(mcpDir, f), "utf-8");
+      expect(
+        src,
+        `src/mcp/${f} must not import commander or read process.argv`,
+      ).not.toMatch(/from "commander"|process\.argv/);
+    }
+  });
+
+  it("G4 — every tool's run body calls a function imported from core/operations", () => {
+    // The manifest is the only bridge: each `run:` wrapper must delegate to
+    // a named import from ../core/operations.js — never to a local helper,
+    // the CLI module, or an argv-driven path.
+    const manifestSrc = readFileSync(join(srcRoot, "mcp", "manifest.ts"), "utf-8");
+    const importBlock = manifestSrc.match(
+      /import \{([\s\S]*?)\} from "\.\.\/core\/operations\.js";/,
+    );
+    expect(importBlock, "manifest.ts must import from ../core/operations.js").toBeTruthy();
+    const imported = new Set(
+      [...importBlock![1].matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((m) => m[1]),
+    );
+    const runCalls = [
+      ...manifestSrc.matchAll(/run:\s*\(ctx, input\)\s*=>\s*([A-Za-z_$][\w$]*)\(/g),
+    ].map((m) => m[1]);
+    // Shape guard: if the `run:` shape changes, the regex finds nothing —
+    // fail loudly instead of passing vacuously.
+    expect(runCalls.length, "no `run: (ctx, input) => fn(...)` bodies matched").toBe(
+      manifest.length,
+    );
+    for (const fn of runCalls) {
+      expect(
+        imported.has(fn),
+        `tool run body calls \`${fn}\`, which is not imported from core/operations.ts`,
+      ).toBe(true);
     }
   });
 
