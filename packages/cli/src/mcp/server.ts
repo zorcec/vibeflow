@@ -23,10 +23,16 @@ export function createMcpServer(
   const ctx: OperationContext = { projectDir, mode, userId: getGitUser(projectDir).name };
 
   for (const tool of manifest) {
-    server.tool(tool.name, tool.description, tool.input, async (input) => {
-      const result = await tool.run(ctx, input);
-      return formatResult(result);
-    });
+    server.tool(
+      tool.name,
+      tool.description,
+      tool.input,
+      tool.annotations,
+      async (input) => {
+        const result = await tool.run(ctx, input);
+        return formatResult(result);
+      },
+    );
   }
 
   return server;

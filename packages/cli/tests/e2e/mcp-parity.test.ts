@@ -1,10 +1,11 @@
 /**
- * MCP e2e — MCP-from-manifest parity (spec §2.8, Phase 5-aware).
+ * MCP e2e — MCP-from-manifest parity (spec §2.8, Phase 5-completed).
  *
- * src/mcp/server.ts registers 10 tools with hand-copied descriptions/schemas;
- * src/mcp/manifest.ts is the intended single source of truth. Phase 5 will
- * register tools FROM the manifest — at that point the soft-parity assertions
- * here (inputSchema keys, annotations) flip to strict manifest-derived checks.
+ * src/mcp/server.ts registers the 10 tools FROM src/mcp/manifest.ts —
+ * name, description, input schema (zod raw shape) and annotations are all
+ * passed through at registration, so schema/key/annotation drift is
+ * structurally impossible. This suite asserts that over the wire via
+ * tools/list.
  *
  * Existing static drift coverage lives in tests/unit/mcp/drift.test.ts — this
  * suite covers parity via tools/list over HTTP.
@@ -97,25 +98,29 @@ describe("MCP-from-manifest parity", () => {
     }
   });
 
-  it("4: inputSchema key parity — [Phase 5 flip] strict manifest derivation", () => {
-    // Soft parity TODAY: hand-copied server.ts schemas must expose exactly the
-    // keys the manifest zod shapes document. Phase 5 flips this to derive both
-    // sides from the manifest and assert strict equality of full schemas.
+  it("4: inputSchema key parity — keys equal the manifest zod shape", () => {
+    // The server derives inputSchema from the manifest's zod raw shape at
+    // registration time (server.ts registration loop), so this key-set
+    // assertion is strict: a hand-copied schema would have to drift in both
+    // places at once to pass.
     const byName = new Map(tools.map((t) => [t.name, t]));
     for (const m of manifest) {
       const tool = byName.get(m.name)!;
       const listedKeys = Object.keys(tool.inputSchema?.properties ?? {}).sort();
-      // manifest input is a ZodRawShape (plain object) after Phase 5
       const shape = (m.input as Record<string, unknown>) ?? {};
       const manifestKeys = Object.keys(shape).sort();
       expect(listedKeys, m.name).toEqual(manifestKeys);
     }
   });
 
-  it("5: annotations absent — [Phase 5 flip] will equal manifest.annotations", () => {
-    // Hand-registered via server.tool without annotations today.
-    for (const t of tools) {
-      expect(t.annotations, t.name).toBeUndefined();
+  it("5: annotations parity — annotations equal manifest.annotations", () => {
+    // Phase 5 flip: server.tool(...) now receives tool.annotations from the
+    // manifest, so tools/list must echo exactly what the manifest declares.
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    for (const m of manifest) {
+      const tool = byName.get(m.name);
+      expect(tool, `tool ${m.name} missing from tools/list`).toBeDefined();
+      expect(tool!.annotations, m.name).toEqual(m.annotations);
     }
   });
 });
