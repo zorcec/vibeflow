@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.17.2
+
+### Patch Changes
+
+- 345dcd5: Fix the board's comment API routes not awaiting their writes. `POST`/`PATCH`/`DELETE` on
+  `/api/tasks/:id/comments` called `addComment`/`updateComment`/`deleteComment` without `await`, so a
+  failing write could respond before it completed — the client could be told a comment was saved
+  while the write had actually errored. The handlers are now `async` and await the result.
+- 1ef4636: Fix standalone `--set-verify` on Research tasks: previously `--set-verify pass` on a Research task silently succeeded (exit 0) without writing anything, and `--dry-run --set-verify pass` showed `verified: true` in the preview. Both now error with `RESEARCH_VERIFY_NOT_ALLOWED` and non-zero exit, matching the existing review-gate behaviour.
+- 70b7a1d: Harden the kanban board's whole-object task replacement against field loss, and add a permanent staleness regression guard for the verify badge. Three board sites (`patchTask` and the two drag/reparent response handlers) previously swapped the stored task for the raw server response (`data.task!`), bypassing `mergeTaskFromPayload` — a response omitting `verified` would have dropped the badge through a side door (the same trap as 088a2c1), and any response would have blanked server-computed counts (`commentCount`, `fileCount`) it doesn't carry. All three now route through the shared merge helper with strict-boolean `verified` semantics (absence clears a verdict, never preserves a stale pass). Also adds `tests/playwright/kanban-verify-badge-persistence.test.ts`: a hermetic Playwright guard that seeds a verified review task, asserts the badge survives card open / 5 s idle / panel close, names any HTTP endpoint or WebSocket frame that drops `verified`, and fails loudly — "board serves a stale inlined bundle — rebuild and restart the board process" — when the served client bundle is not the current build (the kanban bundle is inlined into the served HTML at process start, so a board started before a rebuild serves pre-fix JS forever; this trap has now cost three debugging sessions).
+- 088a2c1: Fix the kanban live-update merge silently dropping task fields. The WebSocket `task-changed` handler rebuilt each task from a field allowlist that omitted nine of the 35 `Task` fields — most visibly `verified`, so the verify badge never appeared live after `--set-verify` and disappeared whenever a card was opened (the `/opened` broadcast replaced the stored task without it). `branchName`, `annotatedElementText`, `commitPushed`, `files`, `authorName`, `assigneeName`, `agent` and `model` were dropped the same way. The mapping is now a single tested `mergeTaskFromPayload` in `@vibeflow-tools/ui` with a compile-time exhaustiveness guard, so the next task field added to the type fails the build instead of shipping dropped. `verified` uses strict-boolean semantics (absence clears a stored verdict — required for `--set-verify cannot` and claim resets), and GET-only `commitPushed` is preserved from existing state rather than mapped.
+- fc901ca: Add npm discoverability metadata to published packages: `homepage`, `repository`, and `bugs` fields now point to https://www.vibeflow.tools and github.com/zorcec/vibeflow.
+- 2a85f41: Use distinct animated GIF demo images in the README. GitHub and npm render animated WebP as a static first frame, so the previous embeds showed stills (before that, both image slots pointed at the same 2 MB GIF, so "See It in Action" just repeated the hero animation). The hero now loads a 7.4 s board-and-drag walkthrough (`showcase-hq.gif`, 2.96 MB) and the section loads a different 9.9 s walkthrough covering drag, parent/child expansion and the full ticket (`board-flow-hq.gif`, 5.11 MB) — full-frame 1600×1000 at 12.5 fps, both under GitHub camo's 5 MB cap, and the two slots show different clips.
+
 ## 0.17.1
 
 ### Patch Changes
