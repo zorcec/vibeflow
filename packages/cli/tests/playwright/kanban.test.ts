@@ -2821,7 +2821,24 @@ describe("Task reference navigation", () => {
     });
 
     // Start at Task A (wait for fresh task data via WS)
+    // Start from a clean panel. The tests above leave a task open, and clicking a card
+    // while a panel is already open does not simply (re)open it: the title/description
+    // editors auto-save on blur (`onDescriptionBlur={autoSave}`, DetailPanel), and
+    // App's onSave awaits patchTask and THEN calls setPanelState(open:false) — so a
+    // click on a card blurs the editor, and the save's close lands after the click's
+    // openPanel(), leaving the panel shut. Close first, wait for the container to
+    // unmount (the same state that drives the board inset), then let the card click be
+    // the only thing that decides the panel state.
     await waitForTaskOnBoardLocal(taskAId);
+    if ((await page.locator("#dp-close").count()) > 0) {
+      await page.locator("#dp-close").click();
+    }
+    await page
+      .waitForSelector("#detail-panel-container", {
+        state: "detached",
+        timeout: 5_000,
+      })
+      .catch(() => {});
     await page.locator(`[data-task-id="${taskAId}"]`).click();
     await page.waitForSelector("#detail-panel");
 
