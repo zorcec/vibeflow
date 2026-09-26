@@ -9,7 +9,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
-import { manifest } from "../../../src/mcp/manifest.js";
+import {
+  manifest,
+  intentionallyNotExposed,
+} from "../../../src/mcp/manifest.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -147,6 +150,59 @@ describe("MCP drift test", () => {
     ]);
     // A factory, not a singleton — each call builds a fresh tree.
     expect(createProgram()).not.toBe(program);
+  });
+
+  it("G1 coverage — every option on every subcommand is owned by a cliRef or explicitly not exposed", () => {
+    const program = createProgram();
+    // Owned = some tool's cliRef names the flag, scoped to the same command.
+    const owned = new Set(
+      manifest.flatMap((tool) =>
+        tool.cliRef.flags.map((flag) => `${tool.cliRef.command} ${flag}`),
+      ),
+    );
+    const unclassified: string[] = [];
+    for (const cmd of program.commands) {
+      const command = cmd.name();
+      // A wholly-unexposed command is classified as a whole (§6.1).
+      if (command in intentionallyNotExposed.commands) continue;
+      for (const opt of cmd.options) {
+        const flag = opt.long ?? opt.short;
+        if (!flag || flag === "--help") continue; // framework artifact
+        const key = `${command} ${flag}`;
+        if (!owned.has(key) && !(key in intentionallyNotExposed.flags)) {
+          unclassified.push(key);
+        }
+      }
+    }
+    expect(
+      unclassified,
+      `unclassified CLI flags — map each to a tool cliRef or give it a reason in intentionallyNotExposed: ${unclassified.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("G1 classification — no stale intentionallyNotExposed entries", () => {
+    const program = createProgram();
+    const names = new Set(program.commands.map((c) => c.name()));
+    for (const key of Object.keys(intentionallyNotExposed.commands)) {
+      expect(
+        names.has(key),
+        `intentionallyNotExposed.commands lists "${key}", which is not a CLI command`,
+      ).toBe(true);
+    }
+    for (const key of Object.keys(intentionallyNotExposed.flags)) {
+      const sep = key.indexOf(" ");
+      const command = key.slice(0, sep);
+      const flag = key.slice(sep + 1);
+      const cmd = program.commands.find((c) => c.name() === command);
+      expect(
+        cmd,
+        `intentionallyNotExposed.flags key "${key}" names a nonexistent command`,
+      ).toBeDefined();
+      expect(
+        cmd!.options.some((o) => o.long === flag),
+        `intentionallyNotExposed.flags key "${key}" names a flag that no longer exists`,
+      ).toBe(true);
+    }
   });
 
   it("G1 reverse — every cliRef command exists and every cliRef flag exists on that command", () => {

@@ -53,6 +53,48 @@ export interface ToolManifest {
   ) => Promise<OperationResult<unknown>>;
 }
 
+// ── CLI Surface Classification (G1) ──────────────────────────────────────
+
+/**
+ * Deliberately-unexposed CLI surface. G1 (tests/unit/mcp/drift.test.ts)
+ * fails the build when any commander option is neither owned by a manifest
+ * `cliRef` nor listed here with an auditable reason.
+ */
+export interface CliSurfaceClassification {
+  /** Commands with NO mapped tool (whole command is deliberately unexposed). */
+  commands: Record<string, string>;
+  /** Individual flags of partially-exposed commands, keyed "command --flag". */
+  flags: Record<string, string>;
+}
+
+export const intentionallyNotExposed: CliSurfaceClassification = {
+  commands: {
+    auth: "manages encrypted per-task Playwright auth-state files; a local security utility, not a task operation",
+    changelog: "prints the packed changelog; no task state",
+    kanban: "long-running UI server (serve + open browser); not an operation",
+    login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
+    logout: "clears the local auth token; hidden; local credential mutation",
+    serve: "long-running prototype/API server; not an operation",
+    status:
+      "informational auth/connection/task-count summary; hidden; list_tasks covers counts",
+    telemetry: "local telemetry opt-in/opt-out config; not a task operation",
+    watch: "long-running task-store event daemon / JSONL stream; not an operation",
+  },
+  flags: {
+    "tasks --commit":
+      "commits staged paths and links the SHA to a task — a local git workflow; update_task covers the review auto-commit path",
+    "tasks --task": "task selector for --commit only; not an operation on its own",
+    "tasks --message":
+      "commit message for --commit only; update_task uses commitMessage at review",
+    "tasks --dry-run":
+      "CLI preview flag; every mutating tool exposes a `dryRun` input instead",
+    "tasks --reindex-sort-keys":
+      "one-time board-ordering maintenance; idempotent re-key, no MCP equivalent",
+    "verify --filter":
+      "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs",
+  },
+};
+
 // ── Tool Definitions ───────────────────────────────────────────────────────
 
 export const manifest: ToolManifest[] = [
@@ -265,7 +307,7 @@ export const manifest: ToolManifest[] = [
     description: "Push local tasks to the SaaS server.",
     cliRef: {
       command: "push",
-      flags: ["--workspace", "--keep-local-files"],
+      flags: ["--workspace", "--keep-local-files", "--dry-run"],
     },
     category: "admin",
     annotations: {
