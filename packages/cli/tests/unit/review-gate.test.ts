@@ -87,6 +87,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("REVIEW_COMMENT_REQUIRED");
+      expect(result.message).toContain("Comment is required");
+      expect(result.suggestion).toContain("--comment");
     }
   });
 
@@ -101,6 +103,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("REVIEW_COMMENT_REQUIRED");
+      expect(result.message).toContain("Comment is required");
+      expect(result.suggestion).toContain("--comment");
     }
   });
 
@@ -126,6 +130,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("COMMIT_MESSAGE_REQUIRED");
+      expect(result.message).toContain("--commit-message is required");
+      expect(result.suggestion).toContain("--commit-message");
     }
   });
 
@@ -151,6 +157,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("BRANCH_REQUIRED");
+      expect(result.message).toContain("--branch is required");
+      expect(result.suggestion).toContain("--branch");
     }
   });
 
@@ -244,6 +252,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REASON_REQUIRED");
+      expect(result.message).toContain("requires --verify-reason");
+      expect(result.suggestion).toContain("verify-reason");
     }
   });
 
@@ -269,6 +279,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REASON_REQUIRED");
+      expect(result.message).toContain("requires --verify-reason");
+      expect(result.suggestion).toContain("verify-reason");
     }
   });
 
@@ -296,6 +308,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REQUIRED");
+      expect(result.message).toContain("Annotated tasks need a verification verdict");
+      expect(result.suggestion).toContain("vibeflow verify");
     }
   });
 
@@ -321,6 +335,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+      expect(result.message).toContain("attested that this task is NOT implemented correctly");
+      expect(result.suggestion).toContain("--set-verify pass");
     }
   });
 
@@ -341,6 +357,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+      expect(result.message).toContain("attested that this task is NOT implemented correctly");
+      expect(result.suggestion).toContain("--set-verify pass");
     }
   });
 
@@ -365,6 +383,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_FAILED_ATTESTED");
+      expect(result.message).toContain("carries your verdict that it is NOT implemented correctly");
+      expect(result.suggestion).toContain("--set-verify pass");
     }
   });
 
@@ -391,6 +411,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("VERIFY_REQUIRED");
+      expect(result.message).toContain("Annotated tasks need a verification verdict");
+      expect(result.suggestion).toContain("vibeflow verify");
     }
   });
 
@@ -451,6 +473,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("RESEARCH_REPORT_REQUIRED");
+      expect(result.message).toContain("no .md report file attached");
+      expect(result.suggestion).toContain("--report-file");
     }
   });
 
@@ -523,7 +547,11 @@ describe("checkReviewTransition", () => {
       },
     );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("RESEARCH_REPORT_REQUIRED");
+    if (!result.ok) {
+      expect(result.code).toBe("RESEARCH_REPORT_REQUIRED");
+      expect(result.message).toContain("no .md report file attached");
+      expect(result.suggestion).toContain("--report-file");
+    }
   });
 
   it("refuses LOUDLY when --set-verify pass is passed on a Research review transition", () => {
@@ -547,6 +575,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+      expect(result.message).toContain("cannot carry a verification verdict");
+      expect(result.suggestion).toContain("Drop --set-verify");
     }
   });
 
@@ -571,6 +601,8 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
+      expect(result.message).toContain("cannot carry a verification verdict");
+      expect(result.suggestion).toContain("Drop --set-verify");
     }
   });
 
