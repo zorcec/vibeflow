@@ -149,11 +149,24 @@ describe("MCP drift test", () => {
     expect(createProgram()).not.toBe(program);
   });
 
-  it("every cliRef flag exists on the referenced command", () => {
-    // Static check: all flag strings are non-empty and start with --
+  it("G1 reverse — every cliRef command exists and every cliRef flag exists on that command", () => {
+    const program = createProgram();
     for (const tool of manifest) {
+      const cmd = program.commands.find(
+        (c) => c.name() === tool.cliRef.command,
+      );
+      expect(
+        cmd,
+        `${tool.name}: cliRef.command "${tool.cliRef.command}" is not a CLI command`,
+      ).toBeDefined();
       for (const flag of tool.cliRef.flags) {
-        expect(flag).toMatch(/^--/);
+        // Commander stores `--no-parent` as an option with long ===
+        // "--no-parent", and `--get`/`--edit` as long options too, so
+        // matching on `long` covers negatable and optional-arg flags.
+        expect(
+          cmd!.options.some((o) => o.long === flag),
+          `${tool.name}: cliRef claims \`${tool.cliRef.command} ${flag}\`, which does not exist on that command`,
+        ).toBe(true);
       }
     }
   });
