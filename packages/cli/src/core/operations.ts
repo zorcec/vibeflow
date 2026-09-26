@@ -889,7 +889,12 @@ export async function pushTasks(
       keepLocalFiles: input.keepLocalFiles,
       dryRun: input.dryRun,
     });
-    return { ok: true, data: result };
+    // push() is typed Promise<PushResult | void> and returns void on early
+    // exits (nothing to push, local mode, missing login). Normalise to an
+    // object so the success envelope is always serialisable —
+    // JSON.stringify(undefined) is undefined, which would violate the MCP
+    // TextContent contract (text: string).
+    return { ok: true, data: result ?? {} };
   } catch (err) {
     return {
       ok: false,

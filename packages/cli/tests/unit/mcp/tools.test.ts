@@ -16,6 +16,7 @@ import {
   addComment,
   attachFile,
   exportPrompt,
+  verifyTaskOp,
   type OperationContext,
 } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
@@ -393,5 +394,59 @@ describe("export_prompt", () => {
     const result = await exportPrompt(ctx, { id: "non-existent" });
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("TASK_NOT_FOUND");
+  });
+});
+
+// ── verify_task (Fix 4.2.3 — engine error paths, no browser needed) ───────
+
+describe("verify_task", () => {
+  it("verify_task — E_NOT_FOUND for nonexistent id", async () => {
+    const result = await verifyTaskOp(ctx, {
+      id: "nonexistent-000",
+      timeoutMs: 60_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("E_NOT_FOUND");
+    expect(result.data).toBeUndefined();
+  });
+
+  it("verify_task — E_NO_BASELINE when the task has no baseline", async () => {
+    // Task exists but carries no baseline snapshot: the engine throws at
+    // step 2 (before any browser launch), and the op must surface the code.
+    createTestTask({ id: "task-no-baseline" });
+    const result = await verifyTaskOp(ctx, {
+      id: "task-no-baseline",
+      timeoutMs: 60_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("E_NO_BASELINE");
+  });
+});
+
+// ── push_tasks TextContent contract (D7) ──────────────────────────────
+
+describe("push_tasks envelope", () => {
+  it("push_tasks — returns a defined data object and a string TextContent", async () => {
+    // Call THROUGH createMcpServer: the registered callback runs the op and
+    // formatResult, so this pins the wire contract — content[0].text must be
+    // a parseable JSON string, never undefined (JSON.stringify(undefined)
+    // would violate the MCP TextContent contract).
+    const { createMcpServer } = await import("../../../src/mcp/server.js");
+    const server = createMcpServer(testDir, "local");
+    const registered = (server as unknown as {
+      _registeredTools: Record<
+        string,
+        { handler: (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }> }
+      >;
+    })._registeredTools;
+    const result = await registered.push_tasks.handler({
+      dryRun: true,
+      keepLocalFiles: true,
+    });
+    expect(typeof result.content[0].text).toBe("string");
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).not.toBeNull();
+    expect(typeof parsed).toBe("object");
+    expect(Object.keys(parsed).length).toBeGreaterThan(0);
   });
 });

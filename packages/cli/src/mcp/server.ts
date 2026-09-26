@@ -48,7 +48,11 @@ function formatResult<T>(result: OperationResult<T>): {
       content: [
         {
           type: "text",
-          text: JSON.stringify(result.data, null, 2),
+          // `?? null`: a tool may legitimately return void (push() exits
+          // with no value on early paths). JSON.stringify(undefined) is
+          // undefined, which violates the MCP TextContent contract
+          // (text: string) — null serialises to a valid JSON string.
+          text: JSON.stringify(result.data ?? null, null, 2),
         },
       ],
     };
