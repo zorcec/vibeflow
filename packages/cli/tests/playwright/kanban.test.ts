@@ -1450,18 +1450,53 @@ describe("Kanban board", () => {
   });
 
   it("does not reserve board width when detail panel is closed", async () => {
-    // Close any panel left open by the previous test.
-    await page.evaluate(() => {
-      const panel = document.getElementById("detail-panel");
-      if (panel?.classList.contains("open")) {
-        panel.classList.remove("open");
-      }
+    // Close any panel left open by the previous test. This must drive the
+    // REAL close (#dp-close → React state): the board's right inset follows
+    // panelState (App.tsx boardRightInset, commit 9d3d324), not the
+    // #detail-panel "open" class. Stripping the class alone leaves the board
+    // reserving the panel's 420px, so the baseline below would be measured
+    // while the panel is still open and the diff fails by exactly that width.
+    const closeBtn = page.locator("#dp-close");
+    if ((await closeBtn.count()) > 0) {
+      await closeBtn.click();
+      // An unsent comment interposes a "Send comment?" dialog; discard it so
+      // the panel genuinely reaches the closed state this test baselines.
+      await page
+        .waitForSelector("#detail-panel-container", {
+          state: "detached",
+          timeout: 2_000,
+        })
+        .catch(async () => {
+          await page
+            .getByRole("button", { name: "Discard & Close" })
+            .click({ timeout: 3_000 });
+        });
+    }
+    // The container unmounts iff React's panelState.open is false — the same
+    // state that drives the board inset.
+    await page.waitForSelector("#detail-panel-container", {
+      state: "detached",
+      timeout: 5_000,
     });
-    await page.waitForFunction(
-      () => !document.getElementById("detail-panel")?.classList.contains("open"),
-      { timeout: 3_000 },
-    ).catch(() => {});
     // Ensure board is loaded (no reload needed - already on the page)
+
+    // The panel must be openable, which needs a card to click. When this test
+    // runs in isolation (-t filter) the earlier tests that seed tasks are
+    // skipped and the board is empty — seed one probe card in that case.
+    if ((await page.locator("#kanban-board article.task-card").count()) === 0) {
+      const seeded = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Board width probe task",
+          selector: "/",
+        }),
+      });
+      expect((await seeded.json()).success).toBe(true);
+      await page.waitForSelector("#kanban-board article.task-card", {
+        timeout: 5_000,
+      });
+    }
 
     const initialWidth = await page.evaluate(() => {
       const board = document.getElementById(
@@ -2078,10 +2113,13 @@ describe("Kanban board", () => {
       .count();
     expect(doneCards).toBeLessThanOrEqual(20);
 
-    // The overflow indicator should contain a number showing hidden tasks
+    // The overflow indicator should contain a number showing hidden tasks.
+    // The product deliberately replaced the fixed 20-cap chip
+    // "+N older task(s) not shown" with fit-to-screen rendering and a
+    // "+N more" chip — commits 9471014 and 901c6ef.
     const columnScroll = page.locator('[data-column-id="done"] .column-scroll');
     const scrollText = await columnScroll.innerText({ timeout: 5_000 });
-    expect(scrollText).toMatch(/\+\d+\s+older/);
+    expect(scrollText).toMatch(/\+\d+\s+more/);
 
     // Clean up the extra tasks
     await Promise.all(
