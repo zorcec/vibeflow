@@ -413,9 +413,12 @@ describe("tasks --json refusals carry a code on stderr", () => {
     expect(envelope.error.message).toContain("Cycle detected");
   });
 
-  it("E_USAGE — --commit when git cannot run (nothing was written)", async () => {
+  it("GIT_COMMIT_FAILED — --commit when git cannot run (nothing was written)", async () => {
     // No `git init`: commitTaskPaths fails, so this is a refusal, not a
-    // partial success — the task file must be untouched.
+    // partial success — the task file must be untouched. The code is the SAME
+    // one the post-review auto-commit notice uses; here it means "nothing was
+    // committed", so `E_USAGE` keeps its single meaning and the code↔exit-code
+    // pairing stays intact.
     const store = freshDir("json-refusal-store-");
     const home = freshDir("json-refusal-home-");
     const id = await addTask(store, home, "Uncommittable");
@@ -425,8 +428,13 @@ describe("tasks --json refusals carry a code on stderr", () => {
       ["tasks", store, "--commit", "--task", id, "--message", "nope", "--json"],
       { cwd: store, home },
     );
-    const envelope = expectRefusal(r, "E_USAGE");
-    expect(typeof envelope.error.message).toBe("string");
+    const envelope = expectRefusal(r, "GIT_COMMIT_FAILED", {
+      retryable: false,
+    });
+    // commitTaskPaths REPORTS this failure ({ok:false}) rather than throwing
+    // when git cannot run at all, so the message is git's own; the staging
+    // hint is what both git-failure branches guarantee.
+    expect(envelope.error.suggestion).toContain("git add");
     expect(readFileSync(taskFile(store, id), "utf-8")).toBe(before);
   });
 
@@ -481,6 +489,20 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     return `http://127.0.0.1:${port}`;
   }
 
+  /** A host that answers every request with one status code. */
+  async function statusUrl(status: number): Promise<string> {
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `status ${status}` }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const { port } = server.address() as { port: number };
+    return `http://127.0.0.1:${port}`;
+  }
+
   it("E_BACKEND_UNAVAILABLE (retryable) — listing with an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
     const home = saasHome();
@@ -514,6 +536,49 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
       env: { VIBEFLOW_API_URL: `http://127.0.0.1:${port}` },
     });
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: false });
+  });
+
+  it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 401", async () => {
+    // SaaS mode is selected BECAUSE a token file exists, so the client's
+    // literal NOT_AUTHENTICATED (no token at all) is the rare case. What
+    // really happens is an expired or revoked token rejected with 401/403 —
+    // which used to be labelled E_BACKEND_UNAVAILABLE, i.e. "the backend is
+    // down, maybe retry", for a session retrying cannot fix.
+    const store = freshDir("json-refusal-saas-store-");
+    const home = saasHome();
+    const r = await spawnCli(["tasks", store, "--json"], {
+      cwd: store,
+      home,
+      env: { VIBEFLOW_API_URL: await statusUrl(401) },
+    });
+    const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
+      retryable: false,
+    });
+    expect(envelope.error.suggestion).toContain("vibeflow login");
+  });
+
+  it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 403", async () => {
+    const store = freshDir("json-refusal-saas-store-");
+    const home = saasHome();
+    const r = await spawnCli(["tasks", store, "--json"], {
+      cwd: store,
+      home,
+      env: { VIBEFLOW_API_URL: await statusUrl(403) },
+    });
+    const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
+      retryable: false,
+    });
+    expect(envelope.error.suggestion).toContain("vibeflow login");
+  });
+
+  it("E_NOT_AUTHENTICATED — --edit against a host that answers 401", async () => {
+    const store = freshDir("json-refusal-saas-store-");
+    const home = saasHome();
+    const r = await spawnCli(
+      ["tasks", store, "--edit", "abcd1234", "--set-status", "in-progress", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: await statusUrl(401) } },
+    );
+    expectRefusal(r, "E_NOT_AUTHENTICATED", { retryable: false });
   });
 
   it("E_BACKEND_UNAVAILABLE — --get against an unreachable host", async () => {

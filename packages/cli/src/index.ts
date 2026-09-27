@@ -62,6 +62,7 @@ import {
   toCliStatus,
   type SaasTask,
 } from "./saas/client.js";
+import { saasFailure } from "./saas/failure.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
@@ -432,25 +433,6 @@ function warningFields(
   if (warnings.length === 0) return {};
   if (warnings.length === 1) return { warning: warnings[0] };
   return { warnings };
-}
-
-/** True when `author` matches the user filter (case-insensitive). */
-/**
- * Maps a failed SaaS result to the refusal a `--json` consumer earns.
- */
-function saasFailure(
-  error: { code: string },
-): { code: string; retryable: boolean; suggestion?: string } {
-  if (error.code === "NOT_AUTHENTICATED")
-    return {
-      code: "E_NOT_AUTHENTICATED",
-      retryable: false,
-      suggestion: "Run 'vibeflow login' and retry.",
-    };
-  return {
-    code: "E_BACKEND_UNAVAILABLE",
-    retryable: error.code === "NETWORK_ERROR",
-  };
 }
 
 /** True when `author` matches the user filter (case-insensitive). */
@@ -2164,11 +2146,14 @@ program
             );
             if (!result.ok) {
               // Nothing was written on this path, so this is a refusal, not a
-              // partial success: the task record is untouched.
+              // partial success: the task record is untouched. Same code as
+              // the throw below and as the post-review auto-commit notice —
+              // "git could not commit" is one meaning, and it is not
+              // `E_USAGE` (that is reserved for a bad flag value).
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  code: "E_USAGE",
+                  code: "GIT_COMMIT_FAILED",
                   message: result.error,
                   suggestion:
                     "Stage the task's paths with 'git add' and retry the commit.",
@@ -2267,11 +2252,16 @@ program
             }
           } catch (err) {
             // Nothing was written on this path either, so the refusal is
-            // truthful: no commit record, no task-file change.
+            // truthful: no commit record, no task-file change. The code is the
+            // SAME `GIT_COMMIT_FAILED` the notice path uses — here it means
+            // "nothing was committed", there "the task was written but the
+            // commit did not happen" — so `E_USAGE` keeps its one meaning
+            // (a bad flag value or an impossible combination) and the code↔exit
+            // -code pairing stays intact.
             if (opts.json) {
               outputEnvelope({
                 ok: false,
-                code: "E_USAGE",
+                code: "GIT_COMMIT_FAILED",
                 message:
                   "git commit failed — ensure changes are staged with 'git add'",
                 suggestion:
