@@ -20,6 +20,45 @@
  *
  * Windows are located structurally, so editing the file above a site never
  * silently disarms the check — only reverting a site's own json handling does.
+ *
+ * ── WHAT THIS GUARD CANNOT SEE (read before trusting a green run) ──────────
+ *
+ * It is a HEURISTIC over masked text, not a parser, and it has named blind
+ * spots. Two of them are exercised as tests below; the rest are stated here so
+ * nobody mistakes this for a proof:
+ *
+ *   B1. EXIT 0 IS INVISIBLE. The detector is keyed on non-zero
+ *       `process.exitCode` assignments, so prose written to stdout by a
+ *       SUCCESSFUL `--json` run cannot be seen here at all. Two real sites
+ *       were exactly this: the `--edit` usage-help block (exit 0, 750+ bytes of
+ *       chalk) and the auto-push lines printed AFTER the success envelope.
+ *       `tests/e2e/tasks-json-refusals.test.ts` owns that class now, by
+ *       asserting stdout parses for a table of invocations.
+ *   B2. A COMMENT SATISFIES THE CHECK. The window only has to MENTION
+ *       `opts.json` / `outputEnvelope(` / `json:` — including inside a comment
+ *       or a string. A site can therefore be "compliant" on paper while the
+ *       prose still reaches stdout. See the test below.
+ *   B3. MASKING IS LEXICAL, NOT SYNTACTIC. Only strings, template literals
+ *       and comments are blanked. A `{` or `}` inside a REGEX literal
+ *       (`/\{2\}/`) still counts, and a `/` that starts neither a comment nor
+ *       a string (division, a path) can send the masker into a bogus string
+ *       and blank real code. Either way the bracket walk lands on the wrong
+ *       block.
+ *   B4. A BLANKED `${…}` IS INVISIBLE CODE. Masking a template literal blanks
+ *       its interpolations whole, so a `process.exitCode = ` written INSIDE
+ *       `${…}` is neither detected nor counted — the mask is balanced on
+ *       purpose, and that balance is exactly what hides it.
+ *   B5. THE WINDOW IS TEXTUAL CONTEXT, NOT A CALL GRAPH. It proves the json
+ *       surface is mentioned between the enclosing block's `{` and the exit
+ *       assignment. A site that routes its envelope through a helper CALLED
+ *       from that block passes; so does one that mentions the symbol and then
+ *       never writes an envelope.
+ *   B6. FALSE POSITIVES ARE POSSIBLE. Detection matches the raw line, so a
+ *       string containing the literal text `process.exitCode = ` is treated as
+ *       a site. The offender list would then name a line that is not one.
+ *
+ * The allowlist below is the escape hatch, and it is deliberately narrow: one
+ * entry, each with a reason, and a stale entry fails as loudly as a missing one.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -49,7 +88,7 @@ const ALLOWLIST: Array<{ match: RegExp; reason: string }> = [
 type Site = { line: number; window: string };
 
 /** Blanks string, template-literal and comment contents, preserving offsets. */
-function maskLiterals(source: string): string {
+export function maskLiterals(source: string): string {
   const out = source.split("");
   const blank = (from: number, to: number): void => {
     for (let k = from; k < to && k < out.length; k++) {
@@ -131,7 +170,7 @@ function assignedValue(lines: string[], i: number): string {
 }
 
 /** Every non-zero `process.exitCode = ` assignment with its enclosing block. */
-function findNonZeroExitSites(source: string): Site[] {
+export function findNonZeroExitSites(source: string): Site[] {
   const lines = source.split("\n");
   const masked = maskLiterals(source).split("\n");
   const sites: Site[] = [];
@@ -145,7 +184,7 @@ function findNonZeroExitSites(source: string): Site[] {
   return sites;
 }
 
-const JSON_SURFACE = /outputEnvelope\(|opts\.json|json:/;
+export const JSON_SURFACE = /outputEnvelope\(|opts\.json|json:/;
 
 describe("--json refusal recurrence guard", () => {
   const source = readFileSync(SOURCE, "utf-8");
@@ -174,5 +213,63 @@ describe("--json refusal recurrence guard", () => {
     // excusing and hides the next one that lands in the same place.
     const stale = ALLOWLIST.filter((entry) => !used.has(entry.match));
     expect(stale.map((entry) => entry.reason)).toEqual([]);
+  });
+});
+
+/**
+ * The blind spots above, exercised rather than merely described. These tests
+ * do not fail on a regression — they FAIL IF THE GUARD EVER STARTS BEHAVING AS
+ * IF IT COULD SEE, so that a future reader who assumes soundness has to read
+ * the header first. The guard itself is not weakened by them.
+ */
+describe("--json refusal guard: named blind spots", () => {
+  it("B2 — a COMMENT mentioning opts.json satisfies the check", () => {
+    // The window only has to mention the json surface, and masking blanks
+    // comments, so a comment in the enclosing block is enough to pass with no
+    // envelope written anywhere. Demonstrated here so "the guard is green" is
+    // never read as "this site emits an envelope".
+    const synthetic = [
+      "function refuse(opts) {",
+      "  if (opts.bad) {",
+      "    // TODO: honour opts.json on this path",
+      "    console.log('✗ bad flag');",
+      "    process.exitCode = 1;",
+      "  }",
+      "}",
+    ].join("\n");
+    const sites = findNonZeroExitSites(synthetic);
+    expect(sites).toHaveLength(1);
+    // The site's window satisfies the rule…
+    expect(JSON_SURFACE.test(sites[0].window)).toBe(true);
+    // …while the block writes no envelope at all.
+    expect(sites[0].window).not.toContain("outputEnvelope(");
+  });
+
+  it("B3 — a brace inside a regex literal is not masked, so the walk can land wrong", () => {
+    // Masking handles strings, templates and comments — not regex literals. An
+    // unbalanced brace in one shifts the backward count, and the reported
+    // window is then some other block entirely. The assertion is that the mask
+    // leaves the regex characters visible, which is the cause; a parser-based
+    // detector would not have this problem.
+    const withRegexBrace = "if (/\\{2\\}/.test(s)) {";
+    const withStringBrace = 'if ("{" === s) {';
+    expect(maskLiterals(withRegexBrace)).toContain("if (/");
+    expect(maskLiterals(withRegexBrace)).toContain("\\{2\\}");
+    // The same brace inside a STRING is masked, which is the case that works.
+    expect(maskLiterals(withStringBrace)).not.toContain('"{"');
+  });
+
+  it("B1 — exit 0 sites are invisible to the detector by construction", () => {
+    // Two real regressions (the `--edit` usage-help block and the post-envelope
+    // auto-push lines) were prose on stdout with exit 0. This is why they are
+    // the guard's structural blind spot, and why the e2e sweep exists.
+    const synthetic = [
+      "function help(opts) {",
+      "  if (opts.json) {",
+      "    console.log('vibeflow tasks --edit — LLM Usage Instructions');",
+      "  }",
+      "}",
+    ].join("\n");
+    expect(findNonZeroExitSites(synthetic)).toHaveLength(0);
   });
 });

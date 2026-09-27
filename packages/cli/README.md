@@ -208,28 +208,50 @@ vibeflow tasks --edit <id> --set-status review --set-verify pass \
 **JSON output (`--json`):** one envelope, one `ok` discriminant. Success writes `{ok:true, …payload}`
 to **stdout** — `tasks` → `{ok:true, tasks:[…], hiddenChildren}`, `--get` → `{ok:true, task:{…}}`,
 `--add`/`--edit`/`--next` → `{ok:true, task:{…}, next_actions:[…]}`. Failure writes
-`{ok:false, error:{code, message, retryable, suggestion}}` to **stderr** and exits non-zero; under
-`--json` stdout carries only the envelope. **Every** non-zero exit emits that envelope — a
-refusal that printed prose left a machine consumer with empty stdout and no code. One code per
-meaning:
+`{ok:false, error:{code, message, retryable, suggestion}}` to **stderr** and exits non-zero. **Every**
+non-zero exit emits that envelope — a refusal that printed prose left a machine consumer with empty
+stdout and no code. Under `--json`, stdout is **empty or exactly one JSON document** on every path,
+with one deliberate exception:
+
+- `tasks --next --json` on an **empty board** prints `No todo tasks found. Nothing to work on.` and
+  exits 0. An empty board is not a failure, so this path never had an envelope, and three e2e tests
+  pin that sentence and exit code on purpose. Guard for it explicitly. (The CLI/MCP divergence here
+  — MCP's `claim_next_task` answers the same situation with `NO_TASKS_AVAILABLE` — is a filed ticket,
+  not a documented difference.)
+
+One code per meaning:
 
 | code | meaning | retryable |
 | --- | --- | --- |
-| `E_USAGE` | a bad flag value, or an impossible flag combination (e.g. `--report-file` without `--set-status review`, `--parent` on the online board) | no |
+| `E_USAGE` | a bad flag value, or an impossible flag combination (e.g. `--report-file` without `--set-status review`, `--edit` with no id and nothing to edit, `--parent` on the online board) | no |
 | `TASK_NOT_FOUND` | the task or parent task does not exist (same code as the MCP tools) | no |
 | `E_NOT_FOUND` | something else is missing, e.g. the `--report-file` path | no |
 | `E_BACKEND_UNAVAILABLE` | a call to the online backend failed — `retryable: true` only when the host was unreachable | only when unreachable |
-| `E_NOT_AUTHENTICATED` | the online session expired — run `vibeflow login` | no |
-| `E_COMMENT_SAVE` | the task was written but its comment was not saved | no |
+| `E_NOT_AUTHENTICATED` | no token, or the session was rejected (HTTP 401/403) — run `vibeflow login` | no |
+| `E_COMMENT_SAVE` | the task was written but requested text was NOT saved: the `--comment`, **or** the `--verify-reason` of a `cannot` verdict | no |
+| `GIT_COMMIT_FAILED` | in `error.code` nothing was committed; in `notices[].code` the task WAS written and only the commit did not happen | no |
+| `REINDEX_WRITE_FAILED` | `--reindex-sort-keys` planned `sortKey` writes and wrote NONE — no task file was changed | no |
 | `REVIEW_COMMENT_REQUIRED`, `COMMIT_MESSAGE_REQUIRED`, `BRANCH_REQUIRED`, `VERIFY_REQUIRED`, `VERIFY_FAILED_ATTESTED`, `VERIFY_REASON_REQUIRED`, `RESEARCH_REPORT_REQUIRED`, `RESEARCH_VERIFY_NOT_ALLOWED` | review-gate refusals (see `vibeflow tasks --edit --set-status review`) | no |
 
+Codes are **scoped per command**, not global: `TASK_NOT_FOUND` on `tasks` means "no such task",
+while `E_NOT_FOUND` on `tasks` means "no such FILE" (e.g. `--report-file`), and the two surfaces have
+their own schemes. Read the code from the command you called.
+
 A failure that happens **after** the task data is safely on disk is not a refusal: the run keeps
-`ok:true` and exit code 0, and the success payload gains an optional `warning: {code, message}` —
-`GIT_COMMIT_FAILED` when the post-review auto-commit did not happen, `REINDEX_INCOMPLETE` when the
-sortKey re-keying landed but its post-assert did not pass. The key is absent on a clean run.
+`ok:true` and exit code 0, and the success payload gains an optional **`notices` array** of
+`{code, message}` — `GIT_COMMIT_FAILED` when the post-review auto-commit did not happen,
+`REINDEX_INCOMPLETE` when the sortKey re-keying landed but its post-assert did not pass,
+`SET_STATUS_DONE` / `RESEARCH_NO_IMPLEMENT` / `ALREADY_IN_PROGRESS` for the agent-policy and
+conflict warnings. The array is always an array (never a bare object, never a plural `notices`/`warnings`
+split) and the key is absent on a clean run.
+
+`notices` is this CLI's own structured field. `warning` is a **different** field: the online board's
+server-passthrough **string**, present only on the SaaS `--edit` payload. A consumer that branches on
+one can never trip over the other's shape.
+
 **Breaking as of 0.18.0:** `tasks --json` used to return a bare array, `--get --json` a flat object,
 success payloads carried `success:true` instead of `ok:true`, and an auto-commit failure exited 1
-even though the task had been written.
+even though the task had been written. The local notice field is `notices` (an array), not `warning`.
 
 `vibeflow verify <id>` only collects page-health evidence (the element resolves, no new console errors); it does not set a verdict. The agent judges correctness and attests with `--set-verify` when it moves the task to review — `pass` (implemented correctly), `fail` (not correct — blocks review), or `cannot` with `--verify-reason` (unverifiable here, recorded in the task's activity).
 
@@ -373,11 +395,26 @@ See [src/server/server.ts](https://github.com/zorcec/vibeflow/blob/main/packages
 ## Contributing
 
 ```bash
-pnpm install       # install dependencies
-pnpm build:cli     # build CLI
-pnpm test          # unit tests
-pnpm test:e2e      # end-to-end tests
+pnpm install          # install dependencies
+pnpm build:cli        # build CLI
+pnpm test             # unit tests
+pnpm test:e2e         # end-to-end tests
+pnpm test:coverage    # unit coverage only
+pnpm test:coverage:e2e  # unit + e2e coverage MERGED (see below)
 ```
+
+`test:coverage` reports what the in-process unit tests execute. That is not the whole
+story for this package: `src/index.ts` is almost entirely command dispatch, and the
+commands are exercised by the e2e suite, which spawns the CLI as a **child process** that
+v8 coverage cannot follow — so `src/index.ts` sat at ~16% lines while hundreds of e2e
+assertions ran through it. `test:coverage:e2e` fixes the measurement: it builds a
+sourcemapped, unminified CLI into `.coverage-cli/` (the shipped bundle is minified and its
+source maps are deleted, so it cannot be attributed back to `src/**`), runs the e2e suite
+against it with `NODE_V8_COVERAGE`, converts and remaps the child counters, and merges them
+with the unit counters **by source position** into `coverage/merged/` (text, json, lcov). It
+prints the unit-only / e2e-only / merged numbers for `src/index.ts` on stdout. The merge
+toolchain is already present as a transitive dependency of `@vitest/coverage-v8`; nothing
+was added to `package.json`.
 
 ---
 

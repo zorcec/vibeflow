@@ -43,3 +43,5 @@ packages/prototyping/.stryker-tmp/
 # Code intelligence index
 .gitnexus/
 .code-review-graph/
+.coverage-cli/
+.coverage-e2e/
