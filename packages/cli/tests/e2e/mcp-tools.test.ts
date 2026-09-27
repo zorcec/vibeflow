@@ -261,17 +261,25 @@ describe("MCP tools happy paths", () => {
 
   // ── 8. claim_next_task dryRun ───────────────────────────────────────────
 
-  it("8: claim_next_task dryRun — returns summary (note: dryRun is currently input-only, ctx.dryRun not wired)", async () => {
+  it("8: claim_next_task dryRun — previews the claim without moving the task", async () => {
     seedGitUser(env.projectDir);
     const r = await callTool(client, "create_task", { title: "Dry claim" });
     const p = await assertJsonTextContent(r);
 
     const res = await callTool(client, "claim_next_task", { dryRun: true });
-    // dryRun in the MCP input is not wired to ctx.dryRun in the operation,
-    // so the task actually gets claimed. Assert the call succeeds.
     const parsed = await assertJsonTextContent(res);
-    expect(parsed.status).toBe("in-progress");
+    // FLIPPED [fix(mcp): honour the dryRun input]: this test used to PIN the
+    // bug — the title recorded that "dryRun is currently input-only, ctx.dryRun
+    // not wired", and asserted the task was ACTUALLY claimed (status
+    // "in-progress"). A preview that mutated the board is the defect; the task
+    // must still be todo afterwards.
     expect(parsed.id).toBe(p.id);
+    expect(parsed.status).toBe("todo");
+
+    const onDisk = JSON.parse(
+      readFileSync(findTaskFile(env.projectDir, p.id)!, "utf-8"),
+    ) as { status: string };
+    expect(onDisk.status).toBe("todo");
   });
 
   // ── 9. add_comment ──────────────────────────────────────────────────────

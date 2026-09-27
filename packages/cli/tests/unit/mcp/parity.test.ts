@@ -180,6 +180,66 @@ describe("attestation parity", () => {
   });
 });
 
+// ── 3. Partial-id resolution parity ───────────────────────────────────────
+
+describe("partial-id resolution parity", () => {
+  const FULL_ID = "ffb1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c";
+  const PREFIX = FULL_ID.slice(0, 8);
+
+  it("get_task resolves an 8-char prefix to the full task", async () => {
+    createTestTask({ id: FULL_ID, title: "Long Id Task" });
+
+    const result = await getTask(ctx, { id: PREFIX });
+
+    expect(result.ok).toBe(true);
+    expect(result.data?.id).toBe(FULL_ID);
+    expect(result.data?.title).toBe("Long Id Task");
+  });
+
+  it("update_task resolves an 8-char prefix and writes to the full task", async () => {
+    createTestTask({ id: FULL_ID, status: "todo" });
+
+    const result = await updateTask(ctx, {
+      id: PREFIX,
+      title: "Renamed via prefix",
+    });
+
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    expect(result.data?.id).toBe(FULL_ID);
+    // The write landed on the real file, not on a file named after the prefix.
+    const paths = Object.keys(snapshotTaskStore()).filter((p) =>
+      p.endsWith(".json"),
+    );
+    expect(paths).toHaveLength(1);
+    expect(paths[0].endsWith(`/${FULL_ID}.json`)).toBe(true);
+    const stored = JSON.parse(
+      snapshotTaskStore()[paths[0]],
+    ) as Task;
+    expect(stored.title).toBe("Renamed via prefix");
+  });
+
+  it("a prefix matching nothing is still TASK_NOT_FOUND on both tools", async () => {
+    createTestTask({ id: FULL_ID });
+
+    const got = await getTask(ctx, { id: "zzzzzzzz" });
+    expect(got.ok).toBe(false);
+    expect(got.error?.code).toBe("TASK_NOT_FOUND");
+
+    const updated = await updateTask(ctx, { id: "zzzzzzzz", title: "nope" });
+    expect(updated.ok).toBe(false);
+    expect(updated.error?.code).toBe("TASK_NOT_FOUND");
+  });
+
+  it("the error names the full id when a prefix does not resolve", async () => {
+    createTestTask({ id: FULL_ID });
+
+    // The input is returned unchanged when nothing matches, so the message
+    // quotes what the caller actually sent.
+    const result = await getTask(ctx, { id: "zzzzzzzz" });
+    expect(result.error?.message).toContain("zzzzzzzz");
+  });
+});
+
 // ── 5. Review-gate regression guards (already working — lock them in) ─────
 
 describe("review gate parity", () => {

@@ -131,6 +131,32 @@ export function findTaskFilePath(
   return null;
 }
 
+/**
+ * Find a task by its FULL id OR by an id prefix — the CLI's long-standing
+ * resolution rule: first match in list order, exact id included. This
+ * expression was inlined in eight call sites across the CLI and the MCP
+ * operations, which is how the two surfaces drifted apart. Shared so they
+ * cannot drift again.
+ */
+export function findTaskByIdOrPrefix(
+  projectDir: string,
+  idOrPrefix: string,
+): Task | undefined {
+  return listTasks(projectDir).find(
+    (t) => t.id === idOrPrefix || t.id.startsWith(idOrPrefix),
+  );
+}
+
+/**
+ * Resolve a full task id OR a unique-ish id prefix to the full id. The input
+ * is returned UNCHANGED when nothing matches, so every caller keeps its own
+ * "not found" wording (and its own fallback) instead of this helper inventing
+ * a second one.
+ */
+export function resolveTaskId(projectDir: string, idOrPrefix: string): string {
+  return findTaskByIdOrPrefix(projectDir, idOrPrefix)?.id ?? idOrPrefix;
+}
+
 function normalizeComment(c: Record<string, unknown>): TaskComment {
   // SAFETY: raw comment JSON objects conform to TaskComment shape after normalization.
   const raw = c as unknown as TaskComment;

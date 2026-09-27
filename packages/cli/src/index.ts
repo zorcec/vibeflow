@@ -14,6 +14,8 @@ import {
   generateTaskId,
   ensureTaskDirs,
   findTaskFilePath,
+  findTaskByIdOrPrefix,
+  resolveTaskId,
   claimNextTaskAtomic,
   summariseChildren,
   isChildTask,
@@ -1803,10 +1805,7 @@ program
           if (typeof opts.parent === "string") {
             const rawParent = opts.parent;
             const parentTasks = listTasks(projectDir);
-            parentId =
-              parentTasks.find(
-                (t) => t.id === rawParent || t.id.startsWith(rawParent),
-              )?.id ?? rawParent;
+            parentId = resolveTaskId(projectDir, rawParent);
             if (!parentTasks.some((t) => t.id === parentId)) {
               if (opts.json) {
                 outputEnvelope({
@@ -2172,9 +2171,7 @@ program
               process.exitCode = ExitCode.USAGE;
               return;
             }
-            const reportTask = listTasks(resolve(dir)).find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            );
+            const reportTask = findTaskByIdOrPrefix(resolve(dir), taskId);
             if (!reportTask) {
               console.log(chalk.red(`✗ Task not found: ${taskId}`));
               console.log(
@@ -2271,10 +2268,7 @@ program
           // way the review gate does (RESEARCH_VERIFY_NOT_ALLOWED). This covers
           // both the real write and the --dry-run preview path.
           if (attestation.verdict) {
-            const probeTasks = listTasks(resolve(dir));
-            const probeTask = probeTasks.find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            );
+            const probeTask = findTaskByIdOrPrefix(resolve(dir), taskId);
             if (probeTask && isResearchType(probeTask.type)) {
               // The code mirrors what the review gate returns for the same rule,
               // so --json consumers see one code whichever path refuses first.
@@ -2352,10 +2346,7 @@ program
             // task file to decide whether it is annotated, so a short prefix
             // (matching how --get/--edit resolve) would otherwise bypass the
             // verdict check entirely.
-            const gateTaskId =
-              listTasks(projectDir).find(
-                (t) => t.id === taskId || t.id.startsWith(taskId),
-              )?.id ?? taskId;
+            const gateTaskId = resolveTaskId(projectDir, taskId);
             const gate = checkReviewTransition(
               projectDir,
               gateTaskId,
@@ -2537,10 +2528,7 @@ program
           // `--get` and `--commit` (both already accept a unique prefix). The resolved
           // ID is used for the write so a partial prefix never hits an exact-match miss.
           const localProjectDir = resolve(dir);
-          const resolvedTaskId =
-            listTasks(localProjectDir).find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            )?.id ?? taskId;
+          const resolvedTaskId = resolveTaskId(localProjectDir, taskId);
 
           // Verify gate already checked above via checkReviewTransition
 
@@ -2652,10 +2640,10 @@ program
               updates.links = cleared.links;
               parentDisplay = "(cleared)";
             } else {
-              const resolvedParentId =
-                listTasks(localProjectDir).find(
-                  (t) => t.id === rawParent || t.id.startsWith(rawParent),
-                )?.id ?? rawParent;
+              const resolvedParentId = resolveTaskId(
+                localProjectDir,
+                rawParent,
+              );
               const applied = buildSetParentLinks({
                 allTasks: listTasks(localProjectDir),
                 taskId: resolvedTaskId,
@@ -2684,10 +2672,7 @@ program
           // Also detect in-progress conflicts (task already claimed by another agent/user).
           if (opts.setStatus === "in-progress") {
             const projectDir = resolve(dir);
-            const tasks = listTasks(projectDir);
-            const editedTask = tasks.find(
-              (t) => t.id === taskId || t.id.startsWith(taskId),
-            );
+            const editedTask = findTaskByIdOrPrefix(projectDir, taskId);
             if (editedTask) {
               if ((editedTask.type ?? "").toLowerCase() === "research") {
                 console.log(
@@ -2860,10 +2845,7 @@ program
             const autoDir = resolve(dir);
             const autoSettings = loadSettings(autoDir);
             if (autoSettings.autoCommit && opts.commitMessage?.trim()) {
-              const allAutoTasks = listTasks(autoDir);
-              const taskForCommit = allAutoTasks.find(
-                (t) => t.id === taskId || t.id.startsWith(taskId),
-              );
+              const taskForCommit = findTaskByIdOrPrefix(autoDir, taskId);
               if (taskForCommit) {
                 const { commitTaskChanges } = await import("./core/git.js");
                 const commitResult = commitTaskChanges(

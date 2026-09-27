@@ -17,7 +17,10 @@
  *     `verified` absent on disk.
  *  4. State round-trip — a task created through one surface is readable and
  *     editable through the other with identical data.
- *  5. push stays offline — `push_tasks {dryRun:true}` and `push --dry-run`
+ *  5. Id-prefix resolution — `tasks --get <prefix>` and `get_task {id:<prefix>}`
+ *     must resolve the SAME task. The expression lived inlined in the CLI only,
+ *     so the MCP path was exact-match while the CLI accepted any prefix.
+ *  6. push stays offline — `push_tasks {dryRun:true}` and `push --dry-run`
  *     must not require network/credentials.
  *
  * Known divergences are PINNED (asserted as they behave today) with flip
@@ -437,6 +440,36 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
       { cwd: env.projectDir, home },
     );
     expect(JSON.parse(seenByCli.stdout).task.description).toBe("described by MCP");
+  });
+
+  it("prefix resolution parity: `tasks --get <prefix>` and `get_task {id:<prefix>}` name the same task", async () => {
+    const created = await callJson(client, "create_task", {
+      title: "prefix resolution",
+    });
+    const fullId: string = created.id;
+    expect(fullId.length).toBeGreaterThan(8);
+    const prefix = fullId.slice(0, 8);
+
+    // MCP: a prefix resolves to the full task (it used to be TASK_NOT_FOUND).
+    const viaMcp = await callJson(client, "get_task", { id: prefix });
+    expect(viaMcp.id).toBe(fullId);
+
+    // CLI: the same prefix, same workspace, same task.
+    const viaCli = await runCli(
+      ["tasks", "--get", prefix, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(viaCli.code).toBe(0);
+    expect(JSON.parse(viaCli.stdout).task.id).toBe(viaMcp.id);
+
+    // And a prefix matching nothing is still a clean miss on both surfaces.
+    const miss = await callJson(client, "get_task", { id: "zzzzzzzz" });
+    expect(miss.error).toBe("TASK_NOT_FOUND");
+    const missCli = await runCli(
+      ["tasks", "--get", "zzzzzzzz", "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(missCli.code).not.toBe(0);
   });
 
   it("push stays offline on both surfaces (dry-run, no credentials)", async () => {

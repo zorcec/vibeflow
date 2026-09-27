@@ -284,14 +284,20 @@ export async function getTask(
   input: GetTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { findTaskFilePath, readTaskFile } = await import("../core/tasks.js");
-    const filePath = findTaskFilePath(ctx.projectDir, input.id);
+    const { findTaskFilePath, readTaskFile, resolveTaskId } = await import(
+      "../core/tasks.js"
+    );
+    // Accept a full id OR a prefix, like the CLI's `--get` does. Without this
+    // the MCP path was exact-match only and every prefix length returned
+    // TASK_NOT_FOUND.
+    const id = resolveTaskId(ctx.projectDir, input.id);
+    const filePath = findTaskFilePath(ctx.projectDir, id);
     if (!filePath) {
       return {
         ok: false,
         error: {
           code: "TASK_NOT_FOUND",
-          message: `Task not found: ${input.id}`,
+          message: `Task not found: ${id}`,
           suggestion: "Check the task ID and try again",
         },
       };
@@ -302,7 +308,7 @@ export async function getTask(
         ok: false,
         error: {
           code: "TASK_READ_ERROR",
-          message: `Failed to read task: ${input.id}`,
+          message: `Failed to read task: ${id}`,
         },
       };
     }
@@ -382,12 +388,11 @@ export async function createTask(
     // structurally impossible; a dangling target is the only rejection.
     let links: TaskLink[] | undefined;
     if (input.parent) {
-      const { listTasks: coreListTasks } = await import("../core/tasks.js");
+      const { listTasks: coreListTasks, resolveTaskId } = await import(
+        "../core/tasks.js"
+      );
       const allTasks = coreListTasks(ctx.projectDir);
-      const resolvedParentId =
-        allTasks.find(
-          (t) => t.id === input.parent || t.id.startsWith(input.parent!),
-        )?.id ?? input.parent;
+      const resolvedParentId = resolveTaskId(ctx.projectDir, input.parent);
       if (!allTasks.some((t) => t.id === resolvedParentId)) {
         return {
           ok: false,
@@ -451,15 +456,20 @@ export async function updateTask(
   input: UpdateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { findTaskFilePath, readTaskFile } = await import("../core/tasks.js");
-    const filePath = findTaskFilePath(ctx.projectDir, input.id);
+    const { findTaskFilePath, readTaskFile, resolveTaskId } = await import(
+      "../core/tasks.js"
+    );
+    // Accept a full id OR a prefix, like the CLI's `--edit` does; the resolved
+    // id drives the lookup, the write and the error wording below.
+    const id = resolveTaskId(ctx.projectDir, input.id);
+    const filePath = findTaskFilePath(ctx.projectDir, id);
     const existingTask = filePath ? readTaskFile(filePath) : null;
     if (!existingTask) {
       return {
         ok: false,
         error: {
           code: "TASK_NOT_FOUND",
-          message: `Task not found: ${input.id}`,
+          message: `Task not found: ${id}`,
         },
       };
     }
@@ -491,7 +501,7 @@ export async function updateTask(
       const settings = loadSettings(ctx.projectDir);
       const gate = checkReviewTransition(
         ctx.projectDir,
-        input.id,
+        id,
         {
           comment: input.comment,
           commitMessage: input.commitMessage,
@@ -596,13 +606,13 @@ export async function updateTask(
       }
     }
 
-    const task = coreUpdateTask(ctx.projectDir, input.id, updates);
+    const task = coreUpdateTask(ctx.projectDir, id, updates);
     if (!task) {
       return {
         ok: false,
         error: {
           code: "TASK_NOT_FOUND",
-          message: `Task not found: ${input.id}`,
+          message: `Task not found: ${id}`,
         },
       };
     }
@@ -610,7 +620,7 @@ export async function updateTask(
     // Comment is added only after all gates pass (same ordering as CLI)
     if (input.comment) {
       const { addComment } = await import("../core/comments.js");
-      addComment(ctx.projectDir, input.id, "agent", input.comment);
+      addComment(ctx.projectDir, id, "agent", input.comment);
     }
 
     // A "cannot" verdict's reason is recorded in the task's activity (system
@@ -620,7 +630,7 @@ export async function updateTask(
       const { addComment } = await import("../core/comments.js");
       addComment(
         ctx.projectDir,
-        input.id,
+        id,
         "agent",
         `**Cannot verify:** ${attestation.reason}`,
         undefined,
