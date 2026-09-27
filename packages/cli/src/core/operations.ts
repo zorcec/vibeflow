@@ -18,6 +18,8 @@ import {
   type TaskStatus,
 } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
+import { resolve } from "node:path";
+import { getCurrentBranch, getProjectName } from "./config.js";
 import { getGitUser } from "./git-user.js";
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -70,6 +72,11 @@ export const GetTaskInput = z.object({
   fields: z.array(z.string()).optional(),
 });
 export type GetTaskInputType = z.infer<typeof GetTaskInput>;
+
+// No input by design: the project root is resolved once at server startup
+// (ctx.projectDir) and is never a per-call parameter — see getProject below.
+export const GetProjectInput = z.object({});
+export type GetProjectInputType = z.infer<typeof GetProjectInput>;
 
 export const CreateTaskInput = z.object({
   title: z.string().min(1),
@@ -311,6 +318,37 @@ export async function getTask(
       },
     };
   }
+}
+
+/**
+ * The project the server is attached to. `root` is always the startup-resolved
+ * ctx.projectDir — accepting a root as input would break Model 1's invariant
+ * that a tool can only *discover* the project, never retarget the server.
+ */
+export interface ProjectInfo {
+  root: string;
+  name: string;
+  branch: string | null;
+  mode: "local" | "saas";
+}
+
+export async function getProject(
+  ctx: OperationContext,
+  _input?: GetProjectInputType,
+): Promise<OperationResult<ProjectInfo>> {
+  // Mirror W2's `initialize` (mcp/server.ts): resolve once, then derive
+  // name/branch from the same absolute path, so the handshake announcement
+  // and this tool always report identical values.
+  const abs = resolve(ctx.projectDir);
+  return {
+    ok: true,
+    data: {
+      root: abs,
+      name: getProjectName(abs),
+      branch: getCurrentBranch(abs),
+      mode: ctx.mode,
+    },
+  };
 }
 
 export async function createTask(

@@ -9,6 +9,7 @@ import type { OperationContext, OperationResult } from "../core/operations.js";
 import {
   ListTasksInput,
   GetTaskInput,
+  GetProjectInput,
   CreateTaskInput,
   UpdateTaskInput,
   ClaimNextTaskInput,
@@ -19,6 +20,7 @@ import {
   PushTasksInput,
   listTasks,
   getTask,
+  getProject,
   createTask,
   updateTask,
   claimNextTask,
@@ -75,8 +77,6 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
     serve: "long-running prototype/API server; not an operation",
-    status:
-      "informational auth/connection/task-count summary; hidden; list_tasks covers counts",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     watch: "long-running task-store event daemon / JSONL stream; not an operation",
   },
@@ -144,6 +144,22 @@ export const manifest: ToolManifest[] = [
     },
     input: GetTaskInput.shape,
     run: (ctx, input) => getTask(ctx, input as z.infer<typeof GetTaskInput>),
+  },
+  {
+    name: "get_project",
+    title: "Get project",
+    description:
+      "Return the resolved project this server is attached to: name, absolute root, git branch and mode. Read-only; takes no input.",
+    cliRef: { command: "status", flags: [] },
+    category: "admin",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    input: GetProjectInput.shape,
+    run: (ctx, input) => getProject(ctx, input as z.infer<typeof GetProjectInput>),
   },
   {
     name: "create_task",

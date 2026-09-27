@@ -61,13 +61,14 @@ describe("MCP drift test", () => {
     expect(unique.size).toBe(names.length);
   });
 
-  it("all 10 MCP tools are registered", () => {
+  it("all 11 MCP tools are registered", () => {
     const expectedTools = [
       "add_comment",
       "attach_file",
       "claim_next_task",
       "create_task",
       "export_prompt",
+      "get_project",
       "get_task",
       "list_tasks",
       "push_tasks",
@@ -79,7 +80,12 @@ describe("MCP drift test", () => {
   });
 
   it("read-only tools have readOnlyHint=true", () => {
-    const readOnlyTools = ["list_tasks", "get_task", "export_prompt"];
+    const readOnlyTools = [
+      "list_tasks",
+      "get_task",
+      "export_prompt",
+      "get_project",
+    ];
     for (const tool of manifest) {
       if (readOnlyTools.includes(tool.name)) {
         expect(tool.annotations.readOnlyHint).toBe(true);
