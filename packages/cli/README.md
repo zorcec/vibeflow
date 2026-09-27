@@ -84,6 +84,44 @@ to the task instead of your Downloads folder.
 
 ---
 
+## MCP Server
+
+Vibeflow exposes its task tools over MCP, so an agent can read and update tickets
+directly. Configure **one server per project**: a server resolves its project root once at
+startup and every tool call uses that root, so it cannot write into the wrong project.
+
+**stdio (recommended — no port, nothing to keep running):**
+
+```json
+{
+  "mcpServers": {
+    "vibeflow": {
+      "command": "npx",
+      "args": ["-y", "@vibeflow-tools/cli", "mcp", "--project", "/path/to/project"]
+    }
+  }
+}
+```
+
+`--project` is required: a spawned client's working directory (often your home directory)
+is never trusted, and the root is validated before anything is created. Put this config
+_with_ the project — `.mcp.json` at the repo root, or your editor's workspace config using
+`${workspaceFolder}`.
+
+**HTTP (a server you keep running):**
+
+```bash
+vibeflow serve --project ./my-project    # MCP endpoint at /api/mcp
+```
+
+Loopback-only until you configure a token. Both transports mount the identical tool set;
+only the transport differs.
+
+Do **not** run one global server with a per-call project argument — that is deliberately
+not supported. One process serves one root, resolved at startup.
+
+---
+
 ## Related Packages
 
 - [**@vibeflow-tools/prototyping**](https://www.npmjs.com/package/@vibeflow-tools/prototyping) — in-app variant switching for React with URL persistence. `npm install @vibeflow-tools/prototyping`
@@ -99,6 +137,7 @@ to the task instead of your Downloads folder.
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
 | `vibeflow watch [dir]` | Watch the task store and print ticket details for important updates |
+| `vibeflow mcp [--project <dir>]` | Run the MCP server over stdio (spawned by an MCP client) |
 | `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
 
 ### `vibeflow kanban [dir]`
