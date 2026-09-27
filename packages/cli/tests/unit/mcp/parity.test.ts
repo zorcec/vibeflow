@@ -21,13 +21,23 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { manifest, type ToolManifest } from "../../../src/mcp/manifest.js";
-import type { OperationContext } from "../../../src/core/operations.js";
+import { updateTask, getTask, claimNextTask, addComment, type OperationContext } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
 
 let testDir: string;
 // No `dryRun` key: mcp/server.ts builds exactly this context, and the defect
 // under test is that the operations used to read only `ctx.dryRun`.
 let ctx: OperationContext;
+
+/** Local project settings — overrides the developer's global settings.json. */
+function writeSettings(settings: Record<string, unknown>): void {
+  const dir = join(testDir, ".vibeflow");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify(settings, null, 2),
+  );
+}
 
 function createTestTask(overrides: Partial<Task> = {}): Task {
   const task: Task = {
@@ -119,4 +129,114 @@ describe("dryRun parity", () => {
       expect(snapshotTaskStore()).toEqual(before);
     },
   );
+});
+
+// ── 2. Attestation parity (the CLI's refusal codes) ───────────────────────
+
+describe("attestation parity", () => {
+  it('setVerify:"cannot" with no verifyReason → VERIFY_REASON_REQUIRED, nothing written', async () => {
+    createTestTask({ id: "task-1", status: "todo" });
+    const before = snapshotTaskStore();
+
+    const result = await updateTask(ctx, { id: "task-1", setVerify: "cannot" });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("VERIFY_REASON_REQUIRED");
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it("verifyReason with no verdict → E_USAGE, nothing written", async () => {
+    createTestTask({ id: "task-1", status: "todo" });
+    const before = snapshotTaskStore();
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      title: "Renamed anyway",
+      verifyReason: "because",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("E_USAGE");
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it('setVerify:"cannot" WITH a reason is still accepted and clears the verdict', async () => {
+    createTestTask({ id: "task-1", status: "todo", verified: true });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      setVerify: "cannot",
+      verifyReason: "no environment to verify in",
+    });
+
+    expect(result.ok).toBe(true);
+    const stored = JSON.parse(
+      Object.values(snapshotTaskStore())[0],
+    ) as Task;
+    expect(stored.verified).toBeUndefined();
+    expect(stored.comments?.some((c) => c.text.includes("Cannot verify"))).toBe(
+      true,
+    );
+  });
+});
+
+// ── 5. Review-gate regression guards (already working — lock them in) ─────
+
+describe("review gate parity", () => {
+  const annotated = {
+    url: "http://localhost:3000/page",
+    selector: "#submit",
+  };
+
+  it("an annotated task without a verdict cannot reach review", async () => {
+    writeSettings({ autoCommit: false, createBranch: false, requireVerifyBeforeReview: true });
+    createTestTask({ id: "task-1", status: "in-progress", ...annotated });
+    const before = snapshotTaskStore();
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("VERIFY_REQUIRED");
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it("an annotated task without a commit message cannot reach review when autoCommit is ON", async () => {
+    writeSettings({ autoCommit: true, createBranch: false, requireVerifyBeforeReview: true });
+    createTestTask({ id: "task-1", status: "in-progress", ...annotated });
+    const before = snapshotTaskStore();
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      setVerify: "pass",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("COMMIT_MESSAGE_REQUIRED");
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it("with a verdict and a commit message the transition succeeds and stores verified=true", async () => {
+    writeSettings({ autoCommit: false, createBranch: false, requireVerifyBeforeReview: true });
+    createTestTask({ id: "task-1", status: "in-progress", ...annotated });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      setVerify: "pass",
+    });
+
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    const stored = JSON.parse(
+      Object.values(snapshotTaskStore())[0],
+    ) as Task;
+    expect(stored.status).toBe("review");
+    expect(stored.verified).toBe(true);
+  });
 });

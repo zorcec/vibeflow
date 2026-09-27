@@ -464,6 +464,26 @@ export async function updateTask(
       };
     }
 
+    // Attestation is resolved ONCE, before the review gate and before any
+    // write, exactly as the CLI's --edit path does (src/index.ts). The CLI
+    // consulted it unconditionally; the MCP path skipped it entirely, so
+    // `setVerify:"cannot"` with no reason and a bare `verifyReason` were both
+    // accepted here and recorded nothing. The resolution is also the only
+    // place a verdict becomes a stored value from here down.
+    const { resolveVerifyAttestation } = await import(
+      "./verify-attestation.js"
+    );
+    const attestation = resolveVerifyAttestation({
+      setVerify: input.setVerify,
+      verifyReason: input.verifyReason,
+    });
+    if (!attestation.ok) {
+      return {
+        ok: false,
+        error: { code: attestation.code, message: attestation.message },
+      };
+    }
+
     // Gate: review transition check (runs before any writes, including dry-run)
     if (input.status === "review") {
       const { loadSettings } = await import("../core/settings.js");
@@ -475,7 +495,7 @@ export async function updateTask(
         {
           comment: input.comment,
           commitMessage: input.commitMessage,
-          verifyVerdict: input.setVerify,
+          verifyVerdict: attestation.verdict,
           verifyReason: input.verifyReason,
         },
         { projectDir: ctx.projectDir, settings },
@@ -494,7 +514,7 @@ export async function updateTask(
 
     // Research tasks cannot carry a verification verdict — same rule as
     // the review gate, but applied to standalone setVerify too.
-    if (input.setVerify) {
+    if (attestation.verdict) {
       const { isResearchType: checkResearch } = await import(
         "../core/tasks.js",
       );
@@ -564,12 +584,8 @@ export async function updateTask(
     // explicit verdict in the same call is what gets recorded, and "cannot"
     // writes ABSENCE (no badge) — distinct from "fail", which stores false (the
     // completed verdict that the task is WRONG).
-    if (input.setVerify === "pass") {
-      updates.verified = true;
-    } else if (input.setVerify === "fail") {
-      updates.verified = false;
-    } else if (input.setVerify === "cannot") {
-      updates.verified = undefined;
+    if (attestation.verdict) {
+      updates.verified = attestation.clear ? undefined : attestation.value;
     }
 
     // Author attribution on status changes (parity with the CLI --edit path):
@@ -600,13 +616,13 @@ export async function updateTask(
     // A "cannot" verdict's reason is recorded in the task's activity (system
     // comment) so the detail panel shows why the task carries no verdict. Only
     // when the verdict and reason both survived the gate.
-    if (input.setVerify === "cannot" && input.verifyReason?.trim()) {
+    if (attestation.verdict === "cannot" && attestation.reason) {
       const { addComment } = await import("../core/comments.js");
       addComment(
         ctx.projectDir,
         input.id,
         "agent",
-        `**Cannot verify:** ${input.verifyReason.trim()}`,
+        `**Cannot verify:** ${attestation.reason}`,
         undefined,
         "system",
       );
