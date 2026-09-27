@@ -132,19 +132,33 @@ export function findTaskFilePath(
 }
 
 /**
+ * The task-id resolution RULE: a full id, or a prefix of one. Exact id first
+ * (the equality arm wins on an exact match by list order), then prefix.
+ *
+ * Split out from `findTaskByIdOrPrefix` because two callers resolve against a
+ * task list that is NOT the local store — the SaaS task list in `tasks --get`,
+ * and `listTasksWithPaths` (whose `filePath` the caller needs). Inlining the
+ * expression at those sites is what let the CLI, the HTTP route and the MCP
+ * tools drift apart; they all call this instead.
+ */
+export function matchesIdOrPrefix(
+  task: { id: string },
+  idOrPrefix: string,
+): boolean {
+  return task.id === idOrPrefix || task.id.startsWith(idOrPrefix);
+}
+
+/**
  * Find a task by its FULL id OR by an id prefix — the CLI's long-standing
- * resolution rule: first match in list order, exact id included. This
- * expression was inlined in eight call sites across the CLI and the MCP
- * operations, which is how the two surfaces drifted apart. Shared so they
- * cannot drift again.
+ * resolution rule: first match in list order, exact id included. Every
+ * surface (CLI, HTTP route, MCP operations) resolves through this or through
+ * `resolveTaskId` below.
  */
 export function findTaskByIdOrPrefix(
   projectDir: string,
   idOrPrefix: string,
 ): Task | undefined {
-  return listTasks(projectDir).find(
-    (t) => t.id === idOrPrefix || t.id.startsWith(idOrPrefix),
-  );
+  return listTasks(projectDir).find((t) => matchesIdOrPrefix(t, idOrPrefix));
 }
 
 /**

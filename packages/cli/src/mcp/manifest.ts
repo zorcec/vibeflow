@@ -92,7 +92,7 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     "tasks --reindex-sort-keys":
       "one-time board-ordering maintenance; idempotent re-key, no MCP equivalent",
     "verify --filter":
-      "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs",
+      "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs/dryRun",
   },
 };
 

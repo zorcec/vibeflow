@@ -8,7 +8,7 @@
  * own `run:` with the same context mcp/server.ts builds — `dryRun` absent —
  * because that missing key is what made the dry-run guards dead code.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdirSync,
   writeFileSync,
@@ -21,8 +21,26 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { manifest, type ToolManifest } from "../../../src/mcp/manifest.js";
-import { updateTask, getTask, claimNextTask, addComment, type OperationContext } from "../../../src/core/operations.js";
+import {
+  updateTask,
+  getTask,
+  claimNextTask,
+  addComment,
+  verifyTaskOp,
+  type OperationContext,
+} from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
+
+/**
+ * The verify engine shells out to Playwright. Mocked here so a dry run that
+ * failed to short-circuit is caught as a recorded call instead of a browser
+ * launch inside the unit suite. Only verifyTaskOp imports this module.
+ */
+const verifyEngine = vi.hoisted(() => ({
+  verifyTask: vi.fn(async () => ({ ok: true })),
+  addVerifySystemComment: vi.fn(async () => undefined),
+}));
+vi.mock("../../../src/commands/verify.js", () => verifyEngine);
 
 let testDir: string;
 // No `dryRun` key: mcp/server.ts builds exactly this context, and the defect
@@ -103,6 +121,11 @@ describe("dryRun parity", () => {
       dryRun: true,
     }),
     push_tasks: () => ({ dryRun: true, keepLocalFiles: true }),
+    verify_task: (t) => ({
+      id: t.id,
+      url: "http://127.0.0.1:1/never-loaded",
+      dryRun: true,
+    }),
   };
 
   const advertised = manifest.filter((tool) => "dryRun" in tool.input);
@@ -129,6 +152,61 @@ describe("dryRun parity", () => {
       expect(snapshotTaskStore()).toEqual(before);
     },
   );
+});
+
+// ── 1b. verify_task's preview never reaches the browser ───────────────────
+
+describe("verify_task dryRun", () => {
+  it("the manifest advertises dryRun and the coverage probe above picks it up", () => {
+    const tool = manifest.find((t) => t.name === "verify_task")!;
+    expect(Object.keys(tool.input)).toContain("dryRun");
+    expect(tool.category).toBe("task-mutate");
+  });
+
+  it("dryRun:true returns a preview, writes nothing and does not launch the verify engine", async () => {
+    const seeded = createTestTask({ id: "task-1", status: "in-progress" });
+    const before = snapshotTaskStore();
+    verifyEngine.verifyTask.mockClear();
+    verifyEngine.addVerifySystemComment.mockClear();
+
+    const result = await verifyTaskOp(ctx, {
+      id: seeded.id,
+      url: "http://127.0.0.1:1/never-loaded",
+      dryRun: true,
+    });
+
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    expect(result.steps).toEqual(["Dry run: verification would run"]);
+    expect((result.data as Task).id).toBe("task-1");
+    expect(verifyEngine.verifyTask).not.toHaveBeenCalled();
+    expect(verifyEngine.addVerifySystemComment).not.toHaveBeenCalled();
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it("dryRun:true resolves an id prefix, like the real path", async () => {
+    const FULL_ID = "aabbccddeeff00112233445566778899";
+    createTestTask({ id: FULL_ID });
+
+    const result = await verifyTaskOp(ctx, { id: FULL_ID.slice(0, 8), dryRun: true });
+
+    expect(result.ok).toBe(true);
+    expect((result.data as Task).id).toBe(FULL_ID);
+    expect(verifyEngine.verifyTask).not.toHaveBeenCalled();
+  });
+
+  it("without dryRun the engine still runs (the guard is not a stub)", async () => {
+    createTestTask({ id: "task-1" });
+    verifyEngine.verifyTask.mockClear();
+
+    const result = await verifyTaskOp(ctx, { id: "task-1", dryRun: false });
+
+    expect(result.ok).toBe(true);
+    expect(verifyEngine.verifyTask).toHaveBeenCalledWith(
+      ctx.projectDir,
+      "task-1",
+      expect.objectContaining({ url: undefined }),
+    );
+  });
 });
 
 // ── 2. Attestation parity (the CLI's refusal codes) ───────────────────────

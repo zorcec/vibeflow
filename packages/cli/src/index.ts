@@ -21,6 +21,7 @@ import {
   isChildTask,
   writeSortKeyMinimal,
   isResearchType,
+  matchesIdOrPrefix,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
@@ -1186,8 +1187,8 @@ program
               process.exitCode = ExitCode.GENERAL;
               return;
             }
-            const saasTask = saasData.data.tasks.find(
-              (t) => t.id === opts.get || t.id.startsWith(opts.get!),
+            const saasTask = saasData.data.tasks.find((t) =>
+              matchesIdOrPrefix(t, opts.get!),
             );
             if (!saasTask) {
               console.log(chalk.red(`✗ Task not found: ${opts.get}`));
@@ -1279,8 +1280,8 @@ program
           const projectDir = resolve(dir);
           const config = readConfig(projectDir);
           const allWithPaths = listTasksWithPaths(projectDir);
-          const task = allWithPaths.find(
-            (t) => t.id === opts.get || t.id.startsWith(opts.get!),
+          const task = allWithPaths.find((t) =>
+            matchesIdOrPrefix(t, opts.get!),
           );
           if (!task) {
             outputEnvelope({ ok: false,
@@ -1913,10 +1914,7 @@ program
             return;
           }
           const projectDir = resolve(dir);
-          const tasks = listTasks(projectDir);
-          const task = tasks.find(
-            (t) => t.id === opts.task || t.id.startsWith(opts.task!),
-          );
+          const task = findTaskByIdOrPrefix(projectDir, opts.task!);
           if (!task) {
             outputEnvelope({ ok: false,
               code: "E_NOT_FOUND",

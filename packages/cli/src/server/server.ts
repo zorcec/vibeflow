@@ -46,6 +46,7 @@ import {
   markTaskOpened,
   setTaskExpanded,
   getCurrentUserId,
+  resolveTaskId,
 } from "../core/tasks.js";
 import {
   listComments,
@@ -426,9 +427,7 @@ function registerTaskApi(
     let createLinks = validatedLinks;
     if (typeof parent === "string" && parent.length > 0) {
       const allTasks = listTasks(projectDir);
-      const resolvedParentId =
-        allTasks.find((t) => t.id === parent || t.id.startsWith(parent))?.id ??
-        parent;
+      const resolvedParentId = resolveTaskId(projectDir, parent);
       if (!allTasks.some((t) => t.id === resolvedParentId)) {
         res
           .status(400)

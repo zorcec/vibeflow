@@ -194,6 +194,11 @@ export const VerifyTaskInput = z.object({
   id: z.string().min(1),
   url: z.string().url().optional(),
   timeoutMs: z.number().min(1000).max(300000).default(60000),
+  // Preview only — never writes a task file and never launches a browser.
+  // verify_task mutates (it adds a system comment and records a verdict), so
+  // without this input the manifest's claim that every mutating tool exposes
+  // a `dryRun` was false for this one tool.
+  dryRun: z.boolean().default(false),
 });
 export type VerifyTaskInputType = z.infer<typeof VerifyTaskInput>;
 
@@ -939,6 +944,19 @@ export async function verifyTaskOp(
   ctx: OperationContext,
   input: VerifyTaskInputType,
 ): Promise<OperationResult<unknown>> {
+  // Dry run FIRST, before the semaphore and before `../commands/verify.js` is
+  // imported: the engine shells out to a browser, and a preview must not do
+  // that work. Everything below this line (semaphore, timer, the E_NOT_FOUND /
+  // E_NO_BASELINE / VERIFY_TIMEOUT refusal paths) behaves exactly as before.
+  if (isDryRun(ctx, input)) {
+    const { findTaskByIdOrPrefix } = await import("../core/tasks.js");
+    const task = findTaskByIdOrPrefix(ctx.projectDir, input.id);
+    return {
+      ok: true,
+      data: task ?? null,
+      steps: ["Dry run: verification would run"],
+    };
+  }
   return withVerifySemaphore(async () => {
     const { verifyTask, addVerifySystemComment } = await import(
       "../commands/verify.js"
