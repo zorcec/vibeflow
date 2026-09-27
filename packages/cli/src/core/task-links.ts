@@ -52,6 +52,9 @@ function walkParentChain(
 export interface LinkValidationError {
   ok: false;
   reason: string;
+  /** Machine-readable refusal code for `--json` / MCP consumers. The producer
+   *  knows why it refused; callers must not re-derive it from `reason`. */
+  code: string;
 }
 
 export interface LinkValidationOk {
@@ -62,7 +65,7 @@ export type LinkValidationResult = LinkValidationError | LinkValidationOk;
 
 export type SetParentResult =
   | { ok: true; links: TaskLink[] | undefined }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code: string };
 
 /**
  * Compute the new `links` array for `tasks --edit --set-parent`.
@@ -83,7 +86,12 @@ export function buildSetParentLinks({
   parentId: string | null | undefined;
 }): SetParentResult {
   const task = allTasks.find((t) => t.id === taskId);
-  if (!task) return { ok: false, reason: `Task not found: ${taskId}` };
+  if (!task)
+    return {
+      ok: false,
+      reason: `Task not found: ${taskId}`,
+      code: "TASK_NOT_FOUND",
+    };
 
   const otherLinks = (task.links ?? []).filter((l) => l.type !== "parent");
   const clearedLinks = otherLinks.length > 0 ? otherLinks : undefined;
@@ -92,7 +100,11 @@ export function buildSetParentLinks({
   if (!parentId) return { ok: true, links: clearedLinks };
 
   if (!allTasks.some((t) => t.id === parentId))
-    return { ok: false, reason: `Parent task not found: ${parentId}` };
+    return {
+      ok: false,
+      reason: `Parent task not found: ${parentId}`,
+      code: "TASK_NOT_FOUND",
+    };
 
   // Validate against the post-swap state (existing parent stripped first)
   // so replacing a parent is not rejected as "already has a parent".
@@ -128,10 +140,24 @@ export function validateLinkAddition({
   const fromTask = allTasks.find((t) => t.id === fromId);
   const toTask = allTasks.find((t) => t.id === toId);
 
-  if (!fromTask) return { ok: false, reason: `Task ${fromId} not found` };
-  if (!toTask) return { ok: false, reason: `Task ${toId} not found` };
+  if (!fromTask)
+    return {
+      ok: false,
+      reason: `Task ${fromId} not found`,
+      code: "TASK_NOT_FOUND",
+    };
+  if (!toTask)
+    return {
+      ok: false,
+      reason: `Task ${toId} not found`,
+      code: "TASK_NOT_FOUND",
+    };
   if (fromId === toId)
-    return { ok: false, reason: "Cannot link a task to itself" };
+    return {
+      ok: false,
+      reason: "Cannot link a task to itself",
+      code: "E_USAGE",
+    };
 
   // Check duplicate
   const existing = fromTask.links?.find(
@@ -141,6 +167,7 @@ export function validateLinkAddition({
     return {
       ok: false,
       reason: `Link already exists: ${fromId} --[${type}]--> ${toId}`,
+      code: "E_USAGE",
     };
   }
 
@@ -151,6 +178,7 @@ export function validateLinkAddition({
       return {
         ok: false,
         reason: `Task ${fromId} already has a parent (${existingParent.taskId}). Remove it first.`,
+        code: "E_USAGE",
       };
     }
   }
@@ -162,6 +190,7 @@ export function validateLinkAddition({
       return {
         ok: false,
         reason: `Cycle detected: ${toId} is already a descendant of ${fromId}`,
+        code: "E_USAGE",
       };
     }
   }

@@ -190,7 +190,13 @@ export function isolatedEnv(tmpHome: string): NodeJS.ProcessEnv {
 
 export async function runCli(
   args: string[],
-  opts: { cwd: string; home: string; timeoutMs?: number },
+  opts: {
+    cwd: string;
+    home: string;
+    timeoutMs?: number;
+    /** Extra env for this run (e.g. VIBEFLOW_API_URL to aim the SaaS client). */
+    env?: Record<string, string>;
+  },
 ): Promise<{
   stdout: string;
   stderr: string;
@@ -207,7 +213,7 @@ export async function runCli(
         cwd: opts.cwd,
         encoding: "utf-8",
         timeout: opts.timeoutMs ?? 15_000,
-        env: isolatedEnv(opts.home),
+        env: { ...isolatedEnv(opts.home), ...(opts.env ?? {}) },
       },
       (err, stdout, stderr) => {
         const code =
@@ -320,11 +326,13 @@ export function spawnCli(args: string[], opts: {
   cwd: string;
   home: string;
   timeoutMs?: number;
+  /** Extra env for this run (e.g. VIBEFLOW_API_URL to aim the SaaS client). */
+  env?: Record<string, string>;
 }): Promise<{ stdout: string; stderr: string; code: number | null; elapsedMs: number }> {
   return new Promise((resolve) => {
     const child = spawn("node", [CLI_PATH, ...args], {
       cwd: opts.cwd,
-      env: isolatedEnv(opts.home),
+      env: { ...isolatedEnv(opts.home), ...(opts.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

@@ -61,6 +61,11 @@ export function commitTaskChanges(
     const staged = execFileSync("git", ["diff", "--cached", "--name-only", "-z"], {
       cwd: projectDir,
       env: gitEnvWithCleanLocation(),
+      // Capture git's own stderr instead of letting it reach the CLI's: under
+      // `--json` a consumer parses stderr as one envelope, and a raw git
+      // usage dump in front of it breaks the parse. Node folds the captured
+      // stderr into the thrown error's message, so nothing is lost.
+      stdio: ["ignore", "pipe", "pipe"],
     })
       .toString()
       .split("\0")
@@ -84,9 +89,13 @@ export function commitTaskChanges(
     execFileSync("git", ["commit", "-m", commitMsg, "--", ...scoped], {
       cwd: projectDir,
       env,
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    const sha = execSync("git rev-parse HEAD", { cwd: projectDir, env })
+    const sha = execSync("git rev-parse HEAD", {
+      cwd: projectDir,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
       .toString()
       .trim();
 
@@ -162,7 +171,9 @@ export function commitTaskPaths(
     const staged = execFileSync(
       "git",
       ["diff", "--cached", "--name-only", "-z"],
-      { cwd: projectDir, env },
+      // See commitTaskChanges: git's stderr is captured, never inherited, so a
+      // `--json` refusal leaves stderr as one parseable envelope.
+      { cwd: projectDir, env, stdio: ["ignore", "pipe", "pipe"] },
     )
       .toString()
       .split("\0")
@@ -182,7 +193,7 @@ export function commitTaskPaths(
       ? execFileSync(
           "git",
           ["status", "--porcelain", "-z", "--", ...scoped],
-          { cwd: projectDir, env },
+          { cwd: projectDir, env, stdio: ["ignore", "pipe", "pipe"] },
         )
           .toString()
           .split("\0")
@@ -190,7 +201,11 @@ export function commitTaskPaths(
       : scoped.length > 0;
 
     if (!hasChanges) {
-      const sha = execSync("git rev-parse HEAD", { cwd: projectDir, env })
+      const sha = execSync("git rev-parse HEAD", {
+        cwd: projectDir,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
         .toString()
         .trim();
       appendCommitRecord(projectDir, filePath, taskId, message, sha);
@@ -202,9 +217,13 @@ export function commitTaskPaths(
     execFileSync("git", ["commit", "-m", commitMsg, "--", ...scoped], {
       cwd: projectDir,
       env,
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    const sha = execSync("git rev-parse HEAD", { cwd: projectDir, env })
+    const sha = execSync("git rev-parse HEAD", {
+      cwd: projectDir,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
       .toString()
       .trim();
     appendCommitRecord(projectDir, filePath, taskId, message, sha);

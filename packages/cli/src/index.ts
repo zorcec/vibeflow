@@ -414,6 +414,26 @@ function outputEnvelope(
   }
 }
 
+/**
+ * Maps a failed SaaS result to the refusal a `--json` consumer earns. An
+ * unreachable host is worth retrying; an expired session and an HTTP rejection
+ * are not, and neither is a backend failure.
+ */
+function saasFailure(
+  error: { code: string },
+): { code: string; retryable: boolean; suggestion?: string } {
+  if (error.code === "NOT_AUTHENTICATED")
+    return {
+      code: "E_NOT_AUTHENTICATED",
+      retryable: false,
+      suggestion: "Run 'vibeflow login' and retry.",
+    };
+  return {
+    code: "E_BACKEND_UNAVAILABLE",
+    retryable: error.code === "NETWORK_ERROR",
+  };
+}
+
 /** True when `author` matches the user filter (case-insensitive). */
 function matchesUserFilter(
   author: string | null | undefined,
@@ -436,18 +456,28 @@ function collectAvailableUsers<T extends { author?: string | null }>(
 }
 
 /** Validates --type filter value; logs error and sets exitCode if invalid. Returns true if valid. */
-function validateTypeFilter(typeFilter: string): boolean {
+function validateTypeFilter(typeFilter: string, json = false): boolean {
   if (
     VALID_FILTER_TYPES.map((t) => t.toLowerCase()).includes(
       typeFilter.toLowerCase(),
     )
   )
     return true;
-  console.log(chalk.red(`✗ Invalid type filter: "${typeFilter}"`));
-  console.log(
-    chalk.yellow(`  Available types: ${VALID_FILTER_TYPES.join(" | ")}`),
-  );
-  console.log(chalk.dim("  Type filter is exact (example: --type Bug)"));
+  if (json) {
+    outputEnvelope({
+      ok: false,
+      code: "E_USAGE",
+      message: `Invalid type filter: "${typeFilter}"`,
+      suggestion: `Available types: ${VALID_FILTER_TYPES.join(" | ")} — Type filter is exact (example: --type Bug)`,
+      json,
+    });
+  } else {
+    console.log(chalk.red(`✗ Invalid type filter: "${typeFilter}"`));
+    console.log(
+      chalk.yellow(`  Available types: ${VALID_FILTER_TYPES.join(" | ")}`),
+    );
+    console.log(chalk.dim("  Type filter is exact (example: --type Bug)"));
+  }
   process.exitCode = ExitCode.USAGE;
   return false;
 }
@@ -456,24 +486,47 @@ function validateTypeFilter(typeFilter: string): boolean {
 function validateUserFilter<T extends { author?: string | null }>(
   userFilter: string,
   tasks: T[],
+  json = false,
 ): boolean {
   const availableUsers = collectAvailableUsers(tasks);
   if (availableUsers.length === 0) {
-    console.log(
-      chalk.red(
-        `✗ Cannot filter by user: no task authors are available on this board.`,
-      ),
-    );
+    if (json) {
+      outputEnvelope({
+        ok: false,
+        code: "E_USAGE",
+        message:
+          "Cannot filter by user: no task authors are available on this board.",
+        json,
+      });
+    } else {
+      console.log(
+        chalk.red(
+          `✗ Cannot filter by user: no task authors are available on this board.`,
+        ),
+      );
+    }
     process.exitCode = ExitCode.USAGE;
     return false;
   }
   if (availableUsers.some((author) => matchesUserFilter(author, userFilter)))
     return true;
-  console.log(chalk.red(`✗ User not found: "${userFilter}"`));
-  console.log(chalk.yellow(`  Available users: ${availableUsers.join(" | ")}`));
-  console.log(
-    chalk.dim("  User filter is exact email match (case-insensitive)."),
-  );
+  if (json) {
+    outputEnvelope({
+      ok: false,
+      code: "E_USAGE",
+      message: `User not found: "${userFilter}"`,
+      suggestion: `Available users: ${availableUsers.join(" | ")} — User filter is exact email match (case-insensitive).`,
+      json,
+    });
+  } else {
+    console.log(chalk.red(`✗ User not found: "${userFilter}"`));
+    console.log(
+      chalk.yellow(`  Available users: ${availableUsers.join(" | ")}`),
+    );
+    console.log(
+      chalk.dim("  User filter is exact email match (case-insensitive)."),
+    );
+  }
   process.exitCode = ExitCode.USAGE;
   return false;
 }
@@ -1183,7 +1236,18 @@ program
             const workspace = await readWorkspace();
             const saasData = await fetchSaasTasks(workspace?.id);
             if (!saasData.ok) {
-              console.log(chalk.red("✗ Unable to reach the online backend."));
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(saasData.error),
+                  message: "Unable to reach the online backend.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red("✗ Unable to reach the online backend."),
+                );
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
@@ -1191,7 +1255,18 @@ program
               matchesIdOrPrefix(t, opts.get!),
             );
             if (!saasTask) {
-              console.log(chalk.red(`✗ Task not found: ${opts.get}`));
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${opts.get}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ Task not found: ${opts.get}`));
+              }
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
@@ -1285,7 +1360,7 @@ program
           );
           if (!task) {
             outputEnvelope({ ok: false,
-              code: "E_NOT_FOUND",
+              code: "TASK_NOT_FOUND",
               message: `Task not found: ${opts.get}`,
               suggestion: "Run 'vibeflow tasks' to see available task IDs.",
               json: opts.json,
@@ -1380,11 +1455,22 @@ program
             const nextWorkspace = await readWorkspace();
             const saasData = await fetchSaasTasks(nextWorkspace?.id);
             if (!saasData.ok) {
-              console.log(chalk.red("✗ Unable to reach the online backend."));
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(saasData.error),
+                  message: "Unable to reach the online backend.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red("✗ Unable to reach the online backend."),
+                );
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
-            if (opts.type && !validateTypeFilter(opts.type)) return;
+            if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
             let todoTasks = saasData.data.tasks
               .map((t: SaasTask) => ({ ...t, status: toCliStatus(t.status) }))
               .filter((t: { status: string }) => t.status === "todo");
@@ -1393,7 +1479,11 @@ program
                 (t) =>
                   (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
               );
-            if (opts.user && !validateUserFilter(opts.user, todoTasks)) return;
+            if (
+              opts.user &&
+              !validateUserFilter(opts.user, todoTasks, opts.json)
+            )
+              return;
             if (opts.user)
               todoTasks = todoTasks.filter((t) =>
                 matchesUserFilter(t.author, opts.user!),
@@ -1433,11 +1523,25 @@ program
               status: "in-progress",
             });
             if (!updated) {
-              console.log(
-                chalk.red(
-                  `✗ Failed to move task to in-progress: ${nextTask.id}`,
-                ),
-              );
+              // Defensive: updateSaasTask resolves a SaasResult, never a
+              // falsy value, so this only fires if that contract changes.
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_BACKEND_UNAVAILABLE",
+                  retryable: true,
+                  message: `Failed to move task to in-progress: ${nextTask.id}`,
+                  suggestion:
+                    "Check your connection or run 'vibeflow login', then retry.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Failed to move task to in-progress: ${nextTask.id}`,
+                  ),
+                );
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
@@ -1520,8 +1624,8 @@ program
 
           // ── Local next mode ──────────────────────────────────────────────
           const nextProjectDir = resolve(dir);
-          if (opts.type && !validateTypeFilter(opts.type)) return;
-          if (opts.user && !validateUserFilter(opts.user, [])) return;
+          if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
+          if (opts.user && !validateUserFilter(opts.user, [], opts.json)) return;
 
           const nextUpdated = claimNextTaskAtomic(nextProjectDir, {
             type: opts.type,
@@ -1686,14 +1790,25 @@ program
           const addMode = await getMode();
           if (addMode === "saas") {
             if (typeof opts.parent === "string") {
-              console.log(
-                chalk.red("✗ --parent is only supported for local tasks"),
-              );
-              console.log(
-                chalk.dim(
-                  "  Parent links are not supported by the online backend yet.",
-                ),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_USAGE",
+                  message: "--parent is only supported for local tasks",
+                  suggestion:
+                    "Parent links are not supported by the online backend yet.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red("✗ --parent is only supported for local tasks"),
+                );
+                console.log(
+                  chalk.dim(
+                    "  Parent links are not supported by the online backend yet.",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }
@@ -1748,14 +1863,23 @@ program
               boardId: addWorkspace?.id,
             });
             if (!saasCreated.ok) {
-              console.log(
-                chalk.red("✗ Failed to create task in online board."),
-              );
-              console.log(
-                chalk.yellow(
-                  "  Check your connection or run 'vibeflow login'.",
-                ),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(saasCreated.error),
+                  message: "Failed to create task in online board.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red("✗ Failed to create task in online board."),
+                );
+                console.log(
+                  chalk.yellow(
+                    "  Check your connection or run 'vibeflow login'.",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
@@ -1811,7 +1935,7 @@ program
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  code: "E_NOT_FOUND",
+                  code: "TASK_NOT_FOUND",
                   message: `Parent task not found: ${parentId}`,
                   suggestion: "Run 'vibeflow tasks' to see available task IDs.",
                   json: opts.json,
@@ -1917,7 +2041,7 @@ program
           const task = findTaskByIdOrPrefix(projectDir, opts.task!);
           if (!task) {
             outputEnvelope({ ok: false,
-              code: "E_NOT_FOUND",
+              code: "TASK_NOT_FOUND",
               message: `Task not found: ${opts.task}`,
               suggestion: "Run 'vibeflow tasks' to see available task IDs.",
               json: opts.json,
@@ -1973,7 +2097,20 @@ program
               commitPathspec,
             );
             if (!result.ok) {
-              console.log(chalk.red(`✗ ${result.error}`));
+              // Nothing was written on this path, so this is a refusal, not a
+              // partial success: the task record is untouched.
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_USAGE",
+                  message: result.error,
+                  suggestion:
+                    "Stage the task's paths with 'git add' and retry the commit.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${result.error}`));
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
@@ -2058,13 +2195,29 @@ program
               }
             }
           } catch (err) {
-            console.log(
-              chalk.red(
-                "✗ git commit failed — ensure changes are staged with 'git add'",
-              ),
-            );
-            if (err instanceof Error) {
-              console.log(chalk.dim(`  reason: ${err.message}`));
+            // Nothing was written on this path either, so the refusal is
+            // truthful: no commit record, no task-file change.
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message:
+                  "git commit failed — ensure changes are staged with 'git add'",
+                suggestion:
+                  err instanceof Error
+                    ? err.message
+                    : "Stage the task's paths with 'git add' and retry.",
+                json: opts.json,
+              });
+            } else {
+              console.log(
+                chalk.red(
+                  "✗ git commit failed — ensure changes are staged with 'git add'",
+                ),
+              );
+              if (err instanceof Error) {
+                console.log(chalk.dim(`  reason: ${err.message}`));
+              }
             }
             process.exitCode = ExitCode.GENERAL;
           }
@@ -2087,7 +2240,7 @@ program
             opts.comment?.trim();
 
           if (!taskId || !hasEdits) {
-            if (opts.type && !validateTypeFilter(opts.type)) return;
+            if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
             let all = listTasks(dir);
             if (opts.status) all = all.filter((t) => t.status === opts.status);
             if (opts.type)
@@ -2095,7 +2248,7 @@ program
                 (t) =>
                   (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
               );
-            if (opts.user && !validateUserFilter(opts.user, all)) return;
+            if (opts.user && !validateUserFilter(opts.user, all, opts.json)) return;
             if (opts.user)
               all = all.filter((t) => matchesUserFilter(t.author, opts.user!));
             if (opts.tag && opts.tag.length > 0)
@@ -2158,32 +2311,64 @@ program
           let reportTaskId: string | undefined;
           if (opts.reportFile) {
             if (opts.setStatus !== "review") {
-              console.log(
-                chalk.red("✗ --report-file requires --set-status review"),
-              );
-              console.log(
-                chalk.dim(
-                  `  Example: vibeflow tasks --edit ${taskId} --set-status review --report-file report.md`,
-                ),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_USAGE",
+                  message: "--report-file requires --set-status review",
+                  suggestion: `Example: vibeflow tasks --edit ${taskId} --set-status review --report-file report.md`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red("✗ --report-file requires --set-status review"),
+                );
+                console.log(
+                  chalk.dim(
+                    `  Example: vibeflow tasks --edit ${taskId} --set-status review --report-file report.md`,
+                  ),
+                );
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }
             const reportTask = findTaskByIdOrPrefix(resolve(dir), taskId);
             if (!reportTask) {
-              console.log(chalk.red(`✗ Task not found: ${taskId}`));
-              console.log(
-                chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${taskId}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ Task not found: ${taskId}`));
+                console.log(
+                  chalk.dim(
+                    "  Run 'vibeflow tasks' to see available task IDs.",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
             if ((reportTask.type ?? "").toLowerCase() !== "research") {
-              console.log(
-                chalk.red(
-                  `✗ --report-file is only supported for Research tasks (this task has type: ${reportTask.type || "none"}).`,
-                ),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_USAGE",
+                  message: `--report-file is only supported for Research tasks (this task has type: ${reportTask.type || "none"}).`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ --report-file is only supported for Research tasks (this task has type: ${reportTask.type || "none"}).`,
+                  ),
+                );
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }
@@ -2215,15 +2400,29 @@ program
               opts.setStatus as (typeof VALID_STATUSES)[number],
             )
           ) {
-            console.log(chalk.red(`✗ Invalid status: "${opts.setStatus}"`));
-            console.log(
-              chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`),
-            );
-            console.log(
-              chalk.dim(
-                `  Example: vibeflow tasks --edit ${taskId} --set-status in-progress`,
-              ),
-            );
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message: `Invalid status: "${opts.setStatus}"`,
+                suggestion: `Valid statuses: ${VALID_STATUSES.join(" | ")} — Example: vibeflow tasks --edit ${taskId} --set-status in-progress`,
+                json: opts.json,
+              });
+            } else {
+              console.log(
+                chalk.red(`✗ Invalid status: "${opts.setStatus}"`),
+              );
+              console.log(
+                chalk.yellow(
+                  `  Valid statuses: ${VALID_STATUSES.join(" | ")}`,
+                ),
+              );
+              console.log(
+                chalk.dim(
+                  `  Example: vibeflow tasks --edit ${taskId} --set-status in-progress`,
+                ),
+              );
+            }
             process.exitCode = ExitCode.USAGE;
             return;
           }
@@ -2307,14 +2506,38 @@ program
           if (opts.setStatus === "review" && opts.reportFile) {
             const reportPath = resolve(opts.reportFile);
             if (!existsSync(reportPath)) {
-              console.log(chalk.red(`✗ Report file not found: ${reportPath}`));
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_NOT_FOUND",
+                  message: `Report file not found: ${reportPath}`,
+                  suggestion: "Pass an existing .md path to --report-file.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(`✗ Report file not found: ${reportPath}`),
+                );
+              }
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
             if (!/\.md$/i.test(reportPath)) {
-              console.log(
-                chalk.red("✗ Report file must be a Markdown (.md) file"),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_USAGE",
+                  message: "Report file must be a Markdown (.md) file",
+                  suggestion: "Rename the report to <name>.md and retry.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    "✗ Report file must be a Markdown (.md) file",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }
@@ -2381,16 +2604,28 @@ program
 
           // ── SaaS edit path (online mode) ────────────────────────────────
           if (wantsParentChange && editMode === "saas") {
-            console.log(
-              chalk.red(
-                "✗ --set-parent / --no-parent is only supported for local tasks",
-              ),
-            );
-            console.log(
-              chalk.dim(
-                "  Parent links are not supported by the online backend yet.",
-              ),
-            );
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message:
+                  "--set-parent / --no-parent is only supported for local tasks",
+                suggestion:
+                  "Parent links are not supported by the online backend yet.",
+                json: opts.json,
+              });
+            } else {
+              console.log(
+                chalk.red(
+                  "✗ --set-parent / --no-parent is only supported for local tasks",
+                ),
+              );
+              console.log(
+                chalk.dim(
+                  "  Parent links are not supported by the online backend yet.",
+                ),
+              );
+            }
             process.exitCode = ExitCode.USAGE;
             return;
           }
@@ -2437,12 +2672,21 @@ program
 
             const saasResult = await updateSaasTask(taskId, saasPatch);
             if (!saasResult.ok) {
-              console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
-              console.log(
-                chalk.yellow(
-                  "  Ensure you are connected and the task ID exists in the online board.",
-                ),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(saasResult.error),
+                  message: `Failed to update task: ${taskId}`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
+                console.log(
+                  chalk.yellow(
+                    "  Ensure you are connected and the task ID exists in the online board.",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.GENERAL;
               return;
             }
@@ -2631,7 +2875,18 @@ program
                 parentId: null,
               });
               if (!cleared.ok) {
-                console.log(chalk.red(`✗ ${cleared.reason}`));
+                // The producer knows why it refused — pass its code straight
+                // through instead of re-deriving one from the reason string.
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: cleared.code,
+                    message: cleared.reason,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${cleared.reason}`));
+                }
                 process.exitCode = ExitCode.NOT_FOUND;
                 return;
               }
@@ -2648,17 +2903,32 @@ program
                 parentId: resolvedParentId,
               });
               if (!applied.ok) {
-                console.log(chalk.red(`✗ ${applied.reason}`));
-                console.log(
-                  chalk.dim(
-                    `  Run 'vibeflow tasks' to see available task IDs.`,
-                  ),
-                );
-                process.exitCode = applied.reason.startsWith(
-                  "Parent task not found",
-                )
-                  ? ExitCode.NOT_FOUND
-                  : ExitCode.USAGE;
+                // The producer knows why it refused — pass its code straight
+                // through instead of re-deriving one from the reason string.
+                const appliedSuggestion =
+                  applied.code === "TASK_NOT_FOUND"
+                    ? "Run 'vibeflow tasks' to see available task IDs."
+                    : undefined;
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: applied.code,
+                    message: applied.reason,
+                    suggestion: appliedSuggestion,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${applied.reason}`));
+                  console.log(
+                    chalk.dim(
+                      `  Run 'vibeflow tasks' to see available task IDs.`,
+                    ),
+                  );
+                }
+                process.exitCode =
+                  applied.code === "TASK_NOT_FOUND"
+                    ? ExitCode.NOT_FOUND
+                    : ExitCode.USAGE;
                 return;
               }
               updates.links = applied.links;
@@ -2737,10 +3007,22 @@ program
 
           const updated = updateTask(dir, resolvedTaskId, updates);
           if (!updated) {
-            console.log(chalk.red(`✗ Task not found: ${taskId}`));
-            console.log(
-              chalk.yellow(`  Run 'vibeflow tasks' to see available task IDs.`),
-            );
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${taskId}`,
+                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ Task not found: ${taskId}`));
+              console.log(
+                chalk.yellow(
+                  `  Run 'vibeflow tasks' to see available task IDs.`,
+                ),
+              );
+            }
             process.exitCode = ExitCode.NOT_FOUND;
             return;
           }
@@ -2916,15 +3198,27 @@ program
             opts.status as (typeof VALID_STATUSES)[number],
           )
         ) {
-          console.log(chalk.red(`✗ Invalid status filter: "${opts.status}"`));
-          console.log(
-            chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`),
-          );
-          console.log(chalk.dim(`  Example: vibeflow tasks --status todo`));
+          if (opts.json) {
+            outputEnvelope({
+              ok: false,
+              code: "E_USAGE",
+              message: `Invalid status filter: "${opts.status}"`,
+              suggestion: `Valid statuses: ${VALID_STATUSES.join(" | ")} — Example: vibeflow tasks --status todo`,
+              json: opts.json,
+            });
+          } else {
+            console.log(
+              chalk.red(`✗ Invalid status filter: "${opts.status}"`),
+            );
+            console.log(
+              chalk.yellow(`  Valid statuses: ${VALID_STATUSES.join(" | ")}`),
+            );
+            console.log(chalk.dim(`  Example: vibeflow tasks --status todo`));
+          }
           process.exitCode = ExitCode.USAGE;
           return;
         }
-        if (opts.type && !validateTypeFilter(opts.type)) return;
+        if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
 
         const parsedFields = opts.fields
           ? opts.fields
@@ -2939,12 +3233,23 @@ program
           const workspace = await readWorkspace();
           const saasData = await fetchSaasTasks(workspace?.id);
           if (!saasData.ok) {
-            console.log(chalk.red("✗ Unable to reach the online backend."));
-            console.log(
-              chalk.yellow(
-                "  Check your connection or run 'vibeflow login' if your session expired.",
-              ),
-            );
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                ...saasFailure(saasData.error),
+                message: "Unable to reach the online backend.",
+                json: opts.json,
+              });
+            } else {
+              console.log(
+                chalk.red("✗ Unable to reach the online backend."),
+              );
+              console.log(
+                chalk.yellow(
+                  "  Check your connection or run 'vibeflow login' if your session expired.",
+                ),
+              );
+            }
             process.exitCode = ExitCode.GENERAL;
             return;
           }
@@ -2960,7 +3265,11 @@ program
               (t) =>
                 (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
             );
-          if (opts.user && !validateUserFilter(opts.user, saasTasks)) return;
+          if (
+            opts.user &&
+            !validateUserFilter(opts.user, saasTasks, opts.json)
+          )
+            return;
           if (opts.user)
             saasTasks = saasTasks.filter((t) =>
               matchesUserFilter(t.author, opts.user!),
@@ -3094,7 +3403,7 @@ program
         }
 
         const all = listTasksWithPaths(dir);
-        if (opts.user && !validateUserFilter(opts.user, all)) return;
+        if (opts.user && !validateUserFilter(opts.user, all, opts.json)) return;
         let filtered = opts.status
           ? all.filter((t) => t.status === opts.status)
           : all;
@@ -3546,11 +3855,24 @@ program
         return;
       }
       if (!head) {
-        process.stderr.write(chalk.red("✗ Task ID required.\n"));
-        process.stderr.write(chalk.dim("  Usage: vibeflow verify <task-id>\n"));
-        process.stderr.write(
-          chalk.dim("  Tools: vibeflow verify <tool> <task-id> [...]\n"),
-        );
+        if (opts.json) {
+          outputEnvelope({
+            ok: false,
+            code: "E_USAGE",
+            message: "Task ID required.",
+            suggestion:
+              "Usage: vibeflow verify <task-id> — Tools: vibeflow verify <tool> <task-id> [...]",
+            json: opts.json,
+          });
+        } else {
+          process.stderr.write(chalk.red("✗ Task ID required.\n"));
+          process.stderr.write(
+            chalk.dim("  Usage: vibeflow verify <task-id>\n"),
+          );
+          process.stderr.write(
+            chalk.dim("  Tools: vibeflow verify <tool> <task-id> [...]\n"),
+          );
+        }
         process.exitCode = 1;
         return;
       }
