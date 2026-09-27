@@ -69,6 +69,42 @@ function readTask(store: string, taskId: string): Record<string, unknown> {
   >;
 }
 
+/**
+ * Hand-writes a raw task file, bypassing the CLI.
+ *
+ * The two shape flags are what `writeSortKeyMinimal` branches on, and they are
+ * the difference between a reindex that writes and one that plans but does
+ * not: the writer inserts `sortKey` above the `\n  "updated":` anchor, so a
+ * PRETTY-printed task carrying `updated` is keyable and a single-line task
+ * without it is not (the function returns false, writes nothing).
+ */
+function writeRawTask(
+  store: string,
+  taskId: string,
+  shape: { pretty: boolean; updated: boolean },
+): void {
+  const dir = join(store, ".vibeflow", "tasks", "2026-01-01");
+  mkdirSync(dir, { recursive: true });
+  const task: Record<string, unknown> = {
+    id: taskId,
+    title: `Hand-written ${taskId}`,
+    description: "",
+    status: "todo",
+    priority: "Medium",
+    type: "Task",
+    created: "2026-01-01T00:00:00.000Z",
+    tags: [],
+    comments: [],
+    files: [],
+    ...(shape.updated ? { updated: "2026-01-01T00:00:00.000Z" } : {}),
+  };
+  writeFileSync(
+    join(dir, `${taskId}.json`),
+    shape.pretty ? JSON.stringify(task, null, 2) : JSON.stringify(task),
+    "utf-8",
+  );
+}
+
 /** A home directory that makes the CLI take the online (SaaS) branch. */
 function saasHome(): string {
   const home = freshDir("json-refusal-saas-home-");
@@ -394,6 +430,41 @@ describe("tasks --json refusals carry a code on stderr", () => {
     expect(readFileSync(taskFile(store, id), "utf-8")).toBe(before);
   });
 
+  it("E_USAGE — `--edit --json` with no task id and nothing to edit", async () => {
+    // The usage-help block is chalk prose. Under --json it used to print 700+
+    // bytes of it to stdout and exit 0, so a consumer could not even
+    // JSON.parse what it got. An impossible flag combination is E_USAGE, which
+    // is what the documented rule already prescribes.
+    const store = freshDir("json-refusal-store-");
+    const home = freshDir("json-refusal-home-");
+    const r = await spawnCli(["tasks", store, "--edit", "--json"], {
+      cwd: store,
+      home,
+    });
+    const envelope = expectRefusal(r, "E_USAGE");
+    expect(envelope.error.message).toContain("--edit needs a task id");
+  });
+
+  it("E_USAGE — `--edit <id> --json` with no edit flag at all", async () => {
+    const store = freshDir("json-refusal-store-");
+    const home = freshDir("json-refusal-home-");
+    const id = await addTask(store, home, "Nothing to change");
+    const r = await spawnCli(["tasks", store, "--edit", id, "--json"], {
+      cwd: store,
+      home,
+    });
+    const envelope = expectRefusal(r, "E_USAGE");
+    expect(envelope.error.message).toContain("nothing to edit");
+  });
+
+  it("the usage help block itself is unchanged in human mode", async () => {
+    const store = freshDir("json-refusal-store-");
+    const home = freshDir("json-refusal-home-");
+    const r = await spawnCli(["tasks", store, "--edit"], { cwd: store, home });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("vibeflow tasks --edit — LLM Usage Instructions");
+  });
+
   it("E_USAGE — `verify --json` without a task id", async () => {
     const store = freshDir("json-refusal-store-");
     const home = freshDir("json-refusal-home-");
@@ -615,34 +686,15 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect(r.stdout).toContain("the commit did NOT happen");
   });
 
-  it("REINDEX_INCOMPLETE — keys written, post-assert failed: exit 0 + warning", async () => {
+  it("REINDEX_INCOMPLETE — keys written, post-assert failed: exit 0 + notice", async () => {
     const store = freshDir("json-partial-store-");
     const home = freshDir("json-partial-home-");
-    await addTask(store, home, "Keyed task");
-    // A hand-written task with no sortKey: the reindex writes keys, then its
-    // post-assert still sees a keyless task it could not fix.
-    const tasksDir = join(store, ".vibeflow", "tasks", "2026-01-01");
-    mkdirSync(tasksDir, { recursive: true });
-    writeFileSync(
-      join(tasksDir, "orphan00000000.json"),
-      JSON.stringify(
-        {
-          id: "orphan00000000",
-          title: "Hand-written, no sortKey",
-          description: "",
-          status: "todo",
-          priority: "Medium",
-          type: "Task",
-          created: new Date().toISOString(),
-          tags: [],
-          comments: [],
-          files: [],
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
+    // One keyless task the minimal writer CAN key (pretty-printed, so the
+    // `"\n  \"updated\":"` anchor exists) … and one it CANNOT (single-line, no
+    // `updated` field at all — see writeSortKeyMinimal). The first write lands,
+    // so the run is partial success and the post-assert is what fails.
+    writeRawTask(store, "fixable000000", { pretty: true, updated: true });
+    writeRawTask(store, "orphan00000000", { pretty: false, updated: false });
 
     const r = await spawnCli(["tasks", store, "--reindex-sort-keys", "--json"], {
       cwd: store,
@@ -651,13 +703,56 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect(r.code).toBe(0);
     const payload = JSON.parse(r.stdout) as {
       ok: boolean;
+      written: number;
       reindexVerified: boolean;
       warning?: { code: string; message: string };
     };
     expect(payload.ok).toBe(true);
+    // The keys DID land — that is the whole basis for exit 0 here.
+    expect(payload.written).toBe(1);
     expect(payload.reindexVerified).toBe(false);
     expect(payload.warning?.code).toBe("REINDEX_INCOMPLETE");
     expect(payload.warning?.message).toContain("Reindex incomplete");
+  });
+
+  it("REINDEX_WRITE_FAILED — keys planned, none written: ok:false + non-zero exit", async () => {
+    // writeSortKeyMinimal can compute a patch and then decline to write it, so
+    // a run that PLANNED writes and wrote NONE never touched the store.
+    // Reporting that as ok:true told a consumer the re-keying landed when
+    // nothing did — so it is a refusal, and this fixture is the real path, not
+    // a theoretical one: every task here is unwritable.
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    writeRawTask(store, "orphan00000000", { pretty: false, updated: false });
+    const before = readFileSync(taskFile(store, "orphan00000000"), "utf-8");
+
+    const r = await spawnCli(["tasks", store, "--reindex-sort-keys", "--json"], {
+      cwd: store,
+      home,
+    });
+    const envelope = expectRefusal(r, "REINDEX_WRITE_FAILED", {
+      retryable: false,
+    });
+    expect(envelope.error.message).toContain("wrote 0 of");
+    expect(envelope.error.suggestion).toContain("orphan00000000");
+    // Nothing landed — and no manifest claiming an apply that never happened.
+    expect(readFileSync(taskFile(store, "orphan00000000"), "utf-8")).toBe(before);
+    expect(existsSync(join(store, ".vibeflow", "reindex-sort-keys-manifest.json"))).toBe(
+      false,
+    );
+  });
+
+  it("REINDEX_WRITE_FAILED — human mode says so plainly and exits non-zero", async () => {
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    writeRawTask(store, "orphan00000000", { pretty: false, updated: false });
+
+    const r = await spawnCli(["tasks", store, "--reindex-sort-keys"], {
+      cwd: store,
+      home,
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).toContain("wrote 0 of");
   });
 
   it("a clean success carries no warning/warnings key at all", async () => {
@@ -686,4 +781,176 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect("warning" in reindexPayload).toBe(false);
     expect("warnings" in reindexPayload).toBe(false);
   });
+});
+
+/**
+ * The stdout-purity sweep.
+ *
+ * Every other test in this file asks "does this path carry the RIGHT code?".
+ * This one asks the weaker, broader question that all of them depend on: does
+ * anything reach stdout that a `JSON.parse` cannot read? It exists because the
+ * refusal guard (`tests/unit/json-refusal-guard.test.ts`) is keyed on NON-ZERO
+ * exits, so it structurally cannot see prose on stdout under `--json` with
+ * exit 0 — the class that hid the `--edit` usage-help block and the trailing
+ * auto-push lines from the review that added that guard.
+ *
+ * The rule, applied uniformly: under `--json`, stdout is either empty or
+ * exactly one JSON document. Nothing in between. Anything less specific would
+ * let the next chalk line back in.
+ *
+ * There is exactly ONE deliberate exception, listed with its provenance in
+ * `KNOWN_EXCEPTIONS` below. It is an owner decision recorded in three test
+ * files, not an oversight — an exception without provenance is just a hole
+ * with a nice comment, so the provenance is part of the entry.
+ */
+describe("tasks --json stdout is empty or one JSON document — always", () => {
+  /**
+   * Rows the owner has ruled OUT of the rule, with the decision that put them
+   * there. Each one still runs on every sweep; it is checked against its
+   * recorded behaviour instead, so revoking the ruling fails this test loudly
+   * rather than silently.
+   */
+  const KNOWN_EXCEPTIONS: Array<{
+    label: string;
+    why: string;
+    decidedIn: string[];
+    expect: (r: CliResult) => string | null;
+  }> = [
+    {
+      label: "next with nothing to claim",
+      // DELIBERATE. An empty board is not a failure — there is simply nothing
+      // to hand out — so `--next --json` prints a sentence and exits 0. The
+      // ruling is recorded in these three tests, one of which says outright
+      // "guard consumers accordingly". The CLI/MCP divergence here (MCP answers
+      // the identical situation with NO_TASKS_AVAILABLE, ok:false) is filed as
+      // its own ticket for an owner decision; it is deliberately NOT resolved
+      // here, because revoking a recorded ruling must not ride along with a
+      // stdout-purity change.
+      why: "empty board is not a failure; the sentence and exit 0 are pinned",
+      decidedIn: [
+        "tests/e2e/mcp-hang.test.ts:53-66 (test 2)",
+        "tests/e2e/mcp-claim-race.test.ts:11-12 (docstring)",
+        "tests/e2e/mcp-claim-race.test.ts:137-148 (test 3)",
+      ],
+      expect: (r) => {
+        if (r.code !== 0)
+          return `expected exit 0 on an empty board, got ${r.code}`;
+        if (!r.stdout.includes("No todo tasks found"))
+          return `expected the pinned sentence, got:\n${r.stdout.slice(0, 200)}`;
+        return null;
+      },
+    },
+  ];
+
+  /** Every row is asserted the same way, so a new row cannot be weaker. */
+  function stdoutProblem(r: CliResult, label: string): string | null {
+    const trimmed = r.stdout.trim();
+    if (trimmed === "") return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (err) {
+      return `${label}: stdout is neither empty nor JSON (${(err as Error).message}) — got:\n${trimmed.slice(0, 400)}`;
+    }
+    // A JSONL stream would also parse as a failure, so name the one-document
+    // rule explicitly: exactly one object, carrying the ok discriminant.
+    if (typeof parsed !== "object" || parsed === null) {
+      return `${label}: stdout is JSON but not an object — got:\n${trimmed.slice(0, 400)}`;
+    }
+    if (!("ok" in (parsed as Record<string, unknown>))) {
+      return `${label}: stdout is JSON but carries no "ok" discriminant — got:\n${trimmed.slice(0, 400)}`;
+    }
+    return null;
+  }
+
+  it("a table of success and refusal paths keeps stdout parseable", async () => {
+    const store = freshDir("json-purity-store-");
+    const home = freshDir("json-purity-home-");
+    seedGitUser(store);
+    writeSettings(store, { autoCommit: true, autoPush: true });
+    const id = await addTask(store, home, "Purity target");
+    const researchId = await addTask(store, home, "Research target", [
+      "--type",
+      "Research",
+    ]);
+    // Already in-progress, so the conflict notice has something to fire on.
+    await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+    writeRawTask(store, "orphan00000000", { pretty: false, updated: false });
+
+    const table: Array<{ label: string; args: string[] }> = [
+      { label: "bare list", args: ["--json"] },
+      { label: "list filtered", args: ["--status", "todo", "--json"] },
+      { label: "bogus status filter", args: ["--status", "nope", "--json"] },
+      { label: "successful get", args: ["--get", id, "--json"] },
+      { label: "get a missing task", args: ["--get", "nosuchid", "--json"] },
+      { label: "edit with nothing to edit", args: ["--edit", "--json"] },
+      { label: "set-status done", args: ["--edit", id, "--set-status", "done", "--json"] },
+      {
+        label: "research task claimed",
+        args: ["--edit", researchId, "--set-status", "in-progress", "--json"],
+      },
+      {
+        label: "already in-progress",
+        args: ["--edit", id, "--set-status", "in-progress", "--json"],
+      },
+      {
+        label: "cannot verdict",
+        args: [
+          "--edit",
+          id,
+          "--set-verify",
+          "cannot",
+          "--verify-reason",
+          "no badge here",
+          "--json",
+        ],
+      },
+      { label: "next", args: ["--next", "--json"] },
+      { label: "reindex (refusal)", args: ["--reindex-sort-keys", "--json"] },
+      {
+        label: "commit with auto-push on",
+        args: ["--commit", "--task", id, "--message", "chore: purity", "--json"],
+      },
+      {
+        label: "commit on a missing task",
+        args: ["--commit", "--task", "nosuchid", "--message", "x", "--json"],
+      },
+      { label: "report-file on a non-Research task", args: ["--edit", id, "--report-file", "r.md", "--json"] },
+    ];
+
+    // Collect EVERY offender rather than throwing on the first, so one run
+    // reports the whole class instead of one site per run.
+    const offenders: string[] = [];
+    const cases: Array<{ label: string; args: string[] }> = [
+      ...table,
+      // The empty board is the pinned exception: it must be checked LAST so it
+      // cannot mask a regression in any ordinary row.
+      {
+        label: KNOWN_EXCEPTIONS[0].label,
+        args: ["--next", "--json"],
+      },
+    ];
+    for (const c of cases) {
+      const r = await spawnCli(["tasks", store, ...c.args], { cwd: store, home });
+      const exception = KNOWN_EXCEPTIONS.find((e) => e.label === c.label);
+      const problem = exception
+        ? exception.expect(r)
+        : stdoutProblem(r, c.label);
+      if (problem) offenders.push(problem);
+    }
+    expect(offenders).toEqual([]);
+
+    // A stale exception is a bug for the same reason a stale allowlist entry
+    // is: it excuses a rule that now holds, and hides the next site that lands
+    // there. Provenance is part of the entry, so check it is still there.
+    for (const e of KNOWN_EXCEPTIONS) {
+      expect(
+        e.decidedIn.length,
+        `${e.label}: an exception without provenance is just a hole with a nice comment`,
+      ).toBeGreaterThan(0);
+    }
+  }, 120_000);
 });

@@ -182,7 +182,15 @@ export { stopMcpForTests, getSessionCount };
 
 // ── HOME-isolated spawn helpers ──────────────────────────────────────────────
 
-const CLI_PATH = join(process.cwd(), "dist", "index.js");
+/**
+ * The CLI under test. `VIBEFLOW_E2E_CLI` points the whole e2e suite at a
+ * different build — used by `test:coverage:e2e`, which needs the
+ * sourcemapped, unminified coverage build (`.coverage-cli/`) so the counters
+ * `NODE_V8_COVERAGE` collects can be mapped back to `src/**`. Unset in normal
+ * runs, the suite exercises the shipped `dist/index.js` exactly as before.
+ */
+const CLI_PATH =
+  process.env.VIBEFLOW_E2E_CLI ?? join(process.cwd(), "dist", "index.js");
 
 export function isolatedEnv(tmpHome: string): NodeJS.ProcessEnv {
   return { ...process.env, HOME: tmpHome, VIBEFLOW_TELEMETRY: "0" };

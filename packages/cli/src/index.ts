@@ -417,7 +417,7 @@ function outputEnvelope(
 /**
  * A note about work that DID land, attached to an `ok:true` payload.
  *
- * A refusal is for "nothing happened" (`ok:false`, non-zero exit); a warning is
+ * A refusal is for "nothing happened" (`ok:false`, non-zero exit); a notice is
  * for "the task data was saved but a follow-on step did not complete" — the
  * exit code stays 0 so a consumer does not retry an edit that already applied.
  */
@@ -426,11 +426,6 @@ interface PartialSuccessWarning {
   message: string;
 }
 
-/**
- * Partial-success notes for a success payload: exactly one warning is emitted
- * as `warning`, several as `warnings`, and a clean run carries neither key — so
- * a consumer that only knows `ok` and the named payload keeps working.
- */
 function warningFields(
   warnings: PartialSuccessWarning[],
 ): Record<string, unknown> {
@@ -439,10 +434,9 @@ function warningFields(
   return { warnings };
 }
 
+/** True when `author` matches the user filter (case-insensitive). */
 /**
- * Maps a failed SaaS result to the refusal a `--json` consumer earns. An
- * unreachable host is worth retrying; an expired session and an HTTP rejection
- * are not, and neither is a backend failure.
+ * Maps a failed SaaS result to the refusal a `--json` consumer earns.
  */
 function saasFailure(
   error: { code: string },
@@ -1159,6 +1153,7 @@ program
           }
 
           let written = 0;
+          const unwritten: string[] = [];
           for (const p of patches) {
             // Write minimally ON PURPOSE. `updateTask` re-serialises through
             // normalizeTask, which drops legacy fields (the singleton `commit`
@@ -1166,6 +1161,37 @@ program
             // adds defaults. This command must touch only `sortKey`/`updated`.
             // Do NOT refactor it back onto updateTask.
             if (writeSortKeyMinimal(projectDir, p.id, p.sortKey)) written++;
+            else unwritten.push(p.id);
+          }
+
+          // Two outcomes, not one. `writeSortKeyMinimal` can compute a patch
+          // and then decline to write it (a task file with neither a
+          // `sortKey` nor an `updated` field has nothing to edit in place), so
+          // a run that PLANNED writes and wrote NONE never touched the store.
+          // Reporting that as `ok:true` would tell a consumer the re-keying
+          // landed when nothing did — the one lie this contract must not make.
+          // Nothing landed, so it is a refusal with a non-zero exit. Refuse
+          // BEFORE the manifest, which records an apply that did not happen.
+          if (patches.length > 0 && written === 0) {
+            const message = `Reindex wrote 0 of ${patches.length} planned sortKey patch(es) — no task file was changed.`;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "REINDEX_WRITE_FAILED",
+                message,
+                suggestion: `Each write needs a readable task file carrying a "sortKey" or "updated" field to edit in place; unwritable: ${unwritten.join(", ")}`,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${message}`));
+              console.log(
+                chalk.dim(
+                  `  Each write needs a readable task file carrying a "sortKey" or "updated" field to edit in place; unwritable: ${unwritten.join(", ")}`,
+                ),
+              );
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
           }
 
           // Machine-readable manifest (outside tasks/, so it never enters the
@@ -2215,8 +2241,13 @@ program
             }
 
             // A linked HEAD created no new commit, so there is nothing to push.
+            // Human-mode only: this block runs AFTER the success envelope, so
+            // under `--json` its lines would be trailing garbage behind the
+            // one document the contract promises on stdout. Auto-push is a
+            // best-effort VCS side-effect — the commit itself already landed,
+            // and `vibeflow push` remains the documented retry.
             const settings = loadSettings(projectDir);
-            if (settings.autoPush && !result.linkedExisting) {
+            if (settings.autoPush && !result.linkedExisting && !opts.json) {
               console.log(
                 chalk.dim("  auto-push: pushing commit to remote..."),
               );
@@ -2281,6 +2312,27 @@ program
 
           if (!taskId || !hasEdits) {
             if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
+            // Under `--json` this block is a refusal, not a help screen: the
+            // help is chalk prose, and a machine consumer asked to
+            // `JSON.parse(stdout)` cannot read it. It IS an impossible flag
+            // combination (no task id and nothing to edit), which is exactly
+            // what `E_USAGE` means everywhere else in this command. Human mode
+            // keeps the browse/help block verbatim — it is a real affordance
+            // for an agent that passed the wrong flags.
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message: !taskId
+                  ? "--edit needs a task id and at least one edit flag, e.g. --edit <id> --set-status review"
+                  : "nothing to edit: pass at least one of --title / --set-status / --description / --set-parent / --no-parent / --report-file / --set-verify / --verify-reason / --comment",
+                suggestion:
+                  "Run 'vibeflow tasks' (without --json) for the usage instructions and the list of editable task ids.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
             let all = listTasks(dir);
             if (opts.status) all = all.filter((t) => t.status === opts.status);
             if (opts.type)
@@ -2416,22 +2468,24 @@ program
           }
 
           if (opts.setStatus === "done") {
-            console.log(
-              chalk.yellow(
-                '⚠ WARNING: Agents should NEVER set a task status to "done".',
-              ),
-            );
-            console.log(
-              chalk.yellow(
-                "  Only humans should mark tasks as done after reviewing.",
-              ),
-            );
-            console.log(
-              chalk.dim(
-                "  If you are an agent, use --set-status review instead.",
-              ),
-            );
-            console.log();
+            if (!opts.json) {
+              console.log(
+                chalk.yellow(
+                  '⚠ WARNING: Agents should NEVER set a task status to "done".',
+                ),
+              );
+              console.log(
+                chalk.yellow(
+                  "  Only humans should mark tasks as done after reviewing.",
+                ),
+              );
+              console.log(
+                chalk.dim(
+                  "  If you are an agent, use --set-status review instead.",
+                ),
+              );
+              console.log();
+            }
           }
 
           if (
@@ -2784,6 +2838,10 @@ program
                   payload: {
                     task: saasResultData.task,
                     next_actions: saasEditNextActions,
+                    // Two different fields on purpose: `warning` is the
+                    // server's own passthrough STRING, `notices` is this CLI's
+                    // structured array. A consumer that branches on one cannot
+                    // trip over the other's shape.
                     ...(saasResultData.warning
                       ? { warning: saasResultData.warning }
                       : {}),
@@ -2983,39 +3041,43 @@ program
             const editedTask = findTaskByIdOrPrefix(projectDir, taskId);
             if (editedTask) {
               if ((editedTask.type ?? "").toLowerCase() === "research") {
-                console.log(
-                  chalk.yellow(
-                    "⚠  WARNING: This is a Research task. Policy: do NOT implement code.",
-                  ),
-                );
-                console.log(
-                  chalk.yellow(
-                    "   Research only — attach a .md report file, leave a summary comment, mark as review.",
-                  ),
-                );
-                console.log();
+                if (!opts.json) {
+                  console.log(
+                    chalk.yellow(
+                      "⚠  WARNING: This is a Research task. Policy: do NOT implement code.",
+                    ),
+                  );
+                  console.log(
+                    chalk.yellow(
+                      "   Research only — attach a .md report file, leave a summary comment, mark as review.",
+                    ),
+                  );
+                  console.log();
+                }
               }
               if (editedTask.status === "in-progress") {
                 const lastUpdated = editedTask.updated
                   ? new Date(editedTask.updated).toLocaleString()
                   : "unknown";
                 const assignee = editedTask.author ?? "another user";
-                console.log(
-                  chalk.yellow(
-                    `⚠  Task is already in-progress (author: ${assignee}, last updated: ${lastUpdated})`,
-                  ),
-                );
-                console.log(
-                  chalk.yellow(
-                    "   Another agent or user may be working on this task.",
-                  ),
-                );
-                console.log(
-                  chalk.yellow(
-                    "   Proceeding — but verify the task is not being worked on elsewhere.",
-                  ),
-                );
-                console.log();
+                if (!opts.json) {
+                  console.log(
+                    chalk.yellow(
+                      `⚠  Task is already in-progress (author: ${assignee}, last updated: ${lastUpdated})`,
+                    ),
+                  );
+                  console.log(
+                    chalk.yellow(
+                      "   Another agent or user may be working on this task.",
+                    ),
+                  );
+                  console.log(
+                    chalk.yellow(
+                      "   Proceeding — but verify the task is not being worked on elsewhere.",
+                    ),
+                  );
+                  console.log();
+                }
               }
             }
           }
@@ -3088,6 +3150,11 @@ program
           // A "cannot" verdict's reason is recorded in the task's activity
           // (system comment) so the detail panel shows why the task carries no
           // verdict. Only reachable when the verdict + reason passed the gate.
+          // Losing it is the SAME situation as losing `--comment` — task data
+          // the caller explicitly asked for went missing — so it earns the
+          // same `E_COMMENT_SAVE` refusal rather than a warning printed to
+          // stdout where a `--json` consumer cannot see it.
+          let verifyReasonError: string | undefined;
           if (attestation.verdict === "cannot" && attestation.reason) {
             try {
               await addComment(
@@ -3099,13 +3166,15 @@ program
                 "system",
               );
             } catch (err) {
-              const reasonError =
+              verifyReasonError =
                 err instanceof Error ? err.message : String(err);
-              console.log(
-                chalk.yellow(
-                  `⚠ Verify reason was NOT recorded: ${reasonError}`,
-                ),
-              );
+              if (!opts.json) {
+                console.log(
+                  chalk.yellow(
+                    `⚠ Verify reason was NOT recorded: ${verifyReasonError}`,
+                  ),
+                );
+              }
             }
           }
 
@@ -3142,18 +3211,30 @@ program
             if (localEditNextActions.length > 0)
               printNextHint(localEditNextActions);
           }
-          // The comment is part of the TASK DATA: losing it leaves the task
+          // A comment is part of the TASK DATA: losing it leaves the task
           // genuinely incomplete, so this stays a refusal with a non-zero exit.
           // (A commit, by contrast, is a VCS side-effect outside the task data
-          // — see the auto-commit block below.)
-          if (commentError) {
+          // — see the auto-commit block below.) A lost `--verify-reason` is the
+          // same loss with the same remedy, so it is the same code: one code,
+          // one meaning.
+          if (commentError || verifyReasonError) {
+            const lost = commentError
+              ? {
+                  message: `Task updated, but the comment was NOT saved: ${commentError}`,
+                  suggestion:
+                    'Re-add the comment with --edit <task-id> --comment "..."',
+                }
+              : {
+                  message: `Task updated, but the verify reason was NOT recorded: ${verifyReasonError}`,
+                  suggestion:
+                    'Re-record it with --edit <task-id> --set-verify cannot --verify-reason "<why>"',
+                };
             if (opts.json) {
               outputEnvelope({
                 ok: false,
                 code: "E_COMMENT_SAVE",
-                message: `Task updated, but the comment was NOT saved: ${commentError}`,
-                suggestion:
-                  'Re-add the comment with --edit <task-id> --comment "..."',
+                message: lost.message,
+                suggestion: lost.suggestion,
                 json: opts.json,
               });
             }
@@ -3163,7 +3244,7 @@ program
           // ── Auto-commit (runs after task status + comment are already saved) ──────
           // Keeping this after updateTask/addComment ensures comment is preserved even
           // when git commit fails. Failure sets exitCode=1 but does NOT undo the task.
-          if (opts.setStatus === "review" && !commentError) {
+          if (opts.setStatus === "review" && !commentError && !verifyReasonError) {
             const autoDir = resolve(dir);
             const autoSettings = loadSettings(autoDir);
             if (autoSettings.autoCommit && opts.commitMessage?.trim()) {
@@ -3203,7 +3284,7 @@ program
                 } else {
                   // Task status and comment are ALREADY saved — only the commit failed.
                   // Say so plainly: the old wording implied nothing was written.
-                  // This is a WARNING, not a refusal (see the note above the
+                  // This is a NOTICE, not a refusal (see the note above the
                   // auto-commit block): the task data is on disk, so `ok` stays
                   // true, the exit code stays 0, and the note rides the payload.
                   const taskFilePath = findTaskFilePath(
@@ -3235,9 +3316,9 @@ program
             }
           }
 
-          // The success envelope is written last so `warning` describes the run
+          // The success envelope is written last so `notices` describes the run
           // the consumer actually got — including a commit that did not land.
-          if (opts.json && !commentError) {
+          if (opts.json && !commentError && !verifyReasonError) {
             outputEnvelope({
               ok: true,
               json: opts.json,
