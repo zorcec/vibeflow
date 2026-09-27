@@ -89,6 +89,13 @@ describe("checkReviewTransition", () => {
       expect(result.code).toBe("REVIEW_COMMENT_REQUIRED");
       expect(result.message).toContain("Comment is required");
       expect(result.suggestion).toContain("--comment");
+      // The implementation-report guidance lives in the gate so CLI, MCP and
+      // PATCH all surface it (it used to exist only in the CLI pre-check).
+      expect(result.suggestion).toContain(
+        "Provide a concise implementation report explaining",
+      );
+      expect(result.suggestion).toContain("key decisions and trade-offs");
+      expect(result.suggestion).toContain("anything future agents should know");
     }
   });
 
@@ -105,6 +112,13 @@ describe("checkReviewTransition", () => {
       expect(result.code).toBe("REVIEW_COMMENT_REQUIRED");
       expect(result.message).toContain("Comment is required");
       expect(result.suggestion).toContain("--comment");
+      // The implementation-report guidance lives in the gate so CLI, MCP and
+      // PATCH all surface it (it used to exist only in the CLI pre-check).
+      expect(result.suggestion).toContain(
+        "Provide a concise implementation report explaining",
+      );
+      expect(result.suggestion).toContain("key decisions and trade-offs");
+      expect(result.suggestion).toContain("anything future agents should know");
     }
   });
 

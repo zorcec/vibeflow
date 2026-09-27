@@ -122,6 +122,69 @@ describe("tasks --json envelope", () => {
     expect("success" in nextParsed).toBe(false);
   });
 
+  it("review without --comment under --json emits ok:false REVIEW_COMMENT_REQUIRED on stderr", async () => {
+    const store = freshDir("json-envelope-store-");
+    const home = freshDir("json-envelope-home-");
+    const added = await addTask(store, home, "Needs a report");
+    const id = (added.task as { id: string }).id;
+    await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "review", "--json"],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(2);
+    // stdout must contain nothing but (a) the envelope — here, nothing at all,
+    // because the gate refused before any success payload existed.
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("REVIEW_COMMENT_REQUIRED");
+    expect(envelope.error.suggestion).toContain(
+      "Provide a concise implementation report",
+    );
+  });
+
+  it("review without --commit-message under --json emits COMMIT_MESSAGE_REQUIRED on stderr", async () => {
+    const store = freshDir("json-envelope-store-");
+    const home = freshDir("json-envelope-home-");
+    mkdirSync(join(store, ".vibeflow"), { recursive: true });
+    writeFileSync(
+      join(store, ".vibeflow", "settings.json"),
+      JSON.stringify({ autoCommit: true }, null, 2),
+      "utf-8",
+    );
+    const added = await addTask(store, home, "Auto-commit gate");
+    const id = (added.task as { id: string }).id;
+    await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--comment",
+        "did the work",
+        "--json",
+      ],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(2);
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("COMMIT_MESSAGE_REQUIRED");
+  });
+
   it("no --json success payload contains a top-level success key", async () => {
     const store = freshDir("json-envelope-store-");
     const home = freshDir("json-envelope-home-");

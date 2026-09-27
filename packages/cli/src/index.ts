@@ -2210,28 +2210,10 @@ program
             return;
           }
 
-          if (opts.setStatus === "review" && !opts.comment?.trim()) {
-            console.log(
-              chalk.red(
-                "✗ --comment is required when setting status to review",
-              ),
-            );
-            console.log(
-              chalk.dim(
-                "  Provide a concise implementation report explaining:",
-              ),
-            );
-            console.log(chalk.dim("    · what was changed and why"));
-            console.log(chalk.dim("    · key decisions and trade-offs"));
-            console.log(chalk.dim("    · anything future agents should know"));
-            console.log(
-              chalk.dim(
-                `  Example: vibeflow tasks --edit ${taskId} --set-status review --comment "Implemented X by doing Y. Key decision: Z."`,
-              ),
-            );
-            process.exitCode = ExitCode.USAGE;
-            return;
-          }
+          // NOTE: the missing-comment check used to live here as a duplicate
+          // early return with a human-only message — it fired BEFORE the
+          // unified gate below, so `--json` consumers never saw
+          // REVIEW_COMMENT_REQUIRED. The gate is the single source of truth.
 
           // ── Agent verification verdict ────────────────────────────────────
           // `verified` is written by the AGENT, never by `vibeflow verify`:
@@ -2341,9 +2323,22 @@ program
               { projectDir, settings },
             );
             if (!gate.ok) {
-              console.log(chalk.red(`✗ ${gate.message}`));
-              if (gate.suggestion)
-                console.log(chalk.dim(`  ${gate.suggestion}`));
+              if (opts.json) {
+                // Machine-readable gate refusal: the gate's code (e.g.
+                // REVIEW_COMMENT_REQUIRED, COMMIT_MESSAGE_REQUIRED) reaches
+                // --json consumers on stderr instead of human prose on stdout.
+                outputEnvelope({
+                  ok: false,
+                  code: gate.code,
+                  message: gate.message,
+                  suggestion: gate.suggestion,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${gate.message}`));
+                if (gate.suggestion)
+                  console.log(chalk.dim(`  ${gate.suggestion}`));
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }

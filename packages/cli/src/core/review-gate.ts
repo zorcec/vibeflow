@@ -76,14 +76,17 @@ export function checkReviewTransition(
   // Only enforce gates on review transitions
   if (!taskId) return { ok: true };
 
-  // Gate 1: comment required when setting review
+  // Gate 1: comment required when setting review.
+  // The suggestion carries the full implementation-report guidance — it is
+  // shared by the CLI, MCP and the PATCH route, and it used to exist only in
+  // the CLI's (since deleted) duplicate pre-check.
   if (!opts.comment?.trim()) {
     return {
       ok: false,
       code: "REVIEW_COMMENT_REQUIRED",
       message: "Comment is required when setting status to review",
       suggestion:
-        'Use --comment "what changed and why" when setting status to review',
+        "Provide a concise implementation report explaining: what was changed and why · key decisions and trade-offs · anything future agents should know. Use --comment \"what changed and why\" when setting status to review",
     };
   }
 

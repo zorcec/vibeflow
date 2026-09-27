@@ -237,9 +237,15 @@ describe("tasks --edit --set-verify", () => {
     );
 
     expect(r.code).not.toBe(0);
-    expect(r.stdout).toContain("--set-verify pass");
-    expect(r.stdout).toContain("--set-verify fail");
-    expect(r.stdout).toContain("--set-verify cannot");
+    // Gate refusals under --json are the error envelope on stderr; stdout
+    // stays empty (no human prose next to the would-be success payload).
+    expect(r.stdout.trim()).toBe("");
+    const verifyRequired = JSON.parse(r.stderr);
+    expect(verifyRequired.ok).toBe(false);
+    expect(verifyRequired.error.code).toBe("VERIFY_REQUIRED");
+    expect(r.stderr).toContain("--set-verify pass");
+    expect(r.stderr).toContain("--set-verify fail");
+    expect(r.stderr).toContain("--set-verify cannot");
     const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
     expect(onDisk.status).toBe("in-progress");
   });
@@ -305,7 +311,11 @@ describe("tasks --edit --set-verify", () => {
     );
 
     expect(r.code).not.toBe(0);
-    expect(r.stdout).toContain("NOT implemented correctly");
+    expect(r.stdout.trim()).toBe("");
+    const failedAttested = JSON.parse(r.stderr);
+    expect(failedAttested.ok).toBe(false);
+    expect(failedAttested.error.code).toBe("VERIFY_FAILED_ATTESTED");
+    expect(r.stderr).toContain("NOT implemented correctly");
     const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
     expect(onDisk.status).toBe("in-progress");
     // The gate ran BEFORE any write — the negative verdict was never applied.
