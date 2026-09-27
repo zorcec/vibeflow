@@ -7,7 +7,9 @@
  * consumer empty stdout, no code, and nothing to branch on.
  *
  * Each test asserts the assigned CODE, not just the shape — an `ok:false`-only
- * assertion would pass whatever code was chosen.
+ * assertion would pass whatever code was chosen. The two partial-success paths
+ * (the task data was saved, a follow-on step did not complete) are the mirror
+ * image: exit 0, `ok:true`, and a `warning` on the success payload.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import {
@@ -540,5 +542,148 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     expect(envelope.error.message).toBe(
       "--set-parent / --no-parent is only supported for local tasks",
     );
+  });
+});
+
+describe("tasks --json partial success is a warning, not a refusal", () => {
+  it("GIT_COMMIT_FAILED — review saved, auto-commit did not: exit 0 + warning", async () => {
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    seedGitUser(store);
+    writeSettings(store, { autoCommit: true });
+    const id = await addTask(store, home, "Auto-commit target");
+
+    // Nothing is staged, so the commit cannot happen — but the task file was
+    // already written, so this must NOT be ok:false and must NOT exit non-zero.
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--comment",
+        "did the work",
+        "--commit-message",
+        "feat: work",
+        "--json",
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      ok: boolean;
+      task: { status: string };
+      warning?: { code: string; message: string };
+      warnings?: unknown;
+    };
+    expect(payload.ok).toBe(true);
+    expect(payload.warning?.code).toBe("GIT_COMMIT_FAILED");
+    expect(payload.warning?.message).toContain("did NOT happen");
+    expect(payload.warnings).toBeUndefined();
+    expect(r.stderr).not.toContain('"ok":false');
+    // The task data really is on disk.
+    expect(readTask(store, id).status).toBe("review");
+  });
+
+  it("GIT_COMMIT_FAILED — human mode keeps the warning line and exits 0", async () => {
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    seedGitUser(store);
+    writeSettings(store, { autoCommit: true });
+    const id = await addTask(store, home, "Auto-commit target");
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--comment",
+        "did the work",
+        "--commit-message",
+        "feat: work",
+      ],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Task WAS updated");
+    expect(r.stdout).toContain("the commit did NOT happen");
+  });
+
+  it("REINDEX_INCOMPLETE — keys written, post-assert failed: exit 0 + warning", async () => {
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    await addTask(store, home, "Keyed task");
+    // A hand-written task with no sortKey: the reindex writes keys, then its
+    // post-assert still sees a keyless task it could not fix.
+    const tasksDir = join(store, ".vibeflow", "tasks", "2026-01-01");
+    mkdirSync(tasksDir, { recursive: true });
+    writeFileSync(
+      join(tasksDir, "orphan00000000.json"),
+      JSON.stringify(
+        {
+          id: "orphan00000000",
+          title: "Hand-written, no sortKey",
+          description: "",
+          status: "todo",
+          priority: "Medium",
+          type: "Task",
+          created: new Date().toISOString(),
+          tags: [],
+          comments: [],
+          files: [],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const r = await spawnCli(["tasks", store, "--reindex-sort-keys", "--json"], {
+      cwd: store,
+      home,
+    });
+    expect(r.code).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      ok: boolean;
+      reindexVerified: boolean;
+      warning?: { code: string; message: string };
+    };
+    expect(payload.ok).toBe(true);
+    expect(payload.reindexVerified).toBe(false);
+    expect(payload.warning?.code).toBe("REINDEX_INCOMPLETE");
+    expect(payload.warning?.message).toContain("Reindex incomplete");
+  });
+
+  it("a clean success carries no warning/warnings key at all", async () => {
+    const store = freshDir("json-partial-store-");
+    const home = freshDir("json-partial-home-");
+    const id = await addTask(store, home, "Clean edit");
+
+    const edit = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+    expect(edit.code).toBe(0);
+    const editPayload = JSON.parse(edit.stdout) as Record<string, unknown>;
+    expect(editPayload.ok).toBe(true);
+    expect("warning" in editPayload).toBe(false);
+    expect("warnings" in editPayload).toBe(false);
+
+    // …and a verified reindex is a clean success too.
+    const reindex = await spawnCli(
+      ["tasks", store, "--reindex-sort-keys", "--json"],
+      { cwd: store, home },
+    );
+    expect(reindex.code).toBe(0);
+    const reindexPayload = JSON.parse(reindex.stdout) as Record<string, unknown>;
+    expect(reindexPayload.reindexVerified).toBe(true);
+    expect("warning" in reindexPayload).toBe(false);
+    expect("warnings" in reindexPayload).toBe(false);
   });
 });

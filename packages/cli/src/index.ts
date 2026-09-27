@@ -415,6 +415,31 @@ function outputEnvelope(
 }
 
 /**
+ * A note about work that DID land, attached to an `ok:true` payload.
+ *
+ * A refusal is for "nothing happened" (`ok:false`, non-zero exit); a warning is
+ * for "the task data was saved but a follow-on step did not complete" — the
+ * exit code stays 0 so a consumer does not retry an edit that already applied.
+ */
+interface PartialSuccessWarning {
+  code: string;
+  message: string;
+}
+
+/**
+ * Partial-success notes for a success payload: exactly one warning is emitted
+ * as `warning`, several as `warnings`, and a clean run carries neither key — so
+ * a consumer that only knows `ok` and the named payload keeps working.
+ */
+function warningFields(
+  warnings: PartialSuccessWarning[],
+): Record<string, unknown> {
+  if (warnings.length === 0) return {};
+  if (warnings.length === 1) return { warning: warnings[0] };
+  return { warnings };
+}
+
+/**
  * Maps a failed SaaS result to the refusal a `--json` consumer earns. An
  * unreachable host is worth retrying; an expired session and an HTTP rejection
  * are not, and neither is a backend failure.
@@ -1187,6 +1212,18 @@ program
             keyless.length === 0 &&
             dupOffenders.length === 0;
 
+          // The re-keying itself landed; only the post-assert can fail, so an
+          // incomplete reindex is a WARNING on a successful run, not a refusal
+          // — the exit code stays 0 and `reindexVerified:false` says so.
+          const reindexWarning: PartialSuccessWarning[] = reindexVerified
+            ? []
+            : [
+                {
+                  code: "REINDEX_INCOMPLETE",
+                  message: `Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
+                },
+              ];
+
           if (opts.json) {
             outputEnvelope({
               ok: true,
@@ -1198,6 +1235,7 @@ program
                 remainingKeyless: keyless.length,
                 sameColumnDuplicateGroups: dupOffenders.length,
                 patches: manifest,
+                ...warningFields(reindexWarning),
               },
             });
           } else if (reindexVerified) {
@@ -1218,14 +1256,16 @@ program
               ),
             );
           } else {
+            // No longer a failure (the keys were written and the exit code
+            // stays 0), so the marker changes with the semantics; the sentence
+            // is the one `--json` carries as the warning message.
             console.log(
-              chalk.red(
-                `✗ Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
+              chalk.yellow(
+                `⚠ Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
               ),
             );
             for (const o of dupOffenders) console.log(chalk.dim(`    ${o}`));
           }
-          if (!reindexVerified) process.exitCode = ExitCode.GENERAL;
           return;
         }
 
@@ -3077,27 +3117,13 @@ program
                 resolvedTaskId,
               )
             : [];
-          if (opts.json) {
-            if (commentError) {
-              outputEnvelope({
-                ok: false,
-                code: "E_COMMENT_SAVE",
-                message: `Task updated, but the comment was NOT saved: ${commentError}`,
-                suggestion:
-                  'Re-add the comment with --edit <task-id> --comment "..."',
-                json: opts.json,
-              });
-            } else {
-              outputEnvelope({
-                ok: true,
-                json: opts.json,
-                payload: {
-                  task: updated,
-                  next_actions: localEditNextActions,
-                },
-              });
-            }
-          } else {
+          // Notes about work that landed but did not finish. The success
+          // envelope is written AFTER the auto-commit below, so a commit that
+          // did not happen rides the same payload as `warning` instead of
+          // being a second document — and the exit code stays 0, because the
+          // task data is already on disk and retrying the edit would be wrong.
+          const localEditWarnings: PartialSuccessWarning[] = [];
+          if (!opts.json) {
             console.log(chalk.green(`✓ Task updated: ${updated.title}`));
             console.log(
               chalk.dim(`  id: ${updated.id} | status: ${updated.status}`),
@@ -3116,7 +3142,23 @@ program
             if (localEditNextActions.length > 0)
               printNextHint(localEditNextActions);
           }
-          if (commentError) process.exitCode = ExitCode.GENERAL;
+          // The comment is part of the TASK DATA: losing it leaves the task
+          // genuinely incomplete, so this stays a refusal with a non-zero exit.
+          // (A commit, by contrast, is a VCS side-effect outside the task data
+          // — see the auto-commit block below.)
+          if (commentError) {
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_COMMENT_SAVE",
+                message: `Task updated, but the comment was NOT saved: ${commentError}`,
+                suggestion:
+                  'Re-add the comment with --edit <task-id> --comment "..."',
+                json: opts.json,
+              });
+            }
+            process.exitCode = ExitCode.GENERAL;
+          }
 
           // ── Auto-commit (runs after task status + comment are already saved) ──────
           // Keeping this after updateTask/addComment ensures comment is preserved even
@@ -3161,6 +3203,9 @@ program
                 } else {
                   // Task status and comment are ALREADY saved — only the commit failed.
                   // Say so plainly: the old wording implied nothing was written.
+                  // This is a WARNING, not a refusal (see the note above the
+                  // auto-commit block): the task data is on disk, so `ok` stays
+                  // true, the exit code stays 0, and the note rides the payload.
                   const taskFilePath = findTaskFilePath(
                     autoDir,
                     taskForCommit.id,
@@ -3168,24 +3213,40 @@ program
                   const relTaskPath = taskFilePath
                     ? relative(autoDir, taskFilePath)
                     : `.vibeflow/tasks/<date>/${taskForCommit.id}.json`;
+                  const stageHint = `Stage the task's own file, then commit manually: git add ${relTaskPath}`;
+                  localEditWarnings.push({
+                    code: "GIT_COMMIT_FAILED",
+                    message: commitResult.error
+                      ? `Task WAS updated (status + comment saved), but the commit did NOT happen: ${commitResult.error}`
+                      : "Task WAS updated (status + comment saved), but the commit did NOT happen.",
+                  });
                   if (!opts.json) {
                     console.log(
                       chalk.yellow(
                         "⚠ Task WAS updated (status + comment saved), but the commit did NOT happen.",
                       ),
                     );
-                    console.log(
-                      chalk.dim(
-                        `  stage the task's own file, then commit manually: git add ${relTaskPath}`,
-                      ),
-                    );
+                    console.log(chalk.dim(`  ${stageHint}`));
                     if (commitResult.error)
                       console.log(chalk.dim(`  reason: ${commitResult.error}`));
                   }
-                  process.exitCode = ExitCode.GENERAL;
                 }
               }
             }
+          }
+
+          // The success envelope is written last so `warning` describes the run
+          // the consumer actually got — including a commit that did not land.
+          if (opts.json && !commentError) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                task: updated,
+                next_actions: localEditNextActions,
+                ...warningFields(localEditWarnings),
+              },
+            });
           }
 
           return;
