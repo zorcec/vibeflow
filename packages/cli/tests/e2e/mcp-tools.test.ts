@@ -290,7 +290,7 @@ describe("MCP tools happy paths", () => {
 
     const res = await callTool(client, "add_comment", {
       id: p.id,
-      text: "Root cause: X",
+      comment: "Root cause: X",
       author: "user",
     });
     const parsed = await assertJsonTextContent(res);
@@ -386,8 +386,8 @@ describe("MCP tools happy paths", () => {
       timeoutMs: 1000,
     });
     const parsed = await assertJsonTextContent(res);
-    expect(parsed.error).toBeDefined();
-    expect(typeof parsed.error).toBe("string");
+    expect(parsed.ok).toBe(false);
+    expect(typeof parsed.error.code).toBe("string");
   });
 
   // ── 14. verify_task — E_NO_BASELINE for existing task ───────────────────
@@ -401,8 +401,8 @@ describe("MCP tools happy paths", () => {
       timeoutMs: 1000,
     });
     const parsed = await assertJsonTextContent(res);
-    expect(parsed.error).toBeDefined();
-    expect(typeof parsed.error).toBe("string");
+    expect(parsed.ok).toBe(false);
+    expect(typeof parsed.error.code).toBe("string");
   });
 
   // ── 15. push_tasks — envelope contract (empty board) ────────────────────

@@ -369,7 +369,7 @@ describe("add_comment", () => {
 
     const result = await addComment(ctx, {
       id: "task-1",
-      text: "This is a test comment",
+      comment: "This is a test comment",
     });
     expect(result.ok).toBe(true);
     expect(result.data?.text).toBe("This is a test comment");
@@ -381,7 +381,7 @@ describe("add_comment", () => {
     // addComment creates a task file even for non-existent tasks
     const result = await addComment(ctx, {
       id: "non-existent",
-      text: "Comment",
+      comment: "Comment",
     });
     expect(result.ok).toBe(true);
   });

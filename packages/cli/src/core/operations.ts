@@ -167,7 +167,9 @@ export type ClaimNextTaskInputType = z.infer<typeof ClaimNextTaskInput>;
 
 export const AddCommentInput = z.object({
   id: z.string().min(1),
-  text: z.string().min(1),
+  // Named `comment`, not `text`: the CLI flag is `--comment` and update_task
+  // already uses `comment`, so one concept must not have two names.
+  comment: z.string().min(1),
   author: z.enum(["agent", "user"]).default("agent"),
   dryRun: z.boolean().default(false),
 });
@@ -755,7 +757,7 @@ export async function addComment(
         data: {
           id: "dry-run",
           author: input.author,
-          text: input.text,
+          text: input.comment,
           createdAt: new Date().toISOString(),
         },
         steps: ["Dry run: comment would be added"],
@@ -766,7 +768,7 @@ export async function addComment(
       ctx.projectDir,
       input.id,
       input.author,
-      input.text,
+      input.comment,
     );
     return { ok: true, data: comment };
   } catch (err) {

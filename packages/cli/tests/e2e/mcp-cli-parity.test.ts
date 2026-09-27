@@ -188,7 +188,7 @@ describe("review-gate parity — CLI vs MCP on the same workspace", () => {
       id: task.id,
       status: "review",
     });
-    expect(mcpRes.error).toBe("REVIEW_COMMENT_REQUIRED");
+    expect(mcpRes.error.code).toBe("REVIEW_COMMENT_REQUIRED");
     expect(readTaskFromDisk(env.projectDir, task.id).status).not.toBe("review");
 
     // CLI side — same task, same workspace
@@ -226,7 +226,7 @@ describe("review-gate parity — CLI vs MCP on the same workspace", () => {
       status: "review",
       comment: "did the work",
     });
-    expect(mcpRes.error).toBe("COMMIT_MESSAGE_REQUIRED");
+    expect(mcpRes.error.code).toBe("COMMIT_MESSAGE_REQUIRED");
     expect(readTaskFromDisk(env.projectDir, task.id).status).not.toBe("review");
 
     // CLI side
@@ -265,7 +265,7 @@ describe("review-gate parity — CLI vs MCP on the same workspace", () => {
       status: "review",
       comment: "looks done",
     });
-    expect(mcpRes.error).toBe("VERIFY_REQUIRED");
+    expect(mcpRes.error.code).toBe("VERIFY_REQUIRED");
     expect(readTaskFromDisk(env.projectDir, task.id).status).not.toBe("review");
 
     // CLI side — same refusal wording
@@ -331,7 +331,7 @@ describe("verify/verdict parity — CLI vs MCP", () => {
     expect(cliRes.stdout).not.toContain("E_NO_BASELINE");
 
     const mcpRes = await callJson(client, "verify_task", { id: task.id });
-    expect(mcpRes.error).toBe("E_NO_BASELINE");
+    expect(mcpRes.error.code).toBe("E_NO_BASELINE");
 
     // Parity: `vibeflow verify` never writes `verified`; neither does the tool
     expect(readTaskFromDisk(env.projectDir, task.id).verified).toBeUndefined();
@@ -464,7 +464,7 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
 
     // And a prefix matching nothing is still a clean miss on both surfaces.
     const miss = await callJson(client, "get_task", { id: "zzzzzzzz" });
-    expect(miss.error).toBe("TASK_NOT_FOUND");
+    expect(miss.error.code).toBe("TASK_NOT_FOUND");
     const missCli = await runCli(
       ["tasks", "--get", "zzzzzzzz", "--json"],
       { cwd: env.projectDir, home },

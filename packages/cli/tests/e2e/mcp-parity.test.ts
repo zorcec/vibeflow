@@ -77,7 +77,7 @@ describe("MCP-from-manifest parity", () => {
         status: "bogus",
       },
       claim_next_task: { dryRun: "yes" },
-      add_comment: { id: 123, text: "x" },
+      add_comment: { id: 123, comment: "x" },
       attach_file: { id: 123, filename: "a.md", contentB64: "aGk=" },
       export_prompt: { format: "html" },
       verify_task: { id: 123, url: "http://ok" },

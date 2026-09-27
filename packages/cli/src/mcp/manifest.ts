@@ -244,7 +244,7 @@ export const manifest: ToolManifest[] = [
   {
     name: "add_comment",
     title: "Add comment",
-    description: "Add a comment to a task.",
+    description: "Add a comment to a task. The body is `comment` — the same name as the CLI's --comment flag and update_task's field.",
     cliRef: {
       command: "tasks",
       // The only form that writes a comment is `tasks --edit <id> --comment`;

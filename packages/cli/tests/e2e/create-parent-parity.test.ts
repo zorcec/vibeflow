@@ -76,7 +76,9 @@ describe("create with parent — MCP + HTTP parity", () => {
         parent: "deadbeefdeadbeef",
       }),
     );
-    expect(bad.message).toBe("Parent task not found: deadbeefdeadbeef");
+    expect(bad.ok).toBe(false);
+    expect(bad.error.code).toBe("CREATE_TASK_ERROR");
+    expect(bad.error.message).toBe("Parent task not found: deadbeefdeadbeef");
   });
 
   it("POST /api/tasks links a child under a parent field", async () => {

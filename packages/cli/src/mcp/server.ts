@@ -69,11 +69,25 @@ function formatResult<T>(result: OperationResult<T>): {
     content: [
       {
         type: "text",
+        // Same envelope the CLI's --json contract emits (see
+        // outputEnvelope in src/index.ts): {ok:false, error:{code, message,
+        // retryable, suggestion?}}. A machine consumer must be able to parse
+        // an MCP refusal exactly as it parses a CLI one; the previous flat
+        // {error, message, suggestion} forced every client to special-case
+        // this surface. `retryable` is defaulted so the shape is stable even
+        // when the operation did not set it.
         text: JSON.stringify(
           {
-            error: result.error?.code ?? "UNKNOWN_ERROR",
-            message: result.error?.message ?? "An unknown error occurred",
-            suggestion: result.error?.suggestion,
+            ok: false,
+            error: {
+              code: result.error?.code ?? "UNKNOWN_ERROR",
+              message:
+                result.error?.message ?? "An unknown error occurred",
+              retryable: result.error?.retryable ?? false,
+              ...(result.error?.suggestion
+                ? { suggestion: result.error.suggestion }
+                : {}),
+            },
           },
           null,
           2,

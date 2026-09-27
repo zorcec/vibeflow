@@ -95,7 +95,7 @@ describe("dryRun parity", () => {
     create_task: () => ({ title: "Dry Run Task", dryRun: true }),
     update_task: (t) => ({ id: t.id, status: "in-progress", dryRun: true }),
     claim_next_task: () => ({ dryRun: true }),
-    add_comment: (t) => ({ id: t.id, text: "dry run", dryRun: true }),
+    add_comment: (t) => ({ id: t.id, comment: "dry run", dryRun: true }),
     attach_file: (t) => ({
       id: t.id,
       filename: "dry-run.md",
@@ -237,6 +237,86 @@ describe("partial-id resolution parity", () => {
     // quotes what the caller actually sent.
     const result = await getTask(ctx, { id: "zzzzzzzz" });
     expect(result.error?.message).toContain("zzzzzzzz");
+  });
+});
+
+// ── 4. Error envelope matches the CLI's --json contract ───────────────────
+
+describe("MCP error envelope", () => {
+  async function callThroughServer(tool: string, input: unknown) {
+    const { createMcpServer } = await import("../../../src/mcp/server.js");
+    const registered = (
+      createMcpServer(testDir, "local") as unknown as {
+        _registeredTools: Record<
+          string,
+          {
+            handler: (
+              input: unknown,
+            ) => Promise<{ content: Array<{ type: string; text: string }> }>;
+          }
+        >;
+      }
+    )._registeredTools;
+    const result = await registered[tool].handler(input);
+    return JSON.parse(result.content[0].text);
+  }
+
+  it("a failing tool returns ok:false with a nested error object", async () => {
+    const parsed = await callThroughServer("get_task", { id: "no-such-task" });
+
+    expect(parsed.ok).toBe(false);
+    expect(typeof parsed.error).toBe("object");
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
+    expect(typeof parsed.error.message).toBe("string");
+    expect(parsed.error.retryable).toBe(false);
+  });
+
+  it("suggestion is included when the operation set one, omitted otherwise", async () => {
+    const withSuggestion = await callThroughServer("get_task", {
+      id: "no-such-task",
+    });
+    expect(withSuggestion.error.suggestion).toBe(
+      "Check the task ID and try again",
+    );
+
+    createTestTask({ id: "task-1", status: "todo" });
+    const withoutSuggestion = await callThroughServer("update_task", {
+      id: "task-1",
+      setVerify: "cannot",
+    });
+    expect(withoutSuggestion.error.code).toBe("VERIFY_REASON_REQUIRED");
+    expect("suggestion" in withoutSuggestion.error).toBe(false);
+  });
+
+  it("a successful tool still returns the raw data payload", async () => {
+    createTestTask({ id: "task-1", title: "Raw" });
+    const parsed = await callThroughServer("get_task", { id: "task-1" });
+    expect(parsed.ok).toBeUndefined();
+    expect(parsed.id).toBe("task-1");
+  });
+});
+
+// ── 6. add_comment names its body `comment`, like the CLI flag ────────────
+
+describe("add_comment input naming", () => {
+  it("the manifest exposes `comment`, not `text`", () => {
+    const tool = manifest.find((t) => t.name === "add_comment")!;
+    expect(Object.keys(tool.input).sort()).toEqual([
+      "author",
+      "comment",
+      "dryRun",
+      "id",
+    ]);
+  });
+
+  it("the body arrives in the stored comment", async () => {
+    createTestTask({ id: "task-1" });
+    const result = await addComment(ctx, {
+      id: "task-1",
+      comment: "named like the flag",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data?.text).toBe("named like the flag");
   });
 });
 

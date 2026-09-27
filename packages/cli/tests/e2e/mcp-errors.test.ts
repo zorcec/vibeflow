@@ -4,8 +4,9 @@
  * Two error layers:
  *  - Protocol-level: HTTP 200 with JSON-RPC body.error (e.g. -32601 unknown
  *    tool, -32602 invalid tool arguments via zod).
- *  - Tool-level: HTTP 200 with ok-shaped content[0].text JSON envelope
- *    {error, message, suggestion} from formatResult.
+ *  - Tool-level: HTTP 200 with the CLI's --json refusal envelope in
+ *    content[0].text — {ok:false, error:{code, message, retryable,
+ *    suggestion?}} — so one parser reads both surfaces.
  *
  * Invariants asserted in every case: HTTP never 5xx, body parses as JSON-RPC,
  * server stays usable after each error.
@@ -170,8 +171,10 @@ describe("MCP error paths", () => {
     const parsed = await parseEnvelope(
       await callTool(client, "get_task", { id: NONEXISTENT_ID }),
     );
-    expect(parsed.error).toBe("TASK_NOT_FOUND");
-    expect(parsed.message).toContain("Task not found");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
+    expect(parsed.error.message).toContain("Task not found");
+    expect(parsed.error.retryable).toBe(false);
     await assertServerUsable(client);
   });
 
@@ -179,7 +182,7 @@ describe("MCP error paths", () => {
     const parsed = await parseEnvelope(
       await callTool(client, "update_task", { id: NONEXISTENT_ID, title: "x" }),
     );
-    expect(parsed.error).toBe("TASK_NOT_FOUND");
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
     // Nothing was created on disk under a task ID
     const tasksDir = join(env.projectDir, ".vibeflow", "tasks");
     const matches = globSync(join(tasksDir, "**", "*.json"));
@@ -199,7 +202,9 @@ describe("MCP error paths", () => {
       }),
     );
     // WP-1 landed: validateFilename gates BEFORE saveFile
-    expect(["INVALID_FILENAME", "ATTACH_FILE_ERROR"]).toContain(parsed.error);
+    expect(["INVALID_FILENAME", "ATTACH_FILE_ERROR"]).toContain(
+      parsed.error.code,
+    );
     // Hard invariant: no file named escape.md anywhere in the project dir
     const matches = globSync(join(env.projectDir, "**", "escape.md"));
     expect(matches).toHaveLength(0);
@@ -223,7 +228,7 @@ describe("MCP error paths", () => {
       });
       expect(res.status).toBe(200);
       const parsed = JSON.parse((await res.json()).result.content[0].text);
-      expect(parsed.error).toBeDefined();
+      expect(parsed.error?.code).toBeDefined();
     }
     // Nothing escaped the files dir: the only written files live under
     // .vibeflow/tasks/files/<id>/ and none contain control bytes in the name
@@ -248,7 +253,7 @@ describe("MCP error paths", () => {
     // ADD_COMMENT_ERROR. Tracked as a finding in the task report.
     const res = await callTool(client, "add_comment", {
       id: NONEXISTENT_ID,
-      text: "x",
+      comment: "x",
     });
     const parsed = await assertJsonTextContent(res);
     expect(parsed.text).toBe("x");
@@ -260,7 +265,7 @@ describe("MCP error paths", () => {
     const parsed = await parseEnvelope(
       await callTool(client, "export_prompt", { id: NONEXISTENT_ID }),
     );
-    expect(parsed.error).toBe("TASK_NOT_FOUND");
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
     await assertServerUsable(client);
   });
 
@@ -269,8 +274,8 @@ describe("MCP error paths", () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     const parsed = JSON.parse(body.result.content[0].text);
-    expect(parsed.error).toBe("NO_TASKS_AVAILABLE");
-    expect(parsed.message).toBe("No tasks available to claim");
+    expect(parsed.error.code).toBe("NO_TASKS_AVAILABLE");
+    expect(parsed.error.message).toBe("No tasks available to claim");
     // [now] error-as-content contract: isError absent/false on the result
     // [Phase 5 flip note: manifest-based registration may set isError: true — pin and flip]
     expect(body.result?.isError).toBeFalsy();
@@ -327,7 +332,7 @@ describe("MCP error paths", () => {
       filename: "../escape.md",
       contentB64: "aGVsbG8=",
     });
-    await callTool(client, "add_comment", { id: NONEXISTENT_ID, text: "x" });
+    await callTool(client, "add_comment", { id: NONEXISTENT_ID, comment: "x" });
     await callTool(client, "export_prompt", { id: NONEXISTENT_ID });
     await callTool(client, "claim_next_task", { dryRun: false });
     await callTool(client, "verify_task", {
@@ -393,7 +398,7 @@ describe("MCP update_task gates", () => {
     });
     if (GATED) {
       const parsed = await parseEnvelope(res);
-      expect(parsed.error).toBe("REVIEW_COMMENT_REQUIRED");
+      expect(parsed.error.code).toBe("REVIEW_COMMENT_REQUIRED");
       expect(readGateTaskFromDisk(task.id).status).toBe("todo");
     } else {
       const parsed = await assertJsonTextContent(res);
