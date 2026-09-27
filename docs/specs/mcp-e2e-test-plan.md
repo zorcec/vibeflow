@@ -4,6 +4,8 @@ Plan written 2026-02-13 after reading `src/mcp/{http,auth,server,manifest}.ts`, 
 
 Phase markers: `[now]` = assert current behavior; `[Phase N]` = behavior will change — strategy documented inline (implement now + TODO flip, or feature-detect).
 
+**Amendments (2026-09-27, follow-up lane).** This is a living plan, not a frozen record: it is the spec the shipped `tests/e2e/mcp-*.test.ts` were written from, so a statement here that contradicts shipped behaviour is a defect. Corrected against the code: `add_comment`'s body field is `comment` (§2.2 #9, §2.3 #9, §3); a tool-level refusal uses the CLI's nested envelope `{ok:false, error:{code, message, retryable, suggestion?}}`, not the flat `{error, message, suggestion}` (§2.2 #13/#14, §2.3) — the transport-level `{"error":"Session not found"}` bodies in §2.1/§2.6 are a different layer and are unchanged; the manifest holds 11 tools, not 10; and Phase 5 has landed — `server.ts` registers from the manifest, so `tools/list` echoes manifest descriptions, schemas and annotations rather than hand-copied ones (§2.8).
+
 ---
 
 ## 1. Test file structure
@@ -14,7 +16,7 @@ All files live in `packages/cli/tests/e2e/` and match the existing `*.test.ts` n
 tests/e2e/
   mcp-helpers.ts           # shared boot + MCP client helpers (NOT a test file; no .test.ts suffix)
   mcp-transport.test.ts    # session lifecycle: initialize, tools/list, DELETE, session reuse, concurrent sessions
-  mcp-tools.test.ts        # all 10 tools happy path over HTTP + on-disk effects + TextContent JSON contract
+  mcp-tools.test.ts        # all 11 tools happy path over HTTP + on-disk effects + TextContent JSON contract
   mcp-errors.test.ts       # unknown tool, invalid args, nonexistent ids, bad filenames, claim empty board, gate matrix
   mcp-auth.test.ts         # loopback/no-token, non-loopback, Bearer matrix (spawned server, HOME-isolated)
   mcp-claim-race.test.ts   # two spawned `tasks --next --json` racers + spawned-server cross-instance session [Phase 2-aware]
@@ -233,7 +235,7 @@ curl -s -D - http://127.0.0.1:<port>/api/mcp \
 | 1 | initialize [now] | body #1 above | 200; `mcp-session-id` header present (UUID); `body.result.protocolVersion === requested`; `body.result.serverInfo.name === "vibeflow"`; `serverInfo.version === "0.1.0"`; `body.result.capabilities.tools.listChanged` defined (tools capability advertised) |
 | 2 | initialize with different requested protocol version [now] | same with `protocolVersion: "2024-11-05"` | 200; result.protocolVersion is the SDK-supported version (echo or downgrade) — assert 200 + defined protocolVersion, not exact value |
 | 3 | notifications/initialized [now] | `{"jsonrpc":"2.0","method":"notifications/initialized"}` with session header | 202, empty body (enableJsonResponse) |
-| 4 | tools/list [now] | `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` with session header | 200; `body.result.tools` array of exactly 10 entries; each has `name` + `description` + `inputSchema` (type object) |
+| 4 | tools/list [now] | `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` with session header | 200; `body.result.tools` array of exactly 11 entries; each has `name` + `description` + `inputSchema` (type object) |
 | 5 | tools/call on fresh session without notification/initialized [now] | initialize → tools/list **without** the notifications/initialized step | 200 ok (SDK does not hard-require the notification; assert either 200 or JSON-RPC error with code -32002 and NOT HTTP 500 — pin whichever after first run) |
 | 6 | DELETE session [now] | `DELETE` with session header | 200 `{ok:true}`; then POST tools/list with same session → 404 `{"error":"Session not found"}` |
 | 7 | DELETE without session id [now] | `DELETE` no header | 400 `{"error":"Session ID required for DELETE"}` — clean, not 500 |
@@ -261,17 +263,17 @@ Seed: initialize + notifications/initialized once per test; seed tasks via `crea
 | 1 | create_task | `{"title":"Fix CTA spacing","description":"Button overflows on mobile","priority":"High","tags":["ui","layout"],"url":"http://127.0.0.1:3700/index.html","selector":"[data-vibeflow-id=cta]"}` | parsed text: `{ok task}` with `id` (30-char hex `^[a-f0-9]{30}$`), `status:"todo"`, `type:"Task"`, `priority:"High"`, `created` ISO; on disk: exactly one `.vibeflow/tasks/**/<id>.json` whose JSON matches parsed text (title, description, tags, url, selector); `comments: []`, `files: []` |
 | 2 | list_tasks | `{"limit":0}` | parsed text `{tasks:[...], total:N}` with N === created count; every seeded task present with `id`, `title`, `status` |
 | 3 | list_tasks filtered | `{"status":"todo","type":"Task","limit":5,"fields":["id","title"],"user":"?","tag":["ui"]}` (one call per filter; omit `user` when no author set) | only matching tasks; `fields:["id","title"]` returns objects with ONLY those keys (field projection contract from operations.ts) |
-| 4 | get_task | `{"id":"<prefix-of-id>"}` | parsed text task object with `id` (full), `title`, `description`; **prefix IDs resolve** (get/getTask uses findTaskFilePath prefix matching) |
+| 4 | get_task | `{"id":"<prefix-of-id>"}` | parsed text task object with `id` (full), `title`, `description`; **prefix IDs resolve** (get/getTask resolves through the shared `resolveTaskId` / `findTaskByIdOrPrefix` rule in `core/tasks.ts` — one rule for the CLI, the HTTP route and the MCP tools) |
 | 5 | update_task | `{"id":"<id>","title":"New title","description":"New desc","branch":"fix/cta-spacing"}` | parsed text updated task; on disk file has `title:"New title"`, `description:"New desc"`, `branchName:"fix/cta-spacing"`, `updated` bumped; `comments` unchanged (comment key unused) |
 | 6 | update_task + comment | `{"id":"<id>","status":"in-progress","comment":"started work"}` | parsed text status `"in-progress"`; on disk `comments` contains an embedded comment `[agent] "started work"` (coreUpdateTask + addComment(projectDir, id, "agent", text)); [Phase 3 note: `verified` reset to `false` on in-progress is CLI-only today — see gate matrix] |
 | 7 | claim_next_task | seed 2 todo tasks (priorities High, Low) then `{"dryRun":false}` | parsed text claimed task with `status:"in-progress"` and id === the High-priority todo task; on disk: claimed task `status:"in-progress"`; the other untouched; author NOT set [now] — `createMcpServer` builds `ctx = { projectDir, mode }` with **no `userId`**, so `operations.claimNextTask` writes `author: undefined` — document + [Phase 2] TODO: assert `author === git user name` once MCP ctx wires getGitUser |
 | 8 | claim_next_task dryRun | `{"dryRun":true}` on a todo task | parsed text `steps:["Dry run: task would be claimed"]` and task still `todo` on disk |
-| 9 | add_comment | `{"id":"<id>","text":"Root cause: X","author":"user"}` | parsed text comment `{id, author:"user", text, createdAt}`; on disk task JSON has embedded comment; `get_task` shows it |
+| 9 | add_comment | `{"id":"<id>","comment":"Root cause: X","author":"user"}` | parsed text comment `{id, author:"user", text, createdAt}` (the INPUT field is `comment`, like the CLI's `--comment`; the stored comment object still has `text`); on disk task JSON has embedded comment; `get_task` shows it |
 | 10 | attach_file | `{"id":"<id>","filename":"report.md","contentB64": base64("# Report\ncontent")}` | parsed text `{name:"report.md", size, url:"/api/tasks/<id>/files/report.md"}`; on disk `.vibeflow/tasks/files/<id>/report.md` with exact bytes; task JSON `files` ref `{name:"report.md", addedAt}`; size === buffer length |
 | 11 | export_prompt single | `{"id":"<id>","format":"markdown"}` | parsed text is a **string** starting `[<status>] <title>` containing `id:`, `selector:`, `comments (N):` lines (renderTaskForAgent format) |
 | 12 | export_prompt multi/all | `{"ids":["<a>","<b>"]}` and `{}` | parsed text joined by `\n\n`; all seeded tasks exported |
-| 13 | verify_task — error envelope, no browser | `{"id":"<nonexistent>","timeoutMs":1000}` | HTTP 200; parsed text `{error:"E_NOT_FOUND", message:...}` envelope (verifyTask throws VerifyError before any Playwright import); assert no `verified` mutation on disk |
-| 14 | verify_task — no baseline | `{"id":"<existing>","timeoutMs":1000}` | parsed text `{error:"E_NO_BASELINE"}` envelope; no browser launch (both paths fire before `loadPlaywright()`) — full visual verify requires browser ⇒ **skip happy path**, covered by `vitest.pw.config.ts` browser tests |
+| 13 | verify_task — error envelope, no browser | `{"id":"<nonexistent>","timeoutMs":1000}` | HTTP 200; parsed text `{"ok":false,"error":{"code":"E_NOT_FOUND","message":…,"retryable":false}}` envelope (verifyTask throws VerifyError before any Playwright import); assert no `verified` mutation on disk. `{"dryRun":true}` is the preview form: it returns the task plus `steps:["Dry run: verification would run"]` and never launches the engine |
+| 14 | verify_task — no baseline | `{"id":"<existing>","timeoutMs":1000}` | parsed text `{"ok":false,"error":{"code":"E_NO_BASELINE",…}}`; no browser launch (both paths fire before `loadPlaywright()`) — full visual verify requires browser ⇒ **skip happy path**, covered by `vitest.pw.config.ts` browser tests |
 | 15 | push_tasks — empty board envelope | `{"keepLocalFiles":true}` with NO SaaS token (HOME-isolated in-process: set `process.env.HOME = tmpHome` at file top before dynamic import) | **envelope contract only**: `typeof body.result.content[0].text === "string"` and text parses as JSON — today `push()` returns `void` when the board is empty, so `result.data === undefined` and `JSON.stringify(undefined) === undefined` ⇒ text may be the literal string `"undefined"` or the property may be `undefined` — pin current behavior, then assert the fixed contract `JSON.parse succeeds` [now: document bug class + TODO flip] |
 | 16 | push_tasks — with mock SaaS | seed token `tmpHome/.vibeflow/token`; seed `VIBEFLOW_API_URL=http://127.0.0.1:<mockPort>` (spawn loopback mock returning `{"imported":2,"skipped":0,"ids":[...],"workspaceId":"ws1","boardId":"ws1"}`); args `{"workspace":"ws1","keepLocalFiles":true}` | parsed text has `imported: 2`; no `login()`/browser (token exists ⇒ `push()` skips device flow — without a token `push()` triggers `login()` which `open()`s a browser and polls; **never** test push without token in-process against real API URL) |
 | 17 | list_tasks after every mutation | `{"limit":0,"fields":["id","status"]}` | final statuses consistent with mutations (in-progress claimed, etc.) |
@@ -280,7 +282,7 @@ Cleanup: standard `env.cleanup()`; for 16: kill mock server, rm `tmpHome`.
 
 ### 2.3 Error paths (`mcp-errors.test.ts`)
 
-Protocol-level errors come back HTTP 200 with JSON-RPC `error` (MCP SDK style), tool-level errors come back HTTP 200 with ok-shaped `content[0].text` JSON envelope `{error, message, suggestion}` (formatResult). Invariants asserted in every case: HTTP not 5xx; response body parses; server stays usable (next valid call succeeds).
+Protocol-level errors come back HTTP 200 with JSON-RPC `error` (MCP SDK style), tool-level errors come back HTTP 200 with ok-shaped `content[0].text` JSON in the **CLI's `--json` envelope**: `{"ok":false,"error":{"code","message","retryable","suggestion"?}}` (formatResult; `retryable` defaults to `false`, `suggestion` is omitted when the operation set none). Invariants asserted in every case: HTTP not 5xx; response body parses; server stays usable (next valid call succeeds).
 
 | # | Case | Payload | Expected |
 |---|------|---------|----------|
@@ -288,13 +290,13 @@ Protocol-level errors come back HTTP 200 with JSON-RPC `error` (MCP SDK style), 
 | 2 | create_task missing title | `{"description":"no title"}` | 200; JSON-RPC error code `-32602` (invalid tool arguments — zod) |
 | 3 | create_task bad status enum | `{"title":"x","status":"not-a-status"}` | 200; `-32602` |
 | 4 | list_tasks bad limit | `{"limit":-1}` | 200; `-32602` (zod `.min(0)`) |
-| 5 | get_task nonexistent id | `{"id":"ffffffffffffffffffffffffffff00"}` | 200; parsed text `{error:"TASK_NOT_FOUND", message:"Task not found: ...", suggestion:"Check the task ID and try again"}` |
-| 6 | update_task nonexistent id | `{"id":"ffffffffffffffffffffffffffff00","title":"x"}` | 200; parsed text `{error:"TASK_NOT_FOUND"}`; on disk unchanged |
-| 7 | attach_file path traversal | `{"id":"<id>","filename":"../escape.md","contentB64":"aGVsbG8="}` | 200; parsed text `{error:"ATTACH_FILE_ERROR"}` **or** content written under the stripped basename — pin behavior after first run; hard assert: **no file outside `.vibeflow/tasks/files/<id>/`** (scan `env.projectDir` recursively) |
+| 5 | get_task nonexistent id | `{"id":"ffffffffffffffffffffffffffff00"}` | 200; parsed text `{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found: ...","retryable":false,"suggestion":"Check the task ID and try again"}}` |
+| 6 | update_task nonexistent id | `{"id":"ffffffffffffffffffffffffffff00","title":"x"}` | 200; parsed text `{"ok":false,"error":{"code":"TASK_NOT_FOUND",…}}`; on disk unchanged |
+| 7 | attach_file path traversal | `{"id":"<id>","filename":"../escape.md","contentB64":"aGVsbG8="}` | 200; parsed text `{"ok":false,"error":{"code":"ATTACH_FILE_ERROR",…}}` **or** content written under the stripped basename — pin behavior after first run; hard assert: **no file outside `.vibeflow/tasks/files/<id>/`** (scan `env.projectDir` recursively) |
 | 8 | attach_file control chars / separators / null byte | filenames `..\\evil.md`, `sub/dir.md`, `"a\u0000b.md"`, `"a\u0001b.md"` | no escape from files dir; no control bytes in written filename |
-| 9 | add_comment nonexistent id | `{"id":"ffffffffffffffffffffffffffff00","text":"x"}` | 200; parsed text `{error:"ADD_COMMENT_ERROR"}` (core addComment throws) |
-| 10 | export_prompt nonexistent single id | `{"id":"ffffffffffffffffffffffffffff00"}` | 200; parsed text `{error:"TASK_NOT_FOUND"}` |
-| 11 | claim_next_task empty board | `{"dryRun":false}` (no tasks) | 200; parsed text `{error:"NO_TASKS_AVAILABLE", message:"No tasks available to claim"}`; note [now] `body.result.isError` is absent/false — error-as-content contract; [Phase 5 flip note: manifest-based registration may set `isError: true` — pin and flip] |
+| 9 | add_comment nonexistent id | `{"id":"ffffffffffffffffffffffffffff00","comment":"x"}` | 200; parsed text `{"ok":false,"error":{"code":"ADD_COMMENT_ERROR",…}}` (core addComment throws) |
+| 10 | export_prompt nonexistent single id | `{"id":"ffffffffffffffffffffffffffff00"}` | 200; parsed text `{"ok":false,"error":{"code":"TASK_NOT_FOUND",…}}` |
+| 11 | claim_next_task empty board | `{"dryRun":false}` (no tasks) | 200; parsed text `{"ok":false,"error":{"code":"NO_TASKS_AVAILABLE","message":"No tasks available to claim",…}}`; note [now] `body.result.isError` is absent/false — error-as-content contract; [Phase 5 flip note: manifest-based registration may set `isError: true` — pin and flip] |
 | 12 | verify_task bad url | `{"id":"<id>","url":"nota-url"}` | 200; `-32602` (zod `.url()`) |
 | 13 | server survives error storm | run cases 1–12 on one session then a valid list_tasks | 200 ok — no session corruption |
 | 14 | malformed JSON body [now] | POST with `body: "{"` | not 500: transport responds 400 (`parse error`) — assert `status === 400` |
@@ -315,7 +317,7 @@ const GATED = false; // flip to true in Phase 3
 
 | # | Call | [now] Expected | [Phase 3] Expected (flip) |
 |---|------|----------------|---------------------------|
-| 1 | `{"id":"<id>","status":"review"}` (no comment) | 200; parsed text ok; on disk status review | 200; parsed text `{error:"REVIEW_COMMENT_REQUIRED"}`; on disk status unchanged |
+| 1 | `{"id":"<id>","status":"review"}` (no comment) | 200; parsed text ok; on disk status review | 200; parsed text `{"ok":false,"error":{"code":"REVIEW_COMMENT_REQUIRED",…}}`; on disk status unchanged |
 | 2 | `{"id":"<id>","status":"review","comment":"Report: what changed and why"}` | 200 ok; on disk review + embedded agent comment | same (stable across the flip) |
 | 3 | `{"id":"<id>","status":"review","comment":"x","skipVerify":true}` | ok (skipVerify accepted today) | ok — gate skipped via skipVerify |
 | 4 | `{"id":"<id>","status":"in-progress"}` on a `verified: true` task (seed task file with `verified: true` via create_task + direct file write for seeding only) | [now] parsed text ok; `verified` stays true (MCP wrapper has no reset — CLI-only) | flip: `verified: false` on disk + TODO marker |
@@ -370,15 +372,15 @@ Practical reaping test TODAY without refactor: none that is deterministic — sc
 
 ### 2.8 MCP-from-manifest parity (`mcp-parity.test.ts`) — [Phase 5-aware]
 
-Facts: `src/mcp/server.ts` registers 10 tools with **hand-copied** descriptions/schemas; `src/mcp/manifest.ts` is the intended single source of truth (`input: z.ZodType`, `description`, `cliRef`, `annotations`). Phase 5 will register tools FROM the manifest so tools/list must match it exactly. Existing drift tests (`tests/unit/mcp/drift.test.ts`) cover manifest shape statically — this suite covers **parity via tools/list over HTTP**.
+Facts: `src/mcp/server.ts` registers the 11 tools FROM `src/mcp/manifest.ts` (Phase 5 landed) — name, description, `input` zod shape and `annotations` are all passed through at registration, so tools/list must match the manifest exactly. Existing drift tests (`tests/unit/mcp/drift.test.ts`) cover manifest shape statically — this suite covers **parity via tools/list over HTTP**.
 
 | # | Step | Payload/expectation |
 |---|------|---------------------|
-| 1 | names parity | initialize; tools/list; `sort(tools.map(t=>t.name))` === `sort(manifest.map(m=>m.name))` — exactly 10, no extras [now both hand-copied and manifest agree; the test starts earning its keep the moment Phase 5 lands or a new tool is added to only one side] |
-| 2 | descriptions parity | for each name: `tools/list.description === manifest entry.description` (server.ts copies these verbatim today) |
+| 1 | names parity | initialize; tools/list; `sort(tools.map(t=>t.name))` === `sort(manifest.map(m=>m.name))` — exactly 11, no extras; the test earns its keep the moment a tool is added to one side only |
+| 2 | descriptions parity | for each name: `tools/list.description === manifest entry.description` |
 | 3 | light schema check via invalid-args rejection [now] | for each tool: call with an intentionally invalid documented field (e.g. `create_task {title:123}` as wrong type; `update_task {status:"bogus"}`; `export_prompt {format:"html"}`; `list_tasks {limit:-1}`) — expect `-32602`-style rejection, i.e. the HTTP schema accepts-and-enforces the manifest-documented fields; a tool that ACCEPTS the invalid value ⇒ schema drift bug |
-| 4 | inputSchema key parity (strict version, flip in Phase 5) | compare `inputSchema.properties` keys per tool against the manifest zod shape — implement as a **soft parity table**: pin today's keys (hand-copied server.ts) with the manifest-derived expectation as a comment; [Phase 5 flip] derive both from the manifest and assert strict equality |
-| 5 | annotations [Phase 5 flip note] | tools/list currently returns NO `annotations` field (hand-registered via server.tool without annotations) — assert `t.annotations === undefined` [now]; Phase 5 flip: `t.annotations` equals `manifest.annotations` per tool |
+| 4 | inputSchema key parity | compare `inputSchema.properties` keys per tool against the manifest zod shape — strict equality both derived from the manifest |
+| 5 | annotations | `t.annotations` equals `manifest.annotations` per tool |
 
 ### 2.9 CLI hang regression (`mcp-hang.test.ts`) — plan Phase 1 e2e
 
@@ -412,10 +414,10 @@ get_task       {"name":"get_task","arguments":{"id":"<first-8-of-id>"}}
 list_tasks     {"name":"list_tasks","arguments":{"limit":0}}
 update_task    {"name":"update_task","arguments":{"id":"<id>","status":"in-progress","comment":"started work"}}
 claim_next     {"name":"claim_next_task","arguments":{"dryRun":false}}
-add_comment    {"name":"add_comment","arguments":{"id":"<id>","text":"Root cause: X","author":"user"}}
+add_comment    {"name":"add_comment","arguments":{"id":"<id>","comment":"Root cause: X","author":"user"}}
 attach_file    {"name":"attach_file","arguments":{"id":"<id>","filename":"report.md","contentB64":"IyBSZXBvcnQ="}}
 export_prompt  {"name":"export_prompt","arguments":{"id":"<id>","format":"markdown"}}
-verify_task    {"name":"verify_task","arguments":{"id":"<id>","timeoutMs":1000}}
+verify_task    {"name":"verify_task","arguments":{"id":"<id>","timeoutMs":1000,"dryRun":false}}
 push_tasks     {"name":"push_tasks","arguments":{"workspace":"ws1","keepLocalFiles":true,"dryRun":false}}
 ```
 
@@ -445,12 +447,12 @@ Repo: /home/zorcec/workspace/vibeflow-workspace/vibeflow — all work in package
 
 Create exactly these files in packages/cli/tests/e2e/ (naming matches the e2e include pattern tests/e2e/**/*.test.ts):
   mcp-helpers.ts          — helpers per spec §1.1: bootMcpServer() (in-process `serve(undefined, {port: getFreePort(), open:false, projectDir: tmpDir, _testToken: null, _testWorkspace: null})` — the exact API-only boot pattern of the "API-only mode" describe in tests/e2e/serve.test.ts), getFreePort() via node:net listen(0), McpClient (fetch-based initialize → mcp-session-id header → notifications/initialized (expect 202) → tools/list/call wrapper), assertJsonTextContent() (HTTP 200, content[0].text is a string that parses as JSON — the TextContent contract), isolatedEnv()/runCli()/spawnApiServer() (spawn `node dist/index.js serve --no-open -p <free>` with env HOME=tmpHome + VIBEFLOW_TELEMETRY=0), and per-test cleanup that closes the instance, rmSync's temp dirs, and calls stopMcpForTests() (exported from src/mcp/http.ts).
-  mcp-transport.test.ts   — scenario group 2.1 (initialize/protocolVersion/serverInfo/session header; notifications 202; tools/list 10 tools; DELETE → 200 {ok:true}; reuse of deleted session → 404 {"error":"Session not found"}; POST without session id never 500; GET/DELETE without session id → 400; unknown session id → 404; 2 concurrent clients isolated; OPTIONS → 204 with fixed Access-Control-Allow-Origin http://localhost:3700; session id from a spawned second server instance → 404; session-count bookkeeping via getSessionCount()).
-  mcp-tools.test.ts       — scenario group 2.2: all 10 tools happy path over HTTP with the exact payloads from the spec; per tool assert the parsed text content AND the on-disk effect in the temp project (.vibeflow/tasks/<date|flat>/<id>.json, .vibeflow/tasks/files/<id>/<filename>); include verify_task E_NOT_FOUND/E_NO_BASELINE envelopes (no browser) and push_tasks envelope-only test with HOME-isolated token + loopback mock SaaS per spec 2.2 #15/#16; never test push_tasks without a token in-process (device login flow opens a browser).
-  mcp-errors.test.ts      — scenario group 2.3 error paths (unknown tool -32601; zod invalid args -32602; TASK_NOT_FOUND/ADD_COMMENT_ERROR/NO_TASKS_AVAILABLE envelopes as content-JSON; attach_file traversal/control-char filenames never escape .vibeflow/tasks/files/<id>/ — recursive scan of the temp project; malformed JSON body → 400 not 500) AND the update_task gate matrix from 2.4 with the `const GATED = false;` [Phase 3] flip helper exactly as specified.
+  mcp-transport.test.ts   — scenario group 2.1 (initialize/protocolVersion/serverInfo/session header; notifications 202; tools/list 11 tools; DELETE → 200 {ok:true}; reuse of deleted session → 404 {"error":"Session not found"}; POST without session id never 500; GET/DELETE without session id → 400; unknown session id → 404; 2 concurrent clients isolated; OPTIONS → 204 with fixed Access-Control-Allow-Origin http://localhost:3700; session id from a spawned second server instance → 404; session-count bookkeeping via getSessionCount()).
+  mcp-tools.test.ts       — scenario group 2.2: all 11 tools happy path over HTTP with the exact payloads from the spec; per tool assert the parsed text content AND the on-disk effect in the temp project (.vibeflow/tasks/<date|flat>/<id>.json, .vibeflow/tasks/files/<id>/<filename>); include verify_task E_NOT_FOUND/E_NO_BASELINE envelopes (no browser) and push_tasks envelope-only test with HOME-isolated token + loopback mock SaaS per spec 2.2 #15/#16; never test push_tasks without a token in-process (device login flow opens a browser).
+  mcp-errors.test.ts      — scenario group 2.3 error paths (unknown tool -32601; zod invalid args -32602; TASK_NOT_FOUND/ADD_COMMENT_ERROR/NO_TASKS_AVAILABLE as `{ok:false,error:{code,message,retryable,suggestion?}}` content-JSON; attach_file traversal/control-char filenames never escape .vibeflow/tasks/files/<id>/ — recursive scan of the temp project; malformed JSON body → 400 not 500) AND the update_task gate matrix from 2.4 with the `const GATED = false;` [Phase 3] flip helper exactly as specified.
   mcp-auth.test.ts        — scenario group 2.6 with a HOME-isolated spawned server; write tmpHome/.vibeflow/auth.json for the token-configured cases (no-Bearer → 401, wrong → 403, valid → 200); loopback-no-token → 200; non-loopback via 0.0.0.0 + LAN IPv4 with test.skip when the machine has no LAN IPv4; assert X-Forwarded-For is ignored (no trust proxy). Never boot auth tests in-process without HOME isolation — the real ~/.vibeflow/auth.json would be read.
   mcp-claim-race.test.ts  — scenario group 2.5: two spawned `tasks <tmp> --next --json` racers on one HOME-isolated temp project (both parse as JSON {success:true,task:{...}}); document current same-task double-claim with the [Phase 2] TODO flip (assert different ids once claim atomicity lands); single --next on empty board prints non-JSON; MCP claim author [now] absent — [Phase 2] flip to git user name.
-  mcp-parity.test.ts      — scenario group 2.8: tools/list names === manifest names (import { manifest } from ../../src/mcp/manifest.js), descriptions equal, light schema check per tool via an invalid documented field expecting -32602, soft parity for inputSchema keys and `annotations === undefined` with [Phase 5] flip notes.
+  mcp-parity.test.ts      — scenario group 2.8 (Phase 5 completed): tools/list names === manifest names (import { manifest } from ../../src/mcp/manifest.js), descriptions equal, inputSchema keys equal the manifest zod shape, and annotations === manifest.annotations.
   mcp-hang.test.ts        — scenario group 2.9: spawned `tasks <tmp> --add --title "hang probe" --json` with no server exits <3s and parses {success:true,...}; --next empty board <3s; --json list <3s. Grep tests/e2e first — if the plan Phase 1 already added this file, extend rather than duplicate.
 
 Rules:
