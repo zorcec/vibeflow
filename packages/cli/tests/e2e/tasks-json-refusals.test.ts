@@ -9,7 +9,7 @@
  * Each test asserts the assigned CODE, not just the shape — an `ok:false`-only
  * assertion would pass whatever code was chosen. The two partial-success paths
  * (the task data was saved, a follow-on step did not complete) are the mirror
- * image: exit 0, `ok:true`, and a `warning` on the success payload.
+ * image: exit 0, `ok:true`, and a `notices` entry on the success payload.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import {

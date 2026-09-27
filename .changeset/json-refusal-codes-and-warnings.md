@@ -35,7 +35,7 @@ names cannot be confused: `warning` remains the server's passthrough string on t
 payload, and `notices` is this CLI's structured, always-an-array field. A consumer branching on
 `.warning.code` on the SaaS path was reading `undefined` from a string.
 
-**stdout is now parseable on every `--json` path.** Four pre-existing paths wrote prose to stdout
+**stdout is now parseable on every `--json` path but the one recorded exception.** Four pre-existing paths wrote prose to stdout
 outside an envelope — the `--set-status done` warning, the Research and already-in-progress warnings,
 the `--commit` auto-push lines (printed *after* the envelope, as trailing garbage), and a lost
 `--verify-reason` — so `JSON.parse(stdout)` could fail on a successful run. A fifth was found by the

@@ -16,8 +16,14 @@
  *          see tsup.coverage.config.ts for why the shipped bundle cannot be
  *          used) → ast-v8-to-istanbul, which remaps through the build's
  *          source map → istanbul keyed by the ORIGINAL `src/**` path
- *   both → istanbul-lib-coverage `merge` (counters are summed, so a line hit
- *          in either run is covered) → report
+ *   both → a position-keyed union that takes the `Math.max` of the two counts
+ *          for each position (see the merge section for why this is not
+ *          `istanbul-lib-coverage`'s own `merge`) → report
+ *
+ * Why `Math.max` and not a sum: a v8 run and an istanbul run describe the SAME
+ * execution from two different angles. Summing their counters would count one
+ * execution twice, and "lines" would quietly mean "times executed" instead of
+ * "covered" — a number that rises as a test runs its subject in a loop.
  *
  * Thresholds: the unit pass inside this pipeline runs with the coverage
  * thresholds zeroed on purpose. The repo's configured thresholds (80/80/75/80)
@@ -205,8 +211,23 @@ function unionFile(filePath, sides) {
       const prev = branches.get(key);
       if (prev) {
         prev.count = prev.count.map((c, i) => Math.max(c, counts[i] ?? 0));
+        // The two sides agree on positions, so they agree on the arm
+        // locations; keep whichever side actually carried them (a remapped
+        // bundle can come through with none) so the branchMap we write is a
+        // shape istanbul accepts rather than `locations: []` over real counts.
+        if (
+          prev.locations.length !== prev.count.length &&
+          (br.locations?.length ?? 0) === counts.length
+        ) {
+          prev.locations = [...br.locations];
+        }
       } else {
-        branches.set(key, { loc: br.loc, type: br.type, count: [...counts] });
+        branches.set(key, {
+          loc: br.loc,
+          type: br.type,
+          count: [...counts],
+          locations: [...(br.locations ?? [])],
+        });
       }
     }
   }
@@ -225,8 +246,15 @@ function unionFile(filePath, sides) {
   }
   n = 0;
   for (const [, v] of branches) {
-    out.branchMap[n] = { loc: v.loc, type: v.type, locations: [] };
-    out.b[n] = v.count.length > 0 ? v.count : [0];
+    // One count per arm, and one location per arm: a consumer that maps an arm
+    // index back to source must not find an empty list where the counts are.
+    const count = v.count.length > 0 ? v.count : [0];
+    const locations =
+      v.locations.length === count.length
+        ? v.locations
+        : count.map(() => v.loc);
+    out.branchMap[n] = { loc: v.loc, type: v.type, locations };
+    out.b[n] = count;
     n++;
   }
   return out;

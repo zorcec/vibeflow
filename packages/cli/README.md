@@ -243,7 +243,10 @@ A failure that happens **after** the task data is safely on disk is not a refusa
 `REINDEX_INCOMPLETE` when the sortKey re-keying landed but its post-assert did not pass,
 `SET_STATUS_DONE` / `RESEARCH_NO_IMPLEMENT` / `ALREADY_IN_PROGRESS` for the agent-policy and
 conflict warnings. The array is always an array (never a bare object, never a plural `notices`/`warnings`
-split) and the key is absent on a clean run.
+split) and the key is absent on a clean run. The local `--edit` path emits all of them; the SaaS
+`--edit` path can only reach `SET_STATUS_DONE` (the rest are decided against the LOCAL task file, which
+an online board has no equivalent of) — so read `notices` as "an array that may or may not be there",
+never as a fixed set of codes.
 
 `notices` is this CLI's own structured field. `warning` is a **different** field: the online board's
 server-passthrough **string**, present only on the SaaS `--edit` payload. A consumer that branches on
