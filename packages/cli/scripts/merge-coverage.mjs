@@ -42,6 +42,10 @@ import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  assertMergeIsHonest,
+  describeOneSidedFiles,
+} from "./merge-coverage-guards.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(HERE, "..");
@@ -256,14 +260,27 @@ const pct = (summary, kind) => {
 };
 
 const subjectKey = Object.keys(merged).find((k) => k.endsWith(SUBJECT));
-const unitKey = Object.keys(unitMap.toJSON()).find((k) => k.endsWith(SUBJECT));
-const e2eKey = Object.keys(e2eMap.toJSON()).find((k) => k.endsWith(SUBJECT));
+const unitFiles = Object.keys(unitMap.toJSON());
+const e2eFiles = Object.keys(e2eMap.toJSON());
+const unitKey = unitFiles.find((k) => k.endsWith(SUBJECT));
+const e2eKey = e2eFiles.find((k) => k.endsWith(SUBJECT));
 
-if (!subjectKey) {
-  throw new Error(
-    `neither coverage pass produced an entry for ${SUBJECT} — the coverage build no longer maps back to it.`,
-  );
-}
+// Everything below this line is arithmetic on a pair of maps. If the pair is
+// not a pair, the arithmetic still runs and still prints a number under a
+// "merged" heading — so the shape of the inputs is asserted FIRST, and a
+// one-sided merge is a refusal rather than a quietly smaller number. See
+// scripts/merge-coverage-guards.mjs for what each rule protects against.
+assertMergeIsHonest({
+  subject: SUBJECT,
+  rawE2eFiles: rawFiles,
+  executedBundleFiles: mergedFunctions.size,
+  remappedFiles: e2eFiles,
+  unitFiles,
+  e2eFiles,
+  unitKey,
+  e2eKey,
+  e2eEntry: e2eKey ? e2eMap.toJSON()[e2eKey] : undefined,
+});
 const unitSummary = summarise(
   libCoverage.createCoverageMap(unitMap.toJSON()),
   unitKey,
@@ -286,6 +303,9 @@ console.log(`Merged coverage for ${SUBJECT} (${PKG.name}@${PKG.version})`);
 console.log(
   `  unit = ${rawFiles} raw coverage file(s) from the e2e children, ${mergedFunctions.size} executed bundle file(s)` +
     (e2eKey ? "" : " — the e2e pass reached no src/index.ts code"),
+);
+console.log(
+  `  sides = ${describeOneSidedFiles(unitFiles, e2eFiles)} \u2014 expected away from ${SUBJECT}: the browser bundles are not in the CLI bundle`,
 );
 console.log("");
 console.log(

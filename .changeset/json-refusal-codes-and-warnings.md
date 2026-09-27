@@ -84,9 +84,24 @@ assertions. `test:coverage:e2e` merges the child's counters with the unit counte
 sourcemapped, unminified CLI (the shipped bundle is minified and its maps are deleted, so it cannot be
 attributed back to `src/**`), runs the e2e suite against it under `NODE_V8_COVERAGE`, remaps through
 the source map, and merges **by source position** into `coverage/merged/`. `src/index.ts` lines go
-16.04% → 29.83%, branches 17.70% → 39.60%, functions 23.07% → 30.59%. `test:coverage` is unchanged.
+15.94% → 30.01% (546/3425 → 1028/3425), branches 17.70% → 40.33%, functions 23.07% → 31.34%.
+`test:coverage` is unchanged.
 No dependency was added: the merge toolchain is already a transitive dependency of
 `@vitest/coverage-v8`.
+
+**…and the merge refuses to report a number it cannot stand behind.** A join of ONE side is still a
+join as far as the report is concerned: every line of the merge is arithmetic over "whatever maps
+arrived", so a missing e2e side produced a "merged" number that was really the unit-only number —
+the same dishonesty the tooling was added to remove, wearing a "merged" column heading. The only hard
+guard keyed on the UNION of both maps, so it could never fire while the unit pass measured
+`src/index.ts`. `test:coverage:e2e` now exits non-zero, with an actionable message, when the e2e side
+is missing or empty, when the subject is present in one map and absent from the other (a path-spelling
+mismatch splits one file into two one-sided entries; the near miss is named), and when the e2e side
+covers nothing in the file it exists to measure. One-sided files AWAY from `src/index.ts` are normal
+(the browser bundles are not in the CLI bundle), so those are counted and reported rather than
+refused. The checks live in `scripts/merge-coverage-guards.mjs` so the unit suite can reach them, and
+`tests/unit/scripts/merge-coverage.test.ts` feeds the script a deliberately incomplete pair and
+asserts it refuses.
 
 **Tests.** A stdout-purity sweep asserts, for a table of `--json` invocations, that stdout is either
 empty or exactly one JSON document — the guard for the whole class, including the two sites the
