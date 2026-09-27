@@ -29,6 +29,10 @@ import {
 } from "../core/changelog.js";
 import { getProjectName, getCurrentBranch } from "../core/config.js";
 import {
+  assertSafeProjectDir,
+  formatProjectRootAnnouncement,
+} from "../core/project-root.js";
+import {
   createTask,
   listTasks,
   listTasksWithPaths,
@@ -1629,6 +1633,11 @@ async function serveApiOnly(
   projectDir: string,
   options: ServeOptions,
 ): Promise<ServeInstance> {
+  // Server-layer backstop (W1): never create a task store at / or $HOME,
+  // even for programmatic callers that bypass the CLI validation. The full
+  // git/`.vibeflow` rule lives at the CLI boundary (core/project-root.ts).
+  assertSafeProjectDir(projectDir);
+
   // Check auth before registering any routes — online mode must never expose local task API.
   const token =
     options._testToken === undefined
@@ -1911,6 +1920,17 @@ export async function serve(
 
   // Project root is where .proto/ lives (directory itself, or parent of file)
   const projectDir = isDir ? absTarget : dirname(absTarget);
+  // Backstop first, then announce, then create — never the other way around.
+  assertSafeProjectDir(projectDir);
+  console.log(
+    chalk.green(
+      formatProjectRootAnnouncement({
+        projectDir,
+        name: getProjectName(projectDir),
+        branch: getCurrentBranch(projectDir),
+      }),
+    ),
+  );
   ensureTaskDirs(projectDir);
 
   const { app, httpServer, wss, broadcast } = createBaseServer();

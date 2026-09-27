@@ -23,6 +23,11 @@ import {
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
 import { readConfig } from "./core/config.js";
+import {
+  resolveProjectRoot,
+  formatProjectRootAnnouncement,
+  type ProjectRootResult,
+} from "./core/project-root.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
@@ -608,6 +613,23 @@ File attachments:
 `,
 );
 
+/**
+ * Reports a CLI-boundary project-root refusal (W1): the message on stderr and
+ * `ExitCode.USAGE`, before anything is created. Every refusal names `--project`.
+ */
+function reportProjectRootFailure(
+  failure: Extract<ProjectRootResult, { ok: false }>,
+): void {
+  console.error(chalk.red(`✗ ${failure.message}`));
+  console.error(chalk.yellow(`  ${failure.suggestion}`));
+  process.exitCode = ExitCode.USAGE;
+}
+
+/** Announces the resolved absolute root on stdout before anything is written. */
+function announceProjectRoot(root: Extract<ProjectRootResult, { ok: true }>): void {
+  console.log(chalk.green(formatProjectRootAnnouncement(root)));
+}
+
 program
   .command("serve")
   .description(
@@ -620,17 +642,34 @@ program
     "Bind hostname (default: localhost; use 0.0.0.0 for LAN sharing)",
   )
   .option("--no-open", "Do not open browser automatically")
+  .option(
+    "--project <dir>",
+    "Project root for the task store and MCP server (ignored when an HTML target is given)",
+  )
   .action(
     async (
       target: string | undefined,
-      opts: { port: string; open: boolean; host?: string },
+      opts: { port: string; open: boolean; host?: string; project?: string },
     ) => {
       capture("command_run", { command: "serve" });
       await flushTelemetry();
+      // API-only mode (MCP root): resolve + validate at the CLI boundary and
+      // announce the absolute root before serve() creates anything.
+      let projectDir: string | undefined;
+      if (target === undefined) {
+        const root = resolveProjectRoot(opts.project, { mode: "http" });
+        if (!root.ok) {
+          reportProjectRootFailure(root);
+          return;
+        }
+        announceProjectRoot(root);
+        projectDir = root.projectDir;
+      }
       await serve(target, {
         port: parseInt(opts.port, 10),
         host: opts.host,
         open: opts.open,
+        projectDir,
       });
     },
   );
@@ -648,19 +687,35 @@ program
   )
   .option("--no-open", "Do not open browser automatically")
   .option("--no-changelog", "Do not show the changelog with the update notice")
+  .option(
+    "--project <dir>",
+    "Project root directory (overrides the [dir] positional argument)",
+  )
   .action(
     async (
       dir: string,
-      opts: { port: string; host?: string; open: boolean; changelog: boolean },
+      opts: {
+        port: string;
+        host?: string;
+        open: boolean;
+        changelog: boolean;
+        project?: string;
+      },
     ) => {
       capture("command_run", { command: "kanban" });
       await flushTelemetry();
+      const root = resolveProjectRoot(opts.project ?? dir, { mode: "http" });
+      if (!root.ok) {
+        reportProjectRootFailure(root);
+        return;
+      }
+      announceProjectRoot(root);
       const port = parseInt(opts.port, 10);
       const instance = await serve(undefined, {
         port,
         host: opts.host,
         open: false,
-        projectDir: resolve(dir),
+        projectDir: root.projectDir,
         noCtrlCHint: true,
       });
       const kanbanUrl = instance.url + "/kanban";

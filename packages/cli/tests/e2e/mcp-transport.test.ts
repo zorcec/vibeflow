@@ -225,12 +225,16 @@ describe("MCP transport/session lifecycle", () => {
     // Boot a second server in a separate process
     const port2 = await getFreePort();
     const tmpDir = mkdtempSync(join(tmpdir(), "mcp-xinst-"));
+    // W1: the CLI refuses a project root equal to $HOME, so the isolated
+    // home must be a different dir than the spawn cwd (they shared one
+    // temp dir before W1 — harmless then, a refusal now).
+    const tmpHome = mkdtempSync(join(tmpdir(), "mcp-xinst-home-"));
     ensureTaskDirs(tmpDir);
     const {
       child,
       mcpUrl: mcpUrl2,
       waitReady,
-    } = spawnApiServer({ cwd: tmpDir, home: tmpDir, port: port2 });
+    } = spawnApiServer({ cwd: tmpDir, home: tmpHome, port: port2 });
 
     try {
       await waitReady;
@@ -250,6 +254,7 @@ describe("MCP transport/session lifecycle", () => {
     } finally {
       child.kill();
       rmSync(tmpDir, { recursive: true, force: true });
+      rmSync(tmpHome, { recursive: true, force: true });
     }
   });
 

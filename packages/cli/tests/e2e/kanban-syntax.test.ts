@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'vitest';
 import { spawn } from 'child_process';
 import { resolve } from 'path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync } from 'node:fs';
 import { getKanbanHtml } from '../../src/server/kanban-template';
 
 // ── Static kanban template checks (no server needed) ────────────────────────
@@ -55,6 +55,10 @@ describe('kanban template — static checks', () => {
 
 test('kanban HTML contains only valid JavaScript', async () => {
   const port = 3098;
+  // W1: the CLI validates the root before serving (git repo or .vibeflow
+  // store). This spawn runs from the package dir, which has no .git — seed
+  // the store marker; the old serve() created it as a side effect anyway.
+  mkdirSync('.vibeflow', { recursive: true });
   const serverProcess = spawn('node', [resolve('dist/cli/index.js'), 'serve', '--port', String(port)], {
     cwd: process.cwd(),
     stdio: 'ignore',

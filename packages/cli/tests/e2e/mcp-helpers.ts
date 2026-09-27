@@ -235,6 +235,11 @@ export function spawnApiServer(opts: {
   /** Bind address for non-loopback auth tests (e.g. "0.0.0.0"). */
   host?: string;
 }): { child: ChildProcess; mcpUrl: string; waitReady: Promise<void> } {
+  // W1: the CLI validates the root before serving (git repo or .vibeflow
+  // store), so seed the store in the spawn cwd. Tests that already seeded
+  // (e.g. mcp-transport "cross-instance") are unaffected — ensureTaskDirs
+  // only mkdirs what exists.
+  ensureTaskDirs(opts.cwd);
   const args = [CLI_PATH, "serve", "--no-open", "-p", String(opts.port)];
   if (opts.host) args.push("--host", opts.host);
   const child = spawn("node", args, {
