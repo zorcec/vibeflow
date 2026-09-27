@@ -42,7 +42,7 @@ export type VerifyAttestationResolution =
       verdict?: "pass" | "fail" | "cannot";
       reason?: string;
     }
-  | { ok: false; message: string };
+  | { ok: false; message: string; code: string };
 
 /**
  * Map the tri-state flag onto the stored value plus a `clear` flag. No flag
@@ -58,6 +58,9 @@ export function resolveVerifyAttestation(
     if (!reason) {
       return {
         ok: false,
+        // Same rule the review gate enforces as VERIFY_REASON_REQUIRED, so the
+        // machine-readable code matches whichever surface refuses it.
+        code: "VERIFY_REASON_REQUIRED",
         message:
           "--set-verify cannot requires --verify-reason <why> — say why the task cannot be verified here.",
       };
@@ -73,6 +76,8 @@ export function resolveVerifyAttestation(
   if (flags.verifyReason?.trim()) {
     return {
       ok: false,
+      // No gate equivalent: this is a pure usage error in the flag combination.
+      code: "E_USAGE",
       message:
         "--verify-reason is only valid with --set-verify cannot — pass the reason together with the 'cannot' verdict.",
     };

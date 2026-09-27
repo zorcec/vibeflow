@@ -185,7 +185,14 @@ describe("tasks --edit --set-verify", () => {
     );
 
     expect(r.code).not.toBe(0);
-    expect(r.stdout).toContain("--verify-reason");
+    // The defect this asserts against: under --json the refusal used to print
+    // human prose on stdout, so a machine consumer saw no error code at all.
+    // stdout must carry nothing and the code must reach stderr.
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("VERIFY_REASON_REQUIRED");
+    expect(envelope.error.message).toContain("--verify-reason");
     // Nothing written — the store stays absent.
     expect(storedVerified(store, id)).toBeUndefined();
   });
@@ -211,7 +218,13 @@ describe("tasks --edit --set-verify", () => {
     );
 
     expect(r.code).not.toBe(0);
-    expect(r.stdout).toContain("--set-verify cannot");
+    // Same defect as above: the flag-combination usage error must be a code on
+    // stderr, not prose on stdout.
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("E_USAGE");
+    expect(envelope.error.message).toContain("--set-verify cannot");
   });
 
   it("omitting a verdict on an annotated task blocks review with an error naming all three options", async () => {

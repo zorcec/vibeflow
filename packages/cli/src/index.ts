@@ -2229,7 +2229,16 @@ program
             verifyReason: opts.verifyReason,
           });
           if (!attestation.ok) {
-            console.log(chalk.red(`✗ ${attestation.message}`));
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: attestation.code,
+                message: attestation.message,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${attestation.message}`));
+            }
             process.exitCode = ExitCode.USAGE;
             return;
           }
@@ -2244,16 +2253,30 @@ program
               (t) => t.id === taskId || t.id.startsWith(taskId),
             );
             if (probeTask && isResearchType(probeTask.type)) {
-              console.log(
-                chalk.red(
-                  "\u2717 A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Drop --set-verify; submit the Research task with its .md report instead",
-                ),
-              );
+              // The code mirrors what the review gate returns for the same rule,
+              // so --json consumers see one code whichever path refuses first.
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "RESEARCH_VERIFY_NOT_ALLOWED",
+                  message:
+                    "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
+                  suggestion:
+                    "Drop --set-verify; submit the Research task with its .md report instead",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    "\u2717 A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    "  Drop --set-verify; submit the Research task with its .md report instead",
+                  ),
+                );
+              }
               process.exitCode = ExitCode.USAGE;
               return;
             }
