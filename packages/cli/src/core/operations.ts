@@ -18,7 +18,7 @@ import {
   type TaskStatus,
 } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import { getCurrentBranch, getProjectName } from "./config.js";
 import { getGitUser } from "./git-user.js";
 
@@ -44,6 +44,21 @@ export interface OperationResult<T> {
     suggestion?: string;
   };
   steps?: string[];
+}
+
+// ── Dry run ────────────────────────────────────────────────────────────────
+
+/**
+ * A dry run is requested by EITHER the operation context (HTTP/SDK callers)
+ * or the per-call tool input. Reading only ctx.dryRun let the MCP tools
+ * advertise a `dryRun` input that was silently ignored, so a preview
+ * performed a real write. Both sources must be honoured.
+ */
+export function isDryRun(
+  ctx: OperationContext,
+  input: { dryRun?: boolean },
+): boolean {
+  return ctx.dryRun === true || input.dryRun === true;
 }
 
 // ── Schemas ────────────────────────────────────────────────────────────────
@@ -98,6 +113,9 @@ export const CreateTaskInput = z.object({
   // Optional parent task id (full id or unique prefix); links the new task
   // under it as a child.
   parent: z.string().min(1).optional(),
+  // Preview only — never writes a task file. Present so the manifest's claim
+  // that every mutating tool exposes `dryRun` is true for create_task too.
+  dryRun: z.boolean().default(false),
 });
 export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
@@ -151,6 +169,7 @@ export const AddCommentInput = z.object({
   id: z.string().min(1),
   text: z.string().min(1),
   author: z.enum(["agent", "user"]).default("agent"),
+  dryRun: z.boolean().default(false),
 });
 export type AddCommentInputType = z.infer<typeof AddCommentInput>;
 
@@ -158,6 +177,7 @@ export const AttachFileInput = z.object({
   id: z.string().min(1),
   filename: z.string().min(1),
   contentB64: z.string().min(1),
+  dryRun: z.boolean().default(false),
 });
 export type AttachFileInputType = z.infer<typeof AttachFileInput>;
 
@@ -380,7 +400,7 @@ export async function createTask(
       links = [{ taskId: resolvedParentId, type: "parent" }];
     }
 
-    if (ctx.dryRun) {
+    if (isDryRun(ctx, input)) {
       return {
         ok: true,
         data: {
@@ -515,7 +535,7 @@ export async function updateTask(
     }
 
     // Dry-run: return preview (after gate check so would-be failures are reported)
-    if (ctx.dryRun) {
+    if (isDryRun(ctx, input)) {
       return {
         ok: true,
         data: existingTask,
@@ -633,7 +653,7 @@ export async function claimNextTask(
   input: ClaimNextTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    if (ctx.dryRun) {
+    if (isDryRun(ctx, input)) {
       const { listTasks: coreListTasks, isChildTask } = await import(
         "../core/tasks.js"
       );
@@ -703,6 +723,18 @@ export async function addComment(
   input: AddCommentInputType,
 ): Promise<OperationResult<TaskComment>> {
   try {
+    if (isDryRun(ctx, input)) {
+      return {
+        ok: true,
+        data: {
+          id: "dry-run",
+          author: input.author,
+          text: input.text,
+          createdAt: new Date().toISOString(),
+        },
+        steps: ["Dry run: comment would be added"],
+      };
+    }
     const { addComment: coreAddComment } = await import("../core/comments.js");
     const comment = await coreAddComment(
       ctx.projectDir,
@@ -737,6 +769,18 @@ export async function attachFile(
         error: { code: validation.errorCode, message: validation.errorMessage },
       };
     }
+    if (isDryRun(ctx, input)) {
+      return {
+        ok: true,
+        data: {
+          name: basename(input.filename),
+          size: buffer.length,
+          url: `/api/tasks/${input.id}/files/${encodeURIComponent(basename(input.filename))}`,
+        },
+        steps: ["Dry run: file would be attached"],
+      };
+    }
+
     const info = saveFile(ctx.projectDir, input.id, input.filename, buffer);
     return { ok: true, data: info };
   } catch (err) {

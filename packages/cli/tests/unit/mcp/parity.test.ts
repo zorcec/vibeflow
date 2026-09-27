@@ -1,0 +1,122 @@
+/**
+ * CLI ⇄ MCP parity regressions.
+ *
+ * Every case here is a defect that was LIVE over `vibeflow mcp` while the CLI
+ * already refused it. The operations layer is shared by both surfaces
+ * (enforced by gate G4 in drift.test.ts), so a guard that exists only in
+ * src/index.ts is invisible to the MCP tools. These tests drive the manifest's
+ * own `run:` with the same context mcp/server.ts builds — `dryRun` absent —
+ * because that missing key is what made the dry-run guards dead code.
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  statSync,
+  globSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { manifest, type ToolManifest } from "../../../src/mcp/manifest.js";
+import type { OperationContext } from "../../../src/core/operations.js";
+import type { Task } from "../../../src/core/types.js";
+
+let testDir: string;
+// No `dryRun` key: mcp/server.ts builds exactly this context, and the defect
+// under test is that the operations used to read only `ctx.dryRun`.
+let ctx: OperationContext;
+
+function createTestTask(overrides: Partial<Task> = {}): Task {
+  const task: Task = {
+    id: "task-1",
+    title: "Test Task",
+    description: "A test task",
+    status: "todo",
+    selector: "/",
+    created: new Date().toISOString(),
+    comments: [],
+    files: [],
+    ...overrides,
+  };
+  const dateDir = join(
+    testDir,
+    ".vibeflow",
+    "tasks",
+    task.created.slice(0, 10),
+  );
+  mkdirSync(dateDir, { recursive: true });
+  writeFileSync(
+    join(dateDir, `${task.id}.json`),
+    JSON.stringify(task, null, 2),
+  );
+  return task;
+}
+
+/** Raw bytes of every file under .vibeflow/tasks, keyed by relative path. */
+function snapshotTaskStore(): Record<string, string> {
+  const tasksDir = join(testDir, ".vibeflow", "tasks");
+  if (!existsSync(tasksDir)) return {};
+  const out: Record<string, string> = {};
+  for (const file of globSync(join(tasksDir, "**", "*")).sort()) {
+    if (!statSync(file).isFile()) continue;
+    out[file.slice(tasksDir.length)] = readFileSync(file, "utf-8");
+  }
+  return out;
+}
+
+beforeEach(() => {
+  testDir = join(tmpdir(), `mcp-parity-${Date.now()}-${process.pid}`);
+  mkdirSync(testDir, { recursive: true });
+  ctx = { projectDir: testDir, mode: "local" };
+});
+
+afterEach(() => {
+  if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+});
+
+// ── 1. dryRun is honoured by every tool that advertises it ────────────────
+
+describe("dryRun parity", () => {
+  /** A plausible, valid input per dryRun-advertising tool. */
+  const dryRunInputs: Record<string, (t: Task) => unknown> = {
+    create_task: () => ({ title: "Dry Run Task", dryRun: true }),
+    update_task: (t) => ({ id: t.id, status: "in-progress", dryRun: true }),
+    claim_next_task: () => ({ dryRun: true }),
+    add_comment: (t) => ({ id: t.id, text: "dry run", dryRun: true }),
+    attach_file: (t) => ({
+      id: t.id,
+      filename: "dry-run.md",
+      contentB64: Buffer.from("hello").toString("base64"),
+      dryRun: true,
+    }),
+    push_tasks: () => ({ dryRun: true, keepLocalFiles: true }),
+  };
+
+  const advertised = manifest.filter((tool) => "dryRun" in tool.input);
+
+  it("every tool advertising dryRun is covered by this suite", () => {
+    // Systemic guard: a NEW mutating tool that advertises `dryRun` must be
+    // given a probe here, or this fails and forces one. Without it the loop
+    // below would silently cover fewer tools over time.
+    expect(advertised.map((t) => t.name).sort()).toEqual(
+      Object.keys(dryRunInputs).sort(),
+    );
+  });
+
+  it.each(advertised.map((t) => [t.name, t] as const))(
+    "%s — dryRun:true leaves the task store byte-identical",
+    async (_name, tool: ToolManifest) => {
+      const seeded = createTestTask({ id: "task-1", status: "todo" });
+      const before = snapshotTaskStore();
+      expect(Object.keys(before).length).toBeGreaterThan(0);
+
+      const result = await tool.run(ctx, dryRunInputs[tool.name](seeded));
+
+      expect(result.ok, JSON.stringify(result.error)).toBe(true);
+      expect(snapshotTaskStore()).toEqual(before);
+    },
+  );
+});
