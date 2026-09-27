@@ -154,7 +154,7 @@ export async function claimNextTask(ctx: OperationContext, input: ClaimNextTaskI
 // ── add_comment ────────────────────────────────────────────────────
 export const AddCommentInput = z.object({
   id: z.string().min(1),
-  text: z.string().min(1),
+  comment: z.string().min(1),
   author: z.enum(['agent', 'user']).default('agent'),
 });
 export type AddCommentInput = z.infer<typeof AddCommentInput>;
@@ -288,7 +288,9 @@ export const manifest: ToolManifest[] = [
 
 ### 5.6 `add_comment`
 
-- **Input:** `{ id, text, author?('agent') }`
+- **Input:** `{ id, comment, author?('agent') }` — the body is named `comment`,
+  matching the CLI's `--comment` flag and `update_task`'s field. (An earlier
+  revision of this spec said `text`, which never shipped.)
 - **Output:** `Comment` (created)
 - **Annotations:** non-destructive
 
