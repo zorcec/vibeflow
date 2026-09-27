@@ -489,20 +489,6 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     return `http://127.0.0.1:${port}`;
   }
 
-  /** A host that answers every request with one status code. */
-  async function statusUrl(status: number): Promise<string> {
-    const server: Server = createServer((_req, res) => {
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: `status ${status}` }));
-    });
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
-    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-    const { port } = server.address() as { port: number };
-    return `http://127.0.0.1:${port}`;
-  }
-
   it("E_BACKEND_UNAVAILABLE (retryable) — listing with an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
     const home = saasHome();
@@ -537,6 +523,20 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     });
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: false });
   });
+
+  /** A host that answers every request with one status code. */
+  async function statusUrl(status: number): Promise<string> {
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `status ${status}` }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const { port } = server.address() as { port: number };
+    return `http://127.0.0.1:${port}`;
+  }
 
   it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 401", async () => {
     // SaaS mode is selected BECAUSE a token file exists, so the client's
@@ -681,8 +681,8 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
   });
 });
 
-describe("tasks --json partial success is a warning, not a refusal", () => {
-  it("GIT_COMMIT_FAILED — review saved, auto-commit did not: exit 0 + warning", async () => {
+describe("tasks --json partial success is a notice, not a refusal", () => {
+  it("GIT_COMMIT_FAILED — review saved, auto-commit did not: exit 0 + notice", async () => {
     const store = freshDir("json-partial-store-");
     const home = freshDir("json-partial-home-");
     seedGitUser(store);
@@ -712,13 +712,14 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     const payload = JSON.parse(r.stdout) as {
       ok: boolean;
       task: { status: string };
-      warning?: { code: string; message: string };
-      warnings?: unknown;
+      notices?: Array<{ code: string; message: string }>;
     };
     expect(payload.ok).toBe(true);
-    expect(payload.warning?.code).toBe("GIT_COMMIT_FAILED");
-    expect(payload.warning?.message).toContain("did NOT happen");
-    expect(payload.warnings).toBeUndefined();
+    // ALWAYS an array — never a bare object, never a `warnings` plural. A
+    // consumer that iterates it must not have to handle two shapes.
+    expect(Array.isArray(payload.notices)).toBe(true);
+    expect(payload.notices?.map((n) => n.code)).toEqual(["GIT_COMMIT_FAILED"]);
+    expect(payload.notices?.[0].message).toContain("did NOT happen");
     expect(r.stderr).not.toContain('"ok":false');
     // The task data really is on disk.
     expect(readTask(store, id).status).toBe("review");
@@ -770,14 +771,14 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
       ok: boolean;
       written: number;
       reindexVerified: boolean;
-      warning?: { code: string; message: string };
+      notices?: Array<{ code: string; message: string }>;
     };
     expect(payload.ok).toBe(true);
     // The keys DID land — that is the whole basis for exit 0 here.
     expect(payload.written).toBe(1);
     expect(payload.reindexVerified).toBe(false);
-    expect(payload.warning?.code).toBe("REINDEX_INCOMPLETE");
-    expect(payload.warning?.message).toContain("Reindex incomplete");
+    expect(payload.notices?.map((n) => n.code)).toEqual(["REINDEX_INCOMPLETE"]);
+    expect(payload.notices?.[0].message).toContain("Reindex incomplete");
   });
 
   it("REINDEX_WRITE_FAILED — keys planned, none written: ok:false + non-zero exit", async () => {
@@ -820,7 +821,7 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect(r.stdout).toContain("wrote 0 of");
   });
 
-  it("a clean success carries no warning/warnings key at all", async () => {
+  it("a clean success carries no notices key at all", async () => {
     const store = freshDir("json-partial-store-");
     const home = freshDir("json-partial-home-");
     const id = await addTask(store, home, "Clean edit");
@@ -832,8 +833,10 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect(edit.code).toBe(0);
     const editPayload = JSON.parse(edit.stdout) as Record<string, unknown>;
     expect(editPayload.ok).toBe(true);
+    expect("notices" in editPayload).toBe(false);
+    // `warning` is the ONLINE board's passthrough string, never a local note —
+    // the two names cannot collide.
     expect("warning" in editPayload).toBe(false);
-    expect("warnings" in editPayload).toBe(false);
 
     // …and a verified reindex is a clean success too.
     const reindex = await spawnCli(
@@ -843,8 +846,8 @@ describe("tasks --json partial success is a warning, not a refusal", () => {
     expect(reindex.code).toBe(0);
     const reindexPayload = JSON.parse(reindex.stdout) as Record<string, unknown>;
     expect(reindexPayload.reindexVerified).toBe(true);
+    expect("notices" in reindexPayload).toBe(false);
     expect("warning" in reindexPayload).toBe(false);
-    expect("warnings" in reindexPayload).toBe(false);
   });
 });
 
@@ -1018,4 +1021,110 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
       ).toBeGreaterThan(0);
     }
   }, 120_000);
+});
+
+describe("tasks --json local notes ride `notices`, never stdout", () => {
+  it("--set-status done is a notice on the payload, and stdout stays JSON", async () => {
+    const store = freshDir("json-notice-store-");
+    const home = freshDir("json-notice-home-");
+    const id = await addTask(store, home, "Done target");
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "done", "--json"],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      ok: boolean;
+      notices?: Array<{ code: string; message: string }>;
+    };
+    expect(payload.ok).toBe(true);
+    expect(payload.notices?.map((n) => n.code)).toEqual(["SET_STATUS_DONE"]);
+    expect(payload.notices?.[0].message).toContain("NEVER set a task status");
+  });
+
+  it("--set-status done keeps its four warning lines in human mode", async () => {
+    const store = freshDir("json-notice-store-");
+    const home = freshDir("json-notice-home-");
+    const id = await addTask(store, home, "Done target");
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "done"],
+      { cwd: store, home },
+    );
+    expect(r.stdout).toContain("Agents should NEVER set a task status");
+    expect(r.stdout).toContain("use --set-status review instead");
+  });
+
+  it("a Research task claimed in-progress is a notice, not stdout prose", async () => {
+    const store = freshDir("json-notice-store-");
+    const home = freshDir("json-notice-home-");
+    const id = await addTask(store, home, "Research only", [
+      "--type",
+      "Research",
+    ]);
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      notices?: Array<{ code: string; message: string }>;
+    };
+    expect(payload.notices?.map((n) => n.code)).toEqual([
+      "RESEARCH_NO_IMPLEMENT",
+    ]);
+    // The policy text now lives in the notice, not in stdout prose: the only
+    // thing on stdout is the one JSON document (asserted by the sweep).
+    expect(payload.notices?.[0].message).toContain("do NOT implement code");
+  });
+
+  it("an already in-progress task is a notice, and both notes can ride together", async () => {
+    const store = freshDir("json-notice-store-");
+    const home = freshDir("json-notice-home-");
+    const id = await addTask(store, home, "Research already claimed", [
+      "--type",
+      "Research",
+    ]);
+    await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      notices?: Array<{ code: string; message: string }>;
+    };
+    // Two notes → still ONE array. This is the case the old singular/plural
+    // `warning`/`warnings` switch got wrong.
+    expect(Array.isArray(payload.notices)).toBe(true);
+    expect(payload.notices?.map((n) => n.code)).toEqual([
+      "RESEARCH_NO_IMPLEMENT",
+      "ALREADY_IN_PROGRESS",
+    ]);
+  });
+
+  it("human mode keeps the Research and in-progress warning lines", async () => {
+    const store = freshDir("json-notice-store-");
+    const home = freshDir("json-notice-home-");
+    const id = await addTask(store, home, "Research claimed", [
+      "--type",
+      "Research",
+    ]);
+    await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: store, home },
+    );
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-status", "in-progress"],
+      { cwd: store, home },
+    );
+    expect(r.stdout).toContain("do NOT implement code");
+    expect(r.stdout).toContain("already in-progress");
+  });
 });

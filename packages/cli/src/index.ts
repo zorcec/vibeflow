@@ -422,17 +422,25 @@ function outputEnvelope(
  * for "the task data was saved but a follow-on step did not complete" — the
  * exit code stays 0 so a consumer does not retry an edit that already applied.
  */
-interface PartialSuccessWarning {
+interface PartialSuccessNotice {
   code: string;
   message: string;
 }
 
-function warningFields(
-  warnings: PartialSuccessWarning[],
+/**
+ * Partial-success notes for a success payload, always as the `notices` ARRAY;
+ * a clean run carries no key at all, so a consumer that only knows `ok` and
+ * the named payload keeps working.
+ *
+ * The name is deliberately NOT `warning`. `warning` is the online board's own
+ * passthrough field — a bare STRING chosen by the server — and one key must
+ * never mean both an object and a string. `notices` is the local, structured,
+ * always-an-array field this CLI owns.
+ */
+function noticeFields(
+  notices: PartialSuccessNotice[],
 ): Record<string, unknown> {
-  if (warnings.length === 0) return {};
-  if (warnings.length === 1) return { warning: warnings[0] };
-  return { warnings };
+  return notices.length === 0 ? {} : { notices };
 }
 
 /** True when `author` matches the user filter (case-insensitive). */
@@ -1220,10 +1228,11 @@ program
             keyless.length === 0 &&
             dupOffenders.length === 0;
 
-          // The re-keying itself landed; only the post-assert can fail, so an
-          // incomplete reindex is a WARNING on a successful run, not a refusal
-          // — the exit code stays 0 and `reindexVerified:false` says so.
-          const reindexWarning: PartialSuccessWarning[] = reindexVerified
+          // Past the refusal above, `written > 0`: the re-keying itself landed,
+          // so only the post-assert can fail. That is a NOTICE on a successful
+          // run, not a refusal — the exit code stays 0 and `reindexVerified:
+          // false` says so.
+          const reindexNotices: PartialSuccessNotice[] = reindexVerified
             ? []
             : [
                 {
@@ -1243,7 +1252,7 @@ program
                 remainingKeyless: keyless.length,
                 sameColumnDuplicateGroups: dupOffenders.length,
                 patches: manifest,
-                ...warningFields(reindexWarning),
+                ...noticeFields(reindexNotices),
               },
             });
           } else if (reindexVerified) {
@@ -2457,7 +2466,19 @@ program
             reportTaskId = reportTask.id;
           }
 
+          // Notes about work that landed but did not finish — the human prose
+          // below is prose, and under `--json` stdout must stay parseable, so
+          // each note is also collected here and rides the success payload as
+          // `notices`. Collected ABOVE both the SaaS and the local edit branch
+          // so every payload of this command carries the same field.
+          const editNotices: PartialSuccessNotice[] = [];
+
           if (opts.setStatus === "done") {
+            editNotices.push({
+              code: "SET_STATUS_DONE",
+              message:
+                'Agents should NEVER set a task status to "done" — only a human marks a task done after reviewing. Use --set-status review instead.',
+            });
             if (!opts.json) {
               console.log(
                 chalk.yellow(
@@ -2835,6 +2856,7 @@ program
                     ...(saasResultData.warning
                       ? { warning: saasResultData.warning }
                       : {}),
+                    ...noticeFields(editNotices),
                   },
                 });
               }
@@ -3031,6 +3053,11 @@ program
             const editedTask = findTaskByIdOrPrefix(projectDir, taskId);
             if (editedTask) {
               if ((editedTask.type ?? "").toLowerCase() === "research") {
+                editNotices.push({
+                  code: "RESEARCH_NO_IMPLEMENT",
+                  message:
+                    "This is a Research task. Policy: do NOT implement code — research only, attach a .md report file, leave a summary comment, mark as review.",
+                });
                 if (!opts.json) {
                   console.log(
                     chalk.yellow(
@@ -3050,6 +3077,10 @@ program
                   ? new Date(editedTask.updated).toLocaleString()
                   : "unknown";
                 const assignee = editedTask.author ?? "another user";
+                editNotices.push({
+                  code: "ALREADY_IN_PROGRESS",
+                  message: `Task is already in-progress (author: ${assignee}, last updated: ${lastUpdated}) — another agent or user may be working on this task.`,
+                });
                 if (!opts.json) {
                   console.log(
                     chalk.yellow(
@@ -3176,12 +3207,13 @@ program
                 resolvedTaskId,
               )
             : [];
-          // Notes about work that landed but did not finish. The success
-          // envelope is written AFTER the auto-commit below, so a commit that
-          // did not happen rides the same payload as `warning` instead of
-          // being a second document — and the exit code stays 0, because the
-          // task data is already on disk and retrying the edit would be wrong.
-          const localEditWarnings: PartialSuccessWarning[] = [];
+          // The success envelope is written AFTER the auto-commit below, so a
+          // commit that did not happen rides the same payload as a `notices`
+          // entry instead of being a second document — and the exit code stays
+          // 0, because the task data is already on disk and retrying the edit
+          // would be wrong. The collection itself is declared far above (next
+          // to the `--set-status done` note) so every note of this command
+          // lands in one array.
           if (!opts.json) {
             console.log(chalk.green(`✓ Task updated: ${updated.title}`));
             console.log(
@@ -3285,7 +3317,7 @@ program
                     ? relative(autoDir, taskFilePath)
                     : `.vibeflow/tasks/<date>/${taskForCommit.id}.json`;
                   const stageHint = `Stage the task's own file, then commit manually: git add ${relTaskPath}`;
-                  localEditWarnings.push({
+                  editNotices.push({
                     code: "GIT_COMMIT_FAILED",
                     message: commitResult.error
                       ? `Task WAS updated (status + comment saved), but the commit did NOT happen: ${commitResult.error}`
@@ -3315,7 +3347,7 @@ program
               payload: {
                 task: updated,
                 next_actions: localEditNextActions,
-                ...warningFields(localEditWarnings),
+                ...noticeFields(editNotices),
               },
             });
           }
