@@ -395,21 +395,26 @@ export async function createTask(
     // structurally impossible; a dangling target is the only rejection.
     let links: TaskLink[] | undefined;
     if (input.parent) {
-      const { listTasks: coreListTasks, resolveTaskId } = await import(
+      const { listTasks: coreListTasks, matchesIdOrPrefix } = await import(
         "../core/tasks.js"
       );
+      // One store scan: matchesIdOrPrefix IS the resolution rule, applied to
+      // the list already loaded. resolveTaskId() re-ran listTasks just to
+      // pick the first match from the same directory.
       const allTasks = coreListTasks(ctx.projectDir);
-      const resolvedParentId = resolveTaskId(ctx.projectDir, input.parent);
-      if (!allTasks.some((t) => t.id === resolvedParentId)) {
+      const parentTask = allTasks.find((t) =>
+        matchesIdOrPrefix(t, input.parent!),
+      );
+      if (!parentTask) {
         return {
           ok: false,
           error: {
             code: "CREATE_TASK_ERROR",
-            message: `Parent task not found: ${resolvedParentId}`,
+            message: `Parent task not found: ${input.parent}`,
           },
         };
       }
-      links = [{ taskId: resolvedParentId, type: "parent" }];
+      links = [{ taskId: parentTask.id, type: "parent" }];
     }
 
     if (isDryRun(ctx, input)) {
@@ -512,6 +517,13 @@ export async function updateTask(
         {
           comment: input.comment,
           commitMessage: input.commitMessage,
+          // Gate 3 (BRANCH_REQUIRED) reads the branch THIS transition carries.
+          // It was never passed, so with createBranch ON a review transition
+          // was refused even when the input supplied `branch` — a
+          // requested-but-ignored input, the same bug class as the dryRun one.
+          // The CLI has passed branch: opts.branch since before MCP existed
+          // (index.ts).
+          branch: input.branch,
           verifyVerdict: attestation.verdict,
           verifyReason: input.verifyReason,
         },
@@ -951,9 +963,24 @@ export async function verifyTaskOp(
   if (isDryRun(ctx, input)) {
     const { findTaskByIdOrPrefix } = await import("../core/tasks.js");
     const task = findTaskByIdOrPrefix(ctx.projectDir, input.id);
+    if (!task) {
+      // The SAME refusal the real path raises: commands/verify.ts throws
+      // VerifyError("E_NOT_FOUND", `Task not found: ${taskId}`, …) when
+      // findTaskFilePath misses. A preview that answered ok:true with
+      // data:null for an unresolvable id told the client the id was fine —
+      // and updateTask's preview already refused the same case.
+      return {
+        ok: false,
+        error: {
+          code: "E_NOT_FOUND",
+          message: `Task not found: ${input.id}`,
+          suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+        },
+      };
+    }
     return {
       ok: true,
-      data: task ?? null,
+      data: task,
       steps: ["Dry run: verification would run"],
     };
   }

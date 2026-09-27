@@ -20,10 +20,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { manifest, type ToolManifest } from "../../../src/mcp/manifest.js";
 import {
   updateTask,
   getTask,
+  createTask,
   claimNextTask,
   addComment,
   verifyTaskOp,
@@ -95,6 +97,33 @@ function snapshotTaskStore(): Record<string, string> {
   return out;
 }
 
+/**
+ * Call a tool THROUGH createMcpServer, so the assertion sees the wire payload
+ * (`formatResult`) and not just the OperationResult. `_registeredTools` is the
+ * SDK's private registry — the same cast tools.test.ts:472 uses; it breaks
+ * loudly on an SDK upgrade rather than silently skipping these tests.
+ */
+async function callThroughServer(
+  tool: string,
+  input: unknown,
+): Promise<Record<string, unknown>> {
+  const { createMcpServer } = await import("../../../src/mcp/server.js");
+  const registered = (
+    createMcpServer(testDir, "local") as unknown as {
+      _registeredTools: Record<
+        string,
+        {
+          handler: (
+            input: unknown,
+          ) => Promise<{ content: Array<{ type: string; text: string }> }>;
+        }
+      >;
+    }
+  )._registeredTools;
+  const result = await registered[tool].handler(input);
+  return JSON.parse(result.content[0].text) as Record<string, unknown>;
+}
+
 beforeEach(() => {
   testDir = join(tmpdir(), `mcp-parity-${Date.now()}-${process.pid}`);
   mkdirSync(testDir, { recursive: true });
@@ -137,6 +166,24 @@ describe("dryRun parity", () => {
     expect(advertised.map((t) => t.name).sort()).toEqual(
       Object.keys(dryRunInputs).sort(),
     );
+  });
+
+  it("every MUTATING tool declares a dryRun input", () => {
+    // The enumeration assertion above is NARROWER than it looks: it is driven
+    // by `"dryRun" in t.input`, so a mutating tool that simply never declared
+    // one is filtered out of `advertised` and passes unnoticed — the likelier
+    // omission. This assertion is driven by the manifest's OWN classification
+    // instead, which is what
+    // intentionallyNotExposed["tasks --dry-run"] asserts out loud: "every
+    // mutating tool exposes a `dryRun` input instead". A mutating tool with no
+    // preview fails the build here.
+    const mutating = manifest.filter((t) => !t.annotations.readOnlyHint);
+    expect(mutating.length).toBeGreaterThan(0);
+    expect(
+      mutating
+        .filter((t) => !("dryRun" in t.input))
+        .map((t) => t.name),
+    ).toEqual([]);
   });
 
   it.each(advertised.map((t) => [t.name, t] as const))(
@@ -321,24 +368,6 @@ describe("partial-id resolution parity", () => {
 // ── 4. Error envelope matches the CLI's --json contract ───────────────────
 
 describe("MCP error envelope", () => {
-  async function callThroughServer(tool: string, input: unknown) {
-    const { createMcpServer } = await import("../../../src/mcp/server.js");
-    const registered = (
-      createMcpServer(testDir, "local") as unknown as {
-        _registeredTools: Record<
-          string,
-          {
-            handler: (
-              input: unknown,
-            ) => Promise<{ content: Array<{ type: string; text: string }> }>;
-          }
-        >;
-      }
-    )._registeredTools;
-    const result = await registered[tool].handler(input);
-    return JSON.parse(result.content[0].text);
-  }
-
   it("a failing tool returns ok:false with a nested error object", async () => {
     const parsed = await callThroughServer("get_task", { id: "no-such-task" });
 
@@ -363,7 +392,7 @@ describe("MCP error envelope", () => {
       setVerify: "cannot",
     });
     expect(withoutSuggestion.error.code).toBe("VERIFY_REASON_REQUIRED");
-    expect("suggestion" in withoutSuggestion.error).toBe(false);
+    expect("suggestion" in (withoutSuggestion.error as object)).toBe(false);
   });
 
   it("a successful tool still returns the raw data payload", async () => {
@@ -371,6 +400,178 @@ describe("MCP error envelope", () => {
     const parsed = await callThroughServer("get_task", { id: "task-1" });
     expect(parsed.ok).toBeUndefined();
     expect(parsed.id).toBe("task-1");
+  });
+});
+
+// ── 1c. The wire payload: a preview is a preview, steps are never dropped ──
+
+describe("success payload carries steps", () => {
+  it("update_task dryRun returns a payload marked as a preview", async () => {
+    createTestTask({ id: "task-1", status: "todo" });
+    const before = snapshotTaskStore();
+
+    const parsed = await callThroughServer("update_task", {
+      id: "task-1",
+      status: "in-progress",
+      dryRun: true,
+    });
+
+    // Same task fields a real write returns …
+    expect(parsed.id).toBe("task-1");
+    expect(parsed.status).toBe("todo");
+    // … plus the marker that makes it UNMISTAKABLY a preview. Without it the
+    // payload was byte-identical to a real write's and the client could not
+    // tell "nothing was written" from "it was written".
+    expect(parsed.steps).toEqual(["Dry run: task would be updated"]);
+    expect(snapshotTaskStore()).toEqual(before);
+  });
+
+  it("attach_file dryRun is distinguishable from the real attach", async () => {
+    createTestTask({ id: "task-1" });
+    const contentB64 = Buffer.from("hello").toString("base64");
+
+    const preview = await callThroughServer("attach_file", {
+      id: "task-1",
+      filename: "shot.png",
+      contentB64,
+      dryRun: true,
+    });
+    // The {name,size,url} triple alone is what the real write returns …
+    expect(preview.name).toBe("shot.png");
+    expect(preview.size).toBe(5);
+    expect(typeof preview.url).toBe("string");
+    // … and only `steps` separates the two.
+    expect(preview.steps).toEqual(["Dry run: file would be attached"]);
+
+    const real = await callThroughServer("attach_file", {
+      id: "task-1",
+      filename: "shot.png",
+      contentB64,
+    });
+    expect(real.name).toBe("shot.png");
+    expect(real.steps).toBeUndefined();
+  });
+
+  it("create_task dryRun is distinguishable from the real create", async () => {
+    const preview = await callThroughServer("create_task", {
+      title: "Preview only",
+      dryRun: true,
+    });
+    expect(preview.title).toBe("Preview only");
+    expect(preview.id).toBe("dry-run");
+    expect(preview.steps).toEqual(["Dry run: task would be created"]);
+
+    const real = await callThroughServer("create_task", { title: "For real" });
+    expect(real.id).not.toBe("dry-run");
+    expect(real.steps).toBeUndefined();
+  });
+
+  it("a plain read's payload is untouched — no steps key added", async () => {
+    createTestTask({ id: "task-1", title: "Read me" });
+    const parsed = await callThroughServer("get_task", { id: "task-1" });
+    expect("steps" in parsed).toBe(false);
+    expect(parsed.title).toBe("Read me");
+
+    const listed = await callThroughServer("list_tasks", {});
+    expect("steps" in listed).toBe(false);
+  });
+
+  it("a failed auto-commit's steps reach the client", async () => {
+    // autoCommit ON in a REAL git repo with nothing staged for this task, so
+    // commitTaskChanges fails the way it does in practice (a real refusal, not
+    // a "not a git repository" exec error). The update itself succeeds, so ok
+    // is still absent from the payload; the ONLY signal that nothing was
+    // committed is `steps`, and dropping it (the previous serialisation) told
+    // the client the commit had happened.
+    writeSettings({ autoCommit: true, createBranch: false, requireVerifyBeforeReview: false });
+    createTestTask({ id: "task-1", status: "in-progress" });
+    execFileSync("git", ["init", "-q"], { cwd: testDir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "mcp@example.test"], {
+      cwd: testDir,
+      stdio: "ignore",
+    });
+    execFileSync("git", ["config", "user.name", "MCP Test"], {
+      cwd: testDir,
+      stdio: "ignore",
+    });
+
+    const parsed = await callThroughServer("update_task", {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      commitMessage: "feat: thing",
+    });
+
+    expect(parsed.ok).toBeUndefined();
+    expect(parsed.status).toBe("review");
+    expect(Array.isArray(parsed.steps)).toBe(true);
+    expect((parsed.steps as string[])[0]).toMatch(/^Commit failed: /);
+  });
+});
+
+// ── 1d. verify_task's preview refuses an unresolvable id like the real path ─
+
+describe("verify_task dryRun id resolution", () => {
+  it("dryRun:true on a missing id returns the real path's E_NOT_FOUND", async () => {
+    verifyEngine.verifyTask.mockClear();
+
+    const preview = await callThroughServer("verify_task", {
+      id: "deadbeef",
+      dryRun: true,
+    });
+
+    // The real call answers E_NOT_FOUND; the preview used to answer
+    // ok:true/data:null, so the two previews (update_task's refuses,
+    // verify_task's did not) disagreed about the same id.
+    expect(preview.ok).toBe(false);
+    expect((preview.error as { code: string }).code).toBe("E_NOT_FOUND");
+    expect((preview.error as { message: string }).message).toBe(
+      "Task not found: deadbeef",
+    );
+    expect(verifyEngine.verifyTask).not.toHaveBeenCalled();
+
+    // And update_task refuses the same id the same way.
+    const updated = await callThroughServer("update_task", {
+      id: "deadbeef",
+      status: "in-progress",
+      dryRun: true,
+    });
+    expect(updated.ok).toBe(false);
+    expect((updated.error as { code: string }).code).toBe("TASK_NOT_FOUND");
+  });
+});
+
+// ── 6. create_task parent resolution ──────────────────────────────────────
+
+describe("create_task parent", () => {
+  it("resolves a parent id PREFIX against one store scan and links the full id", async () => {
+    const FULL_ID = "c0ffee00c0ffee00c0ffee00c0ffee00";
+    createTestTask({ id: FULL_ID });
+
+    const result = await createTask(ctx, {
+      title: "Child",
+      parent: FULL_ID.slice(0, 8),
+    });
+
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    expect(result.data?.links).toEqual([
+      { taskId: FULL_ID, type: "parent" },
+    ]);
+  });
+
+  it("a dangling parent is refused, naming what the caller sent", async () => {
+    createTestTask({ id: "task-1" });
+    const before = snapshotTaskStore();
+
+    const result = await createTask(ctx, {
+      title: "Orphan",
+      parent: "deadbeef",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("CREATE_TASK_ERROR");
+    expect(result.error?.message).toBe("Parent task not found: deadbeef");
+    expect(snapshotTaskStore()).toEqual(before);
   });
 });
 
@@ -456,5 +657,46 @@ describe("review gate parity", () => {
     ) as Task;
     expect(stored.status).toBe("review");
     expect(stored.verified).toBe(true);
+  });
+
+  // createBranch ON: gate 3 demands a branch ON THIS transition. The MCP path
+  // never passed `branch` to checkReviewTransition, so a caller that supplied
+  // one was still refused BRANCH_REQUIRED — a requested-but-ignored input, the
+  // same bug class as the dryRun input that was advertised and dropped.
+  it("with createBranch ON, a supplied branch reaches the gate and is stored", async () => {
+    writeSettings({ autoCommit: false, createBranch: true, requireVerifyBeforeReview: true });
+    createTestTask({ id: "task-1", status: "in-progress", ...annotated });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      setVerify: "pass",
+      branch: "feat/task-1",
+    });
+
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    const stored = JSON.parse(
+      Object.values(snapshotTaskStore())[0],
+    ) as Task;
+    expect(stored.status).toBe("review");
+    expect(stored.branchName).toBe("feat/task-1");
+  });
+
+  it("with createBranch ON and NO branch, the gate still refuses", async () => {
+    writeSettings({ autoCommit: false, createBranch: true, requireVerifyBeforeReview: true });
+    createTestTask({ id: "task-1", status: "in-progress", ...annotated });
+    const before = snapshotTaskStore();
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      setVerify: "pass",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("BRANCH_REQUIRED");
+    expect(snapshotTaskStore()).toEqual(before);
   });
 });
