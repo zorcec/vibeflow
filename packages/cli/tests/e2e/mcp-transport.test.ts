@@ -285,4 +285,21 @@ describe("MCP transport/session lifecycle", () => {
       expect(ct).toContain("text/event-stream");
     }
   });
+
+  it("16: initialize reports the resolved project root", async () => {
+    const res = await initialize(client);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const instructions = body.result.instructions as string;
+    expect(typeof instructions).toBe("string");
+    // Absolute, not cwd-relative: the line opens with the root path itself.
+    expect(instructions).toMatch(/^Project root: \//);
+    // Equals the directory the server was started on, with name + branch.
+    expect(instructions).toContain(`Project root: ${env.projectDir} (`);
+    expect(instructions).toContain("name: ");
+    expect(instructions).toContain("branch: ");
+    expect(instructions).toContain("mode: local");
+    // serverInfo stays pinned (name/version) — see test 1.
+    expect(body.result.serverInfo.name).toBe("vibeflow");
+  });
 });

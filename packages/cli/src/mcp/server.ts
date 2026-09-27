@@ -6,6 +6,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OperationContext, OperationResult } from "../core/operations.js";
 import { getGitUser } from "../core/git-user.js";
+import { getCurrentBranch, getProjectName } from "../core/config.js";
+import { resolve } from "node:path";
 import { CLI_VERSION } from "../version.js";
 import { manifest } from "./manifest.js";
 
@@ -15,12 +17,18 @@ export function createMcpServer(
   projectDir: string,
   mode: "local" | "saas" = "local",
 ): McpServer {
-  const server = new McpServer({
-    name: "vibeflow",
-    version: CLI_VERSION,
-  });
+  // W2: the handshake names the resolved absolute root — a client can tell
+  // which project it is about to mutate from `initialize` alone.
+  const abs = resolve(projectDir);
+  const branch = getCurrentBranch(abs);
+  const server = new McpServer(
+    { name: "vibeflow", version: CLI_VERSION },
+    {
+      instructions: `Project root: ${abs} (name: ${getProjectName(abs)}, branch: ${branch ?? "none"}, mode: ${mode})`,
+    },
+  );
 
-  const ctx: OperationContext = { projectDir, mode, userId: getGitUser(projectDir).name };
+  const ctx: OperationContext = { projectDir: abs, mode, userId: getGitUser(abs).name };
 
   for (const tool of manifest) {
     server.tool(
