@@ -2007,7 +2007,7 @@ describe("next_actions hints", () => {
       "set status to in-progress before implementation",
       "add a description",
     ];
-    const output = { success: true, task, next_actions: nextActions };
+    const output = { ok: true, task, next_actions: nextActions };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
     expect(json).toContain("set status to in-progress before implementation");
@@ -2028,7 +2028,7 @@ describe("next_actions hints", () => {
       `commit with vibeflow tasks --commit --task ${task.id} --message "..."`,
       "set review status",
     ];
-    const output = { success: true, task: updated, next_actions: nextActions };
+    const output = { ok: true, task: updated, next_actions: nextActions };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
     expect(json).toContain("implement the change");
@@ -2045,7 +2045,7 @@ describe("next_actions hints", () => {
     });
     const updated = updateTask(tempDir, task.id, { status: "review" });
     const nextActions = ["only humans mark done after reviewing"];
-    const output = { success: true, task: updated, next_actions: nextActions };
+    const output = { ok: true, task: updated, next_actions: nextActions };
     const json = JSON.stringify(output, null, 2);
     expect(json).toContain('"next_actions"');
     expect(json).toContain("only humans mark done after reviewing");
@@ -2063,7 +2063,7 @@ describe("next_actions hints", () => {
       'set review status with vibeflow tasks --edit <id> --set-status review --comment "what changed and why"',
     ];
     const output = {
-      success: true,
+      ok: true,
       commit: commitSha,
       next_actions: nextActions,
     };

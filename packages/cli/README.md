@@ -166,6 +166,14 @@ vibeflow tasks --edit <id> --set-status review --set-verify pass \
   --comment "Fixed the alignment issue by adjusting flex-wrap"
 ```
 
+**JSON output (`--json`):** one envelope, one `ok` discriminant. Success writes `{ok:true, …payload}`
+to **stdout** — `tasks` → `{ok:true, tasks:[…], hiddenChildren}`, `--get` → `{ok:true, task:{…}}`,
+`--add`/`--edit`/`--next` → `{ok:true, task:{…}, next_actions:[…]}`. Failure writes
+`{ok:false, error:{code, message, retryable, suggestion}}` to **stderr** and exits non-zero; under
+`--json` stdout carries only the envelope. **Breaking as of 0.18.0:** `tasks --json` used to return
+a bare array, `--get --json` a flat object, and success payloads carried `success:true` instead of
+`ok:true`.
+
 `vibeflow verify <id>` only collects page-health evidence (the element resolves, no new console errors); it does not set a verdict. The agent judges correctness and attests with `--set-verify` when it moves the task to review — `pass` (implemented correctly), `fail` (not correct — blocks review), or `cannot` with `--verify-reason` (unverifiable here, recorded in the task's activity).
 
 **Task types:** Task · Bug · Feature · Enhancement · Research  

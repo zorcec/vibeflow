@@ -41,7 +41,7 @@ describe("MCP CLI hang regression", () => {
     expect(r.code).toBe(0);
     expect(r.elapsedMs).toBeLessThan(HANG_BUDGET_MS);
     const parsed = JSON.parse(r.stdout);
-    expect(parsed.success).toBe(true);
+    expect(parsed.ok).toBe(true);
     expect(parsed.task.id).toMatch(/^[a-f0-9]+$/);
     // task exists on disk
     const matches = globSync(
@@ -64,7 +64,7 @@ describe("MCP CLI hang regression", () => {
     expect(r.stdout).toContain("No todo tasks found");
   });
 
-  it("3: tasks <tmp> --json (list) without server → exit 0, <3s, parses as []", async () => {
+  it("3: tasks <tmp> --json (list) without server → exit 0, <3s, parses as {ok:true,tasks:[]}", async () => {
     const dir = freshDir("mcp-hang-proj-");
     const r = await spawnCli(["tasks", dir, "--json"], {
       cwd: dir,
@@ -74,6 +74,6 @@ describe("MCP CLI hang regression", () => {
     expect(r.code).toBe(0);
     expect(r.elapsedMs).toBeLessThan(HANG_BUDGET_MS);
     const parsed = JSON.parse(r.stdout);
-    expect(parsed).toEqual([]);
+    expect(parsed).toEqual({ ok: true, tasks: [], hiddenChildren: 0 });
   });
 });

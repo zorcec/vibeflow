@@ -119,13 +119,14 @@ describe("proto tasks (e2e)", () => {
 
     // pi-lens-ignore: sql-injection — run() calls execSync for CLI, not SQL queries
     const jsonOutput = run(`tasks ${tempDir} --json`);
-    const parsed = JSON.parse(jsonOutput) as Array<{
-      id: string;
-      title: string;
-    }>;
-    expect(Array.isArray(parsed)).toBe(true);
+    const parsed = JSON.parse(jsonOutput) as {
+      ok: boolean;
+      tasks: Array<{ id: string; title: string }>;
+    };
+    expect(parsed.ok).toBe(true);
+    expect(Array.isArray(parsed.tasks)).toBe(true);
     expect(
-      parsed.some((t) => t.id === "jsontask1" && t.title === "JSON task"),
+      parsed.tasks.some((t) => t.id === "jsontask1" && t.title === "JSON task"),
     ).toBe(true);
   });
 

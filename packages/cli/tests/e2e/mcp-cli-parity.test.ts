@@ -413,8 +413,9 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
     );
     expect(cliGet.code).toBe(0);
     const parsed = JSON.parse(cliGet.stdout);
-    expect(parsed.title).toBe("made by MCP");
-    expect(parsed.description).toBe("created over the wire");
+    expect(parsed.ok).toBe(true);
+    expect(parsed.task.title).toBe("made by MCP");
+    expect(parsed.task.description).toBe("created over the wire");
 
     // 3. CLI edits → MCP sees it
     const cliEdit = await runCli(
@@ -435,7 +436,7 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
       ["tasks", "--get", cliTaskId, "--json"],
       { cwd: env.projectDir, home },
     );
-    expect(JSON.parse(seenByCli.stdout).description).toBe("described by MCP");
+    expect(JSON.parse(seenByCli.stdout).task.description).toBe("described by MCP");
   });
 
   it("push stays offline on both surfaces (dry-run, no credentials)", async () => {

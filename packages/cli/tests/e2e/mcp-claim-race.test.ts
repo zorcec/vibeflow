@@ -8,7 +8,7 @@
  *   - MCP claim sets author from the seeded git user
  *
  * Facts pinned live (dist build): `--next --json` prints
- * {success:true, task:{...}, next_actions:[...]}; empty board prints plain
+ * {ok:true, task:{...}, next_actions:[...]}; empty board prints plain
  * text "No todo tasks found. Nothing to work on." (NOT JSON, exit 0).
  */
 
@@ -76,8 +76,8 @@ describe("MCP claim atomicity", () => {
     expect(r2.code).toBe(0);
     const p1 = JSON.parse(r1.stdout);
     const p2 = JSON.parse(r2.stdout);
-    expect(p1.success).toBe(true);
-    expect(p2.success).toBe(true);
+    expect(p1.ok).toBe(true);
+    expect(p2.ok).toBe(true);
     // Phase 2: atomic claim — racers get disjoint tasks
     expect(p1.task.id).not.toBe(p2.task.id);
     expect(new Set([p1.task.id, p2.task.id])).toEqual(

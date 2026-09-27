@@ -59,7 +59,7 @@ describe("tasks author attribution", () => {
     );
     expect(r.code).toBe(0);
     const parsed = JSON.parse(r.stdout);
-    expect(parsed.success).toBe(true);
+    expect(parsed.ok).toBe(true);
     expect(parsed.task.author).toBe("Store User");
   });
 

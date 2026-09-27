@@ -362,17 +362,35 @@ const normalizeFilterValue = (value: string): string =>
   value.trim().toLowerCase();
 
 /**
- * Structured error output. In JSON mode, writes a machine-readable envelope
- * to stderr so stdout stays clean for piping. In human mode, writes to stderr
- * with chalk formatting.
+ * Structured output — the single writer for the `--json` envelope in both
+ * directions, so consumers see exactly one convention:
+ *   success → `{ok:true, …named payload}` on **stdout**;
+ *   failure → `{ok:false, error:{code,message,retryable,suggestion}}` on
+ *             **stderr** (stdout stays clean for piping); the caller sets the
+ *             non-zero exit code.
+ * Human mode: success is a no-op (callers print their own human text);
+ * failure writes the chalk message + suggestion to stderr.
  */
-function outputError(opts: {
-  code: string;
-  message: string;
-  retryable?: boolean;
-  suggestion?: string;
-  json?: boolean;
-}): void {
+function outputEnvelope(
+  opts:
+    | { ok: true; payload: Record<string, unknown>; json?: boolean }
+    | {
+        ok: false;
+        code: string;
+        message: string;
+        retryable?: boolean;
+        suggestion?: string;
+        json?: boolean;
+      },
+): void {
+  if (opts.ok) {
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({ ok: true, ...opts.payload }, null, 2) + "\n",
+      );
+    }
+    return;
+  }
   if (opts.json) {
     const envelope = {
       ok: false,
@@ -925,7 +943,7 @@ program
         // (--edit uses --set-parent / --no-parent; --no-parent arrives as
         // the boolean `false`, never a string, so it is unaffected here.)
         if (typeof opts.parent === "string" && !opts.add) {
-          outputError({
+          outputEnvelope({ ok: false,
             code: "E_USAGE",
             message: "--parent is only valid with --add",
             suggestion:
@@ -941,7 +959,7 @@ program
         // to fall through to list mode and silently write nothing). Fail
         // loudly instead of pretending the comment landed.
         if (opts.comment?.trim() && opts.edit === undefined) {
-          outputError({
+          outputEnvelope({ ok: false,
             code: "E_USAGE",
             message: "--comment requires --edit <task-id>",
             suggestion:
@@ -966,7 +984,7 @@ program
             opts.next ||
             opts.commit
           ) {
-            outputError({
+            outputEnvelope({ ok: false,
               code: "E_USAGE",
               message:
                 "--reindex-sort-keys cannot be combined with --add/--edit/--get/--next/--commit",
@@ -997,19 +1015,17 @@ program
 
           if (opts.dryRun) {
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    dryRun: true,
-                    count: manifest.length,
-                    anchorRule:
-                      "whole-store unique keys (a key duplicated anywhere is re-keyed)",
-                    patches: manifest,
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  count: manifest.length,
+                  anchorRule:
+                    "whole-store unique keys (a key duplicated anywhere is re-keyed)",
+                  patches: manifest,
+                },
+              });
             } else {
               console.log(
                 chalk.yellow(
@@ -1087,27 +1103,25 @@ program
               if (n > 1) dupOffenders.push(`${status}: ${key} ×${n}`);
             }
           }
-          const ok =
+          const reindexVerified =
             openKeyless.length === 0 &&
             keyless.length === 0 &&
             dupOffenders.length === 0;
 
           if (opts.json) {
-            console.log(
-              JSON.stringify(
-                {
-                  success: ok,
-                  written,
-                  manifestPath,
-                  remainingKeyless: keyless.length,
-                  sameColumnDuplicateGroups: dupOffenders.length,
-                  patches: manifest,
-                },
-                null,
-                2,
-              ),
-            );
-          } else if (ok) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                reindexVerified,
+                written,
+                manifestPath,
+                remainingKeyless: keyless.length,
+                sameColumnDuplicateGroups: dupOffenders.length,
+                patches: manifest,
+              },
+            });
+          } else if (reindexVerified) {
             console.log(
               chalk.green(
                 `✓ Reindexed ${written} task sortKey(s); 0 keyless, 0 same-column duplicate groups.`,
@@ -1132,7 +1146,7 @@ program
             );
             for (const o of dupOffenders) console.log(chalk.dim(`    ${o}`));
           }
-          if (!ok) process.exitCode = ExitCode.GENERAL;
+          if (!reindexVerified) process.exitCode = ExitCode.GENERAL;
           return;
         }
 
@@ -1157,9 +1171,11 @@ program
             }
             const cliStatus = toCliStatus(saasTask.status);
             if (opts.json) {
-              console.log(
-                JSON.stringify({ ...saasTask, status: cliStatus }, null, 2),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: { task: { ...saasTask, status: cliStatus } },
+              });
               return;
             }
             const colorFnSaas = STATUS_COLORS[cliStatus] ?? chalk.white;
@@ -1242,7 +1258,7 @@ program
             (t) => t.id === opts.get || t.id.startsWith(opts.get!),
           );
           if (!task) {
-            outputError({
+            outputEnvelope({ ok: false,
               code: "E_NOT_FOUND",
               message: `Task not found: ${opts.get}`,
               suggestion: "Run 'vibeflow tasks' to see available task IDs.",
@@ -1270,9 +1286,11 @@ program
                   .filter(Boolean)
               : [];
             // SAFETY: Task + comments + files are plain JSON-serializable objects; Record<string, unknown> is the superset for field picking.
-            console.log(
-              JSON.stringify(
-                pickFields(
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                task: pickFields(
                   {
                     ...task,
                     comments: structuredComments,
@@ -1280,10 +1298,8 @@ program
                   } as unknown as Record<string, unknown>,
                   getFields,
                 ),
-                null,
-                2,
-              ),
-            );
+              },
+            });
             return;
           }
           const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
@@ -1405,17 +1421,14 @@ program
               nextTask.id,
             );
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    success: true,
-                    task: { ...nextTask, status: "in-progress" },
-                    next_actions: nextSaasNextActions,
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  task: { ...nextTask, status: "in-progress" },
+                  next_actions: nextSaasNextActions,
+                },
+              });
               return;
             }
 
@@ -1523,14 +1536,17 @@ program
           );
           if (opts.json) {
             const nextLocalPayload: Record<string, unknown> = {
-              success: true,
               task: nextUpdated,
               next_actions: nextLocalNextActions,
             };
             if (nextLocalChildren.length > 0) {
               nextLocalPayload.children = nextLocalChildren;
             }
-            console.log(JSON.stringify(nextLocalPayload, null, 2));
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: nextLocalPayload,
+            });
             return;
           }
 
@@ -1630,7 +1646,7 @@ program
         // ── Add mode ───────────────────────────────────────────────────────
         if (opts.add) {
           if (!opts.title?.trim()) {
-            outputError({
+            outputEnvelope({ ok: false,
               code: "E_USAGE",
               message: "--title is required with --add",
               suggestion:
@@ -1676,18 +1692,16 @@ program
                 boardId: addWorkspace?.id,
               };
               if (opts.json) {
-                console.log(
-                  JSON.stringify(
-                    {
-                      dryRun: true,
-                      action: "create",
-                      task: dryTask,
-                      next_actions: getNextActions("add", newId),
-                    },
-                    null,
-                    2,
-                  ),
-                );
+                outputEnvelope({
+                  ok: true,
+                  json: opts.json,
+                  payload: {
+                    dryRun: true,
+                    action: "create",
+                    task: dryTask,
+                    next_actions: getNextActions("add", newId),
+                  },
+                });
               } else {
                 console.log(chalk.yellow("  [dry-run] Would create task:"));
                 console.log(chalk.dim(`    title:  ${dryTask.title}`));
@@ -1722,17 +1736,14 @@ program
             const saasCreatedTask = saasCreated.data;
             const addNextActions = getNextActions("add", saasCreatedTask.id);
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    success: true,
-                    task: saasCreatedTask,
-                    next_actions: addNextActions,
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  task: saasCreatedTask,
+                  next_actions: addNextActions,
+                },
+              });
             } else {
               console.log(
                 chalk.green(`✓ Task created: ${saasCreatedTask.title}`),
@@ -1774,10 +1785,20 @@ program
                 (t) => t.id === rawParent || t.id.startsWith(rawParent),
               )?.id ?? rawParent;
             if (!parentTasks.some((t) => t.id === parentId)) {
-              console.log(chalk.red(`✗ Parent task not found: ${parentId}`));
-              console.log(
-                chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
-              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_NOT_FOUND",
+                  message: `Parent task not found: ${parentId}`,
+                  suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ Parent task not found: ${parentId}`));
+                console.log(
+                  chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
+                );
+              }
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
@@ -1796,18 +1817,16 @@ program
                 : {}),
             };
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    dryRun: true,
-                    action: "create",
-                    task: dryTask,
-                    next_actions: getNextActions("add", dryId),
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  action: "create",
+                  task: dryTask,
+                  next_actions: getNextActions("add", dryId),
+                },
+              });
             } else {
               console.log(chalk.yellow("  [dry-run] Would create task:"));
               console.log(chalk.dim(`    title:  ${dryTask.title}`));
@@ -1840,17 +1859,14 @@ program
 
           const localAddNextActions = getNextActions("add", created.id);
           if (opts.json) {
-            console.log(
-              JSON.stringify(
-                {
-                  success: true,
-                  task: created,
-                  next_actions: localAddNextActions,
-                },
-                null,
-                2,
-              ),
-            );
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                task: created,
+                next_actions: localAddNextActions,
+              },
+            });
           } else {
             console.log(chalk.green(`✓ Task created: ${created.title}`));
             console.log(
@@ -1864,7 +1880,7 @@ program
         // ── Commit mode ────────────────────────────────────────────────────
         if (opts.commit) {
           if (!opts.task) {
-            outputError({
+            outputEnvelope({ ok: false,
               code: "E_USAGE",
               message: "--task <task-id> is required with --commit",
               suggestion:
@@ -1880,7 +1896,7 @@ program
             (t) => t.id === opts.task || t.id.startsWith(opts.task!),
           );
           if (!task) {
-            outputError({
+            outputEnvelope({ ok: false,
               code: "E_NOT_FOUND",
               message: `Task not found: ${opts.task}`,
               suggestion: "Run 'vibeflow tasks' to see available task IDs.",
@@ -1893,19 +1909,17 @@ program
           if (opts.dryRun) {
             const commitMsg = `${baseMsg} [proto:${task.id}]`;
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    dryRun: true,
-                    action: "commit",
-                    message: commitMsg,
-                    taskId: task.id,
-                    next_actions: getNextActions("commit", task.id),
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  action: "commit",
+                  message: commitMsg,
+                  taskId: task.id,
+                  next_actions: getNextActions("commit", task.id),
+                },
+              });
             } else {
               console.log(chalk.yellow("  [dry-run] Would commit:"));
               console.log(chalk.dim(`    message: ${commitMsg}`));
@@ -1915,7 +1929,9 @@ program
             return;
           }
           // Warn when committing for a Research task — code changes should not be made.
-          if ((task.type ?? "").toLowerCase() === "research") {
+          // (Under --json stdout carries only the envelope — this warning is
+          // human-mode only.)
+          if (!opts.json && (task.type ?? "").toLowerCase() === "research") {
             console.log(
               chalk.yellow(
                 "⚠  WARNING: This is a Research task. Research tasks must NOT produce code changes.",
@@ -1945,7 +1961,9 @@ program
             // Visibility: with no pathspec the scope is the task's own record.
             // Name any other staged paths so the caller knows they were left in
             // the index on purpose rather than silently dropped.
-            if (commitPathspec.length === 0 && result.foreign.length > 0) {
+            if (commitPathspec.length === 0 && result.foreign.length > 0 && !opts.json) {
+              // Human mode only — under --json the same paths are reported as
+              // `leftStaged` inside the envelope, and stdout carries only that.
               console.log(
                 chalk.yellow(
                   "⚠  Staged changes that do NOT belong to this task were left in the index (not committed):",
@@ -1964,20 +1982,17 @@ program
 
             const commitNextActions = getNextActions("commit", task.id);
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    success: true,
-                    commit: result.sha,
-                    linkedExisting: result.linkedExisting,
-                    committed: result.committed,
-                    leftStaged: result.foreign,
-                    next_actions: commitNextActions,
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  commit: result.sha,
+                  linkedExisting: result.linkedExisting,
+                  committed: result.committed,
+                  leftStaged: result.foreign,
+                  next_actions: commitNextActions,
+                },
+              });
             } else if (result.linkedExisting) {
               // Nothing to commit is NOT a dead end: the caller's intent is to
               // record that this task's work is in commit X, and when the work
@@ -2292,11 +2307,13 @@ program
               content,
             );
             unlinkSync(reportPath);
-            console.log(
-              chalk.green(
-                `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
-              ),
-            );
+            if (!opts.json) {
+              console.log(
+                chalk.green(
+                  `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
+                ),
+              );
+            }
           }
           // ── Unified review gate (shared with MCP + PATCH) ──────────────
           if (opts.setStatus === "review") {
@@ -2362,7 +2379,12 @@ program
             // Conflict detection: warn when attempting in-progress on an already in-progress task
             if (opts.setStatus === "in-progress") {
               const current = await fetchSaasTask(taskId);
-              if (current && toCliStatus(current.status) === "in-progress") {
+              // Human-mode only: under --json stdout carries only the envelope.
+              if (
+                !opts.json &&
+                current &&
+                toCliStatus(current.status) === "in-progress"
+              ) {
                 const assignee = current.author ?? "another user";
                 console.log(
                   chalk.yellow(
@@ -2396,25 +2418,29 @@ program
             }
             const saasResultData = saasResult.data;
 
-            if (saasResultData.warning) {
+            if (saasResultData.warning && !opts.json) {
               console.log(
                 chalk.yellow(`⚠  Server warning: ${saasResultData.warning}`),
               );
             }
 
+            let saasCommentError: string | undefined;
             if (opts.comment?.trim()) {
               const commented = await addSaasComment(
                 taskId,
                 opts.comment.trim(),
               );
               if (commented.ok) {
-                console.log(chalk.dim("  comment: added"));
+                if (!opts.json) console.log(chalk.dim("  comment: added"));
               } else {
-                console.log(
-                  chalk.red(
-                    `✗ Comment was NOT saved: ${commented.error.message}`,
-                  ),
-                );
+                saasCommentError = commented.error.message;
+                if (!opts.json) {
+                  console.log(
+                    chalk.red(
+                      `✗ Comment was NOT saved: ${commented.error.message}`,
+                    ),
+                  );
+                }
                 process.exitCode = ExitCode.GENERAL;
               }
             }
@@ -2428,17 +2454,28 @@ program
                 )
               : [];
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    success: true,
+              if (saasCommentError) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_COMMENT_SAVE",
+                  message: `Task updated, but the comment was NOT saved: ${saasCommentError}`,
+                  suggestion:
+                    'Re-add the comment with --edit <task-id> --comment "..."',
+                  json: opts.json,
+                });
+              } else {
+                outputEnvelope({
+                  ok: true,
+                  json: opts.json,
+                  payload: {
                     task: saasResultData.task,
                     next_actions: saasEditNextActions,
+                    ...(saasResultData.warning
+                      ? { warning: saasResultData.warning }
+                      : {}),
                   },
-                  null,
-                  2,
-                ),
-              );
+                });
+              }
             } else {
               console.log(
                 chalk.green(`✓ Task updated: ${saasResultData.task.title}`),
@@ -2486,26 +2523,24 @@ program
               dryUpdates.verified = attestation.value;
             }
             if (opts.json) {
-              console.log(
-                JSON.stringify(
-                  {
-                    dryRun: true,
-                    action: "update",
-                    taskId: resolvedTaskId,
-                    updates: dryUpdates,
-                    next_actions: opts.setStatus
-                      ? getNextActions(
-                          opts.setStatus === "review"
-                            ? "set-status:review"
-                            : "set-status:in-progress",
-                          resolvedTaskId,
-                        )
-                      : [],
-                  },
-                  null,
-                  2,
-                ),
-              );
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  action: "update",
+                  taskId: resolvedTaskId,
+                  updates: dryUpdates,
+                  next_actions: opts.setStatus
+                    ? getNextActions(
+                        opts.setStatus === "review"
+                          ? "set-status:review"
+                          : "set-status:in-progress",
+                        resolvedTaskId,
+                      )
+                    : [],
+                },
+              });
             } else {
               console.log(chalk.yellow("  [dry-run] Would update task:"));
               console.log(chalk.dim(`    id: ${resolvedTaskId}`));
@@ -2737,17 +2772,25 @@ program
               )
             : [];
           if (opts.json) {
-            console.log(
-              JSON.stringify(
-                {
-                  success: !commentError,
+            if (commentError) {
+              outputEnvelope({
+                ok: false,
+                code: "E_COMMENT_SAVE",
+                message: `Task updated, but the comment was NOT saved: ${commentError}`,
+                suggestion:
+                  'Re-add the comment with --edit <task-id> --comment "..."',
+                json: opts.json,
+              });
+            } else {
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
                   task: updated,
                   next_actions: localEditNextActions,
                 },
-                null,
-                2,
-              ),
-            );
+              });
+            }
           } else {
             console.log(chalk.green(`✓ Task updated: ${updated.title}`));
             console.log(
@@ -2788,19 +2831,23 @@ program
                   opts.commitMessage.trim(),
                 );
                 if (commitResult.ok) {
-                  console.log(
-                    chalk.green(
-                      `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
-                    ),
-                  );
-                  console.log(chalk.dim(`  sha: ${commitResult.sha}`));
+                  // Human notices only — under --json stdout already carried
+                  // the envelope; progress/failure is signalled by the exit code.
+                  if (!opts.json) {
+                    console.log(
+                      chalk.green(
+                        `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                      ),
+                    );
+                    console.log(chalk.dim(`  sha: ${commitResult.sha}`));
+                  }
 
                   if (autoSettings.autoPush) {
-                    console.log(chalk.dim("  pushing..."));
+                    if (!opts.json) console.log(chalk.dim("  pushing..."));
                     const pushed = tryAutoPush(autoDir);
                     if (pushed.ok) {
-                      console.log(chalk.green("✓ Pushed"));
-                    } else {
+                      if (!opts.json) console.log(chalk.green("✓ Pushed"));
+                    } else if (!opts.json) {
                       console.log(
                         chalk.yellow("⚠ Push failed. Run 'git push' manually."),
                       );
@@ -2818,18 +2865,20 @@ program
                   const relTaskPath = taskFilePath
                     ? relative(autoDir, taskFilePath)
                     : `.vibeflow/tasks/<date>/${taskForCommit.id}.json`;
-                  console.log(
-                    chalk.yellow(
-                      "⚠ Task WAS updated (status + comment saved), but the commit did NOT happen.",
-                    ),
-                  );
-                  console.log(
-                    chalk.dim(
-                      `  stage the task's own file, then commit manually: git add ${relTaskPath}`,
-                    ),
-                  );
-                  if (commitResult.error)
-                    console.log(chalk.dim(`  reason: ${commitResult.error}`));
+                  if (!opts.json) {
+                    console.log(
+                      chalk.yellow(
+                        "⚠ Task WAS updated (status + comment saved), but the commit did NOT happen.",
+                      ),
+                    );
+                    console.log(
+                      chalk.dim(
+                        `  stage the task's own file, then commit manually: git add ${relTaskPath}`,
+                      ),
+                    );
+                    if (commitResult.error)
+                      console.log(chalk.dim(`  reason: ${commitResult.error}`));
+                  }
                   process.exitCode = ExitCode.GENERAL;
                 }
               }
@@ -2909,18 +2958,20 @@ program
 
           if (opts.json) {
             // SAFETY: SaaS tasks have the same shape as CLI tasks for pickFields purposes
-            console.log(
-              JSON.stringify(
-                saasTasks.map((t) =>
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                tasks: saasTasks.map((t) =>
                   pickFields(
                     t as unknown as Record<string, unknown>,
                     parsedFields,
                   ),
                 ),
-                null,
-                2,
-              ),
-            );
+                // The online backend has no parent links, so nothing is hidden.
+                hiddenChildren: 0,
+              },
+            });
             return;
           }
 
@@ -3055,18 +3106,21 @@ program
 
         if (opts.json) {
           // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
-          console.log(
-            JSON.stringify(
-              filtered.map((t) =>
+          // `hiddenChildren` reports how many matching child tasks were omitted
+          // from `tasks` (root-only listing is the default; pass --children).
+          outputEnvelope({
+            ok: true,
+            json: opts.json,
+            payload: {
+              tasks: filtered.map((t) =>
                 pickFields(
                   t as unknown as Record<string, unknown>,
                   parsedFields,
                 ),
               ),
-              null,
-              2,
-            ),
-          );
+              hiddenChildren: hiddenChildCount,
+            },
+          });
           return;
         }
 
