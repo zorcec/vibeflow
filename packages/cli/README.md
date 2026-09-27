@@ -249,6 +249,12 @@ split) and the key is absent on a clean run.
 server-passthrough **string**, present only on the SaaS `--edit` payload. A consumer that branches on
 one can never trip over the other's shape.
 
+`tasks --commit --json` also carries **`autoPush: {attempted, ok, error?}`**. The auto-push runs in
+BOTH modes — `--json` suppresses its progress lines, never the push — so this is how its outcome
+reaches a machine consumer instead of as prose. `attempted: false` means there was nothing new to
+push: a linked existing commit, or `autoPush` turned off in settings. A failed push is still
+`ok:true` and exit 0, because the commit itself landed; `vibeflow push` remains the documented retry.
+
 **Breaking as of 0.18.0:** `tasks --json` used to return a bare array, `--get --json` a flat object,
 success payloads carried `success:true` instead of `ok:true`, and an auto-commit failure exited 1
 even though the task had been written. The local notice field is `notices` (an array), not `warning`.

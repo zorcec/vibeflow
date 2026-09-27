@@ -235,9 +235,24 @@ function getStatusRank(status: string): number {
   return idx === -1 ? KANBAN_STATUS_ORDER.length : idx;
 }
 
-function tryAutoPush(projectDir: string): { ok: boolean; error?: string } {
+/**
+ * Pushes, and reports how it went.
+ *
+ * `captureOutput` is what `--json` passes. Git does not confine its push
+ * chatter to stderr — `git push --set-upstream` prints "Branch 'x' set up to
+ * track 'origin/x'." on STDOUT — so an INHERITED stdio drops git's own words
+ * into the middle of the one JSON document the contract promises on stdout.
+ * Human mode keeps inheriting: watching the push is the point of it.
+ */
+function tryAutoPush(
+  projectDir: string,
+  opts: { captureOutput?: boolean } = {},
+): { ok: boolean; error?: string } {
+  const stdio: "inherit" | ["ignore", "pipe", "pipe"] = opts.captureOutput
+    ? ["ignore", "pipe", "pipe"]
+    : "inherit";
   try {
-    execFileSync("git", ["push"], { cwd: projectDir, stdio: "inherit" });
+    execFileSync("git", ["push"], { cwd: projectDir, stdio });
     return { ok: true };
   } catch {
     try {
@@ -248,12 +263,22 @@ function tryAutoPush(projectDir: string): { ok: boolean; error?: string } {
         .trim();
       execFileSync("git", ["push", "--set-upstream", "origin", branch], {
         cwd: projectDir,
-        stdio: "inherit",
+        stdio,
       });
       return { ok: true };
     } catch (err2) {
       const msg = err2 instanceof Error ? err2.message : String(err2);
-      return { ok: false, error: msg.slice(0, 220) };
+      // A captured run has no console output to read, so git's own reason is
+      // folded into the message — that string is what rides the JSON payload.
+      const stderr =
+        opts.captureOutput &&
+        typeof (err2 as { stderr?: unknown }).stderr === "string"
+          ? (err2 as { stderr: string }).stderr.trim()
+          : "";
+      return {
+        ok: false,
+        error: `${msg}${stderr ? `: ${stderr}` : ""}`.slice(0, 220),
+      };
     }
   }
 }
@@ -2197,6 +2222,24 @@ program
               console.log();
             }
 
+            // Auto-push is a best-effort VCS side-effect — the commit above
+            // already landed, and `vibeflow push` remains the documented retry.
+            // It still RUNS under `--json`: what `--json` suppresses is the
+            // human progress lines below, not the push itself (the sibling
+            // `--edit` auto-commit path works exactly this way). So the attempt
+            // happens HERE, before the envelope: a failure has to ride the
+            // payload, because printing it would be trailing garbage behind the
+            // one document the contract promises on stdout.
+            // A linked HEAD created no new commit, so there is nothing to push.
+            const commitSettings = loadSettings(projectDir);
+            const autoPush =
+              commitSettings.autoPush && !result.linkedExisting
+                ? {
+                    attempted: true,
+                    ...tryAutoPush(projectDir, { captureOutput: opts.json }),
+                  }
+                : { attempted: false, ok: true };
+
             const commitNextActions = getNextActions("commit", task.id);
             if (opts.json) {
               outputEnvelope({
@@ -2207,6 +2250,10 @@ program
                   linkedExisting: result.linkedExisting,
                   committed: result.committed,
                   leftStaged: result.foreign,
+                  // The push ran; this says how it went. `attempted: false`
+                  // covers a linked existing commit (nothing new to push) and a
+                  // store with autoPush off.
+                  autoPush,
                   next_actions: commitNextActions,
                 },
               });
@@ -2234,19 +2281,14 @@ program
               printNextHint(commitNextActions);
             }
 
-            // A linked HEAD created no new commit, so there is nothing to push.
-            // Human-mode only: this block runs AFTER the success envelope, so
-            // under `--json` its lines would be trailing garbage behind the
-            // one document the contract promises on stdout. Auto-push is a
-            // best-effort VCS side-effect — the commit itself already landed,
-            // and `vibeflow push` remains the documented retry.
-            const settings = loadSettings(projectDir);
-            if (settings.autoPush && !result.linkedExisting && !opts.json) {
+            // Human-mode only: the push itself already ran above; these lines
+            // are the progress report, and under `--json` they would be
+            // trailing garbage behind the envelope.
+            if (autoPush.attempted && !opts.json) {
               console.log(
                 chalk.dim("  auto-push: pushing commit to remote..."),
               );
-              const pushed = tryAutoPush(projectDir);
-              if (pushed.ok) {
+              if (autoPush.ok) {
                 console.log(chalk.green("✓ Auto-push complete"));
               } else {
                 console.log(
@@ -2254,8 +2296,8 @@ program
                     "⚠ Auto-push failed. Commit is local; run 'git push' manually.",
                   ),
                 );
-                if (pushed.error) {
-                  console.log(chalk.dim(`  reason: ${pushed.error}`));
+                if (autoPush.error) {
+                  console.log(chalk.dim(`  reason: ${autoPush.error}`));
                 }
               }
             }
@@ -3292,7 +3334,9 @@ program
 
                   if (autoSettings.autoPush) {
                     if (!opts.json) console.log(chalk.dim("  pushing..."));
-                    const pushed = tryAutoPush(autoDir);
+                    const pushed = tryAutoPush(autoDir, {
+                      captureOutput: opts.json,
+                    });
                     if (pushed.ok) {
                       if (!opts.json) console.log(chalk.green("✓ Pushed"));
                     } else if (!opts.json) {

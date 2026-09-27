@@ -45,6 +45,17 @@ impossible flag combination); the help block itself is unchanged in human mode. 
 exception is `tasks --next --json` on an empty board, which prints a sentence and exits 0 by a
 decision recorded in three e2e tests — documented as a bullet in the README, not as a footnote.
 
+**`--json` stopped suppressing the auto-push, which is the opposite bug.** The stdout guard above was
+first written as `settings.autoPush && !result.linkedExisting && !opts.json` — a condition on the
+`tryAutoPush` CALL, not on the `console.log` calls around it — so `tasks --commit --json` quietly
+stopped pushing. Stdout was still clean, which is exactly why nothing noticed. `--json` now suppresses
+the auto-push's progress lines only; the push runs in both modes, its outcome rides the payload as
+`autoPush: {attempted, ok, error?}`, and two e2e tests assert the OUTCOME (a real remote receives the
+commit; a real failure comes back in the payload) rather than the absence of prose. `git push` does not
+confine its chatter to stderr — `--set-upstream` prints "Branch 'x' set up to track 'origin/x'." on
+STDOUT — so under `--json` git's own output is captured instead of inherited, and its reason is folded
+into the reported error. Human mode still watches the push.
+
 **A lost `--verify-reason` is lost task data.** `--set-verify cannot --verify-reason "…"` records the
 reason as a system comment. When that write failed, the CLI printed a yellow line to stdout, set no
 exit code and reported nothing — an explicitly requested piece of task data, silently gone. It is
