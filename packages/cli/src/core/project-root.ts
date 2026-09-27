@@ -23,9 +23,18 @@ export type ProjectRootResult =
   | { ok: true; projectDir: string; name: string; branch: string | null }
   | { ok: false; code: string; message: string; suggestion: string };
 
-/** Suggestion shared by every refusal — the flag a human must pass instead. */
-const PROJECT_FLAG_HINT =
-  "Pass --project <dir> to a git repository, or to a directory that already contains .vibeflow/.";
+  /** Suggestion shared by every refusal — the flag a human must pass instead. */
+  const PROJECT_FLAG_HINT =
+    "Pass --project <dir> to a git repository, or to a directory that already contains .vibeflow/.";
+
+  /**
+   * Added when the directory *could* hold a store but has none yet. `--project`
+   * alone is a dead end for someone who wants to start working here, so name
+   * the command that actually creates `.vibeflow/` (verified: `tasks --add`
+   * creates the store in cwd).
+   */
+  const PROJECT_INIT_HINT =
+    'To start a project here, run `vibeflow tasks --add --title "first task"` — that creates the .vibeflow/ store — or `git init` to make this directory a repository.';
 
 function isDirectory(abs: string): boolean {
   try {
@@ -67,7 +76,7 @@ function validate(abs: string): ProjectRootResult {
       ok: false,
       code: "PROJECT_ROOT_NOT_A_PROJECT",
       message: `${abs} is not a vibeflow project: no .git and no .vibeflow/.`,
-      suggestion: PROJECT_FLAG_HINT,
+      suggestion: `${PROJECT_FLAG_HINT} ${PROJECT_INIT_HINT}`,
     };
   }
   return {
