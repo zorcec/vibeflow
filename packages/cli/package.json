@@ -42,7 +42,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:e2e": "npm run build:coverage-cli && vitest run --coverage --coverage.reportsDirectory=coverage/unit --coverage.reporter=json --coverage.reporter=text --coverage.thresholds.lines=0 --coverage.thresholds.functions=0 --coverage.thresholds.branches=0 --coverage.thresholds.statements=0 && rm -rf .coverage-e2e coverage/merged && mkdir -p .coverage-e2e && NODE_V8_COVERAGE=$PWD/.coverage-e2e VIBEFLOW_E2E_CLI=$PWD/.coverage-cli/index.js vitest run --config vitest.e2e.config.ts && node scripts/merge-coverage.mjs",
-    "build:coverage-cli": "tsup --config tsup.coverage.config.ts",
+    "build:coverage-cli": "node scripts/gen-overlay-css.mjs && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && tsup && tsup --config tsup.coverage.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:browser": "vitest run --config vitest.pw.config.ts",
     "check:readme-assets": "node scripts/check-readme-assets.mjs --online",

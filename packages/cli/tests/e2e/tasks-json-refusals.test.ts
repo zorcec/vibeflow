@@ -21,13 +21,16 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { spawnCli, getFreePort } from "./mcp-helpers.js";
 
 const cleanups: Array<() => void> = [];
+
+/** The package root, for resolving the `tests/e2e/…:line` provenance refs. */
+const PACKAGE_ROOT = resolve(import.meta.dirname, "../..");
 
 function freshDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -911,9 +914,21 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
   ];
 
   /** Every row is asserted the same way, so a new row cannot be weaker. */
-  function stdoutProblem(r: CliResult, label: string): string | null {
+  function stdoutProblem(
+    r: CliResult,
+    label: string,
+    expects: "payload" | "empty-allowed",
+  ): string | null {
     const trimmed = r.stdout.trim();
-    if (trimmed === "") return null;
+    if (trimmed === "") {
+      // Empty stdout is only correct where the envelope went to stderr — a
+      // refusal. On a row that is supposed to return a payload it means the
+      // command printed nothing at all, which the "empty or one document" rule
+      // alone would have waved through.
+      return expects === "payload"
+        ? `${label}: expected a JSON payload, got empty stdout`
+        : null;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(trimmed);
@@ -935,6 +950,14 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
     const store = freshDir("json-purity-store-");
     const home = freshDir("json-purity-home-");
     seedGitUser(store);
+    // A first commit, or no commit at all. The `--commit` row below resolves
+    // HEAD, and in a repo with zero commits it refuses with GIT_COMMIT_FAILED —
+    // which would make that row a refusal test in disguise that never reaches
+    // the auto-push it is named for.
+    execSync('git commit -q --allow-empty -m "init"', {
+      cwd: store,
+      stdio: "ignore",
+    });
     writeSettings(store, { autoCommit: true, autoPush: true });
     const id = await addTask(store, home, "Purity target");
     const researchId = await addTask(store, home, "Research target", [
@@ -948,21 +971,28 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
     );
     writeRawTask(store, "orphan00000000", { pretty: false, updated: false });
 
-    const table: Array<{ label: string; args: string[] }> = [
-      { label: "bare list", args: ["--json"] },
-      { label: "list filtered", args: ["--status", "todo", "--json"] },
-      { label: "bogus status filter", args: ["--status", "nope", "--json"] },
-      { label: "successful get", args: ["--get", id, "--json"] },
-      { label: "get a missing task", args: ["--get", "nosuchid", "--json"] },
-      { label: "edit with nothing to edit", args: ["--edit", "--json"] },
-      { label: "set-status done", args: ["--edit", id, "--set-status", "done", "--json"] },
+    const table: Array<{
+      label: string;
+      args: string[];
+      /** A refusal writes its envelope to stderr, so empty stdout is correct. */
+      expects: "payload" | "empty-allowed";
+    }> = [
+      { label: "bare list", args: ["--json"], expects: "payload" },
+      { label: "list filtered", args: ["--status", "todo", "--json"], expects: "payload" },
+      { label: "bogus status filter", args: ["--status", "nope", "--json"], expects: "empty-allowed" },
+      { label: "successful get", args: ["--get", id, "--json"], expects: "payload" },
+      { label: "get a missing task", args: ["--get", "nosuchid", "--json"], expects: "empty-allowed" },
+      { label: "edit with nothing to edit", args: ["--edit", "--json"], expects: "empty-allowed" },
+      { label: "set-status done", args: ["--edit", id, "--set-status", "done", "--json"], expects: "payload" },
       {
         label: "research task claimed",
         args: ["--edit", researchId, "--set-status", "in-progress", "--json"],
+        expects: "payload",
       },
       {
         label: "already in-progress",
         args: ["--edit", id, "--set-status", "in-progress", "--json"],
+        expects: "payload",
       },
       {
         label: "cannot verdict",
@@ -975,30 +1005,42 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
           "no badge here",
           "--json",
         ],
+        expects: "payload",
       },
-      { label: "next", args: ["--next", "--json"] },
-      { label: "reindex (refusal)", args: ["--reindex-sort-keys", "--json"] },
+      { label: "next", args: ["--next", "--json"], expects: "payload" },
+      { label: "reindex (refusal)", args: ["--reindex-sort-keys", "--json"], expects: "empty-allowed" },
       {
         label: "commit with auto-push on",
         args: ["--commit", "--task", id, "--message", "chore: purity", "--json"],
+        expects: "payload",
       },
       {
         label: "commit on a missing task",
         args: ["--commit", "--task", "nosuchid", "--message", "x", "--json"],
+        expects: "empty-allowed",
       },
-      { label: "report-file on a non-Research task", args: ["--edit", id, "--report-file", "r.md", "--json"] },
+      {
+        label: "report-file on a non-Research task",
+        args: ["--edit", id, "--report-file", "r.md", "--json"],
+        expects: "empty-allowed",
+      },
     ];
 
     // Collect EVERY offender rather than throwing on the first, so one run
     // reports the whole class instead of one site per run.
     const offenders: string[] = [];
-    const cases: Array<{ label: string; args: string[] }> = [
+    const cases: Array<{
+      label: string;
+      args: string[];
+      expects: "payload" | "empty-allowed";
+    }> = [
       ...table,
       // The empty board is the pinned exception: it must be checked LAST so it
       // cannot mask a regression in any ordinary row.
       {
         label: KNOWN_EXCEPTIONS[0].label,
         args: ["--next", "--json"],
+        expects: "empty-allowed",
       },
     ];
     for (const c of cases) {
@@ -1006,19 +1048,29 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
       const exception = KNOWN_EXCEPTIONS.find((e) => e.label === c.label);
       const problem = exception
         ? exception.expect(r)
-        : stdoutProblem(r, c.label);
+        : stdoutProblem(r, c.label, c.expects);
       if (problem) offenders.push(problem);
     }
     expect(offenders).toEqual([]);
 
     // A stale exception is a bug for the same reason a stale allowlist entry
     // is: it excuses a rule that now holds, and hides the next site that lands
-    // there. Provenance is part of the entry, so check it is still there.
+    // there. Provenance is part of the entry, so check the ruling it points at
+    // is STILL THERE: an exception citing a deleted or renamed test has lost
+    // the decision that authorised it. `decidedIn.length > 0` could not fail
+    // for any useful reason — the array is a literal in this file.
     for (const e of KNOWN_EXCEPTIONS) {
-      expect(
-        e.decidedIn.length,
-        `${e.label}: an exception without provenance is just a hole with a nice comment`,
-      ).toBeGreaterThan(0);
+      for (const ref of e.decidedIn) {
+        const file = /^([^:]+):/.exec(ref)?.[1];
+        expect(
+          file,
+          `${e.label}: provenance ${JSON.stringify(ref)} does not name a file:line`,
+        ).toBeTruthy();
+        expect(
+          existsSync(join(PACKAGE_ROOT, file as string)),
+          `${e.label}: provenance ${ref} points at a file that no longer exists — the decision it records is gone`,
+        ).toBe(true);
+      }
     }
   }, 120_000);
 });
