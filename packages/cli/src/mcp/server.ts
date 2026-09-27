@@ -1,7 +1,7 @@
 /**
  * MCP Server Factory
  *
- * Creates an McpServer instance with all 10 tools registered.
+ * Creates an McpServer instance with all 11 tools registered.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OperationContext, OperationResult } from "../core/operations.js";

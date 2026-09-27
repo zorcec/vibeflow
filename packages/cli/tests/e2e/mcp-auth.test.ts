@@ -155,7 +155,7 @@ describe("MCP auth", () => {
     });
     expect(list.status).toBe(200);
     const body = await list.json();
-    expect(body.result.tools.length).toBe(10);
+    expect(body.result.tools.length).toBe(11);
   });
 
   it("3: non-loopback without token → 401", async () => {
@@ -250,7 +250,7 @@ describe("MCP auth", () => {
     });
     expect(list.status).toBe(200);
     const body = await list.json();
-    expect(body.result.tools.length).toBe(10);
+    expect(body.result.tools.length).toBe(11);
   });
 
   it.skip(

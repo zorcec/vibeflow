@@ -5,11 +5,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, globSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   listTasks,
   getTask,
+  getProject,
+  type GetProjectInputType,
   createTask,
   updateTask,
   claimNextTask,
@@ -154,6 +156,39 @@ describe("get_task", () => {
     expect(result.data).toHaveProperty("id");
     expect(result.data).toHaveProperty("title");
     expect(result.data).not.toHaveProperty("description");
+  });
+});
+
+// ── get_project ─────────────────────────────────────────────────────────────
+
+describe("get_project", () => {
+  it("get_project returns name, absolute root, branch and mode", async () => {
+    const result = await getProject(ctx, {});
+    expect(result.ok).toBe(true);
+    const data = result.data!;
+    expect(data.root).toBe(resolve(testDir));
+    expect(isAbsolute(data.root)).toBe(true);
+    expect(typeof data.name).toBe("string");
+    expect(data.name.length).toBeGreaterThan(0);
+    expect(data.branch === null || typeof data.branch === "string").toBe(true);
+    expect(data.mode).toBe("local");
+  });
+
+  it("get_project root is absolute when ctx.projectDir is relative", async () => {
+    const relCtx: OperationContext = { projectDir: ".", mode: "local" };
+    const result = await getProject(relCtx, {});
+    expect(result.ok).toBe(true);
+    expect(isAbsolute(result.data!.root)).toBe(true);
+    expect(result.data!.root).toBe(resolve("."));
+  });
+
+  it("get_project ignores a caller-supplied root (no per-call root)", async () => {
+    // Model 1 invariant: the tool can only *discover* the project the server
+    // was started in — a root smuggled in through input must change nothing.
+    const input = { root: "/evil/root" } as GetProjectInputType;
+    const result = await getProject(ctx, input);
+    expect(result.ok).toBe(true);
+    expect(result.data!.root).toBe(resolve(testDir));
   });
 });
 

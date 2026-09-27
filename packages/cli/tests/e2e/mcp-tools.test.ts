@@ -1,5 +1,5 @@
 /**
- * MCP e2e — all 10 tools happy path over HTTP (spec §2.2).
+ * MCP e2e — all 11 tools happy path over HTTP (spec §2.2).
  *
  * Common contract per call: HTTP 200, JSON-RPC 2.0, content[0].text is
  * a string that JSON.parse succeeds. On-disk effects verified via
@@ -9,6 +9,7 @@
  *   createTask     → Task object (id, title, status, ...)
  *   listTasks      → { tasks: Task[], total: number }
  *   getTask        → Task object
+ *   getProject     → { root, name, branch, mode }
  *   updateTask     → Task object
  *   claimNextTask  → Task object (with author when git user seeded)
  *   addComment     → TaskComment object (id, author, text, createdAt)
@@ -636,6 +637,30 @@ describe("MCP tools happy paths", () => {
       expect((await assertJsonTextContent(set)).verified).toBe(false);
       expect(diskField(env.projectDir, task.id, "verified")).toBe(false);
       expect(hasDiskField(env.projectDir, task.id, "verified")).toBe(true);
+    });
+  });
+
+  // ── 13. get_project — the server's own resolved root ───────────────────
+
+  describe("get_project", () => {
+    it("13: get_project — returns the server's resolved root, name, branch and mode", async () => {
+      const res = await callTool(client, "get_project", {});
+      const parsed = await assertJsonTextContent(res);
+      // The root must equal the dir the server was booted with — the same
+      // path the initialize handshake announced, never a re-resolved cwd.
+      expect(parsed.root).toBe(env.projectDir);
+      expect(typeof parsed.name).toBe("string");
+      expect(parsed.name.length).toBeGreaterThan(0);
+      expect(parsed.branch === null || typeof parsed.branch === "string").toBe(
+        true,
+      );
+      expect(parsed.mode).toBe("local");
+    });
+
+    it("13a: get_project ignores a caller-supplied root (no per-call root)", async () => {
+      const res = await callTool(client, "get_project", { root: "/evil" });
+      const parsed = await assertJsonTextContent(res);
+      expect(parsed.root).toBe(env.projectDir);
     });
   });
 });

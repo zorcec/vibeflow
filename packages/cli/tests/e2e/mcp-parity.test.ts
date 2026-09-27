@@ -1,7 +1,7 @@
 /**
  * MCP e2e — MCP-from-manifest parity (spec §2.8, Phase 5-completed).
  *
- * src/mcp/server.ts registers the 10 tools FROM src/mcp/manifest.ts —
+ * src/mcp/server.ts registers the 11 tools FROM src/mcp/manifest.ts —
  * name, description, input schema (zod raw shape) and annotations are all
  * passed through at registration, so schema/key/annotation drift is
  * structurally impossible. This suite asserts that over the wire via
@@ -49,11 +49,11 @@ describe("MCP-from-manifest parity", () => {
     await env.cleanup();
   });
 
-  it("1: names parity — tools/list === manifest, exactly 10, no extras", () => {
+  it("1: names parity — tools/list === manifest, exactly 11, no extras", () => {
     const listed = tools.map((t) => t.name).sort();
     const manifestNames = manifest.map((m) => m.name).sort();
     expect(listed).toEqual(manifestNames);
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(11);
   });
 
   it("2: descriptions parity — server copies manifest descriptions verbatim", () => {
@@ -85,7 +85,18 @@ describe("MCP-from-manifest parity", () => {
     };
     for (const m of manifest) {
       const bad = invalidArgs[m.name];
-      expect(bad, `no invalid-args probe for ${m.name}`).toBeDefined();
+      if (!bad) {
+        // A tool with no documented fields (get_project) has nothing whose
+        // type could drift — but then its schema must really be empty, so a
+        // probe-less tool with properties still fails here.
+        const tool = tools.find((t) => t.name === m.name);
+        expect(tool, `tool ${m.name} missing from tools/list`).toBeDefined();
+        expect(
+          Object.keys(tool!.inputSchema?.properties ?? {}),
+          `${m.name}: no invalid-args probe exists because it documents no fields, yet its schema has properties`,
+        ).toEqual([]);
+        continue;
+      }
       const res = await callTool(client, m.name, bad);
       expect(res.status, m.name).toBe(200);
       const body = await res.json();

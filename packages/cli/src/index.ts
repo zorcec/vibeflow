@@ -22,7 +22,7 @@ import {
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import { listFiles } from "./core/files.js";
-import { readConfig } from "./core/config.js";
+import { readConfig, getCurrentBranch } from "./core/config.js";
 import {
   resolveProjectRoot,
   formatProjectRootAnnouncement,
@@ -3197,6 +3197,14 @@ program
       console.log();
 
       const projectDir = resolve(".");
+      // Additive: show the root and branch get_project reports over MCP, so
+      // the mapped CLI surface actually displays what the tool returns
+      // instead of only resolving a root it never prints.
+      console.log(chalk.dim(`  Project:  ${projectDir}`));
+      console.log(
+        chalk.dim(`  Branch:   ${getCurrentBranch(projectDir) ?? "none"}`),
+      );
+      console.log();
       const all = listTasksWithPaths(projectDir);
       if (all.length > 0) {
         const byStatus = all.reduce<Record<string, number>>((acc, t) => {
