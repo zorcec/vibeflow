@@ -209,9 +209,27 @@ vibeflow tasks --edit <id> --set-status review --set-verify pass \
 to **stdout** — `tasks` → `{ok:true, tasks:[…], hiddenChildren}`, `--get` → `{ok:true, task:{…}}`,
 `--add`/`--edit`/`--next` → `{ok:true, task:{…}, next_actions:[…]}`. Failure writes
 `{ok:false, error:{code, message, retryable, suggestion}}` to **stderr** and exits non-zero; under
-`--json` stdout carries only the envelope. **Breaking as of 0.18.0:** `tasks --json` used to return
-a bare array, `--get --json` a flat object, and success payloads carried `success:true` instead of
-`ok:true`.
+`--json` stdout carries only the envelope. **Every** non-zero exit emits that envelope — a
+refusal that printed prose left a machine consumer with empty stdout and no code. One code per
+meaning:
+
+| code | meaning | retryable |
+| --- | --- | --- |
+| `E_USAGE` | a bad flag value, or an impossible flag combination (e.g. `--report-file` without `--set-status review`, `--parent` on the online board) | no |
+| `TASK_NOT_FOUND` | the task or parent task does not exist (same code as the MCP tools) | no |
+| `E_NOT_FOUND` | something else is missing, e.g. the `--report-file` path | no |
+| `E_BACKEND_UNAVAILABLE` | a call to the online backend failed — `retryable: true` only when the host was unreachable | only when unreachable |
+| `E_NOT_AUTHENTICATED` | the online session expired — run `vibeflow login` | no |
+| `E_COMMENT_SAVE` | the task was written but its comment was not saved | no |
+| `REVIEW_COMMENT_REQUIRED`, `COMMIT_MESSAGE_REQUIRED`, `BRANCH_REQUIRED`, `VERIFY_REQUIRED`, `VERIFY_FAILED_ATTESTED`, `VERIFY_REASON_REQUIRED`, `RESEARCH_REPORT_REQUIRED`, `RESEARCH_VERIFY_NOT_ALLOWED` | review-gate refusals (see `vibeflow tasks --edit --set-status review`) | no |
+
+A failure that happens **after** the task data is safely on disk is not a refusal: the run keeps
+`ok:true` and exit code 0, and the success payload gains an optional `warning: {code, message}` —
+`GIT_COMMIT_FAILED` when the post-review auto-commit did not happen, `REINDEX_INCOMPLETE` when the
+sortKey re-keying landed but its post-assert did not pass. The key is absent on a clean run.
+**Breaking as of 0.18.0:** `tasks --json` used to return a bare array, `--get --json` a flat object,
+success payloads carried `success:true` instead of `ok:true`, and an auto-commit failure exited 1
+even though the task had been written.
 
 `vibeflow verify <id>` only collects page-health evidence (the element resolves, no new console errors); it does not set a verdict. The agent judges correctness and attests with `--set-verify` when it moves the task to review — `pass` (implemented correctly), `fail` (not correct — blocks review), or `cannot` with `--verify-reason` (unverifiable here, recorded in the task's activity).
 
