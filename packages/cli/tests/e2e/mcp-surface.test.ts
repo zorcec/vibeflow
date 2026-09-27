@@ -32,6 +32,7 @@ const COMMANDS = [
   "kanban",
   "login",
   "logout",
+  "mcp",
   "push",
   "serve",
   "status",

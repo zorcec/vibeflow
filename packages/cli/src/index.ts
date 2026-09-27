@@ -34,6 +34,7 @@ import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
 import { PROTO_DIR } from "./core/types.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
+import { runStdioMcp } from "./mcp/stdio.js";
 import {
   taskRelations,
   formatRelationsSummary,
@@ -769,6 +770,28 @@ program
       void checkForUpdates(opts.changelog !== false);
     },
   );
+
+// W4 — stdio transport. An MCP client spawns this per project, and stdout is
+// the JSON-RPC channel: the announcement goes to stderr (announceProjectRoot
+// writes to stdout and must not be used here), and neither the update notice,
+// capture(), nor flushTelemetry() may run — they are stdout-side effects of
+// the human-facing commands.
+program
+  .command("mcp")
+  .description("Run the MCP server over stdio (spawned by an MCP client)")
+  .option("--project <dir>", "Project root directory (required)")
+  .action(async (opts: { project?: string }) => {
+    const root = resolveProjectRoot(opts.project, { mode: "stdio" });
+    if (!root.ok) {
+      reportProjectRootFailure(root);
+      return;
+    }
+    process.stderr.write(
+      `${chalk.green(formatProjectRootAnnouncement(root))}\n`,
+    );
+    const mode = await getMode();
+    await runStdioMcp(root.projectDir, mode === "saas" ? "saas" : "local");
+  });
 
 program
   .command("tasks")

@@ -76,6 +76,7 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     kanban: "long-running UI server (serve + open browser); not an operation",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
+    mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
     serve: "long-running prototype/API server; not an operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     watch: "long-running task-store event daemon / JSONL stream; not an operation",

@@ -190,6 +190,7 @@ describe("MCP drift test", () => {
       "kanban",
       "login",
       "logout",
+      "mcp",
       "push",
       "serve",
       "status",
