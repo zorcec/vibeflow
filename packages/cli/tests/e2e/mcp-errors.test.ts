@@ -191,6 +191,34 @@ describe("MCP error paths", () => {
     await assertServerUsable(client);
   });
 
+  it("6b: attach_file on a nonexistent id → TASK_NOT_FOUND, no file written", async () => {
+    // Same defect shape as add_comment: only validateFilename used to run, so
+    // saveFile wrote .vibeflow/tasks/files/<unknown-id>/<name> and answered
+    // ok:true with a URL for a file belonging to a task that does not exist.
+    const parsed = await parseEnvelope(
+      await callTool(client, "attach_file", {
+        id: NONEXISTENT_ID,
+        filename: "shot.png",
+        contentB64: Buffer.from("x").toString("base64"),
+      }),
+    );
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
+    expect(
+      globSync(
+        join(
+          env.projectDir,
+          ".vibeflow",
+          "tasks",
+          "files",
+          NONEXISTENT_ID,
+          "**",
+          "*",
+        ),
+      ),
+    ).toHaveLength(0);
+    await assertServerUsable(client);
+  });
+
   it("7: attach_file path traversal → rejected, no file escapes files dir", async () => {
     const task = await assertJsonTextContent(
       await callTool(client, "create_task", { title: "attach target" }),
@@ -247,18 +275,27 @@ describe("MCP error paths", () => {
     await assertServerUsable(client);
   });
 
-  it("9: add_comment nonexistent id — PINNED: succeeds (core writes a bare entry)", async () => {
-    // BUG-BY-DESIGN: core addComment writes {id, comments:[...]} stub JSON for
-    // missing task files ("so comments still persist"), so MCP add_comment on
-    // a garbage ID silently creates a task-like stub instead of
-    // ADD_COMMENT_ERROR. Tracked as a finding in the task report.
-    const res = await callTool(client, "add_comment", {
-      id: NONEXISTENT_ID,
-      comment: "x",
-    });
-    const parsed = await assertJsonTextContent(res);
-    expect(parsed.text).toBe("x");
-    expect(parsed.author).toBe("agent");
+  it("9: add_comment nonexistent id → TASK_NOT_FOUND, no ghost task", async () => {
+    // It USED to succeed, and that was the defect this test pinned. Core
+    // addComment writes a bare {id, comments:[…]} stub for a missing task file
+    // ("so comments still persist"), so add_comment on a garbage id silently
+    // created a ghost task — title "Untitled", selector "/", status todo —
+    // carried the comment, and answered ok:true. Nothing to recover from and a
+    // board nobody asked for. The MCP tool now resolves first and refuses.
+    const parsed = await parseEnvelope(
+      await callTool(client, "add_comment", {
+        id: NONEXISTENT_ID,
+        comment: "x",
+      }),
+    );
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
+    expect(parsed.error.suggestion).toBeTruthy();
+    // The ghost is the whole point: nothing exists under that id.
+    const ghost = globSync(
+      join(env.projectDir, ".vibeflow", "tasks", "**", `${NONEXISTENT_ID}.json`),
+    );
+    expect(ghost).toHaveLength(0);
     await assertServerUsable(client);
   });
 

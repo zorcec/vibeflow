@@ -466,13 +466,23 @@ describe("add_comment", () => {
     // but it's stored correctly in the task file
   });
 
-  it("adds comment to non-existent task (creates task file)", async () => {
-    // addComment creates a task file even for non-existent tasks
+  it("refuses a non-existent task instead of creating one", async () => {
+    // It USED to succeed: core addComment writes a bare {id, comments:[…]} stub
+    // for a missing task file, so add_comment on a garbage id created a ghost
+    // task (title "Untitled", selector "/", status todo) and answered ok:true.
+    // The board gained a task nobody created, carrying a comment on it.
     const result = await addComment(ctx, {
       id: "non-existent",
       comment: "Comment",
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("TASK_NOT_FOUND");
+    // …and the ghost task is not on disk. The store is not self-healing, so
+    // this is the assertion that matters. Globbed, not a flat path: the store
+    // lays tasks out in date sub-directories.
+    expect(
+      globSync(join(testDir, ".vibeflow", "tasks", "**", "non-existent.json")),
+    ).toEqual([]);
   });
 });
 
@@ -490,6 +500,22 @@ describe("attach_file", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.data?.name).toBe("test.txt");
+  });
+
+  it("refuses a non-existent task instead of writing a file for it", async () => {
+    // Same defect shape as add_comment: validateFilename ran, then saveFile
+    // wrote .vibeflow/tasks/files/<unknown-id>/<name> and answered ok:true with
+    // a URL for a file belonging to a task that does not exist.
+    const result = await attachFile(ctx, {
+      id: "non-existent",
+      filename: "shot.png",
+      contentB64: Buffer.from("x").toString("base64"),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("TASK_NOT_FOUND");
+    expect(
+      existsSync(join(testDir, ".vibeflow", "tasks", "files", "non-existent")),
+    ).toBe(false);
   });
 });
 

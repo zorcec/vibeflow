@@ -200,7 +200,11 @@ export function validateLinkAddition({
 
 export type UpdateLinksResult =
   | { ok: true; links: TaskLink[] | undefined }
-  | { ok: false; reason: string };
+  // `code` is the producer's, for the reason stated on LinkValidationError
+  // above: the caller must not re-derive why a set was refused. Dropping it
+  // made every refusal of a dangling target read as UPDATE_TASK_ERROR, i.e.
+  // "this call was wrong", when the truth was "that task does not exist".
+  | { ok: false; reason: string; code: string };
 
 /**
  * Compute the new `links` array for `update_task` (MCP).
@@ -221,7 +225,12 @@ export function buildUpdateLinks({
   incoming: TaskLink[];
 }): UpdateLinksResult {
   const task = allTasks.find((t) => t.id === taskId);
-  if (!task) return { ok: false, reason: `Task not found: ${taskId}` };
+  if (!task)
+    return {
+      ok: false,
+      reason: `Task not found: ${taskId}`,
+      code: "TASK_NOT_FOUND",
+    };
 
   // Replace semantics: empty array clears every link.
   if (incoming.length === 0) return { ok: true, links: undefined };

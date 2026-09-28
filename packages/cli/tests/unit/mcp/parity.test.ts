@@ -30,6 +30,7 @@ import {
   addComment,
   verifyTaskOp,
   type OperationContext,
+  TASK_NOT_FOUND_SUGGESTION,
 } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
 
@@ -384,9 +385,12 @@ describe("MCP error envelope", () => {
     const withSuggestion = await callThroughServer("get_task", {
       id: "no-such-task",
     });
-    expect(withSuggestion.error.suggestion).toBe(
-      "Check the task ID and try again",
-    );
+    // ONE text for the code, from the shared constant: get_task used to be the
+    // only tool carrying a TASK_NOT_FOUND suggestion, so the same code meant
+    // two different things depending on which tool refused.
+    expect(withSuggestion.error.suggestion).toBe(TASK_NOT_FOUND_SUGGESTION);
+    expect(typeof withSuggestion.error.suggestion).toBe("string");
+    expect(withSuggestion.error.suggestion.length).toBeGreaterThan(0);
 
     createTestTask({ id: "task-1", status: "todo" });
     const withoutSuggestion = await callThroughServer("update_task", {

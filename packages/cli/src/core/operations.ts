@@ -49,15 +49,18 @@ export interface OperationNotice {
   message: string;
 }
 
+/** The refusal half of `OperationResult`, named so a helper can return one. */
+export interface OperationError {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  suggestion?: string;
+}
+
 export interface OperationResult<T> {
   ok: boolean;
   data?: T;
-  error?: {
-    code: string;
-    message: string;
-    retryable?: boolean;
-    suggestion?: string;
-  };
+  error?: OperationError;
   /**
    * Named `steps` INTERNALLY and on purpose: it is this layer's own vocabulary
    * and several call sites read it. The MCP wire key it serialises to is
@@ -66,6 +69,81 @@ export interface OperationResult<T> {
    * this file keeps the name it always had.
    */
   steps?: OperationNotice[];
+}
+
+// ── Task resolution (the one existence check) ─────────────────────────────
+
+/**
+ * The ONE `TASK_NOT_FOUND` recovery text, shared by every tool that returns
+ * that code. It used to exist on `get_task` alone, so the same code carried two
+ * different suggestions depending on which tool refused — a client could not
+ * learn the recovery once and apply it everywhere. One constant is the fix.
+ */
+export const TASK_NOT_FOUND_SUGGESTION =
+  "List the board to get a real id (list_tasks on MCP, 'vibeflow tasks' on the CLI) — a full id or a unique prefix both resolve.";
+
+export type TaskResolution =
+  | { ok: true; id: string; filePath: string; task: Task }
+  | { ok: false; error: OperationError };
+
+/**
+ * Resolve a task id to the task it names, or refuse `TASK_NOT_FOUND`.
+ *
+ * THE existence check for every task-scoped MCP mutation. It exists because
+ * three tools each rolled their own (or none at all) and the store is
+ * append-only enough that a mistake is not self-healing: `add_comment` wrote a
+ * GHOST task file for an unknown id, `attach_file` wrote a file under
+ * `.vibeflow/tasks/files/<id>/`, and each answered `ok:true`, so the agent was
+ * told the write happened and had nothing to recover from.
+ *
+ * Why a fourth tool cannot forget it:
+ *  1. id resolution already lived in two places (`getTask`, `updateTask`) with
+ *     the same prefix-tolerant rule — this helper is that rule, lifted out
+ *     rather than reinvented, so there is one implementation of "what id does
+ *     this mean", not three;
+ *  2. every mutating tool takes the RESOLVED `id` from here, never the raw
+ *     input, so a tool cannot even name a path it has not resolved;
+ *  3. `tests/e2e/mcp-mutation-refusal-guard.test.ts` enumerates the manifest's
+ *     task-write tools and sweeps each with an id that cannot exist, so a NEW
+ *     mutating tool is covered by the manifest sweep the day it is added —
+ *     a fourth tool cannot be added without the guard seeing it.
+ */
+export async function resolveTaskOrRefusal(
+  ctx: OperationContext,
+  idOrPrefix: string,
+): Promise<TaskResolution> {
+  const { findTaskFilePath, readTaskFile, resolveTaskId } = await import(
+    "../core/tasks.js"
+  );
+  // Accept a full id OR a prefix, like the CLI's `--get`/`--edit` do.
+  const id = resolveTaskId(ctx.projectDir, idOrPrefix);
+  const filePath = findTaskFilePath(ctx.projectDir, id);
+  if (!filePath) {
+    return {
+      ok: false,
+      error: {
+        code: "TASK_NOT_FOUND",
+        message: `Task not found: ${id}`,
+        suggestion: TASK_NOT_FOUND_SUGGESTION,
+      },
+    };
+  }
+  const task = readTaskFile(filePath);
+  if (!task) {
+    // The file is there but unreadable — a different problem with a different
+    // fix, so it is a different code. Kept distinct from TASK_NOT_FOUND by
+    // every task-scoped tool so one consumer can branch on it.
+    return {
+      ok: false,
+      error: {
+        code: "TASK_READ_ERROR",
+        message: `Failed to read task: ${id}`,
+        suggestion:
+          "The task file exists but did not parse — check it is valid JSON, or re-create the task",
+      },
+    };
+  }
+  return { ok: true, id, filePath, task };
 }
 
 // ── Dry run ────────────────────────────────────────────────────────────────
@@ -313,34 +391,12 @@ export async function getTask(
   input: GetTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { findTaskFilePath, readTaskFile, resolveTaskId } = await import(
-      "../core/tasks.js"
-    );
-    // Accept a full id OR a prefix, like the CLI's `--get` does. Without this
-    // the MCP path was exact-match only and every prefix length returned
-    // TASK_NOT_FOUND.
-    const id = resolveTaskId(ctx.projectDir, input.id);
-    const filePath = findTaskFilePath(ctx.projectDir, id);
-    if (!filePath) {
-      return {
-        ok: false,
-        error: {
-          code: "TASK_NOT_FOUND",
-          message: `Task not found: ${id}`,
-          suggestion: "Check the task ID and try again",
-        },
-      };
-    }
-    const task = readTaskFile(filePath);
-    if (!task) {
-      return {
-        ok: false,
-        error: {
-          code: "TASK_READ_ERROR",
-          message: `Failed to read task: ${id}`,
-        },
-      };
-    }
+    // Existence check FIRST, from the one shared resolver — see
+    // resolveTaskOrRefusal. get_task used to inline this, and add_comment /
+    // attach_file had no equivalent, which is how a ghost task got written.
+    const resolved = await resolveTaskOrRefusal(ctx, input.id);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+    const { task } = resolved;
 
     // Derive relations (parent/children/other) for ergonomic MCP access.
     const { taskRelations } = await import("../core/task-links.js");
@@ -490,23 +546,11 @@ export async function updateTask(
   input: UpdateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { findTaskFilePath, readTaskFile, resolveTaskId } = await import(
-      "../core/tasks.js"
-    );
-    // Accept a full id OR a prefix, like the CLI's `--edit` does; the resolved
-    // id drives the lookup, the write and the error wording below.
-    const id = resolveTaskId(ctx.projectDir, input.id);
-    const filePath = findTaskFilePath(ctx.projectDir, id);
-    const existingTask = filePath ? readTaskFile(filePath) : null;
-    if (!existingTask) {
-      return {
-        ok: false,
-        error: {
-          code: "TASK_NOT_FOUND",
-          message: `Task not found: ${id}`,
-        },
-      };
-    }
+    // Existence check FIRST, from the one shared resolver. A task-scoped
+    // mutation must never reach its write without this.
+    const resolved = await resolveTaskOrRefusal(ctx, input.id);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+    const { id, task: existingTask } = resolved;
 
     // Attestation is resolved ONCE, before the review gate and before any
     // write, exactly as the CLI's --edit path does (src/index.ts). The CLI
@@ -597,9 +641,20 @@ export async function updateTask(
         incoming: input.links!,
       });
       if (!linksResult.ok) {
+        // The producer's code, not a blanket UPDATE_TASK_ERROR: a link that
+        // targets a task that does not exist IS TASK_NOT_FOUND, and reporting
+        // it as a generic error told the agent the CALL was wrong rather than
+        // the target. `reason` stays the message verbatim.
         return {
           ok: false,
-          error: { code: "UPDATE_TASK_ERROR", message: linksResult.reason },
+          error: {
+            code: linksResult.code,
+            message: linksResult.reason,
+            suggestion:
+              linksResult.code === "TASK_NOT_FOUND"
+                ? TASK_NOT_FOUND_SUGGESTION
+                : "The link set was refused as invalid — fix what the message names, and resend the whole `links` array (it REPLACES the current set, so an empty array clears every link)",
+          },
         };
       }
       linksUpdate = linksResult.links;
@@ -654,6 +709,7 @@ export async function updateTask(
         error: {
           code: "TASK_NOT_FOUND",
           message: `Task not found: ${id}`,
+          suggestion: TASK_NOT_FOUND_SUGGESTION,
         },
       };
     }
@@ -806,6 +862,12 @@ export async function addComment(
   input: AddCommentInputType,
 ): Promise<OperationResult<TaskComment>> {
   try {
+    // Existence check FIRST: a comment on a task that is not there used to
+    // CREATE that task (title "Untitled", selector "/", status todo) and answer
+    // ok:true — a ghost task on the board that no agent asked for and that the
+    // CLI refuses to edit.
+    const resolved = await resolveTaskOrRefusal(ctx, input.id);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
     if (isDryRun(ctx, input)) {
       return {
         ok: true,
@@ -819,9 +881,11 @@ export async function addComment(
       };
     }
     const { addComment: coreAddComment } = await import("../core/comments.js");
+    // The RESOLVED id, never input.id: prefix tolerance and the existence
+    // check are decided once, here.
     const comment = await coreAddComment(
       ctx.projectDir,
-      input.id,
+      resolved.id,
       input.author,
       input.comment,
     );
@@ -843,6 +907,11 @@ export async function attachFile(
 ): Promise<OperationResult<FileInfo>> {
   try {
     const { saveFile, validateFilename } = await import("../core/files.js");
+    // Existence check FIRST. Without it an unknown id still wrote
+    // `.vibeflow/tasks/files/<id>/<name>` and answered ok:true with a URL for
+    // a file belonging to a task that does not exist.
+    const resolved = await resolveTaskOrRefusal(ctx, input.id);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
     const buffer = Buffer.from(input.contentB64, "base64");
     // Gate BEFORE saveFile — reject manifest files, invalid extensions, oversized uploads
     const validation = validateFilename(input.filename, buffer.length);
@@ -858,13 +927,18 @@ export async function attachFile(
         data: {
           name: basename(input.filename),
           size: buffer.length,
-          url: `/api/tasks/${input.id}/files/${encodeURIComponent(basename(input.filename))}`,
+          url: `/api/tasks/${resolved.id}/files/${encodeURIComponent(basename(input.filename))}`,
         },
         steps: [{ code: "DRY_RUN", message: "File would be attached" }],
       };
     }
 
-    const info = saveFile(ctx.projectDir, input.id, input.filename, buffer);
+    const info = saveFile(
+      ctx.projectDir,
+      resolved.id,
+      input.filename,
+      buffer,
+    );
     return { ok: true, data: info };
   } catch (err) {
     return {
@@ -899,6 +973,7 @@ export async function exportPrompt(
           error: {
             code: "TASK_NOT_FOUND",
             message: `Task not found: ${input.id}`,
+            suggestion: TASK_NOT_FOUND_SUGGESTION,
           },
         };
       }
@@ -909,6 +984,8 @@ export async function exportPrompt(
           error: {
             code: "TASK_READ_ERROR",
             message: `Failed to read task: ${input.id}`,
+            suggestion:
+              "The task file exists but did not parse — check it is valid JSON, or re-create the task",
           },
         };
       }
