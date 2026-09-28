@@ -51,36 +51,43 @@ export function createMcpServer(
 /**
  * The success wire payload.
  *
- * A plain read has no `steps`, so its payload is the operation's data verbatim
+ * A plain read has no notices, so its payload is the operation's data verbatim
  * — the 11 tools' existing success shapes do not churn. An operation that DOES
- * return `steps` (every dry-run preview, and the review auto-commit report)
- * gets them as a sibling key on that same object.
+ * return notices (every dry-run preview, and the review auto-commit report)
+ * gets them as a sibling `notices` key on that same object.
  *
  * Two properties this buys, both of which the previous `JSON.stringify(result.
  * data)` lacked:
- *  - a preview is unmistakably a preview: `steps` reads
- *    ["Dry run: task would be updated"], so a client can never mistake an
- *    `attach_file {dryRun:true}` for a write that happened;
- *  - `steps` is never silently dropped: a review transition whose auto-commit
- *    FAILED still answers ok:true, and "Commit failed: …" is the only signal
- *    the client gets that nothing was committed.
+ *  - a preview is unmistakably a preview: `notices` carries
+ *    `{code:"DRY_RUN", message:"Task would be updated"}`, so a client can
+ *    never mistake an `attach_file {dryRun:true}` for a write that happened;
+ *  - notices are never silently dropped: a review transition whose auto-commit
+ *    FAILED still answers ok:true, and `{code:"GIT_COMMIT_FAILED", …}` is the
+ *    only signal the client gets that nothing was committed.
+ *
+ * The key is `notices`, NOT `steps`: the CLI has emitted `notices:
+ * [{code, message}]` on its own `--json` payloads for a while, and one parser
+ * has to read both surfaces. `OperationResult.steps` keeps its internal name —
+ * only the wire key changed. (`PushResult` carried a second, nested `steps`
+ * string array on the push_tasks payload; that is gone too, so no path emits
+ * a bare string or a `steps` key.)
  */
 function successPayload<T>(result: OperationResult<T>): unknown {
   // `?? null`: a tool may legitimately return void (push() exits with no value
-  // on early paths). JSON.stringify(undefined) is undefined, which violates
-  // the MCP TextContent contract (text: string) — null serialises to a valid
-  // JSON string.
+  // on early paths), and an empty board's claim is `ok:true` with no data.
+  // JSON.stringify(undefined) is undefined, which violates the MCP TextContent
+  // contract (text: string) — null serialises to a valid JSON string.
   const data = result.data ?? null;
-  const steps = result.steps ?? [];
-  if (steps.length === 0) return data;
+  const notices = result.steps ?? [];
+  if (notices.length === 0) return data;
   if (data !== null && typeof data === "object" && !Array.isArray(data)) {
-    return { ...(data as Record<string, unknown>), steps };
+    return { ...(data as Record<string, unknown>), notices };
   }
-  // Every operation that returns `steps` returns an object payload (a Task, a
+  // Every operation that returns notices returns an object payload (a Task, a
   // TaskComment, a FileInfo, a push result). The branch below is the total
-  // case, so a future operation pairing `steps` with a scalar cannot lose
+  // case, so a future operation pairing notices with a scalar cannot lose
   // either half on the wire.
-  return { data, steps };
+  return { data, notices };
 }
 
 function formatResult<T>(result: OperationResult<T>): {

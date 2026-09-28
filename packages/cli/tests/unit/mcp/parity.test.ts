@@ -223,7 +223,9 @@ describe("verify_task dryRun", () => {
     });
 
     expect(result.ok, JSON.stringify(result.error)).toBe(true);
-    expect(result.steps).toEqual(["Dry run: verification would run"]);
+    expect(result.steps).toEqual([
+      { code: "DRY_RUN", message: "Verification would run" },
+    ]);
     expect((result.data as Task).id).toBe("task-1");
     expect(verifyEngine.verifyTask).not.toHaveBeenCalled();
     expect(verifyEngine.addVerifySystemComment).not.toHaveBeenCalled();
@@ -403,9 +405,9 @@ describe("MCP error envelope", () => {
   });
 });
 
-// ── 1c. The wire payload: a preview is a preview, steps are never dropped ──
+// ── 1c. The wire payload: a preview is a preview, notices are never dropped ──
 
-describe("success payload carries steps", () => {
+describe("success payload carries notices", () => {
   it("update_task dryRun returns a payload marked as a preview", async () => {
     createTestTask({ id: "task-1", status: "todo" });
     const before = snapshotTaskStore();
@@ -422,7 +424,9 @@ describe("success payload carries steps", () => {
     // … plus the marker that makes it UNMISTAKABLY a preview. Without it the
     // payload was byte-identical to a real write's and the client could not
     // tell "nothing was written" from "it was written".
-    expect(parsed.steps).toEqual(["Dry run: task would be updated"]);
+    expect(parsed.notices).toEqual([
+      { code: "DRY_RUN", message: "Task would be updated" },
+    ]);
     expect(snapshotTaskStore()).toEqual(before);
   });
 
@@ -440,8 +444,10 @@ describe("success payload carries steps", () => {
     expect(preview.name).toBe("shot.png");
     expect(preview.size).toBe(5);
     expect(typeof preview.url).toBe("string");
-    // … and only `steps` separates the two.
-    expect(preview.steps).toEqual(["Dry run: file would be attached"]);
+    // … and only `notices` separates the two.
+    expect(preview.notices).toEqual([
+      { code: "DRY_RUN", message: "File would be attached" },
+    ]);
 
     const real = await callThroughServer("attach_file", {
       id: "task-1",
@@ -449,7 +455,7 @@ describe("success payload carries steps", () => {
       contentB64,
     });
     expect(real.name).toBe("shot.png");
-    expect(real.steps).toBeUndefined();
+    expect(real.notices).toBeUndefined();
   });
 
   it("create_task dryRun is distinguishable from the real create", async () => {
@@ -459,30 +465,32 @@ describe("success payload carries steps", () => {
     });
     expect(preview.title).toBe("Preview only");
     expect(preview.id).toBe("dry-run");
-    expect(preview.steps).toEqual(["Dry run: task would be created"]);
+    expect(preview.notices).toEqual([
+      { code: "DRY_RUN", message: "Task would be created" },
+    ]);
 
     const real = await callThroughServer("create_task", { title: "For real" });
     expect(real.id).not.toBe("dry-run");
-    expect(real.steps).toBeUndefined();
+    expect(real.notices).toBeUndefined();
   });
 
-  it("a plain read's payload is untouched — no steps key added", async () => {
+  it("a plain read's payload is untouched — no notices key added", async () => {
     createTestTask({ id: "task-1", title: "Read me" });
     const parsed = await callThroughServer("get_task", { id: "task-1" });
-    expect("steps" in parsed).toBe(false);
+    expect("notices" in parsed).toBe(false);
     expect(parsed.title).toBe("Read me");
 
     const listed = await callThroughServer("list_tasks", {});
-    expect("steps" in listed).toBe(false);
+    expect("notices" in listed).toBe(false);
   });
 
-  it("a failed auto-commit's steps reach the client", async () => {
+  it("a failed auto-commit's notices reach the client", async () => {
     // autoCommit ON in a REAL git repo with nothing staged for this task, so
     // commitTaskChanges fails the way it does in practice (a real refusal, not
     // a "not a git repository" exec error). The update itself succeeds, so ok
     // is still absent from the payload; the ONLY signal that nothing was
-    // committed is `steps`, and dropping it (the previous serialisation) told
-    // the client the commit had happened.
+    // committed is `notices`, and dropping it (the previous serialisation)
+    // told the client the commit had happened.
     writeSettings({ autoCommit: true, createBranch: false, requireVerifyBeforeReview: false });
     createTestTask({ id: "task-1", status: "in-progress" });
     execFileSync("git", ["init", "-q"], { cwd: testDir, stdio: "ignore" });
@@ -504,10 +512,90 @@ describe("success payload carries steps", () => {
 
     expect(parsed.ok).toBeUndefined();
     expect(parsed.status).toBe("review");
-    expect(Array.isArray(parsed.steps)).toBe(true);
-    expect((parsed.steps as string[])[0]).toMatch(/^Commit failed: /);
+    expect(Array.isArray(parsed.notices)).toBe(true);
+    // The CLI emits the same code for this exact situation.
+    expect((parsed.notices as Array<{ code: string }>)[0].code).toBe(
+      "GIT_COMMIT_FAILED",
+    );
   });
+
+  // ── The wire contract: one field, one shape, on EVERY tool ────────────────
+
+  /**
+   * Sweep every tool that can emit a notice, through the real server, and
+   * assert the two invariants a single parser depends on:
+   *   1. the wire NEVER carries a `steps` key — the old name, which the CLI
+   *      has never used, would send a consumer to two parsers;
+   *   2. every `notices` entry is an OBJECT with string `code` and `message` —
+   *      the old dry-run previews were bare strings.
+   */
+  it("the wire never carries `steps`, and every notice is a {code,message} object", async () => {
+    createTestTask({ id: "task-1", status: "in-progress" });
+    const b64 = Buffer.from("hello").toString("base64");
+    const probes: Array<{ tool: string; input: Record<string, unknown> }> = [
+      { tool: "get_task", input: { id: "task-1" } },
+      { tool: "list_tasks", input: {} },
+      { tool: "get_project", input: {} },
+      { tool: "create_task", input: { title: "P", dryRun: true } },
+      { tool: "update_task", input: { id: "task-1", status: "todo", dryRun: true } },
+      { tool: "claim_next_task", input: { dryRun: true } },
+      { tool: "add_comment", input: { id: "task-1", comment: "c", dryRun: true } },
+      {
+        tool: "attach_file",
+        input: { id: "task-1", filename: "probe.png", contentB64: b64, dryRun: true },
+      },
+      { tool: "export_prompt", input: { id: "task-1" } },
+      { tool: "push_tasks", input: { dryRun: true } },
+    ];
+
+    const offenders: string[] = [];
+    let noticesSeen = 0;
+    for (const p of probes) {
+      const parsed = await callThroughServer(p.tool, p.input);
+      // Recursive: `steps` could hide anywhere in the payload (push_tasks used
+      // to nest one inside its own data object). A `null` payload (a claim on
+      // an empty board) carries nothing at all, so there is nothing to find.
+      const withSteps = parsed === null ? [] : findStepKeys(parsed);
+      if (withSteps.length > 0) {
+        offenders.push(`${p.tool}: wire carries a \`steps\` key at ${withSteps.join(", ")}`);
+      }
+      const notices =
+        parsed === null ? undefined : (parsed as { notices?: unknown }).notices;
+      if (notices === undefined) continue;
+      noticesSeen++;
+      if (!Array.isArray(notices)) {
+        offenders.push(`${p.tool}: notices is ${typeof notices}, not an array`);
+        continue;
+      }
+      for (const n of notices as Array<Record<string, unknown>>) {
+        if (typeof n !== "object" || n === null || Array.isArray(n)) {
+          offenders.push(`${p.tool}: notices entry ${JSON.stringify(n)} is not an object`);
+          continue;
+        }
+        if (typeof n.code !== "string" || typeof n.message !== "string") {
+          offenders.push(
+            `${p.tool}: notices entry ${JSON.stringify(n)} lacks string code/message`,
+          );
+        }
+      }
+    }
+    // The sweep is only meaningful if it actually met notices on the wire.
+    expect(noticesSeen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  }, 60_000);
 });
+
+/** Every path through `value` whose key is `steps`. */
+function findStepKeys(value: unknown, path = "$"): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => findStepKeys(v, `${path}[${i}]`));
+  }
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([k, v]) => [
+    ...(k === "steps" ? [path] : []),
+    ...findStepKeys(v, `${path}.${k}`),
+  ]);
+}
 
 // ── 1d. verify_task's preview refuses an unresolvable id like the real path ─
 

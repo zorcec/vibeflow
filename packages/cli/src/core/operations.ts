@@ -34,6 +34,20 @@ export interface OperationContext {
 
 // ── Result wrapper ─────────────────────────────────────────────────────────
 
+/**
+ * A note about work that is NOT a failure but the caller must know about: a
+ * dry-run preview ("nothing was written"), a post-review auto-commit report,
+ * "there was nothing to push".
+ *
+ * This is the same `{code, message}` shape the CLI puts on its `notices`
+ * array, so one parser reads both surfaces. It is deliberately NOT the online
+ * board's `warning` passthrough, which is a bare server-provided STRING.
+ */
+export interface OperationNotice {
+  code: string;
+  message: string;
+}
+
 export interface OperationResult<T> {
   ok: boolean;
   data?: T;
@@ -43,7 +57,14 @@ export interface OperationResult<T> {
     retryable?: boolean;
     suggestion?: string;
   };
-  steps?: string[];
+  /**
+   * Named `steps` INTERNALLY and on purpose: it is this layer's own vocabulary
+   * and several call sites read it. The MCP wire key it serialises to is
+   * `notices` (see `successPayload` in src/mcp/server.ts) — the rename is a
+   * wire change only, so the two surfaces say `notices` to a consumer while
+   * this file keeps the name it always had.
+   */
+  steps?: OperationNotice[];
 }
 
 // ── Dry run ────────────────────────────────────────────────────────────────
@@ -429,7 +450,7 @@ export async function createTask(
           created: new Date().toISOString(),
           ...(links ? { links } : {}),
         } as Task,
-        steps: ["Dry run: task would be created"],
+        steps: [{ code: "DRY_RUN", message: "Task would be created" }],
       };
     }
 
@@ -588,7 +609,7 @@ export async function updateTask(
       return {
         ok: true,
         data: existingTask,
-        steps: ["Dry run: task would be updated"],
+        steps: [{ code: "DRY_RUN", message: "Task would be updated" }],
       };
     }
 
@@ -657,8 +678,12 @@ export async function updateTask(
       );
     }
 
-    // Auto-commit after review transition (parity with CLI auto-commit path)
-    const steps: string[] = [];
+    // Auto-commit after review transition (parity with CLI auto-commit path).
+    // The codes are the CLI's own (`notices[].code`), so a consumer reading
+    // either surface branches on the same string. The CLI emits no notice for
+    // a commit that SUCCEEDED; the MCP tool always says which happened,
+    // because here the notice is the only signal at all.
+    const steps: OperationNotice[] = [];
     if (input.status === "review" && input.commitMessage) {
       const { loadSettings } = await import("../core/settings.js");
       const { commitTaskChanges } = await import("../core/git.js");
@@ -670,9 +695,15 @@ export async function updateTask(
           input.commitMessage,
         );
         if (commitResult.ok) {
-          steps.push(`Committed: ${commitResult.sha}`);
+          steps.push({
+            code: "GIT_COMMITTED",
+            message: commitResult.sha,
+          });
         } else {
-          steps.push(`Commit failed: ${commitResult.error}`);
+          steps.push({
+            code: "GIT_COMMIT_FAILED",
+            message: commitResult.error,
+          });
         }
       }
     }
@@ -721,7 +752,7 @@ export async function claimNextTask(
       return {
         ok: true,
         data: tasks[0],
-        steps: ["Dry run: task would be claimed"],
+        steps: [{ code: "DRY_RUN", message: "Task would be claimed" }],
       };
     }
 
@@ -775,7 +806,7 @@ export async function addComment(
           text: input.comment,
           createdAt: new Date().toISOString(),
         },
-        steps: ["Dry run: comment would be added"],
+        steps: [{ code: "DRY_RUN", message: "Comment would be added" }],
       };
     }
     const { addComment: coreAddComment } = await import("../core/comments.js");
@@ -820,7 +851,7 @@ export async function attachFile(
           size: buffer.length,
           url: `/api/tasks/${input.id}/files/${encodeURIComponent(basename(input.filename))}`,
         },
-        steps: ["Dry run: file would be attached"],
+        steps: [{ code: "DRY_RUN", message: "File would be attached" }],
       };
     }
 
@@ -979,7 +1010,7 @@ export async function verifyTaskOp(
     return {
       ok: true,
       data: task,
-      steps: ["Dry run: verification would run"],
+      steps: [{ code: "DRY_RUN", message: "Verification would run" }],
     };
   }
   return withVerifySemaphore(async () => {

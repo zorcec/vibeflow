@@ -8,6 +8,7 @@ import { readWorkspace } from "../auth/workspace.js";
 import { login } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
+import type { OperationNotice } from "../core/operations.js";
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
@@ -115,7 +116,13 @@ export interface PushResult {
   tasks: number;
   files: number;
   board?: string;
-  steps: string[];
+  /**
+   * Named `notices`, not `steps`: this object IS the push_tasks wire payload,
+   * so a `steps` key here would be the one place the MCP surface still used
+   * the old name, and its values were bare strings. Same `{code, message}`
+   * objects the CLI emits.
+   */
+  notices: OperationNotice[];
 }
 
 export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean }): Promise<PushResult | void> {
@@ -125,7 +132,14 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   if (taskList.length === 0) {
     // Stryker disable once StringLiteral: display message for no tasks
     console.log(chalk.dim("  No local tasks found. Nothing to push."));
-    return { dryRun: !!opts.dryRun, tasks: 0, files: 0, steps: ["No tasks"] };
+    return {
+      dryRun: !!opts.dryRun,
+      tasks: 0,
+      files: 0,
+      notices: [
+        { code: "NOTHING_TO_PUSH", message: "No local tasks found" },
+      ],
+    };
   }
 
   // Count files that would be uploaded
@@ -151,7 +165,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       tasks: taskList.length,
       files: fileCount,
       board: boardLabel,
-      steps: ["Dry run: no changes made"],
+      notices: [{ code: "DRY_RUN", message: "No changes were made" }],
     };
   }
 
@@ -270,6 +284,6 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     console.log(chalk.dim(`  Cleaned ${orphanDirsRemoved} orphaned asset dir(s).`));
   }
 
-  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, steps: ["Push completed"] };
+  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices: [{ code: "PUSH_COMPLETED", message: "Push completed" }] };
 }
 

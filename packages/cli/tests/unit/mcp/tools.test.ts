@@ -214,7 +214,9 @@ describe("create_task", () => {
     );
     expect(result.ok).toBe(true);
     expect(result.data?.id).toBe("dry-run");
-    expect(result.steps).toContain("Dry run: task would be created");
+    expect(result.steps).toEqual([
+      { code: "DRY_RUN", message: "Task would be created" },
+    ]);
   });
 
   it("creates task with custom fields", async () => {
@@ -273,7 +275,9 @@ describe("update_task", () => {
       { id: "task-1", status: "done" },
     );
     expect(result.ok).toBe(true);
-    expect(result.steps).toContain("Dry run: task would be updated");
+    expect(result.steps).toEqual([
+      { code: "DRY_RUN", message: "Task would be updated" },
+    ]);
   });
 
   // Tri-state parity with the CLI: setVerify "cannot" CLEARS the verdict
@@ -376,7 +380,9 @@ describe("claim_next_task", () => {
     );
     expect(result.ok).toBe(true);
     expect(result.data?.status).toBe("todo"); // Not actually changed
-    expect(result.steps).toContain("Dry run: task would be claimed");
+    expect(result.steps).toEqual([
+      { code: "DRY_RUN", message: "Task would be claimed" },
+    ]);
   });
 });
 
