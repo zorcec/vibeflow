@@ -523,4 +523,53 @@ describe("MCP update_task gates", () => {
     expect(parsed.status).toBe("done");
     expect(readGateTaskFromDisk(task.id).status).toBe("done");
   });
+
+  it("6: Research reaches review over MCP only — attach_file with a .md is the recovery", async () => {
+    // Gate 5: a Research task with no .md attached is refused review. The
+    // recovery a CLIENT can perform is attach_file — there is no --report-file
+    // on this surface — so the whole path is pinned end to end here, with no
+    // CLI process anywhere. dryRun:true on both transitions exercises the gate
+    // without moving the task.
+    const task = await assertJsonTextContent(
+      await callTool(client, "create_task", {
+        title: "research report gate",
+        type: "Research",
+      }),
+    );
+    const toReview = {
+      id: task.id,
+      status: "review",
+      comment: "report attached",
+      dryRun: true,
+    };
+
+    const refused = await parseEnvelope(
+      await callTool(client, "update_task", toReview),
+    );
+    expect(refused.ok).toBe(false);
+    expect(refused.error.code).toBe("RESEARCH_REPORT_REQUIRED");
+
+    await assertJsonTextContent(
+      await callTool(client, "attach_file", {
+        id: task.id,
+        filename: "research-report.md",
+        contentB64: Buffer.from("# Research report\n").toString("base64"),
+      }),
+    );
+
+    // The SAME transition now passes — the .md is what changed.
+    // The SAME transition now passes — the .md is what changed. A success
+    // payload here is the task itself (no ok field), so the acceptance is
+    // "no refusal envelope" plus the attached .md being on the record.
+    const accepted = await parseEnvelope(
+      await callTool(client, "update_task", toReview),
+    );
+    expect(accepted.error).toBeUndefined();
+    expect(accepted.ok).not.toBe(false);
+    expect(
+      (accepted.files ?? []).some((f: any) => f.name === "research-report.md"),
+    ).toBe(true);
+    // dryRun wrote nothing: the acceptance is the gate, not a status change.
+    expect(readGateTaskFromDisk(task.id).status).toBe("todo");
+  });
 });
