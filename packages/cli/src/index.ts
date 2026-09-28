@@ -387,21 +387,6 @@ function printNextHint(actions: string[]): void {
   console.log(chalk.cyan(`  → Next: ${hint}`));
 }
 
-/**
- * The `--json` answer for `--next` when there is nothing to hand out — an
- * empty board, or a valid filter that matched no todo task. Both are the SAME
- * situation and deliberately share one payload, so a consumer never has to
- * know which filters it passed.
- *
- * It mirrors a successful claim key for key: `{ok:true, task, next_actions}`.
- * `task: null` is the branch — a claimed task is always an object, so
- * `task === null` answers "did I get a task?" without parsing prose.
- * `next_actions` is `[]` because there is no task to hint about.
- *
- * This is a SUCCESS (exit 0, stdout, `ok:true`), not a refusal: "no work
- * available" is not an error, and it is the same answer on the MCP surface
- * (`claim_next_task` returns a null payload rather than a failure).
- */
 /** Trim and lowercase a filter string for case-insensitive comparison. */
 const normalizeFilterValue = (value: string): string =>
   value.trim().toLowerCase();

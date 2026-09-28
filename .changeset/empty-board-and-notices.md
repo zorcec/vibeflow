@@ -16,9 +16,10 @@ Both are now a success, and they answer identically:
 - `tasks --next --json` on an empty board writes `{ok:true, task:null, next_actions:[]}` to **stdout**,
   writes **nothing** to stderr, and exits **0**. The key set is the successful claim's own key set, so
   `task === null` is the branch — a claimed task is always an object.
-- A valid filter that matched no todo task (`--type Bug`, `--user`, `--tag`) is the **same situation**
+- A valid filter that matched no todo task (`--type Bug`, `--tag`) is the **same situation**
   and now gets the same payload on both surfaces. It was never a special case on the CLI, and it is
-  not one on MCP either.
+  not one on MCP either. (`--user` is unchanged and still refuses with `E_USAGE`: `--next` validates
+  it against an author list it does not build, so it never reaches this payload at all.)
 - `claim_next_task` returns `ok` with a payload of **`null`** instead of an error envelope. A claim's
   payload is the `Task` itself, so an object means claimed and `null` means there was nothing to
   claim. The `dryRun` preview returns the same thing, so a preview cannot disagree with the real call.

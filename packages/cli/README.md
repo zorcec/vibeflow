@@ -234,13 +234,18 @@ stdout and no code. Under `--json`, stdout is **empty or exactly one JSON docume
 with no exceptions.
 
 **"Nothing to work on" is a success.** `--next` on an empty board — or with a valid filter
-(`--type Bug`, `--user`, `--tag`) that matched no todo task — writes
+(`--type Bug`, `--tag`) that matched no todo task — writes
 `{ok:true, task:null, next_actions:[]}` to stdout and exits **0**. The key set is the same as a
 successful claim's, so `task === null` is the branch: a claimed task is always an object. A filter that
 matched nothing is the *same* situation as an empty board, not a special case. Without `--json` the
 sentence `No todo tasks found. Nothing to work on.` and exit 0 are unchanged. The MCP tool
 `claim_next_task` answers the identical situation the same way — see below. (This reverses an earlier
 ruling that printed the sentence under `--json`; `NO_TASKS_AVAILABLE` no longer exists.)
+
+`--user` is the exception and always was: `tasks --next --user …` refuses with `E_USAGE` (exit 2)
+rather than reporting an empty board, because the filter is validated against a candidate-author list
+that `--next` does not build. That refusal is pre-existing behaviour, unchanged by the empty-board
+success above.
 
 One code per meaning:
 
