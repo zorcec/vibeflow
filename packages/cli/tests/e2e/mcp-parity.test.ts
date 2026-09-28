@@ -65,6 +65,17 @@ describe("MCP-from-manifest parity", () => {
     }
   });
 
+  it("2b: attach_file description names the research-report recovery", () => {
+    // A description is the ONLY documentation an MCP client gets, and
+    // RESEARCH_REPORT_REQUIRED refuses a Research task with no .md attached.
+    // The recovery is attach_file, so the wire text must say so — equality
+    // with the manifest (2 above) cannot catch a manifest that never said it.
+    const listed = tools.find((t) => t.name === "attach_file")?.description ?? "";
+    expect(listed).toContain(".md");
+    expect(listed).toContain("RESEARCH_REPORT_REQUIRED");
+    expect(listed).toContain("Research");
+  });
+
   it("3: light schema check — invalid documented field rejected with -32602", async () => {
     // One intentionally invalid documented field per tool: if the server
     // ACCEPTS it, the HTTP schema drifted from the manifest-documented shape.

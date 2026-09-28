@@ -134,7 +134,7 @@ export function checkReviewTransition(
         message:
           "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
         suggestion:
-          "Drop --set-verify; submit the Research task with its .md report instead",
+          "Drop --set-verify; submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI) instead",
       };
     }
   } else {
@@ -219,8 +219,11 @@ export function checkReviewTransition(
         code: "RESEARCH_REPORT_REQUIRED",
         message:
           "Cannot mark Research task as review: no .md report file attached",
+        // Both surfaces reach this gate, so the suggestion names both routes:
+        // --report-file is CLI-only, and an MCP client has no such flag — its
+        // recovery is attach_file with a .md filename.
         suggestion:
-          "Provide a research report with --report-file ./my-report.md",
+          "Provide a research report: attach a .md file with attach_file (MCP) or pass --report-file ./my-report.md (CLI)",
       };
     }
   }

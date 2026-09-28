@@ -266,7 +266,11 @@ export const manifest: ToolManifest[] = [
   {
     name: "attach_file",
     title: "Attach file",
-    description: "Attach a file to a task (content as base64).",
+    // The .md/Research role is stated HERE because this description is what a
+    // client reads: it is the only place a refused agent learns that
+    // attach_file is the recovery path for RESEARCH_REPORT_REQUIRED.
+    description:
+      "Attach a file to a task (content as base64). A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal.",
     cliRef: {
       command: "tasks",
       flags: ["--report-file"],
