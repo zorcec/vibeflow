@@ -131,6 +131,9 @@ export async function verifyTask(
     throw new VerifyError(
       "E_NO_BASELINE",
       "Task has no baseline. Re-annotate to capture one.",
+      // verify can only compare against a baseline it captured, so this refusal
+      // is not retryable as-is — the recovery is to produce the missing input.
+      "Annotate the element on the running prototype and capture a baseline (vibeflow kanban, then re-run verify), or verify against a different task",
     );
   }
 

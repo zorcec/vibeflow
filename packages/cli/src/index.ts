@@ -2631,6 +2631,11 @@ program
                 ok: false,
                 code: attestation.code,
                 message: attestation.message,
+                // The attestation contract carries its own recovery text (it is
+                // the only place that knows the valid flag combination); before
+                // the field existed the CLI had nowhere to put it and printed a
+                // bare refusal.
+                suggestion: attestation.suggestion,
                 json: opts.json,
               });
             } else {
@@ -2656,7 +2661,7 @@ program
                   message:
                     "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
                   suggestion:
-                    "Drop --set-verify; submit the Research task with its .md report instead",
+                    "Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI)",
                   json: opts.json,
                 });
               } else {
@@ -2667,7 +2672,7 @@ program
                 );
                 console.log(
                   chalk.dim(
-                    "  Drop --set-verify; submit the Research task with its .md report instead",
+                    "  Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI)",
                   ),
                 );
               }

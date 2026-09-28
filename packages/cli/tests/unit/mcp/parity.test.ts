@@ -393,12 +393,22 @@ describe("MCP error envelope", () => {
     expect(withSuggestion.error.suggestion.length).toBeGreaterThan(0);
 
     createTestTask({ id: "task-1", status: "todo" });
-    const withoutSuggestion = await callThroughServer("update_task", {
+    // It used to assert the OPPOSITE here: VERIFY_REASON_REQUIRED arrived with
+    // no suggestion at all. It cannot any more — the attestation contract
+    // carries its own recovery text (see VerifyAttestationResolution), and a
+    // refusal that says "cannot needs a reason" without saying where to put the
+    // reason is exactly the unrecoverable case this lane is about.
+    const withAttestationSuggestion = await callThroughServer("update_task", {
       id: "task-1",
       setVerify: "cannot",
     });
-    expect(withoutSuggestion.error.code).toBe("VERIFY_REASON_REQUIRED");
-    expect("suggestion" in (withoutSuggestion.error as object)).toBe(false);
+    expect(withAttestationSuggestion.error.code).toBe("VERIFY_REASON_REQUIRED");
+    expect(typeof withAttestationSuggestion.error.suggestion).toBe("string");
+    expect(withAttestationSuggestion.error.suggestion.length).toBeGreaterThan(0);
+    // The shared-surface rule: an MCP client has no --verify-reason flag, so a
+    // suggestion that named only the flag would be unusable here.
+    expect(withAttestationSuggestion.error.suggestion).toContain("verifyReason");
+    expect(withAttestationSuggestion.error.suggestion).toContain("--verify-reason");
   });
 
   it("a successful tool still returns the raw data payload", async () => {

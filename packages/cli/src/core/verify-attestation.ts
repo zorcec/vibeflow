@@ -42,7 +42,13 @@ export type VerifyAttestationResolution =
       verdict?: "pass" | "fail" | "cannot";
       reason?: string;
     }
-  | { ok: false; message: string; code: string };
+  // `suggestion` is part of the CONTRACT, not a per-caller nicety: this type
+  // is the only place that knows WHY a flag combination is invalid and what
+  // the valid one is, so a caller that has only `{code, message}` has nothing
+  // to hand an agent and the refusal is unrecoverable by construction. It
+  // used to be exactly that fieldless, and both callers dropped the recovery
+  // text they had no place to put.
+  | { ok: false; message: string; code: string; suggestion: string };
 
 /**
  * Map the tri-state flag onto the stored value plus a `clear` flag. No flag
@@ -63,6 +69,11 @@ export function resolveVerifyAttestation(
         code: "VERIFY_REASON_REQUIRED",
         message:
           "--set-verify cannot requires --verify-reason <why> — say why the task cannot be verified here.",
+        // Both surfaces read this string (CLI, MCP, PATCH), so it names the
+        // MCP input and the CLI flag — see the shared-surface rule in
+        // review-gate.ts.
+        suggestion:
+          'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "<why>" with --set-verify cannot (CLI)',
       };
     }
     return {
@@ -80,6 +91,8 @@ export function resolveVerifyAttestation(
       code: "E_USAGE",
       message:
         "--verify-reason is only valid with --set-verify cannot — pass the reason together with the 'cannot' verdict.",
+      suggestion:
+        'A reason belongs to a "cannot" verdict — pass setVerify:"cannot" together with `verifyReason` (MCP), or --set-verify cannot --verify-reason "<why>" (CLI)',
     };
   }
   if (flags.setVerify === "pass") {

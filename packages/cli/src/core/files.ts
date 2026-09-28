@@ -74,7 +74,17 @@ export function isAllowedFileExtension(filename: string): boolean {
 
 export type FileValidationResult =
   | { valid: true }
-  | { valid: false; errorCode: string; errorMessage: string };
+  // `errorSuggestion` is part of the contract for the same reason
+  // `VerifyAttestationResolution` carries one: this function is the only place
+  // that knows WHY a filename was refused and what an acceptable one looks
+  // like, so a caller given only {errorCode, errorMessage} has no recovery text
+  // to forward and the refusal is unrecoverable by construction.
+  | {
+      valid: false;
+      errorCode: string;
+      errorMessage: string;
+      errorSuggestion: string;
+    };
 
 /**
  * Full validation for an uploaded filename + optional buffer size.
@@ -89,6 +99,8 @@ export function validateFilename(
       valid: false,
       errorCode: "INVALID_FILENAME",
       errorMessage: `Invalid filename: empty, too long (>${MAX_FILENAME_LENGTH} chars), path separator, control character, or hidden file`,
+      errorSuggestion:
+        "Send a bare filename: no directory part, no leading dot, no '..', and no control characters",
     };
   }
   if (!isAllowedFileExtension(filename)) {
@@ -97,6 +109,7 @@ export function validateFilename(
       valid: false,
       errorCode: "UNSUPPORTED_FILE_TYPE",
       errorMessage: `Unsupported file type "${ext}". Allowed: ${[...ALLOWED_FILE_EXTENSIONS].join(", ")}`,
+      errorSuggestion: `Rename the file to one of the allowed extensions (${[...ALLOWED_FILE_EXTENSIONS].join(", ")}) — for a research report that means a .md name`,
     };
   }
   if (bufferSize !== undefined && bufferSize > MAX_FILE_SIZE) {
@@ -104,6 +117,7 @@ export function validateFilename(
       valid: false,
       errorCode: "VALIDATION",
       errorMessage: `File too large: ${bufferSize} bytes (max ${MAX_FILE_SIZE})`,
+      errorSuggestion: `Shrink the file under ${MAX_FILE_SIZE} bytes, or attach a compressed archive (.zip) instead`,
     };
   }
   return { valid: true };

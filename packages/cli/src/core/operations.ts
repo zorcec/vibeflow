@@ -381,6 +381,8 @@ export async function listTasks(
       error: {
         code: "LIST_TASKS_ERROR",
         message: err instanceof Error ? err.message : "Failed to list tasks",
+        suggestion:
+          "Check that <project> is a vibeflow store and readable (is there a .vibeflow/tasks directory?), then call list_tasks again",
       },
     };
   }
@@ -426,6 +428,8 @@ export async function getTask(
       error: {
         code: "GET_TASK_ERROR",
         message: err instanceof Error ? err.message : "Failed to get task",
+        suggestion:
+          "Re-read the task with get_task; if the store is unreadable, check the task file under .vibeflow/tasks parses as JSON",
       },
     };
   }
@@ -489,6 +493,11 @@ export async function createTask(
           error: {
             code: "CREATE_TASK_ERROR",
             message: `Parent task not found: ${input.parent}`,
+            // The code differs from the CLI's TASK_NOT_FOUND for the same
+            // situation (pre-existing, and out of scope to change on a wire an
+            // existing consumer may parse) — but the RECOVERY text must not
+            // depend on which surface refused.
+            suggestion: `The parent task does not exist — drop \`parent\` to create a root task, or pass an id from list_tasks (MCP) / 'vibeflow tasks' (CLI)`,
           },
         };
       }
@@ -536,6 +545,8 @@ export async function createTask(
       error: {
         code: "CREATE_TASK_ERROR",
         message: err instanceof Error ? err.message : "Failed to create task",
+        suggestion:
+          "Check the input against create_task's shape (title is required) and that the project directory is writable, then retry",
       },
     };
   }
@@ -568,7 +579,11 @@ export async function updateTask(
     if (!attestation.ok) {
       return {
         ok: false,
-        error: { code: attestation.code, message: attestation.message },
+        error: {
+          code: attestation.code,
+          message: attestation.message,
+          suggestion: attestation.suggestion,
+        },
       };
     }
 
@@ -621,7 +636,7 @@ export async function updateTask(
             message:
               "A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
             suggestion:
-              "Drop --set-verify; submit the Research task with its .md report instead",
+              "Drop the verdict \u2014 setVerify (MCP) or --set-verify (CLI) \u2014 and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI)",
           },
         };
       }
@@ -776,6 +791,8 @@ export async function updateTask(
       error: {
         code: "UPDATE_TASK_ERROR",
         message: err instanceof Error ? err.message : "Failed to update task",
+        suggestion:
+          "Re-read the task with get_task, then resend the edit; if it keeps failing, check the task file parses and the store is writable",
       },
     };
   }
@@ -852,6 +869,8 @@ export async function claimNextTask(
       error: {
         code: "CLAIM_TASK_ERROR",
         message: err instanceof Error ? err.message : "Failed to claim task",
+        suggestion:
+          "List the board (list_tasks) to see what is still todo, then claim_next_task again — an empty board is a success with a null payload, not this error",
       },
     };
   }
@@ -896,6 +915,8 @@ export async function addComment(
       error: {
         code: "ADD_COMMENT_ERROR",
         message: err instanceof Error ? err.message : "Failed to add comment",
+        suggestion:
+          "Confirm the task exists (get_task) and the store is writable; the comment was NOT saved, so resend it",
       },
     };
   }
@@ -918,7 +939,11 @@ export async function attachFile(
     if (!validation.valid) {
       return {
         ok: false,
-        error: { code: validation.errorCode, message: validation.errorMessage },
+        error: {
+          code: validation.errorCode,
+          message: validation.errorMessage,
+          suggestion: validation.errorSuggestion,
+        },
       };
     }
     if (isDryRun(ctx, input)) {
@@ -946,6 +971,8 @@ export async function attachFile(
       error: {
         code: "ATTACH_FILE_ERROR",
         message: err instanceof Error ? err.message : "Failed to attach file",
+        suggestion:
+          "The file was NOT written — confirm the task exists (get_task), the filename is in the allowed extension list, and the payload is under the size limit, then resend",
       },
     };
   }
@@ -1053,6 +1080,8 @@ export async function exportPrompt(
       error: {
         code: "EXPORT_PROMPT_ERROR",
         message: err instanceof Error ? err.message : "Failed to export prompt",
+        suggestion:
+          "Call get_task for the id to check it exists and that its file parses, then retry export_prompt",
       },
     };
   }
@@ -1089,7 +1118,8 @@ export async function verifyTaskOp(
         error: {
           code: "E_NOT_FOUND",
           message: `Task not found: ${input.id}`,
-          suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+          suggestion:
+            "That id resolves to no task — list_tasks (MCP) or 'vibeflow tasks' (CLI) to see the ids on this board",
         },
       };
     }
@@ -1141,7 +1171,15 @@ export async function verifyTaskOp(
           },
         };
       }
-      return { ok: false, error: { code: "VERIFY_TASK_ERROR", message: msg } };
+      return {
+        ok: false,
+        error: {
+          code: "VERIFY_TASK_ERROR",
+          message: msg,
+          suggestion:
+            "Check that the app under test is running and reachable at the task's url, then run verify_task again",
+        },
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -1171,6 +1209,8 @@ export async function pushTasks(
       error: {
         code: "PUSH_TASKS_ERROR",
         message: err instanceof Error ? err.message : "Failed to push tasks",
+        suggestion:
+          "Check the backend is reachable and you are logged in (vibeflow login); nothing was pushed, so retry",
       },
     };
   }

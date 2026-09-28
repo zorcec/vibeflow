@@ -48,6 +48,22 @@ import { manifest } from "../../src/mcp/manifest.js";
  */
 const IMPOSSIBLE_ID = "ffffffffffffffffffffffffffff01";
 
+interface RefusalRow {
+  /** Stable label — appears in every failure message. */
+  label: string;
+  tool: string;
+  /**
+   * Names the fixtures the row needs. Named rather than a closure because the
+   * table is module-scope: it cannot capture the per-test MCP client, and a
+   * seed written here would be untestable. Called BEFORE the `before` snapshot,
+   * so a seeded task is never mistaken for something the refusal created.
+   */
+  seed?: "task+research";
+  input: (ids: { taskId: string; researchId: string }) => Record<string, unknown>;
+  /** The assigned code. Asserted, so a wrong code cannot pass as "it refused". */
+  code: string;
+}
+
 /**
  * The reachable-refusal set, EXPLICIT.
  *
@@ -56,51 +72,58 @@ const IMPOSSIBLE_ID = "ffffffffffffffffffffffffffff01";
  * refused", because a set discovered by observing a run is a set that silently
  * shrinks when a fix changes a code — the exact failure this guard exists to
  * prevent. One row per `id`-bearing manifest tool is enforced below, so the
- * list cannot fall behind the manifest.
+ * list cannot fall behind the manifest, and the non-existence refusals are
+ * themselves checked against the derived set.
+ *
+ * Two kinds of row, both required to carry a non-empty `suggestion`:
+ *  - the existence refusals (`group: "existence"`) — one per `id`-bearing tool;
+ *  - the recovery refusals (`group: "recovery"`) — the other codes a client can
+ *    actually land on, so "every refusal names how to fix it" is enforced past
+ *    the existence case instead of being asserted in prose.
  */
-const REACHABLE_REFUSALS: Array<{
-  /** Stable label — appears in every failure message. */
-  label: string;
-  tool: string;
-  input: Record<string, unknown>;
-  /** The assigned code. Asserted, so a wrong code cannot pass as "it refused". */
-  code: string;
-}> = [
+const REACHABLE_REFUSALS: Array<
+  RefusalRow & { group: "existence" | "recovery" }
+> = [
   {
+    group: "existence",
     label: "get_task",
     tool: "get_task",
-    input: { id: IMPOSSIBLE_ID },
+    input: () => ({ id: IMPOSSIBLE_ID }),
     code: "TASK_NOT_FOUND",
   },
   {
+    group: "existence",
     label: "update_task",
     tool: "update_task",
-    input: { id: IMPOSSIBLE_ID, title: "x" },
+    input: () => ({ id: IMPOSSIBLE_ID, title: "x" }),
     code: "TASK_NOT_FOUND",
   },
   {
     // The ghost-task defect: used to answer ok:true and write a task file.
+    group: "existence",
     label: "add_comment",
     tool: "add_comment",
-    input: { id: IMPOSSIBLE_ID, comment: "x" },
+    input: () => ({ id: IMPOSSIBLE_ID, comment: "x" }),
     code: "TASK_NOT_FOUND",
   },
   {
     // The orphan-file defect: used to answer ok:true and write a file for a
     // task that does not exist.
+    group: "existence",
     label: "attach_file",
     tool: "attach_file",
-    input: {
+    input: () => ({
       id: IMPOSSIBLE_ID,
       filename: "screenshot.png",
       contentB64: Buffer.from("x").toString("base64"),
-    },
+    }),
     code: "TASK_NOT_FOUND",
   },
   {
+    group: "existence",
     label: "export_prompt",
     tool: "export_prompt",
-    input: { id: IMPOSSIBLE_ID },
+    input: () => ({ id: IMPOSSIBLE_ID }),
     code: "TASK_NOT_FOUND",
   },
   {
@@ -108,10 +131,106 @@ const REACHABLE_REFUSALS: Array<{
     // E_NOT_FOUND code. It is in the sweep because it mutates (it adds a
     // system comment) — a code difference is not an exemption from "writes
     // nothing for a task that is not there".
+    group: "existence",
     label: "verify_task",
     tool: "verify_task",
-    input: { id: IMPOSSIBLE_ID, url: "http://127.0.0.1:1/never-loaded" },
+    input: () => ({ id: IMPOSSIBLE_ID, url: "http://127.0.0.1:1/never-loaded" }),
     code: "E_NOT_FOUND",
+  },
+
+  // ── Recovery refusals ────────────────────────────────────────────────
+  // The existence rows above are the property this lane was opened for. These
+  // are the rest of what a client can actually land on, all of which used to
+  // arrive with no recovery text at all: a code names the failure and nothing
+  // else, so the agent is left guessing which input to change.
+  {
+    group: "recovery",
+    label: "attestation VERIFY_REASON_REQUIRED",
+    tool: "update_task",
+    seed: "task+research",
+    input: (ids) => ({ id: ids.taskId, setVerify: "cannot" }),
+    code: "VERIFY_REASON_REQUIRED",
+  },
+  {
+    group: "recovery",
+    label: "gate VERIFY_REASON_REQUIRED",
+    tool: "update_task",
+    seed: "task+research",
+    // Same code, DIFFERENT string: this one comes from the review gate rather
+    // than the attestation, so it needs its own row.
+    input: (ids) => ({
+      id: ids.taskId,
+      status: "review",
+      comment: "x",
+      setVerify: "cannot",
+    }),
+    code: "VERIFY_REASON_REQUIRED",
+  },
+  {
+    group: "recovery",
+    label: "E_USAGE (a reason with no 'cannot' verdict)",
+    tool: "update_task",
+    seed: "task+research",
+    input: (ids) => ({ id: ids.taskId, verifyReason: "orphan reason" }),
+    code: "E_USAGE",
+  },
+  {
+    group: "recovery",
+    label: "REVIEW_COMMENT_REQUIRED",
+    tool: "update_task",
+    seed: "task+research",
+    input: (ids) => ({ id: ids.taskId, status: "review" }),
+    code: "REVIEW_COMMENT_REQUIRED",
+  },
+  {
+    group: "recovery",
+    label: "UNSUPPORTED_FILE_TYPE",
+    tool: "attach_file",
+    seed: "task+research",
+    input: (ids) => ({
+      id: ids.taskId,
+      filename: "payload.exe",
+      contentB64: Buffer.from("x").toString("base64"),
+    }),
+    code: "UNSUPPORTED_FILE_TYPE",
+  },
+  {
+    group: "recovery",
+    label: "CREATE_TASK_ERROR (a parent that does not exist)",
+    tool: "create_task",
+    input: () => ({ title: "Orphan", parent: IMPOSSIBLE_ID }),
+    code: "CREATE_TASK_ERROR",
+  },
+  {
+    group: "recovery",
+    label: "E_NO_BASELINE",
+    tool: "verify_task",
+    seed: "task+research",
+    input: (ids) => ({
+      id: ids.taskId,
+      url: "http://127.0.0.1:1/never-loaded",
+    }),
+    code: "E_NO_BASELINE",
+  },
+  {
+    group: "recovery",
+    label: "RESEARCH_REPORT_REQUIRED",
+    tool: "update_task",
+    seed: "task+research",
+    input: (ids) => ({
+      id: ids.researchId,
+      status: "review",
+      comment: "report follows",
+    }),
+    code: "RESEARCH_REPORT_REQUIRED",
+  },
+  {
+    group: "recovery",
+    label: "RESEARCH_VERIFY_NOT_ALLOWED",
+    tool: "update_task",
+    seed: "task+research",
+    input: (ids) => ({ id: ids.researchId, setVerify: "pass" }),
+    code: "RESEARCH_VERIFY_NOT_ALLOWED",
   },
 ];
 
@@ -174,9 +293,23 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     };
   }
 
-  it("the sweep covers every id-bearing manifest tool, and no stale rows", () => {
+  /** A plain task and a Research task, for the rows that need a real target. */
+  async function seedTwoTasks(): Promise<{ taskId: string; researchId: string }> {
+    const task = (await call("create_task", { title: "sweep target" }))
+      .envelope as unknown as { id: string };
+    const research = (
+      await call("create_task", { title: "sweep research", type: "Research" })
+    ).envelope as unknown as { id: string };
+    expect(typeof task.id).toBe("string");
+    expect(typeof research.id).toBe("string");
+    return { taskId: task.id, researchId: research.id };
+  }
+
+  it("the existence rows cover every id-bearing manifest tool, and no stale rows", () => {
     const fromManifest = manifestIdTools();
-    const fromTable = REACHABLE_REFUSALS.map((r) => r.tool).sort();
+    const fromTable = REACHABLE_REFUSALS.filter((r) => r.group === "existence")
+      .map((r) => r.tool)
+      .sort();
     // Exact equality in BOTH directions: a new id-bearing tool with no row
     // fails here, and a row for a tool that no longer exists fails here too.
     expect(fromTable).toEqual(fromManifest);
@@ -184,11 +317,17 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     expect(fromManifest.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("every task-scoped tool refuses an impossible id and writes nothing", async () => {
+  it("every row refuses with its assigned code, a suggestion, and no writes", async () => {
     const offenders: string[] = [];
     for (const row of REACHABLE_REFUSALS) {
+      const ids =
+        row.seed === "task+research"
+          ? await seedTwoTasks()
+          : { taskId: "", researchId: "" };
+      // Snapshot AFTER seeding, so a seeded task is never counted as something
+      // the refusal created.
       const before = treeUnder(tasksRoot());
-      const { envelope, isError } = await call(row.tool, row.input);
+      const { envelope, isError } = await call(row.tool, row.input(ids));
       const after = treeUnder(tasksRoot());
       const created = after.filter((p) => !before.includes(p));
 
@@ -200,7 +339,7 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
       }
       if (envelope.ok !== false) {
         offenders.push(
-          `${row.label}: answered ok:true for a task that does not exist (payload ${JSON.stringify(envelope).slice(0, 120)})`,
+          `${row.label}: answered ok:true instead of refusing (payload ${JSON.stringify(envelope).slice(0, 120)})`,
         );
       } else if (envelope.error?.code !== row.code) {
         offenders.push(
@@ -210,8 +349,8 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
         typeof envelope.error?.suggestion !== "string" ||
         envelope.error.suggestion.length === 0
       ) {
-        // The second guard: a refusal an agent cannot recover from. Same sweep,
-        // every refusal it reaches — a code alone tells the agent what went
+        // The second guard: a refusal an agent cannot recover from. Every
+        // refusal this sweep reaches — a code alone tells the agent what went
         // wrong, never how to make it right.
         offenders.push(
           `${row.label}: ${envelope.error.code} carries no suggestion`,
@@ -219,7 +358,7 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
       }
       if (created.length > 0) {
         offenders.push(
-          `${row.label}: created ${JSON.stringify(created)} under .vibeflow/tasks for a task that does not exist`,
+          `${row.label}: a refusal wrote ${JSON.stringify(created)} under .vibeflow/tasks`,
         );
       }
     }
