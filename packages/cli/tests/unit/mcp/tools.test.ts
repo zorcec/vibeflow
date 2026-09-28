@@ -354,12 +354,76 @@ describe("claim_next_task", () => {
     expect(result.error).toBeUndefined();
   });
 
-  it("dryRun on an empty board agrees with the real path", async () => {
-    const preview = await claimNextTask({ ...ctx, dryRun: true }, {});
-    const real = await claimNextTask(ctx, {});
-    expect(preview.ok).toBe(real.ok);
-    expect(preview.data).toEqual(real.data);
-    expect(preview.error).toEqual(real.error);
+  it("dry run names exactly what the real path claims on a board where the two orders differ", async () => {
+    // Seeded in an order that is NOT the claim order, with distinct authors,
+    // so neither "first file listed" nor "ignores `user`" can produce the
+    // right answer by accident. Correct claims (priority tier, then oldest
+    // first) are deterministic regardless of how readdir orders the files.
+    const at = (minsAgo: number) =>
+      new Date(Date.now() - minsAgo * 60_000).toISOString();
+    createTestTask({
+      id: "task-1-high-bug",
+      type: "Bug",
+      priority: "High",
+      author: "dana",
+      created: at(40),
+    });
+    createTestTask({
+      id: "task-2-medium-bug",
+      type: "Bug",
+      priority: "Medium",
+      author: "erin",
+      created: at(30),
+    });
+    createTestTask({
+      id: "task-3-low-bug",
+      type: "Bug",
+      priority: "Low",
+      author: "finn",
+      created: at(20),
+    });
+    createTestTask({
+      id: "task-4-feature",
+      type: "Feature",
+      priority: "Low",
+      author: "alice",
+      created: at(10),
+    });
+    createTestTask({
+      id: "task-5-critical-bug",
+      type: "Bug",
+      priority: "Critical",
+      author: "bob",
+      created: at(50),
+    });
+    createTestTask({
+      id: "task-6-high-bug",
+      type: "Bug",
+      priority: "High",
+      author: "grace",
+      created: at(5),
+    });
+
+    // Sorted by the same comparator the atomic path uses, the winner is the
+    // Critical bug however the files happen to be listed.
+    const byTypePreview = await claimNextTask(
+      { ...ctx, dryRun: true },
+      { type: "Bug" },
+    );
+    const byTypeReal = await claimNextTask(ctx, { type: "Bug" });
+    expect(byTypePreview.data?.id).toBe("task-5-critical-bug");
+    expect(byTypeReal.data?.id).toBe("task-5-critical-bug");
+
+    // `user` is a documented ClaimNextTaskInput field: the dry run filters on
+    // it too, so the preview names the author's own task and not some other
+    // author's higher-priority todo.
+    const byUserPreview = await claimNextTask(
+      { ...ctx, dryRun: true },
+      { user: "alice" },
+    );
+    const byUserReal = await claimNextTask(ctx, { user: "alice" });
+    expect(byUserPreview.data?.id).toBe("task-4-feature");
+    expect(byUserReal.data?.id).toBe("task-4-feature");
   });
 
   it("filters by type", async () => {

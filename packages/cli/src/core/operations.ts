@@ -15,6 +15,7 @@ import type {
 import {
   TASK_LINK_TYPES,
   TASK_STATUSES,
+  compareTasksByPriorityThenCreated,
   type TaskStatus,
 } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
@@ -738,11 +739,19 @@ export async function claimNextTask(
       // Parity with the atomic path: never a child. The root is the unit of work.
       tasks = tasks.filter((t) => !isChildTask(t));
       if (input.type) tasks = tasks.filter((t) => t.type === input.type);
+      // `user` is a documented ClaimNextTaskInput field, so the dry run
+      // applies it exactly as the atomic path does (author identity match).
+      if (input.user) tasks = tasks.filter((t) => t.author === input.user);
       if (input.tag && input.tag.length > 0) {
         tasks = tasks.filter(
           (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
         );
       }
+      // listTasks() returns files in readdir order, which is NOT the claim
+      // order (filenames are random ids). Sort with the SAME comparator the
+      // atomic path uses inside its lock, so the preview names the task the
+      // real call will actually claim.
+      tasks.sort(compareTasksByPriorityThenCreated);
       if (tasks.length === 0) {
         // A valid filter that matched nothing is the SAME situation as an
         // empty board, and the dry run must not disagree with the real path:
