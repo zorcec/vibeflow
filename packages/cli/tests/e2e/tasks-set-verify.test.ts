@@ -21,6 +21,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnCli } from "./mcp-helpers.js";
+import { RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL } from "../../src/core/review-gate.js";
 
 const cleanups: Array<() => void> = [];
 
@@ -99,6 +100,30 @@ function enableVerifyGate(store: string): void {
   );
 }
 
+/** Seed a Research task (no annotated UI to verify) directly. */
+function seedResearchTask(store: string, id: string): void {
+  const tasksDir = join(store, ".vibeflow", "tasks");
+  mkdirSync(tasksDir, { recursive: true });
+  mkdirSync(join(tasksDir, "2025-01-01"), { recursive: true });
+  writeFileSync(
+    join(tasksDir, "2025-01-01", `${id}.json`),
+    JSON.stringify(
+      {
+        id,
+        title: "Research task",
+        description: "",
+        status: "in-progress",
+        type: "Research",
+        priority: "Medium",
+        selector: "/",
+        created: "2025-01-01T10:00:00.000Z",
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
 });
@@ -174,8 +199,7 @@ describe("tasks --edit --set-verify", () => {
     ).toBe(true);
   });
 
-  it("--set-verify cannot WITHOUT --verify-reason is rejected and writes nothing", async () => {
-    const store = freshDir("set-verify-");
+  it("--set-verify cannot WITHOUT --verify-reason is rejected and writes nothing", async () => {    const store = freshDir("set-verify-");
     const home = freshDir("set-verify-home-");
     const id = await addTask(store, home, "Missing reason");
 
@@ -220,6 +244,47 @@ describe("tasks --edit --set-verify", () => {
     expect(printed).toContain("verifyReason");
     expect(printed).toContain("setVerify");
     // And still nothing written.
+    expect(storedVerified(store, id)).toBeUndefined();
+  });
+
+  it("all three RESEARCH_VERIFY_NOT_ALLOWED producers say it the same way", async () => {
+    // The rule ("a Research task takes no verdict") is enforced in three
+    // places: the review gate, the CLI's standalone `--set-verify` check with
+    // --json, and that same check's human printer. All three carried the same
+    // sentence copied out longhand, so one edit left the others stale. The
+    // gate's wording is now the single definition (unit-pinned in
+    // review-gate.test.ts); this pins the two CLI copies to it.
+    const store = freshDir("set-verify-");
+    const home = freshDir("set-verify-home-");
+    const id = "dddddddddddddddddddddddddddddd";
+    seedResearchTask(store, id);
+
+    const json = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "pass", "--json"],
+      { cwd: store, home },
+    );
+    expect(json.code).not.toBe(0);
+    const envelope = JSON.parse(json.stderr);
+    // The envelope carries `ok`/`retryable` of its own, so the three fields
+    // the rule owns are compared one by one rather than by whole object.
+    expect(envelope.error.code).toBe(RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.code);
+    expect(envelope.error.message).toBe(
+      RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.message,
+    );
+    expect(envelope.error.suggestion).toBe(
+      RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.suggestion,
+    );
+
+    const human = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "pass"],
+      { cwd: store, home },
+    );
+    expect(human.code).not.toBe(0);
+    const printed = `${human.stdout}\n${human.stderr}`;
+    expect(printed).toContain(RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.message);
+    expect(printed).toContain(RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.suggestion);
+
+    // Still nothing written.
     expect(storedVerified(store, id)).toBeUndefined();
   });
 

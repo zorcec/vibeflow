@@ -38,6 +38,24 @@ export type ReviewGateResult =
   | { ok: false; code: string; message: string; suggestion?: string };
 
 /**
+ * The ONE wording of the `RESEARCH_VERIFY_NOT_ALLOWED` refusal.
+ *
+ * The rule has three producers: this gate, the CLI's standalone
+ * `--set-verify` check in index.ts (which refuses a Research verdict that
+ * never reaches a review transition), and — through the CLI — the human
+ * printer. All three used to carry the same sentence copied out longhand, so
+ * an edit to one left the others stale and a client could get two different
+ * answers to the same question. Exported so all three read one definition.
+ */
+export const RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL = {
+  code: "RESEARCH_VERIFY_NOT_ALLOWED",
+  message:
+    "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
+  suggestion:
+    "Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI) instead",
+} as const;
+
+/**
  * Check whether a status transition to "review" is allowed.
  * Non-review transitions always return { ok: true }.
  *
@@ -143,14 +161,9 @@ export function checkReviewTransition(
   // rather than dropped silently — this CLI already has too many silent no-ops.
   if (isResearchType(task?.type)) {
     if (opts.verifyVerdict !== undefined) {
-      return {
-        ok: false,
-        code: "RESEARCH_VERIFY_NOT_ALLOWED",
-        message:
-          "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
-        suggestion:
-          "Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI) instead",
-      };
+      // One definition, shared with the CLI's standalone `--set-verify` path —
+      // see RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL above.
+      return { ok: false, ...RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL };
     }
   } else {
     // Gate 4a: a "fail" verdict can never reach review — for ANY task, and
@@ -220,7 +233,11 @@ export function checkReviewTransition(
           code: "VERIFY_REQUIRED",
           message:
             "Annotated tasks need a verification verdict before review — attest how you verified the work",
-          suggestion: `Pass one of: --set-verify pass (implemented correctly), --set-verify fail (NOT correct — blocks review), or --set-verify cannot --verify-reason "<why>" (unverifiable here) — over MCP the same three are setVerify:"pass" / setVerify:"fail" / setVerify:"cannot" with verifyReason. Collect the evidence first with vibeflow verify ${taskId}, judge it, then pass the verdict on the review transition`,
+          // ONE compact statement per surface, each naming all three verdicts.
+          // This used to state the three twice per surface inside a single
+          // "Pass one of: …" sentence that ran ~440 characters, which no one
+          // reads to the end.
+          suggestion: `MCP: setVerify:"pass" (implemented correctly) · setVerify:"fail" (NOT correct — blocks review) · setVerify:"cannot" with verifyReason (unverifiable here) — CLI: the same three are --set-verify pass · --set-verify fail · --set-verify cannot --verify-reason "<why>". Collect the evidence with vibeflow verify ${taskId}, judge it, then attest on this transition`,
         };
       }
     }

@@ -130,10 +130,20 @@ report is attached, and over MCP the way to do that is **`attach_file` with a `.
 ### MCP results
 
 A tool's result carries its payload as **one JSON document in `content[0].text`** — that holds for
-every tool-level success and every tool-level refusal. There is exactly one other shape, and it is
-**not** JSON: a *protocol-level* failure (an unknown tool, arguments the tool's own schema rejects)
-comes back as `result.isError === true` with `content[0].text` = `MCP error -32602: …` and no envelope
-to parse. So check `isError` first and parse the text as JSON only when it is absent.
+every tool-level success and every tool-level refusal. There are exactly two shapes that are
+**not** JSON: a *protocol-level* failure — arguments the tool's own schema rejects, or the name of a
+tool that does not exist — comes back as `result.isError === true` with `content[0].text` =
+`MCP error -32602: …` and no envelope to parse. So check `isError` first and parse the text as JSON
+only when it is absent.
+
+Those two protocol-level failures are told apart by **what the message names**, not by the code —
+the SDK reports an unknown tool through the same input-validation path, so both carry `-32602` even
+though JSON-RPC reserves `-32601` for "method not found":
+
+| what you sent | the message names | the remedy |
+| --- | --- | --- |
+| arguments the tool's schema rejects | **the offending field** (`… at title`) | send that field, with the type the schema asks for |
+| a tool name that does not exist | **the tool** | read `tools/list`; the name you sent is not one of the 11 |
 
 #### The schema-error class (`-32602`) — no vibeflow code, by design
 
@@ -163,11 +173,15 @@ Three properties, all deliberate and all load-bearing:
 
 **Recognise the class by its shape, not by any code string:** a result with `isError === true` whose
 text carries an input-validation message naming a field. The remedy is always the same — send the
-field it names, with the type the schema asks for.
+field it names, with the type the schema asks for. An unknown tool is NOT a member of this class: it
+names no field, so the rule above does not match it, and its remedy is a different one (the table
+above). Keying on the code alone would put the two in one bucket and send the reader after an input
+field when the real mistake was the tool's name.
 
 Because `tools/list` is the only place a client can read the contract *before* it fails, the input
 shapes publish a `description` for every field an agent commonly gets wrong — `id` on each task tool
-(full id or unique prefix), the `setVerify`/`verifyReason` pair, `limit`, `contentB64`, the comment
+(most take a full id or a unique prefix; `export_prompt` matches ids exactly, and says so), the
+`setVerify`/`verifyReason` pair, `limit`, `contentB64`, the comment
 body, and `filename` (its extension decides acceptance). Read them there; there is no second chance.
 
 Three rules for the JSON case, all of them the CLI's own conventions:

@@ -2658,28 +2658,23 @@ program
             const probeTask = findTaskByIdOrPrefix(resolve(dir), taskId);
             if (probeTask && isResearchType(probeTask.type)) {
               // The code mirrors what the review gate returns for the same rule,
-              // so --json consumers see one code whichever path refuses first.
+              // so --json consumers see one code whichever path refuses first —
+              // and the WORDING comes from the gate's one definition rather
+              // than from a third copy of the sentence (this branch used to
+              // carry two).
+              const { RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL: refusal } =
+                await import("./core/review-gate.js");
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  code: "RESEARCH_VERIFY_NOT_ALLOWED",
-                  message:
-                    "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
-                  suggestion:
-                    "Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI)",
+                  code: refusal.code,
+                  message: refusal.message,
+                  suggestion: refusal.suggestion,
                   json: opts.json,
                 });
               } else {
-                console.log(
-                  chalk.red(
-                    "\u2717 A Research task cannot carry a verification verdict \u2014 it has no annotated UI to verify",
-                  ),
-                );
-                console.log(
-                  chalk.dim(
-                    "  Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI)",
-                  ),
-                );
+                console.log(chalk.red(`✗ ${refusal.message}`));
+                console.log(chalk.dim(`  ${refusal.suggestion}`));
               }
               process.exitCode = ExitCode.USAGE;
               return;

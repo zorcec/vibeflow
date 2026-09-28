@@ -90,6 +90,23 @@ describe("README error vocabulary: the schema-error class is not a domain code",
     expect(context).toMatch(/not to vibeflow|belongs to the client/i);
   });
 
+  it("an unknown tool is NOT folded into the schema-error class", () => {
+    // Both arrive as `MCP error -32602` (the SDK reports an unknown tool
+    // through its input-validation path), but only one names a FIELD — and the
+    // class's own recognition rule requires that. The README used to list
+    // "an unknown tool" inside the class, so its rule excluded the case it
+    // listed. Pinned here: the two are separated and the difference is stated
+    // in terms of what the message names.
+    expect(text).toMatch(/unknown tool/i);
+    // The discriminator the README offers: what the message names.
+    expect(text).toMatch(/the message names/i);
+    expect(text).toMatch(/\*\*the tool\*\*/);
+    expect(text).toMatch(/not a member of this class|is NOT a member/i);
+    // The table row that separates them must name both remedies.
+    expect(text).toMatch(/the offending field/i);
+    expect(text).toMatch(/tools\/list/);
+  });
+
   it("the README states the suggestion guarantee for every refusal", () => {
     expect(text).toMatch(/Every refusal carries a `suggestion`/);
     // …and names the generic catch wrappers, which used to carry none.

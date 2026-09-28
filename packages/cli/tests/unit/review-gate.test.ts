@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { checkReviewTransition } from "../../src/core/review-gate.js";
+import {
+  checkReviewTransition,
+  RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL,
+} from "../../src/core/review-gate.js";
 import { getFilesDir } from "../../src/core/files.js";
 import type { ProtoSettings } from "../../src/core/settings.js";
 import { join } from "node:path";
@@ -618,10 +621,13 @@ describe("checkReviewTransition", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
-      expect(result.message).toContain("cannot carry a verification verdict");
-      // Names BOTH routes: an MCP client has no --set-verify flag, and the
-      // refusal it gets is this exact string.
+      // ONE definition: the gate returns the exported pair verbatim, so the
+      // CLI's standalone `--set-verify` check and its human printer cannot
+      // drift into a second wording of the same refusal.
+      expect(result).toEqual({
+        ok: false,
+        ...RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL,
+      });
       expect(result.suggestion).toContain("setVerify");
       expect(result.suggestion).toContain("--set-verify");
       expect(result.suggestion).toContain("attach_file");

@@ -50,10 +50,11 @@ carry the verdict on the review transition itself:
   the work, or park it: `--set-status in-progress --set-verify fail --comment "what is wrong"`.
 - **`cannot`** — unverifiable here; REQUIRES `--verify-reason "<why>"` (recorded in the
   task's activity); records no badge.
-- **Research tasks must NOT carry a verdict**: on a review transition the CLI rejects it
-  (`RESEARCH_VERIFY_NOT_ALLOWED` — "Drop --set-verify; submit the Research task with its
-  .md report instead"); standalone `--set-verify` on a Research task is silently scrubbed
-  on write (no error, no value). Research reaches review on its attached `.md` alone.
+- **Research tasks must NOT carry a verdict**: the CLI refuses it, on a review transition and
+  on a standalone `--set-verify` alike — `RESEARCH_VERIFY_NOT_ALLOWED`, exit 2, nothing written
+  (the refusal says to drop the verdict and submit the Research task with its `.md` report
+  instead). It used to be silently scrubbed on a standalone edit, which left the agent believing
+  a verdict had been recorded. Research reaches review on its attached `.md` alone.
 
 The CLI auto-commits the task `.json` and auto-pushes when settings are enabled.
 
