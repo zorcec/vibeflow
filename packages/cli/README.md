@@ -120,6 +120,13 @@ only the transport differs.
 Do **not** run one global server with a per-call project argument — that is deliberately
 not supported. One process serves one root, resolved at startup.
 
+A `type:"Research"` task is refused review with `RESEARCH_REPORT_REQUIRED` until a `.md`
+report is attached, and over MCP the way to do that is **`attach_file` with a `.md` filename**
+— the gate looks for a `.md` among a task's files, so the name is what counts. There is no
+`--report-file` equivalent on this surface; the CLI flag is named in the refusal's
+`suggestion` for CLI callers only. A Research task must not carry a verification verdict
+(`RESEARCH_VERIFY_NOT_ALLOWED`) — it has no annotated UI to verify.
+
 ### MCP results
 
 A tool's result carries its payload as **one JSON document in `content[0].text`** — that holds for
