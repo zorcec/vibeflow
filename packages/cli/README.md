@@ -538,12 +538,36 @@ See [src/server/server.ts](https://github.com/zorcec/vibeflow/blob/main/packages
 
 ```bash
 pnpm install          # install dependencies
-pnpm build:cli        # build CLI
+pnpm build            # build CLI
 pnpm test             # unit tests
+pnpm test:integration # integration tests (verify flow across a temp project)
 pnpm test:e2e         # end-to-end tests
+pnpm test:browser     # Playwright browser tests (kanban board, overlay)
 pnpm test:coverage    # unit coverage only
 pnpm test:coverage:e2e  # unit + e2e coverage MERGED (see below)
 ```
+
+`test:browser` needs a browser once: `npx playwright install chromium`.
+
+### Required checks for a change
+
+Each suite is reachable only through its own script — no script runs the
+others — so a green `pnpm test` says nothing about e2e, integration, or
+the browser suite. Before you commit a change, run all of them:
+
+| Command | What it covers |
+| --- | --- |
+| `pnpm run lint:symbols` | ESLint over `packages/*/src/**` |
+| `pnpm --filter @vibeflow-tools/cli run lint` | `tsc --noEmit` |
+| `pnpm run test` | unit |
+| `pnpm run test:integration` | integration (verify flow) |
+| `pnpm run test:e2e` | end-to-end (CLI spawned as a child process) |
+| `pnpm run test:browser` | browser (Playwright) — **required for any UI change** |
+| `pnpm run build` | tsup bundles for the shipped CLI |
+
+The first three plus `build` are what the pre-commit hook runs. Integration,
+e2e, and browser are not in the hook, so nothing but this list will tell you
+they were skipped.
 
 `test:coverage` reports what the in-process unit tests execute. That is not the whole
 story for this package: `src/index.ts` is almost entirely command dispatch, and the
