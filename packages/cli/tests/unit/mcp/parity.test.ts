@@ -531,6 +531,11 @@ describe("success payload carries notices", () => {
    */
   it("the wire never carries `steps`, and every notice is a {code,message} object", async () => {
     createTestTask({ id: "task-1", status: "in-progress" });
+    // A `todo` root as well, so `claim_next_task {dryRun:true}` has something
+    // to preview and its DRY_RUN notice is actually swept. With only the
+    // in-progress task on the board the claim returns a null payload and the
+    // sweep would never meet that notice at all.
+    createTestTask({ id: "task-2", status: "todo" });
     const b64 = Buffer.from("hello").toString("base64");
     const probes: Array<{ tool: string; input: Record<string, unknown> }> = [
       { tool: "get_task", input: { id: "task-1" } },
@@ -550,6 +555,7 @@ describe("success payload carries notices", () => {
 
     const offenders: string[] = [];
     let noticesSeen = 0;
+    let claimNoticesSeen = 0;
     for (const p of probes) {
       const parsed = await callThroughServer(p.tool, p.input);
       // Recursive: `steps` could hide anywhere in the payload (push_tasks used
@@ -563,6 +569,7 @@ describe("success payload carries notices", () => {
         parsed === null ? undefined : (parsed as { notices?: unknown }).notices;
       if (notices === undefined) continue;
       noticesSeen++;
+      if (p.tool === "claim_next_task") claimNoticesSeen++;
       if (!Array.isArray(notices)) {
         offenders.push(`${p.tool}: notices is ${typeof notices}, not an array`);
         continue;
@@ -581,6 +588,9 @@ describe("success payload carries notices", () => {
     }
     // The sweep is only meaningful if it actually met notices on the wire.
     expect(noticesSeen).toBeGreaterThan(0);
+    // …and if it met the claim preview's own notice, not just some other
+    // tool's. Pinned by name so a board change cannot quietly skip it.
+    expect(claimNoticesSeen).toBeGreaterThan(0);
     expect(offenders).toEqual([]);
   }, 60_000);
 });

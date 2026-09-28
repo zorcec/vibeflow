@@ -27,6 +27,7 @@ import {
   callTool,
   assertJsonTextContent,
   seedGitUser,
+  seedTask,
   type McpClient,
   type McpTestEnv,
 } from "./mcp-helpers.js";
@@ -294,9 +295,15 @@ describe("MCP error paths", () => {
   });
 
   it("11c: claim_next_task with a filter → the same null, not a different code", async () => {
-    // A valid filter that matches nothing is the same situation, so it must
-    // not come back as some other error. (The seeded filtered-empty board
-    // case lives in tests/e2e/mcp-claim-race.test.ts, which can seed tasks.)
+    // Seed a claimable task of a DIFFERENT type first, so "the filter matched
+    // nothing" is distinguishable from "the board is empty": the claim is a
+    // success with a null payload, and the seeded Feature is left untouched.
+    seedTask(env.projectDir, {
+      id: "c0000000000000000000000000000a1",
+      title: "A Feature, not a Bug",
+      status: "todo",
+      type: "Feature",
+    });
     const res = await callTool(client, "claim_next_task", {
       type: "Bug",
       dryRun: false,
@@ -305,6 +312,9 @@ describe("MCP error paths", () => {
     expect(res.status).toBe(200);
     expect(JSON.parse(body.result.content[0].text)).toBeNull();
     expect(body.result?.isError).toBeFalsy();
+    // The filter matched nothing, so nothing was consumed: the seeded task is
+    // still todo — a filtered-empty board did not silently claim a task.
+    expect(readTaskFromDisk(env.projectDir, "c0000000000000000000000000000a1").status).toBe("todo");
     await assertServerUsable(client);
   });
 
