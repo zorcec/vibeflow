@@ -1,8 +1,8 @@
 ---
-"@vibeflow-tools/cli": patch
+"@vibeflow-tools/cli": minor
 ---
 
-Every `--json` refusal now carries its error code, and a partial success is a notice.
+Every `--json` refusal now carries its error code, and a non-fatal signal is a notice.
 
 **Refusals.** Re-deriving the `process.exitCode` sites in `src/index.ts` found 32 that printed chalk
 prose and never consulted `opts.json`, so a machine consumer saw empty stdout, no code and nothing to
@@ -21,11 +21,14 @@ written. It is now a refusal with a non-zero exit and no manifest. A run that wr
 keeps `ok:true` and exit 0 with the `REINDEX_INCOMPLETE` notice, which is what that notice was always
 for.
 
-**Partial success.** A refusal is for "nothing happened"; a notice is for "the task data was saved but
-a follow-on step did not complete". The auto-commit that follows a review transition and the
+**Non-fatal signals.** A refusal is for "nothing happened"; a notice is for "this call did not fail,
+but here is something you must know", discriminated by `code` — so a notice is *not* a synonym for
+partial success. The auto-commit that follows a review transition and the
 `--reindex-sort-keys` post-assert now keep `ok:true` and **exit 0**, and the success payload gains an
 optional **`notices` array** of `{code, message}` — `GIT_COMMIT_FAILED`, `REINDEX_INCOMPLETE`,
 `SET_STATUS_DONE`, `RESEARCH_NO_IMPLEMENT`, `ALREADY_IN_PROGRESS`. The key is absent on a clean run.
+(The MCP surface puts the informational `GIT_COMMITTED` — a commit that *succeeded*, with its sha — on
+the same key, which is the clearest proof that `notices` is not only about things going wrong.)
 
 **`notices`, not `warning`.** The notice field was first emitted as `warning` (a bare object) and
 `warnings` (an array, when there was more than one) — a singular/plural switch a consumer had to
@@ -119,3 +122,9 @@ edit exits 2 (`E_USAGE`) instead of 0.
 Also fixed on the way: `commitTaskPaths`/`commitTaskChanges` let git write to the CLI's own stderr,
 putting a git usage dump in front of the envelope; git's stderr is now captured and folded into the
 error message, so stderr parses as JSON.
+
+**Why `minor` and not `patch`.** The CLI is published, so the payload and exit-code changes below are
+breaking for real consumers: the `warning`/`warnings` field is now `notices` (always an array), the
+auto-commit-failed path exits 0 instead of 1, and `tasks --edit --json` with no id and nothing to
+edit exits 2. A `patch` label beside a "Breaking:" paragraph is a lie in the release notes, so this
+is `minor` — the same level as the earlier breaking `--json` reshape, per this repo's 0.x convention.

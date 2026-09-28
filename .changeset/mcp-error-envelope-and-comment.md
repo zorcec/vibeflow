@@ -4,6 +4,11 @@
 
 Align the MCP server's refusals and inputs with the CLI's own contracts.
 
+> **Read `steps` below as superseded.** This change introduces the field; a later change in the same
+> release renames the wire key to `notices` and makes every entry a `{code, message}` object. The
+> narrative is kept as written because it is what the code did at this commit; the shipped wire is
+> described in `empty-board-and-notices.md`.
+
 **Error envelopes.** A failing MCP tool returned `{error, message, suggestion}` while `tasks --json` returns `{ok:false, error:{code, message, retryable, suggestion?}}`. A machine consumer could not parse the two surfaces the same way — the same problem the `--json` work fixed for the CLI. `formatResult` now emits the CLI envelope verbatim, with `retryable` defaulted to `false` and `suggestion` omitted when the operation set none. Success payloads keep the raw JSON data shape, the right MCP convention, with one addition: an operation that produces `steps` now emits them as a sibling key (see below).
 
 **`add_comment`'s body is now `comment`,** not `text`. The CLI flag is `--comment` and `update_task` already uses `comment`, so one concept had two names. `vibeflow mcp` is not yet published, so there is no external consumer to break.

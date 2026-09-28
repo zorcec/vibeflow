@@ -122,11 +122,16 @@ not supported. One process serves one root, resolved at startup.
 
 ### MCP results
 
-A tool's result is a single JSON document in the tool's `content[0].text`. Three rules a consumer can
-rely on, all of them the CLI's own conventions:
+A tool's result carries its payload as **one JSON document in `content[0].text`** — that holds for
+every tool-level success and every tool-level refusal. There is exactly one other shape, and it is
+**not** JSON: a *protocol-level* failure (an unknown tool, arguments the tool's own schema rejects)
+comes back as `result.isError === true` with `content[0].text` = `MCP error -32602: …` and no envelope
+to parse. So check `isError` first and parse the text as JSON only when it is absent. Three rules for
+the JSON case, all of them the CLI's own conventions:
 
 - **A refusal is the CLI envelope.** `{ok:false, error:{code, message, retryable, suggestion?}}` —
-  the same shape `tasks --json` writes to stderr, so one parser reads both surfaces.
+  the same shape `tasks --json` writes to stderr, so one parser reads both surfaces. A tool-level
+  refusal does **not** set `isError`; it is an ordinary result whose JSON is `{ok:false, …}`.
 - **"Nothing to claim" is a success.** `claim_next_task` on an empty board — or with a valid filter
   that matched no task — is `ok` with a payload of `null`, not an error. A claim's payload is the
   `Task` itself, so **an object means a task was claimed and `null` means there was nothing to
@@ -134,10 +139,20 @@ rely on, all of them the CLI's own conventions:
   The `dryRun` preview answers the same way, so a preview cannot disagree with the real call. There
   is no `NO_TASKS_AVAILABLE` code.
 - **Non-failures you must know about ride `notices`,** an array of `{code, message}` objects and the
-  *same* key the CLI puts on its `--json` success payloads. A `dryRun:true` preview carries
-  `notices:[{code:"DRY_RUN", message:"Task would be updated"}]`; a review transition whose auto-commit
-  failed carries `{code:"GIT_COMMIT_FAILED", message:"…"}` while the task write still succeeded. There
-  is no `steps` key on this surface any more, and no bare string in `notices`. (The online board's
+  *same* key the CLI puts on its `--json` success payloads. A notice is a **non-fatal signal, not a
+  synonym for partial success** — branch on `code`, never on the array merely being present:
+
+  | code | meaning |
+  | --- | --- |
+  | `DRY_RUN` | this was a preview; **nothing was written** |
+  | `GIT_COMMIT_FAILED` | the task was written, the commit did **not** happen |
+  | `GIT_COMMITTED` | informational — the commit **succeeded**; `message` is the sha |
+
+  A `dryRun:true` preview carries `notices:[{code:"DRY_RUN", message:"Task would be updated"}]` (or
+  the matching phrase — `Task would be created` / `claimed`, `Comment would be added`,
+  `File would be attached`, `Verification would run`); a review transition carries `GIT_COMMITTED`
+  with the sha when its auto-commit succeeded and `{code:"GIT_COMMIT_FAILED", message:"…"}` when it
+  did not. There is no `steps` key on this surface any more, and no bare string in `notices`. (The
   `warning` string is a different field and never appears here.)
 
 ---
@@ -265,21 +280,35 @@ Codes are **scoped per command**, not global: `TASK_NOT_FOUND` on `tasks` means 
 while `E_NOT_FOUND` on `tasks` means "no such FILE" (e.g. `--report-file`), and the two surfaces have
 their own schemes. Read the code from the command you called.
 
-A failure that happens **after** the task data is safely on disk is not a refusal: the run keeps
-`ok:true` and exit code 0, and the success payload gains an optional **`notices` array** of
-`{code, message}` — `GIT_COMMIT_FAILED` when the post-review auto-commit did not happen,
-`REINDEX_INCOMPLETE` when the sortKey re-keying landed but its post-assert did not pass,
-`SET_STATUS_DONE` / `RESEARCH_NO_IMPLEMENT` / `ALREADY_IN_PROGRESS` for the agent-policy and
-conflict warnings. The array is always an array (never a bare object, never a plural `notices`/`warnings`
-split) and the key is absent on a clean run. The local `--edit` path emits all of them; the SaaS
-`--edit` path can only reach `SET_STATUS_DONE` (the rest are decided against the LOCAL task file, which
-an online board has no equivalent of) — so read `notices` as "an array that may or may not be there",
-never as a fixed set of codes.
+`notices` is the CLI's structured field for **non-fatal signals the caller should know about,
+discriminated by `code`** — it is *not* a synonym for "partial success", and the array being present
+does not by itself mean anything went wrong. On a success payload it is an optional array of
+`{code, message}`, absent on a clean run:
 
-`notices` is this CLI's own structured field, and the MCP surface uses the same name for the same
-concept — see [MCP results](#mcp-results). `warning` is a **different** field: the online board's
-server-passthrough **string**, present only on the SaaS `--edit` payload. A consumer that branches on
-one can never trip over the other's shape.
+| code | meaning |
+| --- | --- |
+| `GIT_COMMIT_FAILED` | the task was written and only the post-review auto-commit did not happen |
+| `REINDEX_INCOMPLETE` | the sortKey re-keying landed but its post-assert did not pass |
+| `SET_STATUS_DONE` | a policy note: agents should mark work `review`; only a human marks a task done |
+| `RESEARCH_NO_IMPLEMENT` | a Research task has no implementation to hand over |
+| `ALREADY_IN_PROGRESS` | the task was already in-progress; nothing changed |
+
+The array is always an array (never a bare object, never a plural `notices`/`warnings` split). The
+local `--edit` path emits all of them; the SaaS `--edit` path can only reach `SET_STATUS_DONE` (the
+rest are decided against the LOCAL task file, which an online board has no equivalent of) — so read
+`notices` as "an array that may or may not be there", never as a fixed set of codes. The MCP surface
+also uses the name, for the same concept plus two of its own: `DRY_RUN` and `GIT_COMMITTED`, which the
+CLI never emits (the CLI says nothing when a commit succeeds). See [MCP results](#mcp-results).
+
+`warning` is a **different** field, and it is per-surface — a bare string everywhere, with a different
+meaning on each of the two surfaces that have one:
+
+- the **online board's** server-passthrough string on the SaaS `--edit` payload, and
+- the **verify surface's** capture-truncation note on a page-wide `vibeflow verify <id> <tool>
+  --json` result (`truncated:true` results carry a `warning` explaining the partial view).
+
+So `warning` is never an object and never means "partial success": a consumer that branches on
+`notices[].code` can never trip over it.
 
 `tasks --commit --json` also carries **`autoPush: {attempted, ok, error?}`**. The auto-push runs in
 BOTH modes — `--json` suppresses its progress lines, never the push — so this is how its outcome

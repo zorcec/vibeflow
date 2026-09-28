@@ -35,7 +35,7 @@ matching on it must read `task` instead. The stdout-purity sweep in
 document — now has **zero** exceptions; its named-exception list and provenance check are kept for
 the next ruling that needs them.
 
-### The MCP wire field for partial success is `notices`, an array of objects
+### The MCP wire field for non-fatal signals is `notices`, an array of objects
 
 The CLI emits `notices: [{code, message}]`. MCP called the same concept `steps`, and as a bare string
 array — `["Dry run: task would be updated"]` — so one parser could not read both: a consumer
@@ -43,12 +43,17 @@ branching on `payload.steps[0].code` got `undefined` on one surface and a proper
 on the other.
 
 - The MCP wire key is now **`notices`**, and every entry is a `{code, message}` **object**, the same
-  name and the same shape the CLI uses.
+  name and the same shape the CLI uses. A notice is a non-fatal signal the caller should know about,
+  discriminated by `code` — `DRY_RUN` (a preview; nothing was written), `GIT_COMMIT_FAILED` (the task
+  was written, the commit did not happen) and `GIT_COMMITTED` (informational: the commit **succeeded**,
+  `message` is the sha) — so `notices` is not a synonym for "partial success". The CLI deliberately
+  says nothing when a commit succeeds; the MCP tool always says which happened, because there the
+  notice is the only signal at all.
 - Every dry-run preview is converted, so none of them emits a bare string: `create_task`, `update_task`,
   `claim_next_task`, `add_comment`, `attach_file`, `verify_task` each carry
   `{code:"DRY_RUN", message:"Task would be updated"}` (or the matching phrase), and `push_tasks`
   carries its own `notices` array. The review auto-commit report now speaks the CLI's vocabulary —
-  `GIT_COMMITTED` / `GIT_COMMIT_FAILED`, the code the CLI already puts on `notices[].code` for that
+  `GIT_COMMITTED` / `GIT_COMMIT_FAILED`, the codes the CLI already puts on `notices[].code` for that
   exact situation.
 - The `steps` key no longer appears on this surface at any depth, including nested inside the
   `push_tasks` payload, where a second `steps` string array used to hide.
