@@ -5,7 +5,7 @@
  * and asserts each operation completes fast (well under the old 30s+ hang
  * threshold) and emits the expected output shape. Behaviors pinned live:
  *   --add --json  → {success:true, task:{...}}       (~0.5s)
- *   --next --json → plain text, NOT JSON, exit 0     ("No todo tasks found…")
+ *   --next --json → {ok:true, task:null, next_actions:[]} on an empty board
  *   --json (list) → bare JSON array ([] when empty)
  */
 
@@ -50,7 +50,7 @@ describe("MCP CLI hang regression", () => {
     expect(matches.length).toBe(1);
   });
 
-  it("2: --next --json on empty board → exit 0, <3s, NON-JSON stdout", async () => {
+  it("2: --next --json on empty board → exit 0, <3s, {ok:true,task:null}", async () => {
     const dir = freshDir("mcp-hang-proj-");
     const r = await spawnCli(["tasks", dir, "--next", "--json"], {
       cwd: dir,
@@ -59,9 +59,42 @@ describe("MCP CLI hang regression", () => {
     });
     expect(r.code).toBe(0);
     expect(r.elapsedMs).toBeLessThan(HANG_BUDGET_MS);
-    // Empty board prints plain text, not JSON — guard consumers accordingly
-    expect(r.stdout.trim().startsWith("{")).toBe(false);
+    // An empty board is a SUCCESS, so --json emits one JSON document and
+    // nothing on stderr. `task: null` is the branch: no prose, no exit code.
+    expect(r.stderr.trim()).toBe("");
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toEqual({ ok: true, task: null, next_actions: [] });
+  });
+
+  it("2b: --next --json with a filter that matches nothing → the same payload", async () => {
+    const dir = freshDir("mcp-hang-proj-");
+    await spawnCli(["tasks", dir, "--add", "--title", "a feature", "--json"], {
+      cwd: dir,
+      home: freshDir("mcp-hang-home-"),
+      timeoutMs: HANG_BUDGET_MS,
+    });
+    // A valid filter that matches no task is the SAME situation as an empty
+    // board, so it must not become a special case.
+    const r = await spawnCli(
+      ["tasks", dir, "--next", "--type", "Bug", "--json"],
+      { cwd: dir, home: freshDir("mcp-hang-home-"), timeoutMs: HANG_BUDGET_MS },
+    );
+    expect(r.code).toBe(0);
+    expect(r.stderr.trim()).toBe("");
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toEqual({ ok: true, task: null, next_actions: [] });
+  });
+
+  it("2c: --next in human mode on an empty board still prints the sentence, exit 0", async () => {
+    const dir = freshDir("mcp-hang-proj-");
+    const r = await spawnCli(["tasks", dir, "--next"], {
+      cwd: dir,
+      home: freshDir("mcp-hang-home-"),
+      timeoutMs: HANG_BUDGET_MS,
+    });
+    expect(r.code).toBe(0);
     expect(r.stdout).toContain("No todo tasks found");
+    expect(r.stdout).toContain("Nothing to work on.");
   });
 
   it("3: tasks <tmp> --json (list) without server → exit 0, <3s, parses as {ok:true,tasks:[]}", async () => {

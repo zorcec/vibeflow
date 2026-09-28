@@ -8,8 +8,9 @@
  *   - MCP claim sets author from the seeded git user
  *
  * Facts pinned live (dist build): `--next --json` prints
- * {ok:true, task:{...}, next_actions:[...]}; empty board prints plain
- * text "No todo tasks found. Nothing to work on." (NOT JSON, exit 0).
+ * {ok:true, task:{...}, next_actions:[...]}; an empty board (or a filter that
+ * matches nothing) prints {ok:true, task:null, next_actions:[]} — a SUCCESS,
+ * not prose, and the same answer the MCP tool gives.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -133,7 +134,7 @@ describe("MCP claim atomicity", () => {
     }
   });
 
-  it("3: single --next on empty board → non-JSON stdout, exit 0", async () => {
+  it("3: single --next on empty board → {ok:true,task:null}, exit 0", async () => {
     const dir = freshProject();
     seedGitUser(dir);
     const r = await spawnCli(["tasks", dir, "--next", "--json"], {
@@ -141,8 +142,45 @@ describe("MCP claim atomicity", () => {
       home: freshHome(),
     });
     expect(r.code).toBe(0);
-    expect(r.stdout.trim().startsWith("{")).toBe(false);
-    expect(r.stdout).toContain("No todo tasks found");
+    expect(r.stderr.trim()).toBe("");
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      task: null,
+      next_actions: [],
+    });
+  });
+
+  it("3b: --next with a filter matching nothing → the same {ok:true,task:null}", async () => {
+    const dir = freshProject();
+    seedGitUser(dir);
+    seedTask(dir, {
+      id: "m3000000000000000000000000000f1",
+      title: "not a bug",
+      status: "todo",
+      type: "Feature",
+    });
+    // The board is NOT empty, but `--type Bug` matches nothing. Same
+    // situation, same payload, exit 0 — not a special case.
+    const r = await spawnCli(
+      ["tasks", dir, "--next", "--type", "Bug", "--json"],
+      { cwd: dir, home: freshHome() },
+    );
+    expect(r.code).toBe(0);
+    expect(r.stderr.trim()).toBe("");
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      task: null,
+      next_actions: [],
+    });
+    // …and the unmatched task is still there to be claimed without the filter.
+    const retry = await spawnCli(["tasks", dir, "--next", "--json"], {
+      cwd: dir,
+      home: freshHome(),
+    });
+    expect(retry.code).toBe(0);
+    expect(JSON.parse(retry.stdout).task.id).toBe(
+      "m3000000000000000000000000000f1",
+    );
   });
 
   it("4: MCP claim author is the seeded git user", async () => {
