@@ -39,7 +39,7 @@ curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/main/scripts/inst
 choco install gitleaks
 ```
 
-The pre-commit hook will warn if gitleaks is missing but **will not block** the commit. Install it to ensure secrets are never accidentally committed to the public repo.
+The pre-commit hook **will block** the commit if gitleaks is missing — it exits 1 with an install message rather than warning and continuing. Install it before your first commit, otherwise every commit fails at the secret-scan step.
 
 ## Development workflow
 
