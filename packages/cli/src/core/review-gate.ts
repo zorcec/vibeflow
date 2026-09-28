@@ -80,13 +80,19 @@ export function checkReviewTransition(
   // The suggestion carries the full implementation-report guidance — it is
   // shared by the CLI, MCP and the PATCH route, and it used to exist only in
   // the CLI's (since deleted) duplicate pre-check.
+  //
+  // SHARED-SURFACE RULE (the RESEARCH_REPORT_REQUIRED pattern, ticket
+  // ef2a7585): this string is read by three surfaces, so it must name the route
+  // on EACH of them. The CLI flag alone was an answer an MCP client could not
+  // act on — it has no flags at all — and the PATCH route has neither. One
+  // line: what to write, then where to write it, per surface.
   if (!opts.comment?.trim()) {
     return {
       ok: false,
       code: "REVIEW_COMMENT_REQUIRED",
       message: "Comment is required when setting status to review",
       suggestion:
-        "Provide a concise implementation report explaining: what was changed and why · key decisions and trade-offs · anything future agents should know. Use --comment \"what changed and why\" when setting status to review",
+        "Provide a concise implementation report explaining: what was changed and why · key decisions and trade-offs · anything future agents should know — pass it as `comment` on update_task (MCP) or --comment \"what changed and why\" (CLI)",
     };
   }
 
@@ -97,7 +103,7 @@ export function checkReviewTransition(
       code: "COMMIT_MESSAGE_REQUIRED",
       message: "--commit-message is required (auto-commit setting is ON)",
       suggestion:
-        'Stage your changes first, then provide a one-line commit summary with --commit-message "fix: description"',
+        'Stage your changes first, then give a one-line commit summary — pass `commitMessage` on update_task (MCP) or --commit-message "fix: description" (CLI)',
     };
   }
 
@@ -108,7 +114,7 @@ export function checkReviewTransition(
       code: "BRANCH_REQUIRED",
       message: "--branch is required (create-branch setting is ON)",
       suggestion:
-        "Provide the git branch name created for this task with --branch",
+        "Name the git branch created for this task — pass `branch` on update_task (MCP) or --branch (CLI)",
     };
   }
 
@@ -134,7 +140,7 @@ export function checkReviewTransition(
         message:
           "A Research task cannot carry a verification verdict — it has no annotated UI to verify",
         suggestion:
-          "Drop --set-verify; submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI) instead",
+          "Drop the verdict — setVerify (MCP) or --set-verify (CLI) — and submit the Research task with its .md report attached via attach_file (MCP) or --report-file (CLI) instead",
       };
     }
   } else {
@@ -148,7 +154,7 @@ export function checkReviewTransition(
         message:
           "You attested that this task is NOT implemented correctly — it cannot go to review",
         suggestion:
-          'Fix the implementation and attest again with --set-verify pass, or park it: --set-status in-progress --set-verify fail --comment "what is wrong"',
+          'Fix the implementation, then attest again with setVerify:"pass" (MCP) or --set-verify pass (CLI) — or park it: in-progress with setVerify:"fail" (MCP) / --set-verify fail (CLI) and a comment saying what is wrong',
       };
     }
 
@@ -162,7 +168,7 @@ export function checkReviewTransition(
         message:
           "--set-verify cannot requires --verify-reason — say why the task cannot be verified",
         suggestion:
-          'Example: --set-verify cannot --verify-reason "no accessible environment to verify in"',
+          'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "no accessible environment to verify in" with --set-verify cannot (CLI)',
       };
     }
 
@@ -195,7 +201,7 @@ export function checkReviewTransition(
             message:
               "This task carries your verdict that it is NOT implemented correctly — it cannot go to review",
             suggestion:
-              'Fix the implementation, then attest with --set-verify pass; or park it: --set-status in-progress --set-verify fail --comment "what is wrong"',
+              'Fix the implementation, then attest with setVerify:"pass" (MCP) or --set-verify pass (CLI); or park it: in-progress with setVerify:"fail" (MCP) / --set-verify fail (CLI) and a comment saying what is wrong',
           };
         }
         return {
@@ -203,7 +209,7 @@ export function checkReviewTransition(
           code: "VERIFY_REQUIRED",
           message:
             "Annotated tasks need a verification verdict before review — attest how you verified the work",
-          suggestion: `Pass one of: --set-verify pass (implemented correctly), --set-verify fail (NOT correct — blocks review), or --set-verify cannot --verify-reason "<why>" (unverifiable here). Example: run vibeflow verify ${taskId}, judge the evidence, then pass the verdict on the review transition`,
+          suggestion: `Pass one of: --set-verify pass (implemented correctly), --set-verify fail (NOT correct — blocks review), or --set-verify cannot --verify-reason "<why>" (unverifiable here) — over MCP the same three are setVerify:"pass" / setVerify:"fail" / setVerify:"cannot" with verifyReason. Collect the evidence first with vibeflow verify ${taskId}, judge it, then pass the verdict on the review transition`,
         };
       }
     }

@@ -590,7 +590,11 @@ describe("checkReviewTransition", () => {
     if (!result.ok) {
       expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
       expect(result.message).toContain("cannot carry a verification verdict");
-      expect(result.suggestion).toContain("Drop --set-verify");
+      // Names BOTH routes: an MCP client has no --set-verify flag, and the
+      // refusal it gets is this exact string.
+      expect(result.suggestion).toContain("setVerify");
+      expect(result.suggestion).toContain("--set-verify");
+      expect(result.suggestion).toContain("attach_file");
     }
   });
 
@@ -616,7 +620,11 @@ describe("checkReviewTransition", () => {
     if (!result.ok) {
       expect(result.code).toBe("RESEARCH_VERIFY_NOT_ALLOWED");
       expect(result.message).toContain("cannot carry a verification verdict");
-      expect(result.suggestion).toContain("Drop --set-verify");
+      // Names BOTH routes: an MCP client has no --set-verify flag, and the
+      // refusal it gets is this exact string.
+      expect(result.suggestion).toContain("setVerify");
+      expect(result.suggestion).toContain("--set-verify");
+      expect(result.suggestion).toContain("attach_file");
     }
   });
 
@@ -639,6 +647,237 @@ describe("checkReviewTransition", () => {
     if (!result.ok) {
       // Comment is checked first
       expect(result.code).toBe("REVIEW_COMMENT_REQUIRED");
+    }
+  });
+});
+
+/**
+ * THE SHARED-SURFACE RULE, enforced.
+ *
+ * `checkReviewTransition` serves three callers: the CLI, MCP `update_task`, and
+ * the HTTP PATCH route. One `suggestion` string is therefore read by surfaces
+ * that do not share a vocabulary — an MCP client has no flags at all, and the
+ * PATCH route has neither flags nor a tool. A CLI-only suggestion is an
+ * answer the MCP reader cannot act on, which is the same "the refusal told me
+ * what broke but not how to fix it" defect the rest of this lane is about.
+ *
+ * The pattern is the one landed for `RESEARCH_REPORT_REQUIRED` in ticket
+ * ef2a7585: name the MCP input/tool AND keep the CLI flag, on one line.
+ *
+ * Each row asserts BOTH tokens by name rather than a loose "mentions a flag"
+ * regex, so a suggestion cannot pass by naming the wrong input.
+ */
+describe("every review-gate suggestion names BOTH surfaces", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = createTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const ANNOTATED = { selector: ".submit-btn", url: "https://example.com" };
+
+  const rows: Array<{
+    code: string;
+    /** The exact token the suggestion must carry for the MCP surface. */
+    mcp: string;
+    /** The exact token it must carry for the CLI surface. */
+    cli: string;
+    run: () => ReturnType<typeof checkReviewTransition>;
+  }> = [
+    {
+      code: "REVIEW_COMMENT_REQUIRED",
+      mcp: "`comment`",
+      cli: "--comment",
+      run: () =>
+        checkReviewTransition(
+          tmpDir,
+          "task-123",
+          {},
+          { projectDir: tmpDir, settings: makeSettings({ autoCommit: false }) },
+        ),
+    },
+    {
+      code: "COMMIT_MESSAGE_REQUIRED",
+      mcp: "`commitMessage`",
+      cli: "--commit-message",
+      run: () =>
+        checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done" },
+          { projectDir: tmpDir, settings: makeSettings({ autoCommit: true }) },
+        ),
+    },
+    {
+      code: "BRANCH_REQUIRED",
+      mcp: "`branch`",
+      cli: "--branch",
+      run: () =>
+        checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done" },
+          {
+            projectDir: tmpDir,
+            settings: makeSettings({
+              autoCommit: false,
+              createBranch: true,
+            }),
+          },
+        ),
+    },
+    {
+      code: "VERIFY_REQUIRED",
+      mcp: 'setVerify:"pass"',
+      cli: "--set-verify pass",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", ANNOTATED);
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done" },
+          {
+            projectDir: tmpDir,
+            settings: makeSettings({
+              autoCommit: false,
+              requireVerifyBeforeReview: true,
+            }),
+          },
+        );
+      },
+    },
+    {
+      code: "VERIFY_FAILED_ATTESTED (verdict on this transition)",
+      mcp: 'setVerify:"pass"',
+      cli: "--set-verify pass",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", ANNOTATED);
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done", verifyVerdict: "fail" },
+          {
+            projectDir: tmpDir,
+            settings: makeSettings({
+              autoCommit: false,
+              requireVerifyBeforeReview: true,
+            }),
+          },
+        );
+      },
+    },
+    {
+      code: "VERIFY_FAILED_ATTESTED (stored verdict:false)",
+      mcp: 'setVerify:"pass"',
+      cli: "--set-verify pass",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", { ...ANNOTATED, verified: false });
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done" },
+          {
+            projectDir: tmpDir,
+            settings: makeSettings({
+              autoCommit: false,
+              requireVerifyBeforeReview: true,
+            }),
+          },
+        );
+      },
+    },
+    {
+      code: "VERIFY_REASON_REQUIRED",
+      mcp: "`verifyReason`",
+      cli: "--verify-reason",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", ANNOTATED);
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done", verifyVerdict: "cannot" },
+          {
+            projectDir: tmpDir,
+            settings: makeSettings({
+              autoCommit: false,
+              requireVerifyBeforeReview: true,
+            }),
+          },
+        );
+      },
+    },
+    {
+      code: "RESEARCH_VERIFY_NOT_ALLOWED",
+      mcp: "setVerify",
+      cli: "--set-verify",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", { type: "Research" });
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done", verifyVerdict: "pass" },
+          { projectDir: tmpDir, settings: makeSettings({ autoCommit: false }) },
+        );
+      },
+    },
+    {
+      code: "RESEARCH_REPORT_REQUIRED",
+      mcp: "attach_file",
+      cli: "--report-file",
+      run: () => {
+        createTaskFile(tmpDir, "task-123", { type: "Research" });
+        return checkReviewTransition(
+          tmpDir,
+          "task-123",
+          { comment: "done" },
+          { projectDir: tmpDir, settings: makeSettings({ autoCommit: false }) },
+        );
+      },
+    },
+  ];
+
+  it("each refusal names its MCP input/tool and its CLI flag", () => {
+    const offenders: string[] = [];
+    for (const row of rows) {
+      const result = row.run();
+      if (result.ok) {
+        offenders.push(`${row.code}: the scenario did not refuse at all`);
+        continue;
+      }
+      if (typeof result.suggestion !== "string" || !result.suggestion) {
+        offenders.push(`${row.code}: carries no suggestion`);
+        continue;
+      }
+      if (!result.suggestion.includes(row.mcp))
+        offenders.push(
+          `${row.code}: no MCP route — ${JSON.stringify(row.mcp)} is absent from ${JSON.stringify(result.suggestion)}`,
+        );
+      if (!result.suggestion.includes(row.cli))
+        offenders.push(
+          `${row.code}: no CLI route — ${JSON.stringify(row.cli)} is absent from ${JSON.stringify(result.suggestion)}`,
+        );
+    }
+    // Collected, not thrown on the first: one run reports the whole class.
+    expect(offenders).toEqual([]);
+  });
+
+  it("a CLI-only suggestion would be caught (the assertion is live)", () => {
+    // The row set must actually drive refusals, or the sweep above is vacuous.
+    // Proved by shrinking one row to a suggestion the gate cannot produce.
+    const cliOnly = "Pass one of: --set-verify pass, --set-verify fail, --set-verify cannot";
+    const row = rows.find((r) => r.code === "VERIFY_REQUIRED")!;
+    const result = row.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // The synthetic CLI-only text fails the MCP check…
+      expect(cliOnly.includes(row.mcp)).toBe(false);
+      // …and the real one passes it. Without this, a sweep whose rows all
+      // stopped refusing would report success.
+      expect(result.suggestion).toContain(row.mcp);
     }
   });
 });
