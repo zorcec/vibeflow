@@ -869,10 +869,13 @@ describe("tasks --json partial success is a notice, not a refusal", () => {
  * exactly one JSON document. Nothing in between. Anything less specific would
  * let the next chalk line back in.
  *
- * There is exactly ONE deliberate exception, listed with its provenance in
- * `KNOWN_EXCEPTIONS` below. It is an owner decision recorded in three test
- * files, not an oversight — an exception without provenance is just a hole
- * with a nice comment, so the provenance is part of the entry.
+ * The rule now has ZERO exceptions: the last one (`--next` on an empty board
+ * printing a sentence) was an owner decision that has since been REVERSED —
+ * an empty board is a success and now emits `{ok:true, task:null,
+ * next_actions:[]}`, the same answer MCP's `claim_next_task` gives. The
+ * mechanism below is kept, deliberately, for the next ruling that needs it:
+ * an exception without provenance is just a hole with a nice comment, so
+ * `decidedIn` is part of every entry and a stale one fails this test loudly.
  */
 describe("tasks --json stdout is empty or one JSON document — always", () => {
   /**
@@ -880,38 +883,50 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
    * there. Each one still runs on every sweep; it is checked against its
    * recorded behaviour instead, so revoking the ruling fails this test loudly
    * rather than silently.
+   *
+   * EMPTY as of the empty-board ruling. Do not delete this list, its type, or
+   * the provenance check below to "simplify" the sweep — the list is the
+   * mechanism, and an empty list means the rule holds everywhere.
    */
   const KNOWN_EXCEPTIONS: Array<{
     label: string;
     why: string;
     decidedIn: string[];
     expect: (r: CliResult) => string | null;
-  }> = [
-    {
-      label: "next with nothing to claim",
-      // DELIBERATE. An empty board is not a failure — there is simply nothing
-      // to hand out — so `--next --json` prints a sentence and exits 0. The
-      // ruling is recorded in these three tests, one of which says outright
-      // "guard consumers accordingly". The CLI/MCP divergence here (MCP answers
-      // the identical situation with NO_TASKS_AVAILABLE, ok:false) is filed as
-      // its own ticket for an owner decision; it is deliberately NOT resolved
-      // here, because revoking a recorded ruling must not ride along with a
-      // stdout-purity change.
-      why: "empty board is not a failure; the sentence and exit 0 are pinned",
-      decidedIn: [
-        "tests/e2e/mcp-hang.test.ts:53-66 (test 2)",
-        "tests/e2e/mcp-claim-race.test.ts:11-12 (docstring)",
-        "tests/e2e/mcp-claim-race.test.ts:137-148 (test 3)",
-      ],
-      expect: (r) => {
-        if (r.code !== 0)
-          return `expected exit 0 on an empty board, got ${r.code}`;
-        if (!r.stdout.includes("No todo tasks found"))
-          return `expected the pinned sentence, got:\n${r.stdout.slice(0, 200)}`;
-        return null;
-      },
-    },
-  ];
+  }> = [];
+
+  /**
+   * The provenance check, as a FUNCTION rather than an inline loop: the list
+   * is currently empty, and a loop over zero entries cannot fail. A mechanism
+   * that cannot fail is not a mechanism, so it is proved live below against a
+   * deliberately bogus entry.
+   *
+   * A stale exception is a bug for the same reason a stale allowlist entry
+   * is: it excuses a rule that now holds, and hides the next site that lands
+   * there. Provenance is part of the entry, so the ruling it points at must
+   * STILL BE THERE: an exception citing a deleted or renamed test has lost
+   * the decision that authorised it.
+   */
+  function staleProvenance(entries: typeof KNOWN_EXCEPTIONS): string[] {
+    const stale: string[] = [];
+    for (const e of entries) {
+      for (const ref of e.decidedIn) {
+        const file = /^([^:]+):/.exec(ref)?.[1];
+        if (!file) {
+          stale.push(
+            `${e.label}: provenance ${JSON.stringify(ref)} does not name a file:line`,
+          );
+          continue;
+        }
+        if (!existsSync(join(PACKAGE_ROOT, file))) {
+          stale.push(
+            `${e.label}: provenance ${ref} points at a file that no longer exists — the decision it records is gone`,
+          );
+        }
+      }
+    }
+    return stale;
+  }
 
   /** Every row is asserted the same way, so a new row cannot be weaker. */
   function stdoutProblem(
@@ -1035,12 +1050,13 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
       expects: "payload" | "empty-allowed";
     }> = [
       ...table,
-      // The empty board is the pinned exception: it must be checked LAST so it
-      // cannot mask a regression in any ordinary row.
+      // By the time this row runs, every todo task on the board has been
+      // claimed by the rows above, so this IS the empty board. It is asserted
+      // like any other row: one JSON document, exit 0, `task:null`.
       {
-        label: KNOWN_EXCEPTIONS[0].label,
+        label: "next with nothing to claim",
         args: ["--next", "--json"],
-        expects: "empty-allowed",
+        expects: "payload",
       },
     ];
     for (const c of cases) {
@@ -1054,24 +1070,19 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
     expect(offenders).toEqual([]);
 
     // A stale exception is a bug for the same reason a stale allowlist entry
-    // is: it excuses a rule that now holds, and hides the next site that lands
-    // there. Provenance is part of the entry, so check the ruling it points at
-    // is STILL THERE: an exception citing a deleted or renamed test has lost
-    // the decision that authorised it. `decidedIn.length > 0` could not fail
-    // for any useful reason — the array is a literal in this file.
-    for (const e of KNOWN_EXCEPTIONS) {
-      for (const ref of e.decidedIn) {
-        const file = /^([^:]+):/.exec(ref)?.[1];
-        expect(
-          file,
-          `${e.label}: provenance ${JSON.stringify(ref)} does not name a file:line`,
-        ).toBeTruthy();
-        expect(
-          existsSync(join(PACKAGE_ROOT, file as string)),
-          `${e.label}: provenance ${ref} points at a file that no longer exists — the decision it records is gone`,
-        ).toBe(true);
-      }
-    }
+    // is. With the list empty this is vacuously true; the probe below is what
+    // proves the check is live rather than merely present.
+    expect(staleProvenance(KNOWN_EXCEPTIONS)).toEqual([]);
+    expect(
+      staleProvenance([
+        {
+          label: "mechanism probe",
+          why: "proves the provenance check can still fail",
+          decidedIn: ["tests/e2e/a-file-that-was-never-there.test.ts:1"],
+          expect: () => null,
+        },
+      ]),
+    ).toHaveLength(1);
   }, 120_000);
 });
 

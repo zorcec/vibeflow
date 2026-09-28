@@ -333,10 +333,29 @@ describe("claim_next_task", () => {
     expect(result.data?.status).toBe("in-progress");
   });
 
-  it("returns error when no tasks available", async () => {
+  it("returns an OK null result when no tasks are available", async () => {
+    // "No work available" is not an error, and the answer is the same one a
+    // valid-but-unmatched filter gets — see the filtered test below.
     const result = await claimNextTask(ctx, {});
-    expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe("NO_TASKS_AVAILABLE");
+    expect(result.ok).toBe(true);
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns the same OK null result when a valid filter matches nothing", async () => {
+    createTestTask({ id: "task-feature", type: "Feature", status: "todo" });
+    const result = await claimNextTask(ctx, { type: "Bug" });
+    expect(result.ok).toBe(true);
+    expect(result.data).toBeUndefined();
+    expect(result.error).toBeUndefined();
+  });
+
+  it("dryRun on an empty board agrees with the real path", async () => {
+    const preview = await claimNextTask({ ...ctx, dryRun: true }, {});
+    const real = await claimNextTask(ctx, {});
+    expect(preview.ok).toBe(real.ok);
+    expect(preview.data).toEqual(real.data);
+    expect(preview.error).toEqual(real.error);
   });
 
   it("filters by type", async () => {

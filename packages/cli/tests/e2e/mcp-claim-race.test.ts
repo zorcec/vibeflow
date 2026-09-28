@@ -183,6 +183,40 @@ describe("MCP claim atomicity", () => {
     );
   });
 
+  it("3c: MCP claim_next_task on a non-empty board, filter matching nothing → null, not an error", async () => {
+    const dir = freshProject();
+    seedGitUser(dir);
+    seedTask(dir, {
+      id: "m3000000000000000000000000000f2",
+      title: "not a bug",
+      status: "todo",
+      type: "Feature",
+    });
+    const env: McpTestEnv = await bootMcpServer(dir);
+    try {
+      const client = newClient(env.mcpUrl);
+      await initialize(client);
+      // The board HAS a todo task; the Bug filter matches none. Same situation
+      // as an empty board, so the same success — and not the old
+      // NO_TASKS_AVAILABLE error, and not some other code.
+      const res = await callTool(client, "claim_next_task", {
+        type: "Bug",
+        dryRun: false,
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(JSON.parse(body.result.content[0].text)).toBeNull();
+      expect(body.result?.isError).toBeFalsy();
+      // …and the unfiltered claim still works, so nothing was consumed.
+      const claimed = await assertJsonTextContent(
+        await callTool(client, "claim_next_task", { dryRun: false }),
+      );
+      expect(claimed.id).toBe("m3000000000000000000000000000f2");
+    } finally {
+      await env.cleanup();
+    }
+  });
+
   it("4: MCP claim author is the seeded git user", async () => {
     const dir = freshProject();
     seedGitUser(dir);

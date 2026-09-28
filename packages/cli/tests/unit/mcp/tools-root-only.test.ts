@@ -128,7 +128,12 @@ describe("mcp claim_next_task root/child contract", () => {
 
     const res = await claimNextTask(ctx, {} as never);
 
-    expect(res.ok).toBe(false);
+    // No claimable root is "no work available", which is a SUCCESS with a
+    // null payload — not a failure. The child is untouched either way.
+    expect(res.ok).toBe(true);
+    expect(res.data).toBeUndefined();
+    expect(res.error).toBeUndefined();
+    expect(readStatus("kid")).toBe("todo");
   });
 
   it("dry run also skips children", async () => {

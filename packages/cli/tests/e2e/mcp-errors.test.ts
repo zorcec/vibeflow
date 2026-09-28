@@ -269,15 +269,41 @@ describe("MCP error paths", () => {
     await assertServerUsable(client);
   });
 
-  it("11: claim_next_task empty board → NO_TASKS_AVAILABLE", async () => {
+  it("11: claim_next_task empty board → null payload, a SUCCESS", async () => {
+    // OWNER DECISION: "no work available" is not an error. The tool answers
+    // with a null payload, the same as `vibeflow tasks --next --json` giving
+    // {ok:true, task:null} with exit 0. NO_TASKS_AVAILABLE is gone.
     const res = await callTool(client, "claim_next_task", { dryRun: false });
     const body = await res.json();
     expect(res.status).toBe(200);
     const parsed = JSON.parse(body.result.content[0].text);
-    expect(parsed.error.code).toBe("NO_TASKS_AVAILABLE");
-    expect(parsed.error.message).toBe("No tasks available to claim");
+    expect(parsed).toBeNull();
     // [now] error-as-content contract: isError absent/false on the result
-    // [Phase 5 flip note: manifest-based registration may set isError: true — pin and flip]
+    expect(body.result?.isError).toBeFalsy();
+    await assertServerUsable(client);
+  });
+
+  it("11b: claim_next_task dryRun on an empty board → the same null payload", async () => {
+    // The preview must not disagree with the real path.
+    const res = await callTool(client, "claim_next_task", { dryRun: true });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(JSON.parse(body.result.content[0].text)).toBeNull();
+    expect(body.result?.isError).toBeFalsy();
+    await assertServerUsable(client);
+  });
+
+  it("11c: claim_next_task with a filter → the same null, not a different code", async () => {
+    // A valid filter that matches nothing is the same situation, so it must
+    // not come back as some other error. (The seeded filtered-empty board
+    // case lives in tests/e2e/mcp-claim-race.test.ts, which can seed tasks.)
+    const res = await callTool(client, "claim_next_task", {
+      type: "Bug",
+      dryRun: false,
+    });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(JSON.parse(body.result.content[0].text)).toBeNull();
     expect(body.result?.isError).toBeFalsy();
     await assertServerUsable(client);
   });

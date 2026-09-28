@@ -713,13 +713,10 @@ export async function claimNextTask(
         );
       }
       if (tasks.length === 0) {
-        return {
-          ok: false,
-          error: {
-            code: "NO_TASKS_AVAILABLE",
-            message: "No tasks available to claim",
-          },
-        };
+        // A valid filter that matched nothing is the SAME situation as an
+        // empty board, and the dry run must not disagree with the real path:
+        // both answer "nothing was claimed" as a success with a null payload.
+        return { ok: true };
       }
       return {
         ok: true,
@@ -742,13 +739,14 @@ export async function claimNextTask(
     );
 
     if (!claimed) {
-      return {
-        ok: false,
-        error: {
-          code: "NO_TASKS_AVAILABLE",
-          message: "No tasks available to claim",
-        },
-      };
+      // OWNER DECISION: "no work available" is not an error, and this is the
+      // same answer `vibeflow tasks --next --json` gives (ok:true, exit 0,
+      // task:null). The wire payload for a claim is the Task itself, so a
+      // `null` payload is the branch an agent reads: an object means claimed,
+      // null means there was nothing to claim. NO_TASKS_AVAILABLE is gone —
+      // a valid filter that matched nothing lands here too, so it was never a
+      // separate situation to report.
+      return { ok: true };
     }
 
     return { ok: true, data: claimed };
