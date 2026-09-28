@@ -14,6 +14,7 @@
     "test": "pnpm --filter @vibeflow-tools/cli run test",
     "test:prototyping": "pnpm --filter @vibeflow-tools/prototyping run test",
     "test:all": "pnpm -r run test",
+    "test:integration": "pnpm --filter @vibeflow-tools/cli run test:integration",
     "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
