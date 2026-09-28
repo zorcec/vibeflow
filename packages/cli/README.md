@@ -120,6 +120,26 @@ only the transport differs.
 Do **not** run one global server with a per-call project argument — that is deliberately
 not supported. One process serves one root, resolved at startup.
 
+### MCP results
+
+A tool's result is a single JSON document in the tool's `content[0].text`. Three rules a consumer can
+rely on, all of them the CLI's own conventions:
+
+- **A refusal is the CLI envelope.** `{ok:false, error:{code, message, retryable, suggestion?}}` —
+  the same shape `tasks --json` writes to stderr, so one parser reads both surfaces.
+- **"Nothing to claim" is a success.** `claim_next_task` on an empty board — or with a valid filter
+  that matched no task — is `ok` with a payload of `null`, not an error. A claim's payload is the
+  `Task` itself, so **an object means a task was claimed and `null` means there was nothing to
+  claim**; that is the same answer `vibeflow tasks --next --json` gives with `task:null` and exit 0.
+  The `dryRun` preview answers the same way, so a preview cannot disagree with the real call. There
+  is no `NO_TASKS_AVAILABLE` code.
+- **Non-failures you must know about ride `notices`,** an array of `{code, message}` objects and the
+  *same* key the CLI puts on its `--json` success payloads. A `dryRun:true` preview carries
+  `notices:[{code:"DRY_RUN", message:"Task would be updated"}]`; a review transition whose auto-commit
+  failed carries `{code:"GIT_COMMIT_FAILED", message:"…"}` while the task write still succeeded. There
+  is no `steps` key on this surface any more, and no bare string in `notices`. (The online board's
+  `warning` string is a different field and never appears here.)
+
 ---
 
 ## Related Packages
@@ -211,13 +231,16 @@ to **stdout** — `tasks` → `{ok:true, tasks:[…], hiddenChildren}`, `--get` 
 `{ok:false, error:{code, message, retryable, suggestion}}` to **stderr** and exits non-zero. **Every**
 non-zero exit emits that envelope — a refusal that printed prose left a machine consumer with empty
 stdout and no code. Under `--json`, stdout is **empty or exactly one JSON document** on every path,
-with one deliberate exception:
+with no exceptions.
 
-- `tasks --next --json` on an **empty board** prints `No todo tasks found. Nothing to work on.` and
-  exits 0. An empty board is not a failure, so this path never had an envelope, and three e2e tests
-  pin that sentence and exit code on purpose. Guard for it explicitly. (The CLI/MCP divergence here
-  — MCP's `claim_next_task` answers the same situation with `NO_TASKS_AVAILABLE` — is a filed ticket,
-  not a documented difference.)
+**"Nothing to work on" is a success.** `--next` on an empty board — or with a valid filter
+(`--type Bug`, `--user`, `--tag`) that matched no todo task — writes
+`{ok:true, task:null, next_actions:[]}` to stdout and exits **0**. The key set is the same as a
+successful claim's, so `task === null` is the branch: a claimed task is always an object. A filter that
+matched nothing is the *same* situation as an empty board, not a special case. Without `--json` the
+sentence `No todo tasks found. Nothing to work on.` and exit 0 are unchanged. The MCP tool
+`claim_next_task` answers the identical situation the same way — see below. (This reverses an earlier
+ruling that printed the sentence under `--json`; `NO_TASKS_AVAILABLE` no longer exists.)
 
 One code per meaning:
 
@@ -248,7 +271,8 @@ split) and the key is absent on a clean run. The local `--edit` path emits all o
 an online board has no equivalent of) — so read `notices` as "an array that may or may not be there",
 never as a fixed set of codes.
 
-`notices` is this CLI's own structured field. `warning` is a **different** field: the online board's
+`notices` is this CLI's own structured field, and the MCP surface uses the same name for the same
+concept — see [MCP results](#mcp-results). `warning` is a **different** field: the online board's
 server-passthrough **string**, present only on the SaaS `--edit` payload. A consumer that branches on
 one can never trip over the other's shape.
 
