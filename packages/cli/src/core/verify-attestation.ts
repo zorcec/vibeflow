@@ -69,9 +69,9 @@ export function resolveVerifyAttestation(
         code: "VERIFY_REASON_REQUIRED",
         message:
           "--set-verify cannot requires --verify-reason <why> — say why the task cannot be verified here.",
-        // Both surfaces read this string (CLI, MCP, PATCH), so it names the
-        // MCP input and the CLI flag — see the shared-surface rule in
-        // review-gate.ts.
+        // Both surfaces that read this string (CLI and MCP) are named, so it
+        // names the MCP input and the CLI flag — see the shared-surface rule
+        // in review-gate.ts.
         suggestion:
           'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "<why>" with --set-verify cannot (CLI)',
       };

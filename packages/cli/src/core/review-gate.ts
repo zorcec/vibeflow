@@ -1,9 +1,17 @@
 /**
  * Shared review-gate implementation.
  *
- * Enforces the same transition rules across CLI, REST PATCH, and MCP update_task.
- * CLI and MCP enforce all five gates; PATCH (human/UI path) enforces only the
- * research gate — comment/commit/verify are handled by the UI separately.
+ * WHO CALLS IT: exactly two surfaces — the CLI (`tasks --edit --set-status
+ * review`) and MCP `update_task`. Both enforce all five gates.
+ *
+ * The HTTP `PATCH /api/tasks/:id` route does NOT call this gate. It enforces
+ * the research rule itself, inline (server.ts), and only that one: the UI is
+ * the human path, so comment/commit/branch/verify are its business. A previous
+ * version of this docstring claimed the gate was shared with PATCH "alike",
+ * and the same claim was repeated in the README, the changeset and this file's
+ * suggestion comments; the route has no import of this module, so the claim
+ * described a sharing that does not exist. Routing PATCH through the gate is a
+ * behaviour change and is deliberately not done here.
  *
  * Gate 4 is an ATTESTATION gate: it needs the agent's verdict carried by this
  * transition (CLI `--set-verify pass|cannot`, MCP `setVerify`), not a
@@ -78,14 +86,14 @@ export function checkReviewTransition(
 
   // Gate 1: comment required when setting review.
   // The suggestion carries the full implementation-report guidance — it is
-  // shared by the CLI, MCP and the PATCH route, and it used to exist only in
-  // the CLI's (since deleted) duplicate pre-check.
+  // shared by the CLI and MCP update_task, and it used to exist only in the
+  // CLI's (since deleted) duplicate pre-check.
   //
   // SHARED-SURFACE RULE (the RESEARCH_REPORT_REQUIRED pattern, ticket
-  // ef2a7585): this string is read by three surfaces, so it must name the route
+  // ef2a7585): this string is read by two surfaces, so it must name the route
   // on EACH of them. The CLI flag alone was an answer an MCP client could not
-  // act on — it has no flags at all — and the PATCH route has neither. One
-  // line: what to write, then where to write it, per surface.
+  // act on — it has no flags at all. One line: what to write, then where to
+  // write it, per surface.
   if (!opts.comment?.trim()) {
     return {
       ok: false,

@@ -654,10 +654,12 @@ describe("checkReviewTransition", () => {
 /**
  * THE SHARED-SURFACE RULE, enforced.
  *
- * `checkReviewTransition` serves three callers: the CLI, MCP `update_task`, and
- * the HTTP PATCH route. One `suggestion` string is therefore read by surfaces
- * that do not share a vocabulary — an MCP client has no flags at all, and the
- * PATCH route has neither flags nor a tool. A CLI-only suggestion is an
+ * `checkReviewTransition` serves TWO callers: the CLI and MCP `update_task`.
+ * (It used to be described here as serving the HTTP PATCH route as well; it
+ * does not — `app.patch("/api/tasks/:id")` in server/server.ts re-implements
+ * the research rule inline and imports nothing from this module.) One
+ * `suggestion` string is therefore read by two surfaces that do not share a
+ * vocabulary — an MCP client has no flags at all. A CLI-only suggestion is an
  * answer the MCP reader cannot act on, which is the same "the refusal told me
  * what broke but not how to fix it" defect the rest of this lane is about.
  *

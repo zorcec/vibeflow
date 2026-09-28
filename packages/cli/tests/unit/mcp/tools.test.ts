@@ -19,6 +19,7 @@ import {
   attachFile,
   exportPrompt,
   verifyTaskOp,
+  VERIFY_ERROR_SUGGESTION,
   type OperationContext,
 } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
@@ -570,6 +571,30 @@ describe("verify_task", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("E_NO_BASELINE");
+  });
+
+  it("verify_task — an engine code with no text of its own still carries a suggestion", async () => {
+    // E_NO_SELECTOR is thrown by the engine with NO `suggestion` of its own.
+    // The passthrough used to forward that absence verbatim, so this refusal
+    // reached a client as a code with nothing to act on — the one reachable
+    // exception to "every tool-level refusal carries a suggestion". Reached
+    // without a browser: the engine throws at step 5, before loadPlaywright().
+    const id = "task-no-selector";
+    createTestTask({ id, url: "https://example.com", selector: "/" });
+    const filesDir = join(testDir, ".vibeflow", "tasks", "files", id);
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(
+      join(filesDir, "baseline-element.json"),
+      JSON.stringify({ selector: ".submit" }),
+    );
+
+    const result = await verifyTaskOp(ctx, { id, timeoutMs: 60_000 });
+
+    expect(result.ok).toBe(false);
+    // The engine's code is forwarded unchanged — the fallback supplies text,
+    // it does not re-code the failure.
+    expect(result.error?.code).toBe("E_NO_SELECTOR");
+    expect(result.error?.suggestion).toBe(VERIFY_ERROR_SUGGESTION);
   });
 });
 

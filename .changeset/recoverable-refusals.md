@@ -35,8 +35,9 @@ carried *two different* texts depending on which tool returned it. Now:
 - The shared review-gate suggestions (`VERIFY_REQUIRED`, `VERIFY_REASON_REQUIRED`,
   `COMMIT_MESSAGE_REQUIRED`, `BRANCH_REQUIRED`, `REVIEW_COMMENT_REQUIRED`, both
   `VERIFY_FAILED_ATTESTED` refusals, `RESEARCH_VERIFY_NOT_ALLOWED`) name the **MCP input and the CLI
-  flag**. The same string is read by the CLI, MCP and the HTTP PATCH route, so a CLI-only suggestion
-  was an answer an MCP client could not use.
+  flag**. The same string is read by the CLI and by MCP `update_task`, so a CLI-only suggestion
+  was an answer an MCP client could not use. (The HTTP `PATCH` route is not a reader of this gate —
+  it enforces the research rule inline — so it is not named here.)
 - `VerifyAttestationResolution` and `FileValidationResult` gained a `suggestion` field, because those
   two producers are the only place that knows why an input was refused and what a valid one is —
   without the field their callers had nothing to forward.

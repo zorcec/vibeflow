@@ -2743,7 +2743,7 @@ program
               );
             }
           }
-          // ── Unified review gate (shared with MCP + PATCH) ──────────────
+          // ── Unified review gate (shared with MCP update_task) ──────────────
           if (opts.setStatus === "review") {
             const { checkReviewTransition } = await import(
               "./core/review-gate.js"

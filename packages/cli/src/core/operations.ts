@@ -82,6 +82,18 @@ export interface OperationResult<T> {
 export const TASK_NOT_FOUND_SUGGESTION =
   "List the board to get a real id (list_tasks on MCP, 'vibeflow tasks' on the CLI) — a full id or a unique prefix both resolve.";
 
+/**
+ * The `suggestion` `verify_task` falls back to when the verify engine's own
+ * `VerifyError` carries none. It is a fallback, not a per-code table: the
+ * engine's codes are NOT renamed and its own text always wins. Without it the
+ * passthrough in `verifyTaskOp` forwarded the absence, and the README's
+ * "every tool-level refusal carries a `suggestion`" had a reachable exception
+ * (`E_NO_SELECTOR`, `E_AUTH_EXPIRED`, `E_AUTH_CORRUPT`, `E_APP_NOT_RUNNING`,
+ * `E_NAVIGATION_FAILED`, `E_CANCELLED`).
+ */
+export const VERIFY_ERROR_SUGGESTION =
+  "The verify engine refused before it could check anything — read `message` for the input it is missing, supply it (re-annotate the task if that input is not one you can set here), then run verify_task again";
+
 export type TaskResolution =
   | { ok: true; id: string; filePath: string; task: Task }
   | { ok: false; error: OperationError };
@@ -346,9 +358,18 @@ export const ExportPromptInput = z.object({
     .string()
     .optional()
     .describe(
-      "A single task id to export. Omit it (or pass `ids`) to export the whole board. An id that matches nothing is refused with TASK_NOT_FOUND.",
+      "A FULL task id to export — this tool matches ids EXACTLY, so a prefix is NOT resolved and is refused with TASK_NOT_FOUND. Omit it (or pass `ids`) to export the whole board.",
     ),
-  ids: z.array(z.string()).optional(),
+  // Real behaviour, stated because it differs from the other id-bearing tools:
+  // no prefix resolution, and an id that matches nothing is SKIPPED rather than
+  // refused (a list is best-effort), so the answer can name fewer tasks than
+  // were asked for.
+  ids: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "FULL task ids to export, matched exactly. An id that matches no task is skipped rather than refused, so check that the rendered output names every id you asked for.",
+    ),
   format: z.enum(["markdown", "json"]).default("markdown"),
 });
 export type ExportPromptInputType = z.infer<typeof ExportPromptInput>;
@@ -358,7 +379,7 @@ export const VerifyTaskInput = z.object({
     .string()
     .min(1)
     .describe(
-      "Task id — a full id, or any unique prefix of one. An id that matches nothing is refused with E_NOT_FOUND (this tool runs the CLI verify engine, which has its own code).",
+      "Task id — a full id, or any unique prefix of one, resolved by the same shared rule every other task tool uses. An id that matches nothing is refused with E_NOT_FOUND (this tool runs the CLI verify engine, which has its own code), and every refusal it returns carries a `suggestion`.",
     ),
   url: z.string().url().optional(),
   timeoutMs: z.number().min(1000).max(300000).default(60000),
@@ -1201,17 +1222,29 @@ export async function verifyTaskOp(
     const { verifyTask, addVerifySystemComment } = await import(
       "../commands/verify.js"
     );
+    // ONE id rule. `resolveTaskId` is the shared "full id, or a prefix of one"
+    // rule in core/tasks.ts that every other task-bearing surface calls. The
+    // dryRun preview above already resolved through it, so the real call has to
+    // agree with its own preview: the raw input used to go straight to the
+    // engine, which looks the task file up EXACTLY, so a prefix the preview
+    // accepted was refused here with E_NOT_FOUND. The engine still raises that
+    // code for an id that resolves to nothing (resolveTaskId returns the input
+    // unchanged then) — its code is not renamed here.
+    const { resolveTaskId } = await import("../core/tasks.js");
+    const taskId = resolveTaskId(ctx.projectDir, input.id);
     const timeoutMs = input.timeoutMs ?? 60_000;
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     timer.unref?.();
 
     try {
-      const result = await verifyTask(ctx.projectDir, input.id, {
+      const result = await verifyTask(ctx.projectDir, taskId, {
         url: input.url,
         signal: ac.signal,
       } as { json?: boolean; url?: string; signal?: AbortSignal });
-      await addVerifySystemComment(ctx.projectDir, input.id, result);
+      // The RESOLVED id, always: a tool must never name a path it has not
+      // resolved (the rule resolveTaskOrRefusal exists to enforce).
+      await addVerifySystemComment(ctx.projectDir, taskId, result);
       return { ok: true, data: result };
     } catch (err) {
       const ve =
@@ -1224,7 +1257,15 @@ export async function verifyTaskOp(
           error: {
             code: ve.code,
             message: ve.message,
-            suggestion: ve.suggestion,
+            // FALLBACK, not a rename. Several verify-engine codes carry no
+            // `suggestion` of their own (E_NO_SELECTOR, E_AUTH_EXPIRED,
+            // E_AUTH_CORRUPT, E_APP_NOT_RUNNING, E_NAVIGATION_FAILED,
+            // E_CANCELLED), and this passthrough used to forward that absence
+            // verbatim — so a reachable refusal arrived with a code and nothing
+            // to act on, which is the one thing the contract forbids. The
+            // engine's own text always wins when it has one; the code is
+            // forwarded exactly as thrown.
+            suggestion: ve.suggestion ?? VERIFY_ERROR_SUGGESTION,
           },
         };
       }

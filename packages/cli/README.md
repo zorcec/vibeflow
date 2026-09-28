@@ -181,9 +181,12 @@ Three rules for the JSON case, all of them the CLI's own conventions:
   `GET_TASK_ERROR`, `CREATE_TASK_ERROR`, `UPDATE_TASK_ERROR`, `ADD_COMMENT_ERROR`, `ATTACH_FILE_ERROR`,
   `EXPORT_PROMPT_ERROR`, `VERIFY_TASK_ERROR`, `PUSH_TASKS_ERROR`, `CLAIM_TASK_ERROR`) — and it names
   **both** surfaces where the same gate is reachable: the MCP input or tool *and* the CLI flag. A
-  shared gate's suggestion is read by the CLI, MCP and the HTTP PATCH route alike, so a CLI-only
-  suggestion is an answer an MCP client cannot act on. The one class with no `suggestion` is the
-  schema error above, which never reaches a handler.
+  shared gate's suggestion is read by the CLI and by MCP `update_task` alike, so a CLI-only
+  suggestion is an answer an MCP client cannot act on. (`verify_task` is the one tool that returns
+  the CLI verify engine's own codes — `E_NOT_FOUND`, `E_NO_BASELINE`, `E_NO_SELECTOR` and the rest.
+  Those codes are unchanged; where the engine attaches no text of its own, the tool substitutes a
+  generic recovery line rather than returning a code with nothing to act on.) The one class with no
+  `suggestion` is the schema error above, which never reaches a handler.
 - **"Nothing to claim" is a success.** `claim_next_task` on an empty board — or with a valid filter
   that matched no task — is `ok` with a payload of `null`, not an error. A claim's payload is the
   `Task` itself, so **an object means a task was claimed and `null` means there was nothing to

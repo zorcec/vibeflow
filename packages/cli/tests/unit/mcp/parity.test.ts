@@ -244,6 +244,32 @@ describe("verify_task dryRun", () => {
     expect(verifyEngine.verifyTask).not.toHaveBeenCalled();
   });
 
+  it("the real path resolves an id prefix too — the test name above is true", async () => {
+    // It was not: the preview resolved through `resolveTaskId` and the real
+    // call handed the raw input to the engine, which looks the task file up
+    // exactly, so the prefix this test's title promised was refused with
+    // E_NOT_FOUND on the call that actually does the work.
+    const FULL_ID = "aabbccddeeff00112233445566778899";
+    createTestTask({ id: FULL_ID });
+    verifyEngine.verifyTask.mockClear();
+    verifyEngine.addVerifySystemComment.mockClear();
+
+    const result = await verifyTaskOp(ctx, { id: FULL_ID.slice(0, 8) });
+
+    expect(result.ok).toBe(true);
+    // The engine, the comment writer and the tool all name the RESOLVED id.
+    expect(verifyEngine.verifyTask).toHaveBeenCalledWith(
+      ctx.projectDir,
+      FULL_ID,
+      expect.objectContaining({ url: undefined }),
+    );
+    expect(verifyEngine.addVerifySystemComment).toHaveBeenCalledWith(
+      ctx.projectDir,
+      FULL_ID,
+      expect.anything(),
+    );
+  });
+
   it("without dryRun the engine still runs (the guard is not a stub)", async () => {
     createTestTask({ id: "task-1" });
     verifyEngine.verifyTask.mockClear();
