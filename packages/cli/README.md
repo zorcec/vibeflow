@@ -133,12 +133,57 @@ A tool's result carries its payload as **one JSON document in `content[0].text`*
 every tool-level success and every tool-level refusal. There is exactly one other shape, and it is
 **not** JSON: a *protocol-level* failure (an unknown tool, arguments the tool's own schema rejects)
 comes back as `result.isError === true` with `content[0].text` = `MCP error -32602: …` and no envelope
-to parse. So check `isError` first and parse the text as JSON only when it is absent. Three rules for
-the JSON case, all of them the CLI's own conventions:
+to parse. So check `isError` first and parse the text as JSON only when it is absent.
+
+#### The schema-error class (`-32602`) — no vibeflow code, by design
+
+An input the tool's own schema rejects (`create_task` with no `title`, `attach_file` with no
+`contentB64`, `list_tasks` with `limit:-1`) is refused by the **MCP SDK's input validation, before
+any vibeflow handler runs**. vibeflow therefore never sees the call and cannot attach a `code` or a
+`suggestion` to it. What arrives is:
+
+```
+result.isError === true
+content[0].text = "MCP error -32602: Input validation error: Invalid arguments for tool
+                   create_task: Invalid input: expected string, received undefined at title"
+```
+
+Three properties, all deliberate and all load-bearing:
+
+- **It has no entry in the code table below, and never will.** Every code in that table is a vibeflow
+  domain code that a handler produced on purpose. `-32602` is the JSON-RPC *invalid params* code; it
+  is not a member of vibeflow's vocabulary, and `-32602` will never appear as a row there.
+- **It names the offending field** (`… at title`, `… at contentB64`) — the last word of the message is
+  the field you got wrong.
+- **Its code string is client-dependent, so do not key on it.** Some clients normalise this class into
+  a string of their own (the Pi MCP adapter reports it as `call_failed`, for instance). That label
+  belongs to the client, not to vibeflow: the same refusal is `MCP error -32602` from a plain JSON-RPC
+  client, and greping for one client's label in another's output is how a consumer concludes the
+  behaviour differs when it does not.
+
+**Recognise the class by its shape, not by any code string:** a result with `isError === true` whose
+text carries an input-validation message naming a field. The remedy is always the same — send the
+field it names, with the type the schema asks for.
+
+Because `tools/list` is the only place a client can read the contract *before* it fails, the input
+shapes publish a `description` for every field an agent commonly gets wrong — `id` on each task tool
+(full id or unique prefix), the `setVerify`/`verifyReason` pair, `limit`, `contentB64`, the comment
+body, and `filename` (its extension decides acceptance). Read them there; there is no second chance.
+
+Three rules for the JSON case, all of them the CLI's own conventions:
 
 - **A refusal is the CLI envelope.** `{ok:false, error:{code, message, retryable, suggestion?}}` —
   the same shape `tasks --json` writes to stderr, so one parser reads both surfaces. A tool-level
   refusal does **not** set `isError`; it is an ordinary result whose JSON is `{ok:false, …}`.
+- **Every refusal carries a `suggestion`, and it means "what to change".** A code tells you which rule
+  fired; the suggestion tells you the input that satisfies it. `error.suggestion` is a non-empty string
+  on every tool-level refusal — including the generic `catch` wrappers (`LIST_TASKS_ERROR`,
+  `GET_TASK_ERROR`, `CREATE_TASK_ERROR`, `UPDATE_TASK_ERROR`, `ADD_COMMENT_ERROR`, `ATTACH_FILE_ERROR`,
+  `EXPORT_PROMPT_ERROR`, `VERIFY_TASK_ERROR`, `PUSH_TASKS_ERROR`, `CLAIM_TASK_ERROR`) — and it names
+  **both** surfaces where the same gate is reachable: the MCP input or tool *and* the CLI flag. A
+  shared gate's suggestion is read by the CLI, MCP and the HTTP PATCH route alike, so a CLI-only
+  suggestion is an answer an MCP client cannot act on. The one class with no `suggestion` is the
+  schema error above, which never reaches a handler.
 - **"Nothing to claim" is a success.** `claim_next_task` on an empty board — or with a valid filter
   that matched no task — is `ok` with a payload of `null`, not an error. A claim's payload is the
   `Task` itself, so **an object means a task was claimed and `null` means there was nothing to
@@ -286,6 +331,12 @@ One code per meaning:
 Codes are **scoped per command**, not global: `TASK_NOT_FOUND` on `tasks` means "no such task",
 while `E_NOT_FOUND` on `tasks` means "no such FILE" (e.g. `--report-file`), and the two surfaces have
 their own schemes. Read the code from the command you called.
+
+This table is the **domain-code vocabulary** — every row is a refusal a vibeflow handler produced on
+purpose, and every one of them carries a `suggestion` saying how to correct it. The schema-error class
+is deliberately **absent**: an input the tool's own schema rejects is refused by the MCP SDK before
+any handler runs, so it has no vibeflow code and no `suggestion` — see *The schema-error class
+(`-32602`)* above for how to recognise it.
 
 `notices` is the CLI's structured field for **non-fatal signals the caller should know about,
 discriminated by `code`** — it is *not* a synonym for "partial success", and the array being present

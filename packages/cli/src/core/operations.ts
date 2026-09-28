@@ -171,7 +171,17 @@ export const ListTasksInput = z.object({
     .optional(),
   user: z.string().optional(),
   tag: z.array(z.string()).optional(),
-  limit: z.number().min(0).default(5),
+  // DESCRIBED, not just typed: `tools/list` is the ONLY place a client can
+  // read this before the SDK's input validation refuses the call with
+  // `MCP error -32602: … at limit`, which is raised before any handler runs and
+  // carries no `suggestion`. See the field-description note below.
+  limit: z
+    .number()
+    .min(0)
+    .default(5)
+    .describe(
+      "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs.",
+    ),
   fields: z.array(z.string()).optional(),
   /**
    * Include child tasks. Default false: only ROOT tasks are listed, matching
@@ -183,7 +193,15 @@ export const ListTasksInput = z.object({
 export type ListTasksInputType = z.infer<typeof ListTasksInput>;
 
 export const GetTaskInput = z.object({
-  id: z.string().min(1),
+  // Descriptions are load-bearing on the fields agents most often get wrong:
+  // see ListTasksInput.limit for why `tools/list` is the only place they can be
+  // read before the SDK refuses the call.
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one. Get a real id from list_tasks; an id that matches nothing is refused with TASK_NOT_FOUND.",
+    ),
   fields: z.array(z.string()).optional(),
 });
 export type GetTaskInputType = z.infer<typeof GetTaskInput>;
@@ -220,7 +238,12 @@ export const CreateTaskInput = z.object({
 export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = z.object({
-  id: z.string().min(1),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one, of the task to update. An id that matches nothing is refused with TASK_NOT_FOUND and changes nothing.",
+    ),
   // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
   status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
   title: z.string().min(1).optional(),
@@ -235,8 +258,18 @@ export const UpdateTaskInput = z.object({
   // Omitting the field leaves any stored verdict untouched. `vibeflow verify`
   // never writes this flag — only the agent does, and review-gate.ts Gate 4
   // requires a verdict that lets the task through on the review transition.
-  setVerify: z.enum(["pass", "fail", "cannot"]).optional(),
-  verifyReason: z.string().optional(),
+  setVerify: z
+    .enum(["pass", "fail", "cannot"])
+    .optional()
+    .describe(
+      "Your verification verdict: \"pass\" = the task IS implemented correctly (required for an annotated task at review), \"fail\" = it is NOT (the review gate blocks it), \"cannot\" = unverifiable here, which REQUIRES verifyReason. Omit to leave any stored verdict untouched.",
+    ),
+  verifyReason: z
+    .string()
+    .optional()
+    .describe(
+      "Why the task cannot be verified. REQUIRED with setVerify:\"cannot\", and refused as E_USAGE on its own — a reason belongs to a \"cannot\" verdict.",
+    ),
   dryRun: z.boolean().default(false),
   // Replace semantics for the task's links (matches the HTTP PATCH route):
   // the array becomes the full link set and an empty array clears every link.
@@ -266,32 +299,67 @@ export const ClaimNextTaskInput = z.object({
 export type ClaimNextTaskInputType = z.infer<typeof ClaimNextTaskInput>;
 
 export const AddCommentInput = z.object({
-  id: z.string().min(1),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one, of the task to comment on. An id that matches nothing is refused with TASK_NOT_FOUND; no task is created.",
+    ),
   // Named `comment`, not `text`: the CLI flag is `--comment` and update_task
   // already uses `comment`, so one concept must not have two names.
-  comment: z.string().min(1),
+  comment: z
+    .string()
+    .min(1)
+    .describe(
+      "The comment body — what changed, what you verified, what a reviewer should know. Required and non-empty: an empty body is refused by input validation before the tool runs.",
+    ),
   author: z.enum(["agent", "user"]).default("agent"),
   dryRun: z.boolean().default(false),
 });
 export type AddCommentInputType = z.infer<typeof AddCommentInput>;
 
 export const AttachFileInput = z.object({
-  id: z.string().min(1),
-  filename: z.string().min(1),
-  contentB64: z.string().min(1),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one, of the task to attach to. An id that matches nothing is refused with TASK_NOT_FOUND; no file is written.",
+    ),
+  filename: z
+    .string()
+    .min(1)
+    .describe(
+      "Bare filename, no directory part. The EXTENSION decides acceptance: a .md is what satisfies the research-report gate, and an unsupported extension is refused with UNSUPPORTED_FILE_TYPE.",
+    ),
+  contentB64: z
+    .string()
+    .min(1)
+    .describe(
+      "The file content, base64-encoded (not raw bytes, and not a path to read). Required: omitting it is refused by input validation before the tool runs.",
+    ),
   dryRun: z.boolean().default(false),
 });
 export type AttachFileInputType = z.infer<typeof AttachFileInput>;
 
 export const ExportPromptInput = z.object({
-  id: z.string().optional(),
+  id: z
+    .string()
+    .optional()
+    .describe(
+      "A single task id to export. Omit it (or pass `ids`) to export the whole board. An id that matches nothing is refused with TASK_NOT_FOUND.",
+    ),
   ids: z.array(z.string()).optional(),
   format: z.enum(["markdown", "json"]).default("markdown"),
 });
 export type ExportPromptInputType = z.infer<typeof ExportPromptInput>;
 
 export const VerifyTaskInput = z.object({
-  id: z.string().min(1),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one. An id that matches nothing is refused with E_NOT_FOUND (this tool runs the CLI verify engine, which has its own code).",
+    ),
   url: z.string().url().optional(),
   timeoutMs: z.number().min(1000).max(300000).default(60000),
   // Preview only — never writes a task file and never launches a browser.

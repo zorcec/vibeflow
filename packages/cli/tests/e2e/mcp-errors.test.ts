@@ -25,6 +25,7 @@ import {
   newClient,
   initialize,
   callTool,
+  listTools,
   assertJsonTextContent,
   seedGitUser,
   seedTask,
@@ -608,5 +609,112 @@ describe("MCP update_task gates", () => {
     ).toBe(true);
     // dryRun wrote nothing: the acceptance is the gate, not a status change.
     expect(readGateTaskFromDisk(task.id).status).toBe("todo");
+  });
+});
+
+/**
+ * The schema-error class, pinned by its WIRE FORM.
+ *
+ * An input the tool's own schema rejects is refused by the MCP SDK's input
+ * validation, before any vibeflow handler runs. vibeflow never sees the call,
+ * so there is no domain code and no `suggestion` to attach — this class is
+ * honestly documented as having neither rather than intercepted and renamed.
+ *
+ * What IS pinned here, because it is what a consumer can rely on across
+ * clients: `isError === true`, the JSON-RPC code `-32602`, and the offending
+ * FIELD named in the message. The code string is NOT pinned: a client may
+ * normalise this class into a label of its own, and pinning one would make a
+ * reader believe vibeflow emits it.
+ */
+describe("MCP schema errors are refused by input validation, before any handler", () => {
+  let env: McpTestEnv;
+  let client: McpClient;
+
+  beforeEach(async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mcp-e2e-schema-git-"));
+    seedGitUser(tmp);
+    env = await bootMcpServer(tmp);
+    client = newClient(env.mcpUrl);
+    await initialize(client);
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+  });
+
+  /** The raw isError result, before any envelope parsing. */
+  async function callRaw(tool: string, args: Record<string, unknown>) {
+    const res = await callTool(client, tool, args);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      error?: unknown;
+      result: { isError?: boolean; content: Array<{ text: string }> };
+    };
+    // A JSON-RPC `error` member would be a different failure class again; the
+    // SDK reports this one error-as-content, so assert the shape we document.
+    expect(body.error).toBeUndefined();
+    return body.result;
+  }
+
+  it("-32602, isError, and the offending field named — for each refused field", async () => {
+    const cases: Array<{ tool: string; args: Record<string, unknown>; field: string }> = [
+      { tool: "create_task", args: { description: "no title" }, field: "title" },
+      {
+        tool: "attach_file",
+        args: { id: "some-id", filename: "a.md" },
+        field: "contentB64",
+      },
+      { tool: "list_tasks", args: { limit: -1 }, field: "limit" },
+    ];
+
+    for (const c of cases) {
+      const result = await callRaw(c.tool, c.args);
+      expect(result.isError, `${c.tool}: isError must be true`).toBe(true);
+      const text = result.content[0].text;
+      expect(text).toMatch(/^MCP error -32602: Input validation error:/);
+      // The field is named, so the message alone is enough to act on.
+      expect(text).toContain(`at ${c.field}`);
+      // It is NOT a vibeflow refusal: no envelope, so no code, no suggestion.
+      expect(() => JSON.parse(text)).toThrow();
+      expect(text).not.toContain('"suggestion"');
+      // And it is not one of ours under any name — see the README note on the
+      // client-normalised labels a client may use for this class.
+      expect(text).not.toContain("call_failed");
+    }
+    await assertServerUsable(client);
+  });
+
+  it("the published schemas describe the fields an agent gets wrong", async () => {
+    // `tools/list` is the only place a client can read the contract BEFORE it
+    // fails, and a field description is the only recovery text this class
+    // leaves room for. Asserted for the fields named in the README, so the
+    // documentation and the wire cannot drift apart.
+    const res = await listTools(client);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      result: { tools: Array<{ name: string; inputSchema: { properties: Record<string, { description?: string }> } }> };
+    };
+    const schemaOf = (name: string) =>
+      body.result.tools.find((t) => t.name === name)?.inputSchema.properties ?? {};
+
+    const required: Array<[string, string, string]> = [
+      ["get_task", "id", ""],
+      ["update_task", "id", ""],
+      ["update_task", "setVerify", ""],
+      ["update_task", "verifyReason", ""],
+      ["add_comment", "id", ""],
+      ["add_comment", "comment", ""],
+      ["attach_file", "id", ""],
+      ["attach_file", "filename", ""],
+      ["attach_file", "contentB64", "base64"],
+      ["list_tasks", "limit", ""],
+    ];
+    for (const [tool, field, mustMention] of required) {
+      const description = schemaOf(tool)[field]?.description;
+      expect(typeof description, `${tool}.${field} has no description`).toBe("string");
+      expect(description!.length).toBeGreaterThan(0);
+      if (mustMention) expect(description).toContain(mustMention);
+    }
+    await assertServerUsable(client);
   });
 });
