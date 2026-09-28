@@ -22,13 +22,28 @@
  * Two independent assertions, both of which a revert of any single fix breaks:
  *  1. the call REFUSES with a code — not "returns something", but `ok:false`
  *     and the assigned code;
- *  2. the tree under `.vibeflow/tasks` is byte-for-byte what it was — a new
- *     file ANYWHERE under that root fails, not just one in the phantom task's
- *     own folder, because the corruption this catches is not always a task
- *     file (an `attach_file` orphan lands in `files/<id>/`).
+ *  2. the tree under `.vibeflow/tasks` is byte-for-byte what it was — EVERY
+ *     path is compared with its contents, so a new file anywhere under that
+ *     root fails (not just one in the phantom task's own folder, because the
+ *     corruption this catches is not always a task file — an `attach_file`
+ *     orphan lands in `files/<id>/`), and so does a file that already existed
+ *     and was REWRITTEN.
+ *
+ * A third assertion is a cross-tool one, and it is the check this file was
+ * missing when the defect it guards against was found: one code must carry ONE
+ * suggestion wherever it appears. `TASK_NOT_FOUND` used to mean two different
+ * things depending on which tool refused, and every per-row assertion here was
+ * green while it did.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, globSync, mkdtempSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -156,8 +171,10 @@ const REACHABLE_REFUSALS: Array<
     label: "gate VERIFY_REASON_REQUIRED",
     tool: "update_task",
     seed: "task+research",
-    // Same code, DIFFERENT string: this one comes from the review gate rather
-    // than the attestation, so it needs its own row.
+    // Same code, DIFFERENT producer: this one comes from the review gate
+    // rather than from the attestation, so it needs its own row. The two
+    // producers return the SAME text — the cross-tool assertion below fails if
+    // they ever diverge again.
     input: (ids) => ({
       id: ids.taskId,
       status: "review",
@@ -252,11 +269,53 @@ interface Envelope {
   };
 }
 
-function treeUnder(root: string): string[] {
-  if (!existsSync(root)) return [];
-  return globSync(join(root, "**", "*"), { dot: true })
-    .map((p) => p.slice(root.length))
-    .sort();
+/** What one swept row produced — the input both assertions below read. */
+interface SweepRow {
+  label: string;
+  tool: string;
+  expectedCode: string;
+  isError: boolean;
+  envelope: Envelope;
+  /** Added / removed / content-changed paths under .vibeflow/tasks. */
+  changes: string[];
+}
+
+/**
+ * EVERY path under `root`, each with a digest of its contents — the "byte-for-
+ * byte" claim the header makes, delivered rather than approximated.
+ *
+ * The previous version returned a sorted list of PATHS, so it could only ever
+ * detect an added or removed entry: a refusal that rewrote the bytes of a file
+ * that already existed passed it. Directories are recorded as `"<dir>"` so a
+ * refusal that adds an empty directory still fails.
+ */
+function treeUnder(root: string): Map<string, string> {
+  const snapshot = new Map<string, string>();
+  if (!existsSync(root)) return snapshot;
+  for (const path of globSync(join(root, "**", "*"), { dot: true }).sort()) {
+    const key = path.slice(root.length);
+    snapshot.set(
+      key,
+      statSync(path).isDirectory()
+        ? "<dir>"
+        : createHash("sha256").update(readFileSync(path)).digest("hex"),
+    );
+  }
+  return snapshot;
+}
+
+/** Paths added, removed or CHANGED between two snapshots, as one reportable list. */
+function treeDiff(before: Map<string, string>, after: Map<string, string>): string[] {
+  const changes: string[] = [];
+  for (const [path, digest] of after) {
+    const had = before.get(path);
+    if (had === undefined) changes.push(`+ ${path}`);
+    else if (had !== digest) changes.push(`~ ${path} (contents changed)`);
+  }
+  for (const path of before.keys()) {
+    if (!after.has(path)) changes.push(`- ${path}`);
+  }
+  return changes.sort();
 }
 
 describe("MCP task-scoped tools resolve the task before they touch state", () => {
@@ -317,8 +376,19 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     expect(fromManifest.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("every row refuses with its assigned code, a suggestion, and no writes", async () => {
-    const offenders: string[] = [];
+  /**
+   * The sweep, run ONCE per test env and read by the two assertions below.
+   * Reset in `beforeEach`, so no result ever leaks across a fresh server.
+   */
+  let swept: SweepRow[] | undefined;
+
+  beforeEach(() => {
+    swept = undefined;
+  });
+
+  async function sweepOnce(): Promise<SweepRow[]> {
+    if (swept) return swept;
+    const results: SweepRow[] = [];
     for (const row of REACHABLE_REFUSALS) {
       const ids =
         row.seed === "task+research"
@@ -329,21 +399,35 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
       const before = treeUnder(tasksRoot());
       const { envelope, isError } = await call(row.tool, row.input(ids));
       const after = treeUnder(tasksRoot());
-      const created = after.filter((p) => !before.includes(p));
+      results.push({
+        label: row.label,
+        tool: row.tool,
+        expectedCode: row.code,
+        isError,
+        envelope,
+        changes: treeDiff(before, after),
+      });
+    }
+    swept = results;
+    return results;
+  }
 
+  it("every row refuses with its assigned code, a suggestion, and no writes", async () => {
+    const offenders: string[] = [];
+    for (const { label, isError, envelope, expectedCode, changes } of await sweepOnce()) {
       if (isError) {
         offenders.push(
-          `${row.label}: raised a protocol-level error instead of the refusal envelope`,
+          `${label}: raised a protocol-level error instead of the refusal envelope`,
         );
         continue;
       }
       if (envelope.ok !== false) {
         offenders.push(
-          `${row.label}: answered ok:true instead of refusing (payload ${JSON.stringify(envelope).slice(0, 120)})`,
+          `${label}: answered ok:true instead of refusing (payload ${JSON.stringify(envelope).slice(0, 120)})`,
         );
-      } else if (envelope.error?.code !== row.code) {
+      } else if (envelope.error?.code !== expectedCode) {
         offenders.push(
-          `${row.label}: refused with ${envelope.error?.code}, expected ${row.code}`,
+          `${label}: refused with ${envelope.error?.code}, expected ${expectedCode}`,
         );
       } else if (
         typeof envelope.error?.suggestion !== "string" ||
@@ -352,17 +436,54 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
         // The second guard: a refusal an agent cannot recover from. Every
         // refusal this sweep reaches — a code alone tells the agent what went
         // wrong, never how to make it right.
-        offenders.push(
-          `${row.label}: ${envelope.error.code} carries no suggestion`,
-        );
+        offenders.push(`${label}: ${envelope.error.code} carries no suggestion`);
       }
-      if (created.length > 0) {
+      if (changes.length > 0) {
         offenders.push(
-          `${row.label}: a refusal wrote ${JSON.stringify(created)} under .vibeflow/tasks`,
+          `${label}: a refusal changed the store under .vibeflow/tasks — ${JSON.stringify(changes)}`,
         );
       }
     }
     // Collected, not thrown on the first, so one run reports the whole class.
+    expect(offenders).toEqual([]);
+  });
+
+  it("one code carries ONE suggestion on every tool that returns it", async () => {
+    // The check the sweep was missing when the defect it guards against was
+    // found. Every per-row assertion above is green while `TASK_NOT_FOUND`
+    // means one thing on `get_task` and another on `add_comment`: a client
+    // cannot learn the recovery once and apply it everywhere, and nothing in a
+    // per-row check can see it. This compares every (code → suggestion) pair
+    // the sweep reached, across tools.
+    const byCode = new Map<string, Map<string, Set<string>>>();
+    for (const { label, tool, isError, envelope } of await sweepOnce()) {
+      if (isError || envelope.ok !== false) continue;
+      const code = envelope.error?.code;
+      const suggestion = envelope.error?.suggestion ?? "";
+      const perCode = byCode.get(code) ?? new Map<string, Set<string>>();
+      perCode.set(
+        suggestion,
+        (perCode.get(suggestion) ?? new Set<string>()).add(label),
+      );
+      byCode.set(code, perCode);
+    }
+
+    const offenders: string[] = [];
+    for (const [code, suggestions] of byCode) {
+      if (suggestions.size > 1) {
+        offenders.push(
+          `${code} carries ${suggestions.size} different suggestions: ` +
+            [...suggestions.entries()]
+              .map(
+                ([text, labels]) =>
+                  `${JSON.stringify([...labels])} → ${JSON.stringify(text)}`,
+              )
+              .join(" | "),
+        );
+      }
+    }
+    // Shape guard: a sweep that read no envelope would make this vacuous.
+    expect(byCode.size).toBeGreaterThanOrEqual(8);
     expect(offenders).toEqual([]);
   });
 
@@ -388,6 +509,6 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     expect(typeof envelope.error?.suggestion).toBe("string");
     expect(envelope.error!.suggestion!.length).toBeGreaterThan(0);
     // The refusal wrote nothing: no link was persisted against the real task.
-    expect(treeUnder(tasksRoot())).toEqual(before);
+    expect(treeDiff(before, treeUnder(tasksRoot()))).toEqual([]);
   });
 });

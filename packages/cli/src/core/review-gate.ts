@@ -26,6 +26,7 @@ import {
   readTaskFile,
 } from "./tasks.js";
 import { listFiles } from "./files.js";
+import { VERIFY_REASON_REQUIRED_SUGGESTION } from "./verify-attestation.js";
 
 export interface ReviewGateContext {
   projectDir: string;
@@ -175,8 +176,10 @@ export function checkReviewTransition(
         code: "VERIFY_REASON_REQUIRED",
         message:
           "--set-verify cannot requires --verify-reason — say why the task cannot be verified",
-        suggestion:
-          'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "no accessible environment to verify in" with --set-verify cannot (CLI)',
+        // The SAME text resolveVerifyAttestation returns for this code (a
+        // standalone `setVerify:"cannot"` on a task that is not under review):
+        // one code, one recovery, whichever producer refuses.
+        suggestion: VERIFY_REASON_REQUIRED_SUGGESTION,
       };
     }
 

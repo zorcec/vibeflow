@@ -2640,6 +2640,11 @@ program
               });
             } else {
               console.log(chalk.red(`✗ ${attestation.message}`));
+              // The recovery text is part of the attestation contract, so the
+              // human path prints it like every other refusal does (the gate
+              // branch below already did). Without this line `--json` callers
+              // got the suggestion and a human agent did not.
+              console.log(chalk.dim(`  ${attestation.suggestion}`));
             }
             process.exitCode = ExitCode.USAGE;
             return;

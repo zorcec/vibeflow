@@ -197,6 +197,32 @@ describe("tasks --edit --set-verify", () => {
     expect(storedVerified(store, id)).toBeUndefined();
   });
 
+  it("the HUMAN path prints the attestation suggestion too, not just the --json one", async () => {
+    // The attestation contract carries a `suggestion`, and the --json envelope
+    // above receives it — but the human branch printed the message alone, so a
+    // human agent (or an agent reading a transcript) got "cannot requires a
+    // reason" with nowhere to put it. The gate branch already printed it; this
+    // is the same line on the attestation branch.
+    const store = freshDir("set-verify-");
+    const home = freshDir("set-verify-home-");
+    const id = await addTask(store, home, "Missing reason, human mode");
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "cannot"],
+      { cwd: store, home },
+    );
+
+    expect(r.code).not.toBe(0);
+    const printed = `${r.stdout}\n${r.stderr}`;
+    expect(printed).toContain("--verify-reason");
+    // Where to put it, on both surfaces — the same text the --json envelope
+    // carries, so the two outputs cannot disagree.
+    expect(printed).toContain("verifyReason");
+    expect(printed).toContain("setVerify");
+    // And still nothing written.
+    expect(storedVerified(store, id)).toBeUndefined();
+  });
+
   it("--verify-reason without --set-verify cannot is rejected", async () => {
     const store = freshDir("set-verify-");
     const home = freshDir("set-verify-home-");

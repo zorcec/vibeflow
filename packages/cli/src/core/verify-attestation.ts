@@ -51,6 +51,22 @@ export type VerifyAttestationResolution =
   | { ok: false; message: string; code: string; suggestion: string };
 
 /**
+ * The ONE `VERIFY_REASON_REQUIRED` recovery text.
+ *
+ * `resolveVerifyAttestation` below and the review gate's Gate 4c both refuse a
+ * `cannot` verdict with no reason under this one code, and they used to word
+ * it differently — the same defect `TASK_NOT_FOUND` had, where one code meant
+ * two things depending on which tool refused. It lives here, in the pure
+ * module with no imports, because `review-gate.ts` is the heavier one and
+ * already imports this rule's sibling.
+ *
+ * Names BOTH surfaces: the MCP input and the CLI flag (see the shared-surface
+ * rule in review-gate.ts).
+ */
+export const VERIFY_REASON_REQUIRED_SUGGESTION =
+  'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "<why>" with --set-verify cannot (CLI)';
+
+/**
  * Map the tri-state flag onto the stored value plus a `clear` flag. No flag
  * resolves to `{ value: undefined, clear: false }`, meaning "leave the stored
  * value as it is"; `cannot` resolves to `{ value: undefined, clear: true }`,
@@ -58,22 +74,25 @@ export type VerifyAttestationResolution =
  */
 export function resolveVerifyAttestation(
   flags: VerifyAttestationFlags,
-): VerifyAttestationResolution {
-  if (flags.setVerify === "cannot") {
+): VerifyAttestationResolution {  if (flags.setVerify === "cannot") {
     const reason = flags.verifyReason?.trim() ?? "";
     if (!reason) {
       return {
         ok: false,
-        // Same rule the review gate enforces as VERIFY_REASON_REQUIRED, so the
-        // machine-readable code matches whichever surface refuses it.
+        // The same rule the review gate enforces as VERIFY_REASON_REQUIRED, so
+        // the machine-readable code matches whichever surface refuses it —
+        // and, because it is the same code, the same recovery text:
+        // VERIFY_REASON_REQUIRED_SUGGESTION below. One code carrying two
+        // different suggestions on two tools is the defect this lane exists to
+        // prevent (it is what TASK_NOT_FOUND did), so a client cannot learn
+        // the recovery once and apply it everywhere.
         code: "VERIFY_REASON_REQUIRED",
         message:
           "--set-verify cannot requires --verify-reason <why> — say why the task cannot be verified here.",
         // Both surfaces that read this string (CLI and MCP) are named, so it
         // names the MCP input and the CLI flag — see the shared-surface rule
         // in review-gate.ts.
-        suggestion:
-          'Say why it cannot be verified here — pass `verifyReason` alongside setVerify:"cannot" (MCP), or --verify-reason "<why>" with --set-verify cannot (CLI)',
+        suggestion: VERIFY_REASON_REQUIRED_SUGGESTION,
       };
     }
     return {
