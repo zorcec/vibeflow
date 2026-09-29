@@ -16,8 +16,8 @@
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:net";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { getFreePort } from "../ports.js";
 import { expect } from "vitest";
 
 // Suppress telemetry in every test process
@@ -31,16 +31,10 @@ type ServeInstance = Awaited<ReturnType<typeof serve>>;
 
 // ── Port allocation ──────────────────────────────────────────────────────────
 
-export async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
+// Lives in tests/ports.ts so the Playwright suite can share it without
+// importing this module's MCP side effects. Re-exported here: every existing
+// e2e import site (`from "./mcp-helpers.js"`) keeps working unchanged.
+export { getFreePort };
 
 // ── MCP server boot ──────────────────────────────────────────────────────────
 
