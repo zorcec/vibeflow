@@ -7,3 +7,13 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
   - sharp
+
+# fast-uri 3.1.6 carries two high-severity advisories:
+# GHSA-qw65-cvwx-89v3, authority injection via an unvalidated port; and host
+# confusion via an unclosed bracket in the URI authority. It reaches us
+# transitively through ajv, via the runtime @modelcontextprotocol/sdk and the
+# stryker devDependencies. 3.1.7 is the patched release and still satisfies
+# ajv's range, so pin it here. pnpm v11 reads overrides from this file, not
+# from the "pnpm" field in package.json.
+overrides:
+  "fast-uri": "^3.1.7"
