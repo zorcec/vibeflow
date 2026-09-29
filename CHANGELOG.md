@@ -11,7 +11,7 @@ Detailed, per-package changelogs are maintained by [changesets](https://github.c
 
 Cross-cutting changes worth reading about on their own. Everything else is in the [release table](#releases) below or in the per-package changelogs.
 
-- **The MCP server is stable as of 0.18.0.** It shipped marked experimental in 0.12.0; that marking is gone from the CLI help, the tool manifests and the release notes. The surface a client can pin to now resolves one project root per server, answers every refusal with a code and a recovery hint, and honours `dryRun` as a preview that writes nothing. See [the MCP guide](https://www.vibeflow.tools/docs-mcp).
+- **The MCP server is stable as of 0.18.0.** It shipped in 0.12.0 under a warning that it could change without notice; that warning is gone from the CLI help, the tool manifests and the release notes. The surface a client can pin to now resolves one project root per server, answers every refusal with a code and a recovery hint, and honours `dryRun` as a preview that writes nothing. See [the MCP guide](https://www.vibeflow.tools/docs-mcp).
 - **Refusals are machine-readable on every surface.** A refusal is `{ok:false, error:{code, message, retryable, suggestion?}}` on the CLI, over HTTP and over MCP — one parser, one vocabulary, and one recovery text per code, naming the CLI flag *and* the MCP input so a client is never told to use a flag it does not have.
 - **An empty board is a success on both surfaces.** `tasks --next --json` and MCP `claim_next_task` now answer the same situation the same way (`task: null`), instead of one exiting 0 with prose and the other refusing with a code.
 
