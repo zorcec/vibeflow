@@ -1,5 +1,419 @@
 # Changelog
 
+## 0.18.0
+
+### Minor Changes
+
+- dda61db: **Breaking, on both surfaces: "no work available" is a success, and the MCP payload says `notices`.**
+
+  ### An empty board is a success — and both surfaces now say so the same way
+
+  The two surfaces disagreed about the identical situation. `vibeflow tasks --next --json` on an empty
+  board printed the sentence `No todo tasks found. Nothing to work on.` to stdout and exited 0 — a
+  success with no envelope, so a consumer had to match on prose. MCP's `claim_next_task` answered the
+  same board with `ok:false` and `NO_TASKS_AVAILABLE`. One situation, two exit meanings.
+
+  Both are now a success, and they answer identically:
+
+  - `tasks --next --json` on an empty board writes `{ok:true, task:null, next_actions:[]}` to **stdout**,
+    writes **nothing** to stderr, and exits **0**. The key set is the successful claim's own key set, so
+    `task === null` is the branch — a claimed task is always an object.
+  - A valid filter that matched no todo task (`--type Bug`, `--tag`) is the **same situation**
+    and now gets the same payload on both surfaces. It was never a special case on the CLI, and it is
+    not one on MCP either. (`--user` is unchanged and still refuses with `E_USAGE`: `--next` validates
+    it against an author list it does not build, so it never reaches this payload at all.)
+  - `claim_next_task` returns `ok` with a payload of **`null`** instead of an error envelope. A claim's
+    payload is the `Task` itself, so an object means claimed and `null` means there was nothing to
+    claim. The `dryRun` preview returns the same thing, so a preview cannot disagree with the real call.
+  - **The `NO_TASKS_AVAILABLE` code is gone.** A filter that matched no task already reached the same
+    branch as an empty board, so it was never a separate situation to report a different code for; the
+    CLI has no such distinction either, and the surfaces must not grow one. A board whose only todo
+    tasks are children is likewise a success, not a refusal.
+
+  Non-`--json` output is unchanged: without `--json` the sentence and exit 0 remain exactly as before.
+  This **reverses** an earlier ruling that pinned the sentence on stdout, so any consumer that was
+  matching on it must read `task` instead. The stdout-purity sweep in
+  `tests/e2e/tasks-json-refusals.test.ts` — under `--json`, stdout is empty or exactly one JSON
+  document — now has **zero** exceptions; its named-exception list and provenance check are kept for
+  the next ruling that needs them.
+
+  ### The MCP wire field for non-fatal signals is `notices`, an array of objects
+
+  The CLI emits `notices: [{code, message}]`. MCP called the same concept `steps`, and as a bare string
+  array — `["Dry run: task would be updated"]` — so one parser could not read both: a consumer
+  branching on `payload.steps[0].code` got `undefined` on one surface and a property lookup on a string
+  on the other.
+
+  - The MCP wire key is now **`notices`**, and every entry is a `{code, message}` **object**, the same
+    name and the same shape the CLI uses. A notice is a non-fatal signal the caller should know about,
+    discriminated by `code` — `DRY_RUN` (a preview; nothing was written), `GIT_COMMIT_FAILED` (the task
+    was written, the commit did not happen) and `GIT_COMMITTED` (informational: the commit **succeeded**,
+    `message` is the sha) — so `notices` is not a synonym for "partial success". The CLI deliberately
+    says nothing when a commit succeeds; the MCP tool always says which happened, because there the
+    notice is the only signal at all.
+  - Every dry-run preview is converted, so none of them emits a bare string: `create_task`, `update_task`,
+    `claim_next_task`, `add_comment`, `attach_file`, `verify_task` each carry
+    `{code:"DRY_RUN", message:"Task would be updated"}` (or the matching phrase), and `push_tasks`
+    carries its own `notices` array. The review auto-commit report now speaks the CLI's vocabulary —
+    `GIT_COMMITTED` / `GIT_COMMIT_FAILED`, the codes the CLI already puts on `notices[].code` for that
+    exact situation.
+  - The `steps` key no longer appears on this surface at any depth, including nested inside the
+    `push_tasks` payload, where a second `steps` string array used to hide.
+  - `OperationResult.steps` in `core/operations.ts` keeps its name — only the key that reaches a client
+    changed.
+  - The online board's `warning` passthrough is **not** part of this and is unchanged: it is a
+    server-provided **string** on the SaaS `--edit` payload, and it still does.
+
+  `minor`, not `major`, following this repo's 0.x convention: both are breaking reshapes of a
+  documented payload, and `minor` is what the earlier breaking `--json` reshape shipped as.
+
+- 937ce20: **Breaking for `--json` consumers:** every success payload now uses a single `ok` discriminant.
+
+  - `tasks --json` returns `{ok:true, tasks:[…], hiddenChildren}` (was a bare array).
+  - `tasks --get --json` returns `{ok:true, task:{…}}` (was a flat object).
+  - `tasks --add|edit|next|commit --json` return `{ok:true, task:{…}, next_actions:[…], …}` (was `success:true`, now `ok:true`).
+  - Dry-run payloads (`--dry-run`) and `--reindex-sort-keys` payloads carry `ok:true` as their first key; reindex's `success` field became `reindexVerified`.
+  - Failures stay `{ok:false, error:{code, message, retryable, suggestion}}` on **stderr** with a non-zero exit, written by the same single envelope writer as success. Under `--json` stdout contains only the envelope — human notices are suppressed (or, for a failed `--comment` save, reported as `E_COMMENT_SAVE` on stderr).
+
+  Every existing payload field is preserved inside the new envelope — including the list's `hiddenChildren` metadata, which is now machine-readable too. Human (non-`--json`) output is unchanged. This is a breaking reshape, hence `minor` (0.x semver): consumers that parsed the bare array or flat object must read `.tasks` / `.task` and check `.ok` first.
+
+- 4445f47: Every `--json` refusal now carries its error code, and a non-fatal signal is a notice.
+
+  **Refusals.** Re-deriving the `process.exitCode` sites in `src/index.ts` found 32 that printed chalk
+  prose and never consulted `opts.json`, so a machine consumer saw empty stdout, no code and nothing to
+  branch on. All of them now write the standard `{ok:false, error:{code, message, retryable,
+suggestion?}}` envelope to **stderr** with stdout left clean, and `tests/e2e/tasks-json-refusals.test.ts`
+  asserts exit code, empty stdout and the assigned code for each path (the code, not just the shape).
+  Human output is unchanged. `buildSetParentLinks` now returns the code it refused with, so the parent-link
+  refusals no longer re-derive one from the human reason string.
+
+  One new code: **`REINDEX_WRITE_FAILED`**. `--reindex-sort-keys` decided its whole outcome from the
+  post-assert alone, on the assumption that a planned re-keying always lands. It does not —
+  `writeSortKeyMinimal` can compute a patch and then decline to write it (a task file with neither a
+  `sortKey` nor an `updated` field has nothing to edit in place), and the suite's own fixture hit that
+  path. So a run that wrote NONE of its planned keys claimed `ok:true` and exit 0 while nothing had been
+  written. It is now a refusal with a non-zero exit and no manifest. A run that wrote AT LEAST ONE key
+  keeps `ok:true` and exit 0 with the `REINDEX_INCOMPLETE` notice, which is what that notice was always
+  for.
+
+  **Non-fatal signals.** A refusal is for "nothing happened"; a notice is for "this call did not fail,
+  but here is something you must know", discriminated by `code` — so a notice is _not_ a synonym for
+  partial success. The auto-commit that follows a review transition and the
+  `--reindex-sort-keys` post-assert now keep `ok:true` and **exit 0**, and the success payload gains an
+  optional **`notices` array** of `{code, message}` — `GIT_COMMIT_FAILED`, `REINDEX_INCOMPLETE`,
+  `SET_STATUS_DONE`, `RESEARCH_NO_IMPLEMENT`, `ALREADY_IN_PROGRESS`. The key is absent on a clean run.
+  (The MCP surface puts the informational `GIT_COMMITTED` — a commit that _succeeded_, with its sha — on
+  the same key, which is the clearest proof that `notices` is not only about things going wrong.)
+
+  **`notices`, not `warning`.** The notice field was first emitted as `warning` (a bare object) and
+  `warnings` (an array, when there was more than one) — a singular/plural switch a consumer had to
+  handle, and a name that collided with the online board's own `warning`, which is a **string** the
+  server sends. The local field is now always the array `notices`, so the switch is gone and the two
+  names cannot be confused: `warning` remains the server's passthrough string on the SaaS `--edit`
+  payload, and `notices` is this CLI's structured, always-an-array field. A consumer branching on
+  `.warning.code` on the SaaS path was reading `undefined` from a string.
+
+  **stdout is now parseable on every `--json` path but the one recorded exception.** Four pre-existing paths wrote prose to stdout
+  outside an envelope — the `--set-status done` warning, the Research and already-in-progress warnings,
+  the `--commit` auto-push lines (printed _after_ the envelope, as trailing garbage), and a lost
+  `--verify-reason` — so `JSON.parse(stdout)` could fail on a successful run. A fifth was found by the
+  new sweep: `tasks --edit --json` with no task id and nothing to edit printed 750+ bytes of
+  "LLM Usage Instructions" and exited 0. That path is now the `E_USAGE` refusal it always was (an
+  impossible flag combination); the help block itself is unchanged in human mode. The only remaining
+  exception is `tasks --next --json` on an empty board, which prints a sentence and exits 0 by a
+  decision recorded in three e2e tests — documented as a bullet in the README, not as a footnote.
+
+  **`--json` stopped suppressing the auto-push, which is the opposite bug.** The stdout guard above was
+  first written as `settings.autoPush && !result.linkedExisting && !opts.json` — a condition on the
+  `tryAutoPush` CALL, not on the `console.log` calls around it — so `tasks --commit --json` quietly
+  stopped pushing. Stdout was still clean, which is exactly why nothing noticed. `--json` now suppresses
+  the auto-push's progress lines only; the push runs in both modes, its outcome rides the payload as
+  `autoPush: {attempted, ok, error?}`, and two e2e tests assert the OUTCOME (a real remote receives the
+  commit; a real failure comes back in the payload) rather than the absence of prose. `git push` does not
+  confine its chatter to stderr — `--set-upstream` prints "Branch 'x' set up to track 'origin/x'." on
+  STDOUT — so under `--json` git's own output is captured instead of inherited, and its reason is folded
+  into the reported error. Human mode still watches the push.
+
+  **A lost `--verify-reason` is lost task data.** `--set-verify cannot --verify-reason "…"` records the
+  reason as a system comment. When that write failed, the CLI printed a yellow line to stdout, set no
+  exit code and reported nothing — an explicitly requested piece of task data, silently gone. It is
+  now the same `E_COMMENT_SAVE` refusal as a lost `--comment` (one code, one meaning), with a suggestion
+  naming the remedy, and the human line is human-mode only.
+
+  **`E_USAGE` means one thing again.** Both `--commit` git failures — the one that reports
+  `{ok:false}` and the one that throws — used to answer `E_USAGE` while exiting with a different code
+  than every other `E_USAGE` site. Both now answer **`GIT_COMMIT_FAILED`**: in `error.code` it means
+  nothing was committed, in `notices[].code` it means the task was written and only the commit did not
+  happen. `E_USAGE` is again only a bad flag value or an impossible combination.
+
+  **A rejected session is no longer "the backend is down".** SaaS mode is selected _because_ a token
+  file exists, so the client's literal `NOT_AUTHENTICATED` (returned when there is no token at all) is
+  the rare case; what really happens is an expired or revoked token rejected with HTTP 401/403, which
+  was labelled `E_BACKEND_UNAVAILABLE` — "unreachable, maybe retry". 401/403 now map to
+  `E_NOT_AUTHENTICATED`, `retryable: false`, with a suggestion naming `vibeflow login`.
+  `NETWORK_ERROR` still maps to `E_BACKEND_UNAVAILABLE` retryable. The mapping moved out of
+  `src/index.ts` into `src/saas/failure.ts` so it is a pure function the unit tests can reach; until
+  now every path to it needed a live online board, which is why it shipped untested.
+
+  **Coverage that means something.** The e2e suite spawns the CLI as a child process, which v8 coverage
+  does not follow, so `src/index.ts` was measured at ~10% while the e2e suite ran hundreds of
+  invocations through it — new branches looked untested in the report while being pinned by dozens of
+  assertions. `test:coverage:e2e` merges the child's counters with the unit counters: it builds a
+  sourcemapped, unminified CLI (the shipped bundle is minified and its maps are deleted, so it cannot be
+  attributed back to `src/**`), runs the e2e suite against it under `NODE_V8_COVERAGE`, remaps through
+  the source map, and merges **by source position** into `coverage/merged/`. `src/index.ts` lines go
+  15.94% → 30.01% (546/3425 → 1028/3425), branches 17.70% → 40.33%, functions 23.07% → 31.34%.
+  `test:coverage` is unchanged.
+  No dependency was added: the merge toolchain is already a transitive dependency of
+  `@vitest/coverage-v8`.
+
+  **…and the merge refuses to report a number it cannot stand behind.** A join of ONE side is still a
+  join as far as the report is concerned: every line of the merge is arithmetic over "whatever maps
+  arrived", so a missing e2e side produced a "merged" number that was really the unit-only number —
+  the same dishonesty the tooling was added to remove, wearing a "merged" column heading. The only hard
+  guard keyed on the UNION of both maps, so it could never fire while the unit pass measured
+  `src/index.ts`. `test:coverage:e2e` now exits non-zero, with an actionable message, when the e2e side
+  is missing or empty, when the subject is present in one map and absent from the other (a path-spelling
+  mismatch splits one file into two one-sided entries; the near miss is named), and when the e2e side
+  covers nothing in the file it exists to measure. One-sided files AWAY from `src/index.ts` are normal
+  (the browser bundles are not in the CLI bundle), so those are counted and reported rather than
+  refused. The checks live in `scripts/merge-coverage-guards.mjs` so the unit suite can reach them, and
+  `tests/unit/scripts/merge-coverage.test.ts` feeds the script a deliberately incomplete pair and
+  asserts it refuses.
+
+  **Tests.** A stdout-purity sweep asserts, for a table of `--json` invocations, that stdout is either
+  empty or exactly one JSON document — the guard for the whole class, including the two sites the
+  deep review did not find. The non-zero-exit guard
+  (`tests/unit/json-refusal-guard.test.ts`) keeps its one allowlisted exception
+  (`reportProjectRootFailure`, whose only callers `serve`/`kanban`/`mcp` define no `--json`) and its
+  docstring now states its six named blind spots honestly, three of them exercised as tests.
+
+  **Breaking:** the auto-commit-failed path exits 0 instead of 1. It signalled a failure for work that
+  had already landed, which told a consumer to retry an edit that applied. Scripts that chained
+  `tasks --edit … && git push` will no longer stop there; both modes now say why in the notice. The local
+  notice field is `notices` (an array), not `warning`. `tasks --edit --json` with no id and nothing to
+  edit exits 2 (`E_USAGE`) instead of 0.
+
+  Also fixed on the way: `commitTaskPaths`/`commitTaskChanges` let git write to the CLI's own stderr,
+  putting a git usage dump in front of the envelope; git's stderr is now captured and folded into the
+  error message, so stderr parses as JSON.
+
+  **Why `minor` and not `patch`.** The CLI is published, so the payload and exit-code changes below are
+  breaking for real consumers: the `warning`/`warnings` field is now `notices` (always an array), the
+  auto-commit-failed path exits 0 instead of 1, and `tasks --edit --json` with no id and nothing to
+  edit exits 2. A `patch` label beside a "Breaking:" paragraph is a lie in the release notes, so this
+  is `minor` — the same level as the earlier breaking `--json` reshape, per this repo's 0.x convention.
+
+- 9dcb6df: Add a read-only MCP `get_project` tool (10 → 11 tools).
+
+  An agent can now ask what project the server is attached to before touching anything: the tool returns the resolved absolute root, project name, current git branch and mode (`local`/`saas`). It takes no input — the root is resolved once at server startup and is never a per-call parameter, so the tool can only _discover_ the project the server already runs in, never retarget it. Annotations: `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
+
+  Mapping: `cliRef` points at the hidden `vibeflow status` command (no options, hence `flags: []`), whose local-mode output now prints the resolved project root and git branch alongside the task statistics, so the CLI surface actually shows what the tool returns.
+
+- 314111c: **The MCP server is stable as of this release.** It was marked experimental in 0.12.0; the warnings
+  that described it that way are gone, and the CLI help, the JSON-RPC error envelope and the tool
+  manifests all describe a supported surface.
+
+  What the release actually delivers on that promise, beyond the bug fixes listed alongside it:
+
+  - **One project root per server, resolved and announced at startup.** The stdio transport requires
+    `--project <dir>` — the spawn cwd belongs to the MCP client and is never trusted — and the root is
+    resolved and validated once, with the absolute path, project name and git branch announced before
+    any tool runs. The read-only `get_project` tool returns the same facts, so a client can ask what it
+    is attached to without guessing.
+  - **Every refusal carries a code and a recovery hint.** A failing tool answers the CLI's own
+    `{ok:false, error:{code, message, retryable, suggestion?}}` envelope, so one parser reads both
+    surfaces. One code carries one suggestion wherever it appears, and the shared review-gate
+    suggestions name both the MCP input and the CLI flag, so a client is never handed an instruction
+    (`--report-file`) that does not exist on its surface. Three tools that used to report success for a
+    task that was not there — `add_comment`, `attach_file`, and a link naming a missing task — now
+    refuse with `TASK_NOT_FOUND` and write nothing.
+  - **`dryRun` is a real preview.** Every mutating tool honours it from the tool input, not only from
+    the transport, and a preview answers with a `notices` array carrying `{code:"DRY_RUN", …}` so a
+    client can never read a dry run as a write that happened. A preview and the real call now agree on
+    refusals too.
+  - **Success payloads say what did not happen.** The non-fatal signal is one `notices` array of
+    `{code, message}` — the same name and shape the CLI's `--json` uses — carrying `DRY_RUN`,
+    `GIT_COMMITTED` and `GIT_COMMIT_FAILED`, so a failed auto-commit after a review transition is
+    reported instead of silently dropped.
+
+- 9b11d71: Add a stdio MCP transport: `vibeflow mcp --project <dir>`.
+
+  An MCP client (Claude Desktop, Cursor, …) can now spawn one vibeflow MCP server per project — no port, no long-running process to manage. The server speaks JSON-RPC over stdin/stdout with the same 11-tool manifest as the HTTP transport. `--project` is required (the spawn cwd belongs to the client and is never trusted), the root is resolved and validated once at startup, startup announcements go to stderr so stdout carries nothing but protocol frames, and the process exits cleanly when the client closes stdin.
+
+- 0101ea1: **Every refusal now says how to correct it, and three MCP tools that wrote to tasks that did not exist refuse instead.**
+
+  ### Breaking for MCP consumers
+
+  Two of these change what a call ANSWERS, not just how it explains itself, so a consumer that
+  branches on `ok` or on a code has to be updated. Hence `minor` (0.x semver).
+
+  - **`add_comment` and `attach_file` no longer return `ok:true` for an id that does not exist.** Both
+    used to create state for a task that was not there (a ghost task file, and a file under
+    `.vibeflow/tasks/files/<id>/`) and report success. They now return
+    `{"ok":false,"error":{"code":"TASK_NOT_FOUND",…}}` and write nothing. A client that relied on
+    `add_comment` creating the task it names has to create it first.
+  - **A `parent` / `relates` / `blocks` link naming a task that does not exist is re-coded.** It used
+    to refuse as a generic `UPDATE_TASK_ERROR`; it is now `TASK_NOT_FOUND`, with the same recovery text
+    as every other `TASK_NOT_FOUND`. Branch on `TASK_NOT_FOUND`, not on `UPDATE_TASK_ERROR`.
+  - **`verify_task` now accepts an id PREFIX**, like every other task tool (its own `dryRun` preview
+    already did — the two disagreed). The engine's codes are unchanged: an id that resolves to nothing
+    is still `E_NOT_FOUND`.
+
+  The rest of this release is additive: a `suggestion` on refusals that had none, one text per code,
+  and input `description`s. A consumer that only reads `code` is unaffected by those.
+
+  ### Three tools mutated state for a task that was not there
+
+  `add_comment` on an unknown id **created a task file** — a ghost task with `title:"Untitled"`,
+  `selector:"/"`, `status:"todo"`, carrying the comment — and answered `ok:true` with a comment id.
+  `attach_file` on an unknown id **wrote a file** under `.vibeflow/tasks/files/<id>/` and answered
+  `ok:true` with a URL for a file belonging to a task that does not exist. Both told the agent the write
+  happened, so there was nothing to recover from and the board gained tasks nobody created. The CLI
+  refused the same calls with `TASK_NOT_FOUND`.
+
+  One shared resolver — `resolveTaskOrRefusal` in `src/core/operations.ts` — now decides what an id
+  means before any task-scoped tool touches state, and every mutating tool writes the _resolved_ id. A
+  new e2e guard (`tests/e2e/mcp-task-existence-guard.test.ts`) derives the swept tool set from the
+  manifest, calls each with an id that cannot exist, and asserts both that it refuses **and** that the
+  tree under `.vibeflow/tasks` is unchanged **path by path and byte by byte** (every file is compared
+  by content digest, so a rewritten file fails too) — so a future task-scoped tool is covered the day
+  it lands. The same sweep asserts the cross-tool property this release exists for: **one code carries
+  one `suggestion` wherever it appears**. It found a second live instance while being written —
+  `VERIFY_REASON_REQUIRED` had one text from the attestation and another from the gate; both now return
+  the single `VERIFY_REASON_REQUIRED_SUGGESTION`.
+
+  A fourth defect, found while fixing the third: `buildUpdateLinks` dropped the producer's refusal code,
+  so a `parent`/`relates`/`blocks` link targeting a task that does not exist refused as a generic
+  `UPDATE_TASK_ERROR` — telling the client the _call_ was wrong when the truth was "that task does not
+  exist". It now reports `TASK_NOT_FOUND` (or the producer's real code), with the same recovery text as
+  every other `TASK_NOT_FOUND`.
+
+  ### A refusal with no `suggestion` is not a refusal an agent can act on
+
+  A code names which rule fired and leaves the agent guessing which input to change. Nineteen of the
+  twenty-five error returns in `operations.ts` carried no `suggestion` at all, and `TASK_NOT_FOUND`
+  carried _two different_ texts depending on which tool returned it. Now:
+
+  - `TASK_NOT_FOUND` carries one identical suggestion on every tool that returns it.
+  - The shared review-gate suggestions (`VERIFY_REQUIRED`, `VERIFY_REASON_REQUIRED`,
+    `COMMIT_MESSAGE_REQUIRED`, `BRANCH_REQUIRED`, `REVIEW_COMMENT_REQUIRED`, both
+    `VERIFY_FAILED_ATTESTED` refusals, `RESEARCH_VERIFY_NOT_ALLOWED`) name the **MCP input and the CLI
+    flag**. The same string is read by the CLI and by MCP `update_task`, so a CLI-only suggestion
+    was an answer an MCP client could not use. (The HTTP `PATCH` route is not a reader of this gate —
+    it enforces the research rule inline — so it is not named here.)
+  - `VerifyAttestationResolution` and `FileValidationResult` gained a `suggestion` field, because those
+    two producers are the only place that knows why an input was refused and what a valid one is —
+    without the field their callers had nothing to forward.
+  - All twelve generic `catch` wrappers (`LIST_TASKS_ERROR` … `PUSH_TASKS_ERROR`, `UNSUPPORTED_FILE_TYPE`,
+    `E_NO_BASELINE`) now say what to try instead of only naming the exception.
+  - `verify_task` returns the CLI verify engine's own codes, several of which carry no text of their own
+    (`E_NO_SELECTOR`, `E_AUTH_EXPIRED`, `E_APP_NOT_RUNNING`, …). The tool substitutes one fallback
+    recovery line where the engine has none. **No engine code is renamed.**
+  - The CLI's human output now prints the attestation refusal's `suggestion`; previously only the
+    `--json` envelope carried it, so a human agent got the rule with nowhere to put the reason.
+  - `RESEARCH_VERIFY_NOT_ALLOWED` is defined once (`RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL` in
+    `src/core/review-gate.ts`) and read by all three of its producers — the gate, the CLI's standalone
+    `--set-verify` check, and that check's human printer — instead of being copied out three times.
+
+  ### Schema errors arrive outside our vocabulary, and the README says so
+
+  An input the tool's own schema rejects is refused by the **MCP SDK's input validation, before any
+  vibeflow handler runs** — so this class has no vibeflow code and no `suggestion`, and vibeflow does
+  not pretend otherwise. What arrives is `result.isError === true` with
+  `MCP error -32602: Input validation error: … at <field>`, and the offending field is named. Because
+  the code string is client-dependent (some clients normalise it into a label of their own), the README
+  tells consumers to **recognise the class by its shape, not by a code string**.
+
+  An **unknown tool** arrives the same way and with the same `-32602` — the SDK routes it through the
+  same input-validation path — but it names the _tool_, not a field, so it is documented as a separate
+  case with its own remedy rather than folded into a class whose own recognition rule would not match
+  it. (JSON-RPC reserves `-32601` for "method not found"; the SDK does not use it here, and the e2e
+  suite pins what actually arrives.)
+
+  The one honest lever left: `tools/list` is the only place a client can read the contract before it
+  fails, so the input shapes now publish a `description` for every field an agent commonly gets wrong —
+  `id` on each task tool (a full id or a unique prefix — `export_prompt` matches ids exactly and says
+  so), the `setVerify`/`verifyReason` pair, `limit`, `contentB64`, the comment body
+  and `filename`.
+
+### Patch Changes
+
+- 4c1c73f: Fix the board's edge auto-scroll going quiet mid-drag at narrow viewports.
+
+  The auto-scroll loop tracked the pointer from `dragover` alone, but Chromium fires `dragover` only over targets that accepted the drag and fires no drag event at all while the pointer is stationary — so the tracked position could go stale outside the 60px edge band while the user kept moving toward it. Measured at a 900px viewport: the last `dragover` landed exactly on the band boundary, the pointer held 40px from the right edge, and the board never scrolled — the done lane stayed unreachable during the drag even though scrolling to the end brings it fully into view. The loop now tracks `drag`, `dragenter` and `dragover`, so a held drag at the edge keeps scrolling until the board cannot scroll further.
+
+- ab63f8a: The review gate emits its error **code** under `--json`.
+
+  A review transition refused by the shared review gate (`checkReviewTransition` — the same code the CLI and the MCP `update_task` tool run) previously printed human prose on stdout even with `--json`; the CLI's duplicate comment pre-check returned before the gate could be consulted. That duplicate is deleted — the unified gate is the single source of truth — and a gate refusal now writes the standard `{ok:false, error:{code, message, retryable, suggestion}}` envelope to **stderr** with exit code 2. All gate codes are covered: `REVIEW_COMMENT_REQUIRED`, `COMMIT_MESSAGE_REQUIRED`, `BRANCH_REQUIRED`, `VERIFY_REQUIRED`, `VERIFY_FAILED_ATTESTED`, `VERIFY_REASON_REQUIRED`, `RESEARCH_REPORT_REQUIRED`, `RESEARCH_VERIFY_NOT_ALLOWED`.
+
+  The richer implementation-report guidance ("what was changed and why · key decisions and trade-offs · anything future agents should know") moved from the deleted CLI pre-check into the gate's own suggestion, so the CLI and MCP `update_task` both show it. Human (non-`--json`) output keeps the same guidance and exit code.
+
+  Two further refusals in the same command had the same defect and are also fixed: a Research task given `--set-verify` (`RESEARCH_VERIFY_NOT_ALLOWED`) and an invalid attestation flag combination (`VERIFY_REASON_REQUIRED`, or `E_USAGE` when `--verify-reason` is passed without `--set-verify cannot`) printed prose on stdout even under `--json`. Both now write the standard envelope to stderr with exit code 2, using the same codes the gate uses. A refused `--set-verify` therefore reports one code whichever path rejects it first.
+
+- ad32e60: Make the CLI↔MCP mapping automatically verified and fix the four divergences it caught.
+
+  - `add_comment`'s `cliRef` now names the form that actually works (`tasks --edit <id> --comment`); a bare `tasks --comment <text>` used to exit 0 while writing nothing and now fails with `E_USAGE` (exit 2). It only affects an invocation that did nothing before.
+  - The MCP server advertises the real package version instead of `0.1.0` (`serverInfo.version` now equals `package.json`).
+  - `tools/list` now returns tool `annotations` (readOnly/destructive/idempotent/openWorld hints) — additive for clients.
+  - `push_tasks` success responses always carry a parseable JSON text payload instead of a possible `text: undefined` envelope.
+
+  Verification added: the commander tree is introspectable without executing the CLI (`createProgram()`), G1 fails the build when a CLI flag is neither mapped to a tool nor explicitly classified in `intentionallyNotExposed`, G2 cross-checks commander introspection against the built binary's `--help`, and G4 keeps the MCP layer off argv/commander with every tool delegating to `core/operations`.
+
+- 9559d4a: Align the MCP server's refusals and inputs with the CLI's own contracts.
+
+  > **Read `steps` below as superseded.** This change introduces the field; a later change in the same
+  > release renames the wire key to `notices` and makes every entry a `{code, message}` object. The
+  > narrative is kept as written because it is what the code did at this commit; the shipped wire is
+  > described in `empty-board-and-notices.md`.
+
+  **Error envelopes.** A failing MCP tool returned `{error, message, suggestion}` while `tasks --json` returns `{ok:false, error:{code, message, retryable, suggestion?}}`. A machine consumer could not parse the two surfaces the same way — the same problem the `--json` work fixed for the CLI. `formatResult` now emits the CLI envelope verbatim, with `retryable` defaulted to `false` and `suggestion` omitted when the operation set none. Success payloads keep the raw JSON data shape, the right MCP convention, with one addition: an operation that produces `steps` now emits them as a sibling key (see below).
+
+  **`add_comment`'s body is now `comment`,** not `text`. The CLI flag is `--comment` and `update_task` already uses `comment`, so one concept had two names. `vibeflow mcp` is not yet published, so there is no external consumer to break.
+
+  **Success payloads now carry `steps`.** `formatResult` serialised `result.data` and dropped `result.steps` entirely, so over MCP a `dryRun:true` preview was byte-identical to a real write — `attach_file {dryRun:true}` returned the same `{name,size,url}` as the write that saved the file — and an agent could not tell "nothing was written" from "it was written". The same omission hid a failed auto-commit: `update_task` moves a task to review and commits, and when the commit fails it still answers `ok:true` with the only signal, `steps:["Commit failed: …"]`, in the discarded field. `steps` is now emitted as a sibling key on the returned object whenever an operation produces it, so a preview carries its `["Dry run: …"]` marker and a failed commit carries its reason. A plain read has no `steps`, so its payload is unchanged.
+
+  **`update_task` honours `branch` at the review gate.** The MCP path called `checkReviewTransition` without the `branch` the input supplied, so with the create-branch setting ON a `status:"review"` transition was refused `BRANCH_REQUIRED` even though the caller had passed a branch — a requested-but-ignored input, the same bug class as the dry-run one above. The CLI has passed `branch` to this gate all along; MCP now does too.
+
+  **`verify_task`'s preview refuses an unknown id like the real call.** `dryRun:true` answered `ok:true` with `data:null` for an id the real path rejects with `E_NOT_FOUND` (`update_task`'s preview already refused the same case), so the two previews disagreed. The preview now returns the same `E_NOT_FOUND` and message the verify engine raises.
+
+  **MCP now honours the `dryRun` it advertises.** `create_task`, `update_task`, `claim_next_task`, `add_comment` and `attach_file` all declared a `dryRun` input and all ignored it — the operations read only the transport-level `ctx.dryRun`, which the stdio server never sets, so a preview performed a REAL WRITE. Both sources are honoured now, and a test asserts every mutating tool in the manifest declares a `dryRun` input at all, so a new one cannot be added without a preview.
+
+  **MCP now enforces the CLI's attestation rules.** `update_task` accepted `setVerify:"cannot"` with no `verifyReason` and a bare `verifyReason` with no verdict, recording nothing in either case. It now routes through the same `resolveVerifyAttestation` validator the CLI's `--edit` path uses, so `VERIFY_REASON_REQUIRED` and `E_USAGE` reach MCP clients too.
+
+  **`verify_task` accepts `dryRun`.** Every other mutating tool exposed one, and the manifest's own classification of `tasks --dry-run` says so — but `verify_task` mutated the task (system comment, verdict) while advertising no preview, so a client could not ask what it would do. `dryRun:true` now returns the task plus a `steps` preview and short-circuits before the engine, which shells out to a browser. Still unpublished, so no consumer to break.
+
+  **One id-resolution rule, three surfaces.** The CLI, the HTTP `PATCH`/create route and the MCP tools each inlined "full id, or a prefix of one" at their own call sites, which is how they drifted. It now lives in one helper in `core/tasks.ts` and every surface calls it. On the CLI surfaces the behaviour is unchanged — `tasks --get`, `tasks --edit` and the `tasks --dry-run` SaaS path resolved prefixes already. Over MCP it is a fix, not a no-op: `get_task` and `update_task` were exact-match and returned `TASK_NOT_FOUND` for every prefix, and now resolve like `--edit` does. `create_task` also stops scanning the task store twice to resolve `parent`.
+
+  `patch`, not `minor`: every change here is a bug fix to an unpublished surface — the behaviour is deterministic, but `vibeflow mcp` is not on npm yet, so the manifest is the only consumer of the renamed field, and the envelope change is a breaking _reshape_ of an internal wire format rather than a new capability. `minor` is reserved in this repo for the breaking `--json` reshape, which shipped as a documented payload change in this same release; these are the follow-up corrections to it.
+
+- adfa669: Fix the detail panel disappearing when you press the mouse on a task card, and harden the file-preview URL check.
+
+  A mousedown on a task card used to be treated as a click outside the panel, so the panel closed on mouse-down — before the click itself. Closing it also collapses the board's reserved right inset, so every card reflowed mid-gesture and the click could land on a different element, making the card you pressed never open. A card press is no longer an outside click: the click that follows decides which task is shown, and a pending comment still prompts before anything is dismissed.
+
+  The file-preview guard now resolves the URL against the page origin instead of comparing string prefixes, closing two off-origin cases (`/\evil.com` and a tab-split `//evil.com`) that passed the prefix test and resolved to an external host.
+
+- 96ba5c7: `serve` and `kanban` now resolve, validate, and announce the project root at startup instead of silently trusting the cwd.
+
+  - New `--project <dir>` flag on `serve` and `kanban` selects the project root explicitly (on `serve` it applies to API-only/MCP mode; an HTML target still derives its own directory).
+  - Startup prints `✓ Project root: <absolute path> (<name>, branch <branch|none>)` before anything is created.
+  - Obvious non-projects are refused with exit code 2 and an error naming `--project`: the filesystem root, your home directory, and a directory that is neither a git repo nor a `.vibeflow/` store. `.vibeflow/` is never created before validation passes, and the server layer hard-refuses `/` and `$HOME` even for programmatic callers that bypass the CLI.
+  - The MCP `initialize` handshake now reports the resolved project: `instructions` names the absolute root, project name, git branch, and mode, so a client can see which project it is about to mutate before any tool call.
+
+- 2b48dfa: A `RESEARCH_REPORT_REQUIRED` refusal now names the MCP recovery path.
+
+  The refusal's `suggestion` named only `--report-file ./my-report.md` — a flag no MCP client
+  has, so a client told to "pass a .md report" was given an instruction it could not follow.
+  It now names both routes: `attach_file` with a `.md` filename (MCP) and `--report-file`
+  (CLI), since the same gate serves both surfaces. `RESEARCH_VERIFY_NOT_ALLOWED` names the
+  same recovery for the same reason.
+
+  The `attach_file` tool description — the only documentation an MCP client reads, and what
+  `tools/list` echoes — now states that a `.md` filename is what satisfies the research-report
+  gate for a `type:"Research"` task, instead of describing base64 attachment and nothing else.
+
+  No behaviour changes: the gate, the flags and the file attachments are all exactly as before.
+
 ## 0.17.2
 
 ### Patch Changes
