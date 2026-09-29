@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.1
+
+### Patch Changes
+
+- 360ca1d: show all version changelogs jumped since last seen version in What's New modal
+- 360ca1d: Add MCP e2e test suite: helpers, transport/session lifecycle, and tool happy paths.
+- 360ca1d: Add unit test coverage for watch-engine diffTaskSnapshots: tests all 7 event types (new, moved-to-todo, status, comment, file, priority, description) plus edge cases (no-op, simultaneous changes, ordering). Mutation score for watch-events.ts: 93.94%.
+
 ## 0.18.0
 
 ### Minor Changes
