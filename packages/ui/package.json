@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./socket": "./src/socket.ts",
     "./kanban": "./src/kanban/index.ts",
-    "./kanban.css": "./src/kanban/kanban.css"
+    "./kanban.css": "./src/kanban/kanban.css",
+    "./kanban/themes.css": "./src/kanban/themes.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
