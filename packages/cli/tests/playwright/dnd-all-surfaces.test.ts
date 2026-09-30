@@ -40,10 +40,20 @@ async function dispatchDrag(
   targetSelector: string,
   targetPosition: { x: number; y: number },
   targetIsColumn = false,
+  /** When set, wait for the board's deferred dragstart visuals before hovering
+   *  the target, and aim at the target card's own 'after' band — just above the
+   *  make-child drop slot, which only exists once those visuals have landed. */
+  aimAfterContentBand = false,
 ) {
   return page.evaluate(
     async (args) => {
-      const { sourceId, targetSelector, targetPosition, targetIsColumn } = args;
+      const {
+        sourceId,
+        targetSelector,
+        targetPosition,
+        targetIsColumn,
+        aimAfterContentBand,
+      } = args;
       const source = document.querySelector(
         `article[data-task-id="${sourceId}"]`,
       ) as HTMLElement;
@@ -58,7 +68,7 @@ async function dispatchDrag(
       }
 
       const sourceRect = source.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
+      let targetRect = target.getBoundingClientRect();
 
       const dt = new DataTransfer();
       dt.setData("text/plain", sourceId);
@@ -75,6 +85,23 @@ async function dispatchDrag(
         }),
       );
 
+      // The board publishes its drag visuals one macrotask after dragstart, so
+      // the make-child drop slot is only in the DOM after this await — and it
+      // must be: aiming at the card's bottom band only means something once
+      // the slot is sitting on top of the old band.
+      let aimOffsetY = targetPosition.y;
+      if (aimAfterContentBand) {
+        await new Promise((r) => setTimeout(r, 50));
+        targetRect = target.getBoundingClientRect();
+        const slot = target.querySelector<HTMLElement>(
+          '[data-role="empty-child-slot"]',
+        );
+        if (!slot) return { error: "no make-child drop slot during the drag" };
+        // Card content ends a few px (the slot's margin) above the slot; aim
+        // inside the content's bottom band, not on the slot itself.
+        aimOffsetY = slot.getBoundingClientRect().top - targetRect.y - 10;
+      }
+
       // dragover on target
       target.dispatchEvent(
         new DragEvent("dragover", {
@@ -82,7 +109,7 @@ async function dispatchDrag(
           cancelable: true,
           dataTransfer: dt,
           clientX: targetRect.x + targetPosition.x,
-          clientY: targetRect.y + targetPosition.y,
+          clientY: targetRect.y + aimOffsetY,
         }),
       );
 
@@ -98,7 +125,7 @@ async function dispatchDrag(
           cancelable: true,
           dataTransfer: dt,
           clientX: targetRect.x + targetPosition.x,
-          clientY: targetRect.y + targetPosition.y,
+          clientY: targetRect.y + aimOffsetY,
         }),
       );
 
@@ -113,7 +140,13 @@ async function dispatchDrag(
 
       return { success: true };
     },
-    { sourceId, targetSelector, targetPosition, targetIsColumn },
+    {
+      sourceId,
+      targetSelector,
+      targetPosition,
+      targetIsColumn,
+      aimAfterContentBand,
+    },
   );
 }
 
@@ -350,5 +383,89 @@ describe("DnD all surfaces", () => {
       taskId: parent,
       type: "parent",
     });
+  }, 30000);
+
+  it("Surface 5: card → reorder AFTER the hovered card (bottom band)", async () => {
+    // Regression: the make-child drop slot is rendered inside every childless
+    // card for the whole drag, and the article rect counted it as card
+    // content — so the 'after' band started *below* the card, on top of the
+    // slot. Aiming at the lower part of a card could then only ever produce a
+    // make-child link: the 'drop after this card' gesture was unreachable.
+    const a1 = await createTask({
+      title: "AFTER-A",
+      status: "todo",
+      sortKey: "0000000070000000",
+    });
+    const a2 = await createTask({
+      title: "AFTER-B",
+      status: "todo",
+      sortKey: "0000000080000000",
+    });
+    const a3 = await createTask({
+      title: "AFTER-C",
+      status: "todo",
+      sortKey: "0000000090000000",
+    });
+
+    const patches: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "PATCH") patches.push(req.postData() || "");
+    });
+
+    await page.reload({ waitUntil: "networkidle", timeout: 10000 });
+    await page.waitForSelector("#kanban-board", { timeout: 5000 });
+    await page.waitForFunction(
+      (ids) =>
+        ids.every((id) =>
+          document.querySelector(
+            `[data-column-id="todo"] article[data-task-id="${id}"]`,
+          ),
+        ),
+      [a1, a2, a3],
+      { timeout: 5000 },
+    );
+
+    const order = () =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll(
+            '[data-column-id="todo"] article[data-task-id]',
+          ),
+        ].map((e) => (e.textContent ?? "").trim().slice(0, 8)),
+      );
+    const orderBefore = await order();
+
+    // Drag the FIRST card onto the bottom band of the SECOND one — the
+    // gesture that used to resolve to a make-child link.
+    const result = await dispatchDrag(
+      page,
+      a1,
+      `article[data-task-id="${a2}"]`,
+      { x: 140, y: 0 },
+      false,
+      true,
+    );
+    expect(result, JSON.stringify(result)).toEqual({ success: true });
+    await page.waitForTimeout(1000);
+
+    const orderAfter = await order();
+    console.log("Order before:", orderBefore);
+    console.log("Order after:", orderAfter);
+    console.log("Patches:", patches);
+
+    const after1 = await getTask(a1);
+    const after2 = await getTask(a2);
+    const after3 = await getTask(a3);
+    // A reorder PATCH carries `sortKey`; a make-child PATCH carries `links`.
+    expect(
+      after1.links ?? [],
+      "aiming at the card's bottom band must not link a parent",
+    ).toEqual([]);
+    // 'After a2' — the dragged card's key now sits between a2 and a3.
+    expect(
+      String(after1.sortKey) > String(after2.sortKey) &&
+        String(after1.sortKey) < String(after3.sortKey),
+      `a1 must land after a2 (a1=${after1.sortKey}, a2=${after2.sortKey}, a3=${after3.sortKey})`,
+    ).toBe(true);
   }, 30000);
 });

@@ -309,9 +309,64 @@ export interface DropIntent {
  fromTree?: boolean;
 }
 
+/** The drag-only make-child drop slot (`RecursiveChildrenTree`, rendered
+ *  inside a childless card's article while a drag session is active). It is a
+ *  drop affordance, not card content, so it must not count towards the card's
+ *  drop bands. Exported for unit testing. */
+export const CARD_DROP_SLOT_SELECTOR = '[data-role="empty-child-slot"]';
+
+/**
+ * The card's own content rect: the article rect minus the drag-only make-child
+ * drop slot, plus whether that slot was actually there.
+ *
+ * The slot is the article's last in-flow child (`TaskCard` renders the tree
+ * after the card rows), so it hangs directly below the card content. Measuring
+ * the article while the slot was mounted counted the slot as card content,
+ * which pushed the 'after' band down onto the slot itself: the bottom band
+ * started below the card, so a drag aimed at the lower part of a card could
+ * only ever classify as centre/make-child. A slot with no measurable height
+ * displaces nothing — jsdom reports every rect as 0×0 — so the article rect is
+ * returned unchanged in that case.
+ */
+function cardContentRect(articleEl: HTMLElement): {
+  rect: DOMRect;
+  hasDropSlot: boolean;
+} {
+  const articleRect = articleEl.getBoundingClientRect();
+  const slotEl = articleEl.querySelector(CARD_DROP_SLOT_SELECTOR);
+  const slotRect = slotEl?.getBoundingClientRect();
+  if (!slotRect || slotRect.height <= 0) {
+    return { rect: articleRect, hasDropSlot: false };
+  }
+  const contentBottom = Math.min(articleRect.bottom, slotRect.top);
+  if (contentBottom <= articleRect.top) {
+    return { rect: articleRect, hasDropSlot: true };
+  }
+  // DOMRect properties live on the prototype, so a spread would drop them all
+  // — rebuild the rect explicitly for the band maths and for callers.
+  const contentRect = {
+    top: articleRect.top,
+    bottom: contentBottom,
+    height: contentBottom - articleRect.top,
+    left: articleRect.left,
+    right: articleRect.right,
+    width: articleRect.width,
+    x: articleRect.left,
+    y: articleRect.top,
+    toJSON: () => ({}),
+  } as DOMRect;
+  return { rect: contentRect, hasDropSlot: true };
+}
+
 /** Classify a drop position against a card's article element (not the
  * outer wrapper, which may contain pill/indicator children that distort
  * the bounding rect).
+ *
+ * Classification runs against the card's CONTENT rect — the article minus the
+ * drag-only make-child drop slot — so a drop slot mounted on every childless
+ * card during a drag cannot move the bands off the card. A cursor below the
+ * content is therefore the card's own 'after' band, and the slot's own
+ * footprint (and the make-child pill below it) stays centre/make-child.
  *
  * When the make-child pill is visible for this card (`pillVisible`), only a
  * cursor that has left the article's bottom edge — i.e. one that is actually
@@ -321,8 +376,8 @@ export interface DropIntent {
  * classify as center, which made an edge drop (the only way to reorder
  * relative to a card) unreachable.
  *
- * Returns `{ zone, rect }` where `rect` is the article rect used for
- * classification (for callers that need to compute positions from it). */
+ * Returns `{ zone, rect }` where `rect` is the rect used for classification
+ * (for callers that need to compute positions from it). */
 export function classifyForDropIntent(
  wrapperEl: HTMLElement,
  clientY: number,
@@ -332,14 +387,18 @@ export function classifyForDropIntent(
  // mounts inside the wrapper but outside the article, so the article
  // rect is immune to pill presence.
  const articleEl = wrapperEl.querySelector("article") as HTMLElement | null;
- const rect = articleEl
-  ? articleEl.getBoundingClientRect()
-  : wrapperEl.getBoundingClientRect();
+ const { rect, hasDropSlot } = articleEl
+  ? cardContentRect(articleEl)
+  : { rect: wrapperEl.getBoundingClientRect(), hasDropSlot: false };
 
- if (pillVisible && clientY > rect.bottom) {
-  return { zone: "center", rect };
- }
- return { zone: classifyDropZone(rect, clientY), rect };
+  // Below the card content: either the make-child pill (which is outside the
+  // article) or the drop slot, which occupies that strip. Both are make-child
+  // affordances, so pin them to centre rather than letting a cursor on the
+  // slot read as an edge drop.
+  if (clientY > rect.bottom && (pillVisible || hasDropSlot)) {
+    return { zone: "center", rect };
+  }
+  return { zone: classifyDropZone(rect, clientY), rect };
 }
 
 /**

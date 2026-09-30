@@ -347,6 +347,72 @@ describe("KanbanBoard drag-and-drop invariants", () => {
     expect(onLinkChild).not.toHaveBeenCalled();
   });
 
+  it("an 'after' drop below a card is still a reorder while the drop slot is rendered", async () => {
+    // Regression: the make-child drop slot is rendered inside every childless
+    // card for the whole drag, so the target article's rect included it. The
+    // 'after' band then started *below* the card content — physically on top
+    // of the slot — and aiming at the lower part of a card resolved to
+    // make-child. The slot must not move the bands: the band above it is
+    // 'after', the slot itself is make-child.
+    const alpha = makeTask("a1", "Alpha");
+    const beta = makeTask("b1", "Beta");
+    const onReorder = vi.fn();
+    const onLinkChild = vi.fn();
+    const { container } = render(
+      <BoardHarness
+        initial={[alpha, beta]}
+        onReorder={onReorder}
+        onLinkChild={onLinkChild}
+      />,
+    );
+
+    // jsdom has no layout: give the target article 84px (56px of card content
+    // + the 24px slot + 4px trailing padding) and the slot its own rect, so
+    // the drop bands are deterministic.
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const isTarget = this.getAttribute("data-task-id") === "b1";
+      const isSlot = this.getAttribute("data-role") === "empty-child-slot";
+      const top = isTarget ? 100 : isSlot ? 156 : 0;
+      const height = isTarget ? 84 : isSlot ? 24 : 0;
+      return {
+        top,
+        height,
+        bottom: top + height,
+        left: 0,
+        right: 200,
+        width: 200,
+        x: 0,
+        y: top,
+      } as DOMRect;
+    };
+
+    try {
+      fireEvent.dragStart(card(container, "a1")!, {
+        dataTransfer: dataTransfer(),
+      });
+      // Let the deferred dragstart visuals land, so the drop slot is really
+      // in the target article — the whole point of this regression.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(
+        card(container, "b1")!.querySelector('[data-role="empty-child-slot"]'),
+      ).toBeInTheDocument();
+
+      // 150 is inside the article but above the slot (156): the 'after' band
+      // over the card content.
+      dragOverAt(cardWrapper(container, "b1"), 150);
+      dropAt(cardWrapper(container, "b1"));
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+
+    expect(onLinkChild).not.toHaveBeenCalled();
+    // b1 is the last card in the lane, so 'after' it means afterId: null.
+    expect(onReorder).toHaveBeenCalledWith("a1", "todo", "b1", null);
+  });
+
   it("drops correctly before the deferred dragstart visuals have landed", () => {
     // Regression guard for the drag-abort fix: `handleDragStart` defers every
     // React write out of the `dragstart` dispatch (a synchronous state flush
