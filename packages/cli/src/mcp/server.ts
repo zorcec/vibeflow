@@ -1,7 +1,7 @@
 /**
  * MCP Server Factory
  *
- * Creates an McpServer instance with all 11 tools registered.
+ * Creates an McpServer instance with all 13 tools registered.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OperationContext, OperationResult } from "../core/operations.js";
@@ -52,7 +52,7 @@ export function createMcpServer(
  * The success wire payload.
  *
  * A plain read has no notices, so its payload is the operation's data verbatim
- * — the 11 tools' existing success shapes do not churn. An operation that DOES
+ * — the 13 tools' existing success shapes do not churn. An operation that DOES
  * return notices (every dry-run preview, and the review auto-commit report)
  * gets them as a sibling `notices` key on that same object.
  *

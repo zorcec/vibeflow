@@ -49,11 +49,11 @@ describe("MCP-from-manifest parity", () => {
     await env.cleanup();
   });
 
-  it("1: names parity — tools/list === manifest, exactly 11, no extras", () => {
+  it("1: names parity — tools/list === manifest, exactly 13, no extras", () => {
     const listed = tools.map((t) => t.name).sort();
     const manifestNames = manifest.map((m) => m.name).sort();
     expect(listed).toEqual(manifestNames);
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(13);
   });
 
   it("2: descriptions parity — server copies manifest descriptions verbatim", () => {
@@ -93,6 +93,9 @@ describe("MCP-from-manifest parity", () => {
       export_prompt: { format: "html" },
       verify_task: { id: 123, url: "http://ok" },
       push_tasks: { dryRun: "yes" },
+      // `port` is a bounded integer in the manifest; a string must be refused
+      // rather than coerced into a NaN bind.
+      start_kanban: { port: "not-a-port" },
     };
     for (const m of manifest) {
       const bad = invalidArgs[m.name];

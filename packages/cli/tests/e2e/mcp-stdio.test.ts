@@ -51,11 +51,18 @@ interface Exchange {
  * Spawns `node <CLI> mcp ...`, writes one JSON line per input entry, closes
  * stdin (EOF — the case where the spawned server MUST exit) and resolves on
  * process exit. Never leaves the child behind: deadline → SIGKILL.
+ *
+ * `eofDelayMs` holds stdin open that long AFTER the last frame is written.
+ * Zero (the default) is the historical behaviour: write everything, EOF
+ * immediately. A non-zero delay is required when a frame's RESPONSE has to be
+ * produced before shutdown — `tools/call start_kanban` binds a port and builds
+ * a guide, and an immediate EOF would `process.exit(0)` the child out from
+ * under the in-flight call.
  */
 function runMcp(
   args: string[],
   input: object[],
-  opts: { cwd: string },
+  opts: { cwd: string; eofDelayMs?: number },
 ): Promise<Exchange> {
   return new Promise((resolvePromise) => {
     const env: NodeJS.ProcessEnv = {
@@ -97,7 +104,11 @@ function runMcp(
     for (const msg of input) {
       child.stdin.write(`${JSON.stringify(msg)}\n`);
     }
-    child.stdin.end(); // EOF
+    if (opts.eofDelayMs) {
+      setTimeout(() => child.stdin.end(), opts.eofDelayMs);
+    } else {
+      child.stdin.end(); // EOF
+    }
   });
 }
 
@@ -167,12 +178,12 @@ describe("stdio transport (W4)", () => {
     expect(init!.result.serverInfo.name).toBe("vibeflow");
   });
 
-  it("stdio: tools/list returns 11 tools", async () => {
+  it("stdio: tools/list returns 13 tools", async () => {
     const run = await standardSession();
     const list = parseFrames(run.stdout).find((f) => f.id === 2);
     expect(list, "no tools/list response").toBeTruthy();
     const names = list!.result.tools.map((t: { name: string }) => t.name);
-    expect(names.length).toBe(11);
+    expect(names.length).toBe(13);
     expect(names).toContain("get_project");
   });
 
@@ -219,4 +230,168 @@ describe("stdio transport (W4)", () => {
     expect(run.stderr).toContain("--project <dir> is required");
     expect(existsSync(join(scratch, ".vibeflow"))).toBe(false);
   });
+
+// ── start_kanban over the real stdio transport ──────────────────────────────
+//
+// The stdout-corruption regression. `serve()` used to print its whole startup
+// guide (kanban URL, BOARDS & APIS, INTEGRATE INTO YOUR APP, bookmarklet) via
+// console.log; under this transport stdout IS the JSON-RPC channel, so calling
+// it from a tool corrupted the stream and broke the client. `ServeOptions.quiet`
+// is the fix.
+//
+// This test MUST drive the real transport. Calling the `run:` function
+// in-process would pass even with stdout polluted — the corruption only exists
+// in what the SPAWNED PROCESS writes to fd 1, so only a spawn can see it.
+
+/** A high, non-default port: 3700 is the tool's default and another test on
+ * this machine may hold it. Never 3000/3001 — other projects own those. */
+const KANBAN_PORT = 45731;
+
+/**
+ * Markers that appear ONLY in `serve()`'s raw console output, never in a tool
+ * payload.
+ *
+ * "INTEGRATE INTO YOUR APP" is deliberately absent: the guide text legitimately
+ * contains it, so asserting on it would be a false positive. These four are
+ * printed by nothing but the banner.
+ */
+const BANNER_ONLY = [
+  "\u2713 Vibeflow running",
+  "BOARDS & APIS",
+  "Press Ctrl+C to stop",
+  "  Kanban board    ",
+];
+
+/** Polls `url` until it answers or the budget runs out. The spawned server
+ * lives only as long as the child process, so reachability has to be probed
+ * WHILE the session is in flight — not after it resolves on exit. */
+async function pollUntilOk(url: string, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(url)).ok) return true;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+function startKanbanCall(id: number, port: number) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name: "start_kanban", arguments: { port } },
+  };
+}
+
+/** initialize → notifications/initialized → tools/call start_kanban, holding
+ * stdin open long enough for the call to be answered. */
+function startKanbanSession(port: number): Promise<Exchange> {
+  return runMcp(
+    ["mcp", "--project", projectDir],
+    [INIT, READY, startKanbanCall(2, port)],
+    { cwd: home, eofDelayMs: 8000 },
+  );
+}
+
+describe("start_kanban over stdio (stdout-corruption regression)", () => {
+  let session: Promise<Exchange> | null = null;
+  function session_(): Promise<Exchange> {
+    session ??= startKanbanSession(KANBAN_PORT);
+    return session;
+  }
+
+  afterAll(async () => {
+    // The child binds a port and exits on EOF; runMcp's deadline kills it if
+    // it somehow outlives the test, so nothing is left listening.
+    await session_().catch(() => {});
+  });
+
+  it("does NOT corrupt the JSON-RPC stream when it starts the server", async () => {
+    const run = await session_();
+    // The hard assertion. `serve()` printing its banner here would put a
+    // non-JSON line ("  ✓ Vibeflow running · http://…") on the protocol
+    // channel, and parseFrames throws naming the offending line.
+    const frames = parseFrames(run.stdout);
+    expect(frames.length).toBe(2); // initialize + tools/call
+    // Belt-and-braces: no banner-only string reached the channel either.
+    for (const marker of BANNER_ONLY) {
+      expect(run.stdout, `banner leaked to stdout: ${marker}`).not.toContain(
+        marker,
+      );
+    }
+  });
+
+  it("answers start_kanban with a real kanban URL, and the board is reachable", async () => {
+    // Its OWN session, not session_(): the shared one is resolved by now and
+    // runMcp resolves on process EXIT, so the port it bound is already gone.
+    // Reachability has to be probed while the child is alive.
+    const pending = startKanbanSession(KANBAN_PORT + 1);
+    const reachable = await pollUntilOk(
+      `http://localhost:${KANBAN_PORT + 1}/kanban`,
+      20_000,
+    );
+    expect(reachable, "start_kanban did not bind a reachable kanban URL").toBe(
+      true,
+    );
+
+    const run = await pending;
+    const call = parseFrames(run.stdout).find((f) => f.id === 2);
+    expect(call, "no tools/call response for start_kanban").toBeTruthy();
+    expect(call!.error, "start_kanban refused").toBeUndefined();
+    const payload = JSON.parse(call!.result.content[0].text as string);
+    expect(payload.started).toBe(true);
+    expect(payload.kanbanUrl).toBe(`http://localhost:${KANBAN_PORT + 1}/kanban`);
+    expect(payload.injectUrl).toBe(`http://localhost:${KANBAN_PORT + 1}/inject`);
+    expect(payload.guide.scriptTag).toBe(
+      `<script src="http://localhost:${KANBAN_PORT + 1}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
+    );
+    // The instruction block the CLI prints, ANSI-free.
+    expect(payload.instructions).toContain(
+      `Kanban board: http://localhost:${KANBAN_PORT + 1}/kanban`,
+    );
+    expect(payload.instructions).toContain(
+      "npx @vibeflow-tools/cli tasks --next",
+    );
+  });
+
+  it("both new tools are discoverable over stdio tools/list", async () => {
+    const run = await runMcp(
+      ["mcp", "--project", projectDir],
+      [INIT, READY, LIST],
+      { cwd: home, eofDelayMs: 3000 },
+    );
+    const list = parseFrames(run.stdout).find((f) => f.id === 2);
+    const names = (list!.result.tools as { name: string }[]).map((t) => t.name);
+    expect(names).toContain("start_kanban");
+    expect(names).toContain("get_integration_guide");
+  });
+});
+
+describe("get_integration_guide over stdio", () => {
+  it("reports that the server is not running and names start_kanban", async () => {
+    const call = {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "get_integration_guide", arguments: {} },
+    };
+    const run = await runMcp(
+      ["mcp", "--project", projectDir],
+      [INIT, READY, call],
+      { cwd: home, eofDelayMs: 3000 },
+    );
+    parseFrames(run.stdout); // protocol-only, like every other tool
+    const res = parseFrames(run.stdout).find((f) => f.id === 2);
+    const payload = JSON.parse(res!.result.content[0].text as string);
+    expect(payload.serverRunning).toBe(false);
+    // Instructions against the DEFAULT port, plus the explicit signal.
+    expect(payload.kanbanUrl).toBe("http://localhost:3700/kanban");
+    expect(payload.instructions).toContain("NOT running");
+    expect(payload.instructions).toContain("start_kanban");
+  });
+});
 });

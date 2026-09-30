@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { manifest } from "../../src/mcp/manifest.js";
 
 describe("MCP manifest single source", () => {
-  it("has exactly 11 tools", () => {
-    expect(manifest.length).toBe(11);
+  it("has exactly 13 tools", () => {
+    expect(manifest.length).toBe(13);
   });
 
   it("all tool names are unique", () => {

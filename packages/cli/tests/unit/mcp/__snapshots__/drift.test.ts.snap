@@ -7,10 +7,12 @@ exports[`MCP drift test > snapshot of tool names matches fixture 1`] = `
   "claim_next_task",
   "create_task",
   "export_prompt",
+  "get_integration_guide",
   "get_project",
   "get_task",
   "list_tasks",
   "push_tasks",
+  "start_kanban",
   "update_task",
   "verify_task",
 ]

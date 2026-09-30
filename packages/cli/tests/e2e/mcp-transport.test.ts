@@ -82,13 +82,13 @@ describe("MCP transport/session lifecycle", () => {
     expect(res.status).toBe(200);
   });
 
-  it("4: tools/list returns exactly 11 tools", async () => {
+  it("4: tools/list returns exactly 13 tools", async () => {
     await initialize(client);
     const res = await listTools(client);
     expect(res.status).toBe(200);
     const body = await res.json();
     const tools = body.result.tools;
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(13);
     for (const tool of tools) {
       expect(tool.name).toBeDefined();
       expect(tool.description).toBeDefined();

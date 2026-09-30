@@ -10,7 +10,6 @@ import {
 import { join, resolve, basename, extname, dirname } from "node:path";
 import { createServer } from "node:http";
 import { execSync } from "node:child_process";
-import { networkInterfaces } from "node:os";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import chalk from "chalk";
@@ -23,6 +22,26 @@ import {
   getOverlaySaasScript,
 } from "../client/overlay/index.js";
 import { getKanbanHtml, type KanbanOptions } from "./kanban-template.js";
+import {
+  buildBoardsAndApisLines,
+  buildBookmarkletLines,
+  buildIntegrateIntoAppLines,
+  buildIntegrationGuide,
+  buildOnlineAddToHtmlLines,
+  guideDivider,
+  localhostAltLine,
+  printGuideLines,
+  resolveDisplayUrl,
+  type GuideUrls,
+  type IntegrationGuide,
+} from "./startup-guide.js";
+
+/** Startup-banner rule + guide construction, re-exported from the guide
+ * module so `server.ts` stays the single import site for the banner helpers. */
+export {
+  localhostAltLine,
+  localhostScriptTagAltLine,
+} from "./startup-guide.js";
 import {
   buildChangelogResponse,
   readChangelogContent,
@@ -131,6 +150,13 @@ export interface ServeInstance {
   url: string;
   /** Present (non-null) only when bound to 0.0.0.0 — localhost twin of `url`. */
   localUrl?: string | null;
+  /**
+   * Every URL and integration snippet for this instance, derived by the ONE
+   * guide builder (server/startup-guide.ts). Programmatic callers read the
+   * startup guide from here instead of having it printed — see
+   * `ServeOptions.quiet`.
+   */
+  guide: IntegrationGuide;
   close: () => Promise<void>;
 }
 
@@ -150,45 +176,10 @@ const CLI_VERSION =
     ? ""
     : __VIBEFLOW_CLI_VERSION__;
 
-/** Returns the first non-loopback IPv4 LAN address for display when bound to 0.0.0.0. */
-function getLanIp(): string | null {
-  for (const ifaces of Object.values(networkInterfaces())) {
-    for (const iface of ifaces ?? []) {
-      if (iface.family === "IPv4" && !iface.internal) return iface.address;
-    }
-  }
-  return null;
-}
-
-/** Startup-banner rule: when the server is bound to 0.0.0.0 every user-facing
- * LAN-IP URL must also show its localhost equivalent ("always dual"). Returns
- * the aligned continuation line, or null when bound to a single host so the
- * banner output stays identical to the pre-dual behavior. */
-export function localhostAltLine(
-  localUrl: string | null,
-  path: string,
-  indentCols: number,
-  label = "",
-): string | null {
-  if (!localUrl) return null;
-  return (
-    chalk.dim(" ".repeat(indentCols) + label) + chalk.cyan(`${localUrl}${path}`)
-  );
-}
-
-/** Localhost equivalent of a yellow <script> tag banner line. */
-export function localhostScriptTagAltLine(
-  localUrl: string | null,
-  indentCols: number,
-): string | null {
-  if (!localUrl) return null;
-  return (
-    chalk.dim(" ".repeat(indentCols) + "or: ") +
-    chalk.yellow(
-      `<script src="${localUrl}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
-    )
-  );
-}
+/** The URLs a bound server is reachable on. Delegates to the ONE host→URL
+ * rule in the guide module, so `serve()` and the `start_kanban` dry-run
+ * preview can never disagree about what URL a host/port pair means. */
+export const resolveServeUrls = resolveDisplayUrl;
 
 /** Registers /api/pages — returns the list of HTML pages being served. */
 function registerPagesApi(app: express.Application, pages: string[]): void {
@@ -1386,10 +1377,14 @@ ${sections.join("\n")}
 }
 
 /** Serves /inject — helper page with bookmarklet and instructions for adding
- * the overlay to an existing app without modifying its source code. */
+ * the overlay to an existing app without modifying its source code.
+ *
+ * Every URL and copy-pasteable snippet on the page comes from the ONE guide
+ * builder (server/startup-guide.ts); this function supplies the HTML around
+ * them, so the page can never drift from the console guide. */
 function registerInjectPage(
   app: express.Application,
-  port: number,
+  urls: GuideUrls,
   boardId?: string,
   saasUrl?: string,
 ): void {
@@ -1399,15 +1394,14 @@ function registerInjectPage(
     ? boardId.replace(/[^a-zA-Z0-9_-]/g, "")
     : undefined;
   if (saasUrl) {
-    const saasOverlayUrl = `${saasUrl}/api/overlay.js`;
-    const boardIdSetup = safeBoardId
-      ? `window.__PROTO_BOARD_ID='${safeBoardId}';`
-      : "";
-    const bookmarkletCode = `javascript:(function(){if(document.getElementById('vibeflow-studio-root')){alert('Vibeflow overlay is already active.')}else{${boardIdSetup}fetch('${saasOverlayUrl}').then(function(r){return r.text()}).then(function(code){eval(code)}).catch(function(){alert('Failed to load Vibeflow overlay')})}})()`;
-    const consoleSaasSnippet = `${boardIdSetup}fetch('${saasOverlayUrl}').then(r=>r.text()).then(code=>eval(code));`;
-    const saasScriptTag = safeBoardId
-      ? `<script src="${saasOverlayUrl}" data-vibeflow-overlay data-board-id="${safeBoardId}"></script>`
-      : `<script src="${saasOverlayUrl}" data-vibeflow-overlay></script>`;
+    const saasGuide = buildIntegrationGuide(urls, {
+      boardId: safeBoardId,
+      overlayBaseUrl: saasUrl,
+      online: true,
+    });
+    const bookmarkletCode = saasGuide.bookmarkletCode;
+    const consoleSaasSnippet = saasGuide.consoleSnippet;
+    const saasScriptTag = saasGuide.scriptTag;
 
     app.get("/inject", (_req, res) => {
       res.type("html").send(
@@ -1433,13 +1427,16 @@ function registerInjectPage(
     return;
   }
 
-  const scriptUrl = `http://localhost:${port}/vibeflow-overlay.js`;
-  const boardIdAttr = safeBoardId ? ` data-board-id="${safeBoardId}"` : "";
-  const snippet = `<script src="${scriptUrl}" data-vibeflow-overlay${boardIdAttr}></script>`;
-  const boardIdLine = safeBoardId
-    ? `s.setAttribute('data-board-id','${safeBoardId}');`
-    : "";
-  const bookmarkletCode = `javascript:(function(){if(document.getElementById('vibeflow-studio-root')){alert('Vibeflow overlay is already active on this page.');}else{var s=document.createElement('script');s.src='${scriptUrl}';s.setAttribute('data-vibeflow-overlay','');${boardIdLine}document.head.appendChild(s);}})()`;
+  // The local guide has always linked the overlay at `http://localhost:<port>`
+  // (NOT the LAN url) — the overlay resolves its own API from window.location,
+  // so the localhost link is what a same-machine dev wants to drag.
+  const port = new URL(urls.url).port || "80";
+  const localGuide = buildIntegrationGuide(urls, {
+    boardId: safeBoardId,
+    overlayBaseUrl: `http://localhost:${port}`,
+  });
+  const snippet = localGuide.scriptTag;
+  const bookmarkletCode = localGuide.bookmarkletCode;
 
   app.get("/inject", (_req, res) => {
     res.type("html").send(
@@ -1456,7 +1453,7 @@ function registerInjectPage(
     <div class="note">Requires the proto server to be running at port ${port}. Works without the Chrome extension.</div></div>`,
           `<h2>Option 3 — Browser console</h2>
   <div class="card"><p>Open browser DevTools console and paste:</p>
-    <pre>var s=document.createElement('script');s.src='${scriptUrl}';s.setAttribute('data-vibeflow-overlay','');${safeBoardId ? `s.setAttribute('data-board-id','${safeBoardId}');` : ""}document.head.appendChild(s);</pre></div>`,
+    <pre>${escapeHtml(localGuide.consoleSnippet)}</pre></div>`,
           `<div class="note" style="margin-top:20px">⚙️ <strong>CSP note:</strong> If your app sets a strict Content-Security-Policy, use the Chrome extension instead — it bypasses CSP by injecting in the main world.</div>`,
         ],
       ),
@@ -1607,6 +1604,17 @@ function createBaseServer(): {
   app.use(express.json({ limit: "10mb" }));
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer });
+  // `WebSocketServer({server})` subscribes to the HTTP server's `error` event
+  // and re-emits it on itself. An EventEmitter `error` with no listener THROWS,
+  // so before this handler a port collision surfaced as an unhandled
+  // 'error' event that crashed the process instead of rejecting the promise
+  // returned by serve() — `start_kanban` could then never report EADDRINUSE as
+  // a tool-level refusal, and the CLI hung instead of exiting. The HTTP
+  // server's own `error` handler (below, in each serve path) still does the
+  // rejecting; this only stops the re-emit from throwing.
+  wss.on("error", () => {
+    /* surfaced through httpServer's 'error' handler */
+  });
   const broadcast = (data: Record<string, unknown>) => {
     const msg = JSON.stringify(data);
     for (const client of wss.clients) {
@@ -1708,9 +1716,10 @@ async function serveApiOnly(
   }
 
   registerKanbanRoute(app, options.port);
+  const serveUrls = resolveServeUrls(options.host ?? "localhost", options.port);
   registerInjectPage(
     app,
-    options.port,
+    serveUrls,
     isOnline ? workspace?.id : undefined,
     isOnline ? saasApiUrl : undefined,
   );
@@ -1740,147 +1749,81 @@ async function serveApiOnly(
 
   return new Promise<ServeInstance>((resolvePromise, reject) => {
     const bindHost = options.host ?? "localhost";
+    const { url, localUrl } = serveUrls;
+    // The startup banner is ALWAYS the local one: online mode still serves
+    // `/vibeflow-overlay.js` from this server (it proxies to SaaS), so the
+    // banner's script tag carries no `data-board-id` and no SaaS origin. Only
+    // the `/inject` page links the SaaS overlay directly.
+    const guide = buildIntegrationGuide({ url, localUrl });
     httpServer.listen(options.port, bindHost, () => {
-      const displayHost =
-        bindHost === "0.0.0.0" ? (getLanIp() ?? "localhost") : bindHost;
-      const url = `http://${displayHost}:${options.port}`;
-      const localUrl =
-        bindHost === "0.0.0.0" ? `http://localhost:${options.port}` : null;
-      const divider = chalk.dim("  " + "─".repeat(62));
+      const divider = guideDivider();
 
-      console.log();
-      console.log(
+      // `quiet` is the programmatic-caller switch: the MCP tools own stdout
+      // (under the stdio transport it IS the JSON-RPC channel), and the guide
+      // they need is on `instance.guide`. The human CLI path leaves it unset
+      // and gets these exact lines, in this exact order, as before.
+      if (options.quiet) {
+        resolvePromise(makeInstance());
+        return;
+      }
+
+      printGuideLines([
+        "",
         chalk.green("  ✓ Vibeflow running") +
           chalk.dim(" · ") +
           chalk.cyan(url),
-      );
-      if (localUrl) {
-        console.log(chalk.dim("  Local:          ") + chalk.cyan(localUrl));
-      }
-      console.log(divider);
+        ...(localUrl
+          ? [chalk.dim("  Local:          ") + chalk.cyan(localUrl)]
+          : []),
+        divider,
+        ...(isOnline
+          ? [
+              chalk.dim("  Mode:  ") +
+                chalk.green("● Online") +
+                chalk.dim(" — connected to Vibeflow SaaS"),
+              chalk.dim("  Board: ") +
+                chalk.white(workspace!.name ?? "your board"),
+              chalk.dim("  Web:   ") + chalk.cyan(workspace!.url),
+              divider,
+              chalk.dim("  Overlay script:  ") +
+                chalk.cyan(guide.overlayScriptUrl),
+              ...(localhostAltLine(localUrl, "/vibeflow-overlay.js", 19)
+                ? [localhostAltLine(localUrl, "/vibeflow-overlay.js", 19)!]
+                : []),
+              "",
+              ...buildOnlineAddToHtmlLines(guide),
+            ]
+          : [
+              chalk.dim("  Mode:  ") +
+                chalk.yellow("◎ Local") +
+                chalk.dim(" — no account needed"),
+              divider,
+              ...buildBoardsAndApisLines(guide),
+              ...buildIntegrateIntoAppLines(guide),
+              ...buildBookmarkletLines(guide),
+            ]),
+        "",
+        ...(options.noCtrlCHint
+          ? []
+          : [chalk.dim("  Press Ctrl+C to stop"), ""]),
+      ]);
 
-      if (isOnline) {
-        console.log(
-          chalk.dim("  Mode:  ") +
-            chalk.green("● Online") +
-            chalk.dim(" — connected to Vibeflow SaaS"),
-        );
-        console.log(
-          chalk.dim("  Board: ") + chalk.white(workspace!.name ?? "your board"),
-        );
-        console.log(chalk.dim("  Web:   ") + chalk.cyan(workspace!.url));
-        console.log(divider);
-        console.log(
-          chalk.dim("  Overlay script:  ") +
-            chalk.cyan(`${url}/vibeflow-overlay.js`),
-        );
-        const overlayAlt = localhostAltLine(
-          localUrl,
-          "/vibeflow-overlay.js",
-          19,
-        );
-        if (overlayAlt) console.log(overlayAlt);
-        console.log();
-        console.log(
-          chalk.dim("  ┌─ Add to your HTML ") + chalk.dim("─".repeat(43) + "┐"),
-        );
-        console.log(
-          chalk.dim("  │ ") +
-            chalk.yellow(
-              `<script src="${url}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
-            ) +
-            chalk.dim(" │"),
-        );
-        if (localUrl) {
-          console.log(
-            chalk.dim("  │ or: ") +
-              chalk.yellow(
-                `<script src="${localUrl}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
-              ) +
-              chalk.dim(" │"),
-          );
-        }
-        console.log(
-          chalk.dim("  │ ") +
-            chalk.dim("Or drag the bookmarklet: ") +
-            chalk.cyan(`${url}/inject`) +
-            chalk.dim("         │"),
-        );
-        if (localUrl) {
-          console.log(
-            chalk.dim("  │ or: ") +
-              chalk.cyan(`${localUrl}/inject`) +
-              chalk.dim("         │"),
-          );
-        }
-        console.log(chalk.dim("  └" + "─".repeat(63) + "┘"));
-      } else {
-        console.log(
-          chalk.dim("  Mode:  ") +
-            chalk.yellow("◎ Local") +
-            chalk.dim(" — no account needed"),
-        );
-        console.log(divider);
-        console.log(chalk.bold.white("  BOARDS & APIS"));
-        console.log(
-          chalk.dim("  Kanban board    ") + chalk.cyan(`${url}/kanban`),
-        );
-        const kanbanAlt = localhostAltLine(localUrl, "/kanban", 18);
-        if (kanbanAlt) console.log(kanbanAlt);
-        console.log(
-          chalk.dim("  Task API        ") + chalk.cyan(`${url}/api/tasks`),
-        );
-        const taskApiAlt = localhostAltLine(localUrl, "/api/tasks", 18);
-        if (taskApiAlt) console.log(taskApiAlt);
-        console.log(divider);
-        console.log(
-          chalk.bold.white("  INTEGRATE INTO YOUR APP") +
-            chalk.dim(`  (full guide: ${url}/inject)`),
-        );
-        const guideAlt = localhostAltLine(localUrl, "/inject", 40);
-        if (guideAlt) console.log(guideAlt);
-        console.log(chalk.dim("  1. Add this script tag to your HTML:"));
-        console.log(
-          chalk.dim("     ") +
-            chalk.yellow(
-              `<script src="${url}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
-            ),
-        );
-        const scriptAlt = localhostScriptTagAltLine(localUrl, 5);
-        if (scriptAlt) console.log(scriptAlt);
-        console.log(
-          chalk.dim(
-            "  2. Reload your page — the overlay appears automatically.",
-          ),
-        );
-        console.log(chalk.dim("  3. Click anything to annotate it."));
-        console.log(divider);
-        console.log(chalk.dim("  Bookmarklet — no code changes needed:"));
-        console.log(
-          chalk.dim("  Visit and drag the bookmarklet from ") +
-            chalk.cyan(`${url}/inject`) +
-            chalk.dim(" to your bookmarks bar."),
-        );
-        const injectAlt = localhostAltLine(localUrl, "/inject", 2, "or: ");
-        if (injectAlt) console.log(injectAlt);
-      }
-      console.log();
-      if (!options.noCtrlCHint) {
-        console.log(chalk.dim("  Press Ctrl+C to stop"));
-        console.log();
-      }
+      resolvePromise(makeInstance());
+    });
 
-      resolvePromise({
+    function makeInstance(): ServeInstance {
+      return {
         url,
         localUrl,
+        guide,
         close: async () => {
           if (taskWatcher) await taskWatcher.close();
           disposeMcp();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
-      });
-    });
+      };
+    }
 
     httpServer.on("error", reject);
   });
@@ -1990,6 +1933,11 @@ li{margin:8px 0}</style></head>
     });
   }
 
+  const serveUrls = resolveServeUrls(
+    options.host ?? "localhost",
+    options.port,
+  );
+
   // ── Task API ─────────────────────────────────────────────────────────────
   const pageRoutes = htmlFiles.map((f) => `/${basename(f)}`);
   registerPagesApi(app, isDir ? pageRoutes : []);
@@ -1997,7 +1945,7 @@ li{margin:8px 0}</style></head>
   registerTrpcApi(app, projectDir, broadcast);
   registerMetaApis(app, projectDir, broadcast);
   registerKanbanRoute(app, options.port);
-  registerInjectPage(app, options.port);
+  registerInjectPage(app, serveUrls);
 
   // ── File watcher ─────────────────────────────────────────────────────────
   let watcher: FSWatcher | null = null;
@@ -2034,65 +1982,45 @@ li{margin:8px 0}</style></head>
 
   return new Promise<ServeInstance>((resolvePromise, reject) => {
     const bindHost2 = options.host ?? "localhost";
+    const { url, localUrl } = serveUrls;
+    const guide = buildIntegrationGuide({ url, localUrl });
     httpServer.listen(options.port, bindHost2, () => {
-      const displayHost2 =
-        bindHost2 === "0.0.0.0" ? (getLanIp() ?? "localhost") : bindHost2;
-      const url = `http://${displayHost2}:${options.port}`;
-      const localUrl =
-        bindHost2 === "0.0.0.0" ? `http://localhost:${options.port}` : null;
-      const divider = chalk.dim("  " + "─".repeat(62));
-
-      console.log();
-      console.log(
-        chalk.green("  ✓ Vibeflow running") +
-          chalk.dim(" · ") +
-          chalk.cyan(url),
-      );
-      if (localUrl) {
-        console.log(chalk.dim("  Local:         ") + chalk.cyan(localUrl));
-      }
-      console.log(divider);
-      for (const f of htmlFiles) {
-        const route = isDir ? `/${basename(f)}` : "/";
-        console.log(
-          chalk.dim("  File:          ") +
-            chalk.cyan(`${url}${route}`) +
-            chalk.dim(`  (${basename(f)})`),
+      // `quiet` is for programmatic callers only — see ServeOptions.quiet.
+      if (!options.quiet) {
+        const lines: string[] = [
+          "",
+          chalk.green("  ✓ Vibeflow running") +
+            chalk.dim(" · ") +
+            chalk.cyan(url),
+          ...(localUrl
+            ? [chalk.dim("  Local:         ") + chalk.cyan(localUrl)]
+            : []),
+          guideDivider(),
+        ];
+        for (const f of htmlFiles) {
+          const route = isDir ? `/${basename(f)}` : "/";
+          lines.push(
+            chalk.dim("  File:          ") +
+              chalk.cyan(`${url}${route}`) +
+              chalk.dim(`  (${basename(f)})`),
+          );
+          const fileAlt = localhostAltLine(localUrl, route, 17);
+          if (fileAlt) lines.push(fileAlt);
+        }
+        lines.push(
+          chalk.dim("  Kanban board:  ") + chalk.cyan(guide.kanbanUrl),
         );
-        const fileAlt = localhostAltLine(localUrl, route, 17);
-        if (fileAlt) console.log(fileAlt);
+        const kanbanAlt = localhostAltLine(localUrl, "/kanban", 17);
+        if (kanbanAlt) lines.push(kanbanAlt);
+        lines.push(
+          chalk.dim("  Task API:      ") + chalk.cyan(guide.taskApiUrl),
+        );
+        const taskApiAlt = localhostAltLine(localUrl, "/api/tasks", 17);
+        if (taskApiAlt) lines.push(taskApiAlt);
+        lines.push(...buildIntegrateIntoAppLines(guide));
+        lines.push("", chalk.dim("  Press Ctrl+C to stop"), "");
+        printGuideLines(lines);
       }
-      console.log(chalk.dim("  Kanban board:  ") + chalk.cyan(`${url}/kanban`));
-      const kanbanAlt = localhostAltLine(localUrl, "/kanban", 17);
-      if (kanbanAlt) console.log(kanbanAlt);
-      console.log(
-        chalk.dim("  Task API:      ") + chalk.cyan(`${url}/api/tasks`),
-      );
-      const taskApiAlt = localhostAltLine(localUrl, "/api/tasks", 17);
-      if (taskApiAlt) console.log(taskApiAlt);
-      console.log(divider);
-      console.log(
-        chalk.bold.white("  INTEGRATE INTO YOUR APP") +
-          chalk.dim(`  (full guide: ${url}/inject)`),
-      );
-      const guideAlt = localhostAltLine(localUrl, "/inject", 40);
-      if (guideAlt) console.log(guideAlt);
-      console.log(chalk.dim("  1. Add this script tag to your HTML:"));
-      console.log(
-        chalk.dim("     ") +
-          chalk.yellow(
-            `<script src="${url}/vibeflow-overlay.js" data-vibeflow-overlay></script>`,
-          ),
-      );
-      const scriptAlt = localhostScriptTagAltLine(localUrl, 5);
-      if (scriptAlt) console.log(scriptAlt);
-      console.log(
-        chalk.dim("  2. Reload your page — the overlay appears automatically."),
-      );
-      console.log(chalk.dim("  3. Click anything to annotate it."));
-      console.log();
-      console.log(chalk.dim("  Press Ctrl+C to stop"));
-      console.log();
 
       if (options.open) {
         import("open").then((mod) => mod.default(url)).catch(() => {});
@@ -2101,6 +2029,7 @@ li{margin:8px 0}</style></head>
       resolvePromise({
         url,
         localUrl,
+        guide,
         close: async () => {
           disposeMcp();
           if (watcher) await watcher.close();

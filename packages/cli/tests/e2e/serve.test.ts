@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
@@ -1414,4 +1415,45 @@ describe("proto serve — deprecated agents API", () => {
     );
     expect(missing.status).toBe(404);
   });
+});
+
+
+// ── Port collision (EADDRINUSE) ─────────────────────────────────────────────
+//
+// `WebSocketServer({ server })` subscribes to the HTTP server's `error` event
+// and re-emits it on itself, and an EventEmitter `error` with no listener
+// throws. So before createBaseServer() installed a `wss.on("error")` handler, a
+// port collision did NOT reject the promise serve() returns — it surfaced as an
+// unhandled 'error' event and the caller hung forever. That made it impossible
+// for a tool (or the CLI) to report "port in use" at all.
+
+describe("serve() port collision (EADDRINUSE)", () => {
+  it("REJECTS with an EADDRINUSE error instead of hanging", async () => {
+    // Occupy a port with a plain socket that is not Vibeflow.
+    const squatter = createServer();
+    const taken = await new Promise<number>((resolvePort) => {
+      squatter.listen(0, "127.0.0.1", () =>
+        resolvePort((squatter.address() as { port: number }).port),
+      );
+    });
+    const dir = mkdtempSync(join(tmpdir(), "serve-eaddrinuse-"));
+    mkdirSync(join(dir, ".vibeflow"));
+    try {
+      // The assertion IS the rejection: this test hangs (and times out) if
+      // serve() ever goes back to swallowing the error.
+      await expect(
+        serve(undefined, {
+          port: taken,
+          open: false,
+          projectDir: dir,
+          quiet: true,
+          _testToken: null,
+          _testWorkspace: null,
+        }),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      await new Promise<void>((r) => squatter.close(() => r()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

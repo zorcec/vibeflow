@@ -12,7 +12,7 @@ shipped wire. The dry-run previews of §2.2 #8 and #13 likewise no longer emit t
 (`{code:"DRY_RUN", message:…}`), and the `steps` key does not appear on this surface at any depth
 (§2.2 #8, #13, §4.2).
 
-**Amendments (2026-09-27, follow-up lane).** This is a living plan, not a frozen record: it is the spec the shipped `tests/e2e/mcp-*.test.ts` were written from, so a statement here that contradicts shipped behaviour is a defect. Corrected against the code: `add_comment`'s body field is `comment` (§2.2 #9, §2.3 #9, §3); a tool-level refusal uses the CLI's nested envelope `{ok:false, error:{code, message, retryable, suggestion?}}`, not the flat `{error, message, suggestion}` (§2.2 #13/#14, §2.3) — the transport-level `{"error":"Session not found"}` bodies in §2.1/§2.6 are a different layer and are unchanged; the manifest holds 11 tools, not 10; and Phase 5 has landed — `server.ts` registers from the manifest, so `tools/list` echoes manifest descriptions, schemas and annotations rather than hand-copied ones (§2.8).
+**Amendments (2026-09-27, follow-up lane).** This is a living plan, not a frozen record: it is the spec the shipped `tests/e2e/mcp-*.test.ts` were written from, so a statement here that contradicts shipped behaviour is a defect. Corrected against the code: `add_comment`'s body field is `comment` (§2.2 #9, §2.3 #9, §3); a tool-level refusal uses the CLI's nested envelope `{ok:false, error:{code, message, retryable, suggestion?}}`, not the flat `{error, message, suggestion}` (§2.2 #13/#14, §2.3) — the transport-level `{"error":"Session not found"}` bodies in §2.1/§2.6 are a different layer and are unchanged; the manifest holds 13 tools, not 10 (11 as of the 2026-09-27 lane, plus `start_kanban` and `get_integration_guide`); and Phase 5 has landed — `server.ts` registers from the manifest, so `tools/list` echoes manifest descriptions, schemas and annotations rather than hand-copied ones (§2.8).
 
 ---
 
@@ -24,7 +24,7 @@ All files live in `packages/cli/tests/e2e/` and match the existing `*.test.ts` n
 tests/e2e/
   mcp-helpers.ts           # shared boot + MCP client helpers (NOT a test file; no .test.ts suffix)
   mcp-transport.test.ts    # session lifecycle: initialize, tools/list, DELETE, session reuse, concurrent sessions
-  mcp-tools.test.ts        # all 11 tools happy path over HTTP + on-disk effects + TextContent JSON contract
+  mcp-tools.test.ts        # all 13 tools happy path over HTTP + on-disk effects + TextContent JSON contract
   mcp-errors.test.ts       # unknown tool, invalid args, nonexistent ids, bad filenames, claim empty board, gate matrix
   mcp-auth.test.ts         # loopback/no-token, non-loopback, Bearer matrix (spawned server, HOME-isolated)
   mcp-claim-race.test.ts   # two spawned `tasks --next --json` racers + spawned-server cross-instance session [Phase 2-aware]
@@ -243,7 +243,7 @@ curl -s -D - http://127.0.0.1:<port>/api/mcp \
 | 1 | initialize [now] | body #1 above | 200; `mcp-session-id` header present (UUID); `body.result.protocolVersion === requested`; `body.result.serverInfo.name === "vibeflow"`; `serverInfo.version === "0.1.0"`; `body.result.capabilities.tools.listChanged` defined (tools capability advertised) |
 | 2 | initialize with different requested protocol version [now] | same with `protocolVersion: "2024-11-05"` | 200; result.protocolVersion is the SDK-supported version (echo or downgrade) — assert 200 + defined protocolVersion, not exact value |
 | 3 | notifications/initialized [now] | `{"jsonrpc":"2.0","method":"notifications/initialized"}` with session header | 202, empty body (enableJsonResponse) |
-| 4 | tools/list [now] | `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` with session header | 200; `body.result.tools` array of exactly 11 entries; each has `name` + `description` + `inputSchema` (type object) |
+| 4 | tools/list [now] | `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` with session header | 200; `body.result.tools` array of exactly 13 entries; each has `name` + `description` + `inputSchema` (type object) |
 | 5 | tools/call on fresh session without notification/initialized [now] | initialize → tools/list **without** the notifications/initialized step | 200 ok (SDK does not hard-require the notification; assert either 200 or JSON-RPC error with code -32002 and NOT HTTP 500 — pin whichever after first run) |
 | 6 | DELETE session [now] | `DELETE` with session header | 200 `{ok:true}`; then POST tools/list with same session → 404 `{"error":"Session not found"}` |
 | 7 | DELETE without session id [now] | `DELETE` no header | 400 `{"error":"Session ID required for DELETE"}` — clean, not 500 |
@@ -259,6 +259,46 @@ curl -s -D - http://127.0.0.1:<port>/api/mcp \
 Pitfall documented: `sessions` Map is module-scope — within one fork, two `serve()` instances **share** session state, so scenario 13 must use the spawned separate-process server, and every in-process test must `stopMcpForTests()`.
 
 Cleanup: per test `await env.cleanup()` (closes instance, rm temp dir, `stopMcpForTests()`); spawned server: `child.kill()` + rm temp HOME/project dirs.
+
+### 2.2a Server tools — `start_kanban` / `get_integration_guide`
+
+Added 2026-09-30. These are the first two tools that own a PORT rather than the
+task store, and they are `category: "server"` (neither `task-*` nor `admin`).
+
+Both are covered in two files, because the interesting failure only exists on
+one transport:
+
+| Tool | Arguments | Annotations | Assertions |
+|------|-----------|-------------|------------|
+| `start_kanban` | `{"port":<free>}` / `{"host":"0.0.0.0"}` / `{}` (default 3700) / `{"dryRun":true}` | `readOnly:false, destructive:false, idempotent:true, openWorld:true` | payload carries `started`, `alreadyRunning`, `url`, `kanbanUrl`, `taskApiUrl`, `injectUrl`, `guide`, `instructions`; the board URL is **fetchable** |
+| `get_integration_guide` | `{}` | `readOnly:true, destructive:false, idempotent:true, openWorld:false` | `serverRunning` true/false drives whether the guide names the live URLs or the 3700 default |
+
+Singleton: a second `start_kanban` returns the FIRST instance
+(`alreadyRunning:true`) and ignores the `port`/`host` it was given — that is
+what backs `idempotentHint`. Concurrent calls coalesce on the in-flight
+promise, so five parallel calls yield one URL and no `EADDRINUSE`.
+
+**stdout is the protocol channel.** Under the stdio transport `serve()`'s
+startup guide would land on fd 1 and corrupt the JSON-RPC stream, so
+`ServeOptions.quiet` suppresses it and the guide is read from
+`ServeInstance.guide` instead. The regression test MUST drive a real spawned
+`vibeflow mcp` process: calling the operation in-process passes even with
+stdout polluted, because the corruption lives in what the CHILD writes.
+`tests/e2e/mcp-stdio.test.ts` asserts every non-empty stdout line parses as a
+JSON-RPC frame after a real `start_kanban` call.
+
+Port already held by another process: `{ok:false, error:{code:"KANBAN_PORT_IN_USE",
+message, retryable:false, suggestion}}` — never a raw stack. This depends on
+`serve()` actually rejecting, which it did NOT before the `wss.on("error")`
+handler was added: `WebSocketServer({server})` re-emits the HTTP server's
+`error` on itself, and an EventEmitter `error` with no listener throws, so the
+promise hung instead of rejecting. Pinned by the EADDRINUSE case in
+`tests/e2e/serve.test.ts`.
+
+`start_kanban` also advertises `dryRun` because the manifest's own rule
+(`tests/unit/mcp/parity.test.ts`) is that every non-readOnly tool previews: a
+dry run reports the URLs it WOULD serve, resolved through the same
+`resolveDisplayUrl` rule `serve()` uses, and binds nothing.
 
 ### 2.2 Every tool happy path over HTTP (`mcp-tools.test.ts`)
 
@@ -380,11 +420,11 @@ Practical reaping test TODAY without refactor: none that is deterministic — sc
 
 ### 2.8 MCP-from-manifest parity (`mcp-parity.test.ts`) — [Phase 5-aware]
 
-Facts: `src/mcp/server.ts` registers the 11 tools FROM `src/mcp/manifest.ts` (Phase 5 landed) — name, description, `input` zod shape and `annotations` are all passed through at registration, so tools/list must match the manifest exactly. Existing drift tests (`tests/unit/mcp/drift.test.ts`) cover manifest shape statically — this suite covers **parity via tools/list over HTTP**.
+Facts: `src/mcp/server.ts` registers the 13 tools FROM `src/mcp/manifest.ts` (Phase 5 landed) — name, description, `input` zod shape and `annotations` are all passed through at registration, so tools/list must match the manifest exactly. Existing drift tests (`tests/unit/mcp/drift.test.ts`) cover manifest shape statically — this suite covers **parity via tools/list over HTTP**.
 
 | # | Step | Payload/expectation |
 |---|------|---------------------|
-| 1 | names parity | initialize; tools/list; `sort(tools.map(t=>t.name))` === `sort(manifest.map(m=>m.name))` — exactly 11, no extras; the test earns its keep the moment a tool is added to one side only |
+| 1 | names parity | initialize; tools/list; `sort(tools.map(t=>t.name))` === `sort(manifest.map(m=>m.name))` — exactly 13, no extras; the test earns its keep the moment a tool is added to one side only |
 | 2 | descriptions parity | for each name: `tools/list.description === manifest entry.description` |
 | 3 | light schema check via invalid-args rejection [now] | for each tool: call with an intentionally invalid documented field (e.g. `create_task {title:123}` as wrong type; `update_task {status:"bogus"}`; `export_prompt {format:"html"}`; `list_tasks {limit:-1}`) — expect `-32602`-style rejection, i.e. the HTTP schema accepts-and-enforces the manifest-documented fields; a tool that ACCEPTS the invalid value ⇒ schema drift bug |
 | 4 | inputSchema key parity | compare `inputSchema.properties` keys per tool against the manifest zod shape — strict equality both derived from the manifest |
@@ -455,12 +495,13 @@ Repo: /home/zorcec/workspace/vibeflow-workspace/vibeflow — all work in package
 
 Create exactly these files in packages/cli/tests/e2e/ (naming matches the e2e include pattern tests/e2e/**/*.test.ts):
   mcp-helpers.ts          — helpers per spec §1.1: bootMcpServer() (in-process `serve(undefined, {port: getFreePort(), open:false, projectDir: tmpDir, _testToken: null, _testWorkspace: null})` — the exact API-only boot pattern of the "API-only mode" describe in tests/e2e/serve.test.ts), getFreePort() via node:net listen(0), McpClient (fetch-based initialize → mcp-session-id header → notifications/initialized (expect 202) → tools/list/call wrapper), assertJsonTextContent() (HTTP 200, content[0].text is a string that parses as JSON — the TextContent contract), isolatedEnv()/runCli()/spawnApiServer() (spawn `node dist/index.js serve --no-open -p <free>` with env HOME=tmpHome + VIBEFLOW_TELEMETRY=0), and per-test cleanup that closes the instance, rmSync's temp dirs, and calls stopMcpForTests() (exported from src/mcp/http.ts).
-  mcp-transport.test.ts   — scenario group 2.1 (initialize/protocolVersion/serverInfo/session header; notifications 202; tools/list 11 tools; DELETE → 200 {ok:true}; reuse of deleted session → 404 {"error":"Session not found"}; POST without session id never 500; GET/DELETE without session id → 400; unknown session id → 404; 2 concurrent clients isolated; OPTIONS → 204 with fixed Access-Control-Allow-Origin http://localhost:3700; session id from a spawned second server instance → 404; session-count bookkeeping via getSessionCount()).
-  mcp-tools.test.ts       — scenario group 2.2: all 11 tools happy path over HTTP with the exact payloads from the spec; per tool assert the parsed text content AND the on-disk effect in the temp project (.vibeflow/tasks/<date|flat>/<id>.json, .vibeflow/tasks/files/<id>/<filename>); include verify_task E_NOT_FOUND/E_NO_BASELINE envelopes (no browser) and push_tasks envelope-only test with HOME-isolated token + loopback mock SaaS per spec 2.2 #15/#16; never test push_tasks without a token in-process (device login flow opens a browser).
+  mcp-transport.test.ts   — scenario group 2.1 (initialize/protocolVersion/serverInfo/session header; notifications 202; tools/list 13 tools; DELETE → 200 {ok:true}; reuse of deleted session → 404 {"error":"Session not found"}; POST without session id never 500; GET/DELETE without session id → 400; unknown session id → 404; 2 concurrent clients isolated; OPTIONS → 204 with fixed Access-Control-Allow-Origin http://localhost:3700; session id from a spawned second server instance → 404; session-count bookkeeping via getSessionCount()).
+  mcp-tools.test.ts       — scenario group 2.2: all 13 tools happy path over HTTP with the exact payloads from the spec; per tool assert the parsed text content AND the on-disk effect in the temp project (.vibeflow/tasks/<date|flat>/<id>.json, .vibeflow/tasks/files/<id>/<filename>); include verify_task E_NOT_FOUND/E_NO_BASELINE envelopes (no browser) and push_tasks envelope-only test with HOME-isolated token + loopback mock SaaS per spec 2.2 #15/#16; never test push_tasks without a token in-process (device login flow opens a browser).
   mcp-errors.test.ts      — scenario group 2.3 error paths (unknown tool and zod invalid args both arrive as -32602, the former naming the tool rather than a field; TASK_NOT_FOUND as `{ok:false,error:{code,message,retryable,suggestion}}` content-JSON on every task-scoped tool, while an empty-board claim is a SUCCESS carrying a `null` payload, not NO_TASKS_AVAILABLE; attach_file traversal/control-char filenames never escape .vibeflow/tasks/files/<id>/ — recursive scan of the temp project; malformed JSON body → 400 not 500) AND the update_task gate matrix from 2.4 with the `const GATED = false;` [Phase 3] flip helper exactly as specified.
   mcp-task-existence-guard.test.ts — the task-existence guard (shipped, not a plan item): derives the swept tool set from the manifest (every tool whose input declares an `id`), calls each with an id that cannot exist, and asserts per row that it refuses with its assigned code AND that every path under `.vibeflow/tasks` is unchanged BY CONTENTS (path → sha256, so a rewritten file fails too). Sweeps the recovery refusals as well, and cross-checks that one code carries ONE suggestion across the tools it reaches.
   mcp-auth.test.ts        — scenario group 2.6 with a HOME-isolated spawned server; write tmpHome/.vibeflow/auth.json for the token-configured cases (no-Bearer → 401, wrong → 403, valid → 200); loopback-no-token → 200; non-loopback via 0.0.0.0 + LAN IPv4 with test.skip when the machine has no LAN IPv4; assert X-Forwarded-For is ignored (no trust proxy). Never boot auth tests in-process without HOME isolation — the real ~/.vibeflow/auth.json would be read.
   mcp-claim-race.test.ts  — scenario group 2.5: two spawned `tasks <tmp> --next --json` racers on one HOME-isolated temp project (both parse as JSON {success:true,task:{...}}); document current same-task double-claim with the [Phase 2] TODO flip (assert different ids once claim atomicity lands); single --next on empty board prints non-JSON; MCP claim author [now] absent — [Phase 2] flip to git user name.
+  mcp-kanban-tools.test.ts  — scenario group 2.2a: the two server tools over HTTP. start_kanban binds a free port and the returned kanbanUrl is really fetchable; a second call reuses the instance; five concurrent calls converge on one URL; get_integration_guide reports serverRunning:false before and true after; port-in-use returns the KANBAN_PORT_IN_USE envelope with no stack. Closes the module-level singleton in afterAll or the suite leaks a listener.
   mcp-parity.test.ts      — scenario group 2.8 (Phase 5 completed): tools/list names === manifest names (import { manifest } from ../../src/mcp/manifest.js), descriptions equal, inputSchema keys equal the manifest zod shape, and annotations === manifest.annotations.
   mcp-hang.test.ts        — scenario group 2.9: spawned `tasks <tmp> --add --title "hang probe" --json` with no server exits <3s and parses {success:true,...}; --next empty board <3s; --json list <3s. Grep tests/e2e first — if the plan Phase 1 already added this file, extend rather than duplicate.
 

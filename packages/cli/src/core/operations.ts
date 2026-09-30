@@ -398,6 +398,47 @@ export const PushTasksInput = z.object({
 });
 export type PushTasksInputType = z.infer<typeof PushTasksInput>;
 
+export const StartKanbanInput = z.object({
+  port: z
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .optional()
+    .describe(
+      "Port to bind. Defaults to 3700, the same default as the `vibeflow serve` / `vibeflow kanban` commands. Ignored when the server is already running.",
+    ),
+  host: z
+    .string()
+    .optional()
+    .describe(
+      "Bind hostname. Defaults to localhost; use 0.0.0.0 to expose the board on the LAN (the tool then also returns a localhost URL). Ignored when the server is already running.",
+    ),
+  // The manifest's own rule (`tests/unit/mcp/parity.test.ts`): a tool that is
+  // not readOnly must expose a preview. Starting the board is exactly the kind
+  // of side effect an agent wants to check before committing a port.
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Preview only: report the URLs and guide the server WOULD serve, and bind nothing. Never starts a process.",
+    ),
+});
+export type StartKanbanInputType = z.infer<typeof StartKanbanInput>;
+
+export const GetIntegrationGuideInput = z.object({});
+export type GetIntegrationGuideInputType = z.infer<
+  typeof GetIntegrationGuideInput
+>;
+
+/** True for a Node listen() EADDRINUSE failure, on the error or its `cause`. */
+function isAddrInUse(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "EADDRINUSE") return true;
+  const cause = (err as { cause?: { code?: unknown } } | null)?.cause;
+  return (cause as { code?: unknown } | undefined)?.code === "EADDRINUSE";
+}
+
 // ── Operations ─────────────────────────────────────────────────────────────
 
 export async function listTasks(
@@ -1320,6 +1361,171 @@ export async function pushTasks(
         message: err instanceof Error ? err.message : "Failed to push tasks",
         suggestion:
           "Check the backend is reachable and you are logged in (vibeflow login); nothing was pushed, so retry",
+      },
+    };
+  }
+}
+
+/**
+ * Start the kanban board server and return the instruction block the CLI
+ * prints (kanban URL, localhost alt URL when bound to 0.0.0.0, agent prompt,
+ * integration guide).
+ *
+ * Idempotent: a second call returns the instance the first started
+ * (`alreadyRunning: true`) rather than fighting it for the port — that is what
+ * backs the tool's `idempotentHint: true`.
+ *
+ * A port already taken by some OTHER process is a clean tool-level refusal
+ * (`KANBAN_PORT_IN_USE`), never a raw stack trace.
+ */
+export async function startKanban(
+  ctx: OperationContext,
+  input: StartKanbanInputType,
+): Promise<OperationResult<unknown>> {
+  try {
+    // Dynamic import: the server pulls in the MCP HTTP transport, which imports
+    // this module's registry — a static edge would be a require cycle.
+    const { startKanbanServer, guideText, DEFAULT_KANBAN_PORT } = await import(
+      "../server/kanban-server.js"
+    );
+    const { buildIntegrationGuide, resolveDisplayUrl } = await import(
+      "../server/startup-guide.js"
+    );
+    const port = input.port ?? DEFAULT_KANBAN_PORT;
+    const host = input.host ?? "localhost";
+
+    // Preview: report what WOULD be served and bind nothing. Resolved through
+    // the same URL rule the real serve() uses, so the preview names the same
+    // URLs the real call will.
+    if (input.dryRun) {
+      const guide = buildIntegrationGuide(
+        resolveDisplayUrl(host, port),
+      );
+      return {
+        ok: true,
+        data: {
+          alreadyRunning: false,
+          started: false,
+          wouldStart: true,
+          url: guide.url,
+          localUrl: guide.localUrl,
+          kanbanUrl: guide.kanbanUrl,
+          taskApiUrl: guide.taskApiUrl,
+          overlayScriptUrl: guide.overlayScriptUrl,
+          injectUrl: guide.injectUrl,
+          guide,
+          instructions: guideText(guide, false),
+        },
+        steps: [
+          {
+            code: "DRY_RUN",
+            message: `Kanban server would start on port ${port} (host ${host}); nothing was started`,
+          },
+        ],
+      };
+    }
+
+    const { instance, started } = await startKanbanServer({
+      projectDir: ctx.projectDir,
+      port: input.port,
+      host: input.host,
+    });
+    return {
+      ok: true,
+      data: {
+        // `alreadyRunning: true` is the idempotent path — the caller is told
+        // it did not just launch a second server.
+        alreadyRunning: !started,
+        started,
+        url: instance.url,
+        localUrl: instance.localUrl ?? null,
+        kanbanUrl: instance.guide.kanbanUrl,
+        taskApiUrl: instance.guide.taskApiUrl,
+        overlayScriptUrl: instance.guide.overlayScriptUrl,
+        injectUrl: instance.guide.injectUrl,
+        guide: instance.guide,
+        // ANSI-free: a tool payload must not carry terminal escapes.
+        instructions: guideText(instance.guide, true),
+      },
+    };
+  } catch (err) {
+    if (isAddrInUse(err)) {
+      return {
+        ok: false,
+        error: {
+          code: "KANBAN_PORT_IN_USE",
+          message: `Port ${input.port ?? 3700} is already in use, so the kanban server could not start.`,
+          suggestion:
+            "Pass a different `port`, or stop whatever is listening on that port. If Vibeflow is already running here, call start_kanban again without a port.",
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "KANBAN_START_FAILED",
+        message:
+          err instanceof Error ? err.message : "Failed to start the kanban server",
+        suggestion:
+          "Check the port is free and the project directory is a Vibeflow project, then call start_kanban again",
+      },
+    };
+  }
+}
+
+/**
+ * The overlay/bookmarklet integration instructions — the content of the
+ * `/inject` page, as text.
+ *
+ * Works whether or not the server is running. When it is not, the guide is
+ * still returned (built against the default port) but carries an explicit
+ * `serverRunning: false` and a note telling the caller to run `start_kanban`
+ * first, so a client never mistakes a hypothetical URL for a live one.
+ */
+export async function getIntegrationGuide(
+  _ctx: OperationContext,
+  _input: GetIntegrationGuideInputType,
+): Promise<OperationResult<unknown>> {
+  try {
+    const { getKanbanInstance, guideText, DEFAULT_KANBAN_PORT } = await import(
+      "../server/kanban-server.js"
+    );
+    const { buildIntegrationGuide, resolveDisplayUrl } = await import(
+      "../server/startup-guide.js"
+    );
+    const instance = getKanbanInstance();
+    // Running -> the live instance's real URLs. Not running -> the default
+    // port, flagged, so the caller knows to start the server first.
+    const guide = instance
+      ? instance.guide
+      : buildIntegrationGuide(
+          resolveDisplayUrl("localhost", DEFAULT_KANBAN_PORT),
+        );
+    return {
+      ok: true,
+      data: {
+        serverRunning: !!instance,
+        url: guide.url,
+        localUrl: guide.localUrl,
+        kanbanUrl: guide.kanbanUrl,
+        taskApiUrl: guide.taskApiUrl,
+        overlayScriptUrl: guide.overlayScriptUrl,
+        injectUrl: guide.injectUrl,
+        guide,
+        instructions: guideText(guide, !!instance),
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "INTEGRATION_GUIDE_ERROR",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Failed to build the integration guide",
+        suggestion:
+          "This is a read-only tool; retry it, and check the project directory if it keeps failing",
       },
     };
   }

@@ -18,6 +18,8 @@ import {
   ExportPromptInput,
   VerifyTaskInput,
   PushTasksInput,
+  StartKanbanInput,
+  GetIntegrationGuideInput,
   listTasks,
   getTask,
   getProject,
@@ -29,6 +31,8 @@ import {
   exportPrompt,
   verifyTaskOp,
   pushTasks,
+  startKanban,
+  getIntegrationGuide,
 } from "../core/operations.js";
 
 // ── Manifest Types ─────────────────────────────────────────────────────────
@@ -41,7 +45,12 @@ export interface ToolManifest {
     command: string;
     flags: string[];
   };
-  category: "task-read" | "task-write" | "task-mutate" | "admin";
+  category:
+    | "task-read"
+    | "task-write"
+    | "task-mutate"
+    | "admin"
+    | "server";
   annotations: {
     readOnlyHint: boolean;
     destructiveHint: boolean;
@@ -73,11 +82,11 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
   commands: {
     auth: "manages encrypted per-task Playwright auth-state files; a local security utility, not a task operation",
     changelog: "prints the packed changelog; no task state",
-    kanban: "long-running UI server (serve + open browser); not an operation",
+    kanban: "only the board SERVER is exposed, as start_kanban/get_integration_guide; the browser-opening and changelog side of the command are not reachable over MCP",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
-    serve: "long-running prototype/API server; not an operation",
+    serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     watch: "long-running task-store event daemon / JSONL stream; not an operation",
   },
@@ -343,5 +352,48 @@ export const manifest: ToolManifest[] = [
     input: PushTasksInput.shape,
     run: (ctx, input) =>
       pushTasks(ctx, input as z.infer<typeof PushTasksInput>),
+  },
+  {
+    name: "start_kanban",
+    title: "Start kanban server",
+    description:
+      "Start the local kanban board server and return the instruction block the CLI prints: the kanban URL, the localhost URL when bound to 0.0.0.0, the agent prompt, and the overlay integration guide. IDEMPOTENT — one server per process; a second call returns the running instance (alreadyRunning:true) instead of fighting for the port. Call it once before get_integration_guide so the guide carries real URLs.",
+    cliRef: {
+      command: "kanban",
+      flags: ["--port", "--host"],
+    },
+    category: "server",
+    annotations: {
+      // Binds a port and starts a process, so it is not a read...
+      readOnlyHint: false,
+      destructiveHint: false,
+      // ...and the singleton makes a repeat call safe.
+      idempotentHint: true,
+      // Exposes an HTTP server on this machine.
+      openWorldHint: true,
+    },
+    input: StartKanbanInput.shape,
+    run: (ctx, input) =>
+      startKanban(ctx, input as z.infer<typeof StartKanbanInput>),
+  },
+  {
+    name: "get_integration_guide",
+    title: "Get integration guide",
+    description:
+      "Get the overlay/bookmarklet integration instructions — the text of the /inject page: the script tag to paste, the browser-console snippet, the bookmarklet, and the /inject URL. Works whether or not the server is running; when it is not, the guide is built against the default port and the result says serverRunning:false, so call start_kanban first for real URLs.",
+    cliRef: {
+      command: "kanban",
+      flags: [],
+    },
+    category: "server",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    input: GetIntegrationGuideInput.shape,
+    run: (ctx, input) =>
+      getIntegrationGuide(ctx, input as z.infer<typeof GetIntegrationGuideInput>),
   },
 ];

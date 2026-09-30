@@ -170,4 +170,16 @@ export interface ServeOptions {
   } | null;
   /** When true, suppress the "Press Ctrl+C to stop" hint from server startup output (caller will print it). */
   noCtrlCHint?: boolean;
+  /**
+   * When true, `serve()` prints NOTHING — no banner, no guide, no Ctrl+C hint.
+   *
+   * For programmatic callers only. Under the MCP stdio transport stdout IS the
+   * JSON-RPC channel, so the startup guide would corrupt the protocol stream
+   * (same hazard as `announceProjectRoot` in src/index.ts). A quiet caller
+   * reads the guide from `ServeInstance.guide` instead.
+   *
+   * The human CLI path leaves this unset and its output is byte-identical to
+   * the pre-extraction inline `console.log` blocks.
+   */
+  quiet?: boolean;
 }

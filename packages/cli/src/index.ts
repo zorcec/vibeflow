@@ -2,6 +2,11 @@ import { Command, Option } from "commander";
 import { execSync, execFileSync } from "node:child_process";
 import { serve } from "./server/server.js";
 import {
+  buildIntegrationGuide,
+  buildKanbanReadyLines,
+  printGuideLines,
+} from "./server/startup-guide.js";
+import {
   createTask,
   listTasks,
   listTasksWithPaths,
@@ -852,27 +857,13 @@ program
         noCtrlCHint: true,
       });
       const kanbanUrl = instance.url + "/kanban";
-      console.log();
-      console.log(chalk.green("  ✓ Kanban board ready"));
-      console.log(chalk.dim("    ") + chalk.cyan(kanbanUrl));
-      if (instance.localUrl) {
-        console.log(
-          chalk.dim("    ") + chalk.cyan(`${instance.localUrl}/kanban`),
-        );
-      }
-      console.log();
-      console.log(chalk.bold("Agent prompt:"));
-      console.log(
-        chalk.dim(
-          "  Get new tasks and implement them, once done check again for new ones:",
+      // The ready block + agent prompt come from the ONE guide builder
+      // (server/startup-guide.ts) — the same lines `start_kanban` returns.
+      printGuideLines(
+        buildKanbanReadyLines(
+          buildIntegrationGuide({ url: instance.url, localUrl: instance.localUrl ?? null }),
         ),
       );
-      console.log(
-        chalk.dim("  ") + chalk.green(`npx @vibeflow-tools/cli tasks --next`),
-      );
-      console.log();
-      console.log(chalk.dim("  Press Ctrl+C to stop"));
-      console.log();
       if (opts.open) {
         import("open")
           .then((mod) => mod.default(kanbanUrl))

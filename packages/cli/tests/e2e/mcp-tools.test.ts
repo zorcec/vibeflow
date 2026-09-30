@@ -1,5 +1,5 @@
 /**
- * MCP e2e — all 11 tools happy path over HTTP (spec §2.2).
+ * MCP e2e — all 13 tools happy path over HTTP (spec §2.2).
  *
  * Common contract per call: HTTP 200, JSON-RPC 2.0, content[0].text is
  * a string that JSON.parse succeeds. On-disk effects verified via

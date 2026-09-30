@@ -156,6 +156,9 @@ describe("dryRun parity", () => {
       url: "http://127.0.0.1:1/never-loaded",
       dryRun: true,
     }),
+    // Preview only: reports the URLs it WOULD serve and binds nothing, so the
+    // store-snapshot assertion below holds trivially — which is the point.
+    start_kanban: () => ({ dryRun: true }),
   };
 
   const advertised = manifest.filter((tool) => "dryRun" in tool.input);

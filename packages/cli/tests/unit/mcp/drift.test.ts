@@ -61,17 +61,19 @@ describe("MCP drift test", () => {
     expect(unique.size).toBe(names.length);
   });
 
-  it("all 11 MCP tools are registered", () => {
+  it("all 13 MCP tools are registered", () => {
     const expectedTools = [
       "add_comment",
       "attach_file",
       "claim_next_task",
       "create_task",
       "export_prompt",
+      "get_integration_guide",
       "get_project",
       "get_task",
       "list_tasks",
       "push_tasks",
+      "start_kanban",
       "update_task",
       "verify_task",
     ];
@@ -85,6 +87,7 @@ describe("MCP drift test", () => {
       "get_task",
       "export_prompt",
       "get_project",
+      "get_integration_guide",
     ];
     for (const tool of manifest) {
       if (readOnlyTools.includes(tool.name)) {
