@@ -489,3 +489,278 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
     expect(cliRes.code).toBe(0);
   });
 });
+
+// ═══ 7. SEMANTIC parity — the same operation, the same result ══════════════
+//
+// Sections 1-6 and gates G1/G5 all compare NAMES. This section compares
+// OUTCOMES, because names are exactly how the link divergence shipped:
+// `--set-parent` exists, `links` exists, every gate was green, and one
+// surface could delete a parent the other could never touch.
+//
+// The claim under test: for every capability both surfaces expose, driving the
+// CLI and driving MCP from identical starting state must leave identical task
+// state on disk. Divergence fails loudly here instead of being discovered by
+// a user's agent in production.
+
+describe("semantic parity — CLI and MCP produce the same state", () => {
+  let env: McpTestEnv;
+  let client: McpClient;
+  let home: string;
+
+  beforeEach(async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "mcp-sem-"));
+    seedGitUser(projectDir);
+    env = await bootMcpServer(projectDir);
+    client = newClient(env.mcpUrl);
+    await initialize(client);
+    home = mkdtempSync(join(tmpdir(), "mcp-sem-home-"));
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+  });
+
+  const linksOf = (id: string): Array<{ taskId: string; type: string }> =>
+    (readTaskFromDisk(env.projectDir, id).links ??
+      []) as Array<{ taskId: string; type: string }>;
+
+  const shape = (l: Array<{ type: string }>) => l.map((x) => x.type).sort();
+
+  /**
+   * The SAME starting state on both sides: a subject parented to p1, plus a
+   * bystander `relates` link that neither operation under test names. If a
+   * surface drops the bystander, it diverges — which is the whole point.
+   */
+  async function seedIdentical(): Promise<{
+    p1: string;
+    p2: string;
+    other: string;
+    task: string;
+  }> {
+    const p1 = (await callJson(client, "create_task", { title: "parent one" })).id;
+    const p2 = (await callJson(client, "create_task", { title: "parent two" })).id;
+    const other = (await callJson(client, "create_task", { title: "bystander" })).id;
+    const task = (
+      await callJson(client, "create_task", { title: "subject", parent: p1 })
+    ).id;
+    await callJson(client, "update_task", {
+      id: task,
+      addLinks: [{ taskId: other, type: "relates" }],
+    });
+    return { p1, p2, other, task };
+  }
+
+  it("parent swap: CLI --set-parent/--no-parent ≡ MCP addLinks/removeLinks", async () => {
+    // ── CLI side ────────────────────────────────────────────────────────
+    const cli = await seedIdentical();
+    const cleared = await runCli(
+      ["tasks", "--edit", cli.task, "--no-parent", "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cleared.code, cleared.stderr).toBe(0);
+    const swapped = await runCli(
+      ["tasks", "--edit", cli.task, "--set-parent", cli.p2, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(swapped.code, swapped.stderr).toBe(0);
+
+    // ── MCP side, identical starting state ──────────────────────────────
+    const mcp = await seedIdentical();
+    await callJson(client, "update_task", {
+      id: mcp.task,
+      removeLinks: [{ taskId: mcp.p1, type: "parent" }],
+    });
+    await callJson(client, "update_task", {
+      id: mcp.task,
+      addLinks: [{ taskId: mcp.p2, type: "parent" }],
+    });
+
+    // Same parent on both…
+    expect(linksOf(cli.task)).toContainEqual({ taskId: cli.p2, type: "parent" });
+    expect(linksOf(mcp.task)).toContainEqual({ taskId: mcp.p2, type: "parent" });
+    expect(linksOf(cli.task)).not.toContainEqual({ taskId: cli.p1, type: "parent" });
+    expect(linksOf(mcp.task)).not.toContainEqual({ taskId: mcp.p1, type: "parent" });
+
+    // …and the bystander `relates` link survived on BOTH. That is the
+    // guarantee --set-parent gives and `links` does not.
+    expect(linksOf(cli.task)).toContainEqual({ taskId: cli.other, type: "relates" });
+    expect(linksOf(mcp.task)).toContainEqual({ taskId: mcp.other, type: "relates" });
+
+    // Structurally identical, not merely "both non-empty".
+    expect(shape(linksOf(mcp.task))).toEqual(shape(linksOf(cli.task)));
+  });
+
+  it("DIVERGENCE, pinned: MCP `links` deletes what --set-parent preserves", async () => {
+    // The bug this whole section exists for, asserted so it cannot return
+    // unnoticed. If someone ever makes `links` additive this test fails, and
+    // that is a deliberate contract change to make on purpose — not a silent
+    // regression to discover in production.
+    const p1 = (await callJson(client, "create_task", { title: "p1" })).id;
+    const other = (await callJson(client, "create_task", { title: "other" })).id;
+    const task = (
+      await callJson(client, "create_task", { title: "t", parent: p1 })
+    ).id;
+    await callJson(client, "update_task", {
+      id: task,
+      addLinks: [{ taskId: other, type: "relates" }],
+    });
+    expect(linksOf(task)).toHaveLength(2);
+
+    // `links` with ONE entry drops the parent. Documented, tested, and the
+    // entire reason addLinks exists.
+    await callJson(client, "update_task", {
+      id: task,
+      links: [{ taskId: other, type: "relates" }],
+    });
+    expect(linksOf(task)).not.toContainEqual({ taskId: p1, type: "parent" });
+    expect(linksOf(task)).toHaveLength(1);
+  });
+
+  it("refusal parity: a cycle is refused on both surfaces and neither writes", async () => {
+    const root = (await callJson(client, "create_task", { title: "root" })).id;
+    const mid = (
+      await callJson(client, "create_task", { title: "mid", parent: root })
+    ).id;
+    const leaf = (
+      await callJson(client, "create_task", { title: "leaf", parent: mid })
+    ).id;
+
+    // MCP: root -> leaf would make leaf its own ancestor.
+    const mcp = await callJson(client, "update_task", {
+      id: root,
+      addLinks: [{ taskId: leaf, type: "parent" }],
+    });
+    expect(mcp.ok).toBe(false);
+
+    // CLI: the same illegal shape, and it must not write either.
+    const cli = await runCli(
+      ["tasks", "--edit", root, "--set-parent", leaf, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cli.code).not.toBe(0);
+
+    // Neither surface mutated anything on refusal.
+    expect(linksOf(root)).toEqual([]);
+    expect(linksOf(mid)).toEqual([{ taskId: root, type: "parent" }]);
+    expect(linksOf(leaf)).toEqual([{ taskId: mid, type: "parent" }]);
+  });
+
+  it("idempotence parity: re-adding an existing link is a no-op", async () => {
+    const parent = (await callJson(client, "create_task", { title: "p" })).id;
+    const task = (
+      await callJson(client, "create_task", { title: "t", parent })
+    ).id;
+
+    for (let i = 0; i < 3; i++) {
+      await callJson(client, "update_task", {
+        id: task,
+        addLinks: [{ taskId: parent, type: "parent" }],
+      });
+    }
+    // Three identical adds, still exactly one link.
+    expect(linksOf(task)).toEqual([{ taskId: parent, type: "parent" }]);
+  });
+
+  it("CLI --relates/--blocks/--unrelates ≡ MCP addLinks/removeLinks", async () => {
+    // The parity fix that closed the last real capability gap: relates and
+    // blocks were settable ONLY over MCP. Both surfaces now go through
+    // buildAddLinks/buildRemoveLinks, so they must agree exactly — including
+    // on the parent that neither side named.
+    const p = (await callJson(client, "create_task", { title: "p" })).id;
+    const b = (await callJson(client, "create_task", { title: "b" })).id;
+    const cliTask = (
+      await callJson(client, "create_task", { title: "cli side", parent: p })
+    ).id;
+    const mcpTask = (
+      await callJson(client, "create_task", { title: "mcp side", parent: p })
+    ).id;
+
+    // CLI: add both types to the same target in one call.
+    const cliAdd = await runCli(
+      ["tasks", "--edit", cliTask, "--relates", b, "--blocks", b, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cliAdd.code, cliAdd.stderr).toBe(0);
+
+    // MCP: the same two links as one addLinks array.
+    await callJson(client, "update_task", {
+      id: mcpTask,
+      addLinks: [
+        { taskId: b, type: "relates" },
+        { taskId: b, type: "blocks" },
+      ],
+    });
+
+    // Same link SET, including the untouched parent — and two types to one
+    // target stay distinct on both.
+    expect(shape(linksOf(cliTask)).sort()).toEqual(
+      shape(linksOf(mcpTask)).sort(),
+    );
+    for (const id of [cliTask, mcpTask]) {
+      expect(linksOf(id)).toContainEqual({ taskId: p, type: "parent" });
+      expect(linksOf(id)).toContainEqual({ taskId: b, type: "relates" });
+      expect(linksOf(id)).toContainEqual({ taskId: b, type: "blocks" });
+      expect(linksOf(id)).toHaveLength(3);
+    }
+
+    // Removal is surgical on the CLI too, and agrees with MCP.
+    const cliRm = await runCli(
+      ["tasks", "--edit", cliTask, "--unrelates", b, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cliRm.code, cliRm.stderr).toBe(0);
+    await callJson(client, "update_task", {
+      id: mcpTask,
+      removeLinks: [{ taskId: b, type: "relates" }],
+    });
+
+    expect(shape(linksOf(cliTask)).sort()).toEqual(
+      shape(linksOf(mcpTask)).sort(),
+    );
+    expect(linksOf(cliTask)).toContainEqual({ taskId: p, type: "parent" });
+    expect(linksOf(mcpTask)).toContainEqual({ taskId: p, type: "parent" });
+    expect(linksOf(cliTask)).not.toContainEqual({ taskId: b, type: "relates" });
+    expect(linksOf(mcpTask)).not.toContainEqual({ taskId: b, type: "relates" });
+
+    // Re-adding is idempotent on the CLI, exactly as on MCP.
+    await runCli(["tasks", "--edit", cliTask, "--blocks", b, "--json"], {
+      cwd: env.projectDir,
+      home,
+    });
+    await runCli(["tasks", "--edit", cliTask, "--blocks", b, "--json"], {
+      cwd: env.projectDir,
+      home,
+    });
+    expect(
+      linksOf(cliTask).filter((l) => l.type === "blocks"),
+    ).toHaveLength(1);
+  });
+
+  it("CLI refuses an unknown link target with the same code MCP does", async () => {
+    const task = (await callJson(client, "create_task", { title: "t" })).id;
+
+    const cli = await runCli(
+      ["tasks", "--edit", task, "--relates", "deadbeefdeadbeef", "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cli.code).not.toBe(0);
+    // The refusal envelope lands on stderr (stdout carries protocol/human
+    // output only), so read whichever stream carries it rather than assuming.
+    const envelope = JSON.parse(
+      (cli.stdout?.trim() || cli.stderr?.trim() || "").split("\n").pop()!,
+    );
+    const cliCode = envelope.error?.code ?? envelope.code;
+    expect(cliCode).toBe("TASK_NOT_FOUND");
+
+    // Same refusal, same code, on the MCP side.
+    const mcp = await callJson(client, "update_task", {
+      id: task,
+      addLinks: [{ taskId: "deadbeefdeadbeef", type: "relates" }],
+    });
+    expect(mcp.ok).toBe(false);
+    expect(mcp.error.code).toBe("TASK_NOT_FOUND");
+
+    // Neither wrote anything.
+    expect(linksOf(task)).toEqual([]);
+  });
+});

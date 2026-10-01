@@ -12,6 +12,7 @@ import type { Command } from "commander";
 import {
   manifest,
   intentionallyNotExposed,
+  mcpOnlyFields,
 } from "../../../src/mcp/manifest.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -278,6 +279,124 @@ describe("MCP drift test", () => {
           `${tool.name}: cliRef claims \`${tool.cliRef.command} ${flag}\`, which does not exist on that command`,
         ).toBe(true);
       }
+    }
+  });
+
+  // ── G5: the reverse direction G1 never asked ───────────────────────────
+  //
+  // G1 walks the CLI and fails on an unclassified flag. It never asks the
+  // opposite question: does every MCP input field correspond to something a
+  // CLI user can actually type? That blind spot let `update_task` advertise
+  // `--set-parent` (surgical) while its real input was a destructive
+  // whole-set `links` replace — the flag names existed, so G1 went green and
+  // the semantic divergence shipped.
+  //
+  // A field is COVERED when, in order:
+  //   1. it is structural — `dryRun` (every mutating tool exposes it; the CLI
+  //      spells it `--dry-run`), or `id` resolving to a task selector the
+  //      tool's own cliRef already names, or a positional task-id argument;
+  //   2. a real CLI flag on that command matches its dashed form;
+  //   3. some tool's cliRef names that flag;
+  //   4. it is classified in `mcpOnlyFields` with a reason.
+  // Anything else is a divergence nobody has looked at, and fails.
+
+  it("G5 — every MCP input field maps to a CLI flag or is classified", () => {
+    const program = createProgram();
+
+    const commandByName = new Map(program.commands.map((c) => [c.name(), c]));
+    const flagsOn = (name: string) =>
+      new Set(
+        (commandByName.get(name)?.options ?? [])
+          .map((o) => o.long ?? o.short)
+          .filter(Boolean) as string[],
+      );
+    /** taskId <-> --task-id. create_task.url -> --url. */
+    const dashed = (field: string) =>
+      "--" + field.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+
+    const ownedFlags = new Set(
+      manifest.flatMap((t) => t.cliRef.flags.map((f) => f)),
+    );
+
+    // A tool's `id` is covered when its own cliRef already names a selector
+    // (`--get`, `--edit`, `--next`), or its command takes a positional task id.
+    const TASK_SELECTORS = new Set(["--get", "--edit", "--next"]);
+
+    const uncovered: string[] = [];
+    for (const tool of manifest) {
+      const cmdFlags = flagsOn(tool.cliRef.command);
+      const positionalTaskId = (
+        commandByName.get(tool.cliRef.command)?.registeredArguments ?? []
+      ).some((a) => /task|arg/i.test(a.name()));
+      const namesSelector = tool.cliRef.flags.some((f) =>
+        TASK_SELECTORS.has(f),
+      );
+
+      for (const field of Object.keys(tool.input)) {
+        const key = `${tool.name}.${field}`;
+        if (key in mcpOnlyFields) continue;
+
+        if (field === "dryRun") continue;
+        if (field === "id" && (namesSelector || positionalTaskId)) continue;
+
+        const d = dashed(field);
+        if (cmdFlags.has(d) || ownedFlags.has(d)) continue;
+
+        uncovered.push(key);
+      }
+    }
+
+    expect(
+      uncovered,
+      `MCP input fields with no CLI analogue and no entry in mcpOnlyFields — ` +
+        `add a cliRef flag, or classify the field with a real reason: ${uncovered.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("G5 — no stale mcpOnlyFields entries, and every entry carries a reason", () => {
+    for (const [key, reason] of Object.entries(mcpOnlyFields)) {
+      const sep = key.indexOf(".");
+      expect(sep, `mcpOnlyFields key "${key}" is not "tool.field"`).toBeGreaterThan(0);
+      const toolName = key.slice(0, sep);
+      const field = key.slice(sep + 1);
+      const tool = manifest.find((t) => t.name === toolName);
+      expect(
+        tool,
+        `mcpOnlyFields lists "${key}", but no tool named "${toolName}" exists`,
+      ).toBeDefined();
+      expect(
+        Object.keys(tool!.input),
+        `mcpOnlyFields lists "${key}", but ${toolName} has no input field "${field}" ` +
+          `(rename or remove it — a stale exemption hides a real divergence)`,
+      ).toContain(field);
+      // An entry with no reason is worse than a missing one: it reads as
+      // reviewed when nobody reviewed it.
+      expect(
+        (reason ?? "").trim().length,
+        `mcpOnlyFields["${key}"] has no reason`,
+      ).toBeGreaterThan(20);
+    }
+  });
+
+  it("G5 — update_task link fields must not claim the CLI's surgical flags describe them", () => {
+    // The specific regression this gate exists for. `--set-parent` swaps one
+    // link and preserves the rest; `links` REPLACES the set and deletes what
+    // it omits. Those are not the same operation, so the tool description has
+    // to say which one each field is, or an agent will reach for `links` and
+    // silently drop a parent.
+    const update = manifest.find((m) => m.name === "update_task")!;
+    const fields = Object.keys(update.input);
+
+    expect(fields).toContain("links");
+    expect(fields).toContain("addLinks");
+    expect(fields).toContain("removeLinks");
+
+    // The description must name each field's semantics, not just its existence.
+    for (const needle of ["REPLACES", "addLinks", "removeLinks"]) {
+      expect(
+        update.description,
+        `update_task.description must explain "${needle}" — an agent reads this, not the schema`,
+      ).toContain(needle);
     }
   });
 });

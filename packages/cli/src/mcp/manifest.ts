@@ -105,6 +105,87 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
   },
 };
 
+// ── MCP Surface Classification (G5) ───────────────────────────────────────
+
+/**
+ * The REVERSE of `intentionallyNotExposed`: MCP tool input fields with NO CLI
+ * flag analogue, keyed `"tool.field"`.
+ *
+ * G1 above walks the CLI and fails on an unclassified flag — but it only ever
+ * looks in one direction. It never asks the opposite question: does every MCP
+ * input field correspond to something a CLI user can actually type?
+ *
+ * That blind spot is not theoretical. `update_task` advertised
+ * `cliRef.flags: ["--set-parent", "--no-parent"]` while its real input was a
+ * `links` array with destructive whole-set REPLACE semantics, and those two
+ * CLI flags are surgical. G1 passed it: both flag names existed. The gate
+ * validated spelling and was blind to meaning, which is exactly the class of
+ * divergence an MCP client cannot discover by reading the docs.
+ *
+ * So this list is the auditable record of every place the two surfaces are
+ * genuinely not 1-1. Keep it SHORT and honest: an entry here is a claim that
+ * the asymmetry is deliberate and understood, and G5 fails on a stale entry
+ * exactly as G1 fails on a stale flag exemption. A field that appears here
+ * without a real reason is worse than a field that is missing, because it
+ * looks reviewed.
+ *
+ * Structural cases are handled by the G5 test itself rather than listed here
+ * (a tool's `id` field matching its command's positional task-id argument, and
+ * `dryRun`, which every mutating tool exposes on purpose). Only real
+ * capability differences belong in this list.
+ */
+export const mcpOnlyFields: Record<string, string> = {
+  // ── Link mutation ───────────────────────────────────────────────────────
+  // This is the divergence that started all of it, and it is now closed from
+  // both sides. `tasks --set-parent` / `--no-parent` swap or clear the single
+  // parent; `--relates` / `--blocks` / `--unrelates` / `--unblocks` were ADDED
+  // alongside update_task's addLinks/removeLinks so the CLI can express the
+  // same surgical, additive semantics. What remains different is `links`
+  // itself, which has no CLI form at all — and that is the point: replace
+  // semantics are an HTTP PATCH affordance, not something a human should type.
+  "update_task.links":
+    "REPLACE-semantics link set with NO CLI equivalent, deliberately. --set-parent/--relates/--blocks are all surgical (they preserve every link they do not name); `links` deletes what it omits. Exposing a replace flag on the CLI would hand a human a data-loss footgun, so the surface stays MCP-only and the hazard is stated in the tool description.",
+  "update_task.addLinks":
+    "additive merge. The CLI equivalent is --relates/--blocks, both applied through buildAddLinks, so this is MCP-only only in field NAME (one array vs two repeatable flags), not in capability.",
+  "update_task.removeLinks":
+    "removes named taskId+type pairs. The CLI equivalent is --unrelates/--unblocks, both applied through buildRemoveLinks, so this is MCP-only in field NAME, not in capability.",
+
+  // ── Annotated-task fields: the CLI cannot create one ─────────────────────
+  // An annotated task (url + selector) is the whole point of the overlay, and
+  // the CLI's `--add` has no way to express it. Only the overlay/MCP path can
+  // create an annotated task today.
+  "create_task.url":
+    "URL the annotation targets. `tasks --add` has no equivalent, so an annotated task can only be created over MCP. Symmetric with create_task.selector.",
+  "create_task.selector":
+    "CSS selector of the annotated element. No `tasks --add` equivalent — paired with create_task.url to record an annotated task.",
+  "create_task.cssSelector":
+    "alias of create_task.selector kept for clients that prefer the explicit name; both write the same field.",
+  "create_task.sortKey":
+    "explicit board ordering key. `tasks --add` auto-assigns one and exposes no override, so ordering is not user-controllable from the CLI.",
+
+  // ── create_task.tags: array-vs-repeatable-flag difference ────────────────
+  // The CLI does have --tag, but it is repeatable-for-AND. MCP takes the whole
+  // array in one field, so the CLI flag is listed in create_task.cliRef and the
+  // field itself is the array form of it. Recorded so the difference is
+  // deliberate rather than an oversight.
+  "create_task.tags":
+    "array form of `tasks --tag` (repeatable, AND-matching). The flag is in cliRef; the field is its single-call array equivalent.",
+
+  // ── Wire-level shape differences, not capability gaps ───────────────────
+  "add_comment.author":
+    "optional author override. The CLI always derives the author from git config, so a client that wants a specific author can only do so over MCP.",
+  "attach_file.filename":
+    "target filename. The CLI takes a path on disk via --report-file and reads the file itself; MCP takes the bytes and the name, because a client may not share a filesystem.",
+  "attach_file.contentB64":
+    "base64 file content — the same reason as attach_file.filename: an MCP client is frequently not on this machine, so the CLI's read-the-path-from-disk model does not apply.",
+  "export_prompt.ids":
+    "multi-task export. The CLI's --get resolves a single task, so exporting several at once is MCP-only.",
+  "export_prompt.format":
+    "output format selector. The CLI has a single fixed prompt format, so the choice is MCP-only.",
+  "verify_task.timeoutMs":
+    "per-call verification timeout. The CLI uses the project setting with no per-run override, so bounding one MCP call is MCP-only.",
+};
+
 // ── Tool Definitions ───────────────────────────────────────────────────────
 
 export const manifest: ToolManifest[] = [
@@ -217,6 +298,10 @@ export const manifest: ToolManifest[] = [
         "--verify-reason",
         "--set-parent",
         "--no-parent",
+        "--relates",
+        "--blocks",
+        "--unrelates",
+        "--unblocks",
       ],
     },
     category: "task-mutate",
@@ -282,7 +367,11 @@ export const manifest: ToolManifest[] = [
       "Attach a file to a task (content as base64). A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal.",
     cliRef: {
       command: "tasks",
-      flags: ["--report-file"],
+      // The CLI form is `tasks --edit <id> --set-status review --report-file <path>`.
+      // Naming only --report-file made `id` look like an MCP-only field, which
+      // is what G5 caught: the report upload is an EDIT of a named task that
+      // moves to review, not a standalone flag.
+      flags: ["--edit", "--set-status", "--report-file"],
     },
     category: "task-write",
     annotations: {

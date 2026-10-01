@@ -47,6 +47,8 @@ import {
   taskRelations,
   formatRelationsSummary,
   buildSetParentLinks,
+  buildAddLinks,
+  buildRemoveLinks,
 } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
@@ -937,6 +939,30 @@ program
     "Set/replace the parent task link (use with --edit; empty string clears)",
   )
   .option("--no-parent", "Remove the parent task link (use with --edit)")
+  .option(
+    "--relates <task-id>",
+    "Add a relates link (use with --edit; repeatable; additive — every other link is preserved; full ID or prefix)",
+    (val, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option(
+    "--blocks <task-id>",
+    "Add a blocks link (use with --edit; repeatable; additive — every other link is preserved; full ID or prefix)",
+    (val, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option(
+    "--unrelates <task-id>",
+    "Remove one relates link (use with --edit; repeatable; every other link is preserved)",
+    (val, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
+  .option(
+    "--unblocks <task-id>",
+    "Remove one blocks link (use with --edit; repeatable; every other link is preserved)",
+    (val, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
   .option("--json", "Output machine-readable JSON")
   .option(
     "--commit",
@@ -1041,6 +1067,14 @@ program
         branch?: string;
         limit?: string;
         tag?: string[];
+        // Repeatable link flags. All four default to [] via the commander
+        // parser, so the edit path can read .length without a guard — but the
+        // type stays optional because the same opts object is shared with the
+        // list/get paths where they are never set.
+        relates?: string[];
+        blocks?: string[];
+        unrelates?: string[];
+        unblocks?: string[];
         dryRun?: boolean;
         fields?: string;
         setVerify?: "pass" | "fail" | "cannot";
@@ -2373,6 +2407,10 @@ program
             opts.reportFile ||
             opts.setVerify ||
             opts.verifyReason?.trim() ||
+            opts.relates?.length ||
+            opts.blocks?.length ||
+            opts.unrelates?.length ||
+            opts.unblocks?.length ||
             opts.comment?.trim();
 
           if (!taskId || !hasEdits) {
@@ -3115,6 +3153,109 @@ program
               updates.links = applied.links;
               parentDisplay = resolvedParentId;
             }
+          }
+
+          // ── relates / blocks links (--relates / --blocks / --unrelates /
+          // --unblocks) ───────────────────────────────────────────────────
+          // Additive and surgical, matching the MCP addLinks/removeLinks
+          // exactly: each flag is applied through the same pure helpers, in the
+          // same order (adds then removes), against the state the previous
+          // flag left behind. Nothing here can drop a link the caller did not
+          // name — that guarantee is the whole reason these exist, and the CLI
+          // previously could not express relates/blocks AT ALL.
+          const linksAddRequests = [
+            ...(opts.relates ?? []).map((raw) => ({
+              raw,
+              type: "relates" as const,
+            })),
+            ...(opts.blocks ?? []).map((raw) => ({
+              raw,
+              type: "blocks" as const,
+            })),
+          ];
+          const linksRemoveRequests = [
+            ...(opts.unrelates ?? []).map((raw) => ({
+              raw,
+              type: "relates" as const,
+            })),
+            ...(opts.unblocks ?? []).map((raw) => ({
+              raw,
+              type: "blocks" as const,
+            })),
+          ];
+
+          if (linksAddRequests.length > 0 || linksRemoveRequests.length > 0) {
+            const applyLinkChange = (): boolean => {
+              // Fold whatever --set-parent already decided into the board the
+              // helpers validate against, so a single call can move the parent
+              // and add a relates link without one clobbering the other.
+              let board = listTasks(localProjectDir);
+              if (updates.links !== undefined) {
+                board = board.map((t) =>
+                  t.id === resolvedTaskId ? { ...t, links: updates.links } : t,
+                );
+              }
+
+              const refuse = (
+                reason: string,
+                code: string,
+              ): boolean => {
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code,
+                    message: reason,
+                    suggestion:
+                      code === "TASK_NOT_FOUND"
+                        ? "Run 'vibeflow tasks' to see available task IDs."
+                        : undefined,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${reason}`));
+                  console.log(
+                    chalk.dim(
+                      `  Run 'vibeflow tasks' to see available task IDs.`,
+                    ),
+                  );
+                }
+                process.exitCode =
+                  code === "TASK_NOT_FOUND" ? ExitCode.NOT_FOUND : ExitCode.USAGE;
+                return false;
+              };
+
+              for (const req of linksAddRequests) {
+                const targetId = resolveTaskId(localProjectDir, req.raw);
+                const added = buildAddLinks({
+                  allTasks: board,
+                  taskId: resolvedTaskId,
+                  incoming: [{ taskId: targetId, type: req.type }],
+                });
+                if (!added.ok) return refuse(added.reason, added.code);
+                updates.links = added.links;
+                board = board.map((t) =>
+                  t.id === resolvedTaskId ? { ...t, links: added.links } : t,
+                );
+              }
+
+              for (const req of linksRemoveRequests) {
+                const targetId = resolveTaskId(localProjectDir, req.raw);
+                const removed = buildRemoveLinks({
+                  allTasks: board,
+                  taskId: resolvedTaskId,
+                  remove: [{ taskId: targetId, type: req.type }],
+                });
+                if (!removed.ok) return refuse(removed.reason, removed.code);
+                updates.links = removed.links;
+                board = board.map((t) =>
+                  t.id === resolvedTaskId ? { ...t, links: removed.links } : t,
+                );
+              }
+
+              return true;
+            };
+
+            if (!applyLinkChange()) return;
           }
 
           // Warn when setting a Research task to in-progress — should not implement.
