@@ -283,9 +283,10 @@ export const UpdateTaskInput = z.object({
       "Why the task cannot be verified. REQUIRED with setVerify:\"cannot\", and refused as E_USAGE on its own — a reason belongs to a \"cannot\" verdict.",
     ),
   dryRun: z.boolean().default(false),
-  // Replace semantics for the task's links (matches the HTTP PATCH route):
-  // the array becomes the full link set and an empty array clears every link.
-  // Validated in updateTask against the post-replace state.
+  // REPLACE semantics (matches the HTTP PATCH route): the array becomes the
+  // FULL link set and an empty array clears every link. Any link you leave out
+  // of this array is DELETED. Omit the field entirely and links are untouched.
+  // Prefer addLinks/removeLinks for incremental edits.
   links: z
     .array(
       z.object({
@@ -297,6 +298,40 @@ export const UpdateTaskInput = z.object({
       }),
     )
     .optional(),
+  // ADDITIVE: merge semantics, mirroring the CLI's `--set-parent` (surgical,
+  // keeps every other link). A link already present is a no-op, so the call is
+  // idempotent. Mutually exclusive with `links`.
+  addLinks: z
+    .array(
+      z.object({
+        taskId: z.string().min(1),
+        // SAFETY: as above — readonly tuple widened for z.enum.
+        type: z.enum(
+          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
+        ),
+      }),
+    )
+    .optional()
+    .describe(
+      "ADD links without touching the rest. Mutually exclusive with `links`. Use this instead of `links` when you only mean to add — passing `links` deletes every link you omit.",
+    ),
+  // SUBTRACTIVE: removes exactly the listed taskId+type pairs and leaves every
+  // other link alone. A pair that is not present is a no-op. Mutually exclusive
+  // with `links`.
+  removeLinks: z
+    .array(
+      z.object({
+        taskId: z.string().min(1),
+        // SAFETY: as above — readonly tuple widened for z.enum.
+        type: z.enum(
+          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
+        ),
+      }),
+    )
+    .optional()
+    .describe(
+      "REMOVE the listed links without touching the rest. Mutually exclusive with `links`. Use this instead of `links` when you only mean to remove.",
+    ),
 });
 export type UpdateTaskInputType = z.infer<typeof UpdateTaskInput>;
 
@@ -772,11 +807,35 @@ export async function updateTask(
       }
     }
 
-    // Links: replace semantics (parity with the HTTP PATCH route). Validated
-    // against the post-replace state using the same helpers and wording as
-    // --set-parent; rejected before any write (including dry-run).
+    // Links: three ways to write them, one refusal rule.
+    //
+    // `links`        — REPLACE, for parity with the HTTP PATCH route. Destructive
+    //                   by design: the array becomes the FULL set.
+    // `addLinks`     — merge. Mirrors the CLI's `--set-parent` (surgical, keeps
+    //                   every other link), which is why it exists: replace is the
+    //                   only way MCP could write links before, and an agent
+    //                   passing a partial array silently destroyed the parent.
+    // `removeLinks`  — remove exactly the named pairs.
+    //
+    // `links` is mutually exclusive with the other two. Silently picking a
+    // winner would mean the caller's intent depended on which field they
+    // happened to fill in, so this is refused instead of guessed.
     let linksUpdate: TaskLink[] | undefined;
     const linksProvided = input.links !== undefined;
+    const addLinksProvided = input.addLinks !== undefined;
+    const removeLinksProvided = input.removeLinks !== undefined;
+    if (linksProvided && (addLinksProvided || removeLinksProvided)) {
+      return {
+        ok: false,
+        error: {
+          code: "E_USAGE",
+          message:
+            "links (replace) cannot be combined with addLinks/removeLinks",
+          suggestion:
+            "Pick one style. To add or remove without touching the rest, use addLinks / removeLinks and drop `links`. `links` REPLACES the whole set, so any link you omit there is deleted.",
+        },
+      };
+    }
     if (linksProvided) {
       const { buildUpdateLinks } = await import("../core/task-links.js");
       const { listTasks: coreListTasks } = await import("../core/tasks.js");
@@ -798,11 +857,62 @@ export async function updateTask(
             suggestion:
               linksResult.code === "TASK_NOT_FOUND"
                 ? TASK_NOT_FOUND_SUGGESTION
-                : "The link set was refused as invalid — fix what the message names, and resend the whole `links` array (it REPLACES the current set, so an empty array clears every link)",
+                : "The link set was refused as invalid — fix what the message names, and resend the whole `links` array (it REPLACES the current set, so an empty array clears every link). To change links without dropping the others, use addLinks / removeLinks instead.",
           },
         };
       }
       linksUpdate = linksResult.links;
+    } else if (addLinksProvided || removeLinksProvided) {
+      const {
+        buildAddLinks,
+        buildRemoveLinks,
+      } = await import("../core/task-links.js");
+      const { listTasks: coreListTasks } = await import("../core/tasks.js");
+      let current = coreListTasks(ctx.projectDir);
+      // Both helpers validate against the state they are handed, so each pass
+      // re-reads the board and folds in what the previous pass decided.
+      let next: TaskLink[] | undefined = existingTask.links ?? undefined;
+      if (addLinksProvided) {
+        const added = buildAddLinks({
+          allTasks: current,
+          taskId: existingTask.id,
+          incoming: input.addLinks!,
+        });
+        if (!added.ok)
+          return {
+            ok: false,
+            error: {
+              code: added.code,
+              message: added.reason,
+              suggestion:
+                added.code === "TASK_NOT_FOUND"
+                  ? TASK_NOT_FOUND_SUGGESTION
+                  : "The link you asked to add was refused as invalid — fix what the message names and resend addLinks. Existing links are untouched by a refused add.",
+            },
+          };
+        next = added.links;
+        current = current.map((t) =>
+          t.id === existingTask.id ? { ...t, links: next ?? [] } : t,
+        );
+      }
+      if (removeLinksProvided) {
+        const removed = buildRemoveLinks({
+          allTasks: current,
+          taskId: existingTask.id,
+          remove: input.removeLinks!,
+        });
+        if (!removed.ok)
+          return {
+            ok: false,
+            error: {
+              code: removed.code,
+              message: removed.reason,
+              suggestion: TASK_NOT_FOUND_SUGGESTION,
+            },
+          };
+        next = removed.links;
+      }
+      linksUpdate = next;
     }
 
     // Dry-run: return preview (after gate check so would-be failures are reported)
@@ -821,7 +931,12 @@ export async function updateTask(
     if (input.description !== undefined)
       updates.description = input.description;
     if (input.branch) updates.branchName = input.branch;
-    if (linksProvided) updates.links = linksUpdate;
+    // Any of the three link styles that was provided, replace or additive.
+    // Guarding on `linksProvided` alone would silently make addLinks /
+    // removeLinks a no-op — the link set was computed above and must be
+    // written whenever ANY style ran.
+    if (linksProvided || addLinksProvided || removeLinksProvided)
+      updates.links = linksUpdate;
 
     // Verify reset on in-progress (parity with CLI edit path). Clear the flag
     // (omit the key) instead of writing `false`, so the tri-state survives:

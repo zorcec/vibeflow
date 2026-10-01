@@ -125,6 +125,103 @@ export function buildSetParentLinks({
   };
 }
 
+export type AddLinksResult =
+  | { ok: true; links: TaskLink[] | undefined }
+  | { ok: false; reason: string; code: string };
+
+/**
+ * Compute the new `links` array for an additive `update_task` merge.
+ * Merge semantics — never removes: a link the caller omits from `incoming`
+ * stays exactly where it is. Unlike `buildUpdateLinks` (replace), a partial
+ * `incoming` array here cannot silently drop a parent or a blocks link.
+ * - a `taskId`+`type` pair already present (in the existing set, or earlier in
+ *   the same payload) is a no-op, so the merge is idempotent and a duplicated
+ *   pair in `incoming` is not an error;
+ * - every other candidate is validated with `validateLinkAddition` against the
+ *   post-merge state (accepted links folded in first, so a parent swap and
+ *   cycle checks see them), and refusals reuse the --set-parent wording.
+ * Returns `links: undefined` when nothing remains, matching the read-path
+ * normalization (empty array → no links field).
+ */
+export function buildAddLinks({
+  allTasks,
+  taskId,
+  incoming,
+}: {
+  allTasks: Task[];
+  taskId: string;
+  incoming: TaskLink[];
+}): AddLinksResult {
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task)
+    return {
+      ok: false,
+      reason: `Task not found: ${taskId}`,
+      code: "TASK_NOT_FOUND",
+    };
+
+  // Merge semantics: the existing set is the base and is never dropped.
+  const accepted: TaskLink[] = [...(task.links ?? [])];
+  let working = allTasks.map((t) =>
+    t.id === taskId ? { ...t, links: accepted } : t,
+  );
+  for (const link of incoming) {
+    // Dedupe on taskId+type — the same duplicate rule validateLinkAddition
+    // enforces, applied as a no-op instead of a refusal.
+    if (
+      accepted.some((l) => l.taskId === link.taskId && l.type === link.type)
+    )
+      continue;
+    const validation = validateLinkAddition({
+      allTasks: working,
+      fromId: taskId,
+      toId: link.taskId,
+      type: link.type,
+    });
+    if (!validation.ok) return validation;
+    accepted.push(link);
+    working = working.map((t) =>
+      t.id === taskId ? { ...t, links: [...accepted] } : t,
+    );
+  }
+  return { ok: true, links: accepted.length > 0 ? accepted : undefined };
+}
+
+export type RemoveLinksResult =
+  | { ok: true; links: TaskLink[] | undefined }
+  | { ok: false; reason: string; code: string };
+
+/**
+ * Compute the new `links` array for a subtractive `update_task` update.
+ * Removes exactly the listed `taskId`+`type` pairs and leaves every other link
+ * alone; a pair that is not present is a no-op (removals are idempotent).
+ * No validation runs — dropping a link cannot create a self-link, a duplicate
+ * or a cycle. Returns `links: undefined` when the last link is removed,
+ * matching the read-path normalization (empty array → no links field).
+ */
+export function buildRemoveLinks({
+  allTasks,
+  taskId,
+  remove,
+}: {
+  allTasks: Task[];
+  taskId: string;
+  remove: TaskLink[];
+}): RemoveLinksResult {
+  const task = allTasks.find((t) => t.id === taskId);
+  if (!task)
+    return {
+      ok: false,
+      reason: `Task not found: ${taskId}`,
+      code: "TASK_NOT_FOUND",
+    };
+
+  const remaining = (task.links ?? []).filter(
+    (l) => !remove.some((r) => r.taskId === l.taskId && r.type === l.type),
+  );
+  return { ok: true, links: remaining.length > 0 ? remaining : undefined };
+}
+
 /** Validate a proposed link addition. Returns {ok:false, reason} on rejection. */
 export function validateLinkAddition({
   allTasks,

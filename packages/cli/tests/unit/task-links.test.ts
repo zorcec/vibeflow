@@ -7,6 +7,8 @@ import {
   getParent,
   getBlockers,
   validateLinkAddition,
+  buildAddLinks,
+  buildRemoveLinks,
   targetValid,
   taskRelations,
   formatRelationsSummary,
@@ -1058,6 +1060,297 @@ describe("task-links", () => {
       intent = { kind: "column", colId: "todo" };
       expect(intent.kind).toBe("column");
       expect(intent.taskId).toBeUndefined();
+    });
+  });
+
+  // ── Additive / subtractive link updates (merge semantics) ──────────────
+  describe("buildAddLinks", () => {
+    it("merges into existing links without removing them", () => {
+      // The real hazard: a partial payload must not drop the parent link.
+      const tasks = [
+        makeTask({
+          id: "bf03b8eb",
+          links: [{ taskId: "820fa561", type: "parent" }],
+        }),
+        makeTask({ id: "820fa561" }),
+        makeTask({ id: "1fcb040f" }),
+      ];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "bf03b8eb",
+        incoming: [{ taskId: "1fcb040f", type: "blocks" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([
+          { taskId: "820fa561", type: "parent" },
+          { taskId: "1fcb040f", type: "blocks" },
+        ]);
+    });
+
+    it("adds to a task that has no links yet", () => {
+      const tasks = [makeTask({ id: "a" }), makeTask({ id: "b" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [{ taskId: "b", type: "relates" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "b", type: "relates" }]);
+    });
+
+    it("dedupes a link already present instead of duplicating it", () => {
+      const tasks = [
+        makeTask({ id: "a", links: [{ taskId: "b", type: "relates" }] }),
+        makeTask({ id: "b" }),
+      ];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [{ taskId: "b", type: "relates" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "b", type: "relates" }]);
+    });
+
+    it("treats a duplicate pair inside incoming as a no-op, not a crash", () => {
+      const tasks = [makeTask({ id: "a" }), makeTask({ id: "b" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [
+          { taskId: "b", type: "relates" },
+          { taskId: "b", type: "relates" },
+        ],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "b", type: "relates" }]);
+    });
+
+    it("keeps two types to the same target as distinct links", () => {
+      const tasks = [makeTask({ id: "a" }), makeTask({ id: "b" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [
+          { taskId: "b", type: "relates" },
+          { taskId: "b", type: "blocks" },
+        ],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toHaveLength(2);
+    });
+
+    it("rejects a self-link with the shared refusal code", () => {
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [{ taskId: "a", type: "relates" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("E_USAGE");
+        expect(result.reason).toContain("itself");
+      }
+    });
+
+    it("rejects a cycle (adding a parent that is already a descendant)", () => {
+      // a → b (parent); adding a → c where c is a child of a closes the loop
+      const tasks = [
+        makeTask({ id: "a", links: [{ taskId: "b", type: "parent" }] }),
+        makeTask({ id: "b", links: [{ taskId: "c", type: "parent" }] }),
+        makeTask({ id: "c" }),
+      ];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "c",
+        incoming: [{ taskId: "a", type: "parent" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("E_USAGE");
+        expect(result.reason).toContain("Cycle");
+      }
+    });
+
+    it("rejects a second parent without touching the existing one", () => {
+      const tasks = [
+        makeTask({ id: "a", links: [{ taskId: "p1", type: "parent" }] }),
+        makeTask({ id: "p1" }),
+        makeTask({ id: "p2" }),
+      ];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [{ taskId: "p2", type: "parent" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("already has a parent");
+    });
+
+    it("refuses a link to an unknown task (TASK_NOT_FOUND)", () => {
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [{ taskId: "missing", type: "blocks" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
+    });
+
+    it("refuses an unknown taskId (TASK_NOT_FOUND)", () => {
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "nope",
+        incoming: [{ taskId: "a", type: "blocks" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
+    });
+
+    it("empty incoming leaves the existing set untouched", () => {
+      const tasks = [makeTask({ id: "a", links: [{ taskId: "b", type: "parent" }] })];
+      const result = buildAddLinks({ allTasks: tasks, taskId: "a", incoming: [] });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "b", type: "parent" }]);
+    });
+
+    it("returns undefined when the merged set is empty", () => {
+      // A task with no links and nothing incoming normalizes to `undefined`
+      // (empty array → no links field), like the parent path.
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildAddLinks({
+        allTasks: tasks,
+        taskId: "a",
+        incoming: [],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toBeUndefined();
+    });
+  });
+
+  describe("buildRemoveLinks", () => {
+    it("removes one link and keeps the rest", () => {
+      const tasks = [
+        makeTask({
+          id: "a",
+          links: [
+            { taskId: "p", type: "parent" },
+            { taskId: "b", type: "blocks" },
+          ],
+        }),
+        makeTask({ id: "p" }),
+        makeTask({ id: "b" }),
+      ];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [{ taskId: "b", type: "blocks" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toEqual([{ taskId: "p", type: "parent" }]);
+    });
+
+    it("removes only the listed type, not other links to the same task", () => {
+      const tasks = [
+        makeTask({
+          id: "a",
+          links: [
+            { taskId: "b", type: "relates" },
+            { taskId: "b", type: "blocks" },
+          ],
+        }),
+        makeTask({ id: "b" }),
+      ];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [{ taskId: "b", type: "blocks" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "b", type: "relates" }]);
+    });
+
+    it("returns undefined when the last link is removed", () => {
+      const tasks = [
+        makeTask({ id: "a", links: [{ taskId: "p", type: "parent" }] }),
+        makeTask({ id: "p" }),
+      ];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [{ taskId: "p", type: "parent" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toBeUndefined();
+    });
+
+    it("returns undefined for a task that had no links", () => {
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [{ taskId: "b", type: "blocks" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toBeUndefined();
+    });
+
+    it("removing an absent pair is a no-op that keeps the set", () => {
+      const tasks = [
+        makeTask({ id: "a", links: [{ taskId: "p", type: "parent" }] }),
+        makeTask({ id: "p" }),
+      ];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [{ taskId: "p", type: "relates" }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.links).toEqual([{ taskId: "p", type: "parent" }]);
+    });
+
+    it("removes several pairs at once", () => {
+      const tasks = [
+        makeTask({
+          id: "a",
+          links: [
+            { taskId: "p", type: "parent" },
+            { taskId: "b", type: "blocks" },
+            { taskId: "c", type: "relates" },
+          ],
+        }),
+      ];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "a",
+        remove: [
+          { taskId: "p", type: "parent" },
+          { taskId: "c", type: "relates" },
+        ],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.links).toEqual([{ taskId: "b", type: "blocks" }]);
+    });
+
+    it("refuses an unknown taskId (TASK_NOT_FOUND)", () => {
+      const tasks = [makeTask({ id: "a" })];
+      const result = buildRemoveLinks({
+        allTasks: tasks,
+        taskId: "nope",
+        remove: [{ taskId: "a", type: "blocks" }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
     });
   });
 
