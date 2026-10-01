@@ -115,12 +115,16 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
  * looks in one direction. It never asks the opposite question: does every MCP
  * input field correspond to something a CLI user can actually type?
  *
- * That blind spot is not theoretical. `update_task` advertised
+ * That blind spot was not theoretical. `update_task` advertised
  * `cliRef.flags: ["--set-parent", "--no-parent"]` while its real input was a
- * `links` array with destructive whole-set REPLACE semantics, and those two
- * CLI flags are surgical. G1 passed it: both flag names existed. The gate
+ * `links` array with destructive whole-set replace semantics, and those two
+ * CLI flags were surgical. G1 passed it: both flag names existed. The gate
  * validated spelling and was blind to meaning, which is exactly the class of
  * divergence an MCP client cannot discover by reading the docs.
+ *
+ * That one divergence is now closed — `links` merges like --relates/--blocks,
+ * and `clearLinks` is the only destructive field — but the gate stays,
+ * because the class of bug is not gone.
  *
  * So this list is the auditable record of every place the two surfaces are
  * genuinely not 1-1. Keep it SHORT and honest: an entry here is a claim that
@@ -136,32 +140,44 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
  */
 export const mcpOnlyFields: Record<string, string> = {
   // ── Link mutation ───────────────────────────────────────────────────────
-  // This is the divergence that started all of it, and it is now closed from
-  // both sides. `tasks --set-parent` / `--no-parent` swap or clear the single
-  // parent; `--relates` / `--blocks` / `--unrelates` / `--unblocks` were ADDED
-  // alongside update_task's addLinks/removeLinks so the CLI can express the
-  // same surgical, additive semantics. What remains different is `links`
-  // itself, which has no CLI form at all — and that is the point: replace
-  // semantics are an HTTP PATCH affordance, not something a human should type.
+  // This is the divergence that started all of it, and it is now closed on
+  // BOTH sides. No MCP field deletes a link any more: `links` and `addLinks`
+  // merge, `removeLinks` drops named pairs, and the only whole-set removal is
+  // `clearLinks: true` — which is precisely why it is a separately named
+  // boolean and not an empty array, since an empty array is what a client
+  // sends by accident.
+  //
+  // What still differs is field SHAPE, not capability: MCP takes arrays where
+  // the CLI takes repeatable flags (--relates/--blocks, --unrelates/--unblocks,
+  // --set-parent). That is the same difference as create_task.tags vs --tag.
   "update_task.links":
-    "REPLACE-semantics link set with NO CLI equivalent, deliberately. --set-parent/--relates/--blocks are all surgical (they preserve every link they do not name); `links` deletes what it omits. Exposing a replace flag on the CLI would hand a human a data-loss footgun, so the surface stays MCP-only and the hazard is stated in the tool description.",
+    "merge. Links you do not name are preserved, so this is the same semantic as --relates/--blocks; MCP-only in field SHAPE (one array vs two repeatable flags), exactly like create_task.tags vs `tasks --tag`.",
   "update_task.addLinks":
     "additive merge. The CLI equivalent is --relates/--blocks, both applied through buildAddLinks, so this is MCP-only only in field NAME (one array vs two repeatable flags), not in capability.",
   "update_task.removeLinks":
-    "removes named taskId+type pairs. The CLI equivalent is --unrelates/--unblocks, both applied through buildRemoveLinks, so this is MCP-only in field NAME, not in capability.",
+    "removes exactly the named taskId+type pairs. The CLI equivalent is --unrelates/--unblocks, both applied through buildRemoveLinks, so this is MCP-only in field NAME, not in capability.",
+  // The one place the two surfaces deliberately do NOT agree: every CLI link
+  // flag preserves what it does not name, so there is no flag that can drop the
+  // whole set. Making the MCP destructive path a named boolean keeps a client
+  // from reaching data loss by sending an empty array.
+  "update_task.clearLinks":
+    "the ONLY way to remove links wholesale, and MCP-only by design. No CLI flag clears the whole set — every --set-parent/--relates/--blocks/--unrelates/--unblocks preserves the links it does not name — so the destructive path is an explicitly named boolean rather than an empty array a client could send by accident. To drop one link, name it in removeLinks instead.",
 
-  // ── Annotated-task fields: the CLI cannot create one ─────────────────────
-  // An annotated task (url + selector) is the whole point of the overlay, and
-  // the CLI's `--add` has no way to express it. Only the overlay/MCP path can
-  // create an annotated task today.
+  // ── Annotated-task fields ──────────────────────────────────────────────
+  // An annotated task (url + selector) is the whole point of the overlay. The
+  // CLI's `--add` could NOT express it at all, so an annotated task was only
+  // creatable over MCP — the terminal could not do the product's central thing.
+  // `--url`, `--selector` and `--sort-key` were added to `--add` to close that;
+  // these entries remain because the MCP FIELDS still have no exact CLI flag
+  // counterpart, and the record has to say why rather than silently disappear.
   "create_task.url":
-    "URL the annotation targets. `tasks --add` has no equivalent, so an annotated task can only be created over MCP. Symmetric with create_task.selector.",
+    "URL the annotation targets. `tasks --add --url` now covers this, so the gap is CLOSED; kept because the field name and the flag name differ only by the `--` prefix and G5 needs the mapping stated rather than inferred. Symmetric with create_task.selector.",
   "create_task.selector":
-    "CSS selector of the annotated element. No `tasks --add` equivalent — paired with create_task.url to record an annotated task.",
+    "CSS selector of the annotated element. `tasks --add --selector` now covers this, so the gap is CLOSED. Paired with create_task.url to record an annotated task.",
   "create_task.cssSelector":
-    "alias of create_task.selector kept for clients that prefer the explicit name; both write the same field.",
+    "alias of create_task.selector kept for clients that prefer the explicit name; both write the same field. The CLI exposes the plain `--selector` name only.",
   "create_task.sortKey":
-    "explicit board ordering key. `tasks --add` auto-assigns one and exposes no override, so ordering is not user-controllable from the CLI.",
+    "explicit board ordering key. `tasks --add` auto-assigns one; `--sort-key` now allows an override, so the gap is CLOSED.",
 
   // ── create_task.tags: array-vs-repeatable-flag difference ────────────────
   // The CLI does have --tag, but it is repeatable-for-AND. MCP takes the whole
@@ -266,6 +282,9 @@ export const manifest: ToolManifest[] = [
         "--priority",
         "--tag",
         "--parent",
+        "--url",
+        "--selector",
+        "--sort-key",
       ],
     },
     category: "task-write",
@@ -283,7 +302,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — three styles, and picking the wrong one deletes data. `addLinks`/`removeLinks` change links additively and leave every other link alone: use these unless you mean to rewrite the whole set. `links` REPLACES the entire link set (HTTP PATCH parity) — any link you omit from that array is DELETED, and an empty array clears every link. Omitting all three leaves links untouched. `links` cannot be combined with `addLinks`/`removeLinks`; that call is refused rather than guessed. The CLI's `--set-parent`/`--no-parent` behave like `addLinks`/`removeLinks` (surgical), so they are the closer analogue for incremental edits.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
     cliRef: {
       command: "tasks",
       flags: [

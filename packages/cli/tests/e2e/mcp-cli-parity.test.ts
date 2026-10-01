@@ -590,11 +590,13 @@ describe("semantic parity — CLI and MCP produce the same state", () => {
     expect(shape(linksOf(mcp.task))).toEqual(shape(linksOf(cli.task)));
   });
 
-  it("DIVERGENCE, pinned: MCP `links` deletes what --set-parent preserves", async () => {
-    // The bug this whole section exists for, asserted so it cannot return
-    // unnoticed. If someone ever makes `links` additive this test fails, and
-    // that is a deliberate contract change to make on purpose — not a silent
-    // regression to discover in production.
+  it("DIVERGENCE, now CLOSED: MCP `links` preserves what --set-parent preserves", async () => {
+    // This test used to PIN the divergence: `links` had REPLACE semantics, so
+    // sending one link dropped the parent, and it asserted that as intended
+    // behaviour. It now asserts the two surfaces AGREE, which is the fix.
+    //
+    // The name keeps "DIVERGENCE" so the history stays greppable from a bug
+    // report that predates the fix.
     const p1 = (await callJson(client, "create_task", { title: "p1" })).id;
     const other = (await callJson(client, "create_task", { title: "other" })).id;
     const task = (
@@ -606,14 +608,25 @@ describe("semantic parity — CLI and MCP produce the same state", () => {
     });
     expect(linksOf(task)).toHaveLength(2);
 
-    // `links` with ONE entry drops the parent. Documented, tested, and the
-    // entire reason addLinks exists.
+    // `links` with ONE entry: the parent is PRESERVED. An agent can no longer
+    // destroy a link by sending an incomplete update.
     await callJson(client, "update_task", {
       id: task,
       links: [{ taskId: other, type: "relates" }],
     });
-    expect(linksOf(task)).not.toContainEqual({ taskId: p1, type: "parent" });
-    expect(linksOf(task)).toHaveLength(1);
+    expect(linksOf(task)).toContainEqual({ taskId: p1, type: "parent" });
+    expect(linksOf(task)).toHaveLength(2);
+
+    // And the CLI agrees, because it always did.
+    const cliTask = (
+      await callJson(client, "create_task", { title: "cli", parent: p1 })
+    ).id;
+    const cliRes = await runCli(
+      ["tasks", "--edit", cliTask, "--relates", other, "--json"],
+      { cwd: env.projectDir, home },
+    );
+    expect(cliRes.code, cliRes.stderr).toBe(0);
+    expect(shape(linksOf(task)).sort()).toEqual(shape(linksOf(cliTask)).sort());
   });
 
   it("refusal parity: a cycle is refused on both surfaces and neither writes", async () => {

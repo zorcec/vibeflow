@@ -283,10 +283,17 @@ export const UpdateTaskInput = z.object({
       "Why the task cannot be verified. REQUIRED with setVerify:\"cannot\", and refused as E_USAGE on its own — a reason belongs to a \"cannot\" verdict.",
     ),
   dryRun: z.boolean().default(false),
-  // REPLACE semantics (matches the HTTP PATCH route): the array becomes the
-  // FULL link set and an empty array clears every link. Any link you leave out
-  // of this array is DELETED. Omit the field entirely and links are untouched.
-  // Prefer addLinks/removeLinks for incremental edits.
+  // MERGE semantics, identical to the CLI's `--relates` / `--blocks` and to
+  // `addLinks` below: every listed pair is ADDED, a pair already present is a
+  // no-op (idempotent), and a link you leave out stays exactly where it is.
+  // This is a deliberate change from the old REPLACE behaviour, which made a
+  // partial array silently DELETE every link it omitted — the single most
+  // destructive thing an MCP agent could do by accident.
+  // `links: []` is refused (E_USAGE) rather than read as "clear": under merge an
+  // empty array is almost certainly a client that still believes replace
+  // semantics apply, and silently doing nothing would be the worst outcome. To
+  // clear, say so explicitly with `clearLinks: true`.
+  // Omit the field entirely and links are untouched.
   links: z
     .array(
       z.object({
@@ -297,10 +304,27 @@ export const UpdateTaskInput = z.object({
         ),
       }),
     )
-    .optional(),
-  // ADDITIVE: merge semantics, mirroring the CLI's `--set-parent` (surgical,
-  // keeps every other link). A link already present is a no-op, so the call is
-  // idempotent. Mutually exclusive with `links`.
+    .optional()
+    .describe(
+      "ADD the listed links without touching the rest (merge, same as the CLI's --relates/--blocks). A pair already present is a no-op. `links: []` is REFUSED — use clearLinks:true to clear. Combining `links` with `addLinks` merges their union once.",
+    ),
+  // CLEAR: drop the WHOLE link set in one call. Only `true` acts; `false` (or
+  // an absent field) leaves links alone, so a client that always sends the flag
+  // cannot wipe links by omission.
+  // Combinable with the other three styles, and the order is fixed and
+  // deterministic: clearLinks first, then the `links`/`addLinks` merge, then
+  // `removeLinks` — so "start over and set exactly these, minus these" reads
+  // the way it is written. `links: []` remains refused regardless.
+  clearLinks: z
+    .boolean()
+    .optional()
+    .describe(
+      "Remove EVERY link from the task. Applied BEFORE the merge: clearLinks -> (links + addLinks) -> removeLinks. `true` clears; `false` or absent is a no-op.",
+    ),
+  // ADDITIVE: merge semantics, mirroring the CLI's `--relates` / `--blocks` and
+  // the CLI's `--set-parent` (surgical, keeps every other link). A link already
+  // present is a no-op, so the call is idempotent. Same meaning as `links`; when
+  // both are sent they are merged as a union in ONE pass, never applied twice.
   addLinks: z
     .array(
       z.object({
@@ -313,11 +337,11 @@ export const UpdateTaskInput = z.object({
     )
     .optional()
     .describe(
-      "ADD links without touching the rest. Mutually exclusive with `links`. Use this instead of `links` when you only mean to add — passing `links` deletes every link you omit.",
+      "ADD links without touching the rest (merge). Same semantics as `links` — sending both merges their union once. Use clearLinks:true to drop the whole set.",
     ),
   // SUBTRACTIVE: removes exactly the listed taskId+type pairs and leaves every
-  // other link alone. A pair that is not present is a no-op. Mutually exclusive
-  // with `links`.
+  // other link alone. A pair that is not present is a no-op. Applied LAST, after
+  // clearLinks and after the links/addLinks merge.
   removeLinks: z
     .array(
       z.object({
@@ -330,7 +354,7 @@ export const UpdateTaskInput = z.object({
     )
     .optional()
     .describe(
-      "REMOVE the listed links without touching the rest. Mutually exclusive with `links`. Use this instead of `links` when you only mean to remove.",
+      "REMOVE the listed links without touching the rest. Applied after clearLinks and after the links/addLinks merge.",
     ),
 });
 export type UpdateTaskInputType = z.infer<typeof UpdateTaskInput>;
@@ -807,76 +831,84 @@ export async function updateTask(
       }
     }
 
-    // Links: three ways to write them, one refusal rule.
+    // Links: four ways to write them, applied in one fixed order.
     //
-    // `links`        — REPLACE, for parity with the HTTP PATCH route. Destructive
-    //                   by design: the array becomes the FULL set.
-    // `addLinks`     — merge. Mirrors the CLI's `--set-parent` (surgical, keeps
-    //                   every other link), which is why it exists: replace is the
-    //                   only way MCP could write links before, and an agent
-    //                   passing a partial array silently destroyed the parent.
-    // `removeLinks`  — remove exactly the named pairs.
+    // `clearLinks`  — drop the WHOLE set. The only way to clear.
+    // `links`       — merge. Now the same thing the CLI's `--relates` /
+    //                  `--blocks` do (and the same thing `addLinks` below
+    //                  does), so the MCP surface matches the CLI.
+    // `addLinks`    — merge. `links` and `addLinks` are folded into a union
+    //                  and merged ONCE; sending both is not a double-apply.
+    // `removeLinks` — subtract exactly the named taskId+type pairs.
     //
-    // `links` is mutually exclusive with the other two. Silently picking a
-    // winner would mean the caller's intent depended on which field they
-    // happened to fill in, so this is refused instead of guessed.
+    // `links` used to REPLACE, which is why an agent sending a partial array
+    // silently destroyed the parent and every other link it omitted. Merge is
+    // the only safe default for a surface that is updated in pieces, so the
+    // destructive case now has to be asked for by name (`clearLinks: true`).
+    //
+    // ORDER: clearLinks -> merge(links ∪ addLinks) -> removeLinks. Clear-then-
+    // set in a single call is meaningful and deterministic ("start over with
+    // exactly these, minus these"), and removeLinks-last means "except" can be
+    // expressed even when the same call adds the link back.
     let linksUpdate: TaskLink[] | undefined;
     const linksProvided = input.links !== undefined;
     const addLinksProvided = input.addLinks !== undefined;
     const removeLinksProvided = input.removeLinks !== undefined;
-    if (linksProvided && (addLinksProvided || removeLinksProvided)) {
+    // Only `true` is an instruction. `clearLinks: false` (or absent) is a
+    // no-op, so a client that always sends the flag cannot wipe links by
+    // omission — the same "absent means untouched" rule as every other
+    // optional field here.
+    const clearLinksRequested = input.clearLinks === true;
+
+    // `links: []` under merge means nothing was named, so honouring it as a
+    // no-op would silently swallow a client that still believes replace
+    // semantics apply — its links would survive a call it read as "clear
+    // them". Refused, and the message names the field that DOES clear.
+    if (linksProvided && input.links!.length === 0) {
       return {
         ok: false,
         error: {
           code: "E_USAGE",
           message:
-            "links (replace) cannot be combined with addLinks/removeLinks",
+            "`links: []` is refused \u2014 `links` now MERGES, so an empty array names no links and cannot mean \"clear\"",
           suggestion:
-            "Pick one style. To add or remove without touching the rest, use addLinks / removeLinks and drop `links`. `links` REPLACES the whole set, so any link you omit there is deleted.",
+            "`links` and `addLinks` merge: listed pairs are added and everything else is kept. To remove EVERY link, send `clearLinks: true` (it applies before the merge, so it can be combined with `links`/`addLinks`/`removeLinks` in the same call). To remove specific links, use `removeLinks`. Omit the field entirely to leave links untouched.",
         },
       };
     }
-    if (linksProvided) {
-      const { buildUpdateLinks } = await import("../core/task-links.js");
-      const { listTasks: coreListTasks } = await import("../core/tasks.js");
-      const linksResult = buildUpdateLinks({
-        allTasks: coreListTasks(ctx.projectDir),
-        taskId: existingTask.id,
-        incoming: input.links!,
-      });
-      if (!linksResult.ok) {
-        // The producer's code, not a blanket UPDATE_TASK_ERROR: a link that
-        // targets a task that does not exist IS TASK_NOT_FOUND, and reporting
-        // it as a generic error told the agent the CALL was wrong rather than
-        // the target. `reason` stays the message verbatim.
-        return {
-          ok: false,
-          error: {
-            code: linksResult.code,
-            message: linksResult.reason,
-            suggestion:
-              linksResult.code === "TASK_NOT_FOUND"
-                ? TASK_NOT_FOUND_SUGGESTION
-                : "The link set was refused as invalid — fix what the message names, and resend the whole `links` array (it REPLACES the current set, so an empty array clears every link). To change links without dropping the others, use addLinks / removeLinks instead.",
-          },
-        };
-      }
-      linksUpdate = linksResult.links;
-    } else if (addLinksProvided || removeLinksProvided) {
-      const {
-        buildAddLinks,
-        buildRemoveLinks,
-      } = await import("../core/task-links.js");
+
+    if (
+      clearLinksRequested ||
+      linksProvided ||
+      addLinksProvided ||
+      removeLinksProvided
+    ) {
+      const { buildAddLinks, buildRemoveLinks } = await import(
+        "../core/task-links.js"
+      );
       const { listTasks: coreListTasks } = await import("../core/tasks.js");
       let current = coreListTasks(ctx.projectDir);
-      // Both helpers validate against the state they are handed, so each pass
-      // re-reads the board and folds in what the previous pass decided.
+      // Each helper validates against the state it is handed, so every pass
+      // folds what the previous pass decided back into the board it re-reads.
       let next: TaskLink[] | undefined = existingTask.links ?? undefined;
-      if (addLinksProvided) {
+
+      // 1. clearLinks: empty the base set BEFORE anything is folded in.
+      if (clearLinksRequested) {
+        next = undefined;
+        current = current.map((t) =>
+          t.id === existingTask.id ? { ...t, links: undefined } : t,
+        );
+      }
+
+      // 2. merge `links` ∪ `addLinks` in a single buildAddLinks call — the
+      // union is deduped there, so a pair named in both (or twice in one
+      // array) is a no-op rather than a duplicate-parent refusal.
+      const incoming = [...(input.links ?? []), ...(input.addLinks ?? [])];
+      if (incoming.length > 0) {
         const added = buildAddLinks({
           allTasks: current,
           taskId: existingTask.id,
-          incoming: input.addLinks!,
+          incoming,
         });
         if (!added.ok)
           return {
@@ -887,7 +919,7 @@ export async function updateTask(
               suggestion:
                 added.code === "TASK_NOT_FOUND"
                   ? TASK_NOT_FOUND_SUGGESTION
-                  : "The link you asked to add was refused as invalid — fix what the message names and resend addLinks. Existing links are untouched by a refused add.",
+                  : "The link you asked to add was refused as invalid \u2014 fix what the message names and resend `links`/`addLinks`. Existing links are untouched by a refused add; to drop links use `removeLinks` (or `clearLinks: true` for all of them).",
             },
           };
         next = added.links;
@@ -895,6 +927,9 @@ export async function updateTask(
           t.id === existingTask.id ? { ...t, links: next ?? [] } : t,
         );
       }
+
+      // 3. removeLinks last: subtract exactly the named pairs, after the
+      // merge, so "add X back except Y" is expressible.
       if (removeLinksProvided) {
         const removed = buildRemoveLinks({
           allTasks: current,
@@ -931,11 +966,17 @@ export async function updateTask(
     if (input.description !== undefined)
       updates.description = input.description;
     if (input.branch) updates.branchName = input.branch;
-    // Any of the three link styles that was provided, replace or additive.
-    // Guarding on `linksProvided` alone would silently make addLinks /
+    // Any of the four link styles that was provided. Guarding on
+    // `linksProvided` alone would silently make clearLinks / addLinks /
     // removeLinks a no-op — the link set was computed above and must be
-    // written whenever ANY style ran.
-    if (linksProvided || addLinksProvided || removeLinksProvided)
+    // written whenever ANY style ran. `undefined` (no links left) still means
+    // "clear": updateTask spreads the key over the stored task.
+    if (
+      clearLinksRequested ||
+      linksProvided ||
+      addLinksProvided ||
+      removeLinksProvided
+    )
       updates.links = linksUpdate;
 
     // Verify reset on in-progress (parity with CLI edit path). Clear the flag

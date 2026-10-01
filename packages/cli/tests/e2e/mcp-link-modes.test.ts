@@ -166,27 +166,62 @@ describe("addLinks / removeLinks preserve what they do not name", () => {
   });
 });
 
-describe("link modes are mutually exclusive", () => {
-  it("refuses links + addLinks together rather than guessing", async () => {
+describe("link modes compose — they are no longer mutually exclusive", () => {
+  // `links` used to REPLACE, so combining it with addLinks/removeLinks was
+  // ambiguous and refused E_USAGE. Under MERGE there is no conflict: both
+  // fields mean the same additive thing, and the order is defined
+  // (clearLinks -> merge -> subtract). Refusing them would only reintroduce
+  // the question "which one wins?".
+  it("links + addLinks merge into one union, deduped", async () => {
     const parent = await mkTask("parent");
-    const other = await mkTask("other");
+    const a = await mkTask("a");
+    const b = await mkTask("b");
     const child = await mkTask("child", { parent: parent.id });
 
     const data = await call("update_task", {
       id: child.id,
-      links: [{ taskId: other.id, type: "blocks" }],
-      addLinks: [{ taskId: other.id, type: "relates" }],
+      links: [{ taskId: a.id, type: "blocks" }],
+      addLinks: [
+        { taskId: a.id, type: "blocks" },
+        { taskId: b.id, type: "relates" },
+      ],
     });
 
-    expect(data.ok).toBe(false);
-    expect(data.error.code).toBe("E_USAGE");
-    // Refused means refused: nothing was written.
-    expect(diskLinks(env.projectDir, child.id)).toEqual([
-      { taskId: parent.id, type: "parent" },
-    ]);
+    expect(data.ok ?? true).toBeTruthy();
+    const links = diskLinks(env.projectDir, child.id);
+    expect(links).toContainEqual({ taskId: parent.id, type: "parent" });
+    expect(links).toContainEqual({ taskId: a.id, type: "blocks" });
+    expect(links).toContainEqual({ taskId: b.id, type: "relates" });
+    // The shared pair appears once.
+    expect(links).toHaveLength(3);
   });
 
-  it("refuses links + removeLinks together", async () => {
+  it("links + removeLinks subtracts after merging", async () => {
+    const parent = await mkTask("parent");
+    const keep = await mkTask("keep");
+    const drop = await mkTask("drop");
+    const child = await mkTask("child", { parent: parent.id });
+    await call("update_task", {
+      id: child.id,
+      addLinks: [{ taskId: drop.id, type: "relates" }],
+    });
+
+    await call("update_task", {
+      id: child.id,
+      links: [{ taskId: keep.id, type: "blocks" }],
+      removeLinks: [{ taskId: drop.id, type: "relates" }],
+    });
+
+    const links = diskLinks(env.projectDir, child.id);
+    expect(links).toContainEqual({ taskId: parent.id, type: "parent" });
+    expect(links).toContainEqual({ taskId: keep.id, type: "blocks" });
+    expect(links).not.toContainEqual({ taskId: drop.id, type: "relates" });
+  });
+
+  it("links:[] is refused even alongside removeLinks", async () => {
+    // An empty array under MERGE is a client that still thinks REPLACE is
+    // happening. Refusing is the only safe reading — silently ignoring it is
+    // the worst outcome and silently clearing is the dangerous one.
     const parent = await mkTask("parent");
     const other = await mkTask("other");
     const child = await mkTask("child", { parent: parent.id });
@@ -203,12 +238,13 @@ describe("link modes are mutually exclusive", () => {
 
     expect(data.ok).toBe(false);
     expect(data.error.code).toBe("E_USAGE");
+    // Nothing written: both links survive the refusal.
     expect(diskLinks(env.projectDir, child.id)).toHaveLength(2);
   });
 });
 
-describe("replace semantics stay replace (unchanged contract)", () => {
-  it("links still REPLACES, so omitted links are dropped", async () => {
+describe("links MERGES — the same guarantee the CLI gives", () => {
+  it("a link you do not name is PRESERVED", async () => {
     const parent = await mkTask("parent");
     const other = await mkTask("other");
     const child = await mkTask("child", { parent: parent.id });
@@ -218,19 +254,110 @@ describe("replace semantics stay replace (unchanged contract)", () => {
       links: [{ taskId: other.id, type: "blocks" }],
     });
 
-    // Documented, tested, and still the escape hatch — but a caller who did
-    // not read the description loses the parent, which is why addLinks exists.
+    // `links` used to REPLACE here and drop the parent. It now merges, so the
+    // parent survives — the whole point of the change, and the reason an agent
+    // can no longer destroy a link by sending an incomplete update.
+    const links = diskLinks(env.projectDir, child.id);
+    expect(links).toContainEqual({ taskId: parent.id, type: "parent" });
+    expect(links).toContainEqual({ taskId: other.id, type: "blocks" });
+    expect(links).toHaveLength(2);
+  });
+
+  it("links and addLinks are the same MERGE — sending both dedupes", async () => {
+    const a = await mkTask("a");
+    const b = await mkTask("b");
+    const child = await mkTask("child");
+
+    await call("update_task", {
+      id: child.id,
+      links: [{ taskId: a.id, type: "relates" }],
+      addLinks: [
+        { taskId: a.id, type: "relates" },
+        { taskId: b.id, type: "blocks" },
+      ],
+    });
+
+    // The shared pair appears once, not twice.
     expect(diskLinks(env.projectDir, child.id)).toEqual([
-      { taskId: other.id, type: "blocks" },
+      { taskId: a.id, type: "relates" },
+      { taskId: b.id, type: "blocks" },
     ]);
   });
 
-  it("an empty links array still clears everything", async () => {
+  it("clearLinks:true is the ONLY way to clear links", async () => {
     const parent = await mkTask("parent");
     const child = await mkTask("child", { parent: parent.id });
 
-    await call("update_task", { id: child.id, links: [] });
+    await call("update_task", { id: child.id, clearLinks: true });
     expect(diskLinks(env.projectDir, child.id)).toEqual([]);
+  });
+
+  it("clearLinks:false is a no-op, not a clear", async () => {
+    const parent = await mkTask("parent");
+    const child = await mkTask("child", { parent: parent.id });
+
+    await call("update_task", { id: child.id, clearLinks: false });
+    // A client that always sends the flag must not wipe links by omission.
+    expect(diskLinks(env.projectDir, child.id)).toEqual([
+      { taskId: parent.id, type: "parent" },
+    ]);
+  });
+
+  it("links:[] is REFUSED, pointing at clearLinks", async () => {
+    const parent = await mkTask("parent");
+    const child = await mkTask("child", { parent: parent.id });
+
+    // Silently doing nothing would be the worst outcome, and silently clearing
+    // would be the dangerous one — so it is an explicit E_USAGE.
+    const data = await call("update_task", { id: child.id, links: [] });
+    expect(data.ok).toBe(false);
+    expect(data.error.code).toBe("E_USAGE");
+    expect(JSON.stringify(data.error)).toContain("clearLinks");
+    // Refused means refused: the parent is untouched.
+    expect(diskLinks(env.projectDir, child.id)).toEqual([
+      { taskId: parent.id, type: "parent" },
+    ]);
+  });
+
+  it("clear then add in one call applies in that order", async () => {
+    const stale = await mkTask("stale");
+    const fresh = await mkTask("fresh");
+    const parent = await mkTask("parent");
+    const child = await mkTask("child", { parent: parent.id });
+    await call("update_task", {
+      id: child.id,
+      addLinks: [{ taskId: stale.id, type: "relates" }],
+    });
+
+    await call("update_task", {
+      id: child.id,
+      clearLinks: true,
+      addLinks: [{ taskId: fresh.id, type: "blocks" }],
+    });
+
+    const links = diskLinks(env.projectDir, child.id);
+    expect(links).toContainEqual({ taskId: fresh.id, type: "blocks" });
+    expect(links).not.toContainEqual({ taskId: stale.id, type: "relates" });
+  });
+
+  it("removeLinks wins over links in the same call (merge then subtract)", async () => {
+    const keep = await mkTask("keep");
+    const drop = await mkTask("drop");
+    const child = await mkTask("child");
+    await call("update_task", {
+      id: child.id,
+      addLinks: [{ taskId: drop.id, type: "relates" }],
+    });
+
+    await call("update_task", {
+      id: child.id,
+      links: [{ taskId: keep.id, type: "blocks" }],
+      removeLinks: [{ taskId: drop.id, type: "relates" }],
+    });
+
+    const links = diskLinks(env.projectDir, child.id);
+    expect(links).toContainEqual({ taskId: keep.id, type: "blocks" });
+    expect(links).not.toContainEqual({ taskId: drop.id, type: "relates" });
   });
 });
 

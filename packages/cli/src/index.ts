@@ -547,6 +547,22 @@ function validateTypeFilter(typeFilter: string, json = false): boolean {
   return false;
 }
 
+/**
+ * Mirrors the check zod's `z.string().url()` performs on a task's `url`
+ * (trim, then a `new URL()` that must not throw) — the same rule
+ * CreateTaskInput applies, so the CLI cannot store a url the MCP surface
+ * would refuse. `new URL` throwing is the only failure mode, hence the
+ * try/catch rather than a regex that would drift from the parser.
+ */
+function isParsableUrl(value: string): boolean {
+  try {
+    new URL(value.trim());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Validates --user filter value; logs error and sets exitCode if invalid. Returns true if valid. */
 function validateUserFilter<T extends { author?: string | null }>(
   userFilter: string,
@@ -1040,6 +1056,22 @@ program
     "--priority <priority>",
     "Task priority (Critical, High, Medium, Low) — use with --add",
   )
+  // An annotated task (url + selector) is what the overlay produces and what
+  // `vibeflow verify` needs to re-find the element; without these three flags
+  // `--add` could only ever write an unannotated task. Symmetric with
+  // create_task's url/selector/sortKey on the MCP surface.
+  .option(
+    "--url <url>",
+    "Page URL the annotation targets (use with --add) — pair with --selector to create an annotated task",
+  )
+  .option(
+    "--selector <selector>",
+    "Selector of the annotated element (use with --add; defaults to \"/\")",
+  )
+  .option(
+    "--sort-key <key>",
+    "Explicit ordering key for the new task (use with --add; core auto-assigns one when omitted)",
+  )
   .action(
     (
       dir: string,
@@ -1080,6 +1112,11 @@ program
         setVerify?: "pass" | "fail" | "cannot";
         verifyReason?: string;
         priority?: string;
+        // --add-only annotation fields. Optional because the same opts object
+        // is shared with the list/get/edit paths, which never read them.
+        url?: string;
+        selector?: string;
+        sortKey?: string;
         reindexSortKeys?: boolean;
       },
     ) => {
@@ -1927,6 +1964,30 @@ program
             return;
           }
 
+          // ── Annotation fields (--url / --selector / --sort-key) ───────
+          // Resolved ONCE, here, so the dry-run preview and the real write
+          // below cannot drift apart: a preview that omits a field the write
+          // sets is a lie. `selector` keeps its historic "/" default when
+          // the flag is absent (and falls back to it for a blank value), so
+          // an `--add` with no annotation flags writes byte-identical JSON to
+          // before. A malformed --url is refused with the same E_USAGE
+          // envelope --parent uses for a dangling target, before anything is
+          // written.
+          const url = opts.url?.trim();
+          const selector = opts.selector?.trim() || "/";
+          const sortKey = opts.sortKey?.trim();
+          if (url && !isParsableUrl(url)) {
+            outputEnvelope({ ok: false,
+              code: "E_USAGE",
+              message: `Invalid --url: "${opts.url}"`,
+              suggestion:
+                '--url must be a full URL including the scheme (example: vibeflow tasks --add --title "Fix CTA spacing" --url https://example.com/pricing --selector "#cta")',
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
           const addMode = await getMode();
           if (addMode === "saas") {
             if (typeof opts.parent === "string") {
@@ -2098,7 +2159,9 @@ program
               title: opts.title.trim(),
               description: opts.description?.trim() ?? "",
               status,
-              selector: "/",
+              ...(url ? { url } : {}),
+              selector,
+              ...(sortKey ? { sortKey } : {}),
               ...(parentId
                 ? { links: [{ taskId: parentId, type: "parent" as const }] }
                 : {}),
@@ -2122,6 +2185,14 @@ program
                 console.log(
                   chalk.dim(`    description: ${dryTask.description}`),
                 );
+              // Only shown when the flags were passed, so the pre-existing
+              // preview output is unchanged for an unannotated --add.
+              if (dryTask.url)
+                console.log(chalk.dim(`    url:      ${dryTask.url}`));
+              if (selector !== "/")
+                console.log(chalk.dim(`    selector: ${selector}`));
+              if (dryTask.sortKey)
+                console.log(chalk.dim(`    sortKey:  ${dryTask.sortKey}`));
               printNextHint(getNextActions("add", dryId));
             }
             return;
@@ -2131,7 +2202,13 @@ program
             title: opts.title.trim(),
             description: opts.description?.trim() ?? "",
             status,
-            selector: "/",
+            // Annotation fields mirror the dry-run preview above field for
+            // field: url only when --url was given, selector always (the
+            // historic "/" default), sortKey only when --sort-key was given
+            // (core mints its own otherwise).
+            ...(url ? { url } : {}),
+            selector,
+            ...(sortKey ? { sortKey } : {}),
             // Attribute the task to the task-store repo's git identity so an
             // agent-created task matches a human-created one.
             author: getGitUser(projectDir).name,

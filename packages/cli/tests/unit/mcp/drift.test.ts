@@ -378,25 +378,40 @@ describe("MCP drift test", () => {
     }
   });
 
-  it("G5 — update_task link fields must not claim the CLI's surgical flags describe them", () => {
-    // The specific regression this gate exists for. `--set-parent` swaps one
-    // link and preserves the rest; `links` REPLACES the set and deletes what
-    // it omits. Those are not the same operation, so the tool description has
-    // to say which one each field is, or an agent will reach for `links` and
-    // silently drop a parent.
+  it("G5 — update_task link fields merge, and the description must say so", () => {
+    // This gate was born from a real divergence. `update_task` used to carry a
+    // `links` field with REPLACE semantics — omitting a link deleted it —
+    // while advertising `cliRef: ["--set-parent"]`, which is surgical and
+    // preserves everything it does not name. Every name-based gate passed it.
+    //
+    // `links` is now MERGE, matching the CLI. The description is what an agent
+    // actually reads (it rarely opens the schema), so it has to state the
+    // semantics; these needles are what stop a future edit from quietly
+    // reverting either the field or the wording.
     const update = manifest.find((m) => m.name === "update_task")!;
     const fields = Object.keys(update.input);
 
     expect(fields).toContain("links");
     expect(fields).toContain("addLinks");
     expect(fields).toContain("removeLinks");
+    // clearLinks is the ONLY destructive path; without it there would be no
+    // way to clear links at all.
+    expect(fields).toContain("clearLinks");
 
     // The description must name each field's semantics, not just its existence.
-    for (const needle of ["REPLACES", "addLinks", "removeLinks"]) {
+    for (const needle of ["MERGE", "clearLinks", "removeLinks", "PRESERVED"]) {
       expect(
         update.description,
         `update_task.description must explain "${needle}" — an agent reads this, not the schema`,
       ).toContain(needle);
     }
+
+    // And it must not still advertise the old destructive behaviour. If
+    // `links` ever goes back to replacing, this fails before the description
+    // can quietly keep promising preservation.
+    expect(
+      update.description,
+      "update_task.description still claims links replace the set — links is MERGE now",
+    ).not.toMatch(/REPLACES the entire link set/i);
   });
 });
