@@ -1,0 +1,144 @@
+#!/usr/bin/env sh
+set -e
+
+# ── Vibeflow pre-push gate ─────────────────────────────────────────────────────
+# Runs the CLI package's full test suite before a push reaches the remote.
+#
+# Expected cost: unit ~13s, e2e ~43s, integration ~1s, playwright ~26s (~83s).
+#
+# Unit and integration are treated as deterministic: first failure halts the
+# hook and blocks the push. They are never retried.
+#
+# e2e and Playwright are retried ONCE. Both bind ephemeral ports, and port
+# binding is inherently racy: an observed e2e failure was
+#   tests/e2e/mcp-stdio.test.ts > start_kanban over stdio
+#   "start_kanban did not bind a reachable kanban URL"
+# and Playwright had a known EADDRINUSE collision (its hardcoded ports are now
+# gone — it uses getFreePort() with a bounded retry). A gate that blocks on a
+# transient port race trains you to reach for --no-verify, which is worse than
+# no gate at all; a single retry removes that pressure while a SECOND failure
+# still blocks the push and is reported as a real failure.
+#
+# Escape hatches (each prints a visible notice when used):
+#   VIBEFLOW_SKIP_PREPUSH=1  skip every suite
+#   VIBEFLOW_SKIP_BROWSER=1  skip Playwright only
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+CLI_DIR="$ROOT/packages/cli"
+
+if [ ! -d "$CLI_DIR" ]; then
+  echo "✗ pre-push: cannot find $CLI_DIR (expected repo root: $ROOT)"
+  exit 1
+fi
+
+cd "$CLI_DIR"
+
+UNIT="not run"
+E2E="not run"
+INTEGRATION="not run"
+BROWSER="not run"
+
+print_summary() {
+  echo ""
+  echo "───────────────── Pre-push summary ─────────────────"
+  printf '  %-12s %s\n' "unit" "$UNIT"
+  printf '  %-12s %s\n' "e2e" "$E2E"
+  printf '  %-12s %s\n' "integration" "$INTEGRATION"
+  printf '  %-12s %s\n' "playwright" "$BROWSER"
+  echo "─────────────────────────────────────────────────────"
+}
+
+# ── Skip everything ────────────────────────────────────────────────────────────
+if [ "${VIBEFLOW_SKIP_PREPUSH:-}" = "1" ]; then
+  echo "⚠ VIBEFLOW_SKIP_PREPUSH=1 — skipping ALL pre-push checks (unit, e2e, integration, playwright)."
+  UNIT="SKIPPED"
+  E2E="SKIPPED"
+  INTEGRATION="SKIPPED"
+  BROWSER="SKIPPED"
+  print_summary
+  echo "⚠ Push allowed WITHOUT any test verification."
+  exit 0
+fi
+
+# ── Unit tests (hard) ──────────────────────────────────────────────────────────
+echo ""
+echo "▶ unit — pnpm run test"
+if pnpm run test; then
+  UNIT="PASS"
+else
+  UNIT="FAIL"
+  print_summary
+  echo "✗ Unit tests failed — blocking push."
+  exit 1
+fi
+
+# ── E2E tests (retry once) ───────────────────────────────────────────────────
+echo ""
+echo "▶ e2e — pnpm run test:e2e (attempt 1/2)"
+if pnpm run test:e2e; then
+  E2E="PASS"
+else
+  echo "⚠ WARNING: e2e FAILED on attempt 1/2"
+  echo "  These tests bind ephemeral ports; a single collision is a known race."
+  echo "  Retrying ONCE. If attempt 2 also fails, the push is BLOCKED."
+  echo ""
+  echo "▶ e2e — pnpm run test:e2e (attempt 2/2)"
+  if pnpm run test:e2e; then
+    E2E="PASS (attempt 2 — attempt 1 hit the known port-binding race)"
+  else
+    E2E="FAIL (both attempts)"
+    print_summary
+    echo "✗ e2e failed on BOTH attempts — treated as a real failure. Push blocked."
+    exit 1
+  fi
+fi
+
+# ── Integration tests (hard) ───────────────────────────────────────────────────
+echo ""
+echo "▶ integration — pnpm run test:integration"
+if pnpm run test:integration; then
+  INTEGRATION="PASS"
+else
+  INTEGRATION="FAIL"
+  print_summary
+  echo "✗ Integration tests failed — blocking push."
+  exit 1
+fi
+
+# ── Playwright (retry once) ────────────────────────────────────────────────────
+if [ "${VIBEFLOW_SKIP_BROWSER:-}" = "1" ]; then
+  echo ""
+  echo "⚠ VIBEFLOW_SKIP_BROWSER=1 — skipping the Playwright suite (unit, e2e and integration still ran)."
+  BROWSER="SKIPPED"
+else
+  echo ""
+  echo "▶ playwright — pnpm run test:browser (attempt 1/2)"
+  if pnpm run test:browser; then
+    BROWSER="PASS (attempt 1)"
+  else
+    echo ""
+    echo "══════════════════════════════════════════════════════════════════"
+    echo "⚠ WARNING: Playwright FAILED on attempt 1/2"
+    echo ""
+    echo "  This suite has a KNOWN intermittent EADDRINUSE flake — the"
+    echo "  Playwright web server occasionally collides on a port with a"
+    echo "  process still holding it from the previous run."
+    echo ""
+    echo "  Retrying ONCE. If attempt 2 also fails, the push is BLOCKED."
+    echo "══════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "▶ playwright — pnpm run test:browser (attempt 2/2)"
+    if pnpm run test:browser; then
+      BROWSER="PASS (attempt 2 — attempt 1 hit the known port-collision flake)"
+    else
+      BROWSER="FAIL (both attempts)"
+      print_summary
+      echo "✗ Playwright failed on BOTH attempts — treated as a real failure. Push blocked."
+      exit 1
+    fi
+  fi
+fi
+
+print_summary
+echo "✓ All pre-push checks passed — push allowed."
+exit 0

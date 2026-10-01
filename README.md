@@ -259,6 +259,79 @@ Agents can also run directly from the Kanban board via `POST /api/agent/run`, wh
 
 ---
 
+## MCP Server
+
+Vibeflow gives an AI coding agent a Kanban board over your own repository: click any element in your app and it becomes a ticket carrying that element's CSS selector, URL, source file and line. Tasks, progress and verification then live in one place instead of being scattered across a chat transcript.
+
+The server runs **locally over stdio, one process per project** — there is no hosted Vibeflow service to sign up for. It is published as an MCP server in the [official MCP Registry](https://registry.modelcontextprotocol.io) (`server.json` in this repo).
+
+### Install and run
+
+```bash
+npm install -g @vibeflow-tools/cli
+vibeflow mcp --project /path/to/project
+```
+
+`--project` is required. The project root is resolved **once at startup** and every tool call uses that root, so a server can never write into the wrong project. Point it at your own repository.
+
+### Client configuration
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "vibeflow": {
+      "command": "npx",
+      "args": ["-y", "@vibeflow-tools/cli", "mcp", "--project", "/path/to/project"]
+    }
+  }
+}
+```
+
+**Cursor** — the same block goes in `.cursor/mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "vibeflow": {
+      "command": "npx",
+      "args": ["-y", "@vibeflow-tools/cli", "mcp", "--project", "/path/to/project"]
+    }
+  }
+}
+```
+
+### Tools
+
+| Tool | What it does |
+| ---- | ------------ |
+| `list_tasks` | List tasks with optional filters (root tasks only unless `children`) |
+| `get_task` | One task by ID, with comments and files |
+| `get_project` | The resolved project this server is attached to — root, branch, mode |
+| `create_task` | Create a task, optionally annotated with a URL and selector |
+| `update_task` | Edit a task: status, title, links, and the verification verdict |
+| `claim_next_task` | Claim the highest-priority root task in `todo` as `in-progress` |
+| `add_comment` | Comment on a task |
+| `attach_file` | Attach a file (base64); a `.md` satisfies the research-report gate |
+| `export_prompt` | Export one or more tasks as a formatted LLM prompt |
+| `verify_task` | Run visual verification for an annotated task |
+| `push_tasks` | Push the local task store to the optional hosted backend |
+| `start_kanban` | Start the local Kanban board server and return its URLs |
+| `get_integration_guide` | The overlay/bookmarklet integration instructions |
+
+The published `0.18.1` package exposes the first 11 — `start_kanban` and `get_integration_guide` ship in the next release.
+
+### Authentication
+
+**None required.** Vibeflow is local-first: no login, no account, no API key. Every task is a file in your repo. `vibeflow login` exists but is optional and applies only to the optional hosted backend used by `push_tasks`.
+
+An HTTP transport also exists (`vibeflow serve`, MCP endpoint at `/api/mcp`), but it is a local loopback server rather than a public one.
+
+For the full protocol reference — result envelope shape, refusal codes, `notices`, and the `dryRun` preview — see the [CLI package README](packages/cli/README.md#mcp-server).
+
+---
+
 ## API
 
 A REST API and tRPC router are available at `http://localhost:3700` for integrations and the browser overlay. Key endpoints:

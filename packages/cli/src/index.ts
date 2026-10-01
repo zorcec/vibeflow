@@ -563,6 +563,45 @@ function isParsableUrl(value: string): boolean {
   }
 }
 
+// `verify --timeout` bounds, mirroring `VerifyTaskInput.timeoutMs` in
+// core/operations.ts (`z.number().min(1000).max(300000).default(60000)`).
+// Same unit (milliseconds), same range, same default — the two surfaces must
+// not disagree about what a given number means, so these are the CLI copy of
+// the MCP field's rule, not a second rule.
+const VERIFY_TIMEOUT_MIN_MS = 1_000;
+const VERIFY_TIMEOUT_MAX_MS = 300_000;
+const VERIFY_TIMEOUT_DEFAULT_MS = 60_000;
+
+/**
+ * Parses `vibeflow verify --timeout <ms>`. Anything that is not a whole number
+ * of milliseconds inside the range the MCP field accepts is refused with the
+ * same E_USAGE envelope + suggestion every other bad flag value uses, before
+ * any work starts. `undefined` means "already refused".
+ */
+function parseVerifyTimeout(
+  value: string | undefined,
+  json = false,
+): number | undefined {
+  if (value === undefined) return VERIFY_TIMEOUT_DEFAULT_MS;
+  const ms = Number(value.trim());
+  if (
+    !Number.isInteger(ms) ||
+    ms < VERIFY_TIMEOUT_MIN_MS ||
+    ms > VERIFY_TIMEOUT_MAX_MS
+  ) {
+    outputEnvelope({
+      ok: false,
+      code: "E_USAGE",
+      message: `Invalid --timeout: "${value}"`,
+      suggestion: `--timeout is whole milliseconds between ${VERIFY_TIMEOUT_MIN_MS} and ${VERIFY_TIMEOUT_MAX_MS} (example: vibeflow verify <task-id> --timeout 90000)`,
+      json,
+    });
+    process.exitCode = ExitCode.USAGE;
+    return undefined;
+  }
+  return ms;
+}
+
 /** Validates --user filter value; logs error and sets exitCode if invalid. Returns true if valid. */
 function validateUserFilter<T extends { author?: string | null }>(
   userFilter: string,
@@ -4297,12 +4336,28 @@ program
     "--filter <pattern>",
     "Filter style properties by substring (style_diff only)",
   )
+  .option(
+    "--timeout <ms>",
+    `Bound this verification run in whole milliseconds (${VERIFY_TIMEOUT_MIN_MS}-${VERIFY_TIMEOUT_MAX_MS}; default ${VERIFY_TIMEOUT_DEFAULT_MS})`,
+  )
   .action(
     async (
       args: string[],
-      opts: { json?: boolean; url?: string; filter?: string },
+      opts: {
+        json?: boolean;
+        url?: string;
+        filter?: string;
+        timeout?: string;
+      },
     ) => {
       capture("command_run", { command: "verify" });
+      // Refused up front, before the task id is even looked at: a bad bound is
+      // a usage error, not a verification failure.
+      const timeoutMs = parseVerifyTimeout(opts.timeout, opts.json);
+      if (timeoutMs === undefined) {
+        await flushTelemetry();
+        return;
+      }
       const [head, ...rest] = args;
       if (head && VERIFY_TOOLS.has(head)) {
         await runVerifyTool(".", head, rest, opts);
@@ -4331,7 +4386,23 @@ program
         process.exitCode = 1;
         return;
       }
-      await runVerify(".", head, opts);
+      // The ONE wall-clock bound for a CLI run: the same AbortController
+      // `verify_task.timeoutMs` installs in core/operations.ts, handed to the
+      // engine as the same `signal` that call passes. runVerify forwards its
+      // opts object straight to verifyTask, which reads `signal` — so this is
+      // the MCP path, not a second, divergent timeout mechanism layered next
+      // to it.
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), timeoutMs);
+      timer.unref?.();
+      // Built as a variable (not an inline literal) because runVerify's
+      // declared opts type predates `signal`; the engine's type carries it.
+      const runOpts = { ...opts, signal: ac.signal };
+      try {
+        await runVerify(".", head, runOpts);
+      } finally {
+        clearTimeout(timer);
+      }
       await flushTelemetry();
     },
   );

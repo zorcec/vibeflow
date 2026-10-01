@@ -490,10 +490,10 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
   it("a dangling link target is refused as TASK_NOT_FOUND, not a generic error", async () => {
     // update_task is already swept above for a missing TASK. This row covers
     // the other existence check on the same tool: a link whose TARGET does not
-    // exist. It always refused — but as `UPDATE_TASK_ERROR`, because
-    // buildUpdateLinks dropped the producer's code, so the client was told the
-    // CALL was wrong when the truth was "that task does not exist". A guard
-    // that only checked "it refused" would have passed the buggy version, so
+    // exist. The link validation passes the producer's refusal code through, so
+    // the client is told the TARGET does not exist rather than that the CALL
+    // was wrong. A guard that only checked "it refused" would also have passed
+    // a version that swallowed that code and answered `UPDATE_TASK_ERROR`, so
     // the code itself is asserted.
     const created = (await call("create_task", { title: "link target" }))
       .envelope as unknown as { id: string };

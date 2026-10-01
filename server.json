@@ -1,0 +1,60 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "tools.vibeflow/vibeflow",
+  "title": "Vibeflow",
+  "description": "Kanban task board over MCP for your own repo. Click any element to get a ticket with its selector.",
+  "version": "0.18.1",
+  "websiteUrl": "https://www.vibeflow.tools",
+  "repository": {
+    "url": "https://github.com/zorcec/vibeflow",
+    "source": "github",
+    "subfolder": "packages/cli"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@vibeflow-tools/cli",
+      "version": "0.18.1",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-y",
+          "isRepeated": false,
+          "description": "Skip npx's install confirmation prompt."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "mcp",
+          "isRepeated": false,
+          "description": "Run the MCP server over stdio."
+        },
+        {
+          "type": "named",
+          "name": "--project",
+          "isRequired": true,
+          "isRepeated": false,
+          "format": "filepath",
+          "placeholder": "/path/to/project",
+          "description": "Project root this server serves. Required, and resolved once at startup: one process serves exactly one repository, so every tool call reads and writes that project's task store. Point it at your own repo."
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "license": "Apache-2.0",
+      "longDescription": "Vibeflow gives an AI coding agent a Kanban board over the user's own repository: click any element in their app and it becomes a ticket carrying that element's CSS selector, URL, source file and line. Tasks, progress and verification then live in one place instead of being scattered across a chat transcript. It runs locally over stdio, needs no account and no API key, and there is no hosted service to sign up for.",
+      "transport": "stdio, one process per project. An HTTP transport also exists (vibeflow serve, MCP at /api/mcp) but it is a local loopback server, not a public endpoint, so this manifest declares no remotes.",
+      "authentication": "None. Local-first: no login is required and no API key is needed. `vibeflow login` exists but is optional and only applies to the optional hosted backend.",
+      "toolsAtPinnedVersion": 11,
+      "releaseNote": "This manifest is pinned to 0.18.1, the published version of @vibeflow-tools/cli. That release exposes 11 of the 13 tools: `start_kanban` and `get_integration_guide` are unreleased and land in the next version, so the `tools` count here will not match the current README until this manifest is bumped at release time."
+    }
+  }
+}

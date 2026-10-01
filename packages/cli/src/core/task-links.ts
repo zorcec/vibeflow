@@ -132,8 +132,8 @@ export type AddLinksResult =
 /**
  * Compute the new `links` array for an additive `update_task` merge.
  * Merge semantics — never removes: a link the caller omits from `incoming`
- * stays exactly where it is. Unlike `buildUpdateLinks` (replace), a partial
- * `incoming` array here cannot silently drop a parent or a blocks link.
+ * stays exactly where it is, so a partial `incoming` array cannot silently
+ * drop a parent or a blocks link.
  * - a `taskId`+`type` pair already present (in the existing set, or earlier in
  *   the same payload) is a no-op, so the merge is idempotent and a duplicated
  *   pair in `incoming` is not an error;
@@ -293,63 +293,6 @@ export function validateLinkAddition({
   }
 
   return { ok: true };
-}
-
-export type UpdateLinksResult =
-  | { ok: true; links: TaskLink[] | undefined }
-  // `code` is the producer's, for the reason stated on LinkValidationError
-  // above: the caller must not re-derive why a set was refused. Dropping it
-  // made every refusal of a dangling target read as UPDATE_TASK_ERROR, i.e.
-  // "this call was wrong", when the truth was "that task does not exist".
-  | { ok: false; reason: string; code: string };
-
-/**
- * Compute the new `links` array for `update_task` (MCP).
- * Replace semantics — matching the HTTP PATCH route — so the incoming array
- * becomes the task's full link set and an empty array clears every link.
- * Each link is validated with `validateLinkAddition` against the post-replace
- * state (existing links stripped first, so a parent swap is allowed) and
- * accepted links accumulate so duplicate/cycle checks see earlier entries in
- * the same payload. Rejections reuse the --set-parent wording.
- */
-export function buildUpdateLinks({
-  allTasks,
-  taskId,
-  incoming,
-}: {
-  allTasks: Task[];
-  taskId: string;
-  incoming: TaskLink[];
-}): UpdateLinksResult {
-  const task = allTasks.find((t) => t.id === taskId);
-  if (!task)
-    return {
-      ok: false,
-      reason: `Task not found: ${taskId}`,
-      code: "TASK_NOT_FOUND",
-    };
-
-  // Replace semantics: empty array clears every link.
-  if (incoming.length === 0) return { ok: true, links: undefined };
-
-  const accepted: TaskLink[] = [];
-  let working = allTasks.map((t) =>
-    t.id === taskId ? { ...t, links: undefined } : t,
-  );
-  for (const link of incoming) {
-    const validation = validateLinkAddition({
-      allTasks: working,
-      fromId: taskId,
-      toId: link.taskId,
-      type: link.type,
-    });
-    if (!validation.ok) return validation;
-    accepted.push(link);
-    working = working.map((t) =>
-      t.id === taskId ? { ...t, links: [...accepted] } : t,
-    );
-  }
-  return { ok: true, links: accepted };
 }
 
 /** Walk parent chain upward to find the top-most ancestor. Cycle-safe (visited-set). */

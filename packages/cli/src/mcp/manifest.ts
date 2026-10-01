@@ -199,7 +199,7 @@ export const mcpOnlyFields: Record<string, string> = {
   "export_prompt.format":
     "output format selector. The CLI has a single fixed prompt format, so the choice is MCP-only.",
   "verify_task.timeoutMs":
-    "per-call verification timeout. The CLI uses the project setting with no per-run override, so bounding one MCP call is MCP-only.",
+    "per-call verification timeout, and the CLI equivalent DOES exist: `vibeflow verify <task-id> --timeout <ms>` bounds one run with the same unit (milliseconds), the same 1000-300000 range and the same 60000 default, through the same AbortSignal the engine already honours. The field is MCP-only in NAME and SHAPE (a camelCase input field with a default vs a `--timeout` flag that also defaults), not in capability. Kept because the dashed form G5 looks for is `--timeout-ms`, which is not a flag anyone types.",
 };
 
 // ── Tool Definitions ───────────────────────────────────────────────────────
@@ -429,7 +429,7 @@ export const manifest: ToolManifest[] = [
       "Run visual verification on a task. Captures baseline and compares.",
     cliRef: {
       command: "verify",
-      flags: ["--json", "--url"],
+      flags: ["--json", "--url", "--timeout"],
     },
     category: "task-mutate",
     annotations: {

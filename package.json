@@ -22,7 +22,8 @@
     "lint": "pnpm run lint:symbols && pnpm -r run lint",
     "scan:secrets": "gitleaks detect --source . --staged --verbose",
     "scan:secrets:full": "gitleaks detect --source . --verbose",
-    "check": "pnpm run lint:symbols && pnpm --filter @vibeflow-tools/cli run lint",
+    "check": "pnpm run lint:symbols && pnpm --filter @vibeflow-tools/cli run lint && pnpm run check:parity",
+    "check:parity": "pnpm --filter @vibeflow-tools/cli run test tests/unit/mcp/drift.test.ts",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
     "prepare": "husky"
   },

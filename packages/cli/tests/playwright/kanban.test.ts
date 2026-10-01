@@ -16,10 +16,18 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
 import type { ServeInstance } from "../../src/server/server.js";
+import { getFreePort } from "../ports.js";
 
-const PORT = 3897;
-const BASE = `http://localhost:${PORT}`;
-const API = `http://localhost:${PORT}/api/tasks`;
+/**
+ * Ports are NOT hardcoded: `getFreePort()` probes and releases, so a fixed
+ * 3897/3898 can still be taken — by a sibling spec's retry, or by a leftover
+ * process from a previous run — and the whole file then dies in `beforeAll`
+ * with `EADDRINUSE`. Assigned in `beforeAll` and read by the tests afterwards,
+ * so every BASE/API/url below stays a runtime value.
+ */
+let PORT = 0;
+let BASE = "";
+let API = "";
 
 async function openAddTask(page: Page, columnId: string) {
   await page.click(`[data-column-id='${columnId}'] button[title^='Add task']`);
@@ -118,12 +126,36 @@ describe("Kanban board", () => {
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-kanban-pw-"));
 
-    // Serve with no HTML file — API-only mode, kanban route registered
-    instance = await serve(undefined, {
-      port: PORT,
-      open: false,
-      projectDir: tempDir,
-    });
+    // Serve with no HTML file — API-only mode, kanban route registered.
+    // Bounded retry on EADDRINUSE: `getFreePort()`'s probe-then-bind window is
+    // real under the 4-8 fork pool, so a fresh port is asked for on collision
+    // instead of failing the file. Mirrors the boot in
+    // verify-page-wide.test.ts. A failed `serve()` opened nothing, but a
+    // success on a later attempt is tracked so every opened instance is
+    // closed by `afterAll` rather than only the last one.
+    const opened: ServeInstance[] = [];
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        PORT = await getFreePort();
+        const booted = await serve(undefined, {
+          port: PORT,
+          open: false,
+          projectDir: tempDir,
+        });
+        opened.push(booted);
+        instance = booted;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!instance) {
+      await Promise.all(opened.map((i) => i.close()));
+      throw lastErr;
+    }
+    BASE = `http://localhost:${PORT}`;
+    API = `${BASE}/api/tasks`;
 
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
@@ -2838,16 +2870,39 @@ describe("Task reference navigation", () => {
   let page: Page;
   let tempDir: string;
   let instance: ServeInstance;
+  let refBase = "";
+  let refApi = "";
   let taskAId: string;
   let taskBId: string;
 
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-refnav-pw-"));
-    instance = await serve(undefined, {
-      port: 3898,
-      open: false,
-      projectDir: tempDir,
-    });
+    // Same ephemeral-port + bounded EADDRINUSE retry as the first describe
+    // block; every opened instance is tracked so `afterAll` closes them all.
+    const opened: ServeInstance[] = [];
+    let lastErr: unknown;
+    let port = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        port = await getFreePort();
+        const booted = await serve(undefined, {
+          port,
+          open: false,
+          projectDir: tempDir,
+        });
+        opened.push(booted);
+        instance = booted;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!instance) {
+      await Promise.all(opened.map((i) => i.close()));
+      throw lastErr;
+    }
+    refBase = `http://localhost:${port}`;
+    refApi = `${refBase}/api/tasks`;
 
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext({
@@ -2857,7 +2912,7 @@ describe("Task reference navigation", () => {
     page = await context.newPage();
 
     // Create two tasks: Task A references Task B in its description.
-    const resA = await fetch("http://localhost:3898/api/tasks", {
+    const resA = await fetch(`${refApi}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2869,7 +2924,7 @@ describe("Task reference navigation", () => {
     });
     taskAId = ((await resA.json()) as { task?: { id: string } }).task?.id ?? "";
 
-    const resB = await fetch("http://localhost:3898/api/tasks", {
+    const resB = await fetch(`${refApi}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2885,13 +2940,13 @@ describe("Task reference navigation", () => {
     expect(taskBId).toBeTruthy();
 
     // Update Task A to reference Task B using the current full-length markdown contract.
-    await fetch(`http://localhost:3898/api/tasks/${taskAId}`, {
+    await fetch(`${refApi}/${taskAId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ description: `See also: #${taskBId}` }),
     });
 
-    await page.goto("http://localhost:3898/kanban");
+    await page.goto(`${refBase}/kanban`);
     await page.waitForSelector("#kanban-board");
   });
 
@@ -2988,7 +3043,7 @@ describe("Task reference navigation", () => {
 
   it("does not convert short task ID prefixes into task reference links", async () => {
     // Update Task A description to use a short prefix that should remain plain text.
-    await fetch(`http://localhost:3898/api/tasks/${taskAId}`, {
+    await fetch(`${refApi}/${taskAId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3011,13 +3066,13 @@ describe("Task reference navigation", () => {
 
   it("supports multiple jump levels (A → B → A via task ref in B description)", async () => {
     // Add a back-reference in Task B to Task A
-    await fetch(`http://localhost:3898/api/tasks/${taskBId}`, {
+    await fetch(`${refApi}/${taskBId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ description: `Back-ref to Alpha: #${taskAId}` }),
     });
 
-    await fetch(`http://localhost:3898/api/tasks/${taskAId}`, {
+    await fetch(`${refApi}/${taskAId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ description: `See also: #${taskBId}` }),
