@@ -17,3 +17,20 @@ onlyBuiltDependencies:
 # from the "pnpm" field in package.json.
 overrides:
   "fast-uri": "^3.1.7"
+  # glob@10.5.0 -> minimatch@9.0.9 -> brace-expansion@2.1.4, a dev-only chain
+  # via @vitest/coverage-v8 > test-exclude. The root package.json floor of
+  # ">=5.0.11" cannot cover it: forcing the 2.x line onto 5.x is a major bump
+  # under minimatch@9. 2.1.6 is the patched release for GHSA-1240105 and
+  # GHSA-1240109, so pin within 2.x rather than jumping majors.
+  "minimatch@9>brace-expansion": "^2.1.7"
+  # undici resolves to 7.29.0 under cheerio's "^7.19.0", one patch below the
+  # 7.29.1 that fixes GHSA-w293-vg96-wgc3. This is a RUNTIME dependency, so it
+  # ships to users. The root package.json "overrides" block carries a
+  # "undici": ">=7.29.0" floor that looks like it covers this, but pnpm v11
+  # ignores that block entirely -- the resolution stayed at 7.29.0 with the
+  # floor set. It has to live here to do anything.
+  "undici": "^7.29.1"
+  # 5.0.9 was the previous floor and is now itself vulnerable
+  # (GHSA-1240107 / GHSA-1240111). Scoped to the 5.x line so it cannot fight
+  # the minimatch@9 > brace-expansion override above, which stays on 2.x.
+  "brace-expansion@5": "^5.0.11"
