@@ -3,7 +3,7 @@
   "name": "tools.vibeflow/vibeflow",
   "title": "Vibeflow",
   "description": "Kanban task board over MCP for your own repo. Click any element to get a ticket with its selector.",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "websiteUrl": "https://www.vibeflow.tools",
   "repository": {
     "url": "https://github.com/zorcec/vibeflow",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@vibeflow-tools/cli",
-      "version": "0.18.1",
+      "version": "0.19.0",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
@@ -53,8 +53,8 @@
       "longDescription": "Vibeflow gives an AI coding agent a Kanban board over the user's own repository: click any element in their app and it becomes a ticket carrying that element's CSS selector, URL, source file and line. Tasks, progress and verification then live in one place instead of being scattered across a chat transcript. It runs locally over stdio, needs no account and no API key, and there is no hosted service to sign up for.",
       "transport": "stdio, one process per project. An HTTP transport also exists (vibeflow serve, MCP at /api/mcp) but it is a local loopback server, not a public endpoint, so this manifest declares no remotes.",
       "authentication": "None. Local-first: no login is required and no API key is needed. `vibeflow login` exists but is optional and only applies to the optional hosted backend.",
-      "toolsAtPinnedVersion": 11,
-      "releaseNote": "This manifest is pinned to 0.18.1, the published version of @vibeflow-tools/cli. That release exposes 11 of the 13 tools: `start_kanban` and `get_integration_guide` are unreleased and land in the next version, so the `tools` count here will not match the current README until this manifest is bumped at release time."
+      "toolsAtPinnedVersion": 13,
+      "releaseNote": "This manifest is pinned to 0.19.0, the published version of @vibeflow-tools/cli. Verified against the published tarball (`npm pack @vibeflow-tools/cli@0.19.0`), not the repository: all 13 tools are present, including `start_kanban` and `get_integration_guide`, which shipped in this release. The `tools` count here therefore matches the README."
     }
   }
 }
