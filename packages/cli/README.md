@@ -143,7 +143,7 @@ though JSON-RPC reserves `-32601` for "method not found":
 | what you sent | the message names | the remedy |
 | --- | --- | --- |
 | arguments the tool's schema rejects | **the offending field** (`… at title`) | send that field, with the type the schema asks for |
-| a tool name that does not exist | **the tool** | read `tools/list`; the name you sent is not one of the 11 |
+| a tool name that does not exist | **the tool** | read `tools/list`; the name you sent is not one this server exposes |
 
 #### The schema-error class (`-32602`) — no vibeflow code, by design
 
