@@ -1,5 +1,159 @@
 # Changelog
 
+## 0.19.0
+
+### Minor Changes
+
+- 9d9b417: Add `--relates`, `--blocks`, `--unrelates` and `--unblocks` to `vibeflow tasks --edit`, closing the last real capability gap between the CLI and MCP.
+
+  `relates` and `blocks` links were settable **only** over MCP. The CLI could set or clear a parent and nothing else, so a user working in the terminal could not express a relationship the MCP surface supported. All four flags are repeatable, accept a full id or a prefix, and route through the same `buildAddLinks` / `buildRemoveLinks` helpers that `update_task`'s `addLinks` / `removeLinks` use — so the two surfaces produce identical results by construction, not by coincidence.
+
+  Every flag is additive and surgical: naming one link never touches another. That is the whole guarantee `--set-parent` already gave, now extended to the other two link types.
+
+  ```bash
+  # add, keeping the parent and everything else intact
+  vibeflow tasks --edit <id> --relates <other> --blocks <other>
+
+  # remove exactly one, leaving the rest alone
+  vibeflow tasks --edit <id> --unrelates <other>
+  ```
+
+  Re-adding an existing link is a no-op, and an unknown target is refused `TASK_NOT_FOUND` without writing.
+
+  The replace-semantics `links` field stays MCP-only on purpose: every CLI flag here preserves links it does not name, and a human should not be handed a flag that deletes what it omits.
+
+  ### Parity quality gate
+
+  Adds two gates that close the loop the existing `G1` could not, plus a semantic-parity suite that compares **outcomes** rather than names.
+
+  - **G5** — walks every MCP tool input field and fails if it maps to no CLI flag and is not classified in a new `mcpOnlyFields` export. G1 only walked the CLI; it never asked whether an MCP field corresponded to anything a CLI user can type. That blind spot is how `update_task` shipped `cliRef: ["--set-parent"]` — surgical flags — beside a destructive whole-set `links` replace, and every gate stayed green.
+  - **Stale-entry guard** — `mcpOnlyFields` fails on an entry naming a field that no longer exists, and on a reason under 20 characters. An unexamined exemption reads as reviewed, which is worse than a missing one.
+  - **Semantic parity** (`mcp-cli-parity.test.ts`) — drives both surfaces from identical starting state and compares the resulting links on disk: parent swap, cycle refusal, idempotence, and the CLI/MCP link flags agreeing field for field. One test deliberately **pins** the `links` divergence so it cannot regress unnoticed.
+
+  G5 caught a real manifest bug on its first run: `attach_file`'s `cliRef` named only `--report-file`, omitting `--edit` and `--set-status`, though the real CLI form is `tasks --edit <id> --set-status review --report-file <path>`. Fixed.
+
+  Tests: unit 1560, e2e 345 (1 pre-existing skip), `tsc --noEmit` clean.
+
+- 1c06093: MCP `update_task`: `links` now MERGES, and `clearLinks` is the only destructive path.
+
+  `links` used to REPLACE the whole link set — any link you omitted was deleted, with no error. That made the natural agent move, "read a task, add one link", a way to silently destroy a parent. The CLI never had this problem: `--set-parent`, `--relates` and `--blocks` are all surgical.
+
+  The MCP surface now matches. `links` and `addLinks` both merge (re-sending a link already present is a no-op), `removeLinks` removes exactly the pairs you name, and `clearLinks: true` is the only way to remove links wholesale. `links: []` is refused with `E_USAGE` pointing at `clearLinks` rather than treated as a no-op, because under merge an empty array is almost certainly a client that still expects replace semantics — and silently doing nothing is the worst of the three possible outcomes.
+
+  The four fields are no longer mutually exclusive. Applied in a defined order: `clearLinks`, then the merge, then `removeLinks`. Sending `links` and `addLinks` together is a union, deduped.
+
+  This is a breaking wire change to a published tool. `ok` is unaffected, and every existing refusal (self-link, dangling target, cycle, second parent) keeps its code and wording.
+
+  ### `vibeflow tasks --add` can now create an annotated task
+
+  `--url`, `--selector` and `--sort-key` join `--add`. Until now an annotated task — the thing this product exists to produce — could only be created over MCP; the terminal could not express it at all.
+
+  A bad `--url` is refused with the existing `E_USAGE` envelope before anything is written, matching how `--parent` refuses a dangling target. Passing no new flags leaves existing behaviour byte-identical. The dry-run preview shows every field the write would set.
+
+  Also closes three `mcpOnlyFields` gaps recorded by the G5 parity gate.
+
+  Tests: unit 1566, e2e 351 passed / 1 skipped (pre-existing), `tsc --noEmit` clean. The G5 gate now asserts `links` MERGE and fails if the description drifts back to promising replacement.
+
+- 3280e6f: Add two MCP tools — `start_kanban` and `get_integration_guide` — so an MCP client can reach the kanban board and the overlay integration guide, which until now existed only on the CLI and HTTP surfaces.
+
+  `start_kanban` starts the board server and returns the instruction block the CLI prints: the kanban URL, the localhost URL when bound to `0.0.0.0`, the agent prompt, and the integration guide. It is a singleton — a second call returns the instance the first started rather than fighting it for the port (which is what backs its `idempotentHint`), and concurrent calls coalesce on the in-flight bind. A port already held by another process is a clean `KANBAN_PORT_IN_USE` refusal, not a raw stack. It defaults to port 3700, matching `vibeflow serve`, and accepts `port`, `host`, and `dryRun`.
+
+  `get_integration_guide` returns the overlay/bookmarklet instructions and works whether or not the server is running: live URLs from the running instance, or the default port plus an explicit "not running, call `start_kanban` first" signal. Read-only.
+
+  Three changes underneath:
+
+  **One guide builder.** The startup guide was spelled out inline in two `console.log` blocks in `server.ts`, a third time as HTML on `/inject`, and a fourth time in the `vibeflow kanban` command. It is now built once in `server/startup-guide.ts` and derived everywhere. Human-facing output is byte-identical — verified by capturing all 8 startup modes (local, LAN-dual, no-Ctrl-C, online, online-dual, and both HTML-target modes) plus 3 `/inject` page renderings before and after the refactor and diffing them.
+
+  **stdout suppression for programmatic callers.** Under the MCP stdio transport stdout _is_ the JSON-RPC channel, so `serve()`'s guide would have corrupted the protocol stream. `ServeOptions.quiet` suppresses it and the guide is read from `ServeInstance.guide` instead — the same hazard and the same precedent as `announceProjectRoot` in `src/index.ts`. The human CLI path is untouched.
+
+  **A pre-existing `serve()` bug, fixed.** A port collision did not reject the promise `serve()` returns: `WebSocketServer({ server })` re-emits the HTTP server's `error` event on itself, and an EventEmitter `error` with no listener throws — so the caller hung forever instead of learning the port was taken. `createBaseServer()` now installs a `wss.on("error")` handler, which is what makes the `KANBAN_PORT_INUSE` refusal possible at all.
+
+### Patch Changes
+
+- 11cc93f: Make "drop after this card" reachable again on the Kanban board.
+
+  While a drag is active every childless card renders the dashed **Drop to add as
+  first child** slot inside its `<article>`, and `classifyForDropIntent` measured
+  that whole article. The article rect therefore included the slot, which pushed
+  the 'after' band off the card and onto the slot itself: the bottom band began
+  _below_ the card content, so aiming at the lower part of a hovered card always
+  resolved to make-child. Measured on a real board, a card's article spanned
+  250–334px with the 'after' band starting at y>302 — while the slot occupied
+  305–329. There was no 'drop after' gesture to aim at; the only reachable
+  outcomes were "before" (top band) and "make child".
+
+  Classification now runs against the card's **content** rect — the article minus
+  the drop slot — so the bands stay on the card: the top band, the centre
+  make-child zone and the bottom 'after' band are all reachable, including on
+  short cards. A cursor on the slot itself stays centre/make-child, which is what
+  the slot is for. A drag with no slot rendered classifies exactly as before, and
+  the make-child pill keeps its existing behaviour (only a cursor that has left
+  the card pins to centre).
+
+  Fixes the classification only — the slot still occupies layout while a drag is
+  active, so cards below the drag source still shift down slightly. Covered by
+  `classify-for-drop-intent.test.ts`, a `KanbanBoard.dnd` case that drives a real
+  drop with the slot mounted, and a new `dnd-all-surfaces` "Surface 5" browser
+  test that drags onto a card's bottom band and asserts a reorder (it linked a
+  parent before this fix).
+
+- 2cbbd38: Add `addLinks` / `removeLinks` to `update_task`, so changing links no longer
+  requires a destructive whole-set replace.
+
+  `links` keeps its replace semantics (HTTP PATCH parity) — the array becomes the
+  full link set, an empty array clears everything, and **any link you omit is
+  deleted**. Omitting the field leaves links untouched. That made the only way to
+  add one link an easy way to destroy another: adding a `blocks` link to a task
+  that had a `parent` silently detached the task from its parent, with no error.
+  `addLinks` (merge, idempotent, preserves everything it does not name) and
+  `removeLinks` (removes exactly the named `taskId`+`type` pairs) mirror the
+  CLI's surgical `--set-parent` / `--no-parent`, which never dropped unrelated
+  links. `links` combined with either is refused `E_USAGE` rather than guessed.
+  `relates` and `blocks` remain reachable on both surfaces.
+
+  Surface an error-class notice at the top level. A task transition whose git
+  auto-commit fails still answers `ok:true`, correctly — the task file was
+  written and the status really changed; only the commit did not. But `notices`
+  is where that failure lived, and a client checking one scalar never saw it.
+  `successPayload` now also emits `committed: false` when a notice is
+  error-class (`GIT_COMMIT_FAILED` today; informational codes such as
+  `DRY_RUN`, `GIT_COMMITTED`, `PUSH_COMPLETED` and `NOTHING_TO_PUSH` are
+  excluded). Purely additive: `ok`, `notices` and every existing payload shape
+  are unchanged, and the key is omitted entirely when there is nothing to report.
+
+  `update_task`'s tool description now states the deletion hazard explicitly and
+  maps `links` / `addLinks` / `removeLinks` to their CLI counterparts.
+
+  Covered by `mcp-link-modes.test.ts` (14 cases over the real HTTP MCP
+  transport, asserting on-disk links rather than the return value), plus
+  `success-payload-committed.test.ts` and `task-links.test.ts`.
+
+- 95bc9f6: Give `verify`'s page-wide path a test that actually runs, and delete the skipped twin that hid it.
+
+  `tests/e2e/verify-page-wide.test.ts` was `describe.skip`'d and had never executed a
+  single assertion: it used CJS `__dirname` under ESM, so it could not even be collected,
+  and its `beforeAll` execSync'd the never-exiting `kanban` server on a hardcoded port
+  before `lsof`-killing it. It also asserted against a task id nothing generates
+  (`E_NOT_FOUND`), a task with no url and no selector (`E_NO_URL` / `E_NO_BASELINE`),
+  and `JSON.parse`d `verify`'s stdout — which begins with the human `printResult` banner,
+  so the parse could never have worked. That file is deleted, not left skipped: a skipped
+  spec inside a green run is what let the gap go unnoticed.
+
+  `tests/playwright/verify-page-wide.test.ts` replaces it with a harness that runs against
+  a real board and a real chromium: a task created through the CLI (keeping the id the CLI
+  really generated), annotated with a url and selector, baselined by capturing both the
+  element and the page-wide snapshot in a browser and POSTing them to the server's own
+  `/baseline` and `/baseline-page` endpoints. The assertions are on the evidence a real
+  run produces — `verify-all-styles.json` with the card's back-filled baseline, the
+  `verify-page-diff.json` that is only written when a page baseline exists, a real PNG
+  screenshot — plus the page-wide query tools (`html_query` text/children/attributes,
+  `style_query`, `style_diff`, `element_info`) run over that evidence. Both URL-resolution
+  branches are covered: a relative `task.url` resolved through the project config's port,
+  and an absolute one used verbatim, proven by pointing it at a path the board does not
+  serve and watching the selector stop resolving.
+
+  Test-only change: no runtime behaviour, no CLI output, no new dependency.
+
 ## 0.18.1
 
 ### Patch Changes
