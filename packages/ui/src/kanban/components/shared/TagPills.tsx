@@ -23,6 +23,12 @@ export function TagPills({ tags, onRemove, size = 'sm' }: Props) {
         return (
           <span
             key={tag}
+            // Stable hook for tests. Text-based lookups for a tag are ambiguous:
+            // the same string appears in the pill, in the card, and in the
+            // "Task saved" toast (which quotes the task TITLE), so
+            // `getByText("my-new-tag")` could resolve to any of them.
+            data-testid="tag-pill"
+            data-tag={tag}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
               padding, borderRadius: 100,

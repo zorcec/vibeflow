@@ -4060,7 +4060,12 @@ program
 program
   .command("status", { hidden: true })
   .description("Show login status, connection info, and task statistics")
-  .action(async () => {
+  .option("--json", "Emit machine-readable JSON instead of the human summary")
+  .action(async (opts: { json?: boolean }) => {
+    // `--json` exists because `status` grew non-zero exits (see the SaaS branch
+    // below). The json-refusal guard requires every non-zero exit to speak the
+    // envelope, and the honest way to satisfy that is to give the command a
+    // json surface rather than to allowlist the exits away.
     const mode = await getMode();
 
     if (mode === "local") {
@@ -4113,16 +4118,87 @@ program
       if (workspace.email)
         console.log(chalk.dim(`  Email:   ${workspace.email}`));
       console.log(chalk.dim(`  URL:     `) + chalk.cyan(workspace.url));
+    } else {
+      // Logged in but no board bound. Saying "Online" and then complaining
+      // about the connection (which is what happened next, historically) sent
+      // people chasing a network problem that did not exist.
+      console.log(chalk.yellow("  No board selected yet."));
     }
     console.log();
 
     const saasData = await fetchSaasTasks(workspace?.id);
     if (!saasData.ok) {
-      console.log(
-        chalk.yellow(
-          "  ⚠  Could not reach SaaS backend. Check your connection.",
-        ),
-      );
+      // Three genuinely different situations, previously all reported as
+      // "Could not reach SaaS backend. Check your connection." — which is
+      // wrong for two of them and sent users debugging the wrong layer:
+      //
+      //   NOT_AUTHENTICATED  the stored token is gone/revoked  → re-login
+      //   NETWORK_ERROR      the request never completed      → connection
+      //   anything else      the server answered with an error → the server
+      if (saasData.error.code === "NOT_AUTHENTICATED") {
+        if (opts.json) {
+          outputEnvelope({
+            ok: false,
+            code: "AUTH",
+            message: "Not logged in.",
+            suggestion: "vibeflow login",
+            json: true,
+          });
+        } else {
+          console.log(
+            chalk.yellow("  ⚠  Not logged in. Run ") +
+              chalk.cyan("vibeflow login") +
+              chalk.yellow(" again."),
+          );
+        }
+        process.exitCode = ExitCode.AUTH;
+        return;
+      }
+
+      if (saasData.error.code === "NETWORK_ERROR") {
+        if (opts.json) {
+          outputEnvelope({
+            ok: false,
+            code: "NETWORK",
+            message: "Could not reach SaaS backend.",
+            retryable: true,
+            suggestion: "Check your connection, then retry.",
+            json: true,
+          });
+        } else {
+          console.log(
+            chalk.yellow(
+              "  ⚠  Could not reach SaaS backend. Check your connection.",
+            ),
+          );
+        }
+        process.exitCode = ExitCode.GENERAL;
+        return;
+      }
+
+      if (!workspace) {
+        // A perfectly healthy state: signed in, no board chosen yet, and the
+        // backend demonstrably answered (we got an HTTP error, not a network
+        // error, which is why we are here rather than in the branch above).
+        // Report it plainly and succeed — the user has done nothing wrong and
+        // there is no failure to signal.
+        console.log(chalk.dim("  Skipped task counts — no board selected yet."));
+        return;
+      }
+
+      if (opts.json) {
+        outputEnvelope({
+          ok: false,
+          code: "API_ERROR",
+          message: saasData.error.message,
+          json: true,
+        });
+      } else {
+        console.log(
+          chalk.yellow(`  ⚠  SaaS request failed: ${saasData.error.message}`),
+        );
+      }
+      process.exitCode = ExitCode.GENERAL;
       return;
     }
 

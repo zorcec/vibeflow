@@ -88,6 +88,8 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
     serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
+    status:
+      "prints login state, connection info and task counts for a human; its --json form is for shell scripting, and no MCP tool needs a synchronous health probe — every tool reports its own errors",
     watch: "long-running task-store event daemon / JSONL stream; not an operation",
   },
   flags: {

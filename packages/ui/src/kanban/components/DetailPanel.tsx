@@ -416,7 +416,39 @@ export function DetailPanel({
       // Load files eagerly so the details tab screenshot preview is always up to date
       void loadFiles(task.id);
     }
-    setTimeout(() => titleInputRef.current?.focus(), 50);
+
+    // Focus the title — but never by taking focus away from a control the user
+    // (or the browser) has already put focus on.
+    //
+    // This used to be an unconditional `setTimeout(focus, 50)`, which fired on
+    // EVERY [open, task?.id, tab] change. Two real bugs came out of that:
+    //   1. Open a task, click the Tags input, and 50ms later focus jumped back
+    //      to the title — mid-click, mid-typing.
+    //   2. Anything that dispatches text into the focused element (a fast
+    //      typist, an IME, an autofill, a test driver) had its characters
+    //      delivered to the title instead, silently renaming the task. That one
+    //      was reproducible ~1 run in 3 in the web e2e suite and corrupted real
+    //      rows: "Tag Test Task" became "Tag Test Taskmy-new-tag".
+    //
+    // The panel autofocuses its own comment box on open, so "focus is inside
+    // the panel" is not by itself evidence of a user claim — that one is
+    // excluded by id, otherwise the title would never be focused at all.
+    const focusTimer = setTimeout(() => {
+      const input = titleInputRef.current;
+      if (!input) return;
+      const active = document.activeElement;
+      const isPanelOwnDefaultFocus = active?.id === "dp-comment-input";
+      if (
+        active &&
+        active !== document.body &&
+        !isPanelOwnDefaultFocus &&
+        panelRef.current?.contains(active)
+      ) {
+        return;
+      }
+      input.focus();
+    }, 50);
+    return () => clearTimeout(focusTimer);
   }, [open, task?.id, tab]);
 
   // Load content when switching tabs
@@ -844,7 +876,9 @@ export function DetailPanel({
 
   return (
     <>
-      <aside id="detail-panel" className="open" ref={panelRef}>
+      // `data-role` mirrors the id so specs can address the panel the same way
+      // they address every other region of the board.
+      <aside id="detail-panel" data-role="detail-panel" className="open" ref={panelRef}>
         {remoteLocked && (
           <div
             style={{

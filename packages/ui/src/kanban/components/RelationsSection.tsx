@@ -260,7 +260,7 @@ export default function RelationsSection({
               CHILDREN · {groups.children.length}
             </span>
           </div>
-          <div className="relation-group-rows">
+          <div className="relation-group-rows" data-role="relation-group-rows">
             <RecursiveChildrenTree
               parentId={task.id}
               allTasks={safeTasks}

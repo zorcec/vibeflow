@@ -184,6 +184,8 @@ export function ChildRow({
                     {childCount && childCount > 0 ? (
                         <span
                             className="parent-count-chip"
+                            // Stable test hook: the nested-child count chip.
+                            data-role="child-count"
                             title={`${childCount} direct children`}
                         >
                             ⊃ {childCount}

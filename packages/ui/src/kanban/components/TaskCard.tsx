@@ -266,6 +266,10 @@ export const TaskCard = React.memo(function TaskCard({
                   <article
                         className="task-card"
                         draggable
+                        // Stable test hook. The e2e parent-links suite waits on
+                        // `[data-role="task-card"]`; without it the wait timed
+                        // out on a board that was rendering perfectly well.
+                        data-role="task-card"
                         data-task-id={task.id}
                         data-compact={compact ? "true" : undefined}
                         style={{
@@ -334,6 +338,7 @@ export const TaskCard = React.memo(function TaskCard({
             <article
                   className={`task-card${liveActivity ? " task-live-edit" : ""}`}
                   draggable
+                  data-role="task-card"
                   data-task-id={task.id}
                   data-blocked={blockers.length > 0 ? "true" : undefined}
                   title={
@@ -563,7 +568,13 @@ export const TaskCard = React.memo(function TaskCard({
                                     role="button"
                                     tabIndex={0}
                                     className="child-toggle-chip"
+                                    // Two hooks on purpose: `children-toggle` is
+                                    // the action, `child-chip` is the visual
+                                    // chip. Specs that assert "the chip shows N"
+                                    // should not have to know it is also the
+                                    // button.
                                     data-role="children-toggle"
+                                    data-child-chip="true"
                                     draggable={false}
                                     aria-expanded={expanded}
                                     title={`${childCount} direct · ${getDescendants(allTasks, task.id).length} in tree — activate to ${expanded ? "collapse" : "expand"}`}
