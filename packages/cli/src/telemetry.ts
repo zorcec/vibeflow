@@ -4,6 +4,11 @@
  * Opt-out (default: enabled):
  *   - Set env var:  VIBEFLOW_TELEMETRY=0
  *   - Run command:  vibeflow telemetry --disable
+ *   - Test runs:    disabled automatically when VITEST is set or
+ *     NODE_ENV=test (tests that override HOME would otherwise mint a fresh
+ *     anonymous id per run against the production PostHog project).
+ *     Escape hatch for tests exercising the enabled path itself:
+ *     VIBEFLOW_TELEMETRY_ALLOW_IN_TESTS=1
  *
  * Privacy guarantees:
  *   - No PII: username is hashed (SHA-256, first 16 hex chars).
@@ -66,6 +71,16 @@ function writeConfig(updates: Partial<TelemetryConfig>): void {
 
 export function isTelemetryEnabled(): boolean {
   if (process.env.VIBEFLOW_TELEMETRY === "0") return false;
+  // Test-env guard: a test file that forgets the opt-out must not leak.
+  // Vitest sets VITEST (inherited by spawned CLI subprocesses); NODE_ENV=test
+  // covers runners that clear VITEST. Config semantics tests opt back in with
+  // VIBEFLOW_TELEMETRY_ALLOW_IN_TESTS=1.
+  if (
+    process.env.VIBEFLOW_TELEMETRY_ALLOW_IN_TESTS !== "1" &&
+    (process.env.VITEST !== undefined || process.env.NODE_ENV === "test")
+  ) {
+    return false;
+  }
   return readConfig().disabled !== true;
 }
 

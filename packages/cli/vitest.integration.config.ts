@@ -8,6 +8,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/integration/**/*.test.ts"],
+    setupFiles: ["./tests/setup/disable-telemetry.ts"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
     testTimeout: 20000,
