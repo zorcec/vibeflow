@@ -33,6 +33,7 @@ import {
   TASK_NOT_FOUND_SUGGESTION,
 } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
+import { git } from "../../helpers/hermetic-git.js";
 
 /**
  * The verify engine shells out to Playwright. Mocked here so a dry run that
@@ -536,15 +537,9 @@ describe("success payload carries notices", () => {
     // told the client the commit had happened.
     writeSettings({ autoCommit: true, createBranch: false, requireVerifyBeforeReview: false });
     createTestTask({ id: "task-1", status: "in-progress" });
-    execFileSync("git", ["init", "-q"], { cwd: testDir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "mcp@example.test"], {
-      cwd: testDir,
-      stdio: "ignore",
-    });
-    execFileSync("git", ["config", "user.name", "MCP Test"], {
-      cwd: testDir,
-      stdio: "ignore",
-    });
+    git(["init", "-q"], testDir);
+    git(["config", "user.email", "mcp@example.test"], testDir);
+    git(["config", "user.name", "MCP Test"], testDir);
 
     const parsed = await callThroughServer("update_task", {
       id: "task-1",

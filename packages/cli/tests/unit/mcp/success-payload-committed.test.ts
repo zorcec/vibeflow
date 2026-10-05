@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import type { Task } from "../../../src/core/types.js";
+import { git } from "../../helpers/hermetic-git.js";
 
 let testDir: string;
 
@@ -56,13 +57,13 @@ let taskPath: string;
 
 /** A real git repo with an identity, so auto-commit reaches a real refusal. */
 function initGitRepo(): void {
-  execFileSync("git", ["init", "-q"], { cwd: testDir, stdio: "ignore" });
+  git(["init", "-q"], testDir);
   for (const [key, value] of [
     ["user.email", "mcp@example.test"],
     ["user.name", "MCP Test"],
     ["commit.gpgsign", "false"],
   ]) {
-    execFileSync("git", ["config", key, value], { cwd: testDir, stdio: "ignore" });
+    git(["config", key, value], testDir);
   }
 }
 
@@ -210,7 +211,7 @@ describe("informational notices leave the key absent", () => {
     createTestTask({ id: "task-1", status: "in-progress" });
     initGitRepo();
     // Stage the task file so commitTaskChanges finds scoped staged paths.
-    execFileSync("git", ["add", taskPath], { cwd: testDir, stdio: "ignore" });
+    git(["add", taskPath], testDir);
 
     const parsed = await callThroughServer("update_task", {
       id: "task-1",

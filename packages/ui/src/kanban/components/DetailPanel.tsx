@@ -874,10 +874,16 @@ export function DetailPanel({
 
   const remoteLocked = !isAdd && !!lockedByUser;
 
+  // `data-role` mirrors the id so specs can address the panel the same way
+  // they address every other region of the board.
+  //
+  // This note sits ABOVE the return on purpose. It was previously the first two
+  // children of the fragment below, where `//` is not a comment at all — JSX
+  // treats it as literal text, so the panel rendered it as visible copy above
+  // the header (vibeflow task fb876c20). Use {/* */} for notes that must live
+  // inside JSX.
   return (
     <>
-      // `data-role` mirrors the id so specs can address the panel the same way
-      // they address every other region of the board.
       <aside id="detail-panel" data-role="detail-panel" className="open" ref={panelRef}>
         {remoteLocked && (
           <div
