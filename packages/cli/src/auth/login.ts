@@ -335,12 +335,23 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
   console.log(chalk.underline(`  ${verificationUrl}`));
   console.log();
 
-  // Try to open the browser automatically
-  try {
-    await open(verificationUrl);
-    console.log(chalk.dim("  (Browser opened automatically)"));
-  } catch {
-    // Not critical
+  // Try to open the browser automatically.
+  //
+  // Skipped when `VIBEFLOW_NO_BROWSER=1`, or when the process has no TTY — an
+  // unattended process (CI, a script, a test harness) has no business spawning
+  // a browser. Without this, every `vibeflow login` in an automated run opened a
+  // real tab on the developer's desktop, which is both disruptive and a way for
+  // a test suite to leak into the user's session. The URL is printed either way,
+  // so nothing is lost.
+  const canOpenBrowser =
+    process.env.VIBEFLOW_NO_BROWSER !== "1" && process.stdout.isTTY === true;
+  if (canOpenBrowser) {
+    try {
+      await open(verificationUrl);
+      console.log(chalk.dim("  (Browser opened automatically)"));
+    } catch {
+      // Not critical
+    }
   }
 
   // Step 2: Poll for verification

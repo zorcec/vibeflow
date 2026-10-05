@@ -438,3 +438,88 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     expect(process.exitCode).toBe(4);
   });
 });
+
+describe("login — never opens a browser when it should not", () => {
+  /**
+   * `vibeflow login` used to shell out to the `open` package unconditionally,
+   * which on Linux means `xdkg-open` and a REAL browser tab. In CI, in a script
+   * and in the web e2e suite that produced surprise tabs at
+   * `…/cli/verify?code=…` on the developer's desktop, pointing at a throwaway
+   * instance. These lock in the two conditions that prevent it, and — just as
+   * importantly — that the URL is still printed when the browser is suppressed,
+   * so nothing is lost by not opening it.
+   */
+  const realIsTTY = process.stdout.isTTY;
+
+  afterEach(() => {
+    process.stdout.isTTY = realIsTTY;
+    delete process.env.VIBEFLOW_NO_BROWSER;
+    vi.clearAllMocks();
+  });
+
+  async function runLogin() {
+    const { login } = await import("../../../src/auth/login.js");
+    const open = (await import("open")).default as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    // Make the device code expire immediately so login() returns without needing
+    // a browser interaction.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("device-init")) {
+          return {
+            ok: true,
+            json: async () => ({
+              deviceCode: "dev-code",
+              userCode: "ABCD1234",
+              verificationUrl: "http://localhost:3000/cli/verify?code=ABCD1234",
+              expiresIn: 0,
+            }),
+          } as unknown as Response;
+        }
+        return { ok: true, json: async () => ({ expired: true }) } as unknown as Response;
+      }),
+    );
+    await login("/tmp");
+    return open;
+  }
+
+  it("does not open a browser when VIBEFLOW_NO_BROWSER=1", async () => {
+    process.env.VIBEFLOW_NO_BROWSER = "1";
+    process.stdout.isTTY = true;
+    const open = await runLogin();
+    expect(open).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not open a browser when stdout is not a TTY (CI, pipes, harnesses)", async () => {
+    process.stdout.isTTY = false;
+    const open = await runLogin();
+    expect(open).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("still prints the verification URL when the browser is suppressed", async () => {
+    process.env.VIBEFLOW_NO_BROWSER = "1";
+    process.stdout.isTTY = true;
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const open = await runLogin();
+    const printed = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(open).not.toHaveBeenCalled();
+    // Suppressing the browser must not suppress the instructions.
+    expect(printed).toContain("http://localhost:3000/cli/verify?code=ABCD1234");
+    log.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("DOES open a browser for an interactive terminal, when allowed", async () => {
+    delete process.env.VIBEFLOW_NO_BROWSER;
+    process.stdout.isTTY = true;
+    const open = await runLogin();
+    expect(open).toHaveBeenCalledWith(
+      "http://localhost:3000/cli/verify?code=ABCD1234",
+    );
+    vi.unstubAllGlobals();
+  });
+});
