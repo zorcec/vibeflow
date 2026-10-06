@@ -1,5 +1,6 @@
 import React from 'react';
-import type { Comment, FileEntry } from '../../types';
+import type { Comment, FileEntry, TaskStatus } from '../../types';
+import { VERDICT_LANES } from '../VerifyIndicator';
 import { MarkdownPreview } from './MarkdownPreview';
 import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { ConfirmModal } from '../ConfirmModal';
@@ -14,6 +15,10 @@ interface ChangeActivityItem {
   to: string;
   actor: string;
   source?: 'cli' | 'web';
+  /** Status key the transition landed in — the verdict lane gate reads it. */
+  toStatus?: TaskStatus;
+  /** Task's tri-state verdict at transition time; absent = carried none. */
+  verified?: boolean;
 }
 
 interface FileActivityItem {
@@ -37,7 +42,7 @@ interface LifecycleActivityItem {
   author?: string;
 }
 
-type ActivityItem = FileActivityItem | CommentActivityItem | LifecycleActivityItem | ChangeActivityItem;
+export type ActivityItem = FileActivityItem | CommentActivityItem | LifecycleActivityItem | ChangeActivityItem;
 
 /** Minimalistic source indicator (CLI terminal icon) */
 function SourceBadge({ source }: { source?: 'cli' | 'web' }) {
@@ -93,6 +98,74 @@ export interface LocalChange {
   actor: string;
   timestamp: string;
   source?: 'cli' | 'web';
+  /** Status key the transition landed in — the verdict lane gate reads it. */
+  toStatus?: TaskStatus;
+  /**
+   * The task's tri-state `verified` flag as it was at this transition.
+   * Only a transition that actually carried a verdict gets one, so a plain
+   * status change (no verdict on the task) keeps it absent.
+   */
+  verified?: boolean;
+}
+
+/** What a verify entry in the activity feed records (80df86ed). */
+export type VerifyEntryVerdict = 'pass' | 'fail' | 'cannot';
+
+/**
+ * Marker the CLI/MCP writes as a system comment for a `cannot` verdict —
+ * literally `**Cannot verify:** <reason>` (the colon sits INSIDE the bold).
+ * The second alternative tolerates the colon-outside spelling `**Cannot verify**:`.
+ */
+const CANNOT_VERIFY_RE = /^\*\*Cannot verify(?::\*\*|\*\*:)\s*(.+)$/s;
+
+/** Hover text per verdict — what the agent attested, in plain words. */
+const VERIFY_ENTRY_TITLES: Record<VerifyEntryVerdict, string> = {
+  pass: 'Verification verdict: pass — the agent attested this task IS implemented correctly',
+  fail: 'Verification verdict: fail — the agent attested this task is NOT implemented correctly',
+  cannot: 'Verification verdict: cannot — unverifiable here, so no verdict (badge) is recorded',
+};
+
+/** Minimal accent: left border + soft background on existing theme tokens. */
+const VERIFY_ENTRY_ACCENT: Record<VerifyEntryVerdict, React.CSSProperties> = {
+  pass: { borderLeft: '2px solid var(--t-success)', background: 'var(--t-success-soft)' },
+  fail: { borderLeft: '2px solid var(--t-danger)', background: 'var(--t-danger-soft)' },
+  cannot: { borderLeft: '2px solid var(--t-warning)', background: 'var(--t-warning-soft)' },
+};
+
+/**
+ * The verdict this activity entry records, or null when it records none.
+ *
+ * Deliberately narrow (80df86ed): a status change counts ONLY when it carries
+ * the task's tri-state `verified` flag AND landed in a lane that draws a
+ * verdict — `VERDICT_LANES`, imported from VerifyIndicator so the card, the
+ * details pane and the activity feed share one gate. A comment counts ONLY
+ * when it is the system comment `--set-verify cannot` writes. Ordinary comments
+ * and verdict-less status changes stay plain.
+ */
+export function verifyEntryVerdict(item: ActivityItem): VerifyEntryVerdict | null {
+  if (item.kind === 'change') {
+    if (
+      typeof item.verified === 'boolean' &&
+      item.toStatus !== undefined &&
+      VERDICT_LANES.includes(item.toStatus)
+    ) {
+      return item.verified ? 'pass' : 'fail';
+    }
+    return null;
+  }
+  if (
+    item.kind === 'comment' &&
+    item.comment.type === 'system' &&
+    CANNOT_VERIFY_RE.test(item.comment.text)
+  ) {
+    return 'cannot';
+  }
+  return null;
+}
+
+/** Narrow check: does this activity entry record a verification verdict? */
+export function isVerifyEntry(item: ActivityItem): boolean {
+  return verifyEntryVerdict(item) !== null;
 }
 
 interface Props {
@@ -137,6 +210,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
     });
     const changeItems: ActivityItem[] = localChanges.map(c => ({
       kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, actor: c.actor, source: c.source,
+      toStatus: c.toStatus, verified: c.verified,
     }));
     return [...items, ...commentItems, ...fileItems, ...changeItems].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
   }, [comments, files, localChanges, baseUrl, taskCreatedAt, taskUpdatedAt]);
@@ -315,8 +389,19 @@ function renderActivityItem(
     const fromTrimmed = item.from.length > trimLen ? item.from.slice(0, trimLen) + '…' : item.from;
     const toTrimmed = item.to.length > trimLen ? item.to.slice(0, trimLen) + '…' : item.to;
     const needsTooltip = item.from.length > trimLen || item.to.length > trimLen;
+    const verdict = verifyEntryVerdict(item);
     return (
-      <div key={`change-${item.sortKey}-${gIdx}-${iIdx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '2px 0' }}>
+      <div
+        key={`change-${item.sortKey}-${gIdx}-${iIdx}`}
+        className={verdict ? `activity-verify activity-verify--${verdict}` : undefined}
+        title={verdict ? VERIFY_ENTRY_TITLES[verdict] : undefined}
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 6,
+          padding: verdict ? '2px 6px' : '2px 0',
+          borderRadius: verdict ? 4 : undefined,
+          ...(verdict ? VERIFY_ENTRY_ACCENT[verdict] : {}),
+        }}
+      >
         <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -370,17 +455,21 @@ function renderActivityItem(
     // system comment (`**Cannot verify:** <reason>`). Surface it in the detail
     // panel's activity feed as a distinct, labeled item so reviewers can see
     // why the task carries no verdict (and no badge).
-    const cannotMatch = c.text.match(/^\*\*Cannot verify\*\*:\s*(.+)$/s);
+    const cannotMatch = c.text.match(CANNOT_VERIFY_RE);
     if (cannotMatch) {
       return (
         <div
           key={c.id}
+          className="activity-verify activity-verify--cannot"
+          title={VERIFY_ENTRY_TITLES.cannot}
           style={{
             display: 'flex',
             alignItems: 'flex-start',
             gap: 6,
-            padding: '2px 0',
+            padding: '2px 6px',
+            borderRadius: 4,
             fontSize: 11,
+            ...VERIFY_ENTRY_ACCENT.cannot,
           }}
         >
           <span

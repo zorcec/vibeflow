@@ -17,6 +17,7 @@ import { TaskDetailsTab } from "./shared/TaskDetailsTab";
 import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
+import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
 import { getTaskTypeColor } from "../../task-types";
 
@@ -831,6 +832,10 @@ export function DetailPanel({
     return `dp-status-btn active-${s}`;
   };
 
+  // Verification verdict for the header row — read through displayedVerifyState,
+  // the SAME single gate the card and child rows use (no lane logic here).
+  const verifyState = task ? displayedVerifyState(task) : "none";
+
   // Centralized close handler — shows "send comment?" confirm if there's a pending comment
   function handleCloseRequest() {
     if (showCommentSendConfirmRef.current) return;
@@ -1118,6 +1123,39 @@ export function DetailPanel({
               </button>
             ))}
           </div>
+
+          {/* Verification verdict — visible wherever the panel is open; the
+              VerifyIndicator carries the tooltip (what the verdict means). */}
+          {!isAdd && task && verifyState !== "none" && (
+            <div
+              id="dp-verify-row"
+              data-verify-state={verifyState}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginTop: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "var(--t-text-body)",
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Verification
+              </span>
+              <VerifyIndicator state={verifyState} />
+              <span style={{ fontSize: 11, color: "var(--t-text-muted)" }}>
+                {verifyState === "verified"
+                  ? "Implemented correctly"
+                  : "Not implemented correctly"}
+              </span>
+            </div>
+          )}
 
           {/* Branch name prompt when createBranch is ON and setting to review */}
           {showBranchPrompt && !remoteLocked && (

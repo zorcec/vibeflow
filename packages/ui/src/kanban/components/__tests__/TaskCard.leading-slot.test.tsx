@@ -500,6 +500,31 @@ describe("leading slot rendering", () => {
             );
       });
 
+      it("hover tooltip spells out what the verdict means (80df86ed)", () => {
+            const verified = renderCard(
+                  makeTask({ status: "review", verified: true }),
+                  { col: lane("review") },
+            );
+            const failed = renderCard(
+                  makeTask({ status: "review", verified: false }),
+                  { col: lane("review") },
+            );
+            expect(
+                  verified.container.querySelector("[data-verify-state]"),
+            ).toHaveAttribute(
+                  "title",
+                  "Verified — the agent attested this task IS implemented correctly",
+            );
+            expect(
+                  failed.container.querySelector('[data-verify-state="failed"]'),
+            ).toHaveAttribute(
+                  "title",
+                  "Failed verification — the agent attested this task is NOT implemented correctly",
+            );
+            verified.unmount();
+            failed.unmount();
+      });
+
       it("agrees on the verdict glyph across both layouts", () => {
             for (const verified of [true, false]) {
                   const cardLayout = renderCard(

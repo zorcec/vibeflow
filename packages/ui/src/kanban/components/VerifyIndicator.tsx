@@ -112,13 +112,19 @@ export function VerifyIndicator({ state, size = 11 }: VerifyIndicatorProps) {
  const label = verified
   ? "Verified — implemented correctly"
   : "Failed verification — not implemented correctly";
+ // The hover wording spells out WHAT the verdict means (80df86ed): the shape
+ // and colour carry the state at a glance; the tooltip says who decided it and
+ // what it claims. `label` stays the short aria-label the specs pin.
+ const title = verified
+  ? "Verified — the agent attested this task IS implemented correctly"
+  : "Failed verification — the agent attested this task is NOT implemented correctly";
  return (
   <span
    className={`verify-indicator verify-indicator--${state}`}
    data-verify-state={state}
    role="img"
    aria-label={label}
-   title={label}
+   title={title}
    style={{
     display: "inline-flex",
     flexShrink: 0,

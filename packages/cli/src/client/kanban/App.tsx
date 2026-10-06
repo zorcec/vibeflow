@@ -444,6 +444,10 @@ interface StatusEntry {
   actor: string;
   timestamp: string;
   source?: "cli" | "web";
+  /** Status key the transition landed in — the verdict lane gate reads it. */
+  toStatus?: TaskStatus;
+  /** Task's tri-state verdict at transition time; absent = carried none. */
+  verified?: boolean;
 }
 
 function buildTaskSummary(
@@ -697,6 +701,7 @@ export function App() {
     toStatus: TaskStatus,
     actor: string,
     source?: "cli" | "web",
+    verified?: boolean,
   ) {
     const timestamp = new Date().toISOString();
     const from = STATUS_LABELS[fromStatus] ?? fromStatus;
@@ -712,7 +717,17 @@ export function App() {
       if (duplicate) return prev;
       return [
         ...prev,
-        { taskId, field: "status", from, to, actor, timestamp, source },
+        {
+          taskId,
+          field: "status",
+          from,
+          to,
+          actor,
+          timestamp,
+          source,
+          toStatus,
+          verified,
+        },
       ].slice(-500);
     });
   }
@@ -756,6 +771,12 @@ export function App() {
           newStatus,
           actor ?? "Someone",
           source,
+          // Carry the verdict the task holds at this transition so the
+          // activity feed can style verify entries (80df86ed); absent when
+          // the task carries no verdict.
+          typeof incoming.verified === "boolean"
+            ? incoming.verified
+            : undefined,
         );
       }
 
@@ -989,7 +1010,20 @@ export function App() {
       previous?.status &&
       updates.status !== previous.status
     ) {
-      appendStatusChange(id, previous.status, updates.status, gitUserName);
+      const carriedVerdict =
+        typeof updates.verified === "boolean"
+          ? updates.verified
+          : typeof previous.verified === "boolean"
+            ? previous.verified
+            : undefined;
+      appendStatusChange(
+        id,
+        previous.status,
+        updates.status,
+        gitUserName,
+        undefined,
+        carriedVerdict,
+      );
     }
     try {
       const data = await api.updateTask(id, updates);
@@ -1529,13 +1563,15 @@ export function App() {
     if (!panelTaskId) return [];
     return statusChangeLog
       .filter((e) => e.taskId === panelTaskId)
-      .map(({ field, from, to, actor, timestamp, source }) => ({
+      .map(({ field, from, to, actor, timestamp, source, toStatus, verified }) => ({
         field,
         from,
         to,
         actor,
         timestamp,
         source,
+        toStatus,
+        verified,
       }));
   }, [panelState.task?.id, statusChangeLog]);
 
