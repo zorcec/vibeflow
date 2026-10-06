@@ -166,6 +166,21 @@ vibeflow telemetry --enable     # opt back in
 
 No PII is ever collected. User identity is hashed.
 
+**What is collected.** One `command_run` event per invocation with a small,
+coarse property set:
+
+- `command` — the top-level command (`tasks`, `serve`, `kanban`, …)
+- `subcommand` — the mode within a command that has one: `tasks` emits
+  `list` / `get` / `add` / `edit` / `next` / `reindex`, `serve` emits `api`
+  (API-only task server) or `prototype` (an HTML target was given)
+- `from_status` / `to_status` — on `tasks --edit` only: the task's status
+  before and after the edit, drawn from
+  `backlog | todo | in-progress | review | done`, so status transitions are
+  queryable as a funnel
+
+Never collected: task ids, titles, descriptions, file paths, selectors, URLs,
+or any other task content.
+
 ---
 
 ## Browser Overlay

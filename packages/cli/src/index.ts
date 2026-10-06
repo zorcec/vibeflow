@@ -202,6 +202,36 @@ const VALID_TASK_TYPES = new Set(["Task", "Bug", "Research"]);
 /** All valid task status values — single source from core/types.ts. */
 const VALID_STATUSES = TASK_STATUSES;
 
+/**
+ * Coarse status-transition properties for the `command_run` event emitted by
+ * `tasks --edit`. `from_status` is the target task's status before the edit;
+ * `to_status` the status it is being moved to (the current status when the
+ * edit passes no valid `--set-status`, so a content-only edit shows as a
+ * self-pair). Both values are enum-bounded — `from_status` because listTasks
+ * normalizes status to TASK_STATUSES, `to_status` by the VALID_STATUSES check
+ * — and carry no task id, title, or path: the analytics payload stays tiny
+ * and PII-free.
+ *
+ * Omitted entirely when the target task cannot be resolved locally (unknown
+ * id, or an online-mode task with no local file), so a failed edit never
+ * fabricates a transition.
+ */
+function editStatusTelemetryProps(
+  projectDir: string,
+  edit: string | boolean | undefined,
+  setStatus: string | undefined,
+): Record<string, string> {
+  if (typeof edit !== "string") return {};
+  const task = findTaskByIdOrPrefix(projectDir, edit);
+  if (!task) return {};
+  const toStatus =
+    setStatus !== undefined &&
+    VALID_STATUSES.includes(setStatus as (typeof VALID_STATUSES)[number])
+      ? setStatus
+      : task.status;
+  return { from_status: task.status, to_status: toStatus };
+}
+
 /** Ascending comparator for objects with a `createdAt` ISO string field. */
 const sortByCreatedAt = <T extends { createdAt: string }>(a: T, b: T): number =>
   new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
@@ -846,7 +876,14 @@ program
       target: string | undefined,
       opts: { port: string; open: boolean; host?: string; project?: string },
     ) => {
-      capture("command_run", { command: "serve" });
+      // Coarse mode breakdown: API-only task server (no target — what MCP /
+      // Chrome-extension workflows run) vs prototype viewer (an HTML target
+      // was given). Only the mode is reported — the target path itself must
+      // never reach analytics.
+      capture("command_run", {
+        command: "serve",
+        subcommand: target === undefined ? "api" : "prototype",
+      });
       await flushTelemetry();
       // API-only mode (MCP root): resolve + validate at the CLI boundary and
       // announce the absolute root before serve() creates anything.
@@ -1175,6 +1212,12 @@ program
         capture("command_run", {
           command: "tasks",
           subcommand: taskSubcommand,
+          // Edit events carry the status pair so a real status funnel
+          // (created → in-progress → review → done) is queryable; every
+          // other subcommand stays a two-property payload.
+          ...(taskSubcommand === "edit"
+            ? editStatusTelemetryProps(resolve(dir), opts.edit, opts.setStatus)
+            : {}),
         });
 
         // ── --parent is --add-only ──────────────────────────────────────
