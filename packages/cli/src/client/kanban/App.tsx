@@ -62,33 +62,6 @@ const CLI_VERSION =
 const CURRENT_USER_ID =
   (window as unknown as { __VIBEFLOW_USER__?: string }).__VIBEFLOW_USER__ ?? "";
 
-/** Narrowest band of the board kept visible while the detail panel is open.
- *  Below this the panel is covering the board anyway (a phone-width viewport
- *  leaves no room for both), and a 0-width board would only make the board's
- *  own scrollbar misbehave. */
-const MIN_BOARD_BAND_PX = 280;
-/** Hard floor of the detail panel — its CSS min-width. */
-const PANEL_MIN_PX = 360;
-/** Default panel width — also the floor of the auto-grow ceiling: geometry
- *  may cap the growth at small viewports, but it must never make the panel
- *  NARROWER than it renders today (6656be8e). */
-const DEFAULT_PANEL_PX = 420;
-
-/** Ceiling for the detail panel width (px): 75% of the viewport, clamped so
- *  the board always keeps {@link MIN_BOARD_BAND_PX} of its own, never below
- *  {@link DEFAULT_PANEL_PX}. Shared by the content-driven auto-grow, the
- *  manual resize handle, and the saved-settings validation (6656be8e) so no
- *  path can size the panel wider than the others allow. */
-function panelWidthCeiling(viewportWidth: number): number {
-  return Math.max(
-    DEFAULT_PANEL_PX,
-    Math.min(
-      Math.round(viewportWidth * 0.75),
-      viewportWidth - MIN_BOARD_BAND_PX,
-    ),
-  );
-}
-
 type PushState = "idle" | "pushing" | "done" | "error";
 
 function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
@@ -521,12 +494,7 @@ export function App() {
     name: "",
     url: "",
   });
-  const [panelWidth, setPanelWidth] = React.useState(DEFAULT_PANEL_PX);
-  /** Width the panel auto-grew to for the current description (content-driven
-   *  auto-grow, 6656be8e). null = the user's width already fits. */
-  const [grownPanelWidth, setGrownPanelWidth] = React.useState<number | null>(
-    null,
-  );
+  const [panelWidth, setPanelWidth] = React.useState(420);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(
@@ -913,13 +881,12 @@ export function App() {
             ? "compact"
             : settings.viewMode,
         );
-      if (settings.panelWidth && settings.panelWidth >= 280) {
-        // Accept the saved width and CLAMP it to today's ceiling — rejecting
-        // it outright would silently drop the user's width to the 420 default
-        // on any viewport where their old value now exceeds 75vw.
-        setPanelWidth(
-          Math.min(settings.panelWidth, panelWidthCeiling(window.innerWidth)),
-        );
+      if (
+        settings.panelWidth &&
+        settings.panelWidth >= 280 &&
+        settings.panelWidth <= 900
+      ) {
+        setPanelWidth(settings.panelWidth);
       }
     } catch {
       /* built-in defaults apply when saved settings are unavailable */
@@ -1411,6 +1378,10 @@ export function App() {
 
   /** Distance kept between the card and the edge of the visible board band. */
   const BOARD_EDGE_PAD_PX = 8;
+  /** Narrowest the board may be squeezed to. Below this the panel is covering
+   *  the board anyway (a phone-width viewport leaves no room for both), and a
+   *  0-width board would only make the board's own scrollbar misbehave. */
+  const MIN_BOARD_BAND_PX = 280;
 
   // Window width drives how much of the board the panel leaves visible, and a
   // window resize while the panel is open is exactly when a card can slip under
@@ -1424,82 +1395,10 @@ export function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  /** Live ceiling for the detail panel — see {@link panelWidthCeiling}. */
-  const panelCeilingPx = panelWidthCeiling(viewportWidth);
-  /** Width the panel renders at: the user's saved width (the floor),
-   *  auto-grown when the current description needs more room. Never below the
-   *  user's width, never above the ceiling. */
-  const detailPanelWidth = grownPanelWidth ?? panelWidth;
-
-  // Content-driven auto-grow (6656be8e): when the description's max-content
-  // width exceeds the room the panel gives it, grow the panel to fit — up to
-  // the 75vw ceiling; smaller descriptions fall back to the user's width.
-  // Measuring at max-content is independent of the current width and `needed`
-  // is the exact panel width that measurement implies, so one grow settles
-  // instead of looping. While the textarea editor is shown (no preview) the
-  // last measured width is kept — the textarea wraps at the panel width anyway.
-  //
-  // A single rAF was NOT enough: on task switch it can measure the previous
-  // task's preview (stale DOM) or fire before DetailPanel flips the preview
-  // on at all. A MutationObserver on the panel re-measures whenever the
-  // preview appears or its rendered content actually changes, so the growth
-  // always tracks what is on screen. Attribute mutations are deliberately
-  // NOT observed — the measure itself toggles the element's width style.
-  React.useEffect(() => {
-    if (!panelState.open || isResizingPanel) return;
-    let raf = 0;
-    const measure = () => {
-      const preview = document.getElementById("dp-desc-preview");
-      const el = preview ?? document.getElementById("dp-desc");
-      if (!el) return;
-      const current = el.getBoundingClientRect().width;
-      const prevWidth = el.style.width;
-      el.style.width = "max-content";
-      const natural = el.getBoundingClientRect().width;
-      el.style.width = prevWidth;
-      if (!preview) return; // editor mode — keep the measured width
-      const needed = Math.round(detailPanelWidth + (natural - current));
-      // Never below the user's width: at small viewports the ceiling can be
-      // lower than the default panel — growth must not SHRINK the panel.
-      setGrownPanelWidth(
-        needed > panelWidth
-          ? Math.max(panelWidth, Math.min(needed, panelCeilingPx))
-          : null,
-      );
-    };
-    const schedule = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(measure);
-    };
-    measure();
-    const observer = new MutationObserver(schedule);
-    const container = document.getElementById("detail-panel-container");
-    if (container) {
-      observer.observe(container, {
-        subtree: true,
-        childList: true,
-        characterData: true,
-      });
-    }
-    return () => {
-      cancelAnimationFrame(raf);
-      observer.disconnect();
-    };
-  }, [
-    panelState.open,
-    panelState.task?.id,
-    panelState.task?.description,
-    panelState.tab,
-    panelWidth,
-    detailPanelWidth,
-    panelCeilingPx,
-    isResizingPanel,
-  ]);
-
   /** Board inset while the panel is open — the panel's live width, clamped so
    *  the board always keeps a band of its own. */
   const boardRightInset = panelState.open
-    ? Math.max(0, Math.min(detailPanelWidth, viewportWidth - MIN_BOARD_BAND_PX))
+    ? Math.max(0, Math.min(panelWidth, viewportWidth - MIN_BOARD_BAND_PX))
     : 0;
 
   /** Net horizontal offset this effect has added to the board while the panel
@@ -1553,7 +1452,7 @@ export function App() {
     board.scrollLeft = before + delta;
     // Record what actually landed — the browser clamps to the scroll range.
     boardScrollRestoreRef.current += board.scrollLeft - before;
-  }, [panelState.open, panelState.task?.id, detailPanelWidth, viewportWidth]);
+  }, [panelState.open, panelState.task?.id, panelWidth, viewportWidth]);
 
   /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
    *  Pushes the current task to nav history so the back button works. */
@@ -1749,10 +1648,7 @@ export function App() {
         {panelState.open && (
           <div
             id="detail-panel-container"
-            style={{
-              width: detailPanelWidth,
-              zIndex: isResizingPanel ? 30 : 10,
-            }}
+            style={{ width: panelWidth, zIndex: isResizingPanel ? 30 : 10 }}
             className={isResizingPanel ? "resizing" : ""}
           >
             <div
@@ -1762,25 +1658,18 @@ export function App() {
                 setIsResizingPanel(true);
                 document.body.classList.add("vibeflow-resizing-panel");
                 const startX = e.clientX;
-                // Drag from the width on screen — the auto-grown one — and
-                // hand control to the manual width as soon as the drag moves.
-                const startWidth = detailPanelWidth;
+                const startWidth = panelWidth;
                 const onMove = (ev: MouseEvent) => {
                   const next = startWidth - (ev.clientX - startX);
-                  setGrownPanelWidth(null);
-                  setPanelWidth(
-                    Math.max(PANEL_MIN_PX, Math.min(panelCeilingPx, next)),
-                  );
+                  setPanelWidth(Math.max(360, Math.min(860, next)));
                 };
                 const onUp = (ev: MouseEvent) => {
                   setIsResizingPanel(false);
                   document.body.classList.remove("vibeflow-resizing-panel");
                   const finalWidth = Math.max(
-                    PANEL_MIN_PX,
-                    Math.min(panelCeilingPx, startWidth - (ev.clientX - startX)),
+                    360,
+                    Math.min(860, startWidth - (ev.clientX - startX)),
                   );
-                  setGrownPanelWidth(null);
-                  setPanelWidth(finalWidth);
                   void api.saveSettings({
                     ...appSettings,
                     panelWidth: finalWidth,

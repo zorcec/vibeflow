@@ -15,6 +15,7 @@ interface Props {
   placeholder: string;
   previewEmptyText?: string;
   previewMinHeight?: number;
+  /** Preview height cap in px; pass Infinity for content-driven downward growth. */
   previewMaxHeight?: number;
   baseRows?: number;
   maxRows?: number;
@@ -171,7 +172,7 @@ export function MarkdownEditableField({
         color: 'var(--t-text-sub)',
         lineHeight: 1.7,
         overflow: 'auto',
-        maxHeight: previewMaxHeight,
+        maxHeight: Number.isFinite(previewMaxHeight) ? previewMaxHeight : undefined,
       }}
     >
       {(previewValue ?? value).trim()
