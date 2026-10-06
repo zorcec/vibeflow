@@ -76,7 +76,9 @@ export function listAuthStateFiles(
     let age = "unknown";
     try {
       const stat = statSync(filePath);
-      const ageMs = Date.now() - stat.mtimeMs;
+      // Clamp at 0: mtime can sit ahead of now under clock jitter (NTP
+      // settling), and a negative ageMs floors to "-1m" — age can't be negative.
+      const ageMs = Math.max(0, Date.now() - stat.mtimeMs);
       const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
       if (ageHours < 1) {
         const ageMins = Math.floor(ageMs / (1000 * 60));

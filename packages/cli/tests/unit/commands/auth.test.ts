@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { clearAuthState, listAuthStateFiles } from "../../../src/commands/auth.js";
@@ -120,5 +120,22 @@ describe("listAuthStateFiles", () => {
     const files = listAuthStateFiles(tempDir);
     expect(files).toHaveLength(1);
     expect(files[0].age).toMatch(/^\d+[mhd]$/); // e.g. "0m", "1h", "2d"
+  });
+
+  it("clamps age to 0m when mtime is ahead of now (clock jitter)", () => {
+    const protoDir = join(tempDir, PROTO_DIR);
+    mkdirSync(protoDir, { recursive: true });
+
+    const filePath = join(protoDir, "auth-state.jitter.enc");
+    writeFileSync(filePath, "data");
+    // Simulate NTP jitter: mtime a few seconds in the future of Date.now()
+    const future = new Date(Date.now() + 5_000);
+    utimesSync(filePath, future, future);
+
+    const files = listAuthStateFiles(tempDir);
+    expect(files).toHaveLength(1);
+    // Without the clamp this floors to "-1m" and fails the age format
+    expect(files[0].age).toBe("0m");
+    expect(files[0].age).toMatch(/^\d+[mhd]$/);
   });
 });
