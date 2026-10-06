@@ -420,7 +420,11 @@ body {
 /* ── Detail panel ── */
 #detail-panel-container {
  min-width: 360px;
- max-width: min(860px, 100%);
+ /* Content-driven auto-grow ceiling (6656be8e): the panel may grow with the
+    description up to 75vw — but never below its 420px default (max() floor
+    keeps today's width intact on small viewports); 100% keeps it inside its
+    positioned parent. */
+ max-width: min(max(75vw, 420px), 100%);
  position: absolute;
  right: 0;
  top: 0;
