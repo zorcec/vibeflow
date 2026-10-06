@@ -126,12 +126,23 @@ describe("kanban per-user expand state (CLI)", () => {
   }, 60_000);
 
   it("shows the unread dot only until the card is opened", async () => {
-    process.env.USER = "expand-user-a";
+    // Created as a DIFFERENT user: core createTask seeds openedBy with the
+    // creator (c4b42965), so a card this viewer created is by design never
+    // "new" for them — the dot belongs to tasks this viewer has not opened.
+    // Both directions are asserted below.
+    process.env.USER = "expand-user-b";
     const task = await createTask("Unopened card");
+    process.env.USER = "expand-user-a";
     await gotoBoard();
 
     const dot = page.locator(`${cardSelector(task.id)} span[title="Unread"]`);
     await expect.poll(() => dot.count()).toBe(1);
+
+    // A card created by the current user itself renders no dot at all.
+    const own = await createTask("Own card");
+    await gotoBoard();
+    const ownDot = page.locator(`${cardSelector(own.id)} span[title="Unread"]`);
+    await expect.poll(() => ownDot.count()).toBe(0);
 
     // Opening the card marks it opened for the current user (board → API).
     await page.evaluate((taskId) => {
@@ -142,7 +153,7 @@ describe("kanban per-user expand state (CLI)", () => {
     await page.waitForSelector("#detail-panel.open");
     await expect
       .poll(() => persistedTask(task.id).openedBy)
-      .toEqual(["expand-user-a"]);
+      .toEqual(["expand-user-b", "expand-user-a"]);
     await expect.poll(() => dot.count()).toBe(0);
   }, 60_000);
 });

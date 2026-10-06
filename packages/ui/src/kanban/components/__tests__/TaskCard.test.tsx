@@ -264,6 +264,31 @@ describe("TaskCard unread dot", () => {
     });
     expect(screen.getByTitle("Unread")).toBeInTheDocument();
   });
+
+  it("shows no badge to the creator of a task created with a seeded openedBy", () => {
+    // core createTask seeds openedBy with the creator's id (getCurrentUserId),
+    // which is the same id the kanban injects as window.__VIBEFLOW_USER__ —
+    // so a task you just added is never "new" for you (c4b42965), while a
+    // different viewer still gets the cue. Both directions asserted on the
+    // leading-slot mark the ticket's selector points at.
+    const created = makeTask({ openedBy: ["creator-id"] });
+    const creator = renderCard(created, [created], {
+      currentUserId: "creator-id",
+    });
+    expect(
+      creator.container.querySelector('[data-leading-mark="unread"]'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Unread")).not.toBeInTheDocument();
+    creator.unmount();
+
+    const other = renderCard(created, [created], {
+      currentUserId: "viewer-id",
+    });
+    expect(
+      other.container.querySelector('[data-leading-mark="unread"]'),
+    ).toBeInTheDocument();
+    expect(screen.getByTitle("Unread")).toBeInTheDocument();
+  });
 });
 
 const reviewCol: Column = {

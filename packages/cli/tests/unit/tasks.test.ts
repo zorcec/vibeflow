@@ -214,6 +214,35 @@ describe("CRUD operations", () => {
     expect(fromDisk?.sortKey).toBe(supplied);
   });
 
+  it("createTask seeds the creating user into openedBy", () => {
+    const task = createTask(tempDir, {
+      title: "Task I just added",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+
+    // The board's currentUserId IS getCurrentUserId() (kanban-template
+    // injects it as window.__VIBEFLOW_USER__), and the unread dot is
+    // `!openedBy.includes(currentUserId)` — so without this seed the creator
+    // saw their own card as "new" (c4b4296530dde145ca36d59be99c4e).
+    expect(task.openedBy).toEqual([getCurrentUserId()]);
+    const fromDisk = listTasks(tempDir).find((t) => t.id === task.id);
+    expect(fromDisk?.openedBy).toEqual([getCurrentUserId()]);
+  });
+
+  it("createTask preserves an explicitly supplied openedBy", () => {
+    const task = createTask(tempDir, {
+      title: "Seeded by someone else",
+      description: "",
+      status: "todo",
+      selector: "/",
+      openedBy: ["another-user"],
+    });
+
+    expect(task.openedBy).toEqual(["another-user"]);
+  });
+
   it("listTasks returns empty array for non-existent dir", () => {
     expect(listTasks(tempDir)).toEqual([]);
   });
@@ -2275,12 +2304,17 @@ describe("markTaskOpened", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  // Explicit "no read state yet": core createTask now seeds openedBy with the
+  // creator (getCurrentUserId), and these cases exercise markTaskOpened's own
+  // append/dedupe/persist behaviour on top of a clean slate. The seed itself is
+  // asserted in the createTask block above.
   function makeCard(title = "Card") {
     return createTask(tempDir, {
       title,
       description: "",
       status: "todo",
       selector: "/",
+      openedBy: [],
     });
   }
 

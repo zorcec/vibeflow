@@ -488,6 +488,13 @@ export function createTask(
       title: normalizeEscapeSequences(input.title ?? "").trim(),
       description: normalizeEscapeSequences(input.description ?? "").trim(),
       priority: normalizedPriority,
+      // Seed the creator into openedBy: the "new" badge is
+      // `!openedBy.includes(currentUserId)` (TaskCard/leading slot), and no
+      // create surface — CLI --add, POST /api/tasks, tRPC, MCP — passed it, so
+      // a creator always saw their own task as unread. Same identity source as
+      // markTaskOpened (server) and window.__VIBEFLOW_USER__ (board), so the
+      // id the board compares against is the id seeded here.
+      openedBy: input.openedBy ?? [getCurrentUserId()],
       // Every create must mint a key that sorts after everything already in the
       // store, or dragging a newly created task misplaces it. Regression story:
       // commit 3e169ab seeded `generateSortKeyBetween(null, null)` here — a
