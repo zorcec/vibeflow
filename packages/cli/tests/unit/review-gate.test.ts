@@ -152,6 +152,33 @@ describe("checkReviewTransition", () => {
     }
   });
 
+  it("COMMIT_MESSAGE_REQUIRED when the commit message is whitespace only", () => {
+    // The `.trim()` is the whole guard. Without it, `--commit-message "   "`
+    // passes the gate and reaches git as a whitespace-only commit — a value
+    // no existing fixture ever passes, which is why the mutant survived.
+    createTaskFile(tmpDir, "task-123");
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "   " },
+      { projectDir: tmpDir, settings: makeSettings({ autoCommit: true }) },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("COMMIT_MESSAGE_REQUIRED");
+    }
+
+    // Positive control: the same settings accept a real message, so the gate
+    // is value-sensitive and not simply always firing.
+    const ok = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "fix: description" },
+      { projectDir: tmpDir, settings: makeSettings({ autoCommit: true }) },
+    );
+    expect(ok.ok).toBe(true);
+  });
+
   it("passes commit gate when autoCommit OFF", () => {
     createTaskFile(tmpDir, "task-123");
     const result = checkReviewTransition(
@@ -177,6 +204,31 @@ describe("checkReviewTransition", () => {
       expect(result.message).toContain("--branch is required");
       expect(result.suggestion).toContain("--branch");
     }
+  });
+
+  it("BRANCH_REQUIRED when the branch name is whitespace only", () => {
+    // Same shape as the commit-message guard: `.trim()` is what refuses
+    // `--branch "   "`, and no fixture before this one passed one.
+    createTaskFile(tmpDir, "task-123");
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "fix: x", branch: "   " },
+      { projectDir: tmpDir, settings: makeSettings({ createBranch: true }) },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("BRANCH_REQUIRED");
+    }
+
+    // Positive control: a real branch name passes the same settings.
+    const ok = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", commitMessage: "fix: x", branch: "task/b610ad98" },
+      { projectDir: tmpDir, settings: makeSettings({ createBranch: true }) },
+    );
+    expect(ok.ok).toBe(true);
   });
 
   it("VERIFY_REQUIRED for an annotated task with no verdict on the transition", () => {
@@ -272,6 +324,50 @@ describe("checkReviewTransition", () => {
       expect(result.message).toContain("requires --verify-reason");
       expect(result.suggestion).toContain("verify-reason");
     }
+  });
+
+  it("REJECTS a cannot verdict whose reason is whitespace only", () => {
+    // `!opts.verifyReason?.trim()` — a reason of "   " makes the absence of a
+    // reason dishonest, which is exactly what this gate exists to refuse.
+    createTaskFile(tmpDir, "task-123", {
+      selector: ".submit-btn",
+      url: "https://example.com",
+    });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", verifyVerdict: "cannot", verifyReason: "   " },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("VERIFY_REASON_REQUIRED");
+    }
+
+    // Positive control: a real reason passes the identical settings.
+    const ok = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      {
+        comment: "done",
+        verifyVerdict: "cannot",
+        verifyReason: "no browser in this environment",
+      },
+      {
+        projectDir: tmpDir,
+        settings: makeSettings({
+          requireVerifyBeforeReview: true,
+          autoCommit: false,
+        }),
+      },
+    );
+    expect(ok.ok).toBe(true);
   });
 
   it("REJECTS cannot without a reason even when the verify gate is OFF", () => {
