@@ -2,13 +2,13 @@
 /**
  * Description preview height is driven by ROWS, not a fixed px box (6656be8e).
  *
- * The description field's edit textarea rests at 6 rows and auto-grows to 12,
+ * The description field's edit textarea rests at 6 rows and auto-grows to 24,
  * so the preview mirrors that range: `previewMinRows`/`previewMaxRows` convert
  * to px with the preview box's own typography (fontSize 12 × lineHeight 1.7 +
  * 2×10 padding + 2×1 border) → `rows * 20.4 + 22`:
  *
  *   6 rows  → 144.4px
- *   12 rows → 266.8px
+ *   24 rows → 511.6px
  *
  * Without the rows props nothing changes: the px props (defaults 54/220, the
  * comments field's shape) still win, and the component never sets a width
@@ -51,9 +51,9 @@ function renderPreview(props: Partial<FieldProps> = {}) {
 }
 
 describe("MarkdownEditableField preview row range", () => {
-  it("caps the preview at 12 rows (266.8px) with previewMaxRows={12}", () => {
-    const { preview } = renderPreview({ previewMaxRows: 12 });
-    expect(preview.style.maxHeight).toBe("266.8px");
+  it("caps the preview at 24 rows (511.6px) with previewMaxRows={24}", () => {
+    const { preview } = renderPreview({ previewMaxRows: 24 });
+    expect(preview.style.maxHeight).toBe("511.6px");
   });
 
   it("floors the preview at 6 rows (144.4px) with previewMinRows={6}", () => {
@@ -69,10 +69,10 @@ describe("MarkdownEditableField preview row range", () => {
 
   it("lets previewMaxRows take precedence over previewMaxHeight", () => {
     const { preview } = renderPreview({
-      previewMaxRows: 12,
+      previewMaxRows: 24,
       previewMaxHeight: 999,
     });
-    expect(preview.style.maxHeight).toBe("266.8px");
+    expect(preview.style.maxHeight).toBe("511.6px");
   });
 
   it("lets previewMinRows take precedence over previewMinHeight", () => {

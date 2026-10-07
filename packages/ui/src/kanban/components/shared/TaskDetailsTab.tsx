@@ -109,9 +109,9 @@ export function TaskDetailsTab({
           textareaId="dp-desc"
           placeholder="Description (markdown)…"
           previewMinRows={6}
-          previewMaxRows={12}
+          previewMaxRows={24}
           baseRows={6}
-          maxRows={12}
+          maxRows={24}
           autoFocus
           textareaRef={descRef}
           afterTextarea={

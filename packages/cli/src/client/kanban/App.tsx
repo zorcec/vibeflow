@@ -902,12 +902,9 @@ export function App() {
             ? "compact"
             : settings.viewMode,
         );
-      if (
-        settings.panelWidth &&
-        settings.panelWidth >= 280 &&
-        settings.panelWidth <= 900
-      ) {
-        setPanelWidth(settings.panelWidth);
+      if (settings.panelWidth && settings.panelWidth >= 280) {
+        // A width saved on a wider screen must still load on a narrower one.
+        setPanelWidth(Math.min(settings.panelWidth, window.innerWidth));
       }
     } catch {
       /* built-in defaults apply when saved settings are unavailable */
@@ -1697,14 +1694,19 @@ export function App() {
                 const startWidth = panelWidth;
                 const onMove = (ev: MouseEvent) => {
                   const next = startWidth - (ev.clientX - startX);
-                  setPanelWidth(Math.max(360, Math.min(860, next)));
+                  setPanelWidth(
+                    Math.max(360, Math.min(window.innerWidth, next)),
+                  );
                 };
                 const onUp = (ev: MouseEvent) => {
                   setIsResizingPanel(false);
                   document.body.classList.remove("vibeflow-resizing-panel");
                   const finalWidth = Math.max(
                     360,
-                    Math.min(860, startWidth - (ev.clientX - startX)),
+                    Math.min(
+                      window.innerWidth,
+                      startWidth - (ev.clientX - startX),
+                    ),
                   );
                   void api.saveSettings({
                     ...appSettings,

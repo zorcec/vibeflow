@@ -420,7 +420,7 @@ body {
 /* ── Detail panel ── */
 #detail-panel-container {
  min-width: 360px;
- max-width: min(860px, 100%);
+ max-width: 100%;
  position: absolute;
  right: 0;
  top: 0;
