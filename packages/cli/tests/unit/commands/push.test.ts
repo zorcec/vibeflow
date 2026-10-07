@@ -751,3 +751,109 @@ describe("renderProgressBar", () => {
     expect(bar).toContain("░");
   });
 });
+
+describe("push — system-file flag round-trip", () => {
+  beforeEach(() => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
+      id: "ws-1",
+      name: "My Board",
+      url: "http://localhost:3000",
+      icon: null,
+      email: null,
+    });
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("import payload carries files[] refs with the system flag", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-flagged",
+      title: "Flagged",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      files: [
+        { name: "verify-after.json", addedAt: "2025-01-01T00:00:00.000Z", system: true },
+        { name: "notes.md", addedAt: "2025-01-01T00:00:00.000Z" },
+      ],
+    });
+    mockFetchSuccess({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} });
+
+    const fetchSpy = vi.spyOn(global, "fetch");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    const importCall = fetchSpy.mock.calls.find((c) =>
+      String(c[0]).includes("/api/cli/import"),
+    );
+    expect(importCall).toBeDefined();
+    const body = JSON.parse(importCall![1].body) as {
+      tasks: Array<{ files?: Array<{ name: string; system?: boolean }> }>;
+    };
+    const files = body.tasks[0]!.files!;
+    expect(files.find((f) => f.name === "verify-after.json")!.system).toBe(true);
+    expect("system" in files.find((f) => f.name === "notes.md")!).toBe(false);
+  });
+
+  it("byte upload sends x-file-system only for flagged files", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-files",
+      title: "With files",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const filesDir = join(projectDir, ".vibeflow", "files", "task-files");
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "verify-after.json"), Buffer.from("{}"));
+    writeFileSync(join(filesDir, "notes.md"), Buffer.from("hi"));
+
+    vi.mocked(filesModule.listFiles).mockReturnValue([
+      { name: "verify-after.json", size: 2, system: true },
+      { name: "notes.md", size: 2 },
+    ]);
+    vi.mocked(filesModule.getFilesDir).mockReturnValue(filesDir);
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          imported: 1,
+          skipped: 0,
+          ids: ["task-files"],
+          workspaceId: "ws-1",
+          boardId: "b-1",
+          idMap: { "task-files": "remote-1" },
+        }),
+      })
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    const uploads = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("/api/tasks/remote-1/files"),
+    );
+    expect(uploads).toHaveLength(2);
+    const sys = uploads.find(
+      (c) => c[1].headers["x-filename"] === "verify-after.json",
+    )!;
+    const user = uploads.find(
+      (c) => c[1].headers["x-filename"] === "notes.md",
+    )!;
+    expect(sys[1].headers["x-file-system"]).toBe("1");
+    expect("x-file-system" in user[1].headers).toBe(false);
+  });
+});

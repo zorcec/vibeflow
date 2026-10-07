@@ -86,6 +86,8 @@ export interface FileEntry {
   mimeType?: string;
   taskId?: string;
   createdAt?: string;
+  /** True when written by the engine. Set by the server flag; never inferred from the name. */
+  system?: boolean;
 }
 
 export type LiveActivityState = "viewing" | "editing" | "locked";

@@ -39,6 +39,8 @@ export interface TaskFileRef {
   addedAt: string;
   linkedPath?: string;
   mimeType?: string;
+  /** True when written by the engine (verify evidence, baselines). Absent/false = user upload. Stamped at write time; read paths must never infer it from the name. */
+  system?: boolean;
 }
 
 // ── Task system (.proto/tasks/{id}.json) ───────────────────────────────────

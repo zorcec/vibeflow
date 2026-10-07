@@ -417,3 +417,73 @@ describe("legacy .linked.json migration", () => {
     expect(linked).toBeDefined();
   });
 });
+
+
+describe("system-file flag", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-sysflag-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function makeTask() {
+    return createTask(tempDir, {
+      title: "Flag test",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+  }
+
+  it("saveFile defaults to user — no system key on the ref or FileInfo", () => {
+    const task = makeTask();
+    const info = saveFile(tempDir, task.id, "notes.md", Buffer.from("hi"));
+    expect(info.system).toBeUndefined();
+    expect("system" in info).toBe(false);
+    const files = listFiles(tempDir, task.id);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.system).toBeUndefined();
+    expect("system" in files[0]!).toBe(false);
+  });
+
+  it("saveFile with { system: true } stamps the ref and returns the flag", () => {
+    const task = makeTask();
+    const info = saveFile(
+      tempDir,
+      task.id,
+      "verify-after.json",
+      Buffer.from("{}"),
+      { system: true },
+    );
+    expect(info.system).toBe(true);
+    const files = listFiles(tempDir, task.id);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.system).toBe(true);
+  });
+
+  it("re-saving an engine file without the flag keeps system: true (set-only)", () => {
+    const task = makeTask();
+    saveFile(tempDir, task.id, "baseline.json", Buffer.from("{}"), {
+      system: true,
+    });
+    saveFile(tempDir, task.id, "baseline.json", Buffer.from("{}"));
+    expect(listFiles(tempDir, task.id)[0]!.system).toBe(true);
+  });
+
+  it("backward-compat scan emits no flag for ref-less files, even engine names", () => {
+    const task = makeTask();
+    ensureFilesDir(tempDir, task.id);
+    writeFileSync(
+      join(getFilesDir(tempDir, task.id), "verify-after.json"),
+      "{}",
+    );
+    // Pure read: the orphan shows up with no provenance claim.
+    const files = listFiles(tempDir, task.id);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.system).toBeUndefined();
+  });
+});

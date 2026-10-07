@@ -88,9 +88,10 @@ export interface SaasTask {
     size?: number;
     url?: string;
     content?: string;
+    /** True when written by the engine. Round-trips through push/import. */
+    system?: boolean;
   }>;
 }
-
 async function getBearerHeaders(): Promise<Record<string, string> | null> {
   const token = await readToken();
   if (!token) return null;

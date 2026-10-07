@@ -448,6 +448,7 @@ export async function verifyTask(
               taskId,
               "verify-all-styles.json",
               Buffer.from(JSON.stringify(afterPage, null, 2)),
+              { system: true },
             );
             // Save page diff
             const pageDiffJson = JSON.stringify(
@@ -467,6 +468,7 @@ export async function verifyTask(
               taskId,
               "verify-page-diff.json",
               Buffer.from(pageDiffJson),
+              { system: true },
             );
             evidenceFiles.push(
               join(getFilesDir(absProjectDir, taskId), "verify-page-diff.json"),
@@ -768,18 +770,24 @@ async function storeEvidence(
 
   // verify-after.json
   const afterJson = JSON.stringify(after, null, 2);
-  saveFile(projectDir, taskId, "verify-after.json", Buffer.from(afterJson));
+  saveFile(projectDir, taskId, "verify-after.json", Buffer.from(afterJson), {
+    system: true,
+  });
   files.push(join(getFilesDir(projectDir, taskId), "verify-after.json"));
 
   // verify-diff.json
   const diffJson = JSON.stringify(diff, null, 2);
-  saveFile(projectDir, taskId, "verify-diff.json", Buffer.from(diffJson));
+  saveFile(projectDir, taskId, "verify-diff.json", Buffer.from(diffJson), {
+    system: true,
+  });
   files.push(join(getFilesDir(projectDir, taskId), "verify-diff.json"));
 
   // verify-console.txt
   const consoleText =
     consoleErrors.length > 0 ? consoleErrors.join("\n") : "(no console errors)";
-  saveFile(projectDir, taskId, "verify-console.txt", Buffer.from(consoleText));
+  saveFile(projectDir, taskId, "verify-console.txt", Buffer.from(consoleText), {
+    system: true,
+  });
   files.push(join(getFilesDir(projectDir, taskId), "verify-console.txt"));
 
   // Playwright artifacts (non-fatal if capture fails)
@@ -787,7 +795,9 @@ async function storeEvidence(
     // verify-page.html
     try {
       const html = await page.content();
-      saveFile(projectDir, taskId, "verify-page.html", Buffer.from(html));
+      saveFile(projectDir, taskId, "verify-page.html", Buffer.from(html), {
+        system: true,
+      });
       files.push(join(getFilesDir(projectDir, taskId), "verify-page.html"));
     } catch (err) {
       warnEvidenceCapture("verify-page.html", err);
@@ -809,6 +819,7 @@ async function storeEvidence(
           taskId,
           "verify-all-styles.json",
           Buffer.from(json),
+          { system: true },
         );
         files.push(
           join(getFilesDir(projectDir, taskId), "verify-all-styles.json"),
@@ -821,7 +832,9 @@ async function storeEvidence(
     // verify-screenshot.png
     try {
       const screenshot = await page.screenshot({ fullPage: false });
-      saveFile(projectDir, taskId, "verify-screenshot.png", screenshot);
+      saveFile(projectDir, taskId, "verify-screenshot.png", screenshot, {
+        system: true,
+      });
       files.push(
         join(getFilesDir(projectDir, taskId), "verify-screenshot.png"),
       );
@@ -841,6 +854,7 @@ async function storeEvidence(
           taskId,
           "verify-element.html",
           Buffer.from(elementHtml),
+          { system: true },
         );
         files.push(
           join(getFilesDir(projectDir, taskId), "verify-element.html"),
@@ -854,7 +868,9 @@ async function storeEvidence(
   // baseline.json — the captured baseline snapshot
   if (baseline) {
     const baselineJson = JSON.stringify(baseline, null, 2);
-    saveFile(projectDir, taskId, "baseline.json", Buffer.from(baselineJson));
+    saveFile(projectDir, taskId, "baseline.json", Buffer.from(baselineJson), {
+      system: true,
+    });
     files.push(join(getFilesDir(projectDir, taskId), "baseline.json"));
   }
 

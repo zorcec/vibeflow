@@ -45,14 +45,14 @@ async function uploadTaskFiles(
   projectDir: string,
   taskMappings: Array<{ localId: string; remoteId: string }>,
 ): Promise<{ uploaded: number; failed: number; failedFiles: Array<{ name: string; reason: string }> }> {
-  const allJobs: Array<{ remoteId: string; name: string; filePath: string; size: number }> = [];
+  const allJobs: Array<{ remoteId: string; name: string; filePath: string; size: number; system: boolean }> = [];
 
   for (const { localId, remoteId } of taskMappings) {
     const files = listFiles(projectDir, localId);
     for (const f of files) {
       const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
       if (existsSync(absPath)) {
-        allJobs.push({ remoteId, name: f.name, filePath: absPath, size: f.size });
+        allJobs.push({ remoteId, name: f.name, filePath: absPath, size: f.size, system: f.system === true });
       }
     }
   }
@@ -89,6 +89,7 @@ async function uploadTaskFiles(
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
+            ...(job.system ? { "x-file-system": "1" } : {}),
           },
           body: data,
         },

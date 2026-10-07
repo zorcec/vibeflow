@@ -254,6 +254,9 @@ function normalizeTask(raw: Record<string, unknown>): Task {
               addedAt: String(f.addedAt ?? new Date().toISOString()),
               linkedPath: f.linkedPath ? String(f.linkedPath) : undefined,
               mimeType: f.mimeType ? String(f.mimeType) : undefined,
+              // Engine-provenance flag: absent/false = user file. Must
+              // survive normalization or every read drops the grouping.
+              system: f.system === true ? true : undefined,
             };
           })
           .filter((f) => f.name)

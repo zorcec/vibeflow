@@ -3,11 +3,9 @@ import type { FileEntry } from "../../types";
 import { ConfirmModal } from "../ConfirmModal";
 import { FileItem } from "./FileItem";
 
-/** System files: auto-captured baselines and screenshots. User files: everything else. */
-function isSystemFile(f: FileEntry, taskId?: string): boolean {
-  if (/^baseline-.*\.json$/i.test(f.name)) return true;
-  if (taskId && f.name === `${taskId}.png`) return true;
-  return false;
+/** System files: engine-written baselines and verify evidence, flagged by the server at write time. User files: everything else. */
+function isSystemFile(f: FileEntry): boolean {
+  return f.system === true;
 }
 
 interface Props {
@@ -15,6 +13,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   baseUrl: string;
+  /** Kept for caller compatibility; grouping no longer consults it. */
   taskId?: string;
   onPreview: (f: FileEntry) => void;
   onDelete?: (f: FileEntry) => Promise<void>;
@@ -25,7 +24,6 @@ export function FilesList({
   loading,
   error,
   baseUrl,
-  taskId,
   onPreview,
   onDelete,
 }: Props) {
@@ -77,8 +75,8 @@ export function FilesList({
     );
   }
 
-  const userFiles = files.filter((f) => !isSystemFile(f, taskId));
-  const systemFiles = files.filter((f) => isSystemFile(f, taskId));
+  const userFiles = files.filter((f) => !isSystemFile(f));
+  const systemFiles = files.filter((f) => isSystemFile(f));
 
   function renderFile(f: FileEntry) {
     const url = f.url ?? `${baseUrl}/api/files/${encodeURIComponent(f.name)}`;
@@ -169,8 +167,8 @@ export function FilesList({
                   fontStyle: "italic",
                 }}
               >
-                DOM baselines & screenshots captured automatically — re-captured
-                on every verify run, safe to ignore.
+                Baselines captured at annotation time, verify evidence re-captured
+                on every verify run — safe to ignore.
               </p>
             </div>
           )}

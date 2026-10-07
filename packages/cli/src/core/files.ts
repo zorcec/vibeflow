@@ -18,6 +18,8 @@ export interface FileInfo {
   url: string;
   linkedPath?: string;
   createdAt?: string;
+  /** True when written by the engine. Copied verbatim from the task-JSON ref; absent = user. */
+  system?: boolean;
 }
 
 // ── File validation ───────────────────────────────────────────────────────────
@@ -175,13 +177,36 @@ function setTaskFileRefs(
   updateTask(projectDir, taskId, { files: refs });
 }
 
+/**
+ * Engine-written filenames eligible for the one-time system-flag backfill.
+ * This const is the ONLY place in the codebase where engine output is
+ * recognized by name — every render/read path consults the `system` flag
+ * on the ref instead (see D4 of the system-file flag plan). Lowercase;
+ * compared case-insensitively because the engine always writes lowercase.
+ */
+const SYSTEM_FILE_NAMES = new Set([
+  "baseline-element.json",
+  "baseline-page.json",
+  "baseline.json",
+  "verify-after.json",
+  "verify-diff.json",
+  "verify-console.txt",
+  "verify-page.html",
+  "verify-all-styles.json",
+  "verify-screenshot.png",
+  "verify-element.html",
+  "verify-page-diff.json",
+]);
+
 function migrateLegacyLinkedRefs(
   projectDir: string,
   taskId: string,
 ): TaskFileRef[] {
   const refs = getTaskFileRefs(projectDir, taskId);
   const manifestPath = join(getFilesDir(projectDir, taskId), LINKED_MANIFEST);
-  if (!existsSync(manifestPath)) return refs;
+  if (!existsSync(manifestPath)) {
+    return backfillSystemFlags(projectDir, taskId, refs);
+  }
 
   const legacy = readLinked(projectDir, taskId);
   if (legacy.length === 0) {
@@ -191,7 +216,7 @@ function migrateLegacyLinkedRefs(
     } catch {
       /* ignore */
     }
-    return refs;
+    return backfillSystemFlags(projectDir, taskId, refs);
   }
 
   const next = refs.slice();
@@ -225,6 +250,56 @@ function migrateLegacyLinkedRefs(
     /* ignore */
   }
 
+  return backfillSystemFlags(
+    projectDir,
+    taskId,
+    added ? getTaskFileRefs(projectDir, taskId) : next,
+  );
+}
+
+/**
+ * One-time backfill: stamp `system: true` onto refs whose names are in the
+ * engine-written set, and create refs for ref-less on-disk files (classifying
+ * them once, at this moment). Set-only — never clears a flag, never
+ * duplicates refs. Persists only when something changed, so a second run is
+ * a byte-no-op. Runs lazily on the write path plus the one-shot sweep.
+ */
+function backfillSystemFlags(
+  projectDir: string,
+  taskId: string,
+  refs: TaskFileRef[],
+): TaskFileRef[] {
+  const next = refs.slice();
+  let changed = false;
+  for (const ref of next) {
+    if (
+      ref.system !== true &&
+      SYSTEM_FILE_NAMES.has(ref.name.toLowerCase())
+    ) {
+      ref.system = true;
+      changed = true;
+    }
+  }
+  const dir = getFilesDir(projectDir, taskId);
+  if (existsSync(dir)) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || entry.name === LINKED_MANIFEST) continue;
+      if (next.find((f) => f.name === entry.name)) continue;
+      const ref: TaskFileRef = {
+        name: entry.name,
+        addedAt: new Date().toISOString(),
+      };
+      if (SYSTEM_FILE_NAMES.has(entry.name.toLowerCase())) {
+        ref.system = true;
+      }
+      next.push(ref);
+      changed = true;
+    }
+  }
+  if (changed) {
+    setTaskFileRefs(projectDir, taskId, next);
+    return getTaskFileRefs(projectDir, taskId);
+  }
   return next;
 }
 
@@ -242,6 +317,7 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
         url: `/api/tasks/${taskId}/files/${encodeURIComponent(ref.name)}`,
         linkedPath: ref.linkedPath,
         createdAt: stat.mtime.toISOString(),
+        ...(ref.system === true ? { system: true } : {}),
       });
       continue;
     }
@@ -254,6 +330,7 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
         size: stat.size,
         url: `/api/tasks/${taskId}/files/${encodeURIComponent(ref.name)}`,
         createdAt: stat.mtime.toISOString(),
+        ...(ref.system === true ? { system: true } : {}),
       });
     }
   }
@@ -281,20 +358,32 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
   return Array.from(byName.values());
 }
 
-/** Saves binary data to .proto/files/<taskId>/<filename>. Strips path components. */
+/** Saves binary data to .proto/files/<taskId>/<filename>. Strips path components.
+ * Pass `{ system: true }` for engine-written files (verify evidence,
+ * baselines); the default (absent) means a user upload. */
 export function saveFile(
   projectDir: string,
   taskId: string,
   filename: string,
   data: Buffer,
+  opts?: { system?: boolean },
 ): FileInfo {
   const safe = basename(filename);
   ensureFilesDir(projectDir, taskId);
   writeFileSync(join(getFilesDir(projectDir, taskId), safe), data);
 
   const refs = migrateLegacyLinkedRefs(projectDir, taskId);
-  if (!refs.find((f) => f.name === safe && !f.linkedPath)) {
-    refs.push({ name: safe, addedAt: new Date().toISOString() });
+  const system = opts?.system === true;
+  const existing = refs.find((f) => f.name === safe && !f.linkedPath);
+  if (!existing) {
+    refs.push({
+      name: safe,
+      addedAt: new Date().toISOString(),
+      ...(system ? { system: true as const } : {}),
+    });
+    setTaskFileRefs(projectDir, taskId, refs);
+  } else if (system && existing.system !== true) {
+    existing.system = true;
     setTaskFileRefs(projectDir, taskId, refs);
   }
 
@@ -302,6 +391,7 @@ export function saveFile(
     name: safe,
     size: data.length,
     url: `/api/tasks/${taskId}/files/${encodeURIComponent(safe)}`,
+    ...(system ? { system: true as const } : {}),
   };
 }
 
@@ -362,10 +452,10 @@ export async function migrateAllLegacyLinkedRefs(
   let count = 0;
   for (const task of tasks) {
     try {
-      const before = readTaskFileRefs(projectDir, task.id);
+      const before = JSON.stringify(readTaskFileRefs(projectDir, task.id));
       migrateLegacyLinkedRefs(projectDir, task.id);
-      const after = getTaskFileRefs(projectDir, task.id);
-      if (after.length !== before.length) count++;
+      const after = JSON.stringify(getTaskFileRefs(projectDir, task.id));
+      if (after !== before) count++;
     } catch {
       /* skip tasks that fail migration */
     }

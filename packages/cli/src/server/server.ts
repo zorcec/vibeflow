@@ -82,6 +82,7 @@ import {
   getFileCount,
   isValidFilename,
   isAllowedFileExtension,
+  migrateAllLegacyLinkedRefs,
 } from "../core/files.js";
 import { encryptAuthState } from "../core/auth.js";
 import { loadSettings, saveSettings } from "../core/settings.js";
@@ -1058,6 +1059,7 @@ function registerTaskApi(
         id,
         filename,
         Buffer.from(JSON.stringify(baseline, null, 2)),
+        { system: true },
       );
       updateTask(projectDir, id, {
         baselineElementFile: filename,
@@ -1109,6 +1111,7 @@ function registerTaskApi(
           id,
           filename,
           Buffer.from(JSON.stringify(page, null, 2)),
+          { system: true },
         );
         updateTask(projectDir, id, { baselineFile: filename } as Partial<Task>);
         console.log(
@@ -1685,6 +1688,10 @@ async function serveApiOnly(
   } else {
     // Offline mode: register all local task APIs.
     ensureTaskDirs(projectDir);
+    // One-shot backfill for tasks that never see another write (e.g. the
+    // system-flag migration): runs once at startup, never per request.
+    // Fire-and-forget — a failed sweep must not block serving.
+    migrateAllLegacyLinkedRefs(projectDir).catch(() => {});
 
     const overlayScript = getOverlayScript(options.port);
     app.get("/vibeflow-overlay.js", (_req, res) => {
@@ -1874,6 +1881,9 @@ export async function serve(
     ),
   );
   ensureTaskDirs(projectDir);
+  // Same one-shot sweep as API-only mode (see above): covers boards opened
+  // with an HTML target.
+  migrateAllLegacyLinkedRefs(projectDir).catch(() => {});
 
   const { app, httpServer, wss, broadcast } = createBaseServer();
 
