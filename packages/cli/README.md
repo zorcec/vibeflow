@@ -339,7 +339,7 @@ One code per meaning:
 | `TASK_NOT_FOUND` | the task or parent task does not exist (same code as the MCP tools) | no |
 | `E_NOT_FOUND` | something else is missing, e.g. the `--report-file` path | no |
 | `E_BACKEND_UNAVAILABLE` | a call to the online backend failed — `retryable: true` only when the host was unreachable | only when unreachable |
-| `E_NOT_AUTHENTICATED` | no token, or the session was rejected (HTTP 401/403) — run `vibeflow login` | no |
+| `E_NOT_AUTHENTICATED` | no token, or the session was rejected (HTTP 401/403) | no |
 | `E_COMMENT_SAVE` | the task was written but requested text was NOT saved: the `--comment`, **or** the `--verify-reason` of a `cannot` verdict | no |
 | `GIT_COMMIT_FAILED` | in `error.code` nothing was committed; in `notices[].code` the task WAS written and only the commit did not happen | no |
 | `REINDEX_WRITE_FAILED` | `--reindex-sort-keys` planned `sortKey` writes and wrote NONE — no task file was changed | no |
@@ -389,7 +389,7 @@ So `warning` is never an object and never means "partial success": a consumer th
 BOTH modes — `--json` suppresses its progress lines, never the push — so this is how its outcome
 reaches a machine consumer instead of as prose. `attempted: false` means there was nothing new to
 push: a linked existing commit, or `autoPush` turned off in settings. A failed push is still
-`ok:true` and exit 0, because the commit itself landed; `vibeflow push` remains the documented retry.
+`ok:true` and exit 0, because the commit itself landed; a failed push can be retried separately.
 
 **Breaking as of 0.18.0:** `tasks --json` used to return a bare array, `--get --json` a flat object,
 success payloads carried `success:true` instead of `ok:true`, and an auto-commit failure exited 1

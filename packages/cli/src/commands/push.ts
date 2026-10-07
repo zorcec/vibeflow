@@ -117,8 +117,9 @@ export interface PushResult {
   files: number;
   board?: string;
   /**
-   * Named `notices`, not `steps`: this object IS the push_tasks wire payload,
-   * so a `steps` key here would be the one place the MCP surface still used
+   * Named `notices`, not `steps`: this object was the push_tasks wire payload
+   * (the MCP tool is now removed; the hidden CLI push still returns it), so
+   * a `steps` key here would be the one place the push surface still used
    * the old name, and its values were bare strings. Same `{code, message}`
    * objects the CLI emits.
    */

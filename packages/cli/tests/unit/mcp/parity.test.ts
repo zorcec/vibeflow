@@ -151,7 +151,6 @@ describe("dryRun parity", () => {
       contentB64: Buffer.from("hello").toString("base64"),
       dryRun: true,
     }),
-    push_tasks: () => ({ dryRun: true, keepLocalFiles: true }),
     verify_task: (t) => ({
       id: t.id,
       url: "http://127.0.0.1:1/never-loaded",
@@ -588,7 +587,6 @@ describe("success payload carries notices", () => {
         input: { id: "task-1", filename: "probe.png", contentB64: b64, dryRun: true },
       },
       { tool: "export_prompt", input: { id: "task-1" } },
-      { tool: "push_tasks", input: { dryRun: true } },
     ];
 
     const offenders: string[] = [];

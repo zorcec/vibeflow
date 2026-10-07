@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import { manifest } from "../../src/mcp/manifest.js";
 
 describe("MCP manifest single source", () => {
-  it("has exactly 13 tools", () => {
-    expect(manifest.length).toBe(13);
+  it("has exactly 12 tools", () => {
+    expect(manifest.length).toBe(12);
+  });
+
+  it("push_tasks is absent (hidden CLI push, intentionally unexposed)", () => {
+    expect(manifest.some((t) => t.name === "push_tasks")).toBe(false);
   });
 
   it("all tool names are unique", () => {

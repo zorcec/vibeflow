@@ -62,7 +62,7 @@ describe("MCP drift test", () => {
     expect(unique.size).toBe(names.length);
   });
 
-  it("all 13 MCP tools are registered", () => {
+  it("all 12 MCP tools are registered", () => {
     const expectedTools = [
       "add_comment",
       "attach_file",
@@ -73,7 +73,6 @@ describe("MCP drift test", () => {
       "get_project",
       "get_task",
       "list_tasks",
-      "push_tasks",
       "start_kanban",
       "update_task",
       "verify_task",
@@ -97,12 +96,28 @@ describe("MCP drift test", () => {
     }
   });
 
-  it("destructive tools have destructiveHint=true", () => {
-    const destructiveTools = ["push_tasks"];
-    for (const tool of manifest) {
-      if (destructiveTools.includes(tool.name)) {
-        expect(tool.annotations.destructiveHint).toBe(true);
-      }
+  it("no tool is destructive — push_tasks (the only destructiveHint tool) is gone", () => {
+    const destructive = manifest.filter((t) => t.annotations.destructiveHint);
+    expect(destructive.map((t) => t.name)).toEqual([]);
+  });
+
+  it("push and auth stay functional but hidden (undocumented, not removed)", () => {
+    // push_tasks is gone from the MCP surface and push is classified as
+    // deliberately unexposed — the SaaS sync stays available via hidden CLI
+    // push, exactly as the intentionallyNotExposed reason states.
+    expect(manifest.some((m) => m.name === "push_tasks")).toBe(false);
+    expect(manifest.some((m) => m.cliRef.command === "push")).toBe(false);
+    expect(intentionallyNotExposed.commands.push).toBeTruthy();
+    const program = createProgram();
+    // All five auth/sync commands still exist in the commander tree ...
+    for (const name of ["auth", "login", "logout", "status", "push"]) {
+      const cmd = program.commands.find((c) => c.name() === name);
+      expect(cmd, `hidden CLI command "${name}" went missing`).toBeDefined();
+      // ... but render nothing in top-level help (commander v12: _hidden).
+      expect(
+        (cmd as unknown as { _hidden?: boolean })._hidden,
+        `"${name}" is no longer hidden`,
+      ).toBe(true);
     }
   });
 

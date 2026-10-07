@@ -598,30 +598,21 @@ describe("verify_task", () => {
   });
 });
 
-// ── push_tasks TextContent contract (D7) ──────────────────────────────
+// ── push_tasks is intentionally unexposed (hidden CLI push, no MCP tool) ──
 
-describe("push_tasks envelope", () => {
-  it("push_tasks — returns a defined data object and a string TextContent", async () => {
-    // Call THROUGH createMcpServer: the registered callback runs the op and
-    // formatResult, so this pins the wire contract — content[0].text must be
-    // a parseable JSON string, never undefined (JSON.stringify(undefined)
-    // would violate the MCP TextContent contract).
+describe("push_tasks absence", () => {
+  it("createMcpServer registers no push_tasks tool", async () => {
+    // Registration-level pin: the manifest has no push_tasks entry, so the
+    // server loop must not expose one either — SaaS sync stays available
+    // only via the hidden CLI push command.
     const { createMcpServer } = await import("../../../src/mcp/server.js");
     const server = createMcpServer(testDir, "local");
     const registered = (server as unknown as {
       _registeredTools: Record<
         string,
-        { handler: (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }> }
+        { handler: (input: unknown) => Promise<unknown> }
       >;
     })._registeredTools;
-    const result = await registered.push_tasks.handler({
-      dryRun: true,
-      keepLocalFiles: true,
-    });
-    expect(typeof result.content[0].text).toBe("string");
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).not.toBeNull();
-    expect(typeof parsed).toBe("object");
-    expect(Object.keys(parsed).length).toBeGreaterThan(0);
+    expect("push_tasks" in registered).toBe(false);
   });
 });

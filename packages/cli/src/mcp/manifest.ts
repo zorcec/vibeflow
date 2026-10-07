@@ -17,7 +17,6 @@ import {
   AttachFileInput,
   ExportPromptInput,
   VerifyTaskInput,
-  PushTasksInput,
   StartKanbanInput,
   GetIntegrationGuideInput,
   listTasks,
@@ -30,7 +29,6 @@ import {
   attachFile,
   exportPrompt,
   verifyTaskOp,
-  pushTasks,
   startKanban,
   getIntegrationGuide,
 } from "../core/operations.js";
@@ -85,6 +83,7 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     kanban: "only the board SERVER is exposed, as start_kanban/get_integration_guide; the browser-opening and changelog side of the command are not reachable over MCP",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
+    push: "hidden SaaS-sync command; stays available as hidden CLI push, but is not reachable over MCP",
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
     serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
@@ -443,25 +442,6 @@ export const manifest: ToolManifest[] = [
     input: VerifyTaskInput.shape,
     run: (ctx, input) =>
       verifyTaskOp(ctx, input as z.infer<typeof VerifyTaskInput>),
-  },
-  {
-    name: "push_tasks",
-    title: "Push tasks",
-    description: "Push local tasks to the SaaS server.",
-    cliRef: {
-      command: "push",
-      flags: ["--workspace", "--keep-local-files", "--dry-run"],
-    },
-    category: "admin",
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: false,
-      openWorldHint: false,
-    },
-    input: PushTasksInput.shape,
-    run: (ctx, input) =>
-      pushTasks(ctx, input as z.infer<typeof PushTasksInput>),
   },
   {
     name: "start_kanban",

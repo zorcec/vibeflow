@@ -1,7 +1,7 @@
 /**
  * MCP e2e — MCP-from-manifest parity (spec §2.8, Phase 5-completed).
  *
- * src/mcp/server.ts registers the 11 tools FROM src/mcp/manifest.ts —
+ * src/mcp/server.ts registers the 12 tools FROM src/mcp/manifest.ts —
  * name, description, input schema (zod raw shape) and annotations are all
  * passed through at registration, so schema/key/annotation drift is
  * structurally impossible. This suite asserts that over the wire via
@@ -49,11 +49,16 @@ describe("MCP-from-manifest parity", () => {
     await env.cleanup();
   });
 
-  it("1: names parity — tools/list === manifest, exactly 13, no extras", () => {
+  it("1: names parity — tools/list === manifest, exactly 12, no extras", () => {
     const listed = tools.map((t) => t.name).sort();
     const manifestNames = manifest.map((m) => m.name).sort();
     expect(listed).toEqual(manifestNames);
-    expect(tools.length).toBe(13);
+    expect(tools.length).toBe(12);
+  });
+
+  it("1b: push_tasks is absent from tools/list (hidden CLI push, no MCP tool)", () => {
+    const listed = tools.map((t) => t.name);
+    expect(listed).not.toContain("push_tasks");
   });
 
   it("2: descriptions parity — server copies manifest descriptions verbatim", () => {
@@ -92,7 +97,6 @@ describe("MCP-from-manifest parity", () => {
       attach_file: { id: 123, filename: "a.md", contentB64: "aGk=" },
       export_prompt: { format: "html" },
       verify_task: { id: 123, url: "http://ok" },
-      push_tasks: { dryRun: "yes" },
       // `port` is a bounded integer in the manifest; a string must be refused
       // rather than coerced into a NaN bind.
       start_kanban: { port: "not-a-port" },

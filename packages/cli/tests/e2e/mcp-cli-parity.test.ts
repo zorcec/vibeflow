@@ -20,8 +20,9 @@
  *  5. Id-prefix resolution — `tasks --get <prefix>` and `get_task {id:<prefix>}`
  *     must resolve the SAME task. The expression lived inlined in the CLI only,
  *     so the MCP path was exact-match while the CLI accepted any prefix.
- *  6. push stays offline — `push_tasks {dryRun:true}` and `push --dry-run`
- *     must not require network/credentials.
+ *  6. push stays offline and hidden — the SaaS-sync `push` command is hidden
+ *     (no push_tasks MCP tool); `push --dry-run` must not require
+ *     network/credentials.
  *
  * Known divergences are PINNED (asserted as they behave today) with flip
  * notes, following the existing e2e convention. The full findings list lives
@@ -472,16 +473,10 @@ describe("state round-trip — CLI-created ↔ MCP-created", () => {
     expect(missCli.code).not.toBe(0);
   });
 
-  it("push stays offline on both surfaces (dry-run, no credentials)", async () => {
-    // push_tasks: dryRun input guarantees no SaaS call regardless of mode.
-    const mcpRes = await callTool(client, "push_tasks", { dryRun: true });
-    expect(mcpRes.status).toBe(200);
-    const body = await mcpRes.json();
-    expect(body.error).toBeUndefined();
-    const text = body.result?.content?.[0]?.text;
-    expect(typeof text).toBe("string");
-    expect(() => JSON.parse(text as string)).not.toThrow();
-
+  it("push stays offline and hidden (dry-run, no credentials, no MCP tool)", async () => {
+    // push_tasks is intentionally unexposed — the SaaS sync stays available
+    // only via the hidden CLI push command, so only the CLI half remains.
+    // dryRun guarantees no SaaS call regardless of mode.
     const cliRes = await runCli(["push", "--dry-run"], {
       cwd: env.projectDir,
       home,

@@ -1,5 +1,5 @@
 /**
- * MCP e2e — all 13 tools happy path over HTTP (spec §2.2).
+ * MCP e2e — all 12 tools happy path over HTTP (spec §2.2).
  *
  * Common contract per call: HTTP 200, JSON-RPC 2.0, content[0].text is
  * a string that JSON.parse succeeds. On-disk effects verified via
@@ -16,7 +16,6 @@
  *   attachFile     → FileInfo object (name, size, url)
  *   exportPrompt   → string
  *   verifyTaskOp   → unknown (error envelope: {error, message})
- *   pushTasks      → unknown
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -403,19 +402,6 @@ describe("MCP tools happy paths", () => {
     const parsed = await assertJsonTextContent(res);
     expect(parsed.ok).toBe(false);
     expect(typeof parsed.error.code).toBe("string");
-  });
-
-  // ── 15. push_tasks — envelope contract (empty board) ────────────────────
-
-  it("15: push_tasks — empty board envelope (known: text may be undefined when push returns void)", async () => {
-    const res = await callTool(client, "push_tasks", { keepLocalFiles: true });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    // [Phase 5] flip active: push() now returns PushResult → formatResult produces valid JSON
-    const text = body.result?.content?.[0]?.text;
-    expect(text, "push_tasks should return a result envelope").toBeDefined();
-    expect(typeof text).toBe("string");
-    expect(() => JSON.parse(text!)).not.toThrow();
   });
 
   // ── 16. list_tasks final — statuses consistent ──────────────────────────

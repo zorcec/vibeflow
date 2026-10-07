@@ -2440,7 +2440,7 @@ program
             }
 
             // Auto-push is a best-effort VCS side-effect — the commit above
-            // already landed, and `vibeflow push` remains the documented retry.
+            // already landed, and a failed push can be retried separately.
             // It still RUNS under `--json`: what `--json` suppresses is the
             // human progress lines below, not the push itself (the sibling
             // `--edit` auto-commit path works exactly this way). So the attempt
@@ -4387,7 +4387,7 @@ program
   );
 
 program
-  .command("auth")
+  .command("auth", { hidden: true })
   .description(
     "Manage stored auth state (encrypted cookies for Playwright verification)",
   )

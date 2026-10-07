@@ -331,15 +331,14 @@ vibeflow mcp --project /path/to/project
 | `attach_file` | Attach a file (base64); a `.md` satisfies the research-report gate |
 | `export_prompt` | Export one or more tasks as a formatted LLM prompt |
 | `verify_task` | Run visual verification for an annotated task |
-| `push_tasks` | Push the local task store to the optional hosted backend |
 | `start_kanban` | Start the local Kanban board server and return its URLs |
 | `get_integration_guide` | The overlay/bookmarklet integration instructions |
 
-The published `0.18.1` package exposes the first 11 — `start_kanban` and `get_integration_guide` ship in the next release.
+The published `0.18.1` package exposes 11 of the tools listed below — `start_kanban` and `get_integration_guide` ship in the next release.
 
 ### Authentication
 
-**None required.** Vibeflow is local-first: no login, no account, no API key. Every task is a file in your repo. `vibeflow login` exists but is optional and applies only to the optional hosted backend used by `push_tasks`.
+**None required.** Vibeflow is local-first: no login, no account, no API key. Every task is a file in your repo.
 
 An HTTP transport also exists (`vibeflow serve`, MCP endpoint at `/api/mcp`), but it is a local loopback server rather than a public one.
 
