@@ -334,7 +334,7 @@ vibeflow mcp --project /path/to/project
 | `start_kanban` | Start the local Kanban board server and return its URLs |
 | `get_integration_guide` | The overlay/bookmarklet integration instructions |
 
-The published `0.18.1` package exposes 11 of the tools listed below — `start_kanban` and `get_integration_guide` ship in the next release.
+The published `0.19.1` package exposes every tool listed above; it additionally contains one since-removed legacy tool, so the installed count runs one higher than this table until the next release ships.
 
 ### Authentication
 
