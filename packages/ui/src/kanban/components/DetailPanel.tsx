@@ -1122,40 +1122,36 @@ export function DetailPanel({
                 {s.label}
               </button>
             ))}
-          </div>
-
-          {/* Verification verdict — visible wherever the panel is open; the
-              VerifyIndicator carries the tooltip (what the verdict means). */}
-          {!isAdd && task && verifyState !== "none" && (
-            <div
-              id="dp-verify-row"
-              data-verify-state={verifyState}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginTop: 8,
-              }}
-            >
-              <span
+            {/* Verification verdict — a quiet trailing note in the status
+                cluster so it reads as one unit; the VerifyIndicator carries
+                the tooltip (what the verdict means). */}
+            {!isAdd && task && verifyState !== "none" && (
+              <div
+                id="dp-verify-row"
+                data-verify-state={verifyState}
                 style={{
-                  fontSize: 10,
-                  color: "var(--t-text-body)",
-                  fontWeight: 500,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
                 }}
               >
-                Verification
-              </span>
-              <VerifyIndicator state={verifyState} />
-              <span style={{ fontSize: 11, color: "var(--t-text-muted)" }}>
-                {verifyState === "verified"
-                  ? "Implemented correctly"
-                  : "Not implemented correctly"}
-              </span>
-            </div>
-          )}
+                <VerifyIndicator state={verifyState} />
+                <span
+                  style={{
+                    fontSize: 11,
+                    color:
+                      verifyState === "verified"
+                        ? "var(--t-text-muted)"
+                        : "var(--t-warning)",
+                  }}
+                >
+                  {verifyState === "verified"
+                    ? "Verified"
+                    : "Verification failed"}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Branch name prompt when createBranch is ON and setting to review */}
           {showBranchPrompt && !remoteLocked && (

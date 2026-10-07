@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 /**
- * The details pane must SHOW the verification verdict (80df86ed).
+ * The details pane must SHOW the verification verdict (80df86ed), inlined
+ * with the status chips (e0eb1b08).
  *
- * The panel header carries a `#dp-verify-row`: an uppercase "Verification"
- * label, the shared VerifyIndicator glyph and a short verdict line. It reads
- * the task through `displayedVerifyState` — the same single gate the card and
- * the child rows use — so a task in a non-verdict lane or one carrying no
- * verdict renders no row at all, and the indicator's title is the hover
- * tooltip that explains what the verdict means.
+ * The status cluster carries a `#dp-verify-row`: the shared VerifyIndicator
+ * glyph plus one quiet verdict word — no uppercase label, no separate row. It
+ * reads the task through `displayedVerifyState` — the same single gate the
+ * card and the child rows use — so a task in a non-verdict lane or one
+ * carrying no verdict renders no row at all, and the indicator's title is the
+ * hover tooltip that explains what the verdict means.
  */
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
@@ -59,17 +60,24 @@ function renderPanel(task: Task) {
 }
 
 describe("DetailPanel verification row", () => {
-  it("shows the indicator, the label and the tooltip for verified=true", () => {
+  it("shows the inline indicator, the verdict word and the tooltip for verified=true", () => {
     renderPanel(makeTask({ verified: true }));
     const row = document.querySelector("#dp-verify-row");
     expect(row).not.toBeNull();
     expect(row).toHaveAttribute("data-verify-state", "verified");
-    expect(screen.getByText("Verification")).toBeInTheDocument();
-    expect(screen.getByText("Implemented correctly")).toBeInTheDocument();
+    // Inlined with the status chips: no separate "Verification" label row.
+    expect(screen.queryByText("Verification")).not.toBeInTheDocument();
+    expect(screen.getByText("Verified")).toBeInTheDocument();
+    // The verdict keeps a span first child (annotated selector target).
+    expect(row!.querySelector("span:nth-child(1)")).not.toBeNull();
     const glyph = row!.querySelector(".verify-indicator");
     expect(glyph).toHaveAttribute(
       "title",
       "Verified — the agent attested this task IS implemented correctly",
+    );
+    expect(glyph).toHaveAttribute(
+      "aria-label",
+      "Verified — implemented correctly",
     );
   });
 
@@ -77,10 +85,15 @@ describe("DetailPanel verification row", () => {
     renderPanel(makeTask({ verified: false }));
     const row = document.querySelector("#dp-verify-row");
     expect(row).toHaveAttribute("data-verify-state", "failed");
-    expect(screen.getByText("Not implemented correctly")).toBeInTheDocument();
-    expect(row!.querySelector(".verify-indicator")).toHaveAttribute(
+    expect(screen.getByText("Verification failed")).toBeInTheDocument();
+    const glyph = row!.querySelector(".verify-indicator");
+    expect(glyph).toHaveAttribute(
       "title",
       "Failed verification — the agent attested this task is NOT implemented correctly",
+    );
+    expect(glyph).toHaveAttribute(
+      "aria-label",
+      "Failed verification — not implemented correctly",
     );
   });
 
