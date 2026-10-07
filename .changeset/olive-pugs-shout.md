@@ -2,10 +2,10 @@
 "@vibeflow-tools/cli": patch
 ---
 
-fix(cli): stop `vibeflow login` opening a browser when nobody is there to use it
+fix(cli): stop the device login flow opening a browser when nobody is there to use it
 
-`login` shelled out to the `open` package unconditionally, which on Linux means
-`xdkg-open` and a real browser tab. In CI, in scripts and in the web e2e suite
+The login flow shelled out to the `open` package unconditionally, which on Linux means
+`xdg-open` and a real browser tab. In CI, in scripts and in automated test runs
 that produced surprise tabs at `…/cli/verify?code=…` on the developer's desktop —
 tabs nobody asked for, pointing at a throwaway instance. `BROWSER=true` does not
 prevent it; `open` ignores `BROWSER` on Linux.

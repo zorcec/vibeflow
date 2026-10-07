@@ -4,8 +4,7 @@
 
 test(cli): pin the review-gate whitespace guards, the board task summary and the multi-tag filter
 
-No behaviour change — three gaps from the committed 2026-10-05 mutation triage
-(`vibeflow-private/docs/mutation/cli-kanban-triage.md`):
+No behaviour change — three coverage gaps surfaced by a test-quality review:
 
 - `tests/unit/review-gate.test.ts` gains whitespace-only fixtures for the three
   `.trim()` gates — `--commit-message "   "`, `--branch "   "` and

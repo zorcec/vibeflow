@@ -8,8 +8,8 @@ The CLI test suite ran with telemetry enabled by default: `isTelemetryEnabled()`
 only opted out via `VIBEFLOW_TELEMETRY=0`, and only 8 of ~150 test files set it.
 E2E tests that spawn the CLI with a temp `HOME` minted a fresh `randomUUID()`
 anonymous id per run (no `~/.vibeflow/config.json` to reuse), so every test run
-fabricated new PostHog "users" — 444 of 454 production users came from one OS
-username fingerprint, 366 created in a single day.
+fabricated new PostHog "users" — test traffic dominated the production user
+count with throwaway anonymous ids.
 
 Two layers now prevent the leak:
 
