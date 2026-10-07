@@ -2,6 +2,7 @@ import type { ProtoConfig } from "./types.js";
 declare const PROTO_CONFIG: ProtoConfig;
 import type { Task } from "./types.js";
 import { state } from "./state.js";
+import { uploadTaskFile } from "./paste.js";
 
 // ── Task API helpers ──────────────────────────────────────────────────────────
 
@@ -154,6 +155,20 @@ function mutationHeaders(): Record<string, string> {
   if (PROTO_CONFIG.overlayApiKey)
     headers["X-Overlay-Api-Key"] = PROTO_CONFIG.overlayApiKey;
   return headers;
+}
+
+/**
+ * Raw-octet-stream file upload for overlay-attached screenshots/files.
+ * Same contract as the kanban `api.uploadFile`: `POST
+ * /api/tasks/:id/files/:name` with the raw bytes (no multipart envelope).
+ */
+export function uploadFile(taskId: string, file: File): Promise<void> {
+  // SAFETY: PROTO_CONFIG.apiUrl is the same build-time server constant used
+  // by submitTask above — always the local CLI server (e.g.
+  // http://localhost:3700/api/tasks). Like submitTask, no auth header: the
+  // CLI server requires none for same-origin overlay calls.
+  // pi-lens-ignore: ts-ssrf
+  return uploadTaskFile(PROTO_CONFIG.apiUrl, taskId, file);
 }
 
 export function markTaskDone(taskId: string): void {

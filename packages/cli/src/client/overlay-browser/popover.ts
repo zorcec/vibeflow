@@ -1,7 +1,15 @@
 import { state } from "./state.js";
 import { el } from "./dom.js";
 import { buildSourcePointerAsync, buildCssSelector } from "./selectors.js";
-import { submitTask } from "./api.js";
+import { submitTask, uploadFile } from "./api.js";
+import {
+  collectPastedFiles,
+  hasFileItems,
+  pastedImageToFile,
+  revokePreviewUrl,
+  safePreviewUrl,
+  shouldInterceptPaste,
+} from "./paste.js";
 import { clearAnnotateHighlight } from "./ui.js";
 import { captureDomSnapshot, capturePageSnapshot } from "./core/baseline.js";
 import {
@@ -249,6 +257,71 @@ export async function showPopover(
     advSection,
   );
 
+  // ── Pasted screenshots/files (kanban create-mode parity) ─────────────────
+  // Images/files pasted anywhere in the popover are buffered here and
+  // uploaded after the task is created. Each chip is a quiet 32px thumbnail
+  // (or 📎 for non-images) with the filename and an × to remove it.
+  interface PendingPaste {
+    file: File;
+    url: string | null;
+    isImage: boolean;
+  }
+  const pendingPaste: PendingPaste[] = [];
+  const pasteRow = el("div", { className: "vibeflow-paste-row" });
+  pasteRow.style.display = "none";
+  body.insertBefore(pasteRow, advSection);
+
+  function updatePasteRowVisibility(): void {
+    pasteRow.style.display = pendingPaste.length > 0 ? "" : "none";
+  }
+
+  function revokePendingPasteUrls(): void {
+    for (const entry of pendingPaste) {
+      revokePreviewUrl(entry.url);
+    }
+  }
+
+  function addPasteChip(entry: PendingPaste): void {
+    const preview = entry.isImage
+      ? (() => {
+          const img = document.createElement("img");
+          img.src = entry.url ?? "";
+          img.alt = entry.file.name;
+          return img as HTMLElement;
+        })()
+      : el("span", { className: "vibeflow-paste-fileicon" }, "\uD83D\uDCCE");
+    const name = el(
+      "span",
+      { className: "vibeflow-paste-name" },
+      entry.file.name,
+    );
+    name.setAttribute("title", entry.file.name);
+    const rm = el(
+      "button",
+      { className: "vibeflow-paste-remove" },
+      "\u00D7",
+    ) as HTMLButtonElement;
+    rm.type = "button";
+    rm.setAttribute("aria-label", `Remove ${entry.file.name}`);
+    const chip = el(
+      "div",
+      { className: "vibeflow-paste-chip" },
+      preview,
+      name,
+      rm,
+    );
+    rm.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const idx = pendingPaste.indexOf(entry);
+      if (idx >= 0) pendingPaste.splice(idx, 1);
+      revokePreviewUrl(entry.url);
+      chip.remove();
+      updatePasteRowVisibility();
+    });
+    pasteRow.appendChild(chip);
+    updatePasteRowVisibility();
+  }
+
   // ── Footer: actions ───────────────────────────────────────────────────────
   const btnSave = el("button", { className: "btn-primary" }, "Save");
   const btnCancel = el("button", null, "Cancel");
@@ -333,6 +406,38 @@ export async function showPopover(
     popover.classList.remove("popover-dragging");
   });
 
+  // Paste-to-attach: works from any field in the popover (title, description,
+  // tags). Plain-text paste is never intercepted; image/file clipboard content
+  // is buffered as chips and uploaded once the task exists. Listening on the
+  // popover element itself (not document) keeps the lifecycle tied to the
+  // form — removing the popover removes the listener.
+  popover.addEventListener("paste", (e: Event) => {
+    const pasteEvent = e as ClipboardEvent;
+    const clipboardData = pasteEvent.clipboardData;
+    if (!clipboardData) return;
+    if (!shouldInterceptPaste(e.target, hasFileItems(clipboardData))) return;
+    const { images, others } = collectPastedFiles(clipboardData);
+    if (images.length === 0 && others.length === 0) return;
+    pasteEvent.preventDefault();
+    void (async () => {
+      const startAt = pendingPaste.length;
+      for (const blob of images) {
+        const file = await pastedImageToFile(blob);
+        pendingPaste.push({
+          file,
+          url: safePreviewUrl(file),
+          isImage: true,
+        });
+      }
+      for (const file of others) {
+        pendingPaste.push({ file, url: null, isImage: false });
+      }
+      for (const entry of pendingPaste.slice(startAt)) {
+        addPasteChip(entry);
+      }
+    })();
+  });
+
   state.root.appendChild(popover);
   titleInput.focus();
 
@@ -382,7 +487,23 @@ export async function showPopover(
         tags: advTags.length > 0 ? [...advTags] : undefined,
         priority: advPriority.value || undefined,
       },
-    ).then((result) => {
+    ).then(async (result) => {
+      // Upload screenshots/files pasted into the form before saving.
+      // The popover closes immediately below; uploads continue in the
+      // background and land on the task's Files pane.
+      if (result.taskId && pendingPaste.length > 0) {
+        const entries = pendingPaste.splice(0);
+        for (const entry of entries) {
+          revokePreviewUrl(entry.url);
+        }
+        for (const file of entries.map((p) => p.file)) {
+          try {
+            await uploadFile(result.taskId, file);
+          } catch (err) {
+            console.error("[Vibeflow Studio]", err);
+          }
+        }
+      }
       // Capture baseline for the annotated element (fire-and-forget).
       // Use the live element reference + cssSelector (always DOM-resolvable);
       // pointer.selector may be a source-pointer identity querySelector can't resolve.
@@ -414,6 +535,7 @@ export async function showPopover(
   });
 
   btnCancel.addEventListener("click", () => {
+    revokePendingPasteUrls();
     state.popover?.remove();
     state.popover = null;
     clearAnnotateHighlight();

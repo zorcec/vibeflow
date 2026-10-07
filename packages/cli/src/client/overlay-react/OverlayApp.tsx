@@ -4,6 +4,15 @@ import { AutoExpandTextarea } from "../shared/components/AutoExpandTextarea.js";
 import { MarkdownPreview } from "../shared/components/MarkdownPreview.js";
 import type { TaskType } from "../shared/task-types.js";
 import { getRecordedLogs } from "../overlay-browser/error-recorder.js";
+import { uploadFile } from "../overlay-browser/api.js";
+import {
+  collectPastedFiles,
+  hasFileItems,
+  pastedImageToFile,
+  revokePreviewUrl,
+  safePreviewUrl,
+  shouldInterceptPaste,
+} from "../overlay-browser/paste.js";
 import { state } from "../overlay-browser/state.js";
 import { clampTriggerPos } from "./trigger-pos.js";
 import {
@@ -522,6 +531,68 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
   const [titleError, setTitleError] = React.useState(false);
   const titleRef = React.useRef<HTMLInputElement>(null);
 
+  // ── Pasted screenshots/files (kanban create-mode parity) ─────────────────
+  // Buffered until the task is created, then uploaded as task files.
+  interface PasteEntry {
+    file: File;
+    url: string | null;
+    isImage: boolean;
+  }
+  const [pasteFiles, setPasteFiles] = React.useState<PasteEntry[]>([]);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const pasteFilesRef = React.useRef<PasteEntry[]>([]);
+  pasteFilesRef.current = pasteFiles;
+
+  // Paste-to-attach: works from any field in the modal. Plain-text paste is
+  // never intercepted; image/file clipboard content lands as quiet chips.
+  React.useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    function onPaste(e: ClipboardEvent) {
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+      if (!shouldInterceptPaste(e.target, hasFileItems(clipboardData))) return;
+      const { images, others } = collectPastedFiles(clipboardData);
+      if (images.length === 0 && others.length === 0) return;
+      e.preventDefault();
+      void (async () => {
+        const next: PasteEntry[] = [];
+        for (const blob of images) {
+          const file = await pastedImageToFile(blob);
+          next.push({
+            file,
+            url: safePreviewUrl(file),
+            isImage: true,
+          });
+        }
+        for (const file of others) {
+          next.push({ file, url: null, isImage: false });
+        }
+        setPasteFiles((prev) => [...prev, ...next]);
+      })();
+    }
+    dialog.addEventListener("paste", onPaste);
+    return () => dialog.removeEventListener("paste", onPaste);
+  }, []);
+
+  // Revoke thumbnail URLs when the modal unmounts (× removal revokes inline).
+  React.useEffect(
+    () => () => {
+      for (const p of pasteFilesRef.current) {
+        revokePreviewUrl(p.url);
+      }
+    },
+    [],
+  );
+
+  function removePasteFile(index: number): void {
+    setPasteFiles((prev) => {
+      const entry = prev[index];
+      revokePreviewUrl(entry?.url ?? null);
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
   // ── Draggable modal state ──────────────────────────────────────────────────
   const [dragPos, setDragPos] = React.useState<{ x: number; y: number } | null>(
     null,
@@ -606,8 +677,18 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
       },
       { tags, priority: priority || undefined },
     );
-    // Capture baseline + auth state automatically at annotation time
+    // Upload screenshots/files pasted into the form before saving.
     if (result.success && result.taskId) {
+      if (pasteFiles.length > 0) {
+        const taskId = result.taskId;
+        for (const p of pasteFiles) {
+          try {
+            await uploadFile(taskId, p.file);
+          } catch (err) {
+            console.error("[Vibeflow]", err);
+          }
+        }
+      }
       // Baseline: resolve an element from the DOM-resolvable cssSelector first;
       // opts.selector may be a source-pointer identity querySelector can't resolve.
       // sendBaselineToServer builds an absolute URL from PROTO_CONFIG — required when
@@ -703,6 +784,7 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         role="dialog"
         aria-modal="true"
         style={modalStyle}
+        ref={dialogRef}
       >
         {/* ── Header: drag handle + TypePicker + title + close ── */}
         <div
@@ -944,6 +1026,38 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
 
           {/* ── Body: description tabs with shared AutoExpandTextarea + MarkdownPreview ── */}
         </div>
+
+        {/* ── Pasted screenshots/files: quiet chips, buffered until save ── */}
+        {pasteFiles.length > 0 && (
+          <div
+            className="vibeflow-paste-row"
+            style={{ padding: "6px 16px" }}
+          >
+            {pasteFiles.map((p, i) => (
+              <span
+                key={`${p.file.name}-${i}`}
+                className="vibeflow-paste-chip"
+              >
+                {p.isImage && p.url ? (
+                  <img src={p.url} alt={p.file.name} />
+                ) : (
+                  <span className="vibeflow-paste-fileicon">{"\uD83D\uDCCE"}</span>
+                )}
+                <span className="vibeflow-paste-name" title={p.file.name}>
+                  {p.file.name}
+                </span>
+                <button
+                  type="button"
+                  className="vibeflow-paste-remove"
+                  aria-label={`Remove ${p.file.name}`}
+                  onClick={() => removePasteFile(i)}
+                >
+                  {"\u00D7"}
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* ── Bug report console notice ── */}
         {type === "Bug" && (
