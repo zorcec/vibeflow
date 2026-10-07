@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "tools.vibeflow/vibeflow",
+  "name": "io.github.zorcec/vibeflow",
   "title": "Vibeflow",
   "description": "Kanban task board over MCP for your own repo. Click any element to get a ticket with its selector.",
   "version": "0.19.2",
