@@ -2,7 +2,7 @@
   "name": "@vibeflow-tools/cli",
   "version": "0.19.2",
   "mcpName": "io.github.zorcec/vibeflow",
-  "description": "Vibeflow CLI for frontend prototyping with LLM assistance — review, annotate, and iterate on HTML prototypes",
+  "description": "A CLI and MCP Kanban for agentic development: annotate any UI element to open a ticket with its selector, file and line.",
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
   "homepage": "https://www.vibeflow.tools",

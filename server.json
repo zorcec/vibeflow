@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.zorcec/vibeflow",
   "title": "Vibeflow",
-  "description": "Kanban task board over MCP for your own repo. Click any element to get a ticket with its selector.",
+  "description": "Kanban for agentic development over MCP — annotate any UI element into a ticket with file and line.",
   "version": "0.19.2",
   "websiteUrl": "https://www.vibeflow.tools",
   "repository": {
@@ -50,11 +50,11 @@
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
       "license": "Apache-2.0",
-      "longDescription": "Vibeflow gives an AI coding agent a Kanban board over the user's own repository: click any element in their app and it becomes a ticket carrying that element's CSS selector, URL, source file and line. Tasks, progress and verification then live in one place instead of being scattered across a chat transcript. It runs locally over stdio, needs no account and no API key, and there is no hosted service to sign up for.",
+      "longDescription": "CLI and MCP server for working with AI coding agents. Annotate any UI element to open a ticket carrying its selector, file and line; the Kanban board tracks work from planned through verified.",
       "transport": "stdio, one process per project. An HTTP transport also exists (vibeflow serve, MCP at /api/mcp) but it is a local loopback server, not a public endpoint, so this manifest declares no remotes.",
       "authentication": "None. Local-first: no login is required and no API key is needed.",
-      "toolsAtPinnedVersion": 13,
-      "releaseNote": "This manifest is pinned to 0.19.2, the published version of @vibeflow-tools/cli. Verified against the published tarball (`npm pack @vibeflow-tools/cli@0.19.2`), not the repository: all 13 tools are present, including `start_kanban` and `get_integration_guide`, which shipped in this release. The `tools` count here therefore matches the README."
+      "toolsAtPinnedVersion": 12,
+      "releaseNote": "This manifest is pinned to 0.19.2, the published version of @vibeflow-tools/cli. Verified against the installed package, not the repository: an MCP `tools/list` handshake against `@vibeflow-tools/cli@0.19.2` returns 12 tools, and those names match `packages/cli/src/mcp/manifest.ts` exactly. The `tools` count here therefore matches the README's tool table."
     }
   }
 }
