@@ -51,6 +51,27 @@ overrides:
   # esbuild 0.28.1 fixes GHSA on the tsup > bundle-require chain. Build-time
   # only and low severity, but it is a one-line floor.
   "esbuild": ">=0.28.1"
+  # proxy-addr 2.0.7 carries a critical advisory (GHSA-jqcg-44mw-7w3h, IP
+  # spoofing via IPv4-mapped IPv6 trust subnet). It reaches us as RUNTIME
+  # via cli > express 4 (wants ~2.0.7) and via sdk > express 5 (wants
+  # ^2.0.7). 2.0.8 is the patched release: a one-patch bump with the same
+  # API and deps, so forcing it under both express lines is safe.
+  "proxy-addr": "2.0.8"
+  # tinypool below 2.1.2 carries two critical advisories (GHSA-5gmw-xhrv-c9v3,
+  # GHSA-85c8-ppgw-ccpr, prototype pollution to RCE). It reaches us dev-only
+  # via vitest 3.2.7 (wants ^1.1.1). 2.1.2 is the minimal patched release;
+  # forcing the 2.x line under vitest 3 is a major bump, verified by the
+  # full cli + ui unit suites below.
+  "tinypool": "2.1.2"
+  # source-map-js below 1.2.2 carries a high advisory (GHSA-68fv-2mgg-jv7q,
+  # event-loop DoS). Dev-only via vite > postcss. 1.2.2 is the patched
+  # release on the same 1.x line.
+  "source-map-js": "1.2.2"
+  # postcss-selector-parser below 7.1.6 carries a moderate advisory.
+  # Dev-only via tailwindcss 3.4.19 (wants ^6.1.2). 7.1.6 is the patched
+  # release; forcing the 7.x line under tailwind 3 is a major bump,
+  # verified by the cli build (tailwind CSS compile) below.
+  "postcss-selector-parser": "7.1.6"
   # NOT pinned here: vitest and @vitest/mocker below 4.1.11 are moderate,
   # dev-only, and reachable only through @stryker-mutator/vitest-runner.
   # vitest is a PEER dependency of that runner (">=2.0.0"), so a scoped override
