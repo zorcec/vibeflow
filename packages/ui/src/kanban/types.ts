@@ -133,6 +133,8 @@ export interface AppSettings {
   visibleCols?: TaskStatus[];
   viewMode?: ViewMode;
   panelWidth?: number;
+  /** Global preference: open the task detail panel fullscreen on both surfaces. */
+  panelFullscreen?: boolean;
   autoCommit?: boolean;
   autoComment?: boolean;
   autoPush?: boolean;

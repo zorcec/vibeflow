@@ -499,6 +499,7 @@ export function App() {
     url: "",
   });
   const [panelWidth, setPanelWidth] = React.useState(420);
+  const [panelFullscreen, setPanelFullscreen] = React.useState(false);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(
@@ -905,6 +906,9 @@ export function App() {
       if (settings.panelWidth && settings.panelWidth >= 280) {
         // A width saved on a wider screen must still load on a narrower one.
         setPanelWidth(Math.min(settings.panelWidth, window.innerWidth));
+      }
+      if (typeof settings.panelFullscreen === "boolean") {
+        setPanelFullscreen(settings.panelFullscreen);
       }
     } catch {
       /* built-in defaults apply when saved settings are unavailable */
@@ -1428,9 +1432,19 @@ export function App() {
 
   /** Board inset while the panel is open — the panel's live width, clamped so
    *  the board always keeps a band of its own. */
-  const boardRightInset = panelState.open
-    ? Math.max(0, Math.min(panelWidth, viewportWidth - MIN_BOARD_BAND_PX))
-    : 0;
+  const boardRightInset =
+    panelState.open && !panelFullscreen
+      ? Math.max(0, Math.min(panelWidth, viewportWidth - MIN_BOARD_BAND_PX))
+      : 0;
+
+  function togglePanelFullscreen() {
+    setPanelFullscreen((prev) => {
+      const next = !prev;
+      void api.saveSettings({ ...appSettings, panelFullscreen: next });
+      setAppSettings((s) => ({ ...s, panelFullscreen: next }));
+      return next;
+    });
+  }
 
   /** Net horizontal offset this effect has added to the board while the panel
    *  is open. Closing the panel takes it back off, so a scroll the user made
@@ -1483,7 +1497,13 @@ export function App() {
     board.scrollLeft = before + delta;
     // Record what actually landed — the browser clamps to the scroll range.
     boardScrollRestoreRef.current += board.scrollLeft - before;
-  }, [panelState.open, panelState.task?.id, panelWidth, viewportWidth]);
+  }, [
+    panelState.open,
+    panelState.task?.id,
+    panelWidth,
+    panelFullscreen,
+    viewportWidth,
+  ]);
 
   /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
    *  Pushes the current task to nav history so the back button works. */
@@ -1681,8 +1701,17 @@ export function App() {
         {panelState.open && (
           <div
             id="detail-panel-container"
-            style={{ width: panelWidth, zIndex: isResizingPanel ? 30 : 10 }}
-            className={isResizingPanel ? "resizing" : ""}
+            style={{
+              width: panelFullscreen ? undefined : panelWidth,
+              zIndex: panelFullscreen ? 40 : isResizingPanel ? 30 : 10,
+            }}
+            className={
+              isResizingPanel
+                ? "resizing"
+                : panelFullscreen
+                  ? "fullscreen"
+                  : ""
+            }
           >
             <div
               id="detail-panel-resize-handle"
@@ -1733,6 +1762,8 @@ export function App() {
               githubUrl={githubUrl}
               baseUrl={baseUrl}
               isResizing={isResizingPanel}
+              fullscreen={panelFullscreen}
+              onToggleFullscreen={togglePanelFullscreen}
               api={api}
               onClose={() => {
                 setNavHistory([]);

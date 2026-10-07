@@ -1,5 +1,5 @@
 import React from "react";
-import { X, Upload } from "lucide-react";
+import { X, Upload, Maximize2, Minimize2 } from "lucide-react";
 import type {
   Task,
   Comment,
@@ -113,6 +113,10 @@ interface Props {
   githubUrl?: string | null;
   baseUrl: string;
   isResizing?: boolean;
+  /** When true the panel renders its fullscreen restore affordance. Defaults to false. */
+  fullscreen?: boolean;
+  /** Toggles the persisted fullscreen preference. Never closes the panel. */
+  onToggleFullscreen?: () => void;
   api: KanbanApi;
   onClose: () => void;
   onCreate: (draft: Partial<Task>) => Promise<string | undefined>;
@@ -201,6 +205,8 @@ export function DetailPanel({
   githubUrl,
   baseUrl,
   isResizing,
+  fullscreen = false,
+  onToggleFullscreen,
   api,
   onClose,
   onCreate,
@@ -889,7 +895,13 @@ export function DetailPanel({
   // inside JSX.
   return (
     <>
-      <aside id="detail-panel" data-role="detail-panel" className="open" ref={panelRef}>
+      <aside
+        id="detail-panel"
+        data-role="detail-panel"
+        className="open"
+        ref={panelRef}
+        data-fullscreen={fullscreen ? "true" : "false"}
+      >
         {remoteLocked && (
           <div
             style={{
@@ -1037,6 +1049,41 @@ export function DetailPanel({
                   ↩
                 </button>
               )}
+            <button
+              id="dp-fullscreen-toggle"
+              onClick={onToggleFullscreen}
+              aria-pressed={fullscreen}
+              title={fullscreen ? "Restore panel" : "Expand to fullscreen"}
+              style={{
+                width: 26,
+                height: 26,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 6,
+                border: "none",
+                background: "transparent",
+                color: "var(--t-text-body)",
+                cursor: "pointer",
+                transition: "background .12s,color .12s",
+                pointerEvents: "auto",
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "var(--t-border)";
+                e.currentTarget.style.color = "var(--t-text-muted)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--t-text-body)";
+              }}
+            >
+              {fullscreen ? (
+                <Minimize2 style={{ width: 14, height: 14 }} />
+              ) : (
+                <Maximize2 style={{ width: 14, height: 14 }} />
+              )}
+            </button>
             <button
               id="dp-close"
               onClick={handleCloseRequest}

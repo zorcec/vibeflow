@@ -434,6 +434,19 @@ body {
 #detail-panel-container.resizing {
  box-shadow: -12px 0 32px rgba(2, 8, 23, 0.6);
 }
+#detail-panel-container.fullscreen {
+ position: fixed;
+ inset: 0;
+ width: 100vw;
+ max-width: none;
+ min-width: 0;
+ z-index: 40;
+ animation: none;
+ border-left: none;
+}
+#detail-panel-container.fullscreen #detail-panel-resize-handle {
+ display: none;
+}
 #detail-panel-resize-handle {
  position: absolute;
  left: 0;

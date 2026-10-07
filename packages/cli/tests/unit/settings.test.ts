@@ -139,6 +139,28 @@ describe("settings", () => {
       expect(loadSettings(projectDir)).toEqual(settings);
     });
 
+    it("panelFullscreen round-trips through save/load (cba0ade6)", () => {
+      saveSettings(projectDir, { panelFullscreen: true });
+      expect(loadSettings(projectDir).panelFullscreen).toBe(true);
+      saveSettings(projectDir, { panelFullscreen: false });
+      expect(loadSettings(projectDir).panelFullscreen).toBe(false);
+    });
+
+    it("panelFullscreen merges global fallback with project override (cba0ade6)", () => {
+      writeGlobalSettings({ panelFullscreen: true });
+      mkdirSync(join(projectDir, ".vibeflow"), { recursive: true });
+      writeFileSync(
+        join(projectDir, ".vibeflow", "settings.json"),
+        JSON.stringify({ panelWidth: 500 }),
+        "utf-8",
+      );
+      // Global true flows through when the project file is silent.
+      expect(loadSettings(projectDir).panelFullscreen).toBe(true);
+      // Project override wins.
+      saveSettings(projectDir, { panelFullscreen: false });
+      expect(loadSettings(projectDir).panelFullscreen).toBe(false);
+    });
+
     it("creates .vibeflow directory in home for global settings", () => {
       const globalDir = join(homeDir, ".vibeflow");
       expect(existsSync(globalDir)).toBe(false);

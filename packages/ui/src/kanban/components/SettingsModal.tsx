@@ -98,6 +98,9 @@ export function SettingsModal({
   const [createBranch, setCreateBranch] = React.useState(
     settings.createBranch ?? false,
   );
+  const [panelFullscreen, setPanelFullscreen] = React.useState(
+    settings.panelFullscreen ?? false,
+  );
   const [requireVerifyBeforeReview, setRequireVerifyBeforeReview] =
     React.useState(settings.requireVerifyBeforeReview ?? false);
 
@@ -137,6 +140,7 @@ export function SettingsModal({
     setAutoComment(settings.autoComment ?? false);
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
+    setPanelFullscreen(settings.panelFullscreen ?? false);
     setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
     setActiveTab("board");
   }, [open, visibleCols, settings]);
@@ -149,6 +153,7 @@ export function SettingsModal({
       autoPush,
       createBranch,
       requireVerifyBeforeReview,
+      panelFullscreen,
     });
     appearanceSession.commit?.();
     onClose();
@@ -329,6 +334,27 @@ export function SettingsModal({
               </span>
             </label>
           ))}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              cursor: "pointer",
+              userSelect: "none",
+              marginTop: 4,
+            }}
+          >
+            <input
+              id="settings-panel-fullscreen"
+              type="checkbox"
+              checked={panelFullscreen}
+              onChange={() => setPanelFullscreen((v) => !v)}
+              style={{ width: 14, height: 14, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 13, color: "var(--t-text-muted)" }}>
+              Open task details fullscreen
+            </span>
+          </label>
         </div>
       )}
 

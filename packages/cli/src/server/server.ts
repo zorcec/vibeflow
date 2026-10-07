@@ -1151,6 +1151,7 @@ function registerMetaApis(
       "visibleCols",
       "viewMode",
       "panelWidth",
+      "panelFullscreen",
       "autoCommit",
       "autoComment",
       "autoPush",
