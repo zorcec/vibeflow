@@ -1,5 +1,211 @@
 # Changelog
 
+## 0.19.2
+
+### Patch Changes
+
+- 7f8d0c8: feat(cli): coarse status transitions and serve mode breakdown in `command_run` analytics
+
+  Two instrumentation gaps in the CLI's PostHog `command_run` event:
+
+  - `tasks --edit` fires for every mutation but only captured the subcommand
+    string, so status transitions (created → in-progress → review → done) were
+    indistinguishable in the data. Edit events now carry a coarse
+    `from_status` / `to_status` pair — both enum-bounded
+    (`backlog | todo | in-progress | review | done`), resolved locally, and
+    omitted when the target task cannot be read, so no transition is ever
+    fabricated. No task ids, titles, or paths are included.
+  - `serve` had no mode breakdown, making its usage unanalyzable. Serve events
+    now emit `subcommand`: `api` (API-only task server, no target) or
+    `prototype` (an HTML target was given). The target path itself never
+    reaches analytics.
+
+  README telemetry docs updated to document the collected property set, with
+  regression tests pinning the exact payloads.
+
+- f12d24c: description grows 6→24 rows with preview mirroring the same rows, and the details panel can be resized up to 100% of the viewport
+
+  The description edit textarea rests at 6 rows and auto-extends up to 24 rows
+  (doubled from 12); the preview box mirrors that row range (min 6 / max 24,
+  converted with its own typography) instead of the fixed 80/220px box, so both
+  modes show the same number of lines. The panel's manual resize clamp is lifted
+  from 860px to the viewport width (min 360px kept; saved widths load clamped to
+  the viewport). Panel and field widths never change with content.
+
+- b7e985b: Task details can open fullscreen, persisted as a global preference
+
+  The detail-panel header gains a fullscreen toggle (expand/restore) next to the
+  close button, mirrored by an "Open task details fullscreen" checkbox in the
+  settings Board tab. The `panelFullscreen` flag persists through the existing
+  settings round-trip (CLI settings JSON allowlist; web tRPC blob needs no
+  backend change) and applies to every opened task on both surfaces. Fullscreen
+  renders as a fixed viewport overlay class so the saved `panelWidth` is
+  preserved verbatim for an exact restore; the resize handle hides while
+  fullscreen and Escape/X still close the panel.
+
+- 4835d8f: Hide the sync and auth CLI surfaces (`push` and `auth`) while keeping them functional
+
+  `vibeflow push` and `vibeflow auth` (like `login`, `logout` and `status`
+  before them) are now hidden from `--help` and from all user-facing docs, but
+  both commands still work exactly as before. The `push_tasks` MCP tool is
+  removed — the manifest holds 12 tools — and `push` is classified in
+  `intentionallyNotExposed.commands`, since the operation stays available via the
+  hidden CLI command. No behaviour changes: the push operation, its flags and
+  its tests of the underlying sync are untouched.
+
+- 65595cb: fix(ui): stop the DetailPanel title autofocus from stealing focus, and add test hooks
+
+  The detail panel focused its title input from a bare `setTimeout(…, 50)` inside an effect
+  keyed on `[open, task?.id, tab]`, so it fired on every task _and_ tab change, unconditionally.
+  Two real bugs followed:
+
+  - Open a task and click the Tags input, and 50 ms later focus jumped back to the title —
+    mid-click, mid-typing.
+  - Worse, whatever was typing then delivered its characters to the title. In the e2e suite
+    this silently renamed tasks ("Tag Test Task" → "Tag Test Taskmy-new-tag") roughly one run in
+    three, and persisted the rename. The autofocus now skips whenever focus already sits on a
+    control inside the panel, so the panel still focuses the title on open but never takes focus
+    away from a user.
+
+  Covered by a new regression guard,
+  `packages/ui/src/kanban/components/__tests__/DetailPanel.title-focus.test.tsx`.
+
+  Also adds the stable test hooks the parent-links e2e spec was already written against but which
+  did not exist: `data-role="task-card"`, `data-role="relation-group-rows"`, `data-role="detail-panel"`,
+  `data-role="child-count"`, and `data-child-chip` on the card's child chip. Tag pills gain
+  `data-testid="tag-pill"` / `data-tag="<tag>"`, because a text lookup for a tag is ambiguous — the
+  same string appears in the pill, on the card, and inside the "task saved" toast.
+
+  `vibeflow status` no longer exits 0 when it cannot reach the backend, and no longer reports
+  "Could not reach backend" for the two cases that are not network failures (a revoked token,
+  and a request that never had a board selected). A new `--json` flag emits the standard envelope
+  for scripts. `status` is now classified as intentionally-unexposed MCP surface, since the flag
+  has no MCP counterpart.
+
+- 0863a04: stop showing the "new" badge for tasks you created yourself
+
+  Core `createTask` now seeds `openedBy` with the creating user — the same id
+  the board injects as `window.__VIBEFLOW_USER__` (`getCurrentUserId()`), and
+  the same one `markTaskOpened` records. No create surface (CLI `--add`,
+  `POST /api/tasks`, MCP `create_task`) passed `openedBy`,
+  and the unread dot is `!openedBy.includes(currentUserId)`, so every task you
+  added showed as unread to you. Tasks created by someone else still show the
+  dot until you open them.
+
+- 1b1f04a: fix(cli): stop the device login flow opening a browser when nobody is there to use it
+
+  The login flow shelled out to the `open` package unconditionally, which on Linux means
+  `xdg-open` and a real browser tab. In CI, in scripts and in automated test runs
+  that produced surprise tabs at `…/cli/verify?code=…` on the developer's desktop —
+  tabs nobody asked for, pointing at a throwaway instance. `BROWSER=true` does not
+  prevent it; `open` ignores `BROWSER` on Linux.
+
+  The browser is now opened only when the process has a TTY and
+  `VIBEFLOW_NO_BROWSER` is not set. The verification URL is printed either way, so
+  nothing is lost — the flow is fully usable by copy-paste.
+
+- 6bebeb4: Overlay task forms: paste-to-attach screenshots again. Pasting an image into the floating popover or the add-task modal buffers a quiet thumbnail chip (32px preview, filename, × to remove) and uploads it as a task file on save; other file kinds attach as-is. Plain-text paste is never intercepted.
+- 51e26cf: test(cli): pin the review-gate whitespace guards, the board task summary and the multi-tag filter
+
+  No behaviour change — three coverage gaps surfaced by a test-quality review:
+
+  - `tests/unit/review-gate.test.ts` gains whitespace-only fixtures for the three
+    `.trim()` gates — `--commit-message "   "`, `--branch "   "` and
+    `--set-verify cannot --verify-reason "   "` — each with a positive control
+    proving the gate is value-sensitive. No fixture before this passed a
+    whitespace-only value, so dropping a `.trim()` was invisible to the suite and
+    would have let `--commit-message "   "` reach git.
+  - New `tests/unit/client/kanban-summary-filter.test.tsx` asserts the rendered
+    board-header summary (`2 open · 1 in-progress · 1 in review`, and
+    `1 of 3 tasks` for a case-insensitive search — uppercase input included), and
+    that a multi-tag filter is an AND: `filterState.tags.every(...)` → `some` is
+    a silent AND→OR inversion of the filter that previously survived.
+
+- de435d2: comment send button arrow now points up (message flows out of the composer) instead of left, matching modern send-button convention
+- dde8400: fix(cli): clamp auth-state age at 0 so clock jitter can't render "-1m"
+
+  `listAuthStateFiles` computed `ageMs = Date.now() - stat.mtimeMs` and floored it
+  per unit. When an auth-state file's mtime sat even 1 ms ahead of `Date.now()`
+  (NTP settling after reboot), `Math.floor(-0.000016)` became `-1` and the age
+  string rendered as `"-1m"`, failing the `\d+[mhd]` format and tripping
+  `tests/unit/commands/auth.test.ts > reports age correctly` intermittently in the
+  pre-push hook. The age is now clamped at the source — `Math.max(0, ...)` — so
+  the minutes, hours and days branches all derive from a non-negative delta and an
+  age can never go below `0m`. Regression test seeds an auth-state file with an
+  mtime 5 s in the future and asserts `age === "0m"`.
+
+- a894dde: fix(cli, ui): engine-written files carry an explicit system flag instead of name matching
+
+  `TaskFileRef` / `FileInfo` / `FileEntry` gain an optional `system?: boolean`,
+  stamped at write time: `saveFile()` accepts `{ system: true }`, and all
+  engine writers pass it (verify evidence via `storeEvidence()` plus the
+  page-diff back-fill, and both server baseline routes). User uploads (UI
+  upload route, overlay paste, MCP `attachFile()`, `--report-file`) default
+  to unflagged. The kanban `FilesList` groups by `f.system === true`, so the
+  old `baseline-*.json` regex and the dead `{taskId}.png` matcher are gone,
+  and the SYSTEM caption now states the timing accurately (baselines at
+  annotation time, verify evidence re-captured on every run).
+
+  Pre-flag boards migrate lazily: the existing `migrateLegacyLinkedRefs` hook
+  (which already runs on every `saveFile`/`deleteFile`) backfills `system: true`
+  onto the 11 known engine filenames — the single remaining place names are
+  matched — and the existing `migrateAllLegacyLinkedRefs` sweep (now also run
+  once at server startup) covers untouched tasks. The backfill is idempotent
+  and never clears a flag.
+
+- 74f1281: fix(cli): stop the test suite from leaking telemetry to production PostHog
+
+  The CLI test suite ran with telemetry enabled by default: `isTelemetryEnabled()`
+  only opted out via `VIBEFLOW_TELEMETRY=0`, and only 8 of ~150 test files set it.
+  E2E tests that spawn the CLI with a temp `HOME` minted a fresh `randomUUID()`
+  anonymous id per run (no `~/.vibeflow/config.json` to reuse), so every test run
+  fabricated new PostHog "users" — test traffic dominated the production user
+  count with throwaway anonymous ids.
+
+  Two layers now prevent the leak:
+
+  - A shared vitest setup file (`tests/setup/disable-telemetry.ts`) sets
+    `VIBEFLOW_TELEMETRY=0` and is registered via `setupFiles` in all four CLI
+    vitest configs (unit, integration, e2e, playwright). Spawned CLI subprocesses
+    inherit it through `process.env`.
+  - `isTelemetryEnabled()` additionally refuses to enable under a test
+    environment (`VITEST` set or `NODE_ENV=test`), so a future test file cannot
+    leak by omission. Tests that must exercise the enabled-by-default path opt
+    back in with `VIBEFLOW_TELEMETRY_ALLOW_IN_TESTS=1`.
+
+  A regression test asserts telemetry cannot emit under vitest even with no
+  opt-out env set: no client is created, no anonymous id is minted, and no
+  `~/.vibeflow/config.json` is written.
+
+- 8005e09: verification verdict is inlined with the task status in the details panel — quieter, more minimal, same tooltips
+
+  The details panel no longer renders the verdict as a separate labelled
+  "VERIFICATION" row above the tabs. The verdict now lives inside the status
+  chip cluster as one quiet inline note — glyph plus a single word ("Verified"
+  muted, "Verification failed" in the warning tone) — right-aligned at the
+  row's right edge (`margin-left:auto` on the row, same flex parent) so the
+  header reads as a single unit with the verdict hugging the right. The hover
+  tooltip, aria-labels, `data-verify-state`, and the `#dp-verify-row`
+  container (span first child) are unchanged.
+
+- da59560: show the verification verdict in the activity feed, the task details, and on hover
+
+  The panel's activity feed now flags the entries that carry a verification
+  verdict: a status transition that carries the task's tri-state `verified` flag
+  and lands in a verdict lane renders as `activity-verify--pass|--fail`, and the
+  `**Cannot verify:**` system comment renders as `activity-verify--cannot` —
+  each with a minimal left-border accent and a hover tooltip that says what the
+  verdict means. Ordinary comments and verdict-less status changes stay plain
+  (the lane gate stays single-sourced in `VerifyIndicator`).
+
+  The detail panel header shows a `Verification` row with the shared
+  `VerifyIndicator` glyph and label, and the glyph's hover tooltip now spells
+  out who attested what ("the agent attested this task IS / is NOT implemented
+  correctly") on the card, the child rows and the details pane. The
+  `Cannot verify` marker regex was also corrected to match the string the CLI
+  actually writes (`**Cannot verify:**` — colon inside the bold), which the
+  feed's special rendering never matched before.
+
 ## 0.19.1
 
 ### Patch Changes

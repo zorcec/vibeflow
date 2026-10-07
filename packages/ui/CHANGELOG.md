@@ -1,5 +1,120 @@
 # @vibeflow-tools/ui
 
+## 0.3.5
+
+### Patch Changes
+
+- f12d24c: description grows 6→24 rows with preview mirroring the same rows, and the details panel can be resized up to 100% of the viewport
+
+  The description edit textarea rests at 6 rows and auto-extends up to 24 rows
+  (doubled from 12); the preview box mirrors that row range (min 6 / max 24,
+  converted with its own typography) instead of the fixed 80/220px box, so both
+  modes show the same number of lines. The panel's manual resize clamp is lifted
+  from 860px to the viewport width (min 360px kept; saved widths load clamped to
+  the viewport). Panel and field widths never change with content.
+
+- b7e985b: Task details can open fullscreen, persisted as a global preference
+
+  The detail-panel header gains a fullscreen toggle (expand/restore) next to the
+  close button, mirrored by an "Open task details fullscreen" checkbox in the
+  settings Board tab. The `panelFullscreen` flag persists through the existing
+  settings round-trip (CLI settings JSON allowlist; web tRPC blob needs no
+  backend change) and applies to every opened task on both surfaces. Fullscreen
+  renders as a fixed viewport overlay class so the saved `panelWidth` is
+  preserved verbatim for an exact restore; the resize handle hides while
+  fullscreen and Escape/X still close the panel.
+
+- 65595cb: fix(ui): stop the DetailPanel title autofocus from stealing focus, and add test hooks
+
+  The detail panel focused its title input from a bare `setTimeout(…, 50)` inside an effect
+  keyed on `[open, task?.id, tab]`, so it fired on every task _and_ tab change, unconditionally.
+  Two real bugs followed:
+
+  - Open a task and click the Tags input, and 50 ms later focus jumped back to the title —
+    mid-click, mid-typing.
+  - Worse, whatever was typing then delivered its characters to the title. In the e2e suite
+    this silently renamed tasks ("Tag Test Task" → "Tag Test Taskmy-new-tag") roughly one run in
+    three, and persisted the rename. The autofocus now skips whenever focus already sits on a
+    control inside the panel, so the panel still focuses the title on open but never takes focus
+    away from a user.
+
+  Covered by a new regression guard,
+  `packages/ui/src/kanban/components/__tests__/DetailPanel.title-focus.test.tsx`.
+
+  Also adds the stable test hooks the parent-links e2e spec was already written against but which
+  did not exist: `data-role="task-card"`, `data-role="relation-group-rows"`, `data-role="detail-panel"`,
+  `data-role="child-count"`, and `data-child-chip` on the card's child chip. Tag pills gain
+  `data-testid="tag-pill"` / `data-tag="<tag>"`, because a text lookup for a tag is ambiguous — the
+  same string appears in the pill, on the card, and inside the "task saved" toast.
+
+  `vibeflow status` no longer exits 0 when it cannot reach the backend, and no longer reports
+  "Could not reach backend" for the two cases that are not network failures (a revoked token,
+  and a request that never had a board selected). A new `--json` flag emits the standard envelope
+  for scripts. `status` is now classified as intentionally-unexposed MCP surface, since the flag
+  has no MCP counterpart.
+
+- de435d2: comment send button arrow now points up (message flows out of the composer) instead of left, matching modern send-button convention
+- a894dde: fix(cli, ui): engine-written files carry an explicit system flag instead of name matching
+
+  `TaskFileRef` / `FileInfo` / `FileEntry` gain an optional `system?: boolean`,
+  stamped at write time: `saveFile()` accepts `{ system: true }`, and all
+  engine writers pass it (verify evidence via `storeEvidence()` plus the
+  page-diff back-fill, and both server baseline routes). User uploads (UI
+  upload route, overlay paste, MCP `attachFile()`, `--report-file`) default
+  to unflagged. The kanban `FilesList` groups by `f.system === true`, so the
+  old `baseline-*.json` regex and the dead `{taskId}.png` matcher are gone,
+  and the SYSTEM caption now states the timing accurately (baselines at
+  annotation time, verify evidence re-captured on every run).
+
+  Pre-flag boards migrate lazily: the existing `migrateLegacyLinkedRefs` hook
+  (which already runs on every `saveFile`/`deleteFile`) backfills `system: true`
+  onto the 11 known engine filenames — the single remaining place names are
+  matched — and the existing `migrateAllLegacyLinkedRefs` sweep (now also run
+  once at server startup) covers untouched tasks. The backfill is idempotent
+  and never clears a flag.
+
+- c7b7729: fix(ui): stop rendering a JSX source comment as visible text in the task detail panel
+
+  Two lines of developer commentary sat as the first children of the fragment
+  `DetailPanel` returns. Inside JSX, `//` is not a comment — an element's children
+  are text — so both lines were painted as literal copy above the panel header.
+
+  The note now sits above the `return` where it belongs, and a regression test
+  asserts the panel renders no text node that looks like a source comment.
+
+  The test scans the whole render output rather than `#detail-panel`: the leaked
+  text renders as a sibling _before_ the `<aside>`, so a guard scoped to the panel
+  passes with the bug still present.
+
+- 8005e09: verification verdict is inlined with the task status in the details panel — quieter, more minimal, same tooltips
+
+  The details panel no longer renders the verdict as a separate labelled
+  "VERIFICATION" row above the tabs. The verdict now lives inside the status
+  chip cluster as one quiet inline note — glyph plus a single word ("Verified"
+  muted, "Verification failed" in the warning tone) — right-aligned at the
+  row's right edge (`margin-left:auto` on the row, same flex parent) so the
+  header reads as a single unit with the verdict hugging the right. The hover
+  tooltip, aria-labels, `data-verify-state`, and the `#dp-verify-row`
+  container (span first child) are unchanged.
+
+- da59560: show the verification verdict in the activity feed, the task details, and on hover
+
+  The panel's activity feed now flags the entries that carry a verification
+  verdict: a status transition that carries the task's tri-state `verified` flag
+  and lands in a verdict lane renders as `activity-verify--pass|--fail`, and the
+  `**Cannot verify:**` system comment renders as `activity-verify--cannot` —
+  each with a minimal left-border accent and a hover tooltip that says what the
+  verdict means. Ordinary comments and verdict-less status changes stay plain
+  (the lane gate stays single-sourced in `VerifyIndicator`).
+
+  The detail panel header shows a `Verification` row with the shared
+  `VerifyIndicator` glyph and label, and the glyph's hover tooltip now spells
+  out who attested what ("the agent attested this task IS / is NOT implemented
+  correctly") on the card, the child rows and the details pane. The
+  `Cannot verify` marker regex was also corrected to match the string the CLI
+  actually writes (`**Cannot verify:**` — colon inside the bold), which the
+  feed's special rendering never matched before.
+
 ## 0.3.4
 
 ### Patch Changes
