@@ -97,6 +97,16 @@ describe("DetailPanel verification row", () => {
     );
   });
 
+  it("right-aligns the row at the status cluster's right edge", () => {
+    renderPanel(makeTask({ verified: true }));
+    const row = document.querySelector("#dp-verify-row") as HTMLElement;
+    expect(row).not.toBeNull();
+    // margin-left:auto on the flex item pushes it to the row's right edge
+    // while it stays in the same status-chip flex parent.
+    expect(row.style.marginLeft).toBe("auto");
+    expect(row.parentElement!.style.display).toContain("flex");
+  });
+
   it("renders no row when the task carries no verdict", () => {
     renderPanel(makeTask({ verified: undefined }));
     expect(document.querySelector("#dp-verify-row")).toBeNull();

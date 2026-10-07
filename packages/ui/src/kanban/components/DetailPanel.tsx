@@ -1133,6 +1133,10 @@ export function DetailPanel({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
+                  // Right-align: this flex item consumes the free space
+                  // left of it so the cluster hugs the row's right edge
+                  // while staying in the same status-chip flex parent.
+                  marginLeft: "auto",
                 }}
               >
                 <VerifyIndicator state={verifyState} />
