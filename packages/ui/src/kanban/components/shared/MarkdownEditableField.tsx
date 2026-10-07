@@ -15,8 +15,12 @@ interface Props {
   placeholder: string;
   previewEmptyText?: string;
   previewMinHeight?: number;
-  /** Preview height cap in px; pass Infinity for content-driven downward growth. */
   previewMaxHeight?: number;
+  /** Preview min expressed in text rows (mirrors the edit field's row range).
+   *  Takes precedence over `previewMinHeight` when provided. */
+  previewMinRows?: number;
+  /** Preview max expressed in text rows. Takes precedence over `previewMaxHeight`. */
+  previewMaxRows?: number;
   baseRows?: number;
   maxRows?: number;
   autoFocus?: boolean;
@@ -38,6 +42,8 @@ export function MarkdownEditableField({
   previewEmptyText,
   previewMinHeight = 54,
   previewMaxHeight = 220,
+  previewMinRows,
+  previewMaxRows,
   baseRows = 5,
   maxRows = 12,
   autoFocus = false,
@@ -152,6 +158,16 @@ export function MarkdownEditableField({
     });
   }
 
+  // Preview box typography — MUST stay in sync with the inline styles on the
+  // preview div below (fontSize 12, lineHeight 1.7, padding 10, border 1px):
+  // one row is fontSize × lineHeight px, plus 2× padding + 2× border of chrome.
+  const PREVIEW_ROW_PX = 12 * 1.7;          // 20.4
+  const PREVIEW_CHROME_PX = 10 * 2 + 1 * 2; // 22
+  // Rounded to 1dp so the inline style serializes exactly (e.g. `266.8px`,
+  // not `266.79999999999995px`).
+  const previewRowsToPx = (rows: number): number =>
+    Math.round((rows * PREVIEW_ROW_PX + PREVIEW_CHROME_PX) * 10) / 10;
+
   return showPreview ? (
     <div
       id={previewId}
@@ -163,7 +179,7 @@ export function MarkdownEditableField({
       title="Click to edit"
       style={{
         cursor: 'text',
-        minHeight: previewMinHeight,
+        minHeight: previewMinRows !== undefined ? previewRowsToPx(previewMinRows) : previewMinHeight,
         background: 'var(--t-input)',
         border: '1px solid var(--t-border-strong)',
         borderRadius: 8,
@@ -172,7 +188,7 @@ export function MarkdownEditableField({
         color: 'var(--t-text-sub)',
         lineHeight: 1.7,
         overflow: 'auto',
-        maxHeight: Number.isFinite(previewMaxHeight) ? previewMaxHeight : undefined,
+        maxHeight: previewMaxRows !== undefined ? previewRowsToPx(previewMaxRows) : previewMaxHeight,
       }}
     >
       {(previewValue ?? value).trim()

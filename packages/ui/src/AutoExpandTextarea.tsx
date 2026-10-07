@@ -4,11 +4,6 @@ interface Props extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 
   value: string;
   onChange: (value: string) => void;
   baseRows?: number;
-  /**
-   * Height ceiling in rows. Pass Infinity to drop the ceiling so the field
-   * grows downward with content — the surrounding scroll pane handles the
-   * overflow instead of this textarea.
-   */
   maxRows?: number;
 }
 
@@ -35,11 +30,7 @@ export const AutoExpandTextarea = React.forwardRef<HTMLTextAreaElement, Props>(f
     const border =
       Number.parseFloat(computed.borderTopWidth || "0") + Number.parseFloat(computed.borderBottomWidth || "0");
     const minHeight = baseRows * lineHeight + verticalPadding + border;
-    // Non-finite maxRows = no ceiling: size to scrollHeight and let the
-    // parent pane (e.g. #dp-details-pane) scroll instead.
-    const maxHeight = Number.isFinite(resolvedMaxRows)
-      ? resolvedMaxRows * lineHeight + verticalPadding + border
-      : Infinity;
+    const maxHeight = resolvedMaxRows * lineHeight + verticalPadding + border;
     const target = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
 
     el.style.height = `${target}px`;
