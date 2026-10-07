@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.3
+
+### Patch Changes
+
+- e8120d6: Refresh the package description shown on npm and in the MCP registry listing.
+- 27824d3: Update the bundled MCP SDK to fix an OAuth issue where the client could send credentials to an authorization server chosen by the MCP server.
+
 ## 0.19.2
 
 ### Patch Changes
