@@ -48,7 +48,7 @@ export function CommentsInputArea({
             title="Send (Ctrl+Enter)"
             style={{ position: 'absolute', bottom: 16, right: 8, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--t-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', color: 'var(--t-white)', transition: 'background .15s' }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', transform: 'rotate(90deg)' }}>
               <path d="M2 8L14 2L10 8L14 14L2 8Z" fill="currentColor" />
             </svg>
           </button>
