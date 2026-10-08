@@ -38,15 +38,29 @@ describe("system-file flag routes", () => {
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-sysroutes-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
-    const port = await getFreePort();
-    instance = await serve(undefined, {
-      port,
-      open: false,
-      projectDir: tempDir,
-      // @internal test hooks — force OFFLINE mode so local task routes mount
-      _testToken: null,
-      _testWorkspace: null,
-    });
+    // Bounded retry-bind: getFreePort() probes then releases, so under the
+    // unit-suite thread pool (or a concurrent suite run) another worker can
+    // claim the port before serve() binds it. serve() needs a pre-known port
+    // (its URLs are derived from it before listen), so retry with a fresh
+    // port on EADDRINUSE instead of failing the file.
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        instance = await serve(undefined, {
+          port: await getFreePort(),
+          open: false,
+          projectDir: tempDir,
+          // @internal test hooks — force OFFLINE mode so local task routes mount
+          _testToken: null,
+          _testWorkspace: null,
+        });
+        return;
+      } catch (err) {
+        lastErr = err;
+        if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw err;
+      }
+    }
+    throw lastErr;
   });
 
   afterEach(async () => {
