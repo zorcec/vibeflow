@@ -1511,21 +1511,24 @@ function useCors(app: express.Application): void {
       next: express.NextFunction,
     ) => {
       const origin = req.headers.origin ?? "*";
-      // SAFETY: Local dev server — restrict CORS to localhost and 127.0.0.1
-      const isLocal =
-        /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
-        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
-        origin === "null"; // file:// URLs send origin: null
+      // Loopback dev tool: reflect any origin so the overlay works from pages
+      // on any host (localhost, LAN IP, or remote https). Tradeoff: any site
+      // in the browser can reach the local task API.
       // pi-lens-ignore: no-server-bind-wildcard
-      res.setHeader(
-        "Access-Control-Allow-Origin",
-        isLocal ? origin : "http://localhost:3700",
-      );
+      res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET, POST, PATCH, DELETE, OPTIONS",
       );
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, X-Overlay-Api-Key",
+      );
+      // Private Network Access: Chrome requires this on the preflight
+      // response when a public https page fetches from a localhost server.
+      if (req.headers["access-control-request-private-network"] === "true") {
+        res.setHeader("Access-Control-Allow-Private-Network", "true");
+      }
       if (req.method === "OPTIONS") {
         res.status(204).end();
         return;

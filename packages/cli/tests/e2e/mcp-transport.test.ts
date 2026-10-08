@@ -264,9 +264,8 @@ describe("MCP transport/session lifecycle", () => {
     // server.ts CORS middleware runs first and sets allow-origin + allow-headers;
     // the MCP handler's CORS (which adds mcp-session-id/authorization) never
     // runs for OPTIONS because server.ts short-circuits with 204.
-    expect(res.headers.get("access-control-allow-origin")).toBe(
-      "http://localhost:3700",
-    );
+    // No Origin header on this request, so the middleware defaults to "*".
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
     const allowHeaders = res.headers.get("access-control-allow-headers") ?? "";
     expect(allowHeaders.toLowerCase()).toContain("content-type");
   });
