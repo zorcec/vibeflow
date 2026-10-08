@@ -8,8 +8,6 @@ interface Props {
   projectName: string;
   projectIcon?: string;
   missingProjectIconStyle?: "initial" | "vibeflow";
-  wsConnected: boolean;
-  port: number;
   searchQuery: string;
   filterTags?: string[];
   allTags?: string[];
@@ -27,8 +25,6 @@ export function Header({
   projectName,
   projectIcon,
   missingProjectIconStyle = "initial",
-  wsConnected,
-  port,
   searchQuery,
   isLoading,
   filterTags,
@@ -172,32 +168,6 @@ export function Header({
             >
               {displayProjectName}
             </h1>
-            {wsConnected && (
-              <div
-                id="header-live-pill"
-                className="flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                style={{
-                  background:
-                    "color-mix(in srgb, var(--t-success) 30%, transparent)",
-                  border:
-                    "1px solid color-mix(in srgb, var(--t-success) 28%, transparent)",
-                }}
-              >
-                <div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: "var(--t-chip-green-400)",
-                    animation: "pulse-live 2s ease-in-out infinite",
-                  }}
-                />
-                <span
-                  className="text-[10px] font-medium"
-                  style={{ color: "var(--t-chip-green-400)" }}
-                >
-                  live · :{port}
-                </span>
-              </div>
-            )}
           </div>
           <p
             className="text-[10px] font-mono mt-0.5"

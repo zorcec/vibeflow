@@ -40,8 +40,6 @@ import {
 
 type ViewMode = "board" | "compact" | "list";
 
-// SAFETY: __PORT__ is injected by the CLI dev server at build time.
-const PORT = (window as unknown as { __PORT__?: number }).__PORT__ ?? 3700;
 // SAFETY: __SAAS_MODE__ is injected by the CLI build to switch UI behavior.
 const SAAS_MODE =
   (window as unknown as { __SAAS_MODE__?: boolean }).__SAAS_MODE__ ?? false;
@@ -1626,8 +1624,6 @@ export function App() {
       <Header
         projectName={projectName}
         missingProjectIconStyle="vibeflow"
-        wsConnected={wsConnected}
-        port={PORT}
         searchQuery={searchQuery}
         filterTags={filterState.tags}
         allTags={allTags}
