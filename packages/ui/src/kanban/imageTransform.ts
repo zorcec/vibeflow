@@ -237,7 +237,7 @@ export async function transformRgbaUpload(input: {
   const decision = decideImageTransform({ kind, width: rgba.width });
   switch (decision.branch) {
     case "lossless-webp": {
-      const { encodeLosslessWebp } = await import("./imageCodecs.js");
+      const { encodeLosslessWebp } = await import("./imageCodecs");
       const bytes = await encodeLosslessWebp(rgba);
       return {
         bytes,
@@ -249,7 +249,7 @@ export async function transformRgbaUpload(input: {
     }
     case "resize-webp-q80": {
       const { resizeRgbaToWidth, encodeLossyWebp } = await import(
-        "./imageCodecs.js"
+        "./imageCodecs"
       );
       const target = decision.targetWidth ?? MAX_INGEST_WIDTH;
       const resized = await resizeRgbaToWidth(rgba, target);
@@ -351,12 +351,12 @@ function decodeBlobToRgba(blob: Blob): Promise<{
  *
  * `opts.loadWasmBytes` overrides the globally configured wasm source
  * (tests); entries configure once via `configureImageCodecs` /
- * `configureWasmBaseUrl` from `./imageCodecs.js`.
+ * `configureWasmBaseUrl` from `./imageCodecs`.
  */
 export async function transformImageForUpload(
   blob: Blob,
   originalName: string,
-  opts?: { loadWasmBytes?: import("./imageCodecs.js").WasmBytesLoader },
+  opts?: { loadWasmBytes?: import("./imageCodecs").WasmBytesLoader },
 ): Promise<TransformedUpload> {
   const kind = classifyImageUpload({
     mimeType: blob.type,
@@ -381,7 +381,7 @@ export async function transformImageForUpload(
 
   const bytes = new Uint8Array(await blob.arrayBuffer());
   if (opts?.loadWasmBytes) {
-    const { configureImageCodecs } = await import("./imageCodecs.js");
+    const { configureImageCodecs } = await import("./imageCodecs");
     configureImageCodecs({ loadWasmBytes: opts.loadWasmBytes });
   }
 
