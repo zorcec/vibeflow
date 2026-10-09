@@ -3,6 +3,7 @@ import type { Task } from "../types";
 import { getStatusColor, shortId } from "../task-links";
 import { TREE_INDENT_PX } from "./tree-constants";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
+import { CopyIdButton } from "./CopyIdButton";
 
 interface ChildRowProps {
     child: Task;
@@ -41,6 +42,10 @@ export function ChildRow({
 }: ChildRowProps) {
     const isInline = variant === "inline";
     const isMinimal = variant === "inline" || variant === "detail";
+    // Hover copy-id pill: same affordance as the card's CopyIdButton, but
+    // only on the board views (inline card-zone tree + children popover).
+    // The detail panel keeps its rows unchanged.
+    const showCopyId = variant === "inline" || variant === "popover";
     const guideDepth = depth ?? 0;
     const isHollow = guideDepth >= 2;
     const draggable = Boolean(onRowDragStart) && Boolean(child?.id);
@@ -195,6 +200,12 @@ export function ChildRow({
             )}
             {isOrphan && (
                 <span className="child-orphan-label">⚠ missing parent</span>
+            )}
+            {showCopyId && child?.id && (
+                <CopyIdButton
+                    taskId={child.id}
+                    className="card-copy-id--child"
+                />
             )}
             {onRemove && (
                 <button

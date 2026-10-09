@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ChildRow } from "../ChildRow";
 import { TREE_INDENT_PX } from "../tree-constants";
@@ -249,6 +249,75 @@ describe("ChildRow", () => {
       ) as HTMLElement;
       expect(row).not.toHaveAttribute("draggable", "true");
     });
+  });
+});
+
+describe("ChildRow copy-id pill", () => {
+  const originalClipboard = navigator.clipboard;
+  let writeText: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      configurable: true,
+      writable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  it("inline variant renders the copy-id pill with the child modifier class", () => {
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
+    );
+    const pill = container.querySelector('[data-role="copy-id"]');
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveClass("card-copy-id--child");
+    expect(pill).toHaveAttribute(
+      "title",
+      expect.stringContaining("abc12345-test-task"),
+    );
+  });
+
+  it("popover variant renders the copy-id pill", () => {
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="popover" />,
+    );
+    expect(
+      container.querySelector('[data-role="copy-id"]'),
+    ).toBeInTheDocument();
+  });
+
+  it("detail variant does NOT render the copy-id pill", () => {
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="detail" depth={1} />,
+    );
+    expect(
+      container.querySelector('[data-role="copy-id"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clicking the pill copies the CHILD id and does not fire onOpen", async () => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <ChildRow
+        child={makeTask({ id: "child-42" })}
+        variant="inline"
+        depth={1}
+        onOpen={onOpen}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-role="copy-id"]')!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("child-42"));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });
 

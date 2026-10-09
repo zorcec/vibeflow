@@ -234,7 +234,11 @@ body {
  flex-shrink: 0;
  transition: opacity 0.1s, background 0.1s, color 0.1s;
 }
-.task-card:hover .card-copy-id,
+/* Scoped with :not(.card-copy-id--child): child rows render INSIDE
+   article.task-card (the card-zone tree), so a bare descendant selector
+   would light every child pill on card hover. Card hover reveals only the
+   card's own pill; child pills reveal on their own row (below). */
+.task-card:hover .card-copy-id:not(.card-copy-id--child),
 .card-copy-id:focus-visible {
  opacity: 1;
 }
@@ -247,6 +251,25 @@ body {
 }
 .card-copy-id[data-copied="true"]:hover {
  background: var(--t-hover);
+}
+/* ── Child-row copy-id pill (inline tree + popover) ──
+   Same icon/behavior as the card pill, parked at the row's right edge over
+   the padding so it never shifts the title layout. Revealed only on the
+   row's own hover (not the enclosing card's) or keyboard focus. The
+   absolutely-positioned pill anchors to .child-link-row (position: relative
+   is set there), so it must not disturb the depth selectors in the tree. */
+.child-link-row {
+ position: relative;
+}
+.card-copy-id--child {
+ position: absolute;
+ right: 4px;
+ top: 50%;
+ transform: translateY(-50%);
+ background: var(--t-card);
+}
+.child-link-row:hover .card-copy-id--child {
+ opacity: 1;
 }
 
 /* ── Status dot ── */
