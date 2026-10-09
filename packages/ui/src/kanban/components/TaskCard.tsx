@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, Eye, Lock, ChevronDown } from "lucide-react";
+import { MessageCircle, Paperclip, Eye, Lock, ChevronDown, Copy, Check } from "lucide-react";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
@@ -58,6 +58,95 @@ interface Props {
 
 function isImageFileName(name: string): boolean {
       return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(name);
+}
+
+/**
+ * Copy `text` to the clipboard. navigator.clipboard needs a secure context —
+ * the CLI board served over plain http on a LAN address is not one — so fall
+ * back to the deprecated execCommand path, which still works everywhere.
+ */
+async function copyTextToClipboard(text: string): Promise<void> {
+      try {
+            if (navigator.clipboard?.writeText) {
+                  await navigator.clipboard.writeText(text);
+                  return;
+            }
+      } catch {
+            /* permission denied or insecure context — fall through */
+      }
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+            document.execCommand("copy");
+      } finally {
+            document.body.removeChild(ta);
+      }
+}
+
+/**
+ * Minimalistic top-right affordance: copies the task id so the detail panel
+ * does not have to be opened just to read it. Hidden until the card is
+ * hovered (or the button is keyboard-focused) — see .card-copy-id in
+ * kanban.css — so the card face stays clean. Swaps to a check for 1.2s as
+ * copy feedback.
+ */
+function CopyIdButton({ taskId }: { taskId: string }) {
+      const [copied, setCopied] = React.useState(false);
+      const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+      React.useEffect(
+            () => () => {
+                  if (timer.current) clearTimeout(timer.current);
+            },
+            [],
+      );
+      return (
+            <button
+                  className="card-copy-id"
+                  data-role="copy-id"
+                  draggable={false}
+                  aria-label="Copy task id"
+                  title={`Copy task id ${taskId}`}
+                  style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: 2,
+                        borderRadius: 3,
+                        border: "none",
+                        background: "transparent",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                        color: copied
+                              ? "var(--t-chip-green-300)"
+                              : "var(--t-border-faint)",
+                        transition: "color .1s",
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                        // stopPropagation keeps the card's own onClick from
+                        // opening the detail panel on a copy click.
+                        e.stopPropagation();
+                        void copyTextToClipboard(taskId).then(() => {
+                              setCopied(true);
+                              if (timer.current) clearTimeout(timer.current);
+                              timer.current = setTimeout(
+                                    () => setCopied(false),
+                                    1200,
+                              );
+                        });
+                  }}
+            >
+                  {copied ? (
+                        <Check style={{ width: 9, height: 9 }} />
+                  ) : (
+                        <Copy style={{ width: 9, height: 9 }} />
+                  )}
+            </button>
+      );
 }
 
 function withHexAlpha(hexColor: string, alpha: number): string | undefined {
@@ -300,6 +389,7 @@ export const TaskCard = React.memo(function TaskCard({
                               >
                                     {task.title}
                               </span>
+                              <CopyIdButton taskId={task.id} />
                               {/* Compact/done: title only — no tags, no counts */}
                               {!compact &&
                                     !isDone &&
@@ -397,6 +487,7 @@ export const TaskCard = React.memo(function TaskCard({
                         >
                               {task.title}
                         </span>
+                        <CopyIdButton taskId={task.id} />
                   </div>
 
                   {/* Description + screenshot thumbnail */}

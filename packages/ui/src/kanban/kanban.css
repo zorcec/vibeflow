@@ -212,6 +212,19 @@ body {
  background: rgba(30, 41, 59, 0.6);
 }
 
+/* ── Card copy-id button (top-right, hover-revealed) ──
+   Minimalistic affordance to copy the task id without opening the detail
+   panel. Hidden until the card is hovered or the button itself is
+   keyboard-focused, so the card face stays clean. */
+.card-copy-id {
+ opacity: 0;
+ transition: opacity 0.1s;
+}
+.task-card:hover .card-copy-id,
+.card-copy-id:focus-visible {
+ opacity: 1;
+}
+
 /* ── Status dot ── */
 .status-dot {
  width: 7px;
