@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { brotliDecompressSync } from "node:zlib";
 
 // ── Mock all I/O dependencies before importing push ────────────────────────
 vi.mock("../../../src/auth/token.js", () => ({
@@ -607,6 +608,119 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
     // Should not throw — file doesn't exist so it won't be added to allJobs
     await push(projectDir, { keepLocalFiles: true });
+  });
+});
+
+describe("push — upload compression (single-encode wire format)", () => {
+  beforeEach(() => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
+      id: "ws-1",
+      name: "My Board",
+      url: "http://localhost:3000",
+      icon: null,
+      email: null,
+    });
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function pushOneFile(
+    projectDir: string,
+    taskId: string,
+    filename: string,
+    content: Buffer,
+  ) {
+    createTaskFile(projectDir, {
+      id: taskId,
+      title: "With file",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+    const filesDir = join(projectDir, ".vibeflow", "files", taskId);
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, filename), content);
+    vi.mocked(filesModule.listFiles).mockReturnValue([
+      { name: filename, size: content.length, linkedPath: null },
+    ]);
+    vi.mocked(filesModule.getFilesDir).mockReturnValue(filesDir);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            imported: 1,
+            skipped: 0,
+            ids: [taskId],
+            workspaceId: "ws-1",
+            boardId: "b-1",
+            idMap: { [taskId]: "remote-1" },
+          }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await push(projectDir, { keepLocalFiles: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    return fetchMock.mock.calls[1]![1] as {
+      headers: Record<string, string>;
+      body: Uint8Array;
+    };
+  }
+
+  it("sends eligible text brotli-compressed with x-content-encoding: br", async () => {
+    const original = Buffer.from(
+      `# Notes\n\n${"Lorem ipsum dolor sit amet. ".repeat(200)}`,
+      "utf8",
+    );
+    const upload = await pushOneFile(
+      makeTempProject(),
+      "task-md",
+      "notes.md",
+      original,
+    );
+    expect(upload.headers["x-content-encoding"]).toBe("br");
+    expect(upload.headers["x-filename"]).toBe("notes.md");
+    // Wire bytes are NOT plain: single brotli decode recovers the original.
+    const wire = Buffer.from(upload.body);
+    expect(wire.length).toBeLessThan(original.length);
+    expect(brotliDecompressSync(wire).equals(original)).toBe(true);
+  });
+
+  it("sends images raw with no content-encoding header", async () => {
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01,
+    ]);
+    const upload = await pushOneFile(
+      makeTempProject(),
+      "task-png",
+      "photo.png",
+      png,
+    );
+    expect(upload.headers["x-content-encoding"]).toBeUndefined();
+    expect(Buffer.from(upload.body).equals(png)).toBe(true);
+  });
+
+  it("sends baseline-*.json raw with no content-encoding header", async () => {
+    const original = Buffer.from(
+      `# Notes\n\n${"Lorem ipsum dolor sit amet. ".repeat(200)}`,
+      "utf8",
+    );
+    const upload = await pushOneFile(
+      makeTempProject(),
+      "task-base",
+      "baseline-abc.json",
+      original,
+    );
+    expect(upload.headers["x-content-encoding"]).toBeUndefined();
+    expect(Buffer.from(upload.body).equals(original)).toBe(true);
   });
 });
 

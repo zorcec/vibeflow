@@ -9,6 +9,7 @@ import { login } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
+import { maybeCompressForUpload } from "../saas/compression.js";
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
 const DEFAULT_API_URL = "https://app.vibeflow.tools";
@@ -81,6 +82,15 @@ async function uploadTaskFiles(
 
     try {
       const data = readFileSync(job.filePath);
+      // Single-encode: eligible text artifacts travel already brotli-compressed
+      // (q5) and the server stores the received bytes verbatim as the at-rest
+      // form. The `x-content-encoding` header declares the payload form per
+      // file — a plain HTTP `Content-Encoding` header is deliberately NOT used
+      // so no intermediary ever tries to decode the body in transit.
+      const { bytes: payload, contentEncoding } = maybeCompressForUpload(
+        job.name,
+        data,
+      );
       const res = await fetch(
         `${apiUrl}/api/tasks/${encodeURIComponent(job.remoteId)}/files`,
         {
@@ -90,8 +100,12 @@ async function uploadTaskFiles(
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
             ...(job.system ? { "x-file-system": "1" } : {}),
+            ...(contentEncoding ? { "x-content-encoding": contentEncoding } : {}),
           },
-          body: data,
+          // Copy into a plain Uint8Array: brotli output is typed
+          // Buffer<ArrayBufferLike>, which fetch's BodyInit rejects, while
+          // readFileSync returns a NonSharedBuffer that it accepts.
+          body: new Uint8Array(payload),
         },
       );
       if (res.ok) {
