@@ -193,7 +193,8 @@ const SYSTEM_FILE_NAMES = new Set([
   "verify-console.txt",
   "verify-page.html",
   "verify-all-styles.json",
-  "verify-screenshot.png",
+  "verify-screenshot.png", // legacy pre-matrix name (kept for backfill)
+  "verify-screenshot.webp", // current: capture-time matrix output
   "verify-element.html",
   "verify-page-diff.json",
 ]);

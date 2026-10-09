@@ -829,17 +829,33 @@ async function storeEvidence(
       warnEvidenceCapture("verify-all-styles.json", err);
     }
 
-    // verify-screenshot.png
+    // verify-screenshot.webp — capture-time image matrix (T1 pipeline):
+    // wide viewports (>1920px) resize to 1920 + WebP q80, narrow PNG
+    // screenshots transcode to lossless WebP. Stored under its TRUE
+    // extension; falls back to the raw PNG bytes when the transform fails.
     try {
       const screenshot = await page.screenshot({ fullPage: false });
-      saveFile(projectDir, taskId, "verify-screenshot.png", screenshot, {
+      let shotName = "verify-screenshot.webp";
+      let shotBytes: Buffer = screenshot;
+      try {
+        const { transformImageBytes } = await import(
+          "../server/imageNodeCodecs.js"
+        );
+        const out = await transformImageBytes(new Uint8Array(screenshot), {
+          filename: "verify-screenshot.png",
+          mimeType: "image/png",
+        });
+        shotName = out.filename;
+        shotBytes = Buffer.from(out.bytes);
+      } catch {
+        shotName = "verify-screenshot.png";
+      }
+      saveFile(projectDir, taskId, shotName, shotBytes, {
         system: true,
       });
-      files.push(
-        join(getFilesDir(projectDir, taskId), "verify-screenshot.png"),
-      );
+      files.push(join(getFilesDir(projectDir, taskId), shotName));
     } catch (err) {
-      warnEvidenceCapture("verify-screenshot.png", err);
+      warnEvidenceCapture("verify-screenshot.webp", err);
     }
 
     // verify-element.html

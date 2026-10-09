@@ -94,7 +94,7 @@ const EVIDENCE_FILES = [
   "verify-console.txt",
   "verify-page.html",
   "verify-all-styles.json",
-  "verify-screenshot.png",
+  "verify-screenshot.webp",
   "verify-element.html",
   "verify-page-diff.json",
   "baseline.json",
@@ -400,9 +400,14 @@ describe("verify page-wide (real browser, real evidence)", () => {
       expect(pageDiff.truncated).toBe(false);
       expect(typeof pageDiff.elements).toBe("object");
 
-      // A real screenshot, not an empty placeholder: PNG magic bytes.
-      const png = readFileSync(join(filesDir(taskId), "verify-screenshot.png"));
-      expect([...png.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+      // A real transformed screenshot, not an empty placeholder: WebP
+      // container magic (RIFF....WEBP) — capture applies the image matrix,
+      // so the raw PNG is never written.
+      const shot = readFileSync(
+        join(filesDir(taskId), "verify-screenshot.webp"),
+      );
+      expect([...shot.subarray(0, 4)]).toEqual([0x52, 0x49, 0x46, 0x46]);
+      expect(shot.subarray(8, 12).toString("ascii")).toBe("WEBP");
 
       // The element snapshot round-tripped the real outerHTML of the card.
       const after = readEvidenceJson(taskId, "verify-after.json");

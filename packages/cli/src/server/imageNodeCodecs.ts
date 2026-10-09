@@ -45,6 +45,8 @@ function findWasmAsset(name: WasmAssetName): string {
     // Published CLI: prebuild copies the binaries next to the bundles.
     join(here, "..", "client", "codecs", name),
     join(here, "..", "..", "client", "codecs", name),
+    // Flat dist/ bundle layout (dist/index.js entry, chunks beside it).
+    join(here, "client", "codecs", name),
     // Source checkout after a build (tests, dev server).
     join(here, "..", "..", "dist", "client", "codecs", name),
     // Source checkout without a build: the workspace @jsquash install
