@@ -3,28 +3,32 @@
  * (the floating popover and the React add-task modal).
  *
  * Mirrors the kanban DetailPanel create-mode semantics:
- * - image clipboard items → compressed JPEG named `paste-<timestamp>.jpg`,
+ * - image clipboard items → the shared ingest matrix
+ *   (`transformImageForUpload`: <=1920 PNG/JPEG kept byte-identical with
+ *   their true extension, wider shots resized to 1920 + WebP q80),
  *   buffered until the task is created, then uploaded as a task file;
  * - any other pasted file kinds (csv, pdf, …) → uploaded as-is;
  * - plain-text paste inside text inputs is never intercepted.
  *
  * The pure functions here (filename building, clipboard classification,
  * intercept decision, upload-URL building) are unit-tested without a
- * browser runtime; only `compressImageToJpeg` needs canvas.
+ * browser runtime; only the canvas-backed transform needs a browser.
  */
 
-/** Lowest timestamp shape shared with kanban: `paste-2026-10-07T12-34-56.jpg`. */
+import {
+  buildPasteFilename as buildMatrixPasteFilename,
+  extensionForMime,
+  transformImageForUpload,
+} from "@vibeflow-tools/ui/kanban";
+
+/** Timestamp shape shared with kanban: `paste-2026-10-07T12-34-56.<ext>`. */
 export function buildPasteFilename(now: Date = new Date()): string {
-  const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  return `paste-${ts}.jpg`;
+  return buildMatrixPasteFilename(now, extensionForMime("image/png"));
 }
 
 /** File extension to use when compression is unavailable and the raw blob is kept. */
 export function pasteExtensionForMime(mime: string): string {
-  if (mime === "image/jpeg") return "jpg";
-  const sub = /^image\/([a-z0-9]+)/i.exec(mime)?.[1]?.toLowerCase();
-  if (sub) return sub === "jpeg" ? "jpg" : sub;
-  return "bin";
+  return extensionForMime(mime);
 }
 
 export interface PastedFiles {
@@ -89,67 +93,19 @@ export function shouldInterceptPaste(
   return true;
 }
 
-/** Downscale-free JPEG compression identical to the kanban DetailPanel. */
-export function compressImageToJpeg(
-  source: Blob,
-  quality = 0.8,
-): Promise<Blob> {
-  if (typeof Image === "undefined" || typeof document === "undefined") {
-    return Promise.reject(new Error("image compression unavailable"));
-  }
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(source);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        revokePreviewUrl(url);
-        reject(new Error("canvas unavailable"));
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      revokePreviewUrl(url);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("canvas.toBlob failed"));
-        },
-        "image/jpeg",
-        quality,
-      );
-    };
-    img.onerror = () => {
-      revokePreviewUrl(url);
-      reject(new Error("image load failed"));
-    };
-    img.src = url;
-  });
-}
-
 /**
- * Turn a pasted image blob into an attachable File. Compression is
- * attempted first; when canvas/image loading is unavailable the raw blob
- * is kept with a matching extension so paste never silently drops.
+ * Turn a pasted image blob into an attachable File via the shared ingest
+ * matrix. The transform never throws or drops bytes: without a canvas
+ * pipeline the raw blob is kept with a matching true extension.
  */
 export async function pastedImageToFile(
   blob: Blob,
   now: Date = new Date(),
 ): Promise<File> {
-  try {
-    const compressed = await compressImageToJpeg(blob);
-    return new File([compressed], buildPasteFilename(now), {
-      type: "image/jpeg",
-    });
-  } catch {
-    const ext = pasteExtensionForMime(blob.type);
-    const base = buildPasteFilename(now).replace(/\.jpg$/, "");
-    return new File([blob], `${base}.${ext}`, {
-      type: blob.type || "application/octet-stream",
-    });
-  }
+  const { file } = await transformImageForUpload(blob, `clipboard.png`);
+  const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const ext = file.name.split(".").pop() ?? extensionForMime(blob.type);
+  return new File([file], `paste-${ts}.${ext}`, { type: file.type });
 }
 
 /**

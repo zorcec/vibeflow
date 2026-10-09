@@ -20,6 +20,7 @@ import { startRecording } from "./error-recorder.js";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { OverlayApp, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
+import { configureWasmBaseUrl } from "@vibeflow-tools/ui/kanban";
 
 declare const PROTO_CONFIG: import("./types.js").ProtoConfig;
 
@@ -29,6 +30,23 @@ function main(): void {
   // Start recording console errors / warnings before anything else so even
   // early page errors are captured for bug reports.
   startRecording();
+
+  // Image-ingest wasm (lazy: bytes fetch on first transform only). The base
+  // derives from the task API URL so SaaS embeds degrade gracefully — their
+  // host serves no codec route, so transforms fall back to true-extension
+  // keep-raw instead of failing. Static barrel import: the barrel instance
+  // is already in this bundle via the shared components, so this merges
+  // with zero duplication; only the tiny loader joins the eager bundle
+  // while the codec glue + wasm stay lazy. Never throws.
+  try {
+    const apiUrl = PROTO_CONFIG.apiUrl ?? "";
+    const base =
+      apiUrl.replace(/\/api(\/overlay)?\/tasks\/?$/, "") ||
+      new URL(apiUrl).origin;
+    configureWasmBaseUrl(`${base}/__vibeflow__/codecs`);
+  } catch {
+    /* unconfigured — image uploads keep raw bytes with true extensions */
+  }
 
   // Self-identify as script-injected so the extension popup can detect it.
   // When the overlay is inlined via injectScript(), the script tag already has

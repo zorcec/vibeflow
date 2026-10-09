@@ -89,6 +89,11 @@ import { loadSettings, saveSettings } from "../core/settings.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { appRouter } from "./trpc.js";
+import {
+  wasmAssetNames,
+  wasmAssetPath,
+  type WasmAssetName,
+} from "./imageNodeCodecs.js";
 import type { ServeOptions, Task } from "../core/types.js";
 import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
@@ -1304,6 +1309,34 @@ function registerMetaApis(
   });
 }
 
+/**
+ * Serves the image-codec wasm binaries (`/__vibeflow__/codecs/<name>`) that
+ * the browser bundles fetch lazily on first image transform. Pure wasm,
+ * immutable versioned binaries — long-cacheable. The allowlist rejects
+ * everything else (no directory listing, no traversal).
+ */
+function registerCodecRoute(app: express.Application): void {
+  app.get("/__vibeflow__/codecs/:name", (req, res) => {
+    const { name } = req.params;
+    if (!(wasmAssetNames() as string[]).includes(name)) {
+      res.status(404).end();
+      return;
+    }
+    let filePath: string;
+    try {
+      filePath = wasmAssetPath(name as WasmAssetName);
+    } catch {
+      res.status(404).end();
+      return;
+    }
+    // Path is allowlisted to the three known binaries resolved by
+    // wasmAssetPath() — no user-controlled traversal (nosemgrep).
+    res.set("Content-Type", "application/wasm");
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.sendFile(filePath);
+  });
+}
+
 /** Registers /kanban — a live Kanban board that connects to the task API. */
 function registerKanbanRoute(app: express.Application, port: number): void {
   const adminEmail = process.env.VIBEFLOW_ADMIN_EMAIL ?? "";
@@ -1727,6 +1760,7 @@ async function serveApiOnly(
   }
 
   registerKanbanRoute(app, options.port);
+  registerCodecRoute(app);
   const serveUrls = resolveServeUrls(options.host ?? "localhost", options.port);
   registerInjectPage(
     app,
@@ -1959,6 +1993,7 @@ li{margin:8px 0}</style></head>
   registerTrpcApi(app, projectDir, broadcast);
   registerMetaApis(app, projectDir, broadcast);
   registerKanbanRoute(app, options.port);
+  registerCodecRoute(app);
   registerInjectPage(app, serveUrls);
 
   // ── File watcher ─────────────────────────────────────────────────────────

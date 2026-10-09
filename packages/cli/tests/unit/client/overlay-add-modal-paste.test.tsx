@@ -91,9 +91,10 @@ describe("OverlayAddModal paste-to-attach", () => {
   beforeEach(() => {
     vi.stubGlobal("PROTO_CONFIG", { apiUrl: API });
     // jsdom has no canvas/image pipeline: thumbnails are stubbed, and the
-    // mock Image fails every load so compression deterministically falls back
-    // to the raw blob (the success path runs in real Chromium, covered by
-    // the Playwright spec asserting JPEG bytes on the task).
+    // mock Image fails every load so the ingest matrix deterministically
+    // falls back to the raw blob with its true extension (the success path
+    // runs in real Chromium, covered by the Playwright spec asserting
+    // PNG/WebP bytes on the task).
     (URL as unknown as Record<string, unknown>).createObjectURL = vi.fn(
       () => "blob:mock-thumb",
     );

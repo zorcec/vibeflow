@@ -4,13 +4,13 @@
  *
  * Everything here is DOM-free by design: clipboard payloads are plain fakes,
  * so these tests prove the classification / naming / intercept contract
- * without a browser runtime.
+ * without a browser runtime. Image ingest itself follows the shared matrix
+ * (PNG/JPEG kept with true extensions here — no canvas in unit tests).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildPasteFilename,
   collectPastedFiles,
-  compressImageToJpeg,
   hasFileItems,
   pastedImageToFile,
   pasteExtensionForMime,
@@ -45,9 +45,9 @@ const pngFile = (name = "clipboard.png") =>
   new File([PNG_BYTES], name, { type: "image/png" });
 
 describe("buildPasteFilename", () => {
-  it("matches the kanban paste-<iso-ts>.jpg shape", () => {
+  it("matches the kanban paste-<iso-ts>.png shape", () => {
     expect(buildPasteFilename(new Date("2026-10-07T12:34:56.789Z"))).toBe(
-      "paste-2026-10-07T12-34-56.jpg",
+      "paste-2026-10-07T12-34-56.png",
     );
   });
 
@@ -164,16 +164,8 @@ describe("shouldInterceptPaste", () => {
   });
 });
 
-describe("compressImageToJpeg", () => {
-  it("rejects without a DOM image pipeline", async () => {
-    await expect(compressImageToJpeg(pngFile())).rejects.toThrow(
-      "image compression unavailable",
-    );
-  });
-});
-
 describe("pastedImageToFile", () => {
-  it("falls back to the raw blob with a matching extension when compression is unavailable", async () => {
+  it("keeps the raw blob with its true extension without a browser pipeline", async () => {
     const file = await pastedImageToFile(
       pngFile(),
       new Date("2026-10-07T12:34:56.000Z"),

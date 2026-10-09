@@ -9,6 +9,8 @@
     ".": "./src/index.ts",
     "./socket": "./src/socket.ts",
     "./kanban": "./src/kanban/index.ts",
+    "./kanban/imageTransform": "./src/kanban/imageTransform.ts",
+    "./kanban/imageCodecs": "./src/kanban/imageCodecs.ts",
     "./kanban.css": "./src/kanban/kanban.css",
     "./kanban/themes.css": "./src/kanban/themes.css"
   },
@@ -17,6 +19,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@jsquash/resize": "^2.1.1",
+    "@jsquash/webp": "^1.5.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1"
   },

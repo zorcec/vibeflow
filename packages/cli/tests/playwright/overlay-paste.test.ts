@@ -10,7 +10,9 @@
  *  2. × removes the buffered file without submitting;
  *  3. saving uploads the buffered file so it lands on the task
  *     (GET /api/tasks/:id/files — the same endpoint the kanban Files pane
- *     reads), as real JPEG bytes;
+ *     reads), as real lossless-WebP bytes with a true .webp name;
+ *  4. a generated 2500px-wide PNG exercises the >1920 path and lands as
+ *     a width-1920 q80 .webp;
  *  4. non-image files (csv) paste as 📎 chips and upload with their name kept.
  *
  * Paste is simulated exactly like the kanban suite does: a real ClipboardEvent
@@ -140,8 +142,46 @@ describe("Overlay popover — paste screenshot to attach", () => {
 
   /** Dispatch a real ClipboardEvent paste on the popover textarea. */
   async function pasteIntoPopover(
-    kind: "image" | "csv" | "text",
+    kind: "image" | "wide" | "csv" | "text",
   ): Promise<void> {
+    if (kind === "wide") {
+      // 2500px-wide PNG generated in-page: exercises the >1920 resize path.
+      await page.evaluate(async () => {
+        const host = document.querySelector(
+          "#vibeflow-studio-root",
+        ) as HTMLElement;
+        const sr = host?.shadowRoot;
+        const textarea = sr?.querySelector(
+          ".vibeflow-popover textarea",
+        ) as HTMLElement;
+        if (!textarea) throw new Error("popover textarea not found");
+        const canvas = document.createElement("canvas");
+        canvas.width = 2500;
+        canvas.height = 100;
+        const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+        const grad = ctx.createLinearGradient(0, 0, 2500, 0);
+        grad.addColorStop(0, "#ef4444");
+        grad.addColorStop(0.5, "#22c55e");
+        grad.addColorStop(1, "#3b82f6");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 2500, 100);
+        const blob = (await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/png"),
+        )) as Blob;
+        const dt = new DataTransfer();
+        dt.items.add(
+          new File([blob], "screenshot.png", { type: "image/png" }),
+        );
+        textarea.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt,
+          }),
+        );
+      });
+      return;
+    }
     await page.evaluate(
       ({ bytes, pasteKind }) => {
         const host = document.querySelector(
@@ -255,8 +295,8 @@ describe("Overlay popover — paste screenshot to attach", () => {
           ?.textContent ?? ""
       );
     });
-    // Real Chromium compresses to JPEG (kanban parity); the chip shows it.
-    expect(name).toMatch(/^paste-.*\.jpg$/);
+    // Narrow PNG is transcoded to lossless WebP (ingest matrix).
+    expect(name).toMatch(/^paste-.*\.webp$/);
 
     const thumb = await page.evaluate(() => {
       const host = document.querySelector(
@@ -295,7 +335,7 @@ describe("Overlay popover — paste screenshot to attach", () => {
           ?.textContent ?? ""
       );
     });
-    expect(name).toMatch(/^paste-.*\.jpg$/);
+    expect(name).toMatch(/^paste-.*\.webp$/);
     await closePopover();
   });
 
@@ -352,17 +392,62 @@ describe("Overlay popover — paste screenshot to attach", () => {
     });
 
     const taskId = await taskIdByTitle("Overlay paste screenshot task");
-    const files = await waitForFile(taskId, /^paste-.*\.jpg$/);
+    const files = await waitForFile(taskId, /^paste-.*\.webp$/);
     expect(files).toHaveLength(1);
 
-    // The stored bytes are a real JPEG (compression ran in Chromium).
+    // Narrow PNGs land as lossless WebP with their true extension.
     const bytes = new Uint8Array(
       await fetch(
         `${base}/api/tasks/${taskId}/files/${encodeURIComponent(files[0].name)}`,
       ).then((r) => r.arrayBuffer()),
     );
-    expect(bytes[0]).toBe(0xff);
-    expect(bytes[1]).toBe(0xd8);
+    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe("RIFF");
+    expect(String.fromCharCode(...bytes.slice(8, 12))).toBe("WEBP");
+  });
+
+  it("a wide pasted screenshot lands as .webp with its true name", async () => {
+    await openPopover("paste-cta");
+    await pasteIntoPopover("wide");
+    await waitForChips(1);
+
+    const name = await page.evaluate(() => {
+      const host = document.querySelector(
+        "#vibeflow-studio-root",
+      ) as HTMLElement;
+      return (
+        host?.shadowRoot?.querySelector(".vibeflow-paste-name")
+          ?.textContent ?? ""
+      );
+    });
+    expect(name).toMatch(/^paste-.*\.webp$/);
+
+    await page.evaluate(() => {
+      const host = document.querySelector(
+        "#vibeflow-studio-root",
+      ) as HTMLElement;
+      const input = host?.shadowRoot?.querySelector(
+        ".vibeflow-popover input[type='text']",
+      ) as HTMLInputElement;
+      if (input) input.value = "Overlay paste wide screenshot task";
+      const btn = host?.shadowRoot?.querySelector(
+        ".vibeflow-popover .btn-primary",
+      ) as HTMLElement;
+      btn?.click();
+    });
+
+    const taskId = await taskIdByTitle("Overlay paste wide screenshot task");
+    const files = await waitForFile(taskId, /^paste-.*\.webp$/);
+    expect(files).toHaveLength(1);
+
+    // Stored bytes are a real WebP (RIFF....WEBP), resized from 2500 wide.
+    const bytes = new Uint8Array(
+      await fetch(
+        `${base}/api/tasks/${taskId}/files/${encodeURIComponent(files[0].name)}`,
+      ).then((r) => r.arrayBuffer()),
+    );
+    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe("RIFF");
+    expect(String.fromCharCode(...bytes.slice(8, 12))).toBe("WEBP");
+    await closePopover();
   });
 
   it("pasting a csv attaches it with its name kept", async () => {

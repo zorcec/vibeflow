@@ -23,7 +23,17 @@ export default defineConfig([
     noExternal: [/.*/],
     esbuildOptions(options) {
       // JSX support needed for React overlay components imported from overlay-react/
-      options.define = { "process.env.NODE_ENV": '"production"' };
+      options.define = {
+        "process.env.NODE_ENV": '"production"',
+        // The @jsquash Emscripten glue evaluates
+        // `new URL("<codec>.wasm", import.meta.url)` at module top level.
+        // In an inlined IIFE import.meta.url is invalid and throws, which
+        // would break every image transform. The wasm bytes are always
+        // supplied via manual instantiation (never fetched relative to
+        // this URL), so a dummy valid URL is safe — and nothing else in
+        // the client bundles uses import.meta.
+        "import.meta.url": '"file:///vibeflow-bundle/"',
+      };
       options.outExtension = { ".js": ".js" };
     },
     onSuccess: async () => {
@@ -56,7 +66,13 @@ export default defineConfig([
     esbuildOptions(options) {
       // Production mode — jsxDev is intentionally disabled to avoid embedding
       // absolute build-machine source paths into the published npm package.
-      options.define = { "process.env.NODE_ENV": '"production"' };
+      options.define = {
+        "process.env.NODE_ENV": '"production"',
+        // Same Emscripten import.meta.url fix as the overlay entry above:
+        // the kanban bundle is inlined into served HTML, so the module URL
+        // is invalid at runtime; wasm bytes are manually instantiated.
+        "import.meta.url": '"file:///vibeflow-bundle/"',
+      };
       options.outExtension = { ".js": ".js" };
     },
     onSuccess: async () => {

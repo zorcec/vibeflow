@@ -37,6 +37,40 @@ export {
 } from "./utils";
 export type { ReorderPatch, ReorderResult, BackfillTask } from "./utils";
 
+// Shared image-ingest transform (browser-safe core, zero deps).
+export {
+  MAX_INGEST_WIDTH,
+  LOSSY_WEBP_QUALITY,
+  classifyImageUpload,
+  decideImageTransform,
+  withTrueExtension,
+  buildPasteFilename,
+  extensionForMime,
+  stripJpegMetadata,
+  hasBrowserImagePipeline,
+  transformRgbaUpload,
+  transformImageForUpload,
+} from "./imageTransform";
+export type {
+  ImageKind,
+  ImageTransformBranch,
+  ImageTransformDecision,
+  TransformedUpload,
+} from "./imageTransform";
+export {
+  configureImageCodecs,
+  configureWasmBaseUrl,
+  encodeLosslessWebp,
+  encodeLossyWebp,
+  decodeWebp,
+  resizeRgbaToWidth,
+} from "./imageCodecs";
+export type {
+  RgbaImage,
+  WasmAssetName,
+  WasmBytesLoader,
+} from "./imageCodecs";
+
 // Kanban components
 export { KanbanBoard, COLUMNS } from "./components/KanbanBoard";
 export { KanbanListView } from "./components/KanbanListView";

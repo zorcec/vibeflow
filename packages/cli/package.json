@@ -36,7 +36,7 @@
     "vf": "dist/cli/index.js"
   },
   "scripts": {
-    "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs",
+    "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-codec-assets.mjs",
     "build": "tsup && tsup --config tsup.cli.config.ts",
     "dev": "tsup --watch",
     "test": "vitest run",
@@ -83,6 +83,7 @@
     "commander": "^12.1.0",
     "express": "^4.21.0",
     "html2canvas": "^1.4.1",
+    "jpeg-js": "^0.4.4",
     "open": "^10.1.0",
     "posthog-node": "^5.30.4",
     "ws": "^8.18.0",

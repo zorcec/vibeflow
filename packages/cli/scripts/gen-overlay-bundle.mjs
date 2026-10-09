@@ -20,7 +20,7 @@ const esbuild = resolve(monorepoRoot, "node_modules/.bin/esbuild");
 
 // Build the overlay IIFE with esbuild so it is ready before tsup's parallel builds
 execSync(
-  `"${esbuild}" "${entry}" --bundle --format=iife --platform=browser --target=chrome90 --outfile="${outFile}"`,
+  `"${esbuild}" "${entry}" --bundle --format=iife --platform=browser --target=chrome90 --define:import.meta.url='"file:///vibeflow-bundle/"' --outfile="${outFile}"`,
   { cwd: root, stdio: "inherit" },
 );
 

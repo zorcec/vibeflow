@@ -20,6 +20,7 @@ import RelationsSection from "./RelationsSection";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
 import { getTaskTypeColor } from "../../task-types";
+import { transformImageForUpload } from "../imageTransform";
 
 const PASTE_HINT_KEY = "vibeflow-paste-hint-dismissed";
 
@@ -162,39 +163,6 @@ interface Props {
 }
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit
-
-function compressImageToJpeg(source: Blob, quality = 0.8): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(source);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        URL.revokeObjectURL(url);
-        reject(new Error("canvas unavailable"));
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("canvas.toBlob failed"));
-        },
-        "image/jpeg",
-        quality,
-      );
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("image load failed"));
-    };
-    img.src = url;
-  });
-}
 
 export function DetailPanel({
   open,
@@ -666,12 +634,9 @@ export function DetailPanel({
       }
       let toUpload: File;
       if (file.type.startsWith("image/")) {
-        const compressed = await compressImageToJpeg(file);
-        const jpegName = file.name.replace(
-          /\.(png|bmp|gif|webp|tiff?)$/i,
-          ".jpg",
-        );
-        toUpload = new File([compressed], jpegName, { type: "image/jpeg" });
+        // Shared ingest matrix: PNG→lossless WebP, >1920→1920+q80 WebP,
+        // JPEG kept (+metadata strip), GIF/SVG untouched. True extension.
+        ({ file: toUpload } = await transformImageForUpload(file, file.name));
       } else {
         toUpload = file;
       }
@@ -685,10 +650,8 @@ export function DetailPanel({
   async function uploadPastedImage(blob: Blob) {
     if (!task) return;
     setUploadError(null);
-    const compressed = await compressImageToJpeg(blob);
     const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const filename = `paste-${ts}.jpg`;
-    const file = new File([compressed], filename, { type: "image/jpeg" });
+    const { file } = await transformImageForUpload(blob, `paste-${ts}.png`);
     await api.uploadFile(task.id, file);
     await loadFiles(task.id);
     void loadBadgeCounts(task.id);
@@ -750,14 +713,14 @@ export function DetailPanel({
           const blob = imageItem.getAsFile();
           if (blob) {
             void (async () => {
-              const compressed = await compressImageToJpeg(blob);
               const ts = new Date()
                 .toISOString()
                 .replace(/[:.]/g, "-")
                 .slice(0, 19);
-              const file = new File([compressed], `paste-${ts}.jpg`, {
-                type: "image/jpeg",
-              });
+              const { file } = await transformImageForUpload(
+                blob,
+                `paste-${ts}.png`,
+              );
               setPendingPasteFiles((prev) => [...prev, file]);
             })();
           }
