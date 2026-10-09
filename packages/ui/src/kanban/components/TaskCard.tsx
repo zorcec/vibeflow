@@ -108,23 +108,15 @@ function CopyIdButton({ taskId }: { taskId: string }) {
             <button
                   className="card-copy-id"
                   data-role="copy-id"
+                  data-copied={copied ? "true" : undefined}
                   draggable={false}
                   aria-label="Copy task id"
                   title={`Copy task id ${taskId}`}
-                  style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: 2,
-                        borderRadius: 3,
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                        flexShrink: 0,
-                        color: copied
-                              ? "var(--t-chip-green-300)"
-                              : "var(--t-border-faint)",
-                        transition: "color .1s",
-                  }}
+                  // Visual styling (box, lit hover background, colour) lives entirely
+                  // in .card-copy-id in kanban.css so it lights up like the tree
+                  // toggle chip. No inline background/colour here — an inline
+                  // `background: transparent` outranks the :hover rule and kills
+                  // the lit pill.
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                         // stopPropagation keeps the card's own onClick from

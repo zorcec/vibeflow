@@ -215,14 +215,38 @@ body {
 /* ── Card copy-id button (top-right, hover-revealed) ──
    Minimalistic affordance to copy the task id without opening the detail
    panel. Hidden until the card is hovered or the button itself is
-   keyboard-focused, so the card face stays clean. */
+   keyboard-focused, so the card face stays clean. On hover it lights up the
+   same way the tree toggle chip does — a lit --t-hover pill — so it reads as
+   an affordance instead of a bare glyph. */
 .card-copy-id {
  opacity: 0;
- transition: opacity 0.1s;
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ min-width: 22px;
+ min-height: 22px;
+ padding: 2px;
+ border: none;
+ border-radius: 6px;
+ background: transparent;
+ color: var(--t-border-faint);
+ cursor: pointer;
+ flex-shrink: 0;
+ transition: opacity 0.1s, background 0.1s, color 0.1s;
 }
 .task-card:hover .card-copy-id,
 .card-copy-id:focus-visible {
  opacity: 1;
+}
+.card-copy-id:hover {
+ background: var(--t-hover);
+ color: var(--t-text);
+}
+.card-copy-id[data-copied="true"] {
+ color: var(--t-chip-green-300);
+}
+.card-copy-id[data-copied="true"]:hover {
+ background: var(--t-hover);
 }
 
 /* ── Status dot ── */
