@@ -205,3 +205,179 @@ describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
     expect(payload.ok).toBe(true);
   });
 });
+
+describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
+  function patchBodies(requests: RecordedRequest[]): unknown[] {
+    return requests
+      .filter(
+        (q) => q.method === "PATCH" && q.url === "/api/cli/tasks/onlinetask1",
+      )
+      .map((q) => JSON.parse(q.body || "{}") as unknown);
+  }
+
+  it("--set-verify pass PATCHes verified:true", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--set-status",
+        "review",
+        "--set-verify",
+        "pass",
+        "--comment",
+        "verdict test",
+        "--commit-message",
+        "verdict test",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const bodies = patchBodies(requests);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ status: "review", verified: true });
+  });
+
+  it("--set-verify fail PATCHes verified:false", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--set-verify",
+        "fail",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const bodies = patchBodies(requests);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ verified: false });
+  });
+
+  it("--set-verify cannot PATCHes verified:null and records the reason as a comment", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--set-verify",
+        "cannot",
+        "--verify-reason",
+        "no browser here",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    // The tri-state boolean column has no free-text reason field on EITHER
+    // side, so the reason mirrors the local path: cleared verdict + activity
+    // comment. Assert both writes — PATCH null AND the comment POST.
+    const bodies = patchBodies(requests);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ verified: null });
+    const comments = requests.filter(
+      (q) =>
+        q.method === "POST" &&
+        q.url === "/api/cli/tasks/onlinetask1/comments",
+    );
+    expect(comments).toHaveLength(1);
+    expect(comments[0].body).toContain("no browser here");
+  });
+
+  it("no --set-verify leaves the remote verdict untouched (key absent)", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--title",
+        "New title",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const bodies = patchBodies(requests);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toHaveProperty("verified");
+  });
+
+  it("claiming (in-progress, no verdict) clears the remote verdict", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--set-status",
+        "in-progress",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const bodies = patchBodies(requests);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      status: "in_progress",
+      verified: null,
+    });
+  });
+
+  it("--dry-run with --set-verify previews verified and sends no PATCH", async () => {
+    const store = freshDir("saas-verify-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        "onlinetask1",
+        "--set-verify",
+        "pass",
+        "--dry-run",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    expect(patchBodies(requests)).toEqual([]);
+    const payload = JSON.parse(r.stdout) as {
+      ok: boolean;
+      dryRun: boolean;
+      updates: Record<string, unknown>;
+    };
+    expect(payload.ok).toBe(true);
+    expect(payload.dryRun).toBe(true);
+    expect(payload.updates.verified).toBe(true);
+  });
+});

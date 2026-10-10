@@ -3032,11 +3032,33 @@ program
               title?: string;
               description?: string;
               branchName?: string;
+              verified?: boolean | null;
             } = {};
             if (opts.setStatus) saasPatch.status = opts.setStatus;
             if (opts.title) saasPatch.title = opts.title;
             if (opts.description) saasPatch.description = opts.description;
             if (opts.branch) saasPatch.branchName = opts.branch;
+
+            // ── Agent attestation (--set-verify) ─────────────────────
+            // Same tri-state mapping the local path uses (see
+            // core/verify-attestation.ts and the local `updates.verified`
+            // block below): pass → true, fail → false, cannot → cleared.
+            // The SaaS column is a tri-state boolean too (`verified` accepts
+            // null), so `undefined` means "no change" and `null` clears to
+            // absent — matching how updateSaasTask sends null explicitly to
+            // clear. Claiming (in-progress) with no verdict clears it as
+            // well, mirroring the local reset-on-claim. This branch
+            // previously never read opts.setVerify, so a verdict was
+            // silently dropped while the command reported success.
+            if (attestation.value !== undefined)
+              saasPatch.verified = attestation.value;
+            else if (
+              attestation.verdict === "cannot" ||
+              attestation.clear
+            )
+              saasPatch.verified = null;
+            else if (opts.setStatus === "in-progress")
+              saasPatch.verified = null;
 
             // Conflict detection: warn when attempting in-progress on an already in-progress task
             if (opts.setStatus === "in-progress") {
@@ -3083,6 +3105,14 @@ program
                 dryUpdates.description = saasPatch.description;
               if (saasPatch.branchName !== undefined)
                 dryUpdates.branchName = saasPatch.branchName;
+              if (saasPatch.verified !== undefined)
+                dryUpdates.verified = saasPatch.verified;
+              // A `cannot` verdict also posts the reason as a comment (see
+              // the write path below), so the preview names that second
+              // write instead of letting --dry-run hide it.
+              if (attestation.verdict === "cannot" && attestation.reason)
+                dryUpdates.verifyReason =
+                  `${attestation.reason} (would record as comment)`;
               if (dryRunReportName)
                 dryUpdates.report = `${dryRunReportName} (would attach; source file kept)`;
               if (opts.comment?.trim()) dryUpdates.comment = "(would add)";
@@ -3168,6 +3198,38 @@ program
               }
             }
 
+            // A "cannot" verdict's reason lives in activity (system comment)
+            // on the local path — the verified column is a tri-state boolean
+            // on BOTH sides with no free-text reason field — so mirror it
+            // here as a SaaS comment instead of dropping it. The caller is
+            // told plainly it landed as a comment (not a field), so nobody
+            // believes a reason column was written. A lost reason is the
+            // same loss as a lost --comment, so it earns the same
+            // E_COMMENT_SAVE refusal the local path uses.
+            let saasVerifyReasonError: string | undefined;
+            if (attestation.verdict === "cannot" && attestation.reason) {
+              const recorded = await addSaasComment(
+                taskId,
+                `**Cannot verify:** ${attestation.reason}`,
+              );
+              if (recorded.ok) {
+                if (!opts.json)
+                  console.log(
+                    chalk.dim("  verify reason: recorded as comment"),
+                  );
+              } else {
+                saasVerifyReasonError = recorded.error.message;
+                if (!opts.json) {
+                  console.log(
+                    chalk.red(
+                      `✗ Verify reason was NOT recorded: ${saasVerifyReasonError}`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+              }
+            }
+
             const saasEditNextActions = opts.setStatus
               ? getNextActions(
                   opts.setStatus === "review"
@@ -3177,13 +3239,29 @@ program
                 )
               : [];
             if (opts.json) {
-              if (saasCommentError) {
+              // A comment is part of the TASK DATA: losing it leaves the
+              // task genuinely incomplete, so this stays a refusal with a
+              // non-zero exit — mirroring the local path's combined
+              // commentError/verifyReasonError block under one code.
+              const saasLost = saasCommentError
+                ? {
+                    message: `Task updated, but the comment was NOT saved: ${saasCommentError}`,
+                    suggestion:
+                      'Re-add the comment with --edit <task-id> --comment "..."',
+                  }
+                : saasVerifyReasonError
+                  ? {
+                      message: `Task updated, but the verify reason was NOT recorded: ${saasVerifyReasonError}`,
+                      suggestion:
+                        'Re-record it with --edit <task-id> --set-verify cannot --verify-reason "<why>"',
+                    }
+                  : null;
+              if (saasLost) {
                 outputEnvelope({
                   ok: false,
                   code: "E_COMMENT_SAVE",
-                  message: `Task updated, but the comment was NOT saved: ${saasCommentError}`,
-                  suggestion:
-                    'Re-add the comment with --edit <task-id> --comment "..."',
+                  message: saasLost.message,
+                  suggestion: saasLost.suggestion,
                   json: opts.json,
                 });
               } else {
