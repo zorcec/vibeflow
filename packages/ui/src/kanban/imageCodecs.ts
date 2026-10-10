@@ -11,10 +11,12 @@
  *   `squoosh_resize` core directly — bypasses the package index so the
  *   hqx/magic-kernel glue and the `ImageData` global never enter the graph.
  *
- * Wasm bytes are runtime-supplied (see `configureImageCodecs`): browsers
- * fetch them from the CLI server's codec route, Node reads them from disk.
- * Only the non-SIMD encoder build is used — one binary everywhere, no
- * feature-detect fork between glue and bytes.
+ * Wasm bytes are runtime-supplied (see `configureImageCodecs`): the CLI
+ * browser bundles fetch them from the CLI server's codec route, the web app
+ * serves the same three binaries from its own origin
+ * (`public/__vibeflow__/codecs`, wired in its KanbanApp), and Node reads
+ * them from disk. Only the non-SIMD encoder build is used — one binary
+ * everywhere, no feature-detect fork between glue and bytes.
  */
 
 export interface RgbaImage {
