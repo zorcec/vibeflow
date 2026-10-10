@@ -56,3 +56,63 @@ describe("settings fullscreen checkbox (cba0ade6)", () => {
     expect(onSave.mock.calls[0][1]).toMatchObject({ panelFullscreen: false });
   });
 });
+
+describe("settings fullscreen checkbox styling (2f6fddbf)", () => {
+  /** The fullscreen checkbox, by its own id. */
+  function fullscreenCheckbox(): HTMLElement {
+    return document.getElementById("settings-panel-fullscreen")!;
+  }
+
+  /**
+   * Element siblings a `dp-meta-label` heading owns — everything after it up
+   * to the next heading. The board tab is one flex column whose sections are
+   * delimited by headings, so this reads the real section, not a guessed
+   * wrapper element.
+   */
+  function sectionOf(headingText: string): Element[] {
+    const heading = screen.getByText(headingText);
+    const section: Element[] = [];
+    for (
+      let node = heading.nextElementSibling;
+      node && !node.classList.contains("dp-meta-label");
+      node = node.nextElementSibling
+    ) {
+      section.push(node);
+    }
+    return section;
+  }
+
+  it("uses the design-token accent instead of the OS default", () => {
+    renderModal();
+    // Every other checkbox in the modal sets an accent (the column ones use
+    // the column colour, DeleteConfirmDialog uses var(--t-accent)); leaving
+    // `accent-color` unset is what rendered this one in the OS default blue.
+    expect(fullscreenCheckbox().getAttribute("style")).toContain(
+      "accent-color: var(--t-accent)",
+    );
+  });
+
+  it("keeps the 14px size and pointer cursor shared with the column checkboxes", () => {
+    renderModal();
+    const style = fullscreenCheckbox().getAttribute("style") ?? "";
+    expect(style).toContain("width: 14px");
+    expect(style).toContain("height: 14px");
+    expect(style).toContain("cursor: pointer");
+  });
+
+  it("renders in its own Display section, outside Visible Columns", () => {
+    renderModal();
+    const fullscreen = screen.getByLabelText("Open task details fullscreen");
+
+    // The column section must not absorb the fullscreen checkbox any more:
+    // five column rows, none of them the fullscreen toggle.
+    const columnSection = sectionOf("Visible Columns");
+    expect(columnSection).toHaveLength(5);
+    expect(columnSection.some((el) => el.contains(fullscreen))).toBe(false);
+
+    // ...and it gets its own heading, owning exactly the one fullscreen row.
+    const displaySection = sectionOf("Display");
+    expect(displaySection).toHaveLength(1);
+    expect(displaySection[0]).toContain(fullscreen);
+  });
+});
