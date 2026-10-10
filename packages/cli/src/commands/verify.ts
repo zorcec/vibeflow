@@ -1109,7 +1109,16 @@ export function printResult(result: VerifyResult): void {
     }
   }
   console.log();
-  console.log(chalk.cyan("  Explore evidence (agent tools):"));
+  // Imperative, not reference: agents whose eyes are already on this output
+  // must reach for these tools BEFORE hand-parsing the evidence files above.
+  // The sub-commands inspect STATIC captured evidence only — hover/focus/
+  // behavioral states still need a live check (headless Playwright against
+  // a fresh build).
+  console.log(
+    chalk.cyan(
+      "  Before reading evidence files by hand, explore them with:",
+    ),
+  );
   console.log(
     chalk.dim(`    vibeflow verify style_query ${result.taskId} <property>`),
   );
@@ -1120,6 +1129,11 @@ export function printResult(result: VerifyResult): void {
   );
   console.log(chalk.dim(`    vibeflow verify element_info ${result.taskId}`));
   console.log(chalk.dim(`    vibeflow verify html_diff ${result.taskId}`));
+  console.log(
+    chalk.dim(
+      "    These inspect STATIC captured evidence only — hover/focus/behavior still needs a live check (headless Playwright against a fresh build).",
+    ),
+  );
   console.log();
   console.log(chalk.cyan("  Next — the correctness verdict is YOURS to make:"));
   console.log(

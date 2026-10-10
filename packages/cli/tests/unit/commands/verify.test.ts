@@ -620,6 +620,20 @@ describe("runVerify — CLI entry point", () => {
     expect(out).toContain("CANNOT tell whether you did what the task asked");
     expect(out).toContain("verify does NOT set a verdict");
     expect(out).toContain("--set-verify pass|fail|cannot");
+    // Self-documenting output: the explorer block reads as an instruction,
+    // placed right after the evidence file list, with the STATIC-only caveat.
+    expect(out).toContain(
+      "Before reading evidence files by hand, explore them with:",
+    );
+    expect(out).toContain("vibeflow verify style_query test-task-123");
+    expect(out).toContain("vibeflow verify style_diff test-task-123");
+    expect(out).toContain("vibeflow verify element_info test-task-123");
+    expect(out).toContain("vibeflow verify html_diff test-task-123");
+    expect(out).toContain("STATIC captured evidence only");
+    // The instruction must precede the verdict boilerplate, not follow it.
+    expect(out.indexOf("Before reading evidence files by hand")).toBeLessThan(
+      out.indexOf("the correctness verdict is YOURS"),
+    );
 
     consoleSpy.mockRestore();
   });

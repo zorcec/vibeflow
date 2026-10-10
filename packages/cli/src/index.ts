@@ -4443,7 +4443,7 @@ program
 program
   .command("verify")
   .description(
-    "Verify a task against its baseline snapshot, or explore captured evidence",
+    "Verify a task against its baseline snapshot. Before hand-parsing evidence JSON, explore the STATIC captured evidence with: verify style_query | style_diff | element_info | html_diff <task-id>",
   )
   .argument(
     "[args...]",

@@ -266,4 +266,20 @@ describe("renderAgentInstructions", () => {
       'vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
     );
   });
+
+  it("self-documents machine output and verify evidence explorers", () => {
+    // Guidance that lives only in skills never reaches agents that skip
+    // them: the boilerplate itself must teach --json and the explorer
+    // sub-commands, with the STATIC-only caveat.
+    const text = renderAgentInstructions({ hasResearchTasks: false });
+    expect(text).toContain("tasks --get <id>");
+    expect(text).toContain("--json for machine-readable output");
+    expect(text).toContain(
+      "BEFORE hand-parsing verify evidence JSON, explore it with",
+    );
+    expect(text).toContain(
+      "style_query | style_diff | element_info | html_diff",
+    );
+    expect(text).toContain("STATIC capture only");
+  });
 });

@@ -1306,7 +1306,15 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "  Details:  vibeflow tasks --get <id>  (full task info with comments and files)",
+    "  Details:  vibeflow tasks --get <id>  (full task info with comments and files; append --json for machine-readable output)",
+  );
+  // Self-documenting tool use: agents without loaded skills must still mine
+  // verify evidence with the explorer sub-commands (not by hand-parsing the
+  // evidence JSON). The sub-commands read STATIC captured evidence only —
+  // hover/focus/behavior still needs a live check.
+  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+  lines.push(
+    "            Evidence: BEFORE hand-parsing verify evidence JSON, explore it with vibeflow verify style_query | style_diff | element_info | html_diff <id> (STATIC capture only).",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
