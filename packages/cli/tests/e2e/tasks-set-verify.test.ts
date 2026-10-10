@@ -50,9 +50,14 @@ function storedComments(projectDir: string, taskId: string): Array<{ text: strin
     .comments ?? []) as Array<{ text: string; type?: string }>;
 }
 
-async function addTask(store: string, home: string, title: string): Promise<string> {
+async function addTask(
+  store: string,
+  home: string,
+  title: string,
+  extra: string[] = [],
+): Promise<string> {
   const add = await spawnCli(
-    ["tasks", store, "--add", "--title", title, "--json"],
+    ["tasks", store, "--add", "--title", title, "--json", ...extra],
     { cwd: store, home },
   );
   return JSON.parse(add.stdout).task.id;
@@ -452,5 +457,156 @@ describe("tasks --edit --set-verify", () => {
     const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
     expect(onDisk.status).toBe("review");
     expect(onDisk.verified).toBeUndefined();
+  });
+
+  // ── The Research verdict rule, at the CLI boundary ───────────────────────
+  // The refusal itself is pinned in review-gate.test.ts (the gate's own
+  // return) and in operations-verify-attestation.test.ts (the MCP path).
+  // What these two cases add is the WRITE: a refusal that still wrote the
+  // value — or wrote the reason comment, or moved the status — would satisfy
+  // every one of those tests while leaving the task in the state the rule
+  // exists to prevent.
+
+  for (const verdict of ["pass", "fail"] as const) {
+    it(`standalone --set-verify ${verdict} on a Research task is refused, and nothing is written`, async () => {
+      const store = freshDir("set-verify-");
+      const home = freshDir("set-verify-home-");
+      const id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+      seedResearchTask(store, id);
+
+      const r = await spawnCli(
+        ["tasks", store, "--edit", id, "--set-verify", verdict, "--json"],
+        { cwd: store, home },
+      );
+
+      expect(r.code).not.toBe(0);
+      const envelope = JSON.parse(r.stderr);
+      expect(envelope.error.code).toBe(RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.code);
+      // The whole refusal travels, so a consumer does not have to guess why.
+      expect(envelope.error.message).toBe(
+        RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.message,
+      );
+      expect(envelope.error.suggestion).toBe(
+        RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.suggestion,
+      );
+      const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
+      // No verdict on disk, no status change, no comment — no side effect at
+      // all, which is what separates this from the old silent scrub.
+      expect("verified" in onDisk).toBe(false);
+      expect(onDisk.status).toBe("in-progress");
+      expect(onDisk.comments ?? []).toEqual([]);
+    });
+  }
+
+  it("standalone --set-verify cannot + --verify-reason on a Research task is refused, and records no reason", async () => {
+    const store = freshDir("set-verify-");
+    const home = freshDir("set-verify-home-");
+    const id = "ffffffffffffffffffffffffffffff";
+    seedResearchTask(store, id);
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-verify",
+        "cannot",
+        "--verify-reason",
+        "no browser here",
+        "--json",
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).not.toBe(0);
+    expect(JSON.parse(r.stderr).error.code).toBe(
+      RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.code,
+    );
+    const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
+    // `cannot` on a verifiable task records the reason as an activity item; on
+    // a Research task even that must not appear, or the task ends up with a
+    // verdict-shaped audit trail.
+    expect("verified" in onDisk).toBe(false);
+    expect(onDisk.comments ?? []).toEqual([]);
+  });
+
+  it("a verdict on a Research review transition is still refused, before the report gate", async () => {
+    const store = freshDir("set-verify-");
+    const home = freshDir("set-verify-home-");
+    const id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeef";
+    seedResearchTask(store, id);
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--set-verify",
+        "pass",
+        "--comment",
+        "report ready",
+        "--json",
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).not.toBe(0);
+    const envelope = JSON.parse(r.stderr);
+    // Gate order is comment → commit → branch → verify → research, so a task
+    // with no .md attached must still refuse on the VERDICT, not on the
+    // missing report — otherwise the verdict rule would be unreachable here.
+    expect(envelope.error.code).toBe(RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL.code);
+    const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
+    expect(onDisk.status).toBe("in-progress");
+    expect("verified" in onDisk).toBe(false);
+  });
+
+  it("Bug and Feature tasks still take every verdict — the refusal is Research-specific", async () => {
+    for (const type of ["Bug", "Feature"] as const) {
+      const store = freshDir("set-verify-");
+      const home = freshDir("set-verify-home-");
+      const id = await addTask(store, home, `Typed ${type}`, ["--type", type]);
+
+      const pass = await spawnCli(
+        ["tasks", store, "--edit", id, "--set-verify", "pass", "--json"],
+        { cwd: store, home },
+      );
+      expect(pass.code, `${type} pass`).toBe(0);
+      expect(storedVerified(store, id), `${type} pass`).toBe(true);
+
+      const fail = await spawnCli(
+        ["tasks", store, "--edit", id, "--set-verify", "fail", "--json"],
+        { cwd: store, home },
+      );
+      expect(fail.code, `${type} fail`).toBe(0);
+      expect(storedVerified(store, id), `${type} fail`).toBe(false);
+
+      const cannot = await spawnCli(
+        [
+          "tasks",
+          store,
+          "--edit",
+          id,
+          "--set-verify",
+          "cannot",
+          "--verify-reason",
+          "behind SSO",
+          "--json",
+        ],
+        { cwd: store, home },
+      );
+      expect(cannot.code, `${type} cannot`).toBe(0);
+      // Absent, and the reason is recorded — the normal tri-state behaviour
+      // the Research rule must not have broken on the way past.
+      expect(storedVerified(store, id), `${type} cannot`).toBeUndefined();
+      expect(
+        storedComments(store, id).some((c) => c.text.includes("behind SSO")),
+        `${type} cannot reason`,
+      ).toBe(true);
+    }
   });
 });

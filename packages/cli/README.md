@@ -302,6 +302,7 @@ vibeflow tasks --edit <id> --title "Updated title" --description "More detail"
 vibeflow tasks --edit <id> --set-verify pass                   # task IS implemented correctly (green badge)
 vibeflow tasks --edit <id> --set-verify fail                   # task is NOT correct (amber badge; blocks review)
 vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"  # unverifiable here (no badge; reason recorded)
+# Research tasks must NOT carry a verdict — they have no annotated UI to verify, and the CLI REJECTS it (RESEARCH_VERIFY_NOT_ALLOWED)
 
 # Mark as review (requires implementation report; annotated URL+selector tasks also need a verdict)
 vibeflow tasks --edit <id> --set-status review --set-verify pass \
