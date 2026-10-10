@@ -1658,8 +1658,19 @@ function createBaseServer(): {
   const broadcast = (data: Record<string, unknown>) => {
     const msg = JSON.stringify(data);
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      // A socket can close between the readyState check and send() (a client
+      // that just disconnected). That is a normal condition, not a server
+      // fault: drop that socket's frame and keep delivering to the rest.
+      // Letting one dead socket abort the loop would starve every client
+      // after it, and the throw would escape into the mutation handler and
+      // surface as a spurious "Failed to broadcast task event" warning.
+      try {
+        client.send(msg, () => {
+          /* async send failure means a dead socket — already skipped above */
+        });
+      } catch {
+        /* sync send failure means a dead socket — keep broadcasting */
       }
     }
   };

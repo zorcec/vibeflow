@@ -1122,6 +1122,83 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
       });
     }
   });
+
+  it("one dead socket does not starve the other clients or fail the mutation (API-only mode)", async () => {
+    instance = await serve(undefined, {
+      port: 9802,
+      open: false,
+      projectDir: tempDir,
+    });
+
+    const { WebSocket: WS } = await import("ws");
+    const wsA = new WS("ws://localhost:9802");
+    const wsB = new WS("ws://localhost:9802");
+    await Promise.all([
+      new Promise<void>((resolve) => wsA.on("open", resolve)),
+      new Promise<void>((resolve) => wsB.on("open", resolve)),
+    ]);
+
+    const received: string[] = [];
+    wsA.on("message", (data) => received.push(data.toString()));
+    wsB.on("message", (data) => received.push(data.toString()));
+
+    // Simulate a socket that died between the server's readyState check and
+    // send(): the first server-side send of this broadcast throws
+    // synchronously (EPIPE-style), exactly like a just-disconnected client.
+    const protoSend = WS.prototype.send;
+    let failedOnce = false;
+    WS.prototype.send = function (
+      this: InstanceType<typeof WS>,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...args: any[]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ): any {
+      const [data] = args;
+      if (
+        !failedOnce &&
+        typeof data === "string" &&
+        data.includes("tasks-updated")
+      ) {
+        failedOnce = true;
+        throw new Error("simulated dead socket (EPIPE)");
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (protoSend as any).apply(this, args);
+    };
+
+    try {
+      // The mutation must succeed (no throw escapes broadcast into the
+      // handler) even though one send threw.
+      const res = await fetch("http://localhost:9802/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Broadcast survivor", selector: "#hero" }),
+      });
+      expect(res.ok).toBe(true);
+      expect((await res.json()).success).toBe(true);
+      expect(failedOnce).toBe(true);
+
+      const msg = await Promise.race([
+        new Promise<string>((resolve) => {
+          const timer = setInterval(() => {
+            if (received.length > 0) {
+              clearInterval(timer);
+              resolve(received[0]);
+            }
+          }, 25);
+        }),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 3000),
+        ),
+      ]);
+      // The live socket still got the event despite the dead one.
+      expect(JSON.parse(msg)).toMatchObject({ type: "tasks-updated" });
+    } finally {
+      WS.prototype.send = protoSend;
+      wsA.close();
+      wsB.close();
+    }
+  });
 });
 
 describe("proto serve — deprecated agents API", () => {
