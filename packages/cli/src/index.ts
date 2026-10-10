@@ -3700,8 +3700,8 @@ program
           // verdict. Only reachable when the verdict + reason passed the gate.
           // Losing it is the SAME situation as losing `--comment` — task data
           // the caller explicitly asked for went missing — so it earns the
-          // same `E_COMMENT_SAVE` refusal rather than a warning printed to
-          // stdout where a `--json` consumer cannot see it.
+          // same `E_COMMENT_SAVE` refusal below rather than a warning printed
+          // to stdout where a `--json` consumer cannot see it.
           let verifyReasonError: string | undefined;
           if (attestation.verdict === "cannot" && attestation.reason) {
             try {
@@ -3716,15 +3716,53 @@ program
             } catch (err) {
               verifyReasonError =
                 err instanceof Error ? err.message : String(err);
-              if (!opts.json) {
-                console.log(
-                  chalk.yellow(
-                    `⚠ Verify reason was NOT recorded: ${verifyReasonError}`,
-                  ),
-                );
-              }
             }
           }
+
+          // What this run LOST, decided once and consumed by every writer
+          // below (human printer, --json envelope, auto-commit skip, exit
+          // code). A comment is TASK DATA: losing it leaves the task genuinely
+          // incomplete, so it is a refusal with a non-zero exit — never a
+          // green success line that hides it. (A commit, by contrast, is a
+          // VCS side-effect outside the task data, so that one stays a
+          // notice; see the auto-commit block.)
+          //
+          // A lost `--verify-reason` is the same loss with the same remedy, so
+          // it is the same code: one code, one meaning. Both wordings name the
+          // remedy on BOTH surfaces.
+          const lostWrite = commentError
+            ? {
+                message: `Task updated, but the comment was NOT saved: ${commentError}`,
+                suggestion:
+                  'Re-add the comment with --edit <task-id> --comment "..."',
+              }
+            : verifyReasonError
+              ? {
+                  message: `Task updated, but the verify reason was NOT recorded: ${verifyReasonError}`,
+                  suggestion:
+                    'Re-record it with --edit <task-id> --set-verify cannot --verify-reason "<why>"',
+                }
+              : undefined;
+
+          // What the verdict write DID — stated because the caller cannot see
+          // it in the task file. `cannot` leaves `verified` ABSENT by design
+          // (tri-state: true = verified correct, false = verified WRONG,
+          // absent = not assessed / no badge) and its reason lives in the
+          // activity comment, not in a field, on either surface. So a reader
+          // who opens the json sees no verdict and no reason field and cannot
+          // tell "recorded" from "dropped" — which is exactly the
+          // misdiagnosis that produced this fix: the verdict WAS recorded, on
+          // annotated and unannotated tasks alike, while the success line said
+          // nothing about it. One wording, used by the human line and the
+          // --json payload so the two cannot disagree.
+          const verifyOutcome =
+            attestation.verdict === "pass"
+              ? "verify: pass — recorded (verified=true)"
+              : attestation.verdict === "fail"
+                ? "verify: fail — recorded (verified=false; the review gate blocks it)"
+                : attestation.verdict === "cannot"
+                  ? "verify: cannot — no badge (verified left absent); reason recorded in activity"
+                  : undefined;
 
           const localEditNextActions = opts.setStatus
             ? getNextActions(
@@ -3742,48 +3780,35 @@ program
           // to the `--set-status done` note) so every note of this command
           // lands in one array.
           if (!opts.json) {
-            console.log(chalk.green(`✓ Task updated: ${updated.title}`));
-            console.log(
-              chalk.dim(`  id: ${updated.id} | status: ${updated.status}`),
-            );
-            if (parentDisplay !== undefined)
-              console.log(chalk.dim(`  parent: ${parentDisplay}`));
-            if (opts.comment?.trim()) {
-              if (commentError) {
-                console.log(
-                  chalk.red(`✗ Comment was NOT saved: ${commentError}`),
-                );
-              } else {
+            if (lostWrite) {
+              // The status write DID land — so the refusal says both halves
+              // instead of printing a green tick that hides the lost task
+              // data behind an exit code a human never reads.
+              console.log(chalk.red(`✗ ${lostWrite.message}`));
+              console.log(chalk.dim(`  ${lostWrite.suggestion}`));
+            } else {
+              console.log(chalk.green(`✓ Task updated: ${updated.title}`));
+              console.log(
+                chalk.dim(`  id: ${updated.id} | status: ${updated.status}`),
+              );
+              if (parentDisplay !== undefined)
+                console.log(chalk.dim(`  parent: ${parentDisplay}`));
+              if (opts.comment?.trim())
                 console.log(chalk.dim(`  comment: added`));
-              }
+              // The verdict the store now holds — see verifyOutcome above.
+              if (verifyOutcome)
+                console.log(chalk.dim(`  ${verifyOutcome}`));
+              if (localEditNextActions.length > 0)
+                printNextHint(localEditNextActions);
             }
-            if (localEditNextActions.length > 0)
-              printNextHint(localEditNextActions);
           }
-          // A comment is part of the TASK DATA: losing it leaves the task
-          // genuinely incomplete, so this stays a refusal with a non-zero exit.
-          // (A commit, by contrast, is a VCS side-effect outside the task data
-          // — see the auto-commit block below.) A lost `--verify-reason` is the
-          // same loss with the same remedy, so it is the same code: one code,
-          // one meaning.
-          if (commentError || verifyReasonError) {
-            const lost = commentError
-              ? {
-                  message: `Task updated, but the comment was NOT saved: ${commentError}`,
-                  suggestion:
-                    'Re-add the comment with --edit <task-id> --comment "..."',
-                }
-              : {
-                  message: `Task updated, but the verify reason was NOT recorded: ${verifyReasonError}`,
-                  suggestion:
-                    'Re-record it with --edit <task-id> --set-verify cannot --verify-reason "<why>"',
-                };
+          if (lostWrite) {
             if (opts.json) {
               outputEnvelope({
                 ok: false,
                 code: "E_COMMENT_SAVE",
-                message: lost.message,
-                suggestion: lost.suggestion,
+                message: lostWrite.message,
+                suggestion: lostWrite.suggestion,
                 json: opts.json,
               });
             }
@@ -3793,7 +3818,7 @@ program
           // ── Auto-commit (runs after task status + comment are already saved) ──────
           // Keeping this after updateTask/addComment ensures comment is preserved even
           // when git commit fails. Failure sets exitCode=1 but does NOT undo the task.
-          if (opts.setStatus === "review" && !commentError && !verifyReasonError) {
+          if (opts.setStatus === "review" && !lostWrite) {
             const autoDir = resolve(dir);
             const autoSettings = loadSettings(autoDir);
             if (autoSettings.autoCommit && opts.commitMessage?.trim()) {
@@ -3869,12 +3894,29 @@ program
 
           // The success envelope is written last so `notices` describes the run
           // the consumer actually got — including a commit that did not land.
-          if (opts.json && !commentError && !verifyReasonError) {
+          // `verification` states the verdict this run wrote, in the SAME
+          // wording the human line uses, because the store cannot show it:
+          // `cannot` leaves `verified` absent and its reason lives in the
+          // activity comment (see verifyOutcome above).
+          if (opts.json && !lostWrite) {
             outputEnvelope({
               ok: true,
               json: opts.json,
               payload: {
                 task: updated,
+                ...(verifyOutcome
+                  ? {
+                      verification: {
+                        verdict: attestation.verdict,
+                        // null, not false: `cannot` writes ABSENCE, and a
+                        // stored false would read as "verified WRONG".
+                        verified: updated.verified ?? null,
+                        ...(attestation.verdict === "cannot"
+                          ? { reasonRecorded: true }
+                          : {}),
+                      },
+                    }
+                  : {}),
                 next_actions: localEditNextActions,
                 ...noticeFields(editNotices),
               },

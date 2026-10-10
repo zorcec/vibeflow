@@ -610,3 +610,183 @@ describe("tasks --edit --set-verify", () => {
     }
   });
 });
+/**
+ * The verdict the caller asked for is a write it CANNOT see in the task json,
+ * so the run's own output has to report it.
+ *
+ * `cannot` leaves `verified` ABSENT by design (tri-state: true = the agent
+ * verified the task IS correct, false = verified it is NOT, absent = not
+ * assessed / no badge) and records its reason as a system activity comment —
+ * not as a json field, on either surface. A reader who opens the task file
+ * after a `--set-verify cannot` therefore sees no verdict and no reason field
+ * and cannot tell "recorded in activity" from "dropped". The success output
+ * used to say nothing about either, and that silence is exactly what produced
+ * the "the verdict was silently dropped" ticket: the verdict HAD been
+ * recorded, on annotated and unannotated tasks alike.
+ *
+ * So the run must state the outcome, and the `--json` payload must carry it
+ * in machine-readable form. Both surfaces are pinned for an UNANNOTATED task
+ * (the case that was misdiagnosed) and for an ANNOTATED one (the control that
+ * proves there is no annotation-specific branch to fix).
+ */
+describe("the local --edit run reports the verdict it wrote", () => {
+  for (const annotated of [false, true]) {
+    const shape = annotated ? "annotated" : "unannotated";
+
+    it(`--set-verify cannot + --verify-reason states the outcome on a ${shape} task`, async () => {
+      const store = freshDir("verdict-report-");
+      const home = freshDir("verdict-report-home-");
+      let id: string;
+      if (annotated) {
+        id = "aaa11111aaaa1111aaaa1111aaaa11";
+        seedAnnotatedTask(store, id);
+      } else {
+        // `tasks --add` creates unannotated tasks (selector "/", no url).
+        id = await addTask(store, home, "No annotation, cannot verify");
+      }
+
+      const r = await spawnCli(
+        [
+          "tasks",
+          store,
+          "--edit",
+          id,
+          "--set-verify",
+          "cannot",
+          "--verify-reason",
+          "no browser in this environment",
+        ],
+        { cwd: store, home },
+      );
+
+      expect(r.code, `exit ${shape}`).toBe(0);
+      const printed = r.stdout;
+      expect(printed, `human ${shape}`).toContain("✓ Task updated");
+      // The verdict — and the fact that its ABSENCE is deliberate, not a drop.
+      expect(printed, `verdict ${shape}`).toContain("verify: cannot");
+      expect(printed, `badge wording ${shape}`).toContain("no badge");
+      // Where the reason actually landed, so nobody hunts for a field that
+      // does not exist on either surface.
+      expect(printed, `reason ${shape}`).toContain(
+        "reason recorded in activity",
+      );
+      // …and the store agrees: no verdict key, but the reason IS persisted.
+      const onDisk = JSON.parse(readFileSync(taskFile(store, id), "utf-8"));
+      expect("verified" in onDisk, `verified absent ${shape}`).toBe(false);
+      expect(
+        storedComments(store, id).some(
+          (c) =>
+            c.text.includes("Cannot verify") &&
+            c.text.includes("no browser in this environment"),
+        ),
+        `reason on disk ${shape}`,
+      ).toBe(true);
+    });
+
+    it(`--json carries the verdict outcome on a ${shape} task`, async () => {
+      const store = freshDir("verdict-json-");
+      const home = freshDir("verdict-json-home-");
+      let id: string;
+      if (annotated) {
+        id = "bbb22222bbbb2222bbbb2222bbbb22";
+        seedAnnotatedTask(store, id);
+      } else {
+        id = await addTask(store, home, "No annotation, json cannot");
+      }
+
+      const r = await spawnCli(
+        [
+          "tasks",
+          store,
+          "--edit",
+          id,
+          "--set-verify",
+          "cannot",
+          "--verify-reason",
+          "no browser in this environment",
+          "--json",
+        ],
+        { cwd: store, home },
+      );
+
+      expect(r.code, `exit ${shape}`).toBe(0);
+      const payload = JSON.parse(r.stdout) as {
+        ok: boolean;
+        verification?: {
+          verdict: string;
+          verified: boolean | null;
+          reasonRecorded?: boolean;
+        };
+      };
+      expect(payload.ok).toBe(true);
+      expect(payload.verification, `verification block ${shape}`).toEqual({
+        verdict: "cannot",
+        // null, not false: absent is the state `cannot` writes, and a stored
+        // `false` would read as "verified as NOT implemented correctly".
+        verified: null,
+        reasonRecorded: true,
+      });
+    });
+  }
+
+  it("pass and fail report the tri-state value they wrote, not just a tick", async () => {
+    const store = freshDir("verdict-pf-");
+    const home = freshDir("verdict-pf-home-");
+    const id = await addTask(store, home, "No annotation, pass then fail");
+
+    const pass = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "pass", "--json"],
+      { cwd: store, home },
+    );
+    expect(pass.code).toBe(0);
+    const passPayload = JSON.parse(pass.stdout) as {
+      verification?: { verdict: string; verified: boolean | null };
+    };
+    expect(passPayload.verification).toEqual({ verdict: "pass", verified: true });
+    // The human line names the value too — the payload is not the only reader.
+    const passHuman = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "pass"],
+      { cwd: store, home },
+    );
+    expect(passHuman.stdout).toContain("verify: pass");
+    expect(passHuman.stdout).toContain("verified=true");
+
+    const fail = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "fail", "--json"],
+      { cwd: store, home },
+    );
+    expect(fail.code).toBe(0);
+    const failPayload = JSON.parse(fail.stdout) as {
+      verification?: { verdict: string; verified: boolean | null };
+    };
+    expect(failPayload.verification).toEqual({ verdict: "fail", verified: false });
+    const failHuman = await spawnCli(
+      ["tasks", store, "--edit", id, "--set-verify", "fail"],
+      { cwd: store, home },
+    );
+    expect(failHuman.stdout).toContain("verify: fail");
+    expect(failHuman.stdout).toContain("verified=false");
+  });
+
+  it("no verdict passed ⇒ no verification block and no verify line", async () => {
+    // The control for the two above: a run with no verdict must not grow a
+    // verdict-shaped block, or a consumer cannot tell "no verdict given" from
+    // "verdict given and dropped".
+    const store = freshDir("verdict-none-");
+    const home = freshDir("verdict-none-home-");
+    const id = await addTask(store, home, "No annotation, no verdict");
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", id, "--title", "Renamed", "--json"],
+      { cwd: store, home },
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("verification");
+
+    const human = await spawnCli(
+      ["tasks", store, "--edit", id, "--title", "Renamed again"],
+      { cwd: store, home },
+    );
+    expect(human.stdout).not.toContain("verify:");
+  });
+});

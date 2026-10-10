@@ -251,7 +251,15 @@ describe("a lost --verify-reason is lost TASK DATA, not a warning", () => {
   it("keeps the human-mode line, just without the --json envelope", async () => {
     const { store, home, id } = fixture("json-notices-human-");
     const r = await runTasks([store, ...VERIFY_ARGS(id)], home);
-    expect(r.logged.join("\n")).toContain("Verify reason was NOT recorded");
+    // Same sentence the --json envelope carries — one wording per outcome, so
+    // the two surfaces cannot disagree. It is a REFUSAL on stderr-adjacent
+    // output, not the old ⚠ warning that preceded a green success tick.
+    expect(r.logged.join("\n")).toContain(
+      "Task updated, but the verify reason was NOT recorded",
+    );
+    // And no success line for a run that lost task data: the status write DID
+    // land, so the refusal says both halves instead of printing ✓ first.
+    expect(r.logged.join("\n")).not.toContain("✓ Task updated");
     expect(r.exitCode).not.toBe(0);
   });
 });
