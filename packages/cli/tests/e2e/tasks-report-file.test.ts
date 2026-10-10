@@ -205,4 +205,108 @@ describe("tasks --edit --report-file", () => {
     expect(existsSync(report)).toBe(false);
     expect(storedTask(store, id)?.status).toBe("review");
   });
+
+  it("--dry-run performs zero mutations even when validation would pass", async () => {
+    const store = freshDir("report-store-");
+    const home = freshDir("report-home-");
+    seedStore(store);
+    const id = await addTask(store, home, "Research");
+    const report = join(store, "research-report.md");
+    writeFileSync(report, "# Findings");
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--report-file",
+        report,
+        "--comment",
+        "report",
+        "--dry-run",
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("[dry-run]");
+    expect(r.stdout).toContain("would attach; source file kept");
+    expect(r.stdout).not.toContain("Report uploaded");
+    // Filesystem AND task store byte-identical: source kept, no attachment.
+    expect(readFileSync(report, "utf-8")).toBe("# Findings");
+    expect(
+      existsSync(join(store, ".vibeflow", "tasks", "files", id)),
+    ).toBe(false);
+    expect(storedTask(store, id)?.status).toBe("todo");
+  });
+
+  it("--dry-run performs zero mutations when validation fails", async () => {
+    const store = freshDir("report-store-");
+    const home = freshDir("report-home-");
+    seedStore(store);
+    const id = await addTask(store, home, "Research");
+    const report = join(store, "research-report.md");
+    writeFileSync(report, "# Findings");
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--report-file",
+        report,
+        "--dry-run",
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).toBe(2); // gate refuses: comment required
+    expect(r.stdout).toContain("Comment is required");
+    expect(r.stdout).not.toContain("Report uploaded");
+    expect(readFileSync(report, "utf-8")).toBe("# Findings");
+    expect(
+      existsSync(join(store, ".vibeflow", "tasks", "files", id)),
+    ).toBe(false);
+    expect(storedTask(store, id)?.status).toBe("todo");
+  });
+
+  it("a real run that fails validation performs no upload and adds no attachment", async () => {
+    const store = freshDir("report-store-");
+    const home = freshDir("report-home-");
+    seedStore(store);
+    const id = await addTask(store, home, "Research");
+    const report = join(store, "research-report.md");
+    writeFileSync(report, "# Findings");
+
+    const r = await spawnCli(
+      [
+        "tasks",
+        store,
+        "--edit",
+        id,
+        "--set-status",
+        "review",
+        "--report-file",
+        report,
+      ],
+      { cwd: store, home },
+    );
+
+    expect(r.code).toBe(2); // gate refuses: comment required
+    expect(r.stdout).toContain("Comment is required");
+    expect(r.stdout).not.toContain("Report uploaded");
+    // Validation runs BEFORE any upload: the source file survives and the
+    // task gains no attachment entry.
+    expect(readFileSync(report, "utf-8")).toBe("# Findings");
+    expect(
+      existsSync(join(store, ".vibeflow", "tasks", "files", id)),
+    ).toBe(false);
+    expect(storedTask(store, id)?.status).toBe("todo");
+  });
 });

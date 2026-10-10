@@ -247,7 +247,12 @@ export function checkReviewTransition(
   if (task && isResearchType(task.type)) {
     const attachedFiles = listFiles(projectDir, taskId);
     const hasMdFile = attachedFiles.some((f) => /\.md$/i.test(f.name));
-    if (!hasMdFile) {
+    // A report carried ON this transition (CLI --report-file) satisfies the
+    // gate: the CLI pre-validates the path (exists, .md) before calling and
+    // uploads it right after the gate passes, so a gate-passed run always
+    // ends with the report attached. MCP never sends this — it attaches via
+    // attach_file first instead — so its behaviour is unchanged.
+    if (!hasMdFile && !opts.reportFile) {
       return {
         ok: false,
         code: "RESEARCH_REPORT_REQUIRED",

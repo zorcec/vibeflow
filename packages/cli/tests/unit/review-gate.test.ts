@@ -606,6 +606,21 @@ describe("checkReviewTransition", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("passes research gate when the report rides this transition (reportFile)", () => {
+    // The CLI validates the path and uploads it right after the gate passes,
+    // so the gate must not demand a pre-existing attachment when the caller
+    // carries the report on the transition itself (task 232c7e87: the gate
+    // running before the upload refused a run that would have attached one).
+    createTaskFile(tmpDir, "task-123", { type: "Research" });
+    const result = checkReviewTransition(
+      tmpDir,
+      "task-123",
+      { comment: "done", reportFile: "findings.md" },
+      { projectDir: tmpDir, settings: makeSettings({ autoCommit: false }) },
+    );
+    expect(result.ok).toBe(true);
+  });
+
   // Regression for the reproduced case: Research task 9f6e1ac7 carries
   // url + selector '#main'. Before the fix the type-blind `isAnnotated` check
   // made the gate demand a verification verdict the task can never produce,

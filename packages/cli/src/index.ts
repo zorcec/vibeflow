@@ -2873,11 +2873,15 @@ program
           const editMode = await getMode();
           const projectDir = resolve(dir);
           const settings = loadSettings(projectDir);
-          // ── Research report upload (CLI side-effect — must run before gate)
-          // Task existence / type / transition were validated above, so only
-          // the report file itself is left to check here.
+          // ── Research report validation (read-only — runs BEFORE the gate)
+          // Existence / extension refuse here with E_NOT_FOUND / E_USAGE
+          // before the review gate is consulted — but NOTHING is written:
+          // the save + source-file delete wait until the gate passes below,
+          // so a run that cannot succeed leaves nothing behind.
+          let reportPath: string | undefined;
+          let dryRunReportName: string | undefined;
           if (opts.setStatus === "review" && opts.reportFile) {
-            const reportPath = resolve(opts.reportFile);
+            reportPath = resolve(opts.reportFile);
             if (!existsSync(reportPath)) {
               if (opts.json) {
                 outputEnvelope({
@@ -2914,22 +2918,6 @@ program
               process.exitCode = ExitCode.USAGE;
               return;
             }
-            const content = readFileSync(reportPath);
-            const { saveFile: saveTaskFile } = await import("./core/files.js");
-            saveTaskFile(
-              projectDir,
-              reportTaskId!,
-              basename(reportPath),
-              content,
-            );
-            unlinkSync(reportPath);
-            if (!opts.json) {
-              console.log(
-                chalk.green(
-                  `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
-                ),
-              );
-            }
           }
           // ── Unified review gate (shared with MCP update_task) ──────────────
           if (opts.setStatus === "review") {
@@ -2948,6 +2936,10 @@ program
                 comment: opts.comment,
                 commitMessage: opts.commitMessage,
                 branch: opts.branch,
+                // A --report-file carried on THIS transition satisfies gate 5
+                // (the path was validated above; the upload lands right after
+                // the gate passes). MCP never sends this — it attaches first.
+                reportFile: opts.reportFile,
                 verifyVerdict: attestation.verdict,
                 verifyReason: opts.verifyReason,
               },
@@ -2972,6 +2964,38 @@ program
               }
               process.exitCode = ExitCode.USAGE;
               return;
+            }
+          }
+          // ── Research report upload (mutation — runs AFTER the gate) ──
+          // The gate above is the run's validation, and the path was already
+          // proven (existing, .md) in the validation block before it — so
+          // reaching here means the run WILL succeed. --dry-run stays a TRUE
+          // dry run: the file is never saved or deleted, and the preview
+          // rides the dry-run branch below.
+          // The source file is still CONSUMED (moved, not copied) on a real
+          // run: the task store owns the report from then on, and a copy
+          // would leave two divergent copies with no owner. A report meant
+          // to keep living in docs/ should be copied by the caller first.
+          if (reportPath !== undefined) {
+            if (opts.dryRun) {
+              dryRunReportName = basename(reportPath);
+            } else {
+              const content = readFileSync(reportPath);
+              const { saveFile: saveTaskFile } = await import("./core/files.js");
+              saveTaskFile(
+                projectDir,
+                reportTaskId!,
+                basename(reportPath),
+                content,
+              );
+              unlinkSync(reportPath);
+              if (!opts.json) {
+                console.log(
+                  chalk.green(
+                    `✓ Report uploaded: ${basename(reportPath)} (local file removed)`,
+                  ),
+                );
+              }
             }
           }
 
@@ -3157,6 +3181,8 @@ program
             if (opts.title) dryUpdates.title = opts.title;
             if (opts.setStatus) dryUpdates.status = opts.setStatus;
             if (opts.description) dryUpdates.description = opts.description;
+            if (dryRunReportName)
+              dryUpdates.report = `${dryRunReportName} (would attach; source file kept)`;
             if (wantsParentChange)
               dryUpdates.parent =
                 opts.parent === false || opts.setParent === ""
