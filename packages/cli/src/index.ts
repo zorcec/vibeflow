@@ -71,7 +71,7 @@ import {
 } from "./saas/client.js";
 import { saasFailure } from "./saas/failure.js";
 import { readWorkspace } from "./auth/workspace.js";
-import { readFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
 import {
@@ -527,6 +527,15 @@ function noticeFields(
   notices: PartialSuccessNotice[],
 ): Record<string, unknown> {
   return notices.length === 0 ? {} : { notices };
+}
+
+/** True when `abs` is an existing directory — never throws. */
+function isDirectorySafe(abs: string): boolean {
+  try {
+    return statSync(abs).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** True when `author` matches the user filter (case-insensitive). */
@@ -1086,7 +1095,7 @@ program
   )
   .option(
     "--children",
-    "Include child tasks in the listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Has no effect with --next, which never returns a child.",
+    "Include child tasks in the listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Has no effect with --next, which never returns a child. Takes no ID — to inspect one task's children, use --get <id>.",
   )
   .option(
     "--tag <tag>",
@@ -1245,6 +1254,32 @@ program
             message: "--comment requires --edit <task-id>",
             suggestion:
               'vibeflow tasks --edit <id> --comment "what changed and why"',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --children takes no task ID ──────────────────────────────────
+        // --children is a boolean listing FLAG. `tasks --children <id>`
+        // parses the id as the [dir] positional, so the CLI used to list a
+        // directory named after the task (which holds no store) and print
+        // "No tasks found" with exit 0 — reading exactly like a broken
+        // parent link. Fail loudly instead, naming the flag and the command
+        // that actually inspects one task's children. Scoped to list mode
+        // with a non-default positional that is not an existing directory,
+        // so `tasks <project-dir> --children` keeps working.
+        if (
+          taskSubcommand === "list" &&
+          opts.children &&
+          dir !== "." &&
+          !isDirectorySafe(resolve(dir))
+        ) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message: `--children is a listing flag and does not take a task ID (got "${dir}")`,
+            suggestion:
+              'To inspect one task\'s children, use `vibeflow tasks --get <id>` (its output ends with "children (n):"). To include children in a listing, use `vibeflow tasks --children` with no ID.',
             json: opts.json,
           });
           process.exitCode = ExitCode.USAGE;
@@ -3833,13 +3868,28 @@ program
                 if (commitResult.ok) {
                   // Human notices only — under --json stdout already carried
                   // the envelope; progress/failure is signalled by the exit code.
+                  // A linked HEAD created no new commit, so "Committed" would
+                  // be the same lie this fix removes — say what happened.
                   if (!opts.json) {
-                    console.log(
-                      chalk.green(
-                        `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
-                      ),
-                    );
-                    console.log(chalk.dim(`  sha: ${commitResult.sha}`));
+                    if (commitResult.linkedExisting) {
+                      console.log(
+                        chalk.green(
+                          `✓ Already committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                        ),
+                      );
+                      console.log(
+                        chalk.dim(
+                          `  linked HEAD: ${commitResult.sha} (nothing new to commit)`,
+                        ),
+                      );
+                    } else {
+                      console.log(
+                        chalk.green(
+                          `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                        ),
+                      );
+                      console.log(chalk.dim(`  sha: ${commitResult.sha}`));
+                    }
                   }
 
                   if (autoSettings.autoPush) {

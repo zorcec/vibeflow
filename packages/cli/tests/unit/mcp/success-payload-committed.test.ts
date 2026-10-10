@@ -112,9 +112,11 @@ afterEach(() => {
 
 describe("error-class notices add committed:false", () => {
   /**
-   * autoCommit ON in a REAL git repo with nothing staged for this task, so
-   * commitTaskChanges fails the way it does in practice (a real refusal, not a
-   * "not a git repository" exec error) while the update itself succeeds.
+   * autoCommit ON where git CANNOT commit (not a git repository), so the
+   * auto-commit fails while the update itself succeeds. (An unstaged task
+   * file in a real repo no longer fails: commitTaskChanges stages the
+   * task's own record itself — that success path is asserted in the next
+   * describe block.)
    */
   async function failedAutoCommit(): Promise<Record<string, unknown>> {
     writeSettings({
@@ -123,7 +125,8 @@ describe("error-class notices add committed:false", () => {
       requireVerifyBeforeReview: false,
     });
     createTestTask({ id: "task-1", status: "in-progress" });
-    initGitRepo();
+    // Deliberately NOT a git repo: `git add` refuses, so GIT_COMMIT_FAILED
+    // is still reachable and the committed:false signal keeps its coverage.
     return callThroughServer("update_task", {
       id: "task-1",
       status: "review",
@@ -159,7 +162,9 @@ describe("error-class notices add committed:false", () => {
     // The CLI emits the same code for this exact situation, and the new key
     // rides BESIDE the array — it is not merged into an entry.
     expect(notices[0].code).toBe("GIT_COMMIT_FAILED");
-    expect(notices[0].message).toContain("No staged changes");
+    // Not a git repository, so `git add` refuses — the message is git's own
+    // refusal, never a line that implies the commit happened.
+    expect(notices[0].message).toContain("not a git repository");
     // Exactly {code, message}: no third field smuggled onto the entry.
     expect(Object.keys(notices[0]).sort()).toEqual(["code", "message"]);
   });
@@ -225,6 +230,32 @@ describe("informational notices leave the key absent", () => {
     expect(notices[0].code).toBe("GIT_COMMITTED");
     // Present-absent is the whole signal: absent here, because it committed.
     expect("committed" in parsed).toBe(false);
+  });
+
+  it("an UNSTAGED task file auto-commits — the helper stages it itself", async () => {
+    // The review-transition save leaves unstaged modifications on a tracked
+    // file; that used to answer GIT_COMMIT_FAILED while committing nothing.
+    // Nothing is staged here on purpose — success must not depend on it.
+    writeSettings({
+      autoCommit: true,
+      createBranch: false,
+      requireVerifyBeforeReview: false,
+    });
+    createTestTask({ id: "task-1", status: "in-progress" });
+    initGitRepo();
+
+    const parsed = await callThroughServer("update_task", {
+      id: "task-1",
+      status: "review",
+      comment: "what changed",
+      commitMessage: "feat: thing",
+    });
+
+    const notices = parsed.notices as Array<{ code: string; message: string }>;
+    expect(notices).toHaveLength(1);
+    expect(notices[0].code).toBe("GIT_COMMITTED");
+    expect("committed" in parsed).toBe(false);
+    expect(readTaskFromDisk().status).toBe("review");
   });
 });
 

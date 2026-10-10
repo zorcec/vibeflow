@@ -174,19 +174,24 @@ describe("commitTaskChanges", () => {
     expect(log).toContain(`[proto:${taskId}]`);
   });
 
-  it("returns error when the task's own file is not staged", () => {
+  // The helper stages the task's own record itself (see the auto-stages
+  // block below), so an unstaged task file is committed — while a foreign
+  // staged file must still NOT make it into this task's commit.
+  it("stages the task's own unstaged file without sweeping foreign work", () => {
     const taskId = "test-task-004";
     createTaskFile(tmpDir, taskId);
-    // Nothing staged — and a foreign staged file must NOT make the commit succeed.
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    // Nothing of this task staged — and a foreign staged file is present.
     writeFileSync(join(tmpDir, "foreign.txt"), "another lane's work");
     stage(tmpDir, "foreign.txt");
 
-    const result = commitTaskChanges(tmpDir, taskId, "empty commit");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain(taskId);
-      expect(result.error).toContain("git add");
-    }
+    const result = commitTaskChanges(tmpDir, taskId, "task record only");
+    expect(result.ok).toBe(true);
+
+    // The commit contains ONLY this task's file — not the foreign file.
+    expect(committedFiles(tmpDir)).toEqual([relTask]);
+    // The foreign file is still staged, untouched, for its own owner.
+    expect(stagedFiles(tmpDir)).toContain("foreign.txt");
   });
 
   it("appends to existing commits array", () => {
@@ -353,5 +358,109 @@ describe("commitTaskPaths", () => {
       expect(result.sha).toBe(before);
     }
     expect(headSha(tmpDir)).toBe(before);
+  });
+});
+
+describe("commitTaskChanges auto-stages the task record", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    initGitRepo(tmpDir);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // The review-transition auto-commit saves status+comment to the task file
+  // and THEN commits. The save leaves unstaged modifications on a tracked
+  // file; reporting "No staged changes" for that state reads like success
+  // while committing nothing. The helper must stage the task's own file
+  // itself and commit it.
+  it("stages and commits unstaged modifications to a tracked task file", () => {
+    const taskId = "autostage-001";
+    createTaskFile(tmpDir, taskId);
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    // Tracked and already committed, exactly like a task from an earlier
+    // review transition.
+    stage(tmpDir, relTask);
+    execFileSync("git", ["commit", "-m", "task baseline", "--", relTask], {
+      cwd: tmpDir,
+      env: gitEnv,
+      stdio: "ignore",
+    });
+
+    // The --edit save: modifications on disk, nothing staged for this task.
+    const onDisk = JSON.parse(
+      readFileSync(taskFilePath(tmpDir, taskId), "utf-8"),
+    );
+    onDisk.status = "review";
+    writeFileSync(
+      taskFilePath(tmpDir, taskId),
+      JSON.stringify(onDisk),
+    );
+    // Another lane's staged file must NOT be swept into this commit.
+    writeFileSync(join(tmpDir, "foreign.txt"), "another lane's work");
+    stage(tmpDir, "foreign.txt");
+
+    const result = commitTaskChanges(tmpDir, taskId, "feat: review work");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.sha).toMatch(/^[0-9a-f]{40}$/);
+    }
+
+    // The commit contains ONLY this task's file — not the foreign file.
+    expect(committedFiles(tmpDir)).toEqual([relTask]);
+    expect(stagedFiles(tmpDir)).toContain("foreign.txt");
+  });
+
+  // A task file created by --add in a repo where it was never added:
+  // `git commit -- <path>` cannot take an untracked path, so a bare commit
+  // reports a different failure for the same "nothing was committed" lie.
+  it("stages and commits an untracked new task file", () => {
+    const taskId = "autostage-002";
+    initialCommit(tmpDir);
+    createTaskFile(tmpDir, taskId);
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+
+    const result = commitTaskChanges(tmpDir, taskId, "feat: new task");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.sha).toMatch(/^[0-9a-f]{40}$/);
+    }
+    expect(committedFiles(tmpDir)).toEqual([relTask]);
+  });
+
+  // Fully clean: the file is tracked and matches HEAD (e.g. a same-millisecond
+  // re-save that changed no bytes). There is nothing to commit, but the work
+  // IS in HEAD — failing here would again report a miss for a fine state, so
+  // the current HEAD is linked to the task instead, mirroring commitTaskPaths.
+  it("links existing HEAD when the tracked task file is already clean", () => {
+    const taskId = "autostage-003";
+    initialCommit(tmpDir);
+    createTaskFile(tmpDir, taskId);
+    const relTask = relative(tmpDir, taskFilePath(tmpDir, taskId));
+    stage(tmpDir, relTask);
+    execFileSync("git", ["commit", "-m", "task baseline", "--", relTask], {
+      cwd: tmpDir,
+      env: gitEnv,
+      stdio: "ignore",
+    });
+    const before = headSha(tmpDir);
+
+    const result = commitTaskChanges(tmpDir, taskId, "feat: nothing new");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.sha).toBe(before);
+    }
+
+    // No new commit was created, but the task still carries the linked SHA.
+    expect(headSha(tmpDir)).toBe(before);
+    const task = JSON.parse(
+      readFileSync(taskFilePath(tmpDir, taskId), "utf-8"),
+    );
+    expect(task.commits).toHaveLength(1);
+    expect(task.commits[0].sha).toBe(before);
   });
 });

@@ -33,7 +33,6 @@ import {
   TASK_NOT_FOUND_SUGGESTION,
 } from "../../../src/core/operations.js";
 import type { Task } from "../../../src/core/types.js";
-import { git } from "../../helpers/hermetic-git.js";
 
 /**
  * The verify engine shells out to Playwright. Mocked here so a dry run that
@@ -528,17 +527,18 @@ describe("success payload carries notices", () => {
   });
 
   it("a failed auto-commit's notices reach the client", async () => {
-    // autoCommit ON in a REAL git repo with nothing staged for this task, so
-    // commitTaskChanges fails the way it does in practice (a real refusal, not
-    // a "not a git repository" exec error). The update itself succeeds, so ok
-    // is still absent from the payload; the ONLY signal that nothing was
-    // committed is `notices`, and dropping it (the previous serialisation)
-    // told the client the commit had happened.
+    // autoCommit ON where git CANNOT commit (not a git repository), so the
+    // auto-commit fails while the update itself succeeds — ok is still
+    // absent from the payload, so the ONLY signal that nothing was committed
+    // is `notices`, and dropping it (the previous serialisation) told the
+    // client the commit had happened. (An unstaged task file in a real repo
+    // no longer fails: commitTaskChanges stages the task's own record
+    // itself — that success path is covered in
+    // success-payload-committed.test.ts.)
     writeSettings({ autoCommit: true, createBranch: false, requireVerifyBeforeReview: false });
     createTestTask({ id: "task-1", status: "in-progress" });
-    git(["init", "-q"], testDir);
-    git(["config", "user.email", "mcp@example.test"], testDir);
-    git(["config", "user.name", "MCP Test"], testDir);
+    // Deliberately NOT a git repo: `git add` refuses, so GIT_COMMIT_FAILED
+    // stays reachable here.
 
     const parsed = await callThroughServer("update_task", {
       id: "task-1",

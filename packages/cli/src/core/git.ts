@@ -8,7 +8,8 @@
  * record (sha + message + timestamp) is appended to the task's `commits` array.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { relative } from "node:path";
+import { existsSync } from "node:fs";
+import { join, relative } from "node:path";
 import { gitEnvWithCleanLocation } from "./git-env.js";
 import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
 import { getFilesDir } from "./files.js";
@@ -43,7 +44,9 @@ export function commitTaskChanges(
   projectDir: string,
   taskId: string,
   message: string,
-): { ok: true; sha: string } | { ok: false; error: string } {
+):
+  | { ok: true; sha: string; linkedExisting?: boolean }
+  | { ok: false; error: string } {
   try {
     const commitMsg = `${message} [proto:${taskId}]`;
 
@@ -53,20 +56,56 @@ export function commitTaskChanges(
     }
     const relTaskPath = relative(projectDir, filePath);
     const relFilesDir = relative(projectDir, getFilesDir(projectDir, taskId));
+    // Existing paths owned by this task. The attachments directory may not
+    // exist (no files attached yet) — git rejects a pathspec that matches
+    // nothing, so only existing paths are ever passed to it.
+    const ownedExisting = [relTaskPath];
+    if (existsSync(join(projectDir, relFilesDir)))
+      ownedExisting.push(relFilesDir);
+
+    // Commit into `projectDir`'s repo even when a GIT_DIR/GIT_WORK_TREE leaked
+    // from an enclosing hook (e.g. the pre-commit hook running the test suite).
+    const env = gitEnvWithCleanLocation();
+    // Capture git's own stderr instead of letting it reach the CLI's: under
+    // `--json` a consumer parses stderr as one envelope, and a raw git
+    // usage dump in front of it breaks the parse. Node folds the captured
+    // stderr into the thrown error's message, so nothing is lost.
+    const gitOpts: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      stdio: ["ignore", "pipe", "pipe"];
+    } = {
+      cwd: projectDir,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    };
+
+    // The review-transition auto-commit saves status+comment to the task file
+    // and THEN commits — the save leaves unstaged modifications (or a wholly
+    // untracked file) that a staged-only check reports as "No staged
+    // changes" while committing nothing. Stage the task's OWN record first:
+    // an exact-path `git add` also stages an untracked new file, and it
+    // cannot sweep another lane's staged work into this commit — the
+    // pathspec-limited commit below still only ever includes this task's
+    // file plus its own attachments directory.
+    try {
+      execFileSync("git", ["add", "--", ...ownedExisting], gitOpts);
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
 
     // Only staged paths that belong to THIS task are eligible. `git diff
     // --cached --name-only` lists staged paths relative to the repo root, which
     // is `projectDir`; paths that another lane staged are left untouched in the
     // index and stay staged for their own owner to commit.
-    const staged = execFileSync("git", ["diff", "--cached", "--name-only", "-z"], {
-      cwd: projectDir,
-      env: gitEnvWithCleanLocation(),
-      // Capture git's own stderr instead of letting it reach the CLI's: under
-      // `--json` a consumer parses stderr as one envelope, and a raw git
-      // usage dump in front of it breaks the parse. Node folds the captured
-      // stderr into the thrown error's message, so nothing is lost.
-      stdio: ["ignore", "pipe", "pipe"],
-    })
+    const staged = execFileSync(
+      "git",
+      ["diff", "--cached", "--name-only", "-z"],
+      gitOpts,
+    )
       .toString()
       .split("\0")
       .filter(Boolean);
@@ -77,27 +116,37 @@ export function commitTaskChanges(
         p.startsWith(`${relFilesDir}/`),
     );
     if (scoped.length === 0) {
+      // Fully clean after staging: the record is tracked and matches HEAD,
+      // so the work IS committed — link HEAD instead of reporting a miss,
+      // mirroring commitTaskPaths' never-dead-end contract. (Reached e.g.
+      // by a re-save that changed no bytes.)
+      try {
+        const dirty = execFileSync(
+          "git",
+          ["status", "--porcelain", "-z", "--", ...ownedExisting],
+          gitOpts,
+        )
+          .toString()
+          .split("\0")
+          .filter(Boolean);
+        if (dirty.length === 0) {
+          const sha = execSync("git rev-parse HEAD", gitOpts)
+            .toString()
+            .trim();
+          appendCommitRecord(projectDir, filePath, taskId, message, sha);
+          return { ok: true, sha, linkedExisting: true };
+        }
+      } catch {
+        // Not a clean tree (or no HEAD) — fall through to the error below.
+      }
       return {
         ok: false,
         error: `No staged changes for task ${taskId}. Stage the task file first: git add ${relTaskPath}`,
       };
     }
 
-    // Commit into `projectDir`'s repo even when a GIT_DIR/GIT_WORK_TREE leaked
-    // from an enclosing hook (e.g. the pre-commit hook running the test suite).
-    const env = gitEnvWithCleanLocation();
-    execFileSync("git", ["commit", "-m", commitMsg, "--", ...scoped], {
-      cwd: projectDir,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const sha = execSync("git rev-parse HEAD", {
-      cwd: projectDir,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-      .toString()
-      .trim();
+    execFileSync("git", ["commit", "-m", commitMsg, "--", ...scoped], gitOpts);
+    const sha = execSync("git rev-parse HEAD", gitOpts).toString().trim();
 
     // Append commit record — updateTask handles its own locking.
     appendCommitRecord(projectDir, filePath, taskId, message, sha);

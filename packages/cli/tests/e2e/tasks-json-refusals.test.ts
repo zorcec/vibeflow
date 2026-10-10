@@ -685,15 +685,17 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
 });
 
 describe("tasks --json partial success is a notice, not a refusal", () => {
-  it("GIT_COMMIT_FAILED — review saved, auto-commit did not: exit 0 + notice", async () => {
+  it("auto-commit stages the task file itself — unstaged review commits, exit 0, no notice", async () => {
     const store = freshDir("json-partial-store-");
     const home = freshDir("json-partial-home-");
     seedGitUser(store);
     writeSettings(store, { autoCommit: true });
     const id = await addTask(store, home, "Auto-commit target");
 
-    // Nothing is staged, so the commit cannot happen — but the task file was
-    // already written, so this must NOT be ok:false and must NOT exit non-zero.
+    // Nothing is staged on purpose: the --edit save leaves unstaged
+    // modifications on the (tracked or untracked) task file, and the
+    // auto-commit must stage that file itself and commit it — the old
+    // GIT_COMMIT_FAILED notice for this state was the lie this fix removes.
     const r = await spawnCli(
       [
         "tasks",
@@ -718,17 +720,22 @@ describe("tasks --json partial success is a notice, not a refusal", () => {
       notices?: Array<{ code: string; message: string }>;
     };
     expect(payload.ok).toBe(true);
-    // ALWAYS an array — never a bare object, never a `warnings` plural. A
-    // consumer that iterates it must not have to handle two shapes.
-    expect(Array.isArray(payload.notices)).toBe(true);
-    expect(payload.notices?.map((n) => n.code)).toEqual(["GIT_COMMIT_FAILED"]);
-    expect(payload.notices?.[0].message).toContain("did NOT happen");
+    // A clean run carries no notices key at all, so a consumer that only
+    // knows `ok` and the named payload keeps working.
+    expect("notices" in payload).toBe(false);
     expect(r.stderr).not.toContain('"ok":false');
     // The task data really is on disk.
     expect(readTask(store, id).status).toBe("review");
+    // And the commit really happened: message plus [proto:<id>] tag on HEAD.
+    const log = execSync("git log -1 --format=%B", {
+      cwd: store,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString();
+    expect(log).toContain("feat: work");
+    expect(log).toContain(`[proto:${id}]`);
   });
 
-  it("GIT_COMMIT_FAILED — human mode keeps the warning line and exits 0", async () => {
+  it("auto-commit in human mode prints Committed and exits 0 when nothing was staged", async () => {
     const store = freshDir("json-partial-store-");
     const home = freshDir("json-partial-home-");
     seedGitUser(store);
@@ -751,8 +758,8 @@ describe("tasks --json partial success is a notice, not a refusal", () => {
       { cwd: store, home },
     );
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("Task WAS updated");
-    expect(r.stdout).toContain("the commit did NOT happen");
+    expect(r.stdout).toContain("Committed: feat: work");
+    expect(r.stdout).not.toContain("did NOT happen");
   });
 
   it("REINDEX_INCOMPLETE — keys written, post-assert failed: exit 0 + notice", async () => {
@@ -1189,5 +1196,47 @@ describe("tasks --json local notes ride `notices`, never stdout", () => {
     );
     expect(r.stdout).toContain("do NOT implement code");
     expect(r.stdout).toContain("already in-progress");
+  });
+});
+
+/**
+ * `--children <id>` is a misuse that used to print "No tasks found".
+ *
+ * `--children` is a boolean listing FLAG — it takes no ID. Commander parses
+ * the trailing id as the `[dir]` positional, so the CLI listed a directory
+ * named after the task (which holds no store) and reported "No tasks found"
+ * with exit 0 — reading exactly like a broken parent link. The documented
+ * way to inspect one task's children is `tasks --get <id>` (whose output
+ * ends with `children (n):`). The id form must therefore be an explicit
+ * usage error naming the flag, on both surfaces.
+ */
+describe("tasks --children with a task id is a usage error, not an empty list", () => {
+  it("E_USAGE — --json envelope names --children and points at --get", async () => {
+    const store = freshDir("children-id-store-");
+    const home = freshDir("children-id-home-");
+    const id = await addTask(store, home, "Parent task");
+
+    const r = await spawnCli(["tasks", "--children", id, "--json"], {
+      cwd: store,
+      home,
+    });
+    const envelope = expectRefusal(r, "E_USAGE");
+    expect(envelope.error.message).toContain("--children");
+    expect(envelope.error.suggestion).toContain("--get");
+  });
+
+  it("human mode exits non-zero and never prints 'No tasks found'", async () => {
+    const store = freshDir("children-id-store-");
+    const home = freshDir("children-id-home-");
+    const id = await addTask(store, home, "Parent task");
+
+    const r = await spawnCli(["tasks", "--children", id], {
+      cwd: store,
+      home,
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).not.toContain("No tasks found");
+    expect(r.stderr).toContain("--children");
+    expect(r.stderr).toContain("--get");
   });
 });
