@@ -3067,6 +3067,58 @@ program
               }
             }
 
+            // ── Dry run: preview only, never touch the backend ──────
+            // updateSaasTask PATCHes shared remote state (and addSaasComment
+            // POSTs to it below), so --dry-run returns before either is
+            // called. The fetchSaasTask conflict check above stays: it is a
+            // read-only GET. The preview mirrors the local path's shape
+            // (JSON payload { dryRun: true, ... }; human "[dry-run]" lines).
+            if (opts.dryRun) {
+              const dryUpdates: Record<string, unknown> = {};
+              if (saasPatch.status !== undefined)
+                dryUpdates.status = saasPatch.status;
+              if (saasPatch.title !== undefined)
+                dryUpdates.title = saasPatch.title;
+              if (saasPatch.description !== undefined)
+                dryUpdates.description = saasPatch.description;
+              if (saasPatch.branchName !== undefined)
+                dryUpdates.branchName = saasPatch.branchName;
+              if (dryRunReportName)
+                dryUpdates.report = `${dryRunReportName} (would attach; source file kept)`;
+              if (opts.comment?.trim()) dryUpdates.comment = "(would add)";
+              const saasDryRunNextActions = opts.setStatus
+                ? getNextActions(
+                    opts.setStatus === "review"
+                      ? "set-status:review"
+                      : "set-status:in-progress",
+                    taskId,
+                  )
+                : [];
+              if (opts.json) {
+                outputEnvelope({
+                  ok: true,
+                  json: opts.json,
+                  payload: {
+                    dryRun: true,
+                    action: "update",
+                    taskId,
+                    updates: dryUpdates,
+                    next_actions: saasDryRunNextActions,
+                    ...noticeFields(editNotices),
+                  },
+                });
+              } else {
+                console.log(chalk.yellow("  [dry-run] Would update task:"));
+                console.log(chalk.dim(`    id: ${taskId}`));
+                for (const [k, v] of Object.entries(dryUpdates)) {
+                  console.log(chalk.dim(`    ${k}: ${v}`));
+                }
+                if (saasDryRunNextActions.length > 0)
+                  printNextHint(saasDryRunNextActions);
+              }
+              return;
+            }
+
             const saasResult = await updateSaasTask(taskId, saasPatch);
             if (!saasResult.ok) {
               if (opts.json) {
