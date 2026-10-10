@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { statSync, readdirSync, unlinkSync } from "node:fs";
@@ -26,6 +27,382 @@ export function captureTruncationWarning(maxElements: number): string {
   return `WARNING: capture truncated at ${maxElements} elements — elements beyond the cap were NOT compared. "No change" results for those elements are unreliable.`;
 }
 
+// ── Served-build fingerprint — WHICH build the evidence measured ───────────
+
+/** Placeholder used wherever a fingerprint cannot be established. Never a match. */
+export const UNKNOWN_BUILD = "unknown";
+
+/**
+ * Which build the verify evidence measured — EVIDENCE ONLY.
+ *
+ * A green run against a board that is still serving an OLD bundle looks exactly
+ * like a green run against the build under test: the page is real, the selector
+ * resolves, and the measured code is not the code in the working tree. Recording
+ * WHICH build was measured makes that blind spot visible; it does not close it.
+ * The fingerprint never feeds `result.ok`, the verdict, or the attestation
+ * model — it is one more piece of evidence the agent judges.
+ */
+export interface ServedBuildFingerprint {
+  /** sha256 over the asset inputs. `"unknown"` when the page exposes none. */
+  hash: string;
+  /** Version/build stamp the served document exposes ("unknown" when none). */
+  version: string;
+  /** External asset URLs in document order (content-hashed when emitted). */
+  assetUrls: string[];
+  /** Which input produced `hash` — says what a difference actually means. */
+  source: "inline-assets" | "asset-urls" | "none";
+  capturedAt: string;
+}
+
+/**
+ * Outcome of comparing the build the baseline evidence belongs to with the
+ * build this run measured.
+ *
+ * `"unknown"` is deliberately NOT a match: a side that could not be measured
+ * cannot vouch for the other side, so verify stays silent instead of green.
+ */
+export type ServedBuildComparison =
+  | "match" // both sides measured the same build
+  | "mismatch" // two builds — the evidence spans a rebuild
+  | "no-reference" // nothing was recorded with the baseline to compare against
+  | "unknown"; // a side is unmeasurable
+
+/** Raw, unhashed asset surface of a served document (read inside the page). */
+export interface ServedAssetInputs {
+  version: string;
+  assetUrls: string[];
+  inlineAssets: string[];
+}
+
+/** Build pair a verify result reports: measured now vs. the baseline evidence. */
+export interface ServedBuildPair {
+  after: ServedBuildFingerprint | null;
+  baseline: ServedBuildFingerprint | null;
+}
+
+/** Compiled, printable view of a result's build pair. */
+export interface ServedBuildReport {
+  comparison: ServedBuildComparison;
+  baseline: ServedBuildFingerprint | null;
+  after: ServedBuildFingerprint | null;
+  /** One-line summary for the output and the system comment. */
+  line: string;
+  /** The loud mismatch warning, or null when the builds agree (or can't be compared). */
+  warning: string | null;
+}
+
+/**
+ * Read the asset surface of the SERVED document — runs INSIDE the page.
+ *
+ * Self-contained by requirement: Playwright serializes this function's source
+ * and evaluates it in the browser, so it may not close over imports or module
+ * state, and it must tolerate a document it cannot inspect (it then returns the
+ * empty input set, which composes into an explicit "unknown" fingerprint).
+ *
+ * Two inputs, because together they are the only build-identifying surface the
+ * CLI board exposes — it serves ONE HTML document with the JS bundle and CSS
+ * inlined, so there are no content-hashed asset URLs to read:
+ *   1. external asset URLs (`<script src>`, stylesheet / modulepreload links),
+ *      which is where a Next-style app's hashed chunk names would appear,
+ *   2. the text of every inline `<script>` / `<style>`.
+ *
+ * Inline scripts that only assign `window.__*` globals are skipped: that is the
+ * shell's per-request runtime configuration (port, user, version), so it changes
+ * with the environment rather than the build and would report a "rebuild" that
+ * never happened. Its version stamp is read separately below.
+ */
+export function collectServedAssetInputs(): ServedAssetInputs {
+  // Self-contained ON PURPOSE: `page.evaluate` ships this function's SOURCE
+  // into the browser, so it must not close over module scope. A module-scope
+  // constant referenced from here is undefined in the page and throws — which
+  // silently degraded every REAL fingerprint to "unknown" (the catch in
+  // captureServedBuildFingerprint swallowed it) while the unit tests stayed
+  // green, because they call this function directly in Node where the module
+  // constant IS in scope. Keep every value it needs inside the function.
+  const unknown = "unknown";
+  const empty = (): ServedAssetInputs => ({
+    version: unknown,
+    assetUrls: [],
+    inlineAssets: [],
+  });
+  if (typeof document === "undefined") return empty();
+
+  function readVersionStamp(): string {
+    // SAFETY: the served shell stamps its version onto the global object with
+    // app-specific names (`window.__CLI_VERSION__`, `window.__NEXT_DATA__`,
+    // `window.__BUILD_ID__`), none of which exist in the DOM typings. Reading
+    // them off a loose record and type-checking each value before use keeps
+    // the read honest without asserting a shape that is not guaranteed.
+    const w = window as unknown as Record<string, unknown>;
+    const cli = w.__CLI_VERSION__;
+    if (typeof cli === "string" && cli.length > 0) return cli;
+    const next = w.__NEXT_DATA__ as { buildId?: unknown } | undefined;
+    if (next && typeof next.buildId === "string" && next.buildId.length > 0)
+      return next.buildId;
+    const buildId = w.__BUILD_ID__;
+    if (typeof buildId === "string" && buildId.length > 0) return buildId;
+    const meta =
+      typeof document === "undefined"
+        ? null
+        : document.querySelector('meta[name="build-id"]');
+    const fromMeta = meta?.getAttribute("content");
+    return fromMeta && fromMeta.length > 0 ? fromMeta : unknown;
+  }
+
+  try {
+    const assetUrls: string[] = [];
+    const external = document.querySelectorAll<HTMLElement>(
+      'script[src], link[rel~="stylesheet"][href], link[rel~="modulepreload"][href]',
+    );
+    for (const node of Array.from(external)) {
+      const url = node.getAttribute("src") ?? node.getAttribute("href");
+      if (url) assetUrls.push(url);
+    }
+
+    const inlineAssets: string[] = [];
+    const inline = document.querySelectorAll<HTMLElement>(
+      "script:not([src]), style",
+    );
+    for (const node of Array.from(inline)) {
+      const text = (node.textContent ?? "").trim();
+      if (!text) continue;
+      if (text.startsWith("window.__")) continue; // runtime config, not build content
+      inlineAssets.push(text);
+    }
+
+    return { version: readVersionStamp(), assetUrls, inlineAssets };
+  } catch {
+    return empty();
+  }
+}
+
+/**
+ * Compose the fingerprint from the collected inputs.
+ *
+ * `hashText` is injected so the digest stays on the Node side (the page only
+ * reports asset text) and so tests can pin the hash without re-implementing
+ * it. A page exposing neither asset URLs nor inline assets yields an explicit
+ * "unknown": verify never invents a fingerprint, because a fabricated one
+ * would turn the blind spot into a lie.
+ */
+export function buildServedBuildFingerprint(
+  inputs: ServedAssetInputs,
+  hashText: (text: string) => string,
+): ServedBuildFingerprint {
+  const assetUrls = inputs.assetUrls ?? [];
+  const inlineAssets = inputs.inlineAssets ?? [];
+  const version =
+    typeof inputs.version === "string" && inputs.version.length > 0
+      ? inputs.version
+      : UNKNOWN_BUILD;
+  const capturedAt = new Date().toISOString();
+
+  if (assetUrls.length === 0 && inlineAssets.length === 0) {
+    return {
+      hash: UNKNOWN_BUILD,
+      version,
+      assetUrls: [],
+      source: "none",
+      capturedAt,
+    };
+  }
+
+  return {
+    hash: hashText(JSON.stringify({ assetUrls, inlineAssets })),
+    version,
+    assetUrls,
+    source: inlineAssets.length > 0 ? "inline-assets" : "asset-urls",
+    capturedAt,
+  };
+}
+
+/** sha256 hex — the fingerprint digest. Same input, same hash, every run. */
+function sha256Hex(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * Measure the served-build fingerprint of the page verify just loaded.
+ * Degrades to "unknown" — never to a guess, and never to a throw: a failed
+ * measurement must not cost the run its evidence.
+ */
+export async function captureServedBuildFingerprint(
+  page: import("playwright").Page,
+): Promise<ServedBuildFingerprint> {
+  try {
+    const inputs = await page.evaluate(collectServedAssetInputs);
+    return buildServedBuildFingerprint(inputs, sha256Hex);
+  } catch {
+    return {
+      hash: UNKNOWN_BUILD,
+      version: UNKNOWN_BUILD,
+      assetUrls: [],
+      source: "none",
+      capturedAt: new Date().toISOString(),
+    };
+  }
+}
+
+/**
+ * Compare the build the baseline evidence belongs to with the build this run
+ * measured. `"unknown"` is never reported as a match.
+ */
+export function compareServedBuilds(
+  baseline: ServedBuildFingerprint | null | undefined,
+  after: ServedBuildFingerprint | null | undefined,
+): ServedBuildComparison {
+  // This run's own measurement comes first: a build that could not be
+  // fingerprinted is the more severe fact, and it must not be reportable as
+  // "nothing to compare" — the reader needs to know the run is blind.
+  if (!after || after.hash === UNKNOWN_BUILD) return "unknown";
+  if (!baseline || baseline.hash === UNKNOWN_BUILD) return "no-reference";
+  return baseline.hash === after.hash && baseline.version === after.version
+    ? "match"
+    : "mismatch";
+}
+
+/** Short display form of a fingerprint (the full hash lives in the JSON). */
+function describeBuild(fp: ServedBuildFingerprint): string {
+  const hash = fp.hash === UNKNOWN_BUILD ? UNKNOWN_BUILD : fp.hash.slice(0, 16);
+  const via =
+    fp.source === "none"
+      ? "nothing fingerprintable"
+      : fp.source === "inline-assets"
+        ? "inline bundle + CSS"
+        : "asset URLs";
+  return `${hash} · version ${fp.version} · via ${via}`;
+}
+
+/**
+ * The loud line for a baseline/after build mismatch — the point of the whole
+ * mechanism. It reports that the evidence spans a rebuild; it does NOT report
+ * that the task is wrong, and it must never be read as a verdict.
+ */
+export function servedBuildMismatchWarning(
+  baseline: ServedBuildFingerprint,
+  after: ServedBuildFingerprint,
+): string {
+  return [
+    "BUILD MISMATCH: this evidence spans TWO builds — the board was rebuilt between the baseline measurement and this run.",
+    `  build the baseline evidence measured : ${baseline.hash} (version ${baseline.version}, via ${baseline.source})`,
+    `  build this run measured               : ${after.hash} (version ${after.version}, via ${after.source})`,
+    "  What this warning does NOT mean: it does NOT mean the task is wrong, and it does NOT fail the run or set a verdict.",
+    '  What it DOES mean: "HTML unchanged" / "no style changes" below compares code against different code, so it proves nothing about the feature.',
+    "  Fix: restart the board process (a reload does NOT pick up a rebuilt bundle), then re-run verify so both sides measure one build.",
+  ].join("\n");
+}
+
+/**
+ * Compile a result's build pair into the line the output and the system comment
+ * print, plus the mismatch warning when the evidence spans a rebuild.
+ * Tolerates a result built before the fingerprint existed (no `servedBuild`).
+ */
+export function servedBuildReport(result: {
+  servedBuild?: ServedBuildFingerprint | null;
+  baselineBuild?: ServedBuildFingerprint | null;
+  buildComparison?: ServedBuildComparison;
+}): ServedBuildReport {
+  const after = result.servedBuild ?? null;
+  const baseline = result.baselineBuild ?? null;
+  const comparison =
+    result.buildComparison ?? compareServedBuilds(baseline, after);
+
+  // Either side unmeasurable → ONE plain line, no warning. The reason is
+  // spelled out in words a reader can act on, never as an internal state token
+  // ("no-reference", "unknown") that means nothing outside this module.
+  if (!after || after.hash === UNKNOWN_BUILD) {
+    return {
+      comparison: "unknown",
+      baseline,
+      after,
+      line:
+        "Cannot compare builds: the served page exposes no version stamp, hashed asset URLs or inline app bundle, so which build this evidence measured cannot be determined.",
+      warning: null,
+    };
+  }
+
+  if (comparison === "no-reference") {
+    return {
+      comparison,
+      baseline,
+      after,
+      line:
+        "Cannot compare builds: no earlier verify run recorded a build for this task, so this is the first one — re-run after a rebuild to catch a change.",
+      warning: null,
+    };
+  }
+
+  if (comparison === "unknown") {
+    return {
+      comparison,
+      baseline,
+      after,
+      line:
+        "Cannot compare builds: the build recorded with the baseline evidence could not be read, so this run has nothing sound to compare against.",
+      warning: null,
+    };
+  }
+
+  const measured = describeBuild(after);
+  if (comparison === "mismatch" && baseline) {
+    return {
+      comparison,
+      baseline,
+      after,
+      line: `Served build measured: ${measured} — this is NOT the build the baseline evidence was measured against.`,
+      warning: servedBuildMismatchWarning(baseline, after),
+    };
+  }
+
+  // A match is quiet on purpose: it is the uninteresting case.
+  return {
+    comparison,
+    baseline,
+    after,
+    line: `Served build measured: ${measured} — the same build the baseline evidence was measured against.`,
+    warning: null,
+  };
+}
+
+/** Filename of the baseline evidence copy that anchors the build reference. */
+const BASELINE_EVIDENCE_FILE = "baseline.json";
+
+/**
+ * The build the baseline evidence belongs to, as recorded by an earlier run.
+ *
+ * Anchored, not refreshed every run: the fingerprint is written once per
+ * baseline snapshot and kept while that snapshot is still the reference, so a
+ * rebuild produces ONE mismatch and the next run against the fixed board reads
+ * "match" again. Re-annotating (a different `capturedAt`) re-anchors it.
+ *
+ * verify cannot know the build the annotation-time baseline was captured from —
+ * the overlay owns that capture and records no fingerprint — so the first run
+ * after a baseline is what anchors the reference, and that run reports
+ * "no-reference" instead of pretending to have one. A reference that cannot be
+ * read is no reference, never a match.
+ */
+function readStoredBaselineBuild(
+  projectDir: string,
+  taskId: string,
+  baseline: DomSnapshot,
+): ServedBuildFingerprint | null {
+  const path = getFilePath(projectDir, taskId, BASELINE_EVIDENCE_FILE);
+  if (!path) return null;
+  try {
+    const stored = JSON.parse(readFileSync(path, "utf-8")) as {
+      servedBuild?: ServedBuildFingerprint;
+      servedBuildBaselineCapturedAt?: string;
+    };
+    const storedBuild = stored?.servedBuild;
+    if (!storedBuild || typeof storedBuild.hash !== "string") return null;
+    if (stored.servedBuildBaselineCapturedAt !== baseline.capturedAt)
+      return null;
+    return storedBuild;
+  } catch {
+    return null;
+  }
+}
+
 // Baseline and auth state are now stored in task.json (§6, §7).
 
 // ── Verify result shape (§9.3) ────────────────────────────────────────────
@@ -51,6 +428,20 @@ export interface VerifyResult {
    * partial view and MUST NOT be read as a clean pass.
    */
   captureTruncated: boolean;
+  /**
+   * The served build this run measured — WHICH build the evidence describes.
+   * Evidence only: it never affects `ok`, the verdict, or the attestation.
+   */
+  servedBuild: ServedBuildFingerprint;
+  /**
+   * The build the baseline evidence belongs to (null when none was recorded).
+   */
+  baselineBuild: ServedBuildFingerprint | null;
+  /**
+   * baseline vs. measured build. "mismatch" means the evidence spans a rebuild
+   * and the diff below compares two different builds.
+   */
+  buildComparison: ServedBuildComparison;
 }
 
 // ── Error types (§9.4) ────────────────────────────────────────────────────
@@ -136,6 +527,11 @@ export async function verifyTask(
       "Annotate the element on the running prototype and capture a baseline (vibeflow kanban, then re-run verify), or verify against a different task",
     );
   }
+
+  // The build the baseline evidence belongs to. Read here, before any evidence
+  // write: the reference lives in `baseline.json`, which storeEvidence cleans up
+  // and rewrites later in this same run.
+  const baselineBuild = readStoredBaselineBuild(absProjectDir, task.id, baseline);
 
   // ── 3. Read & decrypt auth state from task.json (§7.5) ────────────────
   let cookies: import("../core/auth.js").AuthState["cookies"] = [];
@@ -278,6 +674,11 @@ export async function verifyTask(
       );
     }
 
+    // WHICH build this evidence measures. Captured straight after navigation
+    // — the served shell is fixed by then, and every return path below reports
+    // it, including the selector-not-found paths that store no files.
+    const servedBuild = await captureServedBuildFingerprint(page);
+
     // Inject storage after navigation (requires same-origin).
     try {
       if (Object.keys(localStorageData).length > 0) {
@@ -324,6 +725,10 @@ export async function verifyTask(
         diff,
         [],
         selector,
+        undefined,
+        false,
+        servedBuild,
+        baselineBuild,
       );
     }
 
@@ -349,6 +754,9 @@ export async function verifyTask(
         [],
         selector,
         verdict,
+        undefined,
+        servedBuild,
+        baselineBuild,
       );
     }
 
@@ -391,6 +799,8 @@ export async function verifyTask(
       consoleErrors,
       page,
       selector,
+      servedBuild,
+      baselineBuild,
     );
 
     // ── 14. Back-fill page-wide baselines + generate page diff ──────────
@@ -497,6 +907,8 @@ export async function verifyTask(
       selector,
       undefined,
       pageTruncated,
+      servedBuild,
+      baselineBuild,
     );
   } finally {
     await context?.close();
@@ -749,6 +1161,8 @@ async function storeEvidence(
   consoleErrors: string[],
   page?: import("playwright").Page,
   selector?: string,
+  servedBuild?: ServedBuildFingerprint,
+  baselineBuild?: ServedBuildFingerprint | null,
 ): Promise<{ files: string[]; pageTruncated: boolean }> {
   const files: string[] = [];
   // Whether the page-wide capture hit MAX_ELEMENTS. Read from the snapshot it
@@ -768,8 +1182,10 @@ async function storeEvidence(
     /* dir doesn't exist yet — skip */
   }
 
-  // verify-after.json
-  const afterJson = JSON.stringify(after, null, 2);
+  // verify-after.json — carries the measured build so the evidence JSON itself
+  // records WHICH build it describes (a stale-board read is otherwise invisible
+  // in the files, only in the terminal).
+  const afterJson = JSON.stringify({ ...after, servedBuild }, null, 2);
   saveFile(projectDir, taskId, "verify-after.json", Buffer.from(afterJson), {
     system: true,
   });
@@ -881,9 +1297,25 @@ async function storeEvidence(
     }
   }
 
-  // baseline.json — the captured baseline snapshot
+  /**
+   * baseline.json — the captured baseline snapshot.
+  
+   * The stored `servedBuild` anchors the baseline's build: written once per
+   * baseline snapshot (see `readStoredBaselineBuild`), so a later run measures
+   * against the build the baseline belongs to and a rebuild in between shows
+   * up as one mismatch.
+   */
   if (baseline) {
-    const baselineJson = JSON.stringify(baseline, null, 2);
+    const anchored = baselineBuild ?? servedBuild;
+    const baselineJson = JSON.stringify(
+      {
+        ...baseline,
+        ...(anchored ? { servedBuild: anchored } : {}),
+        servedBuildBaselineCapturedAt: baseline.capturedAt,
+      },
+      null,
+      2,
+    );
     saveFile(projectDir, taskId, "baseline.json", Buffer.from(baselineJson), {
       system: true,
     });
@@ -904,9 +1336,19 @@ function buildResult(
   selector: string,
   overrideVerdict?: string,
   captureTruncated = false,
+  servedBuild?: ServedBuildFingerprint,
+  baselineBuild?: ServedBuildFingerprint | null,
 ): VerifyResult {
   const ok = diff.selectorResolves && diff.newConsoleErrors.length === 0;
   const verdict = overrideVerdict ?? summarizeDiff(diff, selector);
+
+  const measured = servedBuild ?? {
+    hash: UNKNOWN_BUILD,
+    version: UNKNOWN_BUILD,
+    assetUrls: [],
+    source: "none" as const,
+    capturedAt: new Date().toISOString(),
+  };
 
   return {
     taskId,
@@ -926,6 +1368,12 @@ function buildResult(
     evidenceFiles,
     verdict,
     captureTruncated,
+    servedBuild: measured,
+    baselineBuild: baselineBuild ?? null,
+    buildComparison: compareServedBuilds(
+      baselineBuild ?? null,
+      measured,
+    ),
   };
 }
 
@@ -1012,7 +1460,18 @@ export async function addVerifySystemComment(
   const truncation = result.captureTruncated
     ? `> **${captureTruncationWarning(MAX_ELEMENTS)}**\n\n`
     : "";
-  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n${truncation}_verify collects evidence only — it does not set a verdict. The agent judges correctness and attests with \`--set-verify pass|fail|cannot\`._\n\n${result.verdict}`;
+  // The measured build travels with the evidence: the JSON and the terminal
+  // line are per-run, and this comment is what survives on the task.
+  const build = servedBuildReport(result);
+  // Blockquoted so the mismatch survives the task's markdown renderer: a
+  // multi-line run needs a `>` on every line, not one at the top.
+  const buildBlock = build.warning
+    ? `${build.warning
+        .split("\n")
+        .map((line, i) => (i === 0 ? `> **${line}**` : `> ${line}`))
+        .join("\n")}\n\n`
+    : "";
+  const commentText = `**Page-health evidence: ${result.ok ? "✅ clean (element resolves, no new console errors)" : "⚠️ not clean"}**\n\n${truncation}${buildBlock}**Served build:** ${build.line}\n\n_verify collects evidence only — it does not set a verdict. The agent judges correctness and attests with \`--set-verify pass|fail|cannot\`._\n\n${result.verdict}`;
   addComment(projectDir, taskId, "agent", commentText, undefined, "system");
 }
 
@@ -1026,6 +1485,13 @@ export function printResult(result: VerifyResult): void {
   // change" line below unsound, so the agent must read this first.
   if (result.captureTruncated) {
     console.log(chalk.yellow.bold(`  ${captureTruncationWarning(MAX_ELEMENTS)}`));
+    console.log();
+  }
+  // A build mismatch can invalidate every "unchanged" line below, so it is
+  // announced up here where it cannot be skipped past.
+  const build = servedBuildReport(result);
+  if (build.warning) {
+    console.log(chalk.red.bold(`  ⚠ ${build.warning}`));
     console.log();
   }
   // `ok` is a page-health signal, printed as EVIDENCE, not as a verdict.
@@ -1092,6 +1558,24 @@ export function printResult(result: VerifyResult): void {
       ),
     );
   }
+
+  // WHICH build this evidence measured, next to the evidence paths: a green
+  // run against a board still serving an old bundle is otherwise
+  // indistinguishable from a green run against the build under test.
+  //
+  // Mismatch is loud and comes first; a match is deliberately quiet — it is
+  // the uninteresting case, and shouting it would train the reader to skip
+  // the line that matters.
+  if (build.comparison === "mismatch") {
+    console.log(chalk.yellow.bold(`  ${build.line}`));
+  } else {
+    console.log(chalk.dim(`  ${build.line}`));
+  }
+  console.log(
+    chalk.dim(
+      "  The build fingerprint is EVIDENCE about which code was measured — it never changes the verdict.",
+    ),
+  );
 
   if (result.evidenceFiles.length > 0) {
     console.log(
