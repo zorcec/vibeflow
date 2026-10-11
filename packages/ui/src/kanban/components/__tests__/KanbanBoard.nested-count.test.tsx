@@ -118,13 +118,34 @@ describe("KanbanBoard root-only header count (bba8e7f9/f476bfbc)", () => {
     ]);
     const hint = nestedHint(container, "review");
     expect(hint).toBeInTheDocument();
-    expect(hint).toHaveTextContent("1 nested");
+    // Minimal by request (93f10f06): only the count + the ↳ mark, no word.
+    expect(hint).toHaveTextContent("\u21B3 1");
+    expect(hint).not.toHaveTextContent(/nested/i);
     expect(hint!.getAttribute("data-nested-count")).toBe("1");
     // Accessible affordance: hover title + aria-label state the breakdown.
     expect(hint!.getAttribute("title")).toContain("nested inside parent cards");
     expect(hint!.getAttribute("aria-label")).toContain("1 tasks");
     // Columns with nothing nested render no chip at all.
     expect(nestedHint(container, "in-progress")).toBeNull();
+  });
+
+  it("the nested hint carries no pill chrome — bare faint text only (93f10f06)", () => {
+    // NON-VACUOUS guard for the owner's "make it very minimal" ask: this
+    // fails if the bordered/filled pill comes back. The chip's box is drawn
+    // with inline styles, so asserting them here is the real contract.
+    const { container } = renderBoard([
+      makeTask("epic", "Epic parent", "in-progress"),
+      makeTask("r1", "Review one", "review"),
+      makeTask("c1", "Nested review A", "review", childOf("epic")),
+    ]);
+    const hint = nestedHint(container, "review")!;
+    expect(hint.style.border).toBe("");
+    expect(hint.style.borderRadius).toBe("");
+    expect(hint.style.padding).toBe("");
+    expect(hint.style.background).toBe("");
+    // Size/colour survive: 10px faint text, right after the count.
+    expect(hint.style.fontSize).toBe("10px");
+    expect(hint.style.color).toBe("var(--t-text-faint)");
   });
 
   it("the nested count is reachable via hover title on the header", () => {

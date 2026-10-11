@@ -1117,20 +1117,20 @@ function KanbanColumn({
             data-nested-count={nestedCount}
             title={`${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`}
             aria-label={`${nestedCount} tasks with status ${col.label} nested inside parent cards in other columns`}
+            /* Minimal by request (93f10f06): just the count next to the ⇳
+               mark — no pill, no border, no padding, no word. The
+               explanation stays in the title and aria-label, which cost zero
+               layout but keep the number readable on hover and to a screen
+               reader. */
             style={{
               fontSize: 10,
-              fontWeight: 500,
               color: "var(--t-text-faint)",
-              border: "1px solid var(--t-border-faint)",
-              borderRadius: 10,
-              padding: "0 6px",
               lineHeight: "16px",
               whiteSpace: "nowrap",
-              cursor: "help",
               marginLeft: 4,
             }}
           >
-            {`\u21B3 ${nestedCount} nested`}
+            {`\u21B3 ${nestedCount}`}
           </span>
         ) : null}
         <span style={{ marginLeft: "auto" }} />
