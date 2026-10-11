@@ -168,10 +168,23 @@ export function ChildRow({
                     }}
                 />
             )}
-            {/* Inline + detail: dot + title only — matches proposal design (detail uses same minimal rows) */}
+            {/* Inline (board card tree): title + the child's OWN status badge
+              (c8160a0c) — a child in review nested under an in-progress/done
+              parent must read as review, not as a plain row of its parent.
+              Detail keeps the historical dot + title only. */}
             {isMinimal ? (
                 <span className="child-link-info">
                     <span className="child-link-title">{title}</span>
+                    {isInline && (
+                        <span
+                            className={`status-badge status-badge--${child?.status ?? "todo"}`}
+                            data-role="child-status"
+                            data-status={child?.status ?? "todo"}
+                            title={`Status: ${child?.status ?? "todo"} — nested under its parent card`}
+                        >
+                            {child?.status ?? "todo"}
+                        </span>
+                    )}
                 </span>
             ) : (
                 <>

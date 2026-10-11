@@ -41,9 +41,20 @@ describe("ChildRow", () => {
     expect(screen.getByText("Test task")).toBeInTheDocument();
   });
 
-  it("does not render status badge in inline variant", () => {
-    render(<ChildRow child={makeTask({ status: "done" })} variant="inline" />);
-    expect(screen.queryByText("done")).not.toBeInTheDocument();
+  it("inline variant renders the child's OWN status badge (c8160a0c)", () => {
+    // A child in review nested under another parent's card must read as
+    // review, not as a plain row of its parent — the badge carries the
+    // child's own status, unlike the parent card around it.
+    const { container } = render(
+      <ChildRow child={makeTask({ status: "review" })} variant="inline" />,
+    );
+    const badge = screen.getByText("review");
+    expect(badge).toHaveClass("status-badge--review");
+    expect(badge).toHaveAttribute("data-role", "child-status");
+    expect(badge).toHaveAttribute("data-status", "review");
+    expect(
+      container.querySelector('[data-role="child-status"]'),
+    ).toBeInTheDocument();
   });
 
   it("does not render task ID in inline variant", () => {

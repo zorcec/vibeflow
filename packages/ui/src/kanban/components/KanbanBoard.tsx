@@ -752,6 +752,34 @@ export function KanbanBoard({
     [filtered],
   );
 
+  {
+    /* Honest per-status breakdown (c8160a0c): the CLI counts every task
+       bearing a status, but the column only renders standalone cards — a
+       child renders solely inside its parent's card (owner decision above).
+       nestedByStatus[col] = tasks with this status that render nested
+       elsewhere = total-by-status minus standalone-by-status, computed from
+       `filtered` (the same data the board already holds — no second fetch).
+       When zero for a column, the header renders exactly as before. */
+  }
+  const nestedByStatus = React.useMemo(() => {
+    const total = new Map<TaskStatus, number>();
+    for (const t of filtered) {
+      if (!t?.status) continue;
+      total.set(t.status, (total.get(t.status) ?? 0) + 1);
+    }
+    const standaloneCount = new Map<TaskStatus, number>();
+    for (const t of allStandalone) {
+      if (!t?.status) continue;
+      standaloneCount.set(t.status, (standaloneCount.get(t.status) ?? 0) + 1);
+    }
+    const nested = new Map<TaskStatus, number>();
+    for (const [status, n] of total) {
+      const hidden = n - (standaloneCount.get(status) ?? 0);
+      if (hidden > 0) nested.set(status, hidden);
+    }
+    return nested;
+  }, [filtered, allStandalone]);
+
   return (
     <>
       <main
@@ -772,6 +800,9 @@ export function KanbanBoard({
           const colTasks = isLoading
             ? []
             : allStandalone.filter((t) => t.status === col.id);
+          const nestedCount = isLoading
+            ? 0
+            : (nestedByStatus.get(col.id) ?? 0);
 
           // Done column: show latest modified tasks first (reverse order)
           const displayTasks =
@@ -782,6 +813,7 @@ export function KanbanBoard({
               key={col.id}
               col={col}
               tasks={displayTasks}
+              nestedCount={nestedCount}
               allTasks={filtered}
               isLoading={isLoading}
               liveActivities={liveActivities}
@@ -880,6 +912,10 @@ export function KanbanBoard({
 interface ColumnProps {
   col: Column;
   tasks: Task[];
+  /** Tasks carrying this column's status that render nested inside parent
+      cards in other columns (c8160a0c) — shown as `(+N nested)` in the
+      header. 0/undefined renders the header exactly as before. */
+  nestedCount?: number;
   allTasks: Task[];
   isLoading?: boolean;
   liveActivities?: Map<string, LiveActivity>;
@@ -914,6 +950,7 @@ interface ColumnProps {
 function KanbanColumn({
   col,
   tasks,
+  nestedCount = 0,
   allTasks,
   isLoading,
   liveActivities,
@@ -1050,6 +1087,17 @@ function KanbanColumn({
       >
         <div className={`status-dot ${dotClass}`} />
         <span
+          data-role="column-count"
+          data-nested-count={nestedCount > 0 ? nestedCount : undefined}
+          /* Hover title carries the reachable nested-count hint (c8160a0c):
+             a click-to-reveal would need popover + cross-column filtering
+             machinery, and an aria-label alone is invisible — the title
+             explains the breakdown for every column at zero layout cost. */
+          title={
+            !isLoading && nestedCount > 0
+              ? `${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`
+              : undefined
+          }
           style={{
             fontSize: 12,
             fontWeight: 600,
@@ -1058,6 +1106,9 @@ function KanbanColumn({
         >
           {col.label}
           {isLoading ? "" : ` · ${tasks.length}`}
+          {!isLoading && nestedCount > 0
+            ? ` (+${nestedCount} nested)`
+            : ""}
         </span>
         <span style={{ marginLeft: "auto" }} />
         <button
