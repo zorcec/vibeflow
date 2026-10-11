@@ -45,7 +45,7 @@ function renderBoard(tasks: Task[]) {
   );
 }
 
-/** Header count text for one column, e.g. `Review · 2 (+3 nested)`. */
+/** Header count text for one column, e.g. `Review · 2` (root cards only). */
 function headerText(container: HTMLElement, colId: string): string {
   const el = container.querySelector(
     `[data-column-id="${colId}"] [data-role="column-count"]`,
@@ -54,7 +54,14 @@ function headerText(container: HTMLElement, colId: string): string {
   return el!.textContent ?? "";
 }
 
-describe("KanbanBoard honest per-status header (c8160a0c)", () => {
+/** Visible nested hint chip for one column, or null when nothing is nested. */
+function nestedHint(container: HTMLElement, colId: string): HTMLElement | null {
+  return container.querySelector(
+    `[data-column-id="${colId}"] [data-role="nested-hint"]`,
+  );
+}
+
+describe("KanbanBoard root-only header count (bba8e7f9/f476bfbc)", () => {
   it("header shows the plain card count when nothing is nested", () => {
     const { container } = renderBoard([
       makeTask("r1", "Review one", "review"),
@@ -62,16 +69,17 @@ describe("KanbanBoard honest per-status header (c8160a0c)", () => {
       makeTask("t1", "Todo one", "todo"),
     ]);
     expect(headerText(container, "review")).toBe("Review · 2");
-    // Zero nested: no suffix, no hint attributes — byte-identical to before.
+    // Zero nested: no hint attributes, no visible hint chip.
     const header = container.querySelector(
       '[data-column-id="review"] [data-role="column-count"]',
     )!;
     expect(header).not.toHaveTextContent("nested");
     expect(header.getAttribute("data-nested-count")).toBeNull();
     expect(header.getAttribute("title")).toBeNull();
+    expect(nestedHint(container, "review")).toBeNull();
   });
 
-  it("header shows standalone + nested breakdown when children carry the column status", () => {
+  it("header shows ONLY the root count when children carry the column status", () => {
     const tasks = [
       makeTask("epic", "Epic parent", "in-progress"),
       makeTask("r1", "Review one", "review"),
@@ -81,10 +89,42 @@ describe("KanbanBoard honest per-status header (c8160a0c)", () => {
       makeTask("c3", "Nested review C", "review", childOf("epic")),
     ];
     const { container } = renderBoard(tasks);
-    // NON-VACUOUS: this header must differ from the zero-nested header above.
-    expect(headerText(container, "review")).toBe("Review · 2 (+3 nested)");
+    // THE NEW CONTRACT: visible header is the root-card count only.
+    expect(headerText(container, "review")).toBe("Review · 2");
     // The parent's own column is unaffected — no nested in-progress tasks.
     expect(headerText(container, "in-progress")).toBe("In Progress · 1");
+  });
+
+  it("the old (+N nested) suffix never appears in the visible header text", () => {
+    const tasks = [
+      makeTask("epic", "Epic parent", "in-progress"),
+      makeTask("r1", "Review one", "review"),
+      makeTask("c1", "Nested review A", "review", childOf("epic")),
+      makeTask("c2", "Nested review B", "review", childOf("epic")),
+    ];
+    const { container } = renderBoard(tasks);
+    // NON-VACUOUS regression guard: fails if the old suffix comes back.
+    // The visible count must be exactly `Label · N` with nothing appended.
+    expect(headerText(container, "review")).toMatch(/^Review · \d+$/);
+    expect(headerText(container, "review")).not.toContain("nested");
+    expect(headerText(container, "review")).not.toContain("(");
+  });
+
+  it("a visible nested hint chip discloses the hidden tasks", () => {
+    const { container } = renderBoard([
+      makeTask("epic", "Epic parent", "in-progress"),
+      makeTask("r1", "Review one", "review"),
+      makeTask("c1", "Nested review A", "review", childOf("epic")),
+    ]);
+    const hint = nestedHint(container, "review");
+    expect(hint).toBeInTheDocument();
+    expect(hint).toHaveTextContent("1 nested");
+    expect(hint!.getAttribute("data-nested-count")).toBe("1");
+    // Accessible affordance: hover title + aria-label state the breakdown.
+    expect(hint!.getAttribute("title")).toContain("nested inside parent cards");
+    expect(hint!.getAttribute("aria-label")).toContain("1 tasks");
+    // Columns with nothing nested render no chip at all.
+    expect(nestedHint(container, "in-progress")).toBeNull();
   });
 
   it("the nested count is reachable via hover title on the header", () => {
@@ -103,7 +143,7 @@ describe("KanbanBoard honest per-status header (c8160a0c)", () => {
     );
   });
 
-  it("standalone + nested reconciles with every task carrying the status", () => {
+  it("visible root count + hint reconciles with every task carrying the status", () => {
     const tasks = [
       makeTask("epic", "Epic parent", "in-progress"),
       makeTask("r1", "Review one", "review"),
@@ -114,10 +154,12 @@ describe("KanbanBoard honest per-status header (c8160a0c)", () => {
     ];
     const { container } = renderBoard(tasks);
     const text = headerText(container, "review");
-    const m = text.match(/^Review · (\d+)(?: \(\+(\d+) nested\))?$/);
+    const m = text.match(/^Review · (\d+)$/);
     expect(m).not.toBeNull();
     const standalone = Number(m![1]);
-    const nested = Number(m![2] ?? 0);
+    const hint = nestedHint(container, "review")!;
+    expect(hint).toBeInTheDocument();
+    const nested = Number(hint.getAttribute("data-nested-count"));
     expect(standalone + nested).toBe(
       tasks.filter((t) => t.status === "review").length,
     );

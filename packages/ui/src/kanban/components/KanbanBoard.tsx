@@ -913,8 +913,10 @@ interface ColumnProps {
   col: Column;
   tasks: Task[];
   /** Tasks carrying this column's status that render nested inside parent
-      cards in other columns (c8160a0c) — shown as `(+N nested)` in the
-      header. 0/undefined renders the header exactly as before. */
+      cards in other columns — the header count stays root-only (tasks.length)
+      and this drives the separate visible nested hint + hover title so
+      nothing is silently hidden. 0/undefined renders the header exactly as
+      before. */
   nestedCount?: number;
   allTasks: Task[];
   isLoading?: boolean;
@@ -1089,10 +1091,12 @@ function KanbanColumn({
         <span
           data-role="column-count"
           data-nested-count={nestedCount > 0 ? nestedCount : undefined}
-          /* Hover title carries the reachable nested-count hint (c8160a0c):
-             a click-to-reveal would need popover + cross-column filtering
-             machinery, and an aria-label alone is invisible — the title
-             explains the breakdown for every column at zero layout cost. */
+          /* Hover title keeps the numbers reconcilable (owner lane
+             bba8e7f9/f476bfbc): the VISIBLE number is the root-card count
+             only; the title states the full breakdown (total = cards +
+             nested) for every column at zero layout cost. The separate
+             [data-role="nested-hint"] chip beside it is the discoverable
+             visible affordance — the title alone would be invisible. */
           title={
             !isLoading && nestedCount > 0
               ? `${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`
@@ -1106,10 +1110,29 @@ function KanbanColumn({
         >
           {col.label}
           {isLoading ? "" : ` · ${tasks.length}`}
-          {!isLoading && nestedCount > 0
-            ? ` (+${nestedCount} nested)`
-            : ""}
         </span>
+        {!isLoading && nestedCount > 0 ? (
+          <span
+            data-role="nested-hint"
+            data-nested-count={nestedCount}
+            title={`${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`}
+            aria-label={`${nestedCount} tasks with status ${col.label} nested inside parent cards in other columns`}
+            style={{
+              fontSize: 10,
+              fontWeight: 500,
+              color: "var(--t-text-faint)",
+              border: "1px solid var(--t-border-faint)",
+              borderRadius: 10,
+              padding: "0 6px",
+              lineHeight: "16px",
+              whiteSpace: "nowrap",
+              cursor: "help",
+              marginLeft: 4,
+            }}
+          >
+            {`\u21B3 ${nestedCount} nested`}
+          </span>
+        ) : null}
         <span style={{ marginLeft: "auto" }} />
         <button
           type="button"
