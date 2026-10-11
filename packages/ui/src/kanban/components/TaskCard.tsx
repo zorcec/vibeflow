@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, Eye, Lock, ChevronDown } from "lucide-react";
+import { MessageCircle, Paperclip, Eye, ChevronDown } from "lucide-react";
 import { CopyIdButton } from "./CopyIdButton";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
@@ -804,53 +804,28 @@ interface LiveActivityBadgeProps {
 }
 
 export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
-      const isLocked =
-            activity.state === "locked" || activity.state === "editing";
-      const icon = isLocked ? (
-            <Lock style={{ width: 8, height: 8 }} />
-      ) : (
-            <Eye style={{ width: 8, height: 8 }} />
-      );
+      // Neutral presence suffix — never a lock. Locks are gone: everyone can
+      // edit, and this badge only says who else is here and where.
+      const areaSuffix = activity.area ? ` \u00b7 ${activity.area}` : "";
+      const label = `${activity.user} ${activity.state === "editing" ? "editing" : "viewing"}${areaSuffix}`;
 
-      const label = isLocked
-            ? `Locked by ${activity.user}`
-            : `${activity.user} viewing`;
-
-      const badgeStyle: React.CSSProperties = isLocked
-            ? {
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 3,
-                    borderRadius: 999,
-                    padding: "1px 5px",
-                    fontSize: 9,
-                    fontWeight: 600,
-                    border: "1px solid rgba(244,114,182,0.35)",
-                    color: "var(--t-pink-soft)",
-                    background: "rgba(157,23,77,0.28)",
-                    flexShrink: 0,
-                    maxWidth: 110,
-                    overflow: "hidden",
-                    whiteSpace: "nowrap",
-                    flexWrap: "nowrap",
-              }
-            : {
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 3,
-                    borderRadius: 999,
-                    padding: "1px 5px",
-                    fontSize: 9,
-                    fontWeight: 600,
-                    border: "1px solid rgba(59,130,246,0.35)",
-                    color: "var(--t-chip-blue-200)",
-                    background: "rgba(30,58,138,0.28)",
-                    flexShrink: 0,
-                    maxWidth: 110,
-                    overflow: "hidden",
-                    whiteSpace: "nowrap",
-                    flexWrap: "nowrap",
-              };
+      const badgeStyle: React.CSSProperties = {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 3,
+            borderRadius: 999,
+            padding: "1px 5px",
+            fontSize: 9,
+            fontWeight: 600,
+            border: "1px solid rgba(59,130,246,0.35)",
+            color: "var(--t-chip-blue-200)",
+            background: "rgba(30,58,138,0.28)",
+            flexShrink: 0,
+            maxWidth: 110,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            flexWrap: "nowrap",
+      };
 
       return (
             <span
@@ -858,7 +833,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                   title={label}
                   data-testid="live-activity-badge"
             >
-                  {icon}
+                  <Eye style={{ width: 8, height: 8 }} />
                   <span
                         style={{
                               overflow: "hidden",
@@ -868,6 +843,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                         }}
                   >
                         {activity.user}
+                        {areaSuffix}
                   </span>
             </span>
       );

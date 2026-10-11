@@ -16,6 +16,8 @@ export type {
   KanbanApi,
   LiveActivity,
   LiveActivityState,
+  PresenceArea,
+  PresenceEntry,
 } from "./types";
 
 // Kanban shared utilities

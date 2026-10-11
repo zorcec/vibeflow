@@ -9,9 +9,27 @@ export interface UserPresence {
   currentPath: string;
 }
 
+/**
+ * Per-task presence area: which part of a task a user is in.
+ * `null` (taskId null) means the user is not in any task.
+ * Unknown areas degrade to task-level presence — the type is intentionally
+ * narrow on send and tolerant on receive.
+ */
+export type PresenceArea =
+  | "description"
+  | "comments"
+  | "files"
+  | "relations"
+  | "header";
+
 export type ClientEvent =
   | { type: "presence.join"; roomKey: RoomKey; user: UserPresence }
-  | { type: "presence.update"; roomKey: RoomKey; patch: Partial<UserPresence> }
+  | {
+      type: "presence.update";
+      roomKey: RoomKey;
+      taskId: string | null;
+      area: PresenceArea | null;
+    }
   | { type: "presence.leave"; roomKey: RoomKey }
   | { type: "cursor.update"; roomKey: RoomKey; x: number; y: number }
   | {
@@ -19,14 +37,22 @@ export type ClientEvent =
       roomKey: RoomKey;
       targetId: string;
       active: boolean;
-      state?: 'viewing' | 'editing' | 'locked';
+      state?: 'viewing' | 'editing';
+      area?: PresenceArea | null;
     }
   | { type: "task.subscribe"; workspaceId: string }
   | { type: "task.unsubscribe"; workspaceId: string };
 
 export type ServerEvent =
   | { type: "presence.join"; user: UserPresence }
-  | { type: "presence.update"; userId: UserId; patch: Partial<UserPresence> }
+  | {
+      type: "presence.update";
+      userId: UserId;
+      name: string;
+      color: string;
+      taskId: string | null;
+      area: PresenceArea | null;
+    }
   | { type: "presence.leave"; userId: UserId }
   | { type: "cursor.update"; userId: UserId; x: number; y: number }
   | {
@@ -35,7 +61,8 @@ export type ServerEvent =
       userName?: string;
       targetId: string;
       active: boolean;
-      state?: 'viewing' | 'editing' | 'locked';
+      state?: 'viewing' | 'editing';
+      area?: PresenceArea | null;
     }
   | {
       type: "task.patch";

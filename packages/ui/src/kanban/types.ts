@@ -90,7 +90,19 @@ export interface FileEntry {
   system?: boolean;
 }
 
-export type LiveActivityState = "viewing" | "editing" | "locked";
+export type LiveActivityState = "viewing" | "editing";
+
+/**
+ * Which part of a task a present user is in. Mirrors `PresenceArea` in
+ * `@vibeflow-tools/shared` (kept local so the kanban UI never imports
+ * the wire contract for rendering).
+ */
+export type PresenceArea =
+  | "description"
+  | "comments"
+  | "files"
+  | "relations"
+  | "header";
 
 export interface LiveActivity {
   taskId: string;
@@ -98,6 +110,17 @@ export interface LiveActivity {
   /** Raw user ID from the WS event — used for reliable presence.leave matching. */
   userId?: string;
   state: LiveActivityState;
+  /** Area of the task the user is in; null = task-level (no area focused). */
+  area?: PresenceArea | null;
+}
+
+/** One peer present in a task, for the detail-panel presence line. */
+export interface PresenceEntry {
+  user: string;
+  /** Raw user ID — lets the panel exclude the current user reliably. */
+  userId?: string;
+  /** Area the peer is in; null = task-level. */
+  area: PresenceArea | null;
 }
 
 export interface Column {

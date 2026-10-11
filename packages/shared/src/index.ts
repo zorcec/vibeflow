@@ -4,6 +4,7 @@ export type {
   WorkspaceId,
   RoomKey,
   UserPresence,
+  PresenceArea,
   ClientEvent,
   ServerEvent,
   RedisEnvelope,

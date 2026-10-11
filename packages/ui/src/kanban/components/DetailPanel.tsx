@@ -8,6 +8,8 @@ import type {
   TaskType,
   Priority,
   KanbanApi,
+  PresenceArea,
+  PresenceEntry,
 } from "../types";
 import { TypePicker } from "./shared/TypePicker";
 import { CommentsList } from "./shared/CommentsList";
@@ -126,11 +128,11 @@ interface Props {
   onFilePreview: (name: string, url: string) => void;
   onActivityChange?: (
     taskId: string | null,
-    state: "viewing" | "editing" | "locked",
+    state: "viewing" | "editing",
+    area?: PresenceArea | null,
   ) => void;
-  showLockIndicator?: boolean;
-  /** When set, the panel is read-only because another user holds the lock. */
-  lockedByUser?: string | null;
+  /** Peers currently in the open task — rendered as a quiet presence line. */
+  presence?: PresenceEntry[];
   /** All tasks on the board — used to build the global tag pool for autocomplete. */
   allTasks?: Task[];
   /** Called when the user clicks the back button. Shown only when defined. */
@@ -183,8 +185,7 @@ export function DetailPanel({
   onFilePreview,
   onActivityChange,
   externalLocalChanges = [],
-  showLockIndicator = true,
-  lockedByUser,
+  presence = [],
   onGoBack,
   onOpenTask,
   navBackLabel,
@@ -268,25 +269,32 @@ export function DetailPanel({
     isResizingRef.current = isResizing ?? false;
   }, [isResizing]);
 
-  // Notify parent when panel closes
+  // Area of the task this panel is currently showing. Presence is
+  // per-task AND per-area: peers see which part each user is in.
+  const tabArea = (t: Tab): PresenceArea =>
+    t === "comments" ? "comments" : t === "files" ? "files" : "description";
+
+  // Notify parent when panel closes (presence clears: not in any task)
   React.useEffect(() => {
     if (!open) {
-      onActivityChange?.(null, "viewing");
+      onActivityChange?.(null, "viewing", null);
     }
   }, [open]);
 
-  // Detect dirty state and notify parent with 'locked'
+  // Detect dirty state and notify parent. Dirty means actively editing;
+  // clean means viewing. Nothing here refuses an edit — presence is
+  // informational, never a lock.
   React.useEffect(() => {
     if (!open || !task) return;
     const isDirty =
       title !== originalTitleRef.current ||
       description !== originalDescRef.current;
     if (isDirty) {
-      onActivityChange?.(task.id, "locked");
+      onActivityChange?.(task.id, "editing", tabArea(activeTab));
     } else {
-      onActivityChange?.(task.id, "viewing");
+      onActivityChange?.(task.id, "viewing", tabArea(activeTab));
     }
-  }, [title, description, open, task?.id]);
+  }, [title, description, open, task?.id, activeTab]);
 
   // Sync form when task/panel opens
   // Close panel when clicking outside (f831ac43)
@@ -376,7 +384,7 @@ export function DetailPanel({
       setPriority(task.priority ?? "");
       originalTitleRef.current = trimmedTitle;
       originalDescRef.current = trimmedDesc;
-      onActivityChange?.(task.id, "viewing");
+      onActivityChange?.(task.id, "viewing", tabArea(tab));
     } else {
       setTitle("");
       setDescription("");
@@ -817,12 +825,6 @@ export function DetailPanel({
     onClose();
   }
 
-  const isLocked =
-    open &&
-    task != null &&
-    (title !== originalTitleRef.current ||
-      description !== originalDescRef.current);
-
   const mergedLocalChanges = React.useMemo(() => {
     const changes = [...externalLocalChanges, ...localChanges].sort(
       (a, b) =>
@@ -846,7 +848,16 @@ export function DetailPanel({
     return deduped;
   }, [externalLocalChanges, localChanges]);
 
-  const remoteLocked = !isAdd && !!lockedByUser;
+  // Quiet presence line: who else is in this task and in which area.
+  // Informational only — it never disables anything.
+  const presenceText =
+    presence.length === 0
+      ? null
+      : presence
+          .map((p) =>
+            p.area ? `${p.user} is in ${p.area}` : `${p.user} is here`,
+          )
+          .join(" \u00b7 ");
 
   // `data-role` mirrors the id so specs can address the panel the same way
   // they address every other region of the board.
@@ -865,24 +876,21 @@ export function DetailPanel({
         ref={panelRef}
         data-fullscreen={fullscreen ? "true" : "false"}
       >
-        {remoteLocked && (
+        {presenceText && (
           <div
+            data-testid="presence-line"
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: "8px 12px",
-              background: "rgba(234,88,12,0.12)",
-              border: "1px solid rgba(234,88,12,0.25)",
-              borderRadius: 6,
-              margin: "8px 12px 0",
-              fontSize: 12,
-              color: "var(--t-agent)",
-              fontWeight: 500,
+              gap: 6,
+              padding: "6px 12px 0",
+              margin: "6px 12px 0",
+              fontSize: 11,
+              color: "var(--t-text-muted)",
+              fontWeight: 400,
             }}
           >
-            🔒 Locked by <strong>{lockedByUser}</strong> — editing disabled
-            until they finish.
+            {presenceText}
           </div>
         )}
         {/* Header */}
@@ -933,7 +941,6 @@ export function DetailPanel({
             <TypePicker
               id="dp-type-picker"
               value={type}
-              disabled={remoteLocked}
               onChange={(newType) => {
                 if (!isAdd && task && newType !== type)
                   recordChange("type", type, newType);
@@ -948,7 +955,6 @@ export function DetailPanel({
               type="text"
               placeholder="Task title…"
               value={title}
-              readOnly={remoteLocked}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
@@ -1076,27 +1082,6 @@ export function DetailPanel({
             >
               <X style={{ width: 14, height: 14 }} />
             </button>
-            {showLockIndicator && isLocked && task && (
-              <span
-                id="dp-lock-indicator"
-                title={`Locked by ${gitUserName} — unsaved changes`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 3,
-                  flexShrink: 0,
-                  borderRadius: 999,
-                  padding: "2px 7px",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  border: "1px solid rgba(244,114,182,0.35)",
-                  color: "var(--t-pink-soft)",
-                  background: "rgba(157,23,77,0.28)",
-                }}
-              >
-                🔒 Locked
-              </span>
-            )}
           </div>
 
           {/* Status buttons */}
@@ -1106,9 +1091,6 @@ export function DetailPanel({
               alignItems: "center",
               gap: 6,
               flexWrap: "wrap",
-              ...(remoteLocked
-                ? { pointerEvents: "none" as const, opacity: 0.6 }
-                : {}),
             }}
           >
             <span
@@ -1168,7 +1150,7 @@ export function DetailPanel({
           </div>
 
           {/* Branch name prompt when createBranch is ON and setting to review */}
-          {showBranchPrompt && !remoteLocked && (
+          {showBranchPrompt && (
             <div
               style={{
                 display: "flex",
@@ -1303,13 +1285,7 @@ export function DetailPanel({
             id="dp-details-pane"
             style={{ display: !task || activeTab === "details" ? "" : "none" }}
           >
-            <div
-              style={
-                remoteLocked
-                  ? { pointerEvents: "none", opacity: 0.6, flexShrink: 0 }
-                  : { flexShrink: 0 }
-              }
-            >
+            <div style={{ flexShrink: 0 }}>
               <TaskDetailsTab
                 task={task}
                 description={description}
@@ -1369,7 +1345,25 @@ export function DetailPanel({
               </div>
             )}
             {!isAdd && task && (
-              <div style={{ marginTop: 8 }}>
+              <div
+                style={{ marginTop: 8 }}
+                onFocusCapture={() =>
+                  onActivityChange?.(task.id, "viewing", "relations")
+                }
+                onBlurCapture={(e) => {
+                  // Focus moving inside relations keeps the area; focus
+                  // leaving it falls back to the tab area.
+                  if (
+                    e.currentTarget.contains(e.relatedTarget as Node | null)
+                  )
+                    return;
+                  onActivityChange?.(
+                    task.id,
+                    "viewing",
+                    tabArea(activeTab),
+                  );
+                }}
+              >
                 <RelationsSection
                   task={task}
                   allTasks={allTasks}
@@ -1473,7 +1467,7 @@ export function DetailPanel({
                     : `${baseUrl}${f.url}`,
                 )
               }
-              onDelete={remoteLocked ? undefined : handleDeleteFile}
+              onDelete={handleDeleteFile}
             />
             <div
               style={{
@@ -1484,9 +1478,6 @@ export function DetailPanel({
                 gap: 8,
                 flexWrap: "wrap",
                 alignItems: "center",
-                ...(remoteLocked
-                  ? { pointerEvents: "none" as const, opacity: 0.5 }
-                  : {}),
               }}
             >
               {uploadError && (

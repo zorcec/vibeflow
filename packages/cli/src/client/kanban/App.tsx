@@ -1752,7 +1752,6 @@ export function App() {
               open={panelState.open}
               task={panelState.task}
               tab={panelState.tab}
-              showLockIndicator={false}
               addColumnId={panelState.addColumnId}
               gitUserName={gitUserName}
               githubUrl={githubUrl}
