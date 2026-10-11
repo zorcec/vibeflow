@@ -160,11 +160,50 @@ export type ServerEvent =
       actorId: UserId;
       actorName?: string;
     }
+  /** A comment was deleted — clients drop it without a reload. */
+  | {
+      type: "task.comment.remove";
+      taskId: string;
+      commentId: string;
+      actorId: UserId;
+      actorName?: string;
+    }
   | { type: "task.comment.count"; taskId: string; count: number }
   | {
       type: "task.file.add";
       taskId: string;
       fileName: string;
+      /** Row id in `taskFiles` — present on new emits, absent on old ones. */
+      fileId?: string;
+      actorId: UserId;
+      actorName?: string;
+    }
+  /** A file was deleted — clients drop it without a reload. */
+  | {
+      type: "task.file.remove";
+      taskId: string;
+      fileId: string;
+      fileName?: string;
+      actorId: UserId;
+      actorName?: string;
+    }
+  /**
+   * A task link was added/removed. Links are persisted through the generic
+   * `task.patch` write (which still broadcasts), so these discrete events
+   * are a live mirror for the relations surface — same end state, applied
+   * idempotently on receipt.
+   */
+  | {
+      type: "task.relation.add";
+      taskId: string;
+      link: { taskId: string; type: string };
+      actorId: UserId;
+      actorName?: string;
+    }
+  | {
+      type: "task.relation.remove";
+      taskId: string;
+      link: { taskId: string; type: string };
       actorId: UserId;
       actorName?: string;
     }

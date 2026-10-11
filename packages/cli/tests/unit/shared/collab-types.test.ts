@@ -53,6 +53,41 @@ describe("@vibeflow/shared collab-types", () => {
     expect(errorEvent.type).toBe("error");
   });
 
+  it("attachment/relation/comment removal events are constructible", () => {
+    const commentRemove: ServerEvent = {
+      type: "task.comment.remove",
+      taskId: "t1",
+      commentId: "c1",
+      actorId: "u1",
+    };
+    expect(commentRemove.type).toBe("task.comment.remove");
+
+    const fileRemove: ServerEvent = {
+      type: "task.file.remove",
+      taskId: "t1",
+      fileId: "f1",
+      fileName: "shot.png",
+      actorId: "u1",
+    };
+    expect(fileRemove.type).toBe("task.file.remove");
+
+    const relationAdd: ServerEvent = {
+      type: "task.relation.add",
+      taskId: "t1",
+      link: { taskId: "t2", type: "blocks" },
+      actorId: "u1",
+    };
+    expect(relationAdd.type).toBe("task.relation.add");
+
+    const relationRemove: ServerEvent = {
+      type: "task.relation.remove",
+      taskId: "t1",
+      link: { taskId: "t2", type: "blocks" },
+      actorId: "u1",
+    };
+    expect(relationRemove.type).toBe("task.relation.remove");
+  });
+
   it("RedisEnvelope wraps server events", () => {
     const envelope: RedisEnvelope = {
       roomKey: "workspace:w1:project:p1:board:b1",

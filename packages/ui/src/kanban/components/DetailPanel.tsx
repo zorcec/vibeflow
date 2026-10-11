@@ -153,6 +153,8 @@ interface Props {
   navBackLabel?: string;
   /** Monotonically increasing counter that triggers a comment/badge refetch when bumped. */
   commentVersion?: number;
+  /** Same as commentVersion but for files: bump to refetch the file list without a reload. */
+  fileVersion?: number;
   /** When true, enforce branch name input when setting status to review. */
   createBranch?: boolean;
   /** Sibling reorder inside one parent (detail-panel tree drops). */
@@ -199,6 +201,7 @@ export function DetailPanel({
   onOpenTask,
   navBackLabel,
   commentVersion,
+  fileVersion,
   allTasks = [],
   createBranch,
   onTreeReorder,
@@ -510,6 +513,17 @@ export function DetailPanel({
       void loadBadgeCounts(task.id);
     }
   }, [commentVersion]);
+
+  // Refetch files/badge counts when another user adds or removes a file
+  // (fileVersion bumps). Mirrors the commentVersion effect above.
+  React.useEffect(() => {
+    if (!open || !task || fileVersion === undefined) return;
+    if (activeTab === "files") {
+      loadFiles(task.id);
+    } else {
+      void loadBadgeCounts(task.id);
+    }
+  }, [fileVersion]);
 
   async function loadBadgeCounts(taskId: string) {
     try {
