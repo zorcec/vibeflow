@@ -7,21 +7,29 @@
 
 import type {
   PageElementRecord,
-  PageSnapshot,
   PageStyleChange,
   StyleDiffResult,
   StyleQueryResult,
   HtmlQueryResult,
 } from "./page-types.js";
+import type { ProjectedPageSnapshot } from "./baseline-projection.js";
 
 // ---------------------------------------------------------------------------
 // style_diff
 // ---------------------------------------------------------------------------
 
-/** Diff baseline vs after across every element in the snapshot. */
+/**
+ * Diff baseline vs after across every element in the snapshot.
+ *
+ * Parameters are the projected snapshot shape (see
+ * core/baseline-projection.ts): a full PageSnapshot is assignable to it, so
+ * full captures keep working, while a projected baseline type-checks without
+ * a cast. If this function ever reads a field the projection drops, the
+ * projected type stops being assignable and tsc fails — that is the point.
+ */
 export function diffPageStyles(
-  baseline: PageSnapshot,
-  after: PageSnapshot,
+  baseline: ProjectedPageSnapshot,
+  after: ProjectedPageSnapshot,
 ): { changes: PageStyleChange[]; added: string[]; removed: string[] } {
   const changes: PageStyleChange[] = [];
   const added: string[] = [];
@@ -95,7 +103,7 @@ export function summarizeStyleDiff(
 export function queryStyleProperty(
   changes: PageStyleChange[],
   prop: string,
-  allElements: Record<string, PageElementRecord>,
+  allElements: Record<string, Pick<PageElementRecord, "tag" | "childCount">>,
 ): StyleQueryResult {
   const matches = changes
     .filter((c) => c.prop === prop)
@@ -125,8 +133,8 @@ export function queryStyleProperty(
 
 /** Compare child counts between two snapshots. */
 export function queryChildChanges(
-  baseline: PageSnapshot,
-  after: PageSnapshot,
+  baseline: ProjectedPageSnapshot,
+  after: ProjectedPageSnapshot,
 ): HtmlQueryResult {
   const matches: HtmlQueryResult["matches"] = [];
 
@@ -170,8 +178,8 @@ export function queryChildChanges(
 
 /** Compare visible text between two snapshots. */
 export function queryTextChanges(
-  baseline: PageSnapshot,
-  after: PageSnapshot,
+  baseline: ProjectedPageSnapshot,
+  after: ProjectedPageSnapshot,
 ): HtmlQueryResult {
   const matches: HtmlQueryResult["matches"] = [];
 
@@ -195,8 +203,8 @@ export function queryTextChanges(
 
 /** Compare data-attributes between two snapshots. */
 export function queryAttributeChanges(
-  baseline: PageSnapshot,
-  after: PageSnapshot,
+  baseline: ProjectedPageSnapshot,
+  after: ProjectedPageSnapshot,
 ): HtmlQueryResult {
   const matches: HtmlQueryResult["matches"] = [];
 

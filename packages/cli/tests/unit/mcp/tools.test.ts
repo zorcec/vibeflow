@@ -583,9 +583,26 @@ describe("verify_task", () => {
     createTestTask({ id, url: "https://example.com", selector: "/" });
     const filesDir = join(testDir, ".vibeflow", "tasks", "files", id);
     mkdirSync(filesDir, { recursive: true });
+    // Minimal but VALID element baseline: strict baseline validation
+    // (E_BASELINE_MALFORMED on shape failures) runs before the selector
+    // check, so the fixture must satisfy the shape for the run to reach
+    // step 5. The selector under test lives on the TASK, not the baseline.
     writeFileSync(
       join(filesDir, "baseline-element.json"),
-      JSON.stringify({ selector: ".submit" }),
+      JSON.stringify({
+        outerHTML: "<button>Submit</button>",
+        computedStyles: {},
+        selector: ".submit",
+        position: {
+          boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+          scrollPosition: { x: 0, y: 0 },
+          viewport: { width: 1280, height: 720, dpr: 1 },
+          stackingContext: { zIndex: "auto", position: "static" },
+        },
+        browser: "test",
+        consoleErrors: [],
+        capturedAt: "2026-10-11T00:00:00.000Z",
+      }),
     );
 
     const result = await verifyTaskOp(ctx, { id, timeoutMs: 60_000 });

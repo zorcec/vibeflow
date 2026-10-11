@@ -1,10 +1,6 @@
 // ── Structural diff engine (§10 — mechanical layer) ───────────────────────
 
-import type {
-  PositionContext,
-  DomSnapshot,
-  DiffResult,
-} from "./verification-types.js";
+import type { PositionContext, DiffResult } from "./verification-types.js";
 
 export type {
   PositionContext,
@@ -28,14 +24,28 @@ function boundingBoxChanged(
 }
 
 /**
+ * The fields computeDiff actually dereferences. A full DomSnapshot satisfies
+ * this, and so does a projected baseline (see
+ * core/baseline-projection.ts) — widening the parameters to the read set
+ * keeps the projection honestly typeable: if the diff ever reads a dropped
+ * field, the projected type stops being assignable and tsc fails.
+ */
+export interface ElementDiffInput {
+  outerHTML: string;
+  computedStyles: Record<string, string>;
+  position: { boundingBox: PositionContext["boundingBox"] };
+  consoleErrors: string[];
+}
+
+/**
  * Compute the structural diff between a baseline snapshot and a fresh "after" snapshot.
  *
  * This is the mechanical layer (§10): it proves *changed*, not *correct*.
  * The LLM agent reads the diff and applies semantic judgment separately.
  */
 export function computeDiff(
-  baseline: DomSnapshot,
-  after: DomSnapshot,
+  baseline: ElementDiffInput,
+  after: ElementDiffInput,
 ): DiffResult {
   const selectorResolves = Boolean(after.outerHTML);
 

@@ -9,6 +9,12 @@ import { addComment } from "../core/comments.js";
 import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
+import {
+  parseDomSnapshot,
+  parsePageBaseline,
+  BaselineValidationError,
+} from "../core/baseline-projection.js";
+import type { ProjectedPageSnapshot } from "../core/baseline-projection.js";
 import { ExitCode } from "../core/exit-codes.js";
 import { readConfig } from "../core/config.js";
 import { RELEVANT_STYLES } from "../core/page-selector.js";
@@ -463,6 +469,69 @@ export class VerifyError extends Error {
  */
 const NON_RETRYABLE_VERIFY_CODES = new Set(["E_CANCELLED", "E_NOT_FOUND"]);
 
+/**
+ * Validate an element baseline artifact (file or legacy inline), converting a
+ * validation failure into the CLI's VerifyError shape.
+ *
+ * A projected baseline — one with the droppable fields absent BY DESIGN
+ * (xpath, parentSnippet, scrollPosition) — parses cleanly. Anything the
+ * verify path dereferences that is missing or misshapen throws
+ * E_BASELINE_MALFORMED instead of degrading to undefined further down.
+ */
+export function parseElementBaseline(
+  raw: unknown,
+  taskId: string,
+  source: string,
+): DomSnapshot {
+  try {
+    return parseDomSnapshot(
+      raw,
+      `Element baseline ${source} for task ${taskId}`,
+    );
+  } catch (err) {
+    if (err instanceof BaselineValidationError) {
+      throw new VerifyError(
+        "E_BASELINE_MALFORMED",
+        err.message,
+        "Re-annotate the element to capture a fresh baseline, then re-run verify.",
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Validate a page baseline artifact, converting a validation failure into the
+ * CLI's VerifyError shape. A truncated baseline throws E_BASELINE_TRUNCATED
+ * (a capped subset is not a reference); any other shape failure throws
+ * E_BASELINE_MALFORMED. Droppable fields absent by design are tolerated.
+ */
+export function parsePageBaselineArtifact(
+  raw: unknown,
+  taskId: string,
+  source: string,
+): ProjectedPageSnapshot {
+  try {
+    return parsePageBaseline(
+      raw,
+      `Page baseline ${source} for task ${taskId}`,
+    );
+  } catch (err) {
+    if (err instanceof BaselineValidationError) {
+      throw new VerifyError(
+        err.kind === "truncated"
+          ? "E_BASELINE_TRUNCATED"
+          : "E_BASELINE_MALFORMED",
+        err.message,
+        err.kind === "truncated"
+          ? "Re-annotate on the full page, then re-run verify — a capped subset cannot prove anything about the elements beyond the cap."
+          : "Re-annotate to capture a fresh page baseline, then re-run verify.",
+      );
+    }
+    throw err;
+  }
+}
+
 // ── Playwright lazy loader ─────────────────────────────────────────────────
 async function loadPlaywright(): Promise<typeof import("playwright")> {
   try {
@@ -506,16 +575,27 @@ export async function verifyTask(
     task.baselineElementFile || "baseline-element.json";
   const baselinePath = getFilePath(absProjectDir, taskId, baselineElementFile);
   if (baselinePath) {
+    let rawBaseline: unknown;
     try {
-      baseline = JSON.parse(readFileSync(baselinePath, "utf-8")) as DomSnapshot;
-    } catch {
-      // File corrupted, fall through to legacy
+      rawBaseline = JSON.parse(readFileSync(baselinePath, "utf-8"));
+    } catch (err) {
+      // The file EXISTS but does not parse: that is a broken artifact, not a
+      // missing one — fail loudly instead of silently falling back to a stale
+      // legacy baseline (or to E_NO_BASELINE, which would misdirect to
+      // re-annotation for the wrong reason).
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new VerifyError(
+        "E_BASELINE_MALFORMED",
+        `Element baseline ${baselineElementFile} for task ${taskId} is not valid JSON: ${msg}.`,
+        "Re-annotate the element to capture a fresh baseline, then re-run verify.",
+      );
     }
+    baseline = parseElementBaseline(rawBaseline, task.id, baselineElementFile);
   }
 
   // Fallback: legacy inline baseline in task.json
   if (!baseline && task.baseline) {
-    baseline = task.baseline;
+    baseline = parseElementBaseline(task.baseline, task.id, "task.json baseline");
   }
 
   if (!baseline) {
@@ -769,9 +849,12 @@ export async function verifyTask(
     );
 
     // ── 12. Load page baseline and back-fill ─────────────────────────────
-    let pageBaseline: {
-      elements: Record<string, { after: Record<string, string> }>;
-    } | null = null;
+    // A projected page baseline (droppable fields absent BY DESIGN) parses
+    // cleanly. A present-but-malformed or truncated artifact throws
+    // E_BASELINE_MALFORMED / E_BASELINE_TRUNCATED instead of degrading to
+    // undefined back-fills further down. Absence (no file) still means "no
+    // page diff" and is tolerated.
+    let pageBaseline: ProjectedPageSnapshot | null = null;
     const pageBaselineFile = task.baselineFile || "baseline-page.json";
     const pageBaselinePath = getFilePath(
       absProjectDir,
@@ -779,11 +862,22 @@ export async function verifyTask(
       pageBaselineFile,
     );
     if (pageBaselinePath) {
+      let rawPageBaseline: unknown;
       try {
-        pageBaseline = JSON.parse(readFileSync(pageBaselinePath, "utf-8"));
+        rawPageBaseline = JSON.parse(readFileSync(pageBaselinePath, "utf-8"));
       } catch (err) {
-        warnEvidenceCapture(`page baseline ${pageBaselineFile}`, err);
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new VerifyError(
+          "E_BASELINE_MALFORMED",
+          `Page baseline ${pageBaselineFile} for task ${taskId} is not valid JSON: ${msg}.`,
+          "Re-annotate to capture a fresh page baseline, then re-run verify.",
+        );
       }
+      pageBaseline = parsePageBaselineArtifact(
+        rawPageBaseline,
+        taskId,
+        pageBaselineFile,
+      );
     }
 
     // ── 13. Compute structural diff ─────────────────────────────────────
