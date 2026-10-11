@@ -98,9 +98,6 @@ export function SettingsModal({
   const [createBranch, setCreateBranch] = React.useState(
     settings.createBranch ?? false,
   );
-  const [panelFullscreen, setPanelFullscreen] = React.useState(
-    settings.panelFullscreen ?? false,
-  );
   const [requireVerifyBeforeReview, setRequireVerifyBeforeReview] =
     React.useState(settings.requireVerifyBeforeReview ?? false);
 
@@ -140,20 +137,22 @@ export function SettingsModal({
     setAutoComment(settings.autoComment ?? false);
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
-    setPanelFullscreen(settings.panelFullscreen ?? false);
     setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
     setActiveTab("board");
   }, [open, visibleCols, settings]);
 
   function handleApply() {
     const newCols = COLUMNS.filter((c) => colState[c.id]).map((c) => c.id);
+    // panelFullscreen is intentionally omitted: the detail panel's own
+    // maximize/restore control owns that flag, and App.tsx merges this
+    // payload over the live appSettings ({ ...appSettings, ...newSettings }),
+    // so omitting the key preserves a previously saved value.
     onSave(newCols, {
       autoCommit,
       autoComment,
       autoPush,
       createBranch,
       requireVerifyBeforeReview,
-      panelFullscreen,
     });
     appearanceSession.commit?.();
     onClose();
@@ -334,38 +333,6 @@ export function SettingsModal({
               </span>
             </label>
           ))}
-          {/* Own section rather than part of Visible Columns: showing
-              the details panel fullscreen is a display preference, not a
-              column choice. Kept as a sibling of the column labels so the
-              board tab's single flex column still owns the spacing. */}
-          <div className="dp-meta-label" style={{ marginTop: 6 }}>
-            Display
-          </div>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              cursor: "pointer",
-              userSelect: "none",
-            }}
-          >
-            <input
-              id="settings-panel-fullscreen"
-              type="checkbox"
-              checked={panelFullscreen}
-              onChange={() => setPanelFullscreen((v) => !v)}
-              style={{
-                width: 14,
-                height: 14,
-                accentColor: "var(--t-accent)",
-                cursor: "pointer",
-              }}
-            />
-            <span style={{ fontSize: 13, color: "var(--t-text-muted)" }}>
-              Open task details fullscreen
-            </span>
-          </label>
         </div>
       )}
 
