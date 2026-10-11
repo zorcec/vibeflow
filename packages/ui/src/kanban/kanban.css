@@ -252,24 +252,20 @@ body {
 .card-copy-id[data-copied="true"]:hover {
  background: var(--t-hover);
 }
-/* ── Child-row copy-id pill (inline tree + popover) ──
-   Same icon/behavior as the card pill, parked at the row's right edge over
-   the padding so it never shifts the title layout. Revealed only on the
-   row's own hover (not the enclosing card's) or keyboard focus. The
-   absolutely-positioned pill anchors to .child-link-row (position: relative
-   is set there), so it must not disturb the depth selectors in the tree. */
+/* ── Child-row copy-id tab (inline tree + popover) ──
+   NO reveal rules here, on purpose. The tab (CopyIdButton edge mode) is a
+   SIBLING of .child-link-row inside .child-row-wrap and carries its whole
+   box in an inline edge style, which outranks any stylesheet rule — so a
+   `.child-row-wrap:hover .card-copy-id--child` selector would silently do
+   nothing, exactly as the deleted `.child-link-row:hover` one did (it could
+   never match: the tab is not a descendant of .child-link-row). The one
+   reveal mechanism is the row's own hover/focus state in ChildRow /
+   CopyIdButton — see ticket 3411df56. Only positioning that the tab cannot
+   express is left to CSS. */
 .child-link-row {
+ /* Containing block for .child-link-dot--on-line (absolutely parked on the
+  tree line). Not for the copy tab any more. */
  position: relative;
-}
-.card-copy-id--child {
- position: absolute;
- right: 4px;
- top: 50%;
- transform: translateY(-50%);
- background: var(--t-card);
-}
-.child-link-row:hover .card-copy-id--child {
- opacity: 1;
 }
 
 /* ── Status dot ── */

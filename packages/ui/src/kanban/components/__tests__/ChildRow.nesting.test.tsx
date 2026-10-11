@@ -319,7 +319,7 @@ describe("ChildRow sibling actions structure (be8d59c7)", () => {
     }
   });
 
-  it("copy tab is a full-height stretch segment, faint at rest", () => {
+  it("copy tab is a full-height stretch segment, collapsed and invisible at rest", () => {
     const { container } = render(
       <ChildRow child={makeTask()} variant="inline" onOpen={vi.fn()} />,
     );
@@ -328,8 +328,10 @@ describe("ChildRow sibling actions structure (be8d59c7)", () => {
     ) as HTMLElement;
     expect(copyBtn).toHaveStyle({ alignSelf: "stretch" });
     expect(copyBtn.style.position).toBe("static");
-    // Faint glyph — visible affordance, not a hidden pill.
-    expect(copyBtn).toHaveStyle({ opacity: "1" });
+    // Ticket 3411df56: the tab costs the row NOTHING until the row is
+    // hovered/focused — zero width, invisible, not a mouse target.
+    expect(copyBtn).toHaveStyle({ opacity: "0", width: "0px" });
+    expect(copyBtn.style.pointerEvents).toBe("none");
   });
 
   it("wrapper lights on hover and reveals Unlink on keyboard focus", () => {

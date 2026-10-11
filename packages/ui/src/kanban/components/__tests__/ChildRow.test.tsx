@@ -285,6 +285,84 @@ describe("ChildRow copy-id pill", () => {
     vi.restoreAllMocks();
   });
 
+  it("rests invisible and zero-width, and the row's hover/focus reveals it (3411df56)", () => {
+    // Non-vacuity: this is the assertion that fails on the old behaviour.
+    // The a3cff3b edge style forced `opacity: 1` + `min-width: 30px` inline,
+    // so the old component renders opacity "1"/minWidth "30px" here and every
+    // `at rest` expectation below goes red. Conversely, deleting the
+    // `revealed` prop (or defaulting it to true) reds the hover/focus half.
+    // Verified by temporarily reverting each half and watching this test fail.
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
+    );
+    const pill = container.querySelector(
+      '[data-role="copy-id"]',
+    ) as HTMLElement;
+    const wrap = container.querySelector(
+      '[data-role="child-row-wrap"]',
+    ) as HTMLElement;
+    const actions = container.querySelector(
+      '[data-role="child-row-actions"]',
+    ) as HTMLElement;
+    // At rest: no painted glyph, no pointer target, and ZERO box — so the
+    // strip reserves no right-hand gutter, and no divider is drawn for it.
+    expect(pill.style.opacity).toBe("0");
+    expect(pill.style.pointerEvents).toBe("none");
+    expect(pill.style.width).toBe("0px");
+    expect(pill.style.minWidth).toBe("0px");
+    expect(pill.style.padding).toBe("0px");
+    expect(pill.style.overflow).toBe("hidden");
+    expect(actions.style.borderLeftStyle).toBe("none");
+
+    // Row hover — anywhere on the wrapper, not only the title area —
+    // restores the approved full-height tab.
+    fireEvent.mouseEnter(wrap);
+    expect(pill.style.opacity).toBe("1");
+    expect(pill.style.width).toBe("");
+    expect(pill.style.minWidth).toBe("30px");
+    expect(pill.style.padding).toBe("0px 8px");
+    expect(pill.style.overflow).toBe("");
+    expect(pill.style.pointerEvents).toBe("auto");
+    expect(actions.style.borderLeftStyle).toBe("solid");
+    expect(actions.style.borderLeftWidth).toBe("1px");
+
+    fireEvent.mouseLeave(wrap);
+    expect(pill.style.opacity).toBe("0");
+    expect(pill.style.minWidth).toBe("0px");
+  });
+
+  it("keyboard focus reveals the tab without removing it from the a11y tree", () => {
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
+    );
+    const pill = container.querySelector(
+      '[data-role="copy-id"]',
+    ) as HTMLElement;
+    // Reachable: a real button, not display:none / visibility:hidden, and
+    // still in the a11y tree with its accessible name while collapsed.
+    expect(pill).not.toHaveStyle({ display: "none" });
+    expect(pill.style.opacity).toBe("0");
+    expect(pill).toHaveAccessibleName("Copy task id");
+    // Tabbing into it lights it up (row focus-within state).
+    fireEvent.focus(pill);
+    expect(pill.style.opacity).toBe("1");
+    expect(pill.style.pointerEvents).toBe("auto");
+    expect(pill.style.outline).toContain("2px solid");
+    // ...and the reveal is transient: once focus leaves the row the tab
+    // collapses again instead of sticking, and the strip gives back its
+    // space (live-proved on the board: focus elsewhere -> opacity 0,width 0).
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    fireEvent.blur(pill, { relatedTarget: outside });
+    expect(pill.style.opacity).toBe("0");
+    expect(pill.style.width).toBe("0px");
+    outside.remove();
+    // Copy-on-activation still works while revealed by focus alone.
+    fireEvent.focus(pill);
+    fireEvent.click(pill);
+    return waitFor(() => expect(writeText).toHaveBeenCalledWith("abc12345-test-task"));
+  });
+
   it("inline variant renders the copy-id pill with the child modifier class", () => {
     const { container } = render(
       <ChildRow child={makeTask()} variant="inline" depth={1} />,

@@ -79,6 +79,13 @@ export function ChildRow({
     // wrapper paints the hover well across row + actions so the copy tab
     // reads as one surface with the row, and Unlink reveals on hover or
     // keyboard focus exactly as it did under the old :hover rules.
+    // `wrapActive` is also the ONE reveal mechanism for the copy tab: the tab
+    // is collapsed (0 width, invisible) at rest and this state restores it on
+    // row hover or keyboard focus (see CopyIdButton). The stylesheet rules
+    // that used to attempt that reveal were dead — the tab is a SIBLING of
+    // .child-link-row, so `.child-link-row:hover .card-copy-id--child` could
+    // never match, and the inline edge style outranked `.card-copy-id {
+    // opacity: 0 }` (ticket 3411df56).
     const [wrapHover, setWrapHover] = React.useState(false);
     const [wrapFocus, setWrapFocus] = React.useState(false);
     const [wrapDragging, setWrapDragging] = React.useState(false);
@@ -319,8 +326,17 @@ export function ChildRow({
                         marginLeft: "auto",
                         marginTop: 1,
                         marginBottom: 1,
-                        borderLeft:
-                            "1px solid color-mix(in srgb, var(--t-border) 70%, transparent)",
+                        // The strip draws its divider only while revealed:
+                        // collapsed at rest it must leave no gutter, and a
+                        // lone 1px line would still read as one. Longhands
+                        // (not the shorthand) so a test can assert the state.
+                        borderLeftStyle:
+                            wrapActive && (showCopyId || onRemove)
+                                ? "solid"
+                                : "none",
+                        borderLeftWidth: 1,
+                        borderLeftColor:
+                            "color-mix(in srgb, var(--t-border) 70%, transparent)",
                         borderRadius: "0 6px 6px 0",
                     }}
                 >
@@ -330,6 +346,7 @@ export function ChildRow({
                             className="card-copy-id--child"
                             edge
                             edgeEnd={!onRemove}
+                            revealed={wrapActive}
                         />
                     )}
                     {onRemove && (

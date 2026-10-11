@@ -42,16 +42,28 @@ export async function copyTextToClipboard(text: string): Promise<void> {
  * guards below only stop the enclosing card article's onClick.
  *
  * Edge mode (edge=true) carries its own inline visual style — full-height
- * tab, faint glyph at rest, lit well on hover/focus, green well while the
- * "copied" check shows — so the segment looks designed with zero stylesheet
+ * tab, faint glyph, lit well on hover/focus, green well while the "copied"
+ * check shows — so the segment looks designed with zero stylesheet
  * dependency. All colours are semantic --t-* tokens, so dark + light themes
  * recolour together. Pill mode keeps the historical stylesheet look.
+ *
+ * Edge mode is COLLAPSED at rest (ticket 3411df56): width 0, no padding,
+ * opacity 0, pointer-events none, so the row reserves no right-hand gutter
+ * and paints nothing until `revealed` (the enclosing row's hover/focus
+ * state) turns it on. This is deliberately the component's own state and
+ * not a stylesheet rule: the edge style is inline, and inline beats the
+ * stylesheet, so a CSS `.child-row-wrap:hover` rule could never win here
+ * (that contradiction is what made the a3cff3b pill permanently visible).
+ * Reveal is driven by opacity + width — never display/visibility — so the
+ * button stays in the a11y tree and in the tab order; Tab reaches it, focus
+ * sets `revealed` on the row, and the focused tab shows its outline.
  */
 export function CopyIdButton({
         taskId,
         className,
         edge,
         edgeEnd,
+        revealed = false,
         style,
 }: {
         taskId: string;
@@ -62,6 +74,9 @@ export function CopyIdButton({
         /** True when the tab caps the strip's right end (rounded outer
             corner); false when a sibling segment (Unlink) follows it. */
         edgeEnd?: boolean;
+        /** Edge mode only: false collapses the tab to zero width and hides it
+            (the row's resting state), true restores the full-height tab. */
+        revealed?: boolean;
         /** Extra inline style, merged last (wins over the edge defaults). */
         style?: React.CSSProperties;
 }) {
@@ -88,13 +103,18 @@ export function CopyIdButton({
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          minWidth: 30,
+                          // Resting: zero box (no reserved gutter) + invisible + inert to the
+                          // mouse. minHeight stays so the row's height never changes on reveal.
+                          width: revealed ? undefined : 0,
+                          minWidth: revealed ? 30 : 0,
                           minHeight: 22,
-                          padding: "0 8px",
+                          padding: revealed ? "0 8px" : 0,
+                          overflow: revealed ? undefined : "hidden",
                           border: "none",
                           borderRadius:
                                   edgeEnd === false ? 0 : "0 6px 6px 0",
-                          opacity: 1,
+                          opacity: revealed ? 1 : 0,
+                          pointerEvents: revealed ? "auto" : "none",
                           cursor: "pointer",
                           flexShrink: 0,
                           color: copied
@@ -111,7 +131,7 @@ export function CopyIdButton({
                                   ? "2px solid color-mix(in srgb, var(--t-accent) 65%, transparent)"
                                   : "none",
                           outlineOffset: -2,
-                          transition: "background 0.1s, color 0.1s",
+                          transition: "opacity 0.1s, background 0.1s, color 0.1s",
                           ...style,
                   }
                 : style;
