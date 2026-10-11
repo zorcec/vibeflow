@@ -199,3 +199,204 @@ describe("ChildRow interactive nesting (cd061198)", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Sibling-actions structure (ticket be8d59c7): the copy affordance is a
+ * full-height segment at the row's RIGHT edge, and the row root plus the
+ * right-side controls are SIBLINGS inside .child-row-wrap — so no
+ * interactive element nests inside another, neither native button-in-button
+ * nor button-inside-div[role=button] (the residual: 32 buttons still
+ * descended from a role=button element).
+ */
+function roleButtonViolations(root: Element): string[] {
+  const out: string[] = [];
+  for (const host of root.querySelectorAll('[role="button"]')) {
+    for (const el of host.querySelectorAll("button, a")) {
+      out.push(
+        `${el.tagName}[data-role=${el.getAttribute("data-role") || "-"}] inside role=button[data-role=${host.getAttribute("data-role") || "-"}]`,
+      );
+    }
+  }
+  return out;
+}
+
+describe("ChildRow sibling actions structure (be8d59c7)", () => {
+  it("row root and actions strip are siblings inside the wrapper", () => {
+    const { container } = render(
+      <ChildRow
+        child={makeTask()}
+        variant="inline"
+        depth={1}
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+        onRowDragStart={vi.fn()}
+      />,
+    );
+    const wrap = container.querySelector('[data-role="child-row-wrap"]');
+    const row = container.querySelector('[data-role="child-link-row"]');
+    const actions = container.querySelector('[data-role="child-row-actions"]');
+    expect(wrap).toBeInTheDocument();
+    expect(row?.parentElement).toBe(wrap);
+    expect(actions?.parentElement).toBe(wrap);
+    // Row first, actions cap the right edge.
+    expect(Array.from(wrap!.children).indexOf(row!)).toBeLessThan(
+      Array.from(wrap!.children).indexOf(actions!),
+    );
+    expect(actions).toContainElement(
+      container.querySelector('[data-role="copy-id"]')!,
+    );
+    expect(actions).toContainElement(screen.getByText("Unlink"));
+  });
+
+  it("no button/a descends from any role=button: inline + popover + detail", () => {
+    const inline = render(
+      <ChildRow
+        child={makeTask()}
+        variant="inline"
+        depth={1}
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+        onRowDragStart={vi.fn()}
+      />,
+    );
+    expect(roleButtonViolations(inline.container)).toEqual([]);
+    inline.unmount();
+
+    const popover = render(
+      <ChildRow child={makeTask()} variant="popover" onOpen={vi.fn()} />,
+    );
+    expect(roleButtonViolations(popover.container)).toEqual([]);
+    popover.unmount();
+
+    const detail = render(
+      <ChildRow
+        child={makeTask()}
+        variant="detail"
+        depth={1}
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(roleButtonViolations(detail.container)).toEqual([]);
+    detail.unmount();
+  });
+
+  it("Enter on the copy button copies without opening the row", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const original = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const onOpen = vi.fn();
+      const { container } = render(
+        <ChildRow
+          child={makeTask({ id: "kb-sibling-3" })}
+          variant="inline"
+          onOpen={onOpen}
+        />,
+      );
+      const copyBtn = container.querySelector(
+        '[data-role="copy-id"]',
+      ) as HTMLElement;
+      // Sibling key handling: activating the button must not bubble into
+      // the row root's Enter/Space handler.
+      fireEvent.keyDown(copyBtn, { key: "Enter" });
+      expect(onOpen).not.toHaveBeenCalled();
+      fireEvent.click(copyBtn);
+      await vi.waitFor(() =>
+        expect(writeText).toHaveBeenCalledWith("kb-sibling-3"),
+      );
+      expect(onOpen).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        value: original,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  it("copy tab is a full-height stretch segment, faint at rest", () => {
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="inline" onOpen={vi.fn()} />,
+    );
+    const copyBtn = container.querySelector(
+      '[data-role="copy-id"]',
+    ) as HTMLElement;
+    expect(copyBtn).toHaveStyle({ alignSelf: "stretch" });
+    expect(copyBtn.style.position).toBe("static");
+    // Faint glyph — visible affordance, not a hidden pill.
+    expect(copyBtn).toHaveStyle({ opacity: "1" });
+  });
+
+  it("wrapper lights on hover and reveals Unlink on keyboard focus", () => {
+    const { container } = render(
+      <ChildRow
+        child={makeTask()}
+        variant="inline"
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    const wrap = container.querySelector(
+      '[data-role="child-row-wrap"]',
+    ) as HTMLElement;
+    const unlink = screen.getByText("Unlink");
+    // At rest the Unlink segment stays hidden to keep the face clean.
+    expect(unlink).toHaveStyle({ opacity: "0" });
+    fireEvent.mouseEnter(wrap);
+    expect(wrap.style.background).toBe("var(--t-hover)");
+    expect(unlink).toHaveStyle({ opacity: "1" });
+    fireEvent.mouseLeave(wrap);
+    // Keyboard: tabbing into the copy tab lights the strip too.
+    fireEvent.focus(container.querySelector('[data-role="copy-id"]')!);
+    expect(wrap.style.background).toBe("var(--t-hover)");
+    expect(unlink).toHaveStyle({ opacity: "1" });
+  });
+
+  it("wrapper carries the depth dimming the stylesheet ramp used to paint", () => {
+    const { container, unmount } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={2} />,
+    );
+    expect(
+      (container.querySelector('[data-role="child-row-wrap"]') as HTMLElement)
+        .style.opacity,
+    ).toBe("0.7");
+    unmount();
+    const deep = render(
+      <ChildRow child={makeTask()} variant="inline" depth={4} />,
+    );
+    expect(
+      (deep.container.querySelector('[data-role="child-row-wrap"]') as HTMLElement)
+        .style.opacity,
+    ).toBe("0.5");
+    deep.unmount();
+  });
+
+  it("row root keeps the drag-source hooks and the child status badge", () => {
+    const onRowDragStart = vi.fn();
+    const { container } = render(
+      <ChildRow
+        child={makeTask({ status: "review" })}
+        variant="inline"
+        depth={1}
+        onRowDragStart={onRowDragStart}
+      />,
+    );
+    const row = container.querySelector(
+      "[data-role='child-link-row']",
+    ) as HTMLElement;
+    expect(row).toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(row);
+    expect(onRowDragStart).toHaveBeenCalledWith(
+      expect.anything(),
+      "nesting-task-id",
+    );
+    const badge = container.querySelector('[data-role="child-status"]');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("data-status", "review");
+  });
+});

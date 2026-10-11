@@ -330,6 +330,42 @@ describe("ChildRow copy-id pill", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("child-42"));
     expect(onOpen).not.toHaveBeenCalled();
   });
+
+  it("edge geometry: pill is a stretch tab capping the actions strip (be8d59c7)", () => {
+    const { container, unmount } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
+    );
+    const pill = container.querySelector(
+      '[data-role="copy-id"]',
+    ) as HTMLElement;
+    const actions = container.querySelector(
+      '[data-role="child-row-actions"]',
+    ) as HTMLElement;
+    const row = container.querySelector(
+      '[data-role="child-link-row"]',
+    ) as HTMLElement;
+    // Sibling of the row root, last tab in the strip: rounded outer corner.
+    expect(pill.parentElement).toBe(actions);
+    expect(actions.parentElement).toBe(row.parentElement);
+    expect(pill).toHaveStyle({ alignSelf: "stretch" });
+    expect(pill.style.borderRadius).toContain("6px");
+    unmount();
+    // With Unlink following, the copy tab is the middle segment: square.
+    const withUnlink = render(
+      <ChildRow
+        child={makeTask()}
+        variant="inline"
+        depth={1}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(
+      (withUnlink.container.querySelector(
+        '[data-role="copy-id"]',
+      ) as HTMLElement).style.borderRadius,
+    ).toBe("0px");
+    withUnlink.unmount();
+  });
 });
 
 describe("ChildRow verify indicator (three states)", () => {
