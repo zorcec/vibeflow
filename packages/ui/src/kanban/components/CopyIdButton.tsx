@@ -34,9 +34,12 @@ export async function copyTextToClipboard(text: string): Promise<void> {
  * panel does not have to be opened just to read it. Hidden until the parent
  * row/card is hovered (or the button is keyboard-focused) — see .card-copy-id
  * in kanban.css — so the face stays clean. Swaps to a check for 1.2s as
- * copy feedback. Rendered nested inside the row/card root button (the same
- * precedent as the tree's Unlink button), so stopPropagation on
- * mousedown+click keeps the parent's own onClick from firing.
+ * copy feedback. Rendered INSIDE the row/card root element alongside the
+ * row's other affordances (the tree's Unlink button is its sibling, not its
+ * ancestor), so stopPropagation on mousedown+click keeps the row's own
+ * onClick from firing — a genuine bubbling guard, kept after the cd061198
+ * restructure (the row root is a div with button semantics, never a native
+ * <button>, precisely so these inner buttons are legal).
  */
 export function CopyIdButton({
         taskId,

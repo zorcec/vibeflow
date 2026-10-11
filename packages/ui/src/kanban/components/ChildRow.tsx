@@ -62,18 +62,39 @@ export function ChildRow({
     // stay aligned under the relation-group label (dot + gap = one step).
     const nestingSteps = isInline ? Math.max(guideDepth - 1, 0) : guideDepth;
     const indentPx = (isMinimal ? 2 : 2.5) + nestingSteps * TREE_INDENT_PX;
+    // Root is a div with button semantics, NOT a native <button>: the row
+    // carries interactive children (CopyIdButton, the Unlink button), and a
+    // button inside a button is invalid HTML (React validateDOMNesting,
+    // ticket cd061198). A div host makes those children legal siblings while
+    // role="button" + tabIndex + Enter/Space handling keeps the whole row
+    // keyboard-operable exactly as the native button was.
     return (
-        <button
+        <div
             className={`child-link-row child-link-row--${variant}${isOrphan ? " child-row--orphan" : ""}`}
             data-role="child-link-row"
             data-task-id={child?.id}
             data-orphan={isOrphan || undefined}
-            type="button"
+            role="button"
+            tabIndex={0}
+            aria-label={`Open child task ${title}`}
             style={{ paddingLeft: indentPx }}
             draggable={draggable || undefined}
             onClick={(e) => {
+                // Genuine bubbling guard (kept): the row sits inside the
+                // card article's onClick — without this a row click opens
+                // the parent card instead of the child.
                 e.stopPropagation();
                 onOpen?.();
+            }}
+            onKeyDown={(e) => {
+                // Native-button parity: Enter/Space anywhere on the row
+                // (outside the inner buttons, which handle their own keys)
+                // opens the child. preventDefault on Space stops the page
+                // scroll a native button would also have suppressed.
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpen?.();
+                }
             }}
             onDragStart={
                 onRowDragStart
@@ -236,6 +257,6 @@ export function ChildRow({
                     Unlink
                 </button>
             )}
-        </button>
+        </div>
     );
 }
