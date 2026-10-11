@@ -1,5 +1,177 @@
 # Changelog
 
+## 0.19.4
+
+### Patch Changes
+
+- 1bb7ecc: Pin the baseline projection contract and fail loudly on malformed baselines
+
+  - New single source of truth `core/baseline-projection.ts`: `projectPageSnapshot` / `projectElementSnapshot` keep exactly the fields verify and the query tools read (`after`, `selector`, `tag`, `childCount`, `childSignature`, `text`, `dataAttrs`, `position` per page element, plus the structural envelope; the full `DomSnapshot` field set minus `xpath`/`parentSnippet`/`scrollPosition` per element baseline), and document the deliberately dropped fields (`baseline`, `parentKey`, `classes`, inner `key`) with reasons
+  - `computeDiff` and the `page-diff` query functions now take the projected (minimal-read) shapes, so a future read of a dropped field fails the type-check instead of silently breaking projected baselines
+  - `verify` and the verify query tools validate baseline artifacts at the boundary: a projected baseline (droppables absent by design) parses cleanly, while a present-but-malformed artifact throws `E_BASELINE_MALFORMED` (or `E_BASELINE_TRUNCATED` for a capped-subset baseline) instead of degrading to undefined back-fills
+  - Pinned by `tests/unit/baseline-projection.test.ts` (40 tests): exact field sets, per-consumer read coverage, and an equivalence proof — the real `computeDiff` / page-diff queries run over the real baseline pair produce identical verdicts from the full and the projected form
+
+- 2b14ac5: `tasks --edit --set-verify` now reports the verdict it wrote, so a success line can no longer look like a dropped one
+
+  - The human run prints the verdict outcome (`verify: pass — recorded (verified=true)`, `verify: fail — recorded (verified=false; the review gate blocks it)`, `verify: cannot — no badge (verified left absent); reason recorded in activity`)
+  - The `--json` payload carries `verification: { verdict, verified, reasonRecorded }`
+  - A reason that fails to record is now a refusal in human mode too (no green `✓ Task updated` ahead of the failure)
+
+  `verified` is a tri-state flag — `true` (the agent verified the task IS correct), `false` (verified it is NOT), **absent** (not assessed, no badge) — and a `cannot` verdict deliberately writes ABSENCE, with its reason recorded as an activity comment rather than as a field. So after `--set-verify cannot --verify-reason "why"` the task file shows no verdict and no reason field, and the only place a caller could learn that both writes happened was a bare `✓ Task updated: <title>`. That silence read as a silently dropped verdict: the verdict had in fact been recorded on annotated and unannotated tasks alike. The local run now states the outcome on both surfaces, and a lost `--verify-reason` (like a lost `--comment`) fails the run with `E_COMMENT_SAVE` instead of a tick plus an exit code.
+
+- a6a5fee: Filtered task listings no longer hide matching children, and `--next` falls back to a child claim
+
+  A todo child of a backlog parent used to be invisible: `--status todo` dropped every matching child whose parent did not match the filter, and `--next` reported "No todo tasks found" while a todo task existed. A filtered listing (`--status`/`--type`/`--tag`/`--user`) now returns every matching task, children included, each with parent context (the relations `parent:` line now carries the parent's status, e.g. `parent: abc12345 Backlog parent [backlog]`). The unfiltered listing keeps the root-only default. `--next` still prefers the highest-priority todo root, but when no todo root is claimable it claims the highest-priority matching child and says so explicitly (human `⤷ CHILD CLAIM …` line; `childClaim: true` plus `parent: { id, title, status }` in `--json`), so a claimable task is never skipped silently.
+
+  Deliberately revised rule: "`--next` never returns a child" is now "`--next` prefers roots and falls back to an explicitly-marked child claim when no todo root is claimable" — the owner's invisibility complaint leaves silence unacceptable, while roots-first keeps the root-as-unit-of-work invariant for the common case.
+
+- 75e37c2: `tasks --next` no longer claims work blocked by unfinished gates
+
+  `--next` ignored `blocks` links entirely, so once children became claimable it could hand out a todo child blocked by an unfinished gate (e.g. a decommission step blocked by an unpassed parity gate — deleting the evidence the gate needs). Only `done` satisfies a `blocks` link now: `review` counts as unfinished, and every filter-matching todo blocked by non-`done` work is skipped at claim time. The skip is always named — the human run prints a `skipped N blocked task(s)` section with each task and its blockers (`<id> <title> — blocked by <id> <title> [status]`), and `--json` carries the same list as `blocked`. When every remaining candidate is blocked, nothing is claimed and the report reads `All remaining todo tasks are blocked (N) — nothing claimed`, with `task: null, allBlocked: true` in `--json`, so "all work is blocked" is distinguishable from "no work".
+
+- 220f37f: Compress text artifacts before upload so the server stores them verbatim
+
+  Push (`uploadTaskFiles`) now brotli-compresses eligible text attachments
+  (md, html, non-baseline json, txt, csv) at quality 5 via `node:zlib` before
+  uploading, declaring the payload form per file with the `x-content-encoding:
+br` header. The server stores verified uploads verbatim as the at-rest form
+  — one encode total, zero server CPU. Images and `baseline-*.json` travel raw
+  with no header, and inputs that do not shrink stay plain, so pulls and older
+  clients are unaffected.
+
+- bf3c1dc: Fix `tasks --edit --dry-run` with `--report-file` mutating before validation fails
+
+  - ✨ `--dry-run` with `--report-file` is now a true dry run: zero uploads, zero file moves
+  - ✨ A review run that fails validation (e.g. missing `--comment`) no longer uploads or deletes the report first
+
+  The `--report-file` upload used to run before the review gate, so a refused
+  run had already saved the attachment and deleted the source file — and
+  `--dry-run` mutated too. The path is now validate (read-only, keeps its
+  `E_NOT_FOUND` / `E_USAGE` precedence), then gate (which accepts the carried
+  report for gate 5), then upload — skipped entirely under `--dry-run`. The
+  source file is still consumed (moved, not copied) on a real successful run;
+  copy it yourself first if it must keep living in `docs/`.
+
+- f53e25b: Document the Research-verdict refusal where the flags are documented
+
+  A verdict on a `type:"Research"` task has been refused since 0.18.0 — the review
+  gate, the CLI's standalone `--set-verify` check, and the MCP `setVerify` path
+  all return `RESEARCH_VERIFY_NOT_ALLOWED` — but the README said so only in the
+  MCP section, so a reader of the `--set-verify` flag docs learned three verdict
+  forms with no mention of the one type that takes none of them. The flag docs
+  now carry the warning directly, and a doc test pins both its position (the
+  line after the last `--set-verify` flag) and the code it names to
+  `RESEARCH_VERIFY_NOT_ALLOWED_REFUSAL`, so the documented claim cannot drift
+  from the CLI.
+
+  Regression tests pin the rule at the write boundary rather than at the gate:
+  all three verdict forms on a Research task exit non-zero AND leave the task
+  byte-identical (no verdict, no status change, no `cannot` reason comment), the
+  review transition still refuses on the verdict before the missing-report gate,
+  and Bug/Feature tasks still take `pass`, `fail` and `cannot`.
+
+- cb1daf3: Review auto-commit no longer misses unstaged task files, and `--children` with a task ID is a usage error
+
+  Two outputs that misled callers now behave:
+
+  - `tasks --edit <id> --set-status review --commit-message "..."` stages the
+    task's own file (and its attachments directory) itself before committing,
+    so the usual case — status and comment just saved, nothing staged —
+    commits instead of printing "Task WAS updated ... but the commit did NOT
+    happen" with exit 0. Untracked new task files are staged the same way; a
+    record that is already fully committed links the current HEAD instead of
+    failing. Genuine git failures (not a repository, git errors) still report
+    `GIT_COMMIT_FAILED` without implying success.
+  - `tasks --children <task-id>` no longer prints "No tasks found" with exit
+    0 (the id was parsed as the `[dir]` positional, so the CLI listed an
+    empty non-store). It is now an explicit `E_USAGE` error naming
+    `--children` and pointing at `tasks --get <id>`; `--children --help`
+    teaches the same.
+
+- 174054d: Fix `tasks --edit --dry-run` mutating the online board in SaaS mode
+
+  - `--dry-run` in online (SaaS) mode no longer PATCHes the backend — it prints the same preview shape as the local path and returns before any remote write ✨
+
+  The `editMode === "saas"` branch called `updateSaasTask` (and `addSaasComment`
+  when `--comment` was passed) with no dry-run guard — the local dry-run preview
+  sits after that branch, so it never protected it. A dry run now returns before
+  either remote call, keeping only the read-only `fetchSaasTask` conflict check,
+  and emits the same preview shape the local path uses (`payload:
+{ dryRun: true, ... }` under `--json`; a `[dry-run] Would update task:` line in
+  human mode).
+
+- 98e2e9d: Fix `tasks --edit --set-verify` being silently dropped in SaaS (online) mode
+
+  - SaaS edits now send the verification verdict (`verified: true/false/null`)
+
+  The `editMode === "saas"` branch built its PATCH from status/title/description/branchName only and never read `--set-verify`, so an attestation submitted in online mode reported success while nothing was stored. The PATCH now carries the same tri-state mapping the local path uses (pass → `true`, fail → `false`, cannot/claim → `null`), the `--dry-run` preview shows it, and a `cannot` reason is recorded as a SaaS comment (mirroring the local system-comment) with the caller told plainly it landed as a comment, not a field.
+
+- 831c3ac: Make verify and task output self-documenting for agents without loaded skills
+
+  Guidance that lives only in skills reaches only agents that load them: a
+  run printed its evidence-explorer sub-commands and the agent still
+  hand-parsed the evidence JSON, and another agent assumed
+  `tasks --get --json` does not exist when it does. The tools now teach their
+  own correct use, in imperative form, where the agent's eyes already are.
+
+  - `vibeflow verify` post-run output: the explorer block is now an explicit
+    instruction ("Before reading evidence files by hand, explore them with:")
+    directly after the evidence file list, with the STATIC-capture caveat
+    (hover/focus/behavior still needs a live headless-Playwright check).
+  - `tasks --get` agent-instructions boilerplate: the Details line notes
+    `--json` for machine-readable output, and a new Evidence line sends agents
+    to the explorer sub-commands instead of hand-parsing evidence JSON.
+  - `vibeflow verify --help`: the command description names the explorer
+    sub-commands and the STATIC-capture scope.
+
+- 522d3e5: `vibeflow verify` records WHICH build it measured
+
+  A served-build fingerprint (sha256 of the served page's inlined bundle + CSS, or
+  its content-hashed asset URLs, plus its version stamp) is printed next to the
+  evidence paths and stored in `verify-after.json` / `baseline.json` / the
+  `--json` result. A board still serving an old bundle no longer looks exactly
+  like a board serving the build under test.
+
+- ad5d9b4: Replace lossy-JPEG-everything image ingest with the measured image matrix
+
+  Uploads and pastes no longer transcode every image to lossy JPEG. A shared,
+  dependency-injected transform module (`@vibeflow-tools/ui/kanban`, browser-safe
+  core + one `@jsquash` wasm path for every runtime, pure JS/wasm only — no
+  native dependencies) implements the policy: PNG/BMP/TIFF of any size become
+  lossless WebP, images wider than 1920px are resized to width 1920 with WebP
+  q80, narrow JPEGs are kept with only their metadata stripped (byte-level
+  APP/COM drop, no re-encode), and GIF/SVG pass through untouched. Stored files
+  always carry their true extension (`.webp`/`.jpg`/`.png`), and JPEG input
+  never takes the lossless-WebP branch. The wasm binaries load lazily from the
+  CLI server on first transform, so the overlay and board bundles stay small;
+  where no codec is reachable the original bytes are kept with a matching
+  extension instead of failing.
+
+  - Images stop being squeezed into lossy JPEG: screenshots, uploads and pastes
+    transcode to lossless WebP (bit-exact), and anything wider than 1920px is
+    downscaled to 1920 at q80 — smaller files for storage and for agent image
+    tokens. Pure wasm, no native dependencies: it works on every machine out of
+    the box.
+
+- da40bcc: Remove the "live" connection pill from the kanban board header
+
+  The header no longer shows the green live-status pill next to the project
+  name. The board still reconnects automatically in the background; only the
+  badge itself is gone, leaving a cleaner header.
+
+- aaa9c3d: Fix WebSocket broadcast starvation: a per-socket send failure (e.g. a client that just disconnected) no longer aborts the broadcast loop or escapes into the mutation handler as a spurious "Failed to broadcast task event" warning. Each socket send is guarded individually so one dead client can never prevent the remaining clients from receiving the event.
+- 0c9e906: Apply the image matrix to verify screenshots at capture time
+
+  `vibeflow verify` no longer writes the raw Playwright PNG. The screenshot
+  bytes run through the shared T1 pipeline (`transformImageBytes`, pure
+  JS/wasm — no sharp, no new deps) before storage: viewports wider than
+  1920px resize to width 1920 with WebP q80, narrower screenshots transcode
+  to lossless WebP. The file is stored under its true extension
+  (`verify-screenshot.webp`, with a raw-PNG fallback keeping `.png` when the
+  transform fails) and `SYSTEM_FILE_NAMES` recognizes the new `.webp` name —
+  alongside the legacy `.png` — so the evidence `system` flag semantics are
+  unchanged.
+
 ## 0.19.3
 
 ### Patch Changes

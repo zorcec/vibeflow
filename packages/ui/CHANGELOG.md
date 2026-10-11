@@ -1,5 +1,182 @@
 # @vibeflow-tools/ui
 
+## 0.3.6
+
+### Patch Changes
+
+- 0bcf80c: The child-row status badge now fades out while the row is hovered or keyboard-focused — the same state that reveals the copy-id tab — so the revealed tab is not competing with the badge. The badge stays in the DOM (and in the accessibility tree) with its status text and tooltip; only its opacity changes, so no layout shifts.
+- 2a5197a: Reveal the child-row copy tab only on row hover.
+
+  The copy tab on a nested child row used to be permanently visible and always
+  reserved its ~30px at the row's right edge, because its edge style is inline
+  and inline beats the stylesheet: `.card-copy-id { opacity: 0 }` never applied
+  and the absolute-positioning rule never took effect. The reveal rule
+  `.child-link-row:hover .card-copy-id--child` could not match either — the tab
+  is a SIBLING of `.child-link-row`, not a descendant.
+
+  The tab is now collapsed to zero width, invisible and inert at rest, and the
+  one reveal mechanism is the row's own hover/focus state (ChildRow's
+  `wrapActive` → `CopyIdButton revealed`). Hovering anywhere on the row, or
+  tabbing into the tab, restores exactly the approved full-height segment.
+  Opacity + width are used, never display/visibility, so the tab stays in the
+  a11y tree and in the tab order. The two dead stylesheet rules were deleted.
+
+- 0bcf80c: The detail panel's ID tile now carries an always-visible copy-id button next to the task id — quiet at rest, with a lit well and stronger glyph on hover, and the usual copied confirmation on click.
+- ad5d9b4: Replace lossy-JPEG-everything image ingest with the measured image matrix
+
+  Uploads and pastes no longer transcode every image to lossy JPEG. A shared,
+  dependency-injected transform module (`@vibeflow-tools/ui/kanban`, browser-safe
+  core + one `@jsquash` wasm path for every runtime, pure JS/wasm only — no
+  native dependencies) implements the policy: PNG/BMP/TIFF of any size become
+  lossless WebP, images wider than 1920px are resized to width 1920 with WebP
+  q80, narrow JPEGs are kept with only their metadata stripped (byte-level
+  APP/COM drop, no re-encode), and GIF/SVG pass through untouched. Stored files
+  always carry their true extension (`.webp`/`.jpg`/`.png`), and JPEG input
+  never takes the lossless-WebP branch. The wasm binaries load lazily from the
+  CLI server on first transform, so the overlay and board bundles stay small;
+  where no codec is reachable the original bytes are kept with a matching
+  extension instead of failing.
+
+  - Images stop being squeezed into lossy JPEG: screenshots, uploads and pastes
+    transcode to lossless WebP (bit-exact), and anything wider than 1920px is
+    downscaled to 1920 at q80 — smaller files for storage and for agent image
+    tokens. Pure wasm, no native dependencies: it works on every machine out of
+    the box.
+
+- 0b0010d: Add a copy-task-id button to kanban task cards
+
+  A minimalistic icon in the card's top-right corner copies the task id to the
+  clipboard, so the detail panel no longer has to be opened just to read it. The
+  button is hidden until the card is hovered (or reached by keyboard focus), keeps
+  the card's click behaviour out of the way via stopPropagation, and swaps to a
+  check mark for 1.2s as copy feedback. Falls back to `execCommand("copy")` when
+  `navigator.clipboard` is unavailable (plain-http LAN access to the CLI board).
+  Exposed to tests as `[data-role="copy-id"]`.
+
+  Refined for visibility: on card hover the pill lights up with the same hover
+  background as the tree-toggle chip (22×22, radius 6) so it reads as an active
+  affordance rather than a ghost icon, and `[data-copied]` turns it green while
+  the check mark shows.
+
+  Extended to child task rows on the board (inline card-zone tree and
+  children popover): hovering a child row reveals the same copy-id pill — same
+  icon, same click-to-copy with check feedback — parked at the row's right
+  edge. The detail-panel rows are unchanged. The card-level hover reveal is
+  scoped so hovering a card no longer lights up its children's pills.
+
+  - Copy a task's id straight from the board: a hover-revealed pill on the card — and now on child rows too — copies the id to your clipboard with a green check as feedback, so the detail panel never has to be opened just to read it.
+
+- 183f177: Kanban column headers show the nested-task hint as the bare count (`↳ 7`) instead of a bordered pill reading `↳ 7 nested`, and the pill's border/padding/background are gone. The explanation is unchanged and still available on hover (title) and to screen readers (aria-label), so nothing is lost beyond the visual weight.
+- da40bcc: Remove the "live" connection pill from the kanban board header
+
+  The header no longer shows the green live-status pill next to the project
+  name. The board still reconnects automatically in the background; only the
+  badge itself is gone, leaving a cleaner header.
+
+- 373f267: Match the settings fullscreen checkbox to the modal's other checkboxes
+
+  The "Open task details fullscreen" checkbox in the kanban settings Board tab
+  set only `width`, `height` and `cursor`, so the browser painted it with the
+  OS-default accent while every other checkbox in the same modal uses the
+  design-token accent (`var(--t-accent)`). It now carries the same token, and it
+  moved out of "Visible Columns" into its own "Display" section, because showing
+  the details panel fullscreen is a display preference rather than a column
+  choice. Behaviour is unchanged: the `panelFullscreen` flag, its toggle and the
+  Apply path are exactly as before.
+
+  - The fullscreen settings checkbox now picks up the theme accent instead of the OS default blue, and sits in its own "Display" section under the column list.
+
+- a3cff3b: Redesign the child-row copy affordance as a full-height right-edge segment
+
+  The copy-id control on child rows was a small floating pill parked over the
+  row padding. It now renders as a full-height tab attached to the row's right
+  edge inside a dedicated actions strip: faint glyph at rest so it reads as
+  part of the row, lit well on row hover and on keyboard focus, green
+  well while the "copied" check shows. The Unlink control joins it as a second
+  full-height segment, still hover/focus-revealed. The row root and the
+  actions strip are siblings inside a `.child-row-wrap`, so no interactive
+  element nests inside another — neither native button-in-button nor
+  button-inside-`div[role=button]`. Whole-row click, Enter/Space activation,
+  row drag/drop, depth dimming, and the child status badge are unchanged.
+
+- 567070c: Fix invalid HTML on the kanban board: child-row buttons nested inside the row button
+
+  `ChildRow` rendered its root as a native `<button>` while carrying two
+  interactive children (the copy-id pill and the Unlink button), which React
+  flags as `validateDOMNesting: <button> cannot appear as a descendant of
+<button>` and which made the row depend on `stopPropagation` shims for
+  correct click/focus behaviour. The row root is now a `div` with `role="button"`,
+  `tabIndex={0}` and Enter/Space handling, so the inner buttons are legal
+  siblings; every behaviour is preserved (row click/keyboard open, expansion
+  toggle, hover/keyboard-lit copy-id that copies, link/unlink, status badge,
+  row drag) and every kept `stopPropagation` is a genuine bubbling/drag guard.
+
+- 135b18f: Lock the kanban header to the board-configured icon with a regression test
+
+  The shared kanban header renders the board's configured icon when one is
+  provided (`projectIcon`) and keeps the Vibeflow brand mark only as the
+  fallback for boards without an icon. A new `Header.project-icon` suite pins
+  that arbitration — board icon present means the Vibeflow mark is absent and
+  vice versa — plus the 32px icon box and the whitespace-counts-as-missing
+  rule, so a future change that ignores `projectIcon` fails loudly instead of
+  silently repainting every board with the brand mark. No visual change: the
+  header renders exactly as before.
+
+- 4604d6a: Board column headers now state the honest per-status breakdown, and nested child rows carry their own status
+
+  A column used to show only its standalone card count (`Review · 5`) while
+  `tasks --status review` counted every task bearing the status (15), because
+  children render solely inside their parent's card. The header now reads
+  `Review · 5 (+10 nested)` whenever tasks with that status render nested
+  inside parent cards elsewhere, computed from the board's existing task data
+  (total-by-status minus standalone-by-status, no second fetch); columns with
+  no nested tasks render exactly as before. The nested figure is reachable via
+  a hover title on the header count spelling out the breakdown. Board card
+  child rows additionally show the child's own status badge, so a child in
+  review nested under an in-progress parent reads as review. The nesting rule,
+  drag/reparent behaviour, and done-lane fit logic are unchanged.
+
+- 2f8d106: Show only the root-card count in kanban column headers
+
+  Column headers render the count of root/standalone cards actually shown in
+  that column (e.g. `Review · 2`). The old `(+N nested)` suffix is gone from
+  the visible header text. Nothing is hidden: columns with nested tasks show
+  a subtle `↳ N nested` hint chip beside the count, and both the count and
+  the chip carry a hover title (`N tasks have status X: R shown as cards, M
+nested inside parent cards in other columns`) plus an aria-label, so the
+  numbers still reconcile against every task carrying the status. Child
+  status badges inside parent cards are unchanged.
+
+- b5ebf08: Remove the fullscreen checkbox from the kanban settings modal
+
+  The "Open task details fullscreen" checkbox (`#settings-panel-fullscreen`)
+  is gone from the settings Board tab, along with its local state and Apply
+  wiring. The `panelFullscreen` preference itself stays alive: the detail
+  panel's own maximize/restore control (`#dp-fullscreen-toggle`) still reads
+  and writes the same persisted flag, `AppSettings.panelFullscreen` is
+  unchanged, and the settings allowlist still accepts it. The modal's save
+  payload omits the key, so App.tsx's `{ ...appSettings, ...newSettings }`
+  merge preserves a previously saved value instead of clobbering it.
+
+  - Settings no longer shows a fullscreen checkbox; the detail panel's own toggle remains the single control for the flag.
+
+- 3dfdd54: Match the child-row status badge colours to the kanban columns
+
+  The `.status-badge--*` label colours were shifted by one status relative to
+  the board: a todo badge wore backlog's gray, an in-progress badge wore todo's
+  orange, and a review badge wore in-progress's blue, so a label never matched
+  its column (backlog and done happened to be correct). This was a copy/paste
+  shift in the badge rules, not a design decision. The three wrong rules now
+  carry their canonical hues — todo amber, in-progress blue, review purple —
+  mirroring the DetailPanel status buttons, the FilterBar chips, and the list
+  view, via the theme-aware chip tokens so dark and light themes recolour
+  together. The CLI prints plain uncoloured `[status]` text, so there was
+  nothing to match there.
+
+- 341c1b1: Document the web runtime in the shared codec layer's contract: like the CLI browser bundles, the web app now serves the jsquash wasm binaries from its own origin (`/__vibeflow__/codecs`, shipped in the web app public directory), so web/SaaS uploads run the same transform matrix. The loader API is unchanged — `configureWasmBaseUrl` already accepted any base URL.
+
+  - The shared image-codec layer now names both runtimes it serves: the CLI server route and the web app's own origin both feed the same lazy wasm loader, so one transform matrix covers every upload path.
+
 ## 0.3.5
 
 ### Patch Changes
