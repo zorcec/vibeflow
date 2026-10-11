@@ -2,7 +2,7 @@
 "@vibeflow-tools/ui": patch
 ---
 
-Reveal the child-row copy tab only on row hover (3411df56)
+Reveal the child-row copy tab only on row hover.
 
 The copy tab on a nested child row used to be permanently visible and always
 reserved its ~30px at the row's right edge, because its edge style is inline
