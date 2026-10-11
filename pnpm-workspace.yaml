@@ -11,18 +11,11 @@ onlyBuiltDependencies:
 # pnpm reads overrides from this file, not from the "pnpm" field in
 # package.json.
 overrides:
-  # Both of these reach the published CLI as RUNTIME dependencies, via
-  # @modelcontextprotocol/sdk, and all three carried a floor in the root
-  # package.json "overrides" block that never bound anything. The block has
-  # been deleted; these are the entries from it that still had a live
-  # advisory to clear. Floors are set to the highest patched version across
-  # every open advisory for the package, not the lowest, so one entry clears
-  # all of them.
-  #
-  #   qs          via sdk > express > body-parser   (2 advisories)
-  #   hono        via sdk > @hono/node-server       (1 advisory)
+  # qs reaches the published CLI as a RUNTIME dependency, via
+  # @modelcontextprotocol/sdk > express > body-parser (2 advisories). The
+  # floor is the highest patched version across every open advisory for the
+  # package, so one entry clears all of them.
   "qs": ">=6.16.0"
-  "hono": ">=4.13.7"
   # esbuild 0.28.1 fixes GHSA on the tsup > bundle-require chain. Build-time
   # only and low severity, but it is a one-line floor.
   "esbuild": ">=0.28.1"
