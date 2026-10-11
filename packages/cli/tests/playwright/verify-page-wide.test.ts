@@ -282,7 +282,7 @@ beforeAll(async () => {
           viewport: {
             width: window.innerWidth,
             height: window.innerHeight,
-            dpr: window.deviceRatio,
+            dpr: window.devicePixelRatio,
           },
           stackingContext: {
             zIndex: computed.zIndex,
