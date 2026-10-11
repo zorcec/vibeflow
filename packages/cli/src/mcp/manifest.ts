@@ -180,6 +180,9 @@ export const mcpOnlyFields: Record<string, string> = {
   "create_task.sortKey":
     "explicit board ordering key. `tasks --add` auto-assigns one; `--sort-key` now allows an override, so the gap is CLOSED.",
 
+  "create_task.links":
+    "merge. Links are ADDED to the new task, and `parent` (when given) is folded into the same union — a pair named twice is a no-op — so this is the same semantic as update_task.links and the CLI's --relates/--blocks. MCP-only in field SHAPE (one array vs repeatable flags; the CLI's `tasks --add` takes only the single `--parent`), exactly like create_task.tags vs `tasks --tag`.",
+
   // ── create_task.tags: array-vs-repeatable-flag difference ────────────────
   // The CLI does have --tag, but it is repeatable-for-AND. MCP takes the whole
   // array in one field, so the CLI flag is listed in create_task.cliRef and the
@@ -272,7 +275,8 @@ export const manifest: ToolManifest[] = [
   {
     name: "create_task",
     title: "Create task",
-    description: "Create a new task with title, description, and metadata.",
+    description:
+      "Create a new task with title, description, and metadata. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
     cliRef: {
       command: "tasks",
       flags: [

@@ -429,4 +429,27 @@ describe("MCP drift test", () => {
       "update_task.description still claims links replace the set — links is MERGE now",
     ).not.toMatch(/REPLACES the entire link set/i);
   });
+
+  it("G5 — create_task link fields merge, and the description must say so", () => {
+    // The silent-drop this gate pins: `create_task` accepted a `links`
+    // parameter and answered ok:true while discarding it — the zod schema
+    // had no `links` field, so the unknown key was stripped and the created
+    // child landed unlinked. A passing unit test alone could miss a repeat,
+    // so the parameter set itself is pinned here: the field must exist and
+    // the description must state the merge semantic an agent actually reads.
+    const create = manifest.find((m) => m.name === "create_task")!;
+    const fields = Object.keys(create.input);
+
+    expect(fields).toContain("links");
+    expect(fields).toContain("parent");
+
+    // The description must name the merge semantic and the refusal, not just
+    // the field's existence.
+    for (const needle of ["MERGE", "links", "parent", "REFUSED"]) {
+      expect(
+        create.description,
+        `create_task.description must explain "${needle}" — an agent reads this, not the schema`,
+      ).toContain(needle);
+    }
+  });
 });

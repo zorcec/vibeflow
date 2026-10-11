@@ -243,6 +243,31 @@ export const CreateTaskInput = z.object({
   // Optional parent task id (full id or unique prefix); links the new task
   // under it as a child.
   parent: z.string().min(1).optional(),
+  // MERGE semantics, identical to `update_task`'s `links` and to the CLI's
+  // `--relates` / `--blocks`: every listed pair is ADDED to the new task,
+  // and `parent` (when given) is folded into the same set, so sending both
+  // merges their union once — a pair named twice is a no-op, never a
+  // duplicate-parent refusal. A brand-new task has no links yet, so there
+  // is nothing to preserve; merge still matters because it is what makes
+  // `parent` + `links` composable instead of mutually exclusive.
+  // `links: []` is refused (E_USAGE) rather than read as "no links": the
+  // same trap `update_task` closes — under merge an empty array names no
+  // links, and silently doing nothing would hide a client that still assumes
+  // replace semantics. Omit the field entirely for no links.
+  links: z
+    .array(
+      z.object({
+        taskId: z.string().min(1),
+        // SAFETY: TASK_LINK_TYPES is a readonly tuple; z.enum requires a mutable tuple type.
+        type: z.enum(
+          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
+        ),
+      }),
+    )
+    .optional()
+    .describe(
+      "ADD the listed links to the new task (merge, same as update_task's `links`). Combined with `parent` as a union; a pair named twice is a no-op. `links: []` is REFUSED — omit the field for no links.",
+    ),
   // Preview only — never writes a task file. Present so the manifest's claim
   // that every mutating tool exposes `dryRun` is true for create_task too.
   dryRun: z.boolean().default(false),
@@ -660,19 +685,46 @@ export async function createTask(
   input: CreateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    // Resolve an optional parent (full id or unique prefix) to a parent link,
-    // matching the wording the --set-parent path emits. A task being created
-    // has no id/links/descendants yet, so self-link, duplicate and cycle are
-    // structurally impossible; a dangling target is the only rejection.
-    let links: TaskLink[] | undefined;
+    // Links on create are MERGE, identical to `update_task`'s `links` /
+    // `addLinks` union: `parent` (when given) and `links` are folded into
+    // one set, a pair named twice is a no-op, and every pair is validated
+    // through `validateLinkAddition` — the same function the update path
+    // reaches via `buildAddLinks` — so the two surfaces cannot diverge.
+    // A brand-new task has no id/links/descendants yet, so self-link and
+    // cycle are structurally impossible; a dangling target is the only
+    // rejection, plus the duplicate-parent rule when two parents are named.
+    // `links: []` is refused (E_USAGE), exactly as on update: under merge an
+    // empty array names no links, and honouring it as a no-op would hide a
+    // client that still assumes replace semantics.
+    if (input.links !== undefined && input.links.length === 0) {
+      return {
+        ok: false,
+        error: {
+          code: "E_USAGE",
+          message:
+            "`links: []` is refused — `links` MERGES, so an empty array names no links and cannot mean \"no links\"",
+          suggestion:
+            "Omit `links` entirely for no links. To link the new task, name taskId+type pairs in `links` (and/or pass `parent` for the single-parent case).",
+        },
+      };
+    }
+
+    const { listTasks: coreListTasks, matchesIdOrPrefix } = await import(
+      "../core/tasks.js"
+    );
+    const { validateLinkAddition } = await import("../core/task-links.js");
+    // One store scan: matchesIdOrPrefix IS the resolution rule, applied to
+    // the list already loaded. resolveTaskId() re-ran listTasks just to
+    // pick the first match from the same directory.
+    const allTasks = coreListTasks(ctx.projectDir);
+
+    // Resolve `parent` (full id or unique prefix) to a parent link, matching
+    // the wording the --set-parent path emits. The code differs from the
+    // CLI's TASK_NOT_FOUND for the same situation (pre-existing, and out of
+    // scope to change on a wire an existing consumer may parse) — but the
+    // RECOVERY text must not depend on which surface refused.
+    let parentLink: TaskLink | undefined;
     if (input.parent) {
-      const { listTasks: coreListTasks, matchesIdOrPrefix } = await import(
-        "../core/tasks.js"
-      );
-      // One store scan: matchesIdOrPrefix IS the resolution rule, applied to
-      // the list already loaded. resolveTaskId() re-ran listTasks just to
-      // pick the first match from the same directory.
-      const allTasks = coreListTasks(ctx.projectDir);
       const parentTask = allTasks.find((t) =>
         matchesIdOrPrefix(t, input.parent!),
       );
@@ -682,16 +734,79 @@ export async function createTask(
           error: {
             code: "CREATE_TASK_ERROR",
             message: `Parent task not found: ${input.parent}`,
-            // The code differs from the CLI's TASK_NOT_FOUND for the same
-            // situation (pre-existing, and out of scope to change on a wire an
-            // existing consumer may parse) — but the RECOVERY text must not
-            // depend on which surface refused.
             suggestion: `The parent task does not exist — drop \`parent\` to create a root task, or pass an id from list_tasks (MCP) / 'vibeflow tasks' (CLI)`,
           },
         };
       }
-      links = [{ taskId: parentTask.id, type: "parent" }];
+      parentLink = { taskId: parentTask.id, type: "parent" };
     }
+
+    // The union, deduped on taskId+type AFTER prefix resolution (so a parent
+    // named both ways is one pair, not a duplicate-parent refusal) — the
+    // same dedupe rule `buildAddLinks` applies, as a no-op not an error.
+    const seen = new Set<string>();
+    const incoming: TaskLink[] = [];
+    for (const raw of [...(input.links ?? []), ...(parentLink ? [parentLink] : [])]) {
+      const target = allTasks.find((t) => matchesIdOrPrefix(t, raw.taskId));
+      if (!target) {
+        return {
+          ok: false,
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: `Task not found: ${raw.taskId}`,
+            suggestion: TASK_NOT_FOUND_SUGGESTION,
+          },
+        };
+      }
+      const key = `${target.id} ${raw.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      incoming.push({ taskId: target.id, type: raw.type });
+    }
+
+    // Validate through the shared rule, folded over a synthetic new-task
+    // stub the same way `buildAddLinks` folds over the stored task: each
+    // candidate is checked against the post-merge state (accepted links
+    // folded in first), so a second `parent` is refused with the
+    // --set-parent wording and a dangling target can never be written.
+    const NEW_TASK_STUB_ID = "__new_task__";
+    let accepted: TaskLink[] = [];
+    for (const link of incoming) {
+      const validation = validateLinkAddition({
+        allTasks: [
+          ...allTasks,
+          {
+            id: NEW_TASK_STUB_ID,
+            title: input.title,
+            description: input.description ?? "",
+            status: "todo",
+            selector: "/",
+            created: new Date(0).toISOString(),
+            comments: [],
+            files: [],
+            links: accepted,
+          } as Task,
+        ],
+        fromId: NEW_TASK_STUB_ID,
+        toId: link.taskId,
+        type: link.type,
+      });
+      if (!validation.ok)
+        return {
+          ok: false,
+          error: {
+            code: validation.code,
+            message: validation.reason,
+            suggestion:
+              validation.code === "TASK_NOT_FOUND"
+                ? TASK_NOT_FOUND_SUGGESTION
+                : "The link you asked to set on the new task was refused as invalid — fix what the message names and resend. Nothing was created.",
+          },
+        };
+      accepted = [...accepted, link];
+    }
+    const links: TaskLink[] | undefined =
+      accepted.length > 0 ? accepted : undefined;
 
     if (isDryRun(ctx, input)) {
       return {
