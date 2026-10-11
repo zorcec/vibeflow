@@ -11,6 +11,7 @@ import { MarkdownEditableField } from "./MarkdownEditableField";
 import { formatDate } from "../../utils";
 import { ConfirmModal } from "../ConfirmModal";
 import { TagInput } from "./TagInput";
+import { CopyIdButton } from "../CopyIdButton";
 
 interface Props {
   task: Task | null;
@@ -308,7 +309,42 @@ export function TaskDetailsTab({
             {task.createdAt ? formatDate(task.createdAt) : "—"}
           </MetaTile>
           <MetaTile label="ID" id="dp-id">
-            <span style={{ fontFamily: "monospace" }}>{task.id}</span>
+            {/* Ticket ecb9d938: the id + a copy affordance on one line. The
+                shared CopyIdButton is reused in PILL mode (no `edge`) so it
+                keeps the existing clipboard + `data-copied` behaviour and
+                fallbacks. Pill mode is `opacity: 0` at rest via
+                `.card-copy-id`, so an inline `opacity: 1` makes it ALWAYS
+                visible here without weakening that shared rule for every
+                other pill. Resting colour stays the quiet
+                `--t-border-faint`; `.card-copy-id:hover` supplies the
+                stronger `--t-hover` well + `--t-text` glyph. The flex row
+                lets the id ellipsize instead of colliding with the control. */}
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                width: "100%",
+                minWidth: 0,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {task.id}
+              </span>
+              <CopyIdButton
+                taskId={task.id}
+                className="card-copy-id--detail"
+                style={{ opacity: 1 }}
+              />
+            </span>
           </MetaTile>
           <MetaTile label="Author" id="dp-author">
             {task.authorName ?? task.author ?? "—"}
