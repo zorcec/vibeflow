@@ -46,6 +46,27 @@ describe("CLI display — relations formatting", () => {
     expect(lines[0]).toContain("Parent Task");
   });
 
+  it("includes the parent status so a filtered child listing shows parent context", () => {
+    // A todo child of a backlog parent is actionable on its own; the reader
+    // must see the parent's status without a second lookup.
+    const tasks = [
+      makeTask({ id: "parent-1234567890", title: "Parent Task", status: "backlog" }),
+      makeTask({
+        id: "child-1234567890ab",
+        title: "My Child",
+        status: "todo",
+        links: [{ taskId: "parent-1234567890", type: "parent" }],
+      }),
+    ];
+    const view = taskRelations(tasks, "child-1234567890ab");
+    const lines = formatRelationsSummary(view);
+
+    const parentLine = lines.find((l) => l.startsWith("parent:"));
+    expect(parentLine).toBeDefined();
+    expect(parentLine).toContain("[backlog]");
+    expect(parentLine).toContain("parent-1");
+  });
+
   it("prints children (N) with short ids", () => {
     const tasks = [
       makeTask({ id: "parent-aaaa" }),

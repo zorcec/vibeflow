@@ -12,11 +12,19 @@ import {
 import type { Task } from "../../src/core/types.js";
 
 /**
- * Root/child contract for the list and `--next` (task 94fcac0f).
+ * Root/child contract for the list and `--next` (task 94fcac0f, revised by
+ * 4c846d52e2086cfe2f374fa9d6f312).
  *
- * OWNER DECISION: an agent is given the ROOT unit of work, never a fragment of
- * it. `--next` considers only roots, and returns the root's children alongside
- * it so the agent can see what remains.
+ * REVISED RULE (4c846d52): the root stays the unit of work — `--next` claims a
+ * todo root first — but a todo child of a non-todo parent is never invisible:
+ * filtered listings include every matching child with parent context, and
+ * `--next` falls back to the highest-priority matching child (saying so
+ * explicitly) when no todo root is claimable. The old rule this replaces:
+ * "`--next` never returns a child" with no fallback and no mention.
+ *
+ * `claimNextTaskAtomic` itself is unchanged: `rootsOnly: true` still skips
+ * parented tasks (the CLI layer implements the fallback as a second call),
+ * so the MCP surface and every test below keep their meaning.
  */
 
 const PROTO = ".vibeflow";
@@ -213,7 +221,7 @@ describe("claimNextTaskAtomic with rootsOnly", () => {
     expect(readStatus(tmpDir, "kid")).toBe("todo");
   });
 
-  it("returns null when every todo task is a child", () => {
+  it("returns null when every todo task is a child (core level — the CLI --next falls back to a child claim on null)", () => {
     writeTask(tmpDir, makeTask({ id: "parent", status: "in-progress" }));
     writeTask(
       tmpDir,
@@ -225,5 +233,33 @@ describe("claimNextTaskAtomic with rootsOnly", () => {
     );
 
     expect(claimNextTaskAtomic(tmpDir, { rootsOnly: true })).toBeNull();
+  });
+
+  it("rootsOnly:false claims the highest-priority todo child of a backlog parent — the ordering the CLI --next fallback relies on", () => {
+    writeTask(tmpDir, makeTask({ id: "parent", status: "backlog" }));
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "kidLow",
+        status: "todo",
+        priority: "Low",
+        links: [{ taskId: "parent", type: "parent" }],
+      }),
+    );
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "kidCritical",
+        status: "todo",
+        priority: "Critical",
+        links: [{ taskId: "parent", type: "parent" }],
+      }),
+    );
+
+    const claimed = claimNextTaskAtomic(tmpDir, {});
+
+    expect(claimed?.id).toBe("kidCritical");
+    expect(claimed?.status).toBe("in-progress");
+    expect(readStatus(tmpDir, "kidLow")).toBe("todo");
   });
 });

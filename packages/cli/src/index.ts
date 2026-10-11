@@ -24,6 +24,7 @@ import {
   claimNextTaskAtomic,
   summariseChildren,
   isChildTask,
+  getParentId,
   writeSortKeyMinimal,
   isResearchType,
   matchesIdOrPrefix,
@@ -1091,11 +1092,11 @@ program
   )
   .option(
     "--next",
-    "Pick the next available ROOT task in todo, move it to in-progress, and output it ready to work on (never returns a child; the root's children are reported alongside it)",
+    "Pick the next todo task, move it to in-progress, and output it ready to work on (prefers the highest-priority ROOT task; when no todo root is claimable, claims the highest-priority matching todo child and says so explicitly — a todo child of a non-todo parent is never skipped silently; the root's children are reported alongside a root claim)",
   )
   .option(
     "--children",
-    "Include child tasks in the listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Has no effect with --next, which never returns a child. Takes no ID — to inspect one task's children, use --get <id>.",
+    "Include child tasks in the unfiltered listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Filtered listings (--status/--type/--tag/--user) always include every matching child with parent context. Has no effect with --next, which prefers roots and falls back to a child claim only when no todo root is claimable. Takes no ID — to inspect one task's children, use --get <id>.",
   )
   .option(
     "--tag <tag>",
@@ -1917,15 +1918,26 @@ program
           if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
           if (opts.user && !validateUserFilter(opts.user, [], opts.json)) return;
 
-          const nextUpdated = claimNextTaskAtomic(nextProjectDir, {
+          const nextClaimOpts = {
             type: opts.type,
             user: opts.user,
             tag: opts.tag,
             author: getGitUser(nextProjectDir).name,
-            // OWNER DECISION: --next never returns a child. The root is the unit
-            // of work; its children come back alongside it.
+          };
+          // Roots first: the root is the unit of work and its children come
+          // back alongside it. But a todo child parented under a non-todo
+          // parent must never be invisible: when no todo root is claimable,
+          // fall back to the highest-priority matching child and say so
+          // explicitly (revised rule — see the --next help text).
+          let nextUpdated = claimNextTaskAtomic(nextProjectDir, {
+            ...nextClaimOpts,
             rootsOnly: true,
           });
+          let nextIsChildClaim = false;
+          if (!nextUpdated) {
+            nextUpdated = claimNextTaskAtomic(nextProjectDir, nextClaimOpts);
+            nextIsChildClaim = nextUpdated !== null;
+          }
 
           if (!nextUpdated) {
             // A filter that matched nothing lands HERE too — same success,
@@ -1953,18 +1965,38 @@ program
           );
           // The root is the unit of work: report its children and their
           // statuses alongside it, so the agent can see what remains without a
-          // second call. Empty for a childless root.
+          // second call. Empty for a childless root. For a child claim the
+          // useful context runs the other way — the parent it was taken from.
+          const nextAllTasks = listTasks(nextProjectDir);
           const nextLocalChildren = summariseChildren(
-            listTasks(nextProjectDir),
+            nextAllTasks,
             nextUpdated.id,
           );
+          const nextClaimedParent: {
+            id: string;
+            title: string;
+            status?: string;
+          } | null = nextIsChildClaim
+            ? (() => {
+                const pid = getParentId(nextUpdated);
+                if (!pid) return null;
+                const p = nextAllTasks.find((t) => t.id === pid);
+                return p
+                  ? { id: p.id, title: p.title, status: p.status as string }
+                  : { id: pid, title: "(not found)" };
+              })()
+            : null;
           if (opts.json) {
             const nextLocalPayload: Record<string, unknown> = {
               task: nextUpdated,
               next_actions: nextLocalNextActions,
+              childClaim: nextIsChildClaim,
             };
             if (nextLocalChildren.length > 0) {
               nextLocalPayload.children = nextLocalChildren;
+            }
+            if (nextClaimedParent) {
+              nextLocalPayload.parent = nextClaimedParent;
             }
             outputEnvelope({
               ok: true,
@@ -2019,6 +2051,19 @@ program
             ),
           );
           console.log();
+          if (nextIsChildClaim && nextClaimedParent) {
+            // Unambiguous: this run claimed a CHILD, not a root — name the
+            // parent and its status so the agent knows which unit it sliced off.
+            const claimedParentStatus = nextClaimedParent.status
+              ? ` [${nextClaimedParent.status}]`
+              : "";
+            console.log(
+              chalk.yellow(
+                `  ⤷ CHILD CLAIM — no todo root was available, so this claims a todo child of ${nextClaimedParent.id.slice(0, 8)}${claimedParentStatus}.`,
+              ),
+            );
+            console.log();
+          }
           const agentLines = agentMessage.split("\n");
           if (agentLines.length > 0) {
             const match = agentLines[0].match(/^\[(\w+)\]\s+(.+)$/);
@@ -4206,13 +4251,23 @@ program
             opts.tag!.every((tag) => (t.tags ?? []).includes(tag)),
           );
 
-        // OWNER DECISION: list ROOT tasks only by default. A child belongs to its
-        // parent and is rendered inside its card on the board, so listing it as a
-        // peer here would contradict the board. `--children` includes them.
-        // Counted AFTER the other filters so the footer describes this query.
+        // Root-only is the DEFAULT (board parity: a child belongs to its
+        // parent's card). But a filtered query (--status/--type/--tag/--user)
+        // is an explicit search: it returns EVERY matching task, children
+        // included, so a matching task can never be invisible because its
+        // parent did not match. `--children` includes children in the
+        // unfiltered listing too. Counted AFTER the other filters so the
+        // footer describes this query.
+        const hasSearchFilter = Boolean(
+          opts.status ||
+            opts.type ||
+            opts.user ||
+            (opts.tag && opts.tag.length > 0),
+        );
+        const includeChildren = Boolean(opts.children) || hasSearchFilter;
         const matchingChildren = filtered.filter(isChildTask);
-        const hiddenChildCount = opts.children ? 0 : matchingChildren.length;
-        if (!opts.children) {
+        const hiddenChildCount = includeChildren ? 0 : matchingChildren.length;
+        if (!includeChildren) {
           filtered = filtered.filter((t) => !isChildTask(t));
         }
 

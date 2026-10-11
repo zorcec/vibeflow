@@ -1298,11 +1298,11 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "            Lists ROOT tasks only. A task with a parent belongs to that parent — pass --children to include them.",
+    "            Lists ROOT tasks by default (a child belongs to its parent — pass --children to include them); a filtered query (--status/--type/--tag/--user) always returns EVERY matching task, children included, with parent context.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "  Auto-claim: vibeflow tasks --next  (picks the highest-priority ROOT task in todo, sets it in-progress, and lists that task's children with their statuses. It never takes a child.)",
+    "  Auto-claim: vibeflow tasks --next  (picks the highest-priority todo task — a ROOT first; when no todo root is claimable it claims the highest-priority matching todo child and says so explicitly. It lists the claimed root's children with their statuses.)",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(

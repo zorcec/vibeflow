@@ -480,8 +480,12 @@ export function formatRelationsSummary(view: TaskRelationsView): string[] {
     s.length > max ? s.slice(0, max - 1) + "…" : s;
 
   if (view.parent) {
+    // The parent status is the disambiguator a filtered listing needs: a
+    // todo child of a backlog parent is actionable on its own, and the
+    // reader must see that context without a second lookup.
+    const parentStatus = view.parent.status ? ` [${view.parent.status}]` : "";
     lines.push(
-      `parent:   ${shortId(view.parent.id)} ${trunc(view.parent.title)}`,
+      `parent:   ${shortId(view.parent.id)} ${trunc(view.parent.title)}${parentStatus}`,
     );
   }
 
