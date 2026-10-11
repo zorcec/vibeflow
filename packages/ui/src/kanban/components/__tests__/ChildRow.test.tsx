@@ -55,6 +55,27 @@ describe("ChildRow", () => {
     expect(
       container.querySelector('[data-role="child-status"]'),
     ).toBeInTheDocument();
+
+    // Ticket 3411df56 (re-open): the row's hover/focus reveal of the copy tab
+    // takes ~31px and pushes the title, so the badge FADES OUT while the row is
+    // active (opacity 0, inert to the mouse) instead of competing with the tab,
+    // and fades back in at rest. Non-vacuity: with the fade removed the badge
+    // carries no inline style, so `badge.style.opacity` is "" and the resting
+    // `.toBe("1")` below goes red; inverting the fade (visible on hover) reds
+    // the `.toBe("0")` half. Both halves verified by temporarily reverting.
+    const wrap = container.querySelector(
+      '[data-role="child-row-wrap"]',
+    ) as HTMLElement;
+    expect(badge.style.opacity).toBe("1");
+    fireEvent.mouseEnter(wrap);
+    expect(badge.style.opacity).toBe("0");
+    expect(badge.style.pointerEvents).toBe("none");
+    // Only the paint goes: the hooks tests/tooling read stay in the DOM.
+    expect(badge).toHaveAttribute("data-role", "child-status");
+    expect(badge).toHaveAttribute("data-status", "review");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("review"));
+    fireEvent.mouseLeave(wrap);
+    expect(badge.style.opacity).toBe("1");
   });
 
   it("does not render task ID in inline variant", () => {

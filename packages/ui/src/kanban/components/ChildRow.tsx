@@ -279,6 +279,19 @@ export function ChildRow({
                                 data-role="child-status"
                                 data-status={child?.status ?? "todo"}
                                 title={`Status: ${child?.status ?? "todo"} — nested under its parent card`}
+                                // Ticket 3411df56 (re-open): the revealed copy tab takes
+                                // ~31px and pushes the title, so while the row is
+                                // hovered/focused the badge FADES OUT (opacity 0) instead
+                                // of competing with the tab. Fade only — never
+                                // display/visibility — so the box stays in flow and
+                                // nothing shifts beyond the already-accepted reveal, and
+                                // data-role/data-status/title stay in the DOM for tests
+                                // and tooling.
+                                style={{
+                                    opacity: wrapActive ? 0 : 1,
+                                    pointerEvents: wrapActive ? "none" : undefined,
+                                    transition: "opacity 0.12s ease",
+                                }}
                             >
                                 {child?.status ?? "todo"}
                             </span>
