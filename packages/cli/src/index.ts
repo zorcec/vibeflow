@@ -25,6 +25,7 @@ import {
   summariseChildren,
   isChildTask,
   getParentId,
+  getUnfinishedBlockers,
   writeSortKeyMinimal,
   isResearchType,
   matchesIdOrPrefix,
@@ -1939,7 +1940,71 @@ program
             nextIsChildClaim = nextUpdated !== null;
           }
 
+          // Blocked candidates the claim above skipped: every filter-matching
+          // todo whose `blocks` link points at unfinished work. Computed AFTER
+          // the claim, so the just-claimed task (now in-progress) is excluded
+          // and the remainder is exactly what `--next` refused to hand out.
+          // Only `done` satisfies a link — `review` is NOT done.
+          const nextBoard = listTasks(nextProjectDir);
+          const nextBlocked = nextBoard
+            .filter(
+              (t) =>
+                t.status === "todo" &&
+                (!nextClaimOpts.type || t.type === nextClaimOpts.type) &&
+                (!nextClaimOpts.user || t.author === nextClaimOpts.user) &&
+                (!nextClaimOpts.tag?.length ||
+                  (t.tags &&
+                    nextClaimOpts.tag.every((tag) => t.tags!.includes(tag)))),
+            )
+            .map((t) => ({
+              task: t,
+              blockers: getUnfinishedBlockers(t, nextBoard),
+            }))
+            .filter((b) => b.blockers.length > 0);
+          const formatBlockedLine = (b: {
+            task: { id: string; title: string };
+            blockers: { id: string; title: string; status: string }[];
+          }): string =>
+            `${b.task.id.slice(0, 8)} ${b.task.title} — blocked by ${b.blockers
+              .map((bl) => `${bl.id.slice(0, 8)} ${bl.title} [${bl.status}]`)
+              .join(", ")}`;
+          const nextBlockedPayload = nextBlocked.map((b) => ({
+            id: b.task.id,
+            title: b.task.title,
+            blockedBy: b.blockers.map((bl) => ({
+              id: bl.id,
+              title: bl.title,
+              status: bl.status,
+            })),
+          }));
+
           if (!nextUpdated) {
+            if (nextBlocked.length > 0) {
+              // Every remaining candidate is blocked: claim nothing and say
+              // so explicitly — "all work is blocked" must read differently
+              // from "no work".
+              if (opts.json) {
+                outputEnvelope({
+                  ok: true,
+                  json: true,
+                  payload: {
+                    task: null,
+                    next_actions: [],
+                    blocked: nextBlockedPayload,
+                    allBlocked: true,
+                  },
+                });
+                return;
+              }
+              console.log(
+                chalk.yellow(
+                  `All remaining todo tasks are blocked (${nextBlocked.length}) — nothing claimed:`,
+                ),
+              );
+              for (const b of nextBlocked)
+                console.log(chalk.dim(`  • ${formatBlockedLine(b)}`));
+              return;
+            }
             // A filter that matched nothing lands HERE too — same success,
             // same payload, no special case.
             outputNothingToClaim(opts.json);
@@ -1992,6 +2057,9 @@ program
               next_actions: nextLocalNextActions,
               childClaim: nextIsChildClaim,
             };
+            if (nextBlockedPayload.length > 0) {
+              nextLocalPayload.blocked = nextBlockedPayload;
+            }
             if (nextLocalChildren.length > 0) {
               nextLocalPayload.children = nextLocalChildren;
             }
@@ -2051,6 +2119,18 @@ program
             ),
           );
           console.log();
+          if (nextBlocked.length > 0) {
+            // Name what the claim skipped, with numbers: invisibility is
+            // the bug being fixed, so silence here is not acceptable.
+            console.log(
+              chalk.yellow(
+                `  ⊘ skipped ${nextBlocked.length} blocked task${nextBlocked.length === 1 ? "" : "s"} (still todo, not claimed):`,
+              ),
+            );
+            for (const b of nextBlocked)
+              console.log(chalk.dim(`    • ${formatBlockedLine(b)}`));
+            console.log();
+          }
           if (nextIsChildClaim && nextClaimedParent) {
             // Unambiguous: this run claimed a CHILD, not a root — name the
             // parent and its status so the agent knows which unit it sliced off.

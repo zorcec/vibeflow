@@ -901,6 +901,36 @@ export function summariseChildren(
 }
 
 /**
+ * A task's UNSATISFIED blockers: `blocks` links whose target is anything but
+ * `done`. `review` counts as unfinished — agents never set `done`, so a gate
+ * sitting in review has not passed. A dangling target (missing from the store)
+ * is ignored: it names nothing `--next` could report, and must not wedge the
+ * queue forever.
+ */
+export function getUnfinishedBlockers(
+  task: Task,
+  allTasks: Task[],
+): Task[] {
+  const blockedByIds = (task.links ?? [])
+    .filter((l) => l.type === "blocks")
+    .map((l) => l.taskId);
+  if (blockedByIds.length === 0) return [];
+  const byId = new Map(allTasks.map((t) => [t.id, t] as const));
+  return blockedByIds.flatMap((id) => {
+    const found = byId.get(id);
+    return found && found.status !== "done" ? [found] : [];
+  });
+}
+
+/** True when `task` has at least one `blocks` link pointing at unfinished work. */
+export function isBlockedByUnfinishedWork(
+  task: Task,
+  allTasks: Task[],
+): boolean {
+  return getUnfinishedBlockers(task, allTasks).length > 0;
+}
+
+/**
  * Export signature for the claim primitive.
  */
 export function claimNextTaskAtomic(
@@ -970,10 +1000,14 @@ export function claimNextTaskAtomic(
     // 3. Sort by priority then created ascending.
     filtered.sort(compareTasksByPriorityThenCreated);
     // 4. Iterate candidates, re-read each inside the lock to verify it is
-    //    still 'todo' (a concurrent writer may have claimed it).
+    //    still 'todo' (a concurrent writer may have claimed it). A candidate
+    //    blocked by unfinished work is never claimable: the snapshot above
+    //    was taken inside the same lock, so blocker statuses are current.
+    //    Only `done` satisfies a `blocks` link — `review` is NOT done.
     for (const candidate of filtered) {
       const reRead = readTaskFile(candidate.filePath);
       if (!reRead || reRead.status !== "todo") continue; // already taken
+      if (isBlockedByUnfinishedWork(reRead, candidates)) continue; // blocked
       // 5. Write the claimed task — set author ONLY when defined (never
       //    author: undefined which would overwrite through the spread).
       const now = new Date().toISOString();
