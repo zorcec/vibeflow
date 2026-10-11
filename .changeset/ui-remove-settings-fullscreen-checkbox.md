@@ -13,6 +13,4 @@ unchanged, and the settings allowlist still accepts it. The modal's save
 payload omits the key, so App.tsx's `{ ...appSettings, ...newSettings }`
 merge preserves a previously saved value instead of clobbering it.
 
-### Highlights
-
 - Settings no longer shows a fullscreen checkbox; the detail panel's own toggle remains the single control for the flag.

@@ -4,8 +4,6 @@
 
 Fix `tasks --edit --dry-run` mutating the online board in SaaS mode
 
-### Highlights
-
 - `--dry-run` in online (SaaS) mode no longer PATCHes the backend — it prints the same preview shape as the local path and returns before any remote write ✨
 
 The `editMode === "saas"` branch called `updateSaasTask` (and `addSaasComment`

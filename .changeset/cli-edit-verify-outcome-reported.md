@@ -4,8 +4,6 @@
 
 `tasks --edit --set-verify` now reports the verdict it wrote, so a success line can no longer look like a dropped one
 
-### Highlights
-
 - The human run prints the verdict outcome (`verify: pass — recorded (verified=true)`, `verify: fail — recorded (verified=false; the review gate blocks it)`, `verify: cannot — no badge (verified left absent); reason recorded in activity`)
 - The `--json` payload carries `verification: { verdict, verified, reasonRecorded }`
 - A reason that fails to record is now a refusal in human mode too (no green `✓ Task updated` ahead of the failure)

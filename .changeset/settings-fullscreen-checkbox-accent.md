@@ -13,6 +13,4 @@ the details panel fullscreen is a display preference rather than a column
 choice. Behaviour is unchanged: the `panelFullscreen` flag, its toggle and the
 Apply path are exactly as before.
 
-### Highlights
-
 - The fullscreen settings checkbox now picks up the theme accent instead of the OS default blue, and sits in its own "Display" section under the column list.

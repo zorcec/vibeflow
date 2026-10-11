@@ -4,7 +4,6 @@
 
 Fix `tasks --edit --dry-run` with `--report-file` mutating before validation fails
 
-### Highlights
 - ✨ `--dry-run` with `--report-file` is now a true dry run: zero uploads, zero file moves
 - ✨ A review run that fails validation (e.g. missing `--comment`) no longer uploads or deletes the report first
 

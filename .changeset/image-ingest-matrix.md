@@ -18,8 +18,6 @@ CLI server on first transform, so the overlay and board bundles stay small;
 where no codec is reachable the original bytes are kept with a matching
 extension instead of failing.
 
-### Highlights
-
 - Images stop being squeezed into lossy JPEG: screenshots, uploads and pastes
   transcode to lossless WebP (bit-exact), and anything wider than 1920px is
   downscaled to 1920 at q80 — smaller files for storage and for agent image

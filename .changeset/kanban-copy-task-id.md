@@ -23,6 +23,4 @@ icon, same click-to-copy with check feedback — parked at the row's right
 edge. The detail-panel rows are unchanged. The card-level hover reveal is
 scoped so hovering a card no longer lights up its children's pills.
 
-### Highlights
-
 - Copy a task's id straight from the board: a hover-revealed pill on the card — and now on child rows too — copies the id to your clipboard with a green check as feedback, so the detail panel never has to be opened just to read it.
