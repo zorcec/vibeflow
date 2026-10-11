@@ -123,6 +123,39 @@ export interface PresenceEntry {
   area: PresenceArea | null;
 }
 
+/**
+ * One remote peer's cursor/selection inside the shared description doc.
+ * Plain text offsets — deliberately Yjs-free so the shared UI (and the CLI
+ * bundle) never imports the CRDT layer; only the web doc binding produces
+ * these from awareness states.
+ */
+export interface DescriptionSelection {
+  /** Stable per-peer key (awareness client id as a string). */
+  key: string;
+  name: string;
+  color: string;
+  /** Caret offset when equal to `head`; otherwise the selection anchor. */
+  anchor: number;
+  head: number;
+}
+
+/**
+ * Live binding between the description editor and the shared Y.Doc.
+ * While present, the doc is the single writer: the editor displays
+ * `text`, routes every keystroke through `onEdit`, and the whole-value
+ * description save is retired (title still saves through `onPatch`).
+ */
+export interface DescriptionDocBinding {
+  /** Current merged doc text — the textarea's single source of truth. */
+  text: string;
+  /** Local edit → spliced into the Y.Text (never a whole-value save). */
+  onEdit: (next: string) => void;
+  /** Local caret/selection movement → throttled cursor broadcast. */
+  onSelection: (anchor: number, head: number) => void;
+  /** Remote peers' cursors/selections in doc coordinates. */
+  selections: DescriptionSelection[];
+}
+
 export interface Column {
   id: TaskStatus;
   label: string;

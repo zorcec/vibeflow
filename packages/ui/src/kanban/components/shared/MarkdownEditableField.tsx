@@ -2,6 +2,199 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { MarkdownPreview } from './MarkdownPreview';
+import type { DescriptionSelection } from '../../types';
+
+interface CaretMark {
+  key: string;
+  name: string;
+  color: string;
+  top: number;
+  left: number;
+  height: number;
+}
+
+function sameMarks(a: CaretMark[], b: CaretMark[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (m, i) =>
+      m.key === b[i]!.key &&
+      m.top === b[i]!.top &&
+      m.left === b[i]!.left &&
+      m.height === b[i]!.height,
+  );
+}
+
+/**
+ * Remote cursors/selections over the description textarea (description only).
+ *
+ * Each peer gets a mirror div sharing the textarea's own `dp-textarea` class,
+ * so wrapping matches by construction — no font-metric replication. Mirror
+ * text is transparent; only the selection tint shows. Caret positions are
+ * measured from zero-size markers and rendered as absolute flags in a
+ * clipped overlay (pointer-events none, so the textarea stays interactive).
+ */
+function RemoteCursorOverlay({
+  text,
+  selections,
+  textarea,
+}: {
+  text: string;
+  selections: DescriptionSelection[];
+  textarea: HTMLTextAreaElement;
+}) {
+  const markerRefs = React.useRef(new Map<string, HTMLElement | null>());
+  const [marks, setMarks] = React.useState<CaretMark[]>([]);
+  // Re-render (only) when the textarea scrolls or resizes: wrapping can
+  // shift, and scrolled-out carets must move with the text.
+  const [, setScrollTick] = React.useState(0);
+  React.useEffect(() => {
+    const bump = () => setScrollTick((t) => t + 1);
+    textarea.addEventListener('scroll', bump, { passive: true });
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(bump)
+        : null;
+    ro?.observe(textarea);
+    return () => {
+      textarea.removeEventListener('scroll', bump);
+      ro?.disconnect();
+    };
+  }, [textarea]);
+
+  // Defensive clamp: a cursor recorded against an older (longer) text must
+  // never split a mirror out of range.
+  const clamped = React.useMemo(
+    () =>
+      selections.map((s) => ({
+        ...s,
+        anchor: Math.max(0, Math.min(text.length, Math.floor(s.anchor))),
+        head: Math.max(0, Math.min(text.length, Math.floor(s.head))),
+      })),
+    [selections, text],
+  );
+
+  // Measure after the mirrors lay out. Equality-guarded: mirrors don't move
+  // on unrelated re-renders, and an unguarded setState here would loop.
+  React.useLayoutEffect(() => {
+    const cs = window.getComputedStyle(textarea);
+    const lineHeight =
+      Number.parseFloat(cs.lineHeight || '0') ||
+      Number.parseFloat(cs.fontSize || '12') * 1.6;
+    const next: CaretMark[] = [];
+    for (const sel of clamped) {
+      const el = markerRefs.current.get(sel.key);
+      if (!el) continue;
+      next.push({
+        key: sel.key,
+        name: sel.name,
+        color: sel.color,
+        top: el.offsetTop,
+        left: el.offsetLeft,
+        height: lineHeight,
+      });
+    }
+    setMarks((prev) => (sameMarks(prev, next) ? prev : next));
+  }, [textarea, clamped]);
+
+  const scrollTop = textarea.scrollTop;
+  const scrollLeft = textarea.scrollLeft;
+
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        inset: 0,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+        zIndex: 1,
+      }}
+    >
+      {clamped.map((sel) => {
+        const lo = Math.min(sel.anchor, sel.head);
+        const hi = Math.max(sel.anchor, sel.head);
+        return (
+          <div
+            key={`mirror-${sel.key}`}
+            className="dp-textarea"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              margin: 0,
+              background: 'transparent',
+              borderColor: 'transparent',
+              boxShadow: 'none',
+              color: 'transparent',
+              caretColor: 'transparent',
+              pointerEvents: 'none',
+              overflow: 'hidden',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'break-word',
+            }}
+          >
+            <span>{text.slice(0, lo)}</span>
+            {hi > lo && (
+              <span style={{ backgroundColor: sel.color, opacity: 0.3 }}>
+                {text.slice(lo, hi)}
+              </span>
+            )}
+            <span>
+              <i
+                ref={(el) => {
+                  markerRefs.current.set(sel.key, el);
+                }}
+                style={{ display: 'inline-block', width: 0, height: 0 }}
+              />
+              {text.slice(hi)}
+            </span>
+          </div>
+        );
+      })}
+      {marks.map((m) => {
+        const top = m.top - scrollTop;
+        const left = m.left - scrollLeft;
+        const flagBelow = top < 18;
+        return (
+          <div
+            key={`caret-${m.key}`}
+            data-remote-cursor={m.key}
+            title={m.name}
+            style={{
+              position: 'absolute',
+              top,
+              left,
+              width: 2,
+              height: m.height,
+              backgroundColor: m.color,
+              pointerEvents: 'none',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: -2,
+                ...(flagBelow
+                  ? { top: m.height + 2 }
+                  : { bottom: '100%', marginBottom: 2 }),
+                padding: '0 4px',
+                borderRadius: 3,
+                backgroundColor: m.color,
+                color: '#fff',
+                fontSize: 9,
+                lineHeight: '14px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {m.name}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface Props {
   value: string;
@@ -28,6 +221,14 @@ interface Props {
   onKeyDown?: (e: React.KeyboardEvent) => void;
   afterTextarea?: React.ReactNode;
   onBlur?: () => void;
+  /**
+   * Remote peers' cursors/selections in the shared description doc.
+   * Rendered as an overlay over the textarea — description only, never in
+   * comments or other fields. Omit (or pass empty) for a plain editor.
+   */
+  remoteSelections?: DescriptionSelection[];
+  /** Local caret/selection movement, for the throttled cursor broadcast. */
+  onSelectionChange?: (anchor: number, head: number) => void;
 }
 
 export function MarkdownEditableField({
@@ -51,8 +252,20 @@ export function MarkdownEditableField({
   onKeyDown,
   afterTextarea,
   onBlur: onBlurProp,
+  remoteSelections,
+  onSelectionChange,
 }: Props) {
   const localTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  // Element state (not just a ref) so the cursor overlay re-renders once
+  // the textarea mounts and re-measures on scroll/resize.
+  const [textareaEl, setTextareaEl] = React.useState<HTMLTextAreaElement | null>(null);
+
+  const reportSelection = React.useCallback(() => {
+    if (!onSelectionChange) return;
+    const el = localTextareaRef.current;
+    if (!el) return;
+    onSelectionChange(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+  }, [onSelectionChange]);
   const [taskIndex, setTaskIndex] = React.useState<Array<{ id: string; title: string }>>([]);
   const [taskRefSuggest, setTaskRefSuggest] = React.useState<{
     queryStart: number;
@@ -201,6 +414,7 @@ export function MarkdownEditableField({
         id={textareaId}
         ref={(el) => {
           localTextareaRef.current = el;
+          setTextareaEl((prev) => (prev === el ? prev : el));
           if (!textareaRef) return;
           textareaRef.current = el;
         }}
@@ -210,7 +424,9 @@ export function MarkdownEditableField({
         onChange={(next) => {
           onChange(next);
           updateTaskRefSuggest(next);
+          reportSelection();
         }}
+        onSelect={reportSelection}
         onFocus={() => setShowPreview(false)}
         onBlur={() => {
           setTaskRefSuggest(null);
@@ -274,6 +490,13 @@ export function MarkdownEditableField({
           ))}
         </div>,
         document.body
+      )}
+      {remoteSelections && remoteSelections.length > 0 && textareaEl && (
+        <RemoteCursorOverlay
+          text={value}
+          selections={remoteSelections}
+          textarea={textareaEl}
+        />
       )}
       {afterTextarea}
     </div>

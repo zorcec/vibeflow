@@ -10,6 +10,7 @@ import type {
   KanbanApi,
   PresenceArea,
   PresenceEntry,
+  DescriptionDocBinding,
 } from "../types";
 import { TypePicker } from "./shared/TypePicker";
 import { CommentsList } from "./shared/CommentsList";
@@ -133,6 +134,14 @@ interface Props {
   ) => void;
   /** Peers currently in the open task — rendered as a quiet presence line. */
   presence?: PresenceEntry[];
+  /**
+   * Live binding to the shared description doc. While present (and not
+   * adding), the doc is the single writer: the editor shows `text`, every
+   * keystroke routes into the doc, and the whole-value description save is
+   * retired (title still saves through `onPatch`). Remote cursors render in
+   * the description only.
+   */
+  descriptionDoc?: DescriptionDocBinding | null;
   /** All tasks on the board — used to build the global tag pool for autocomplete. */
   allTasks?: Task[];
   /** Called when the user clicks the back button. Shown only when defined. */
@@ -195,8 +204,13 @@ export function DetailPanel({
   onTreeReorder,
   onTreeReparent,
   onDetach,
+  descriptionDoc,
 }: Props) {
   const isAdd = !task;
+  // While a doc is live the collaborative doc is the single writer of the
+  // description (see `descValue`/`handleDescChange` below): the whole-value
+  // description patch is retired. Title and the other fields still save.
+  const docLive = !isAdd && !!descriptionDoc;
   const _typeColor = task
     ? getTaskTypeColor(task.type)
     : getTaskTypeColor("Task");
@@ -217,6 +231,16 @@ export function DetailPanel({
   const [activeTab, setActiveTab] = React.useState<Tab>(tab);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
+  // Live-doc display value and change router: bypass the local `description`
+  // state entirely while the doc is the single writer.
+  const descValue = docLive ? (descriptionDoc?.text ?? "") : description;
+  const handleDescChange = React.useCallback(
+    (next: string) => {
+      if (descriptionDoc) descriptionDoc.onEdit(next);
+      else setDescription(next);
+    },
+    [descriptionDoc],
+  );
   const [status, setStatus] = React.useState<TaskStatus>(addColumnId);
   const [type, setType] = React.useState<TaskType>("Task");
   const [priority, setPriority] = React.useState<Priority | "">("");
@@ -570,7 +594,10 @@ export function DetailPanel({
     const prevTitle = originalTitleRef.current;
     const prevDesc = originalDescRef.current;
     const titleChanged = trimmedTitle !== prevTitle;
-    const descChanged = description.trim() !== prevDesc;
+    // While a doc is live it is the single writer of the description: the
+    // whole-value description patch is retired (the doc flushes itself
+    // through the shared write). Title and the other fields still save.
+    const descChanged = !docLive && description.trim() !== prevDesc;
     if (!titleChanged && !descChanged) return;
     if (titleChanged) {
       recordChange("title", prevTitle, trimmedTitle);
@@ -580,12 +607,12 @@ export function DetailPanel({
     }
     onPatch(task.id, {
       title: trimmedTitle,
-      description: description.trim(),
+      ...(descChanged ? { description: description.trim() } : {}),
       type,
       priority: priority || undefined,
     });
     originalTitleRef.current = trimmedTitle;
-    originalDescRef.current = description.trim();
+    if (descChanged) originalDescRef.current = description.trim();
   }
 
   // Keep autoSaveRef always current so outside-click handler uses latest state
@@ -1288,15 +1315,17 @@ export function DetailPanel({
             <div style={{ flexShrink: 0 }}>
               <TaskDetailsTab
                 task={task}
-                description={description}
-                setDescription={setDescription}
+                description={descValue}
+                setDescription={handleDescChange}
                 showDescPreview={showDescPreview}
                 setShowDescPreview={setShowDescPreview}
                 priority={priority}
                 setPriority={setPriority}
                 onDescriptionBlur={isAdd ? undefined : autoSave}
+                remoteSelections={docLive ? (descriptionDoc?.selections ?? []) : undefined}
+                onDescriptionSelection={docLive ? descriptionDoc?.onSelection : undefined}
                 onDescriptionDiscard={
-                  isAdd
+                  isAdd || docLive
                     ? undefined
                     : () => {
                         setDescription(originalDescRef.current);

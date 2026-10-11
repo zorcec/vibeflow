@@ -112,8 +112,14 @@ export type ServerEvent =
     }
   | { type: "presence.leave"; userId: UserId }
   | { type: "cursor.update"; userId: UserId; x: number; y: number }
-  /** Server → client: state-vector diff (step 2, apply) or vector (step 1, reply step 2). */
-  | { type: "doc.sync"; taskId: string; step: 1 | 2; data: Base64Bytes }
+  /**
+   * Server → client: state-vector diff (step 2, apply) or vector (step 1,
+   * reply step 2). `epoch` is the doc's reseed generation: when it differs
+   * from the client's, the server doc was destroyed and reseeded since the
+   * client last synced, so the client must reset to this state instead of
+   * merging (same text, new history — merging would duplicate the seed).
+   */
+  | { type: "doc.sync"; taskId: string; step: 1 | 2; data: Base64Bytes; epoch: number }
   /** Server → client: another holder's update (already applied server-side). */
   | { type: "doc.update"; taskId: string; update: Base64Bytes; actorId: UserId }
   /**

@@ -6,7 +6,12 @@
  * All state lives in DetailPanel; this component is purely presentational.
  */
 import React from "react";
-import type { Task, Priority, FileEntry } from "../../types";
+import type {
+  Task,
+  Priority,
+  FileEntry,
+  DescriptionSelection,
+} from "../../types";
 import { MarkdownEditableField } from "./MarkdownEditableField";
 import { formatDate } from "../../utils";
 import { ConfirmModal } from "../ConfirmModal";
@@ -39,6 +44,13 @@ interface Props {
   liveFiles?: FileEntry[];
   /** Whether we are in "add new task" mode (enables collapsed Advanced section). */
   isAdd?: boolean;
+  /**
+   * Remote peers' cursors/selections for the shared description doc.
+   * Passed straight to the editor overlay — description only.
+   */
+  remoteSelections?: DescriptionSelection[];
+  /** Local caret/selection movement, for the throttled cursor broadcast. */
+  onDescriptionSelection?: (anchor: number, head: number) => void;
 }
 
 export function TaskDetailsTab({
@@ -62,6 +74,8 @@ export function TaskDetailsTab({
   overrideTags,
   onTagsChange,
   isAdd = false,
+  remoteSelections,
+  onDescriptionSelection,
 }: Props) {
   const taskFiles = task?.files ?? [];
   const fileList: Array<{
@@ -115,6 +129,8 @@ export function TaskDetailsTab({
           maxRows={24}
           autoFocus
           textareaRef={descRef}
+          remoteSelections={remoteSelections}
+          onSelectionChange={onDescriptionSelection}
           afterTextarea={
             onDescriptionDiscard &&
             originalDescription !== undefined &&

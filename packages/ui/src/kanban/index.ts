@@ -18,6 +18,8 @@ export type {
   LiveActivityState,
   PresenceArea,
   PresenceEntry,
+  DescriptionSelection,
+  DescriptionDocBinding,
 } from "./types";
 
 // Kanban shared utilities
