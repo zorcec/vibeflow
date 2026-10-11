@@ -8,6 +8,13 @@ export type {
   ClientEvent,
   ServerEvent,
   RedisEnvelope,
+  Base64Bytes,
+  DocJoinRequest,
+  DocSyncMessage,
+  DocUpdateMessage,
+  DocAwarenessMessage,
+  DocLeaveMessage,
+  DocClientMessage,
 } from "./collab-types";
 
 // Schemas

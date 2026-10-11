@@ -22,6 +22,63 @@ export type PresenceArea =
   | "relations"
   | "header";
 
+/**
+ * Base64-encoded Yjs payload (state vector, update, or awareness update).
+ * Base64 keeps every doc message JSON-safe on the `server-event` channel;
+ * the shared surface never imports Yjs (the CLI bundle stays Yjs-free).
+ */
+export type Base64Bytes = string;
+
+/** Client → server: open (or re-open) a task description doc. */
+export interface DocJoinRequest {
+  type: "doc.join";
+  boardId: string;
+  taskId: string;
+  /** This replica's state vector — empty on first join, current on rejoin. */
+  sv: Base64Bytes;
+}
+
+/** Client → server: state-vector diff reply (step 2 only; apply on receipt). */
+export interface DocSyncMessage {
+  type: "doc.sync";
+  boardId: string;
+  taskId: string;
+  step: 2;
+  data: Base64Bytes;
+}
+
+/** Client → server: one local Yjs update. Relayed to the other holders. */
+export interface DocUpdateMessage {
+  type: "doc.update";
+  boardId: string;
+  taskId: string;
+  update: Base64Bytes;
+}
+
+/** Client → server: one encoded y-protocols awareness update (cursor). */
+export interface DocAwarenessMessage {
+  type: "awareness.update";
+  boardId: string;
+  taskId: string;
+  /** y-protocols awareness client id of the sender. */
+  clientId: number;
+  update: Base64Bytes;
+}
+
+/** Client → server: close a task description doc (flushes on last leave). */
+export interface DocLeaveMessage {
+  type: "doc.leave";
+  boardId: string;
+  taskId: string;
+}
+
+export type DocClientMessage =
+  | DocJoinRequest
+  | DocSyncMessage
+  | DocUpdateMessage
+  | DocAwarenessMessage
+  | DocLeaveMessage;
+
 export type ClientEvent =
   | { type: "presence.join"; roomKey: RoomKey; user: UserPresence }
   | {
@@ -55,6 +112,23 @@ export type ServerEvent =
     }
   | { type: "presence.leave"; userId: UserId }
   | { type: "cursor.update"; userId: UserId; x: number; y: number }
+  /** Server → client: state-vector diff (step 2, apply) or vector (step 1, reply step 2). */
+  | { type: "doc.sync"; taskId: string; step: 1 | 2; data: Base64Bytes }
+  /** Server → client: another holder's update (already applied server-side). */
+  | { type: "doc.update"; taskId: string; update: Base64Bytes; actorId: UserId }
+  /**
+   * Server → client: cursor update. `update` carries one encoded
+   * y-protocols awareness update; `removed` carries awareness client ids to
+   * drop. Description cursors only — page-level cursors stay on
+   * `cursor.update`.
+   */
+  | {
+      type: "awareness.update";
+      taskId: string;
+      clientId?: number;
+      update?: Base64Bytes;
+      removed?: number[];
+    }
   | {
       type: "typing.update";
       userId: UserId;
