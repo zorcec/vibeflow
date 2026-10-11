@@ -2570,16 +2570,24 @@ describe("Kanban board", () => {
     await waitForTaskOnBoard(page, parentTitle);
     await waitForTaskOnBoard(page, childTitle);
 
-    // Open child detail panel
+    // Open the detail panel that lists this child. NOTE: a child no longer
+    // renders as its own card (it nests inside the parent's card, whose text
+    // therefore contains the child's title), so this clicks the PARENT's card
+    // and opens the parent's panel — which is where the child's relation row
+    // lives. That is the reachable path a user takes.
     await openTaskByTitle(page, childTitle);
     await page.waitForSelector("#detail-panel.open");
 
-    // Hover over the child row in the detail panel to reveal the Unlink button
+    // Scope the row to its WRAP, not to .child-link-row: since 567070c the row's
+    // affordances (unlink, copy-id) live in a sibling actions strip, so
+    // .relation-remove is NOT a descendant of the title/link element and the old
+    // row-scoped locator resolved to nothing and hung the test.
     const childRow = page.locator(
-      "#detail-panel [data-role='child-link-row'][data-task-id='" +
+      "#detail-panel [data-role='child-row-wrap'][data-task-id='" +
         childId +
         "']",
     );
+    await childRow.waitFor({ state: "attached", timeout: 8_000 });
     await childRow.hover();
     await page.waitForTimeout(200);
 
