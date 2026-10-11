@@ -1534,3 +1534,102 @@ describe("serve() port collision (EADDRINUSE)", () => {
     }
   }, 15_000);
 });
+
+// ── Regression: task attachments live under a dot-segment path ─────────────
+// Owner report: every GET /api/tasks/:id/files/:name returned 500 on the
+// live board while the files listing was fine. Root cause: that board process
+// had loaded express 5, whose send@1 refuses any path containing a dot
+// segment unless `dotfiles: "allow"` is passed — and every attachment lives
+// under `.vibeflow/...`. The fix passes the option explicitly on every
+// sendFile site that can serve a path under the project data dir.
+describe("proto serve — regression: attachments under .vibeflow need dotfiles allow", () => {
+  let tempDir: string;
+  let instance: ServeInstance | null = null;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-e2e-dotfiles-"));
+  });
+
+  afterEach(async () => {
+    if (instance) {
+      await instance.close();
+      instance = null;
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("GET task attachment returns 200 with exact bytes (dotfiles allow)", async () => {
+    // 1x1 PNG fixture, uploaded then served back byte-for-byte.
+    // eslint-disable-next-line no-secrets/no-secrets -- 1x1 pixel PNG test fixture, not a credential
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const filePath = join(tempDir, "test.html");
+    writeFileSync(filePath, SAMPLE_HTML, "utf-8");
+
+    // Capture the options our routes pass to res.sendFile. On the express 4
+    // toolchain the 200 assertion below passes either way (send@0.19 only
+    // polices a leading-dot *basename*, not intermediate `.vibeflow`
+    // segments), so the options assertion is what makes this test
+    // non-vacuous: it fails the moment the explicit `dotfiles: "allow"`
+    // regresses — the exact default change that 500s under express 5.
+    const { default: express } = await import("express");
+    const origSendFile = express.response.sendFile;
+    const seenOptions: unknown[] = [];
+    (
+      express.response as unknown as Record<string, unknown>
+    ).sendFile = function (
+      this: unknown,
+      path: string,
+      options?: unknown,
+      callback?: unknown,
+    ) {
+      seenOptions.push(options);
+      return (
+        origSendFile as (...args: unknown[]) => unknown
+      ).call(this, path, options, callback);
+    };
+    try {
+      instance = await serve(filePath, { port: 3771, open: false });
+
+      const createRes = await fetch("http://localhost:3771/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Task with png attachment",
+          selector: '[data-vibeflow-id="hero-section"]',
+        }),
+      });
+      const { task } = (await createRes.json()) as {
+        task: { id: string };
+      };
+
+      const uploadRes = await fetch(
+        `http://localhost:3771/api/tasks/${task.id}/files/x.png`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "image/png" },
+          body: png,
+        },
+      );
+      expect(uploadRes.ok).toBe(true);
+
+      const fileRes = await fetch(
+        `http://localhost:3771/api/tasks/${task.id}/files/x.png`,
+      );
+      expect(fileRes.status).toBe(200);
+      expect(fileRes.headers.get("content-type")).toContain("image/png");
+      const served = Buffer.from(await fileRes.arrayBuffer());
+      expect(served.equals(png)).toBe(true);
+
+      expect(seenOptions).toContainEqual(
+        expect.objectContaining({ dotfiles: "allow" }),
+      );
+    } finally {
+      (
+        express.response as unknown as Record<string, unknown>
+      ).sendFile = origSendFile;
+    }
+  });
+});

@@ -903,7 +903,11 @@ function registerTaskApi(
     }
     // Path is derived from getFilePath() which sanitizes via basename() and
     // only returns paths that exist on disk — no user-controlled traversal.
-    res.sendFile(filePath); // nosemgrep
+    // dotfiles:"allow" is load-bearing: attachments live under the
+    // `.vibeflow` data dir, and send@1 (express 5) refuses any path with a
+    // dot segment unless this option is set explicitly (200 → 500s).
+    // The same explicit option guards the two /screenshots/:filename sites.
+    res.sendFile(filePath, { dotfiles: "allow" }); // nosemgrep
   });
 
   app.post(
@@ -1758,7 +1762,9 @@ async function serveApiOnly(
         res.status(404).end();
         return;
       }
-      res.sendFile(filePath); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+      // dotfiles:"allow" — screenshots live under `.vibeflow/`; without
+      // it send@1 (express 5) refuses the dot segment (see files route).
+      res.sendFile(filePath, { dotfiles: "allow" }); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
     });
 
     registerPagesApi(app, []);
@@ -1961,7 +1967,9 @@ export async function serve(
       res.status(404).end();
       return;
     }
-    res.sendFile(filePath); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+    // dotfiles:"allow" — screenshots live under `.vibeflow/`; without
+    // it send@1 (express 5) refuses the dot segment (see files route).
+    res.sendFile(filePath, { dotfiles: "allow" }); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
   });
 
   // ── Serve HTML files ─────────────────────────────────────────────────────
