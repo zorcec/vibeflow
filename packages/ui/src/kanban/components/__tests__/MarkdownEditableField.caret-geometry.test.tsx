@@ -1,23 +1,25 @@
 // @vitest-environment jsdom
 /**
- * Remote-caret geometry contract (vibeflow task 67af5d5b).
+ * Remote-caret geometry + flag contract (vibeflow task 67af5d5b).
  *
- * Finding: the owner's "very large cursor" does not reproduce from this
- * source. Measured in headless Chromium at DPR 1 against the real
- * stylesheet (12px monospace, 19.2px line box), the caret is a 2px-wide
- * line at exactly the doc line-height with a 9px name flag — i.e. the
- * familiar collaborative caret the ticket asks for. The only large
- * element the overlay can paint is the *selection* tint (a peer with a
- * range selected, e.g. select-all, covers the doc in 0.3-opacity peer
- * colour) — a product call the owner has to make, so this lane changes
- * no pixels here. These tests pin the slim-caret contract so a future
- * "large cursor" regresses loudly instead of by screenshot:
+ * Settled from the owner's screenshot: the 2px caret is fine — the ugly
+ * element is the NAME FLAG, a ~73px solid rounded box spelling the peer's
+ * full name ("Tomislav Zorčec") above the caret, covering the line above
+ * the text. The flag now shows the peer's INITIALS (via `presenceInitials`,
+ * the same helper as the presence chips) in a compact 8px/12px label that
+ * hugs the caret, while the full name stays discoverable via `title` (sighted
+ * hover) and `aria-label` (screen readers — the text-duplicating mirrors
+ * stay `aria-hidden` so the doc is never read twice).
  *
  * - caret width is exactly 2px (never a percentage or doc-sized block);
  * - caret height tracks the *textarea's own computed line-height*
  *   (stubbed to an unmistakable 32px: a hardcoded or percentage height
  *   fails this test);
- * - the name flag stays at 9px/14px (never the doc font size);
+ * - the flag renders INITIALS, never the full name as visible text;
+ * - the flag stays 8px/12px (never the doc font size) and hugs the caret:
+ *   2px above it, or directly below it when there is no room above
+ *   (jsdom lays out no boxes, so every marker measures top 0 and takes
+ *   the below-caret branch — the first-line case);
  * - overlay, mirrors, carets and flags are all absolutely positioned —
  *   the overlay contributes zero in-flow boxes, so remote peers can
  *   never shift the local layout.
@@ -32,7 +34,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderEditorWithLineHeight(lineHeight: string) {
+function renderEditorWithLineHeight(
+  lineHeight: string,
+  name = "Tomislav Zorčec",
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(() => new Promise<never>(() => {})),
@@ -61,16 +66,16 @@ function renderEditorWithLineHeight(lineHeight: string) {
       placeholder="Description (markdown)…"
       remoteSelections={[
         {
-          key: "ana",
-          name: "Ana",
-          color: "hsl(0, 70%, 55%)",
+          key: "tom",
+          name,
+          color: "hsl(55, 70%, 55%)",
           anchor: 6,
           head: 6,
         },
       ]}
     />,
   );
-  return document.querySelector('[data-remote-cursor="ana"]') as HTMLElement;
+  return document.querySelector('[data-remote-cursor="tom"]') as HTMLElement;
 }
 
 describe("MarkdownEditableField remote-caret geometry", () => {
@@ -81,12 +86,38 @@ describe("MarkdownEditableField remote-caret geometry", () => {
     expect(caret.style.height).toBe("32px");
   });
 
-  it("keeps the name flag small regardless of doc metrics", () => {
-    const caret = renderEditorWithLineHeight("32px");
+  it("renders peer INITIALS in the flag, never the full name as visible text", () => {
+    const caret = renderEditorWithLineHeight("32px", "Tomislav Zorčec");
     const flag = caret.firstElementChild as HTMLElement;
-    expect(flag.style.fontSize).toBe("9px");
-    expect(flag.style.lineHeight).toBe("14px");
-    expect(flag).toHaveTextContent("Ana");
+    expect(flag).toHaveTextContent("TZ");
+    expect(flag.textContent).not.toContain("Tomislav");
+  });
+
+  it("uses the first two letters for single-name peers, as the presence chips do", () => {
+    const caret = renderEditorWithLineHeight("32px", "Ana");
+    expect(caret.firstElementChild as HTMLElement).toHaveTextContent(
+      "AN",
+    );
+  });
+
+  it("keeps the full name discoverable via title and screen-reader label", () => {
+    const caret = renderEditorWithLineHeight("32px", "Tomislav Zorčec");
+    expect(caret).toHaveAttribute("title", "Tomislav Zorčec");
+    const flag = caret.firstElementChild as HTMLElement;
+    expect(flag).toHaveAttribute("role", "img");
+    expect(flag).toHaveAttribute("aria-label", "Tomislav Zorčec");
+  });
+
+  it("keeps the flag small and hugging the caret", () => {
+    const caret = renderEditorWithLineHeight("32px", "Tomislav Zorčec");
+    const flag = caret.firstElementChild as HTMLElement;
+    expect(flag.style.fontSize).toBe("8px");
+    expect(flag.style.lineHeight).toBe("12px");
+    // jsdom measures every marker at top 0 (no layout), so the caret takes
+    // the first-line branch: the flag hangs directly below it — top edge at
+    // caret height + the 2px hug gap, i.e. attached, never floating.
+    expect(flag.style.top).toBe("34px");
+    expect(flag.style.left).toBe("-2px");
   });
 
   it("positions the overlay and its boxes absolutely so peers never shift layout", () => {
@@ -100,6 +131,21 @@ describe("MarkdownEditableField remote-caret geometry", () => {
     expect(boxes.length).toBeGreaterThan(0);
     for (const el of boxes) {
       expect(el.style.position).toBe("absolute");
+    }
+    const flag = caret.firstElementChild as HTMLElement;
+    expect(flag.style.position).toBe("absolute");
+  });
+
+  it("hides the text-duplicating mirrors from assistive tech, not the flags", () => {
+    const caret = renderEditorWithLineHeight("19.2px");
+    const overlay = caret.parentElement as HTMLElement;
+    expect(overlay).not.toHaveAttribute("aria-hidden");
+    const mirrors = Array.from(overlay.children).filter((el) =>
+      el.className.includes("dp-textarea"),
+    );
+    expect(mirrors.length).toBeGreaterThan(0);
+    for (const mirror of mirrors) {
+      expect(mirror).toHaveAttribute("aria-hidden", "true");
     }
   });
 });

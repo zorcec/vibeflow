@@ -2,7 +2,17 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { MarkdownPreview } from './MarkdownPreview';
+import { presenceInitials } from './presence';
 import type { DescriptionSelection } from '../../types';
+
+// Compact peer flag geometry (vibeflow task 67af5d5b): the flag shows the
+// peer's INITIALS (same helper as the presence chips), not the full name —
+// a full-name box is ~73px wide on a 19.2px line and reads as a paragraph
+// overlay. 8px/12px keeps it a familiar caret label that hugs the caret
+// instead of competing with the text.
+const FLAG_FONT_SIZE = 8;
+const FLAG_LINE_HEIGHT = 12;
+const FLAG_GAP = 2;
 
 interface CaretMark {
   key: string;
@@ -101,7 +111,6 @@ function RemoteCursorOverlay({
 
   return (
     <div
-      aria-hidden
       style={{
         position: 'absolute',
         inset: 0,
@@ -116,6 +125,11 @@ function RemoteCursorOverlay({
         return (
           <div
             key={`mirror-${sel.key}`}
+            // The mirrors duplicate the whole document text for wrapping
+            // measurement — hidden from assistive tech so screen readers
+            // never read the doc twice. Only the caret flags below are
+            // exposed (as labelled images carrying the peer's full name).
+            aria-hidden
             className="dp-textarea"
             style={{
               position: 'absolute',
@@ -155,7 +169,12 @@ function RemoteCursorOverlay({
       {marks.map((m) => {
         const top = m.top - scrollTop;
         const left = m.left - scrollLeft;
-        const flagBelow = top < 18;
+        // The flag hugs the caret: above it with a 2px gap, dropping below
+        // only when there is no room above (first line — the flag is
+        // FLAG_LINE_HEIGHT + FLAG_GAP tall, so exactly that much headroom
+        // is required). Either way it stays attached to its own caret and
+        // inside the clipped overlay at the first/last line, scrolled or not.
+        const flagBelow = top < FLAG_LINE_HEIGHT + FLAG_GAP;
         return (
           <div
             key={`caret-${m.key}`}
@@ -172,27 +191,29 @@ function RemoteCursorOverlay({
             }}
           >
             <div
+              role="img"
+              aria-label={m.name}
               style={{
                 position: 'absolute',
                 left: -2,
                 ...(flagBelow
-                  ? { top: m.height + 2 }
-                  : { bottom: '100%', marginBottom: 2 }),
-                padding: '0 4px',
-                borderRadius: 3,
+                  ? { top: m.height + FLAG_GAP }
+                  : { bottom: '100%', marginBottom: FLAG_GAP }),
+                padding: '0 3px',
+                borderRadius: 2,
                 backgroundColor: m.color,
-                // 9px white on a 55%-lightness palette colour is low
+                // 8px white on a 55%-lightness palette colour is low
                 // contrast on the lightest hues (yellows/greens) — the
-                // text-shadow keeps the peer name legible without changing
-                // the per-user colour identity.
+                // text-shadow keeps the peer initials legible without
+                // changing the per-user colour identity.
                 color: '#fff',
                 textShadow: '0 1px 2px rgba(0,0,0,0.55)',
-                fontSize: 9,
-                lineHeight: '14px',
+                fontSize: FLAG_FONT_SIZE,
+                lineHeight: `${FLAG_LINE_HEIGHT}px`,
                 whiteSpace: 'nowrap',
               }}
             >
-              {m.name}
+              {presenceInitials(m.name)}
             </div>
           </div>
         );

@@ -4,8 +4,9 @@
  *
  * - One `[data-remote-cursor]` caret per peer, each in its own stable
  *   per-user colour (colours differ between peers).
- * - The peer-name flag carries a text-shadow so 9px white text stays legible
- *   on the lightest palette hues.
+ * - The peer flag shows INITIALS (vibeflow task 67af5d5b) and carries a
+ *   text-shadow so 8px white text stays legible on the lightest palette
+ *   hues; the full name stays on `title`/`aria-label`.
  */
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -73,7 +74,12 @@ describe("MarkdownEditableField remote cursors", () => {
     expect(caret).not.toBeNull();
     const flag = caret.firstElementChild as HTMLElement;
     expect(flag.style.textShadow).not.toBe("");
-    expect(flag).toHaveTextContent("Cid");
+    // Initials, not the full name (vibeflow task 67af5d5b) — the full name
+    // stays discoverable via title and the screen-reader label.
+    expect(flag).toHaveTextContent("CI");
+    expect(flag.textContent).not.toContain("Cid");
+    expect(caret).toHaveAttribute("title", "Cid");
+    expect(flag).toHaveAttribute("aria-label", "Cid");
   });
 
   it("renders no overlay without remote selections", () => {
