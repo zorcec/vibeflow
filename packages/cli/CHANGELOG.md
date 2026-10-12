@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.20.0
+
+### Minor Changes
+
+- 9387693: Attachments, relations and comments now update live for everyone
+
+  The live board covers the rest of the task surface: a file, a relation or a comment added (or removed) in one session appears — or disappears — in every other session on that board without a reload. Comments stay append-only and are broadcast as they are written; nothing about how they are stored changes. This completes the live surface started with presence and the shared description.
+
+- 698b213: The task description is now a live, shared document
+
+  Two people can type in the same description at the same time without losing text: edits merge character by character (a CRDT document per task, synced over the existing realtime socket) and each session sees the other's cursors and selection. The document is seeded from the saved description and written back through the same board-scoped write path the rest of the board uses, so how the description is stored and read does not change. Cursors appear in the description only; elsewhere the quiet presence line already shows who is present and where.
+
+### Patch Changes
+
+- d5fa2c3: Default API host is now the live production host
+
+  Login and push defaulted to a hostname that was never served, so they could not connect for anyone. The default is now the production host (`VIBEFLOW_API_URL` still overrides it for local dev, stage and tests), shared from one module instead of five duplicated constants.
+
+- b2cae69: Fix task file attachments and screenshots failing to download when the server runs under Express 5. Attachment routes now pass `dotfiles: "allow"` explicitly instead of relying on the framework default, so files stored under the `.vibeflow` data directory are always served.
+- 87c9fb2: The board no longer locks a task while someone else has it open
+
+  Presence is per-task and says _which part_ of the task a person is in (description, comments, files, relations) — a quiet line in the detail panel plus a neutral suffix on the card. Editing is never blocked or disabled: the "🔒 Locked by … — editing disabled" banner, the lock guards and the "locked" activity state are gone. Discrete fields (status, priority, type, title) broadcast and apply for everyone instantly, with no reload.
+
+- 6ae7130: Fix MCP `create_task` silently dropping `links`. The tool accepted a `links` parameter but the input schema had no such field, so the key was stripped and the task was created unlinked while reporting success. `create_task` now accepts `links` with the same merge semantics `update_task` has: every listed pair is added, `parent` folds into the same union, and each pair is validated through the shared link rule, so a dangling target or a second parent is refused and nothing is created.
+
 ## 0.19.4
 
 ### Patch Changes

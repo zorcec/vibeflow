@@ -1,5 +1,39 @@
 # @vibeflow-tools/ui
 
+## 0.4.0
+
+### Minor Changes
+
+- 9387693: Attachments, relations and comments now update live for everyone
+
+  The live board covers the rest of the task surface: a file, a relation or a comment added (or removed) in one session appears — or disappears — in every other session on that board without a reload. Comments stay append-only and are broadcast as they are written; nothing about how they are stored changes. This completes the live surface started with presence and the shared description.
+
+- 698b213: The task description is now a live, shared document
+
+  Two people can type in the same description at the same time without losing text: edits merge character by character (a CRDT document per task, synced over the existing realtime socket) and each session sees the other's cursors and selection. The document is seeded from the saved description and written back through the same board-scoped write path the rest of the board uses, so how the description is stored and read does not change. Cursors appear in the description only; elsewhere the quiet presence line already shows who is present and where.
+
+### Patch Changes
+
+- 97b57f6: Presence copy now agrees with the Activity tab
+
+  The detail-panel presence line and the card activity badge render the comments area as "activity" ("Ana is in activity", "Ana editing · activity") to match the Activity tab and the activity feed. Internal identifiers are unchanged: tab keys, `PresenceArea` wire values, `data-testid`s and the comment data model still use "comments".
+
+- 87c9fb2: The board no longer locks a task while someone else has it open
+
+  Presence is per-task and says _which part_ of the task a person is in (description, comments, files, relations) — a quiet line in the detail panel plus a neutral suffix on the card. Editing is never blocked or disabled: the "🔒 Locked by … — editing disabled" banner, the lock guards and the "locked" activity state are gone. Discrete fields (status, priority, type, title) broadcast and apply for everyone instantly, with no reload.
+
+- bdfda09: Co-presence moves into the status row as initials avatars
+
+  The detail panel no longer spells out "Ana is in description · Ben is in activity" in a text line above the header. Peers now appear as a compact initials stack inlined with the STATUS row (avatar-stack pattern): each 20px chip shows initials in the peer's own colour (the same colour as their description cursor), the full "name is in area" sentence appears on hover and for screen readers, chips are keyboard-focusable, and crowds collapse to a "+N" chip that names everyone hidden.
+
+- 484fc7e: Polished presence UI for live collaboration
+
+  Remote cursor colours now come from a fixed 12-colour palette, so two people in the same description always get easily told-apart colours that stay the same for each person across sessions; the peer-name flag on each cursor keeps a text shadow so it stays readable on the lightest colours. The card activity badge shows a pencil while someone is typing and an eye while they are only viewing, matching the presence line's wording. The presence line in the task panel wraps instead of overflowing on narrow screens. No behaviour changes: presence stays informational and never locks editing.
+
+- 1b12131: Collaborative caret flag shows initials instead of the full name
+
+  The remote-caret name flag spelled out the peer's full name in a wide solid box that covered the line above the text. It now shows the peer's initials (the same helper as the presence chips) in a compact label that hugs the caret, keeping the per-user colour. The full name is still on hover and exposed to screen readers, and the 2px caret itself is unchanged.
+
 ## 0.3.6
 
 ### Patch Changes
