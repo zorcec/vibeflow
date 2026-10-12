@@ -105,8 +105,26 @@ describe("DetailPanel presence line", () => {
       ],
     });
     const line = document.querySelector('[data-testid="presence-line"]');
-    expect(line).toHaveTextContent("Ana is in comments");
+    expect(line).toHaveTextContent("Ana is in activity");
     expect(line).toHaveTextContent("Ben is here");
+  });
+
+  it("labels every area for display: comments renders as activity, the rest verbatim", () => {
+    renderPanel(makeTask(), {
+      presence: [
+        { user: "Ana", userId: "u-ana", area: "description" },
+        { user: "Ben", userId: "u-ben", area: "comments" },
+        { user: "Cid", userId: "u-cid", area: "files" },
+        { user: "Dee", userId: "u-dee", area: "relations" },
+      ],
+    });
+    const line = document.querySelector('[data-testid="presence-line"]');
+    expect(line).toHaveTextContent("Ana is in description");
+    expect(line).toHaveTextContent("Ben is in activity");
+    expect(line).toHaveTextContent("Cid is in files");
+    expect(line).toHaveTextContent("Dee is in relations");
+    // The raw area key must never leak into user-facing copy.
+    expect(line?.textContent).not.toMatch(/comments/);
   });
 
   it("wraps instead of breaking the layout on narrow viewports", () => {
@@ -172,6 +190,24 @@ describe("LiveActivityBadge neutrality", () => {
     expect(badge).toHaveTextContent("description");
     expect(badge).toHaveAttribute("title", "Ana editing · description");
     expect(screen.queryByText(/Locked by/)).not.toBeInTheDocument();
+  });
+
+  it("labels the comments area as activity in the suffix and title", () => {
+    render(
+      <LiveActivityBadge
+        activity={{
+          taskId: "t1",
+          user: "Ana",
+          userId: "u-ana",
+          state: "editing",
+          area: "comments",
+        }}
+      />,
+    );
+    const badge = screen.getByTestId("live-activity-badge");
+    expect(badge).toHaveTextContent("activity");
+    expect(badge).toHaveAttribute("title", "Ana editing · activity");
+    expect(badge.textContent).not.toMatch(/comments/);
   });
 
   it("renders a viewing badge without an area suffix", () => {

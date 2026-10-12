@@ -24,6 +24,7 @@ import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
 import { getTaskTypeColor } from "../../task-types";
 import { transformImageForUpload } from "../imageTransform";
+import { presenceAreaLabel } from "./shared/presence";
 
 const PASTE_HINT_KEY = "vibeflow-paste-hint-dismissed";
 
@@ -890,13 +891,17 @@ export function DetailPanel({
   }, [externalLocalChanges, localChanges]);
 
   // Quiet presence line: who else is in this task and in which area.
-  // Informational only — it never disables anything.
+  // Informational only — it never disables anything. Areas render through
+  // presenceAreaLabel so the copy agrees with the Activity tab ("A is in
+  // activity", never "A is in comments"); the raw area stays internal.
   const presenceText =
     presence.length === 0
       ? null
       : presence
           .map((p) =>
-            p.area ? `${p.user} is in ${p.area}` : `${p.user} is here`,
+            p.area
+              ? `${p.user} is in ${presenceAreaLabel(p.area)}`
+              : `${p.user} is here`,
           )
           .join(" \u00b7 ");
 
@@ -924,7 +929,7 @@ export function DetailPanel({
               display: "flex",
               alignItems: "center",
               // Several peers make this line long ("A is in description ·
-              // B is in comments · …"). It must wrap inside the panel on
+              // B is in activity · …"). It must wrap inside the panel on
               // narrow viewports instead of overflowing or squeezing the
               // header — informational only, never layout-breaking.
               flexWrap: "wrap",

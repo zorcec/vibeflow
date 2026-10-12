@@ -17,6 +17,7 @@ import {
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 import { displayedVerifyState } from "./VerifyIndicator";
+import { presenceAreaLabel } from "./shared/presence";
 import { LeadingSlot } from "./TaskCardLeadingSlot";
 
 interface Props {
@@ -807,7 +808,7 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
       // Neutral presence suffix — never a lock. Locks are gone: everyone can
       // edit, and this badge only says who else is here and where.
       const isEditing = activity.state === "editing";
-      const areaSuffix = activity.area ? ` \u00b7 ${activity.area}` : "";
+      const areaSuffix = activity.area ? ` \u00b7 ${presenceAreaLabel(activity.area)}` : "";
       const label = `${activity.user} ${isEditing ? "editing" : "viewing"}${areaSuffix}`;
       // The icon matches the state: an eye claimed someone was "editing"
       // while they typed, which read as view-only presence. Pencil = typing
