@@ -168,6 +168,20 @@ export type ServerEvent =
       actorId: UserId;
       actorName?: string;
     }
+  /**
+   * A comment was edited — clients apply `body` to the matching comment
+   * without a reload. Shaped exactly like its `add`/`remove` siblings plus
+   * the edited body (`body` matches `updateCommentSchema` and the
+   * `taskComments` column, so the receiving side needs no field mapping).
+   */
+  | {
+      type: "task.comment.update";
+      taskId: string;
+      commentId: string;
+      body: string;
+      actorId: UserId;
+      actorName?: string;
+    }
   | { type: "task.comment.count"; taskId: string; count: number }
   | {
       type: "task.file.add";

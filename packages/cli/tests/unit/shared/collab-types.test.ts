@@ -88,6 +88,23 @@ describe("@vibeflow/shared collab-types", () => {
     expect(relationRemove.type).toBe("task.relation.remove");
   });
 
+  it("comment update event is constructible and matches its siblings", () => {
+    const commentUpdate: ServerEvent = {
+      type: "task.comment.update",
+      taskId: "t1",
+      commentId: "c1",
+      body: "edited text",
+      actorId: "u1",
+    };
+    expect(commentUpdate.type).toBe("task.comment.update");
+    if (commentUpdate.type !== "task.comment.update") throw new Error("narrowing failed");
+    // Sibling-matched fields: same names as add/remove, plus the edited body.
+    expect(commentUpdate.taskId).toBe("t1");
+    expect(commentUpdate.commentId).toBe("c1");
+    expect(commentUpdate.body).toBe("edited text");
+    expect(commentUpdate.actorId).toBe("u1");
+  });
+
   it("RedisEnvelope wraps server events", () => {
     const envelope: RedisEnvelope = {
       roomKey: "workspace:w1:project:p1:board:b1",
