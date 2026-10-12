@@ -159,6 +159,25 @@ const CARD_FOOTER_STYLE: React.CSSProperties = {
       gap: 2,
       marginTop: 1,
 };
+// Compact title-row indicators (file / children / messages, 0a2fa3d6): the
+// normal card's footer icons moved inline with the title. Rendered only
+// when nonzero so an empty card stays a clean 1:1 title clone; each opens
+// the same tab the footer button would (children opens the task, whose
+// tree lives in the panel — a single row cannot expand inline).
+const COMPACT_INDICATOR_STYLE: React.CSSProperties = {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 2,
+      padding: "1px 3px",
+      borderRadius: 3,
+      border: "none",
+      background: "transparent",
+      cursor: "pointer",
+      fontSize: 9,
+      fontWeight: 600,
+      color: "var(--t-text-muted)",
+      flexShrink: 0,
+};
 const SPACER_STYLE: React.CSSProperties = { flex: 1 };
 
 export const TaskCard = React.memo(function TaskCard({
@@ -262,7 +281,11 @@ export const TaskCard = React.memo(function TaskCard({
             onToggleExpanded?.(task.id, next);
       }
 
-      // Compact view (any lane) or done column: single-row card
+      // Compact view (any lane) or done column: single-row card.
+      // Done cards stay title-only; compact cards additionally inline the
+      // nonzero file / children / message indicators with the title
+      // (0a2fa3d6) — no description, no badges either way.
+      const showInlineIcons = !!compact && !isDone;
       if (compact || isDone) {
             return (
                   <article
@@ -302,36 +325,53 @@ export const TaskCard = React.memo(function TaskCard({
                               >
                                     {task.title}
                               </span>
-                              <CopyIdButton taskId={task.id} />
-                              {/* Compact/done: title only — no tags, no counts */}
-                              {!compact &&
-                                    !isDone &&
-                                    task.tags &&
-                                    task.tags.length > 0 && (
-                                          <TagPills
-                                                tags={task.tags}
-                                                size="xs"
+                              {showInlineIcons && commentCount > 0 && (
+                                    <button
+                                          data-role="compact-comment-count"
+                                          title={`${commentCount} comment(s)`}
+                                          style={COMPACT_INDICATOR_STYLE}
+                                          onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpen(task, "comments");
+                                          }}
+                                    >
+                                          <MessageCircle
+                                                style={{ width: 9, height: 9 }}
                                           />
-                                    )}
-                              {!compact &&
-                                    !isDone &&
-                                    (commentCount > 0 || fileCount > 0) && (
-                                          <span
-                                                style={{
-                                                      fontSize: 9,
-                                                      color: "var(--t-text-muted)",
-                                                      flexShrink: 0,
-                                                }}
-                                          >
-                                                {commentCount > 0 &&
-                                                      `💬${commentCount}`}
-                                                {commentCount > 0 &&
-                                                      fileCount > 0 &&
-                                                      " "}
-                                                {fileCount > 0 &&
-                                                      `📎${fileCount}`}
-                                          </span>
-                                    )}
+                                          {commentCount}
+                                    </button>
+                              )}
+                              {showInlineIcons && fileCount > 0 && (
+                                    <button
+                                          data-role="compact-file-count"
+                                          title={`${fileCount} file(s) attached`}
+                                          style={COMPACT_INDICATOR_STYLE}
+                                          onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpen(task, "files");
+                                          }}
+                                    >
+                                          <Paperclip
+                                                style={{ width: 9, height: 9 }}
+                                          />
+                                          {fileCount}
+                                    </button>
+                              )}
+                              {showInlineIcons && childCount > 0 && (
+                                    <button
+                                          data-role="compact-child-count"
+                                          title={`${childCount} subtask(s) — open task`}
+                                          style={COMPACT_INDICATOR_STYLE}
+                                          onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpen(task);
+                                          }}
+                                    >
+                                          <span>⤷</span>
+                                          {childCount}
+                                    </button>
+                              )}
+                              <CopyIdButton taskId={task.id} />
                         </div>
                   </article>
             );

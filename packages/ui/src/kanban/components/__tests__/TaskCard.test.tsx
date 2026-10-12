@@ -403,3 +403,113 @@ describe("TaskCard verify indicator (three states)", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("TaskCard compact inline icons (0a2fa3d6)", () => {
+  const rich = makeTask({
+    description: "This description must stay hidden in compact view",
+    tags: ["probe"],
+    commentCount: 2,
+    fileCount: 3,
+  });
+
+  it("inlines nonzero file/children/message indicators with the title", () => {
+    const { container } = renderCard(rich, [rich, child], { compact: true });
+    const card = container.querySelector(
+      'article.task-card[data-compact="true"]',
+    )!;
+    expect(card).toBeInTheDocument();
+    // Indicators sit in the same title row as the title and copy button.
+    const row = card.firstElementChild!;
+    const roles = [...row.children].map(
+      (el) => el.getAttribute("data-role") ?? el.tagName,
+    );
+    expect(roles).toContain("card-title");
+    expect(
+      row.querySelector('[data-role="compact-comment-count"]'),
+    ).toHaveTextContent("2");
+    expect(
+      row.querySelector('[data-role="compact-file-count"]'),
+    ).toHaveTextContent("3");
+    expect(
+      row.querySelector('[data-role="compact-child-count"]'),
+    ).toHaveTextContent("1");
+    // Title keeps its flex:1 ellipsis slot; the copy affordance still fits.
+    expect(
+      row.querySelector('[data-role="card-title"]'),
+    ).toHaveStyle({ flex: "1" });
+    expect(card.querySelector("button[title^='Copy task id']")).toBeInTheDocument();
+  });
+
+  it("shows no description text and no badges in compact view", () => {
+    const { container } = renderCard(rich, [rich, child], { compact: true });
+    expect(container.querySelector('[data-compact="true"]')!.textContent).not.toContain(
+      "must stay hidden",
+    );
+    // Tag pills (the badges) never render on the compact branch.
+    expect(container.textContent).not.toContain("probe");
+  });
+
+  it("renders no indicators when all counts are zero", () => {
+    const { container } = renderCard(makeTask(), [makeTask()], {
+      compact: true,
+    });
+    expect(
+      container.querySelector('[data-role="compact-comment-count"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="compact-file-count"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="compact-child-count"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("done cards stay title-only even with nonzero counts", () => {
+    const doneCol: Column = {
+      id: "done",
+      label: "Done",
+      color: "#22c55e",
+      accent: "#22c55e",
+    };
+    const { container } = render(
+      <TaskCard
+        task={rich}
+        col={doneCol}
+        allTasks={[rich, child]}
+        onOpen={vi.fn()}
+        onDragStart={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector('[data-role="compact-comment-count"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="compact-file-count"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="compact-child-count"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("file indicator opens the files tab, comment indicator the comments tab", () => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <TaskCard
+        task={rich}
+        col={col}
+        compact
+        allTasks={[rich]}
+        onOpen={onOpen}
+        onDragStart={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      container.querySelector('[data-role="compact-file-count"]')!,
+    );
+    expect(onOpen).toHaveBeenCalledWith(rich, "files");
+    fireEvent.click(
+      container.querySelector('[data-role="compact-comment-count"]')!,
+    );
+    expect(onOpen).toHaveBeenCalledWith(rich, "comments");
+  });
+});
