@@ -240,7 +240,7 @@ function registerTaskApi(
   broadcast: BroadcastFn,
 ): void {
   // Returns project metadata: name derived from package.json or directory name,
-  // plus the current git branch. Used by the Chrome extension popup and kanban UI.
+  // plus the current git branch. Used by the kanban UI.
   app.get("/api/project", (_req, res) => {
     res.json({
       name: getProjectName(projectDir),
@@ -1514,11 +1514,11 @@ function registerInjectPage(
           `<h2>Option 2 — Script tag</h2>
   <div class="card"><p>Add this tag to your HTML (before <code>&lt;/body&gt;</code>):</p>
     <pre>${escapeHtml(snippet)}</pre>
-    <div class="note">Requires the Vibeflow server to be running at port ${port}. Works without the Chrome extension.</div></div>`,
+    <div class="note">Requires the Vibeflow server to be running at port ${port}.</div></div>`,
           `<h2>Option 3 — Browser console</h2>
   <div class="card"><p>Open browser DevTools console and paste:</p>
     <pre>${escapeHtml(localGuide.consoleSnippet)}</pre></div>`,
-          `<div class="note" style="margin-top:20px">⚙️ <strong>CSP note:</strong> If your app sets a strict Content-Security-Policy, use the Chrome extension instead — it bypasses CSP by injecting in the main world.</div>`,
+          `<div class="note" style="margin-top:20px">⚙️ <strong>CSP note:</strong> If your app sets a strict Content-Security-Policy, add <code>http://localhost:${port}</code> to your page's <code>script-src</code> and <code>connect-src</code> — no <code>unsafe-eval</code> and no extension needed. That is a build-time change to your app, so redeploy it afterwards. For pages you do not control, the bookmarklet and console snippet above only work where the page's CSP already permits them.</div>`,
         ],
       ),
     );
@@ -1654,7 +1654,7 @@ function useSecurityHeaders(app: express.Application): void {
 
 /**
  * API-only mode: starts the task API server without serving any HTML files.
- * Intended for use with existing hosted/served projects — the Chrome extension
+ * Intended for use with existing hosted/served projects — the overlay
  * connects to this server to read and write tasks while you browse your app.
  */
 /** Shared Express app + HTTP server + WebSocket setup used by both serve modes.
@@ -1923,12 +1923,12 @@ export async function serve(
     return serveApiOnly(options.projectDir ?? process.cwd(), options);
   }
 
-  // Proxy mode was removed. Only Chrome extension or static file serving are supported.
+  // Proxy mode was removed. Only API-only mode and static file serving are supported.
   if (target.startsWith("http://") || target.startsWith("https://")) {
     throw new Error(
       "Proxy mode is no longer supported.\n" +
         "To annotate an existing app, run: vibeflow serve  (API-only mode)\n" +
-        "Then install the Chrome extension and navigate to your app.",
+        "Then open the /inject page to get the bookmarklet, script tag, or console snippet for your app.",
     );
   }
 

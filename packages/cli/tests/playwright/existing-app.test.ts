@@ -2,9 +2,10 @@
  * Playwright e2e tests for the "serve on existing app" use case.
  *
  * Scenario: the user has an existing web app served on port A and runs
- * `proto serve` (API-only) on port B.  The overlay is injected into the
- * existing app page (simulating what the Chrome extension does), then
- * communicates cross-origin with the Vibeflow Studio API on port B.
+ * `vibeflow serve` (API-only) on port B.  The overlay is injected into the
+ * existing app page (simulating a script-tag injection as the /inject page
+ * describes it), then communicates cross-origin with the Vibeflow Studio
+ * API on port B.
  *
  * This test suite validates:
  *  - CORS: all API calls from the existing-app origin succeed
@@ -122,7 +123,7 @@ describe("Overlay on existing app (API-only / cross-origin)", () => {
     const overlayScriptForPage = getOverlayScript(API_PORT);
     appExpress.get("/", (_req, res) => {
       // Inject the overlay script into the existing app HTML, just as the
-      // Chrome extension would do it via a <script> tag.
+      // /inject page's script-tag option does it via a <script> tag.
       const html = EXISTING_APP_HTML.replace(
         "</body>",
         `<script data-proto-overlay="test">${overlayScriptForPage}</script></body>`,

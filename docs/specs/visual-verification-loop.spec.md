@@ -171,7 +171,7 @@ Captured from:
 - `Object.keys(localStorage)` + values
 - `Object.keys(sessionStorage)` + values
 
-> **⚠️ Known v1 limitation — HttpOnly cookies:** JavaScript in the overlay cannot read HttpOnly cookies (e.g. Rails `session_id`, Django `sessionid`, Express `connect.sid`). For auth systems that rely on HttpOnly session cookies, the capture will be incomplete and Playwright verification will fail at the login redirect. Most dev environments use JWT in localStorage or non-HttpOnly cookies, which work fine. **Future mitigation:** Chrome extension for full cookie access (Phase 2).
+> **⚠️ Known v1 limitation — HttpOnly cookies:** JavaScript in the overlay cannot read HttpOnly cookies (e.g. Rails `session_id`, Django `sessionid`, Express `connect.sid`). For auth systems that rely on HttpOnly session cookies, the capture will be incomplete and Playwright verification will fail at the login redirect. Most dev environments use JWT in localStorage or non-HttpOnly cookies, which work fine. **Future mitigation:** a privileged capture path with full cookie access (Phase 2, not currently planned).
 
 ### 7.2 Encryption design
 
@@ -478,7 +478,7 @@ vibeflow tasks --edit <id> --set-status review  # now checks for verification ev
 - `verify --all` to verify entire in-progress column
 - Vision-model verification pass (feed baseline + after + intent, let agent judge)
 - User-journey capture (record multi-step clicks)
-- Chrome extension for full HttpOnly cookie access
+- Privileged capture path with full HttpOnly cookie access
 
 ## 16. Open Questions
 

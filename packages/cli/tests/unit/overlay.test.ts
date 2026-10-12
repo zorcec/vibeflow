@@ -112,7 +112,7 @@ describe("getOverlayScript", () => {
     expect(script).toContain("scheduleReconnect");
   });
 
-  it("includes conflict guard for Chrome extension", () => {
+  it("includes double-inject conflict guard", () => {
     const script = getOverlayScript(3700);
     expect(script).toContain("vibeflow-studio-root");
   });

@@ -890,7 +890,7 @@ program
       opts: { port: string; open: boolean; host?: string; project?: string },
     ) => {
       // Coarse mode breakdown: API-only task server (no target — what MCP /
-      // Chrome-extension workflows run) vs prototype viewer (an HTML target
+      // script-tag-injection workflows run) vs prototype viewer (an HTML target
       // was given). Only the mode is reported — the target path itself must
       // never reach analytics.
       capture("command_run", {
