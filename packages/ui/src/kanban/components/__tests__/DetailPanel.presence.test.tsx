@@ -312,3 +312,65 @@ describe("LiveActivityBadge neutrality", () => {
     ).toHaveClass("lucide-eye");
   });
 });
+
+describe("DetailPanel presence stack placement + contrast (f84e68bd)", () => {
+  it("hugs the status row's right edge when no verify row is shown", () => {
+    renderPanel(makeTask(), {
+      presence: [{ user: "Ana", userId: "u-ana", area: "description" }],
+    });
+    const line = document.querySelector(
+      '[data-testid="presence-line"]',
+    ) as HTMLElement;
+    expect(line).not.toBeNull();
+    // No verify row on this task, so the stack owns the free space itself.
+    expect(document.querySelector("#dp-verify-row")).toBeNull();
+    expect(line.style.marginLeft).toBe("auto");
+  });
+
+  it("renders after the verify row when a verdict is shown", () => {
+    renderPanel(
+      makeTask({ status: "review", verified: true }),
+      {
+        presence: [{ user: "Ana", userId: "u-ana", area: "description" }],
+      },
+    );
+    const verifyRow = document.querySelector("#dp-verify-row");
+    const line = document.querySelector(
+      '[data-testid="presence-line"]',
+    ) as HTMLElement;
+    expect(verifyRow).not.toBeNull();
+    expect(line).not.toBeNull();
+    // Rightmost item: the verify row's auto margin pushes the cluster
+    // right, the presence line trails it.
+    expect(
+      verifyRow!.compareDocumentPosition(line),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(line.style.marginLeft).toBe("4px");
+  });
+
+  it("paints chips with a high-contrast fill, not the cursor colour", () => {
+    renderPanel(makeTask(), {
+      presence: [{ user: "Ana", userId: "u-ana", area: "description" }],
+    });
+    const [chip] = Array.from(
+      document.querySelectorAll(
+        '[data-testid="presence-line"] .presence-chip',
+      ),
+    ) as HTMLElement[];
+    // jsdom normalizes hsl() to rgb(); assert the rendered fill clears
+    // WCAG AA against the white initials instead of string-matching.
+    const m = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(
+      chip.style.backgroundColor,
+    );
+    expect(m).not.toBeNull();
+    const f = (c: number) => {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const lum =
+      0.2126 * f(Number(m![1])) +
+      0.7152 * f(Number(m![2])) +
+      0.0722 * f(Number(m![3]));
+    expect(1.05 / (lum + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+});

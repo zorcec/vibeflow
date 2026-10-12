@@ -24,7 +24,7 @@ import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
 import { getTaskTypeColor } from "../../task-types";
 import { transformImageForUpload } from "../imageTransform";
-import { presenceAreaLabel, presenceColor, presenceInitials } from "./shared/presence";
+import { presenceAreaLabel, presenceChipFill, presenceInitials } from "./shared/presence";
 
 const PASTE_HINT_KEY = "vibeflow-paste-hint-dismissed";
 
@@ -118,10 +118,23 @@ const PRESENCE_MAX_CHIPS = 4;
  * "<user> is in <area>" sentence lives in each chip's title (hover) and
  * aria-label (screen reader); chips are keyboard-focusable. Crowds
  * collapse to a "+N" chip whose title/aria names everyone hidden, so the
- * status row never grows with the peer count. Chip colour mirrors the
- * peer's description-cursor colour (same person, same colour).
+ * status row never grows with the peer count. Chip hue mirrors the
+ * peer's description-cursor hue (same person, same hue); the fill is the
+ * high-contrast `presenceChipFill` variant (f84e68bd) so white initials
+ * clear 4.5:1 on every hue.
+ *
+ * Right-aligned (f84e68bd): the stack renders AFTER the verify row and
+ * consumes the free space via `marginLeft: auto` when no verify row is
+ * shown, so the line always hugs the row's right edge.
  */
-function PresenceStack({ presence }: { presence: PresenceEntry[] }) {
+function PresenceStack({
+  presence,
+  pushRight,
+}: {
+  presence: PresenceEntry[];
+  /** No verify row to the left — this stack owns the free space. */
+  pushRight?: boolean;
+}) {
   if (presence.length === 0) return null;
   const sentence = (p: PresenceEntry) =>
     p.area ? `${p.user} is in ${presenceAreaLabel(p.area)}` : `${p.user} is here`;
@@ -157,7 +170,7 @@ function PresenceStack({ presence }: { presence: PresenceEntry[] }) {
         flexWrap: "wrap",
         rowGap: 4,
         minWidth: 0,
-        marginLeft: 4,
+        marginLeft: pushRight ? "auto" : 4,
       }}
     >
       {visible.map((p, i) => {
@@ -170,7 +183,7 @@ function PresenceStack({ presence }: { presence: PresenceEntry[] }) {
             tabIndex={0}
             title={label}
             aria-label={label}
-            style={chipStyle(presenceColor(p.userId), i > 0)}
+            style={chipStyle(presenceChipFill(p.userId), i > 0)}
           >
             {presenceInitials(p.user)}
           </span>
@@ -1324,8 +1337,6 @@ export function DetailPanel({
                 {s.label}
               </button>
             ))}
-            {/* Co-presence avatars inlined with the status row (bc908cca). */}
-            <PresenceStack presence={presence} />
             {/* Verification verdict — a quiet trailing note in the status
                 cluster so it reads as one unit; the VerifyIndicator carries
                 the tooltip (what the verdict means). */}
@@ -1359,6 +1370,15 @@ export function DetailPanel({
                 </span>
               </div>
             )}
+            {/* Co-presence avatars (bc908cca), right-aligned (f84e68bd):
+                after the verify row so the line always hugs the row's
+                right edge. When no verify row is shown the stack owns the
+                free space itself (pushRight); otherwise the verify row's
+                auto margin already pushes the cluster right. */}
+            <PresenceStack
+              presence={presence}
+              pushRight={isAdd || !task || verifyState === "none"}
+            />
           </div>
 
           {/* Branch name prompt when createBranch is ON and setting to review */}

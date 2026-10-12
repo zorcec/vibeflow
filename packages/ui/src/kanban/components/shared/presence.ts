@@ -61,3 +61,29 @@ export function presenceColor(userId: string | undefined): string {
     ]!;
   return `hsl(${hue}, 70%, 55%)`;
 }
+
+/**
+ * High-contrast fill for presence avatar chips (vibeflow task f84e68bd).
+ *
+ * Same hash, same hue angle as `presenceColor` — the same person keeps the
+ * same hue as their description cursor — but the lightness drops from 55%
+ * to 28% so white initials text clears WCAG AA (4.5:1) on EVERY hue.
+ * Measured floor: 5.02:1 on the worst hue (yellow, 55°); most hues clear
+ * 6:1. The 55% value stays for the 2px description cursor (a graphic, not
+ * text) and for the "+N" overflow chip, which already passes (5.05:1).
+ */
+export const PRESENCE_CHIP_FILL_LIGHTNESS = 28;
+
+export function presenceChipFill(userId: string | undefined): string {
+  if (!userId) return `hsl(220, 9%, ${PRESENCE_CHIP_FILL_LIGHTNESS}%)`;
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue =
+    PRESENCE_HUES[
+      ((hash % PRESENCE_HUES.length) + PRESENCE_HUES.length) %
+        PRESENCE_HUES.length
+    ]!;
+  return `hsl(${hue}, 70%, ${PRESENCE_CHIP_FILL_LIGHTNESS}%)`;
+}
