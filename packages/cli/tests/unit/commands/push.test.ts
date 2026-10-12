@@ -365,7 +365,7 @@ describe("push — import API interaction", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const url = fetchMock.mock.calls[0]?.[0] as string;
-    expect(url).toContain("https://app.vibeflow.tools");
+    expect(url).toContain("https://freemium.vibeflow.tools");
 
     process.env.VIBEFLOW_API_URL = originalEnv;
   });

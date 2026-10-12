@@ -5,32 +5,11 @@
  * comments from the SaaS backend instead of local .proto/ files.
  */
 import { readToken } from "../auth/token.js";
+import { getApiUrl } from "../core/api-url.js";
 
 export type SaasResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: string; message: string; status?: number } };
-
-// Stryker disable once StringLiteral: default API URL is a configuration constant
-const DEFAULT_API_URL = "https://app.vibeflow.tools";
-
-/**
- * Resolve the SaaS API base URL from the environment. Validates that the value
- * is a well-formed http(s) URL and falls back to the production default for
- * anything else — Bearer tokens must never be sent to file://, custom schemes,
- * or malformed hosts (SSRF/credential-leak guard). Also guarantees callers'
- * `new URL(...)` never throws on a bad env value.
- */
-function getApiUrl(): string {
-  const raw = process.env.VIBEFLOW_API_URL ?? DEFAULT_API_URL;
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== "https:" && u.protocol !== "http:")
-      return DEFAULT_API_URL;
-    return raw.replace(/\/+$/, "");
-  } catch {
-    return DEFAULT_API_URL;
-  }
-}
 
 /** Map CLI status values to SaaS DB enum values. */
 const CLI_TO_SAAS_STATUS: Record<string, string> = {

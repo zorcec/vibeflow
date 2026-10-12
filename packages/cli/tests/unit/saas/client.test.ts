@@ -144,7 +144,7 @@ describe("fetchSaasTasks", () => {
     mockFetch({ tasks: [], boardId: "b-1" });
     await fetchSaasTasks();
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("https://app.vibeflow.tools");
+    expect((fetchCall[0] as string)).toContain("https://freemium.vibeflow.tools");
   });
 });
 

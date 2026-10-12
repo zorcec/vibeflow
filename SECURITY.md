@@ -23,7 +23,7 @@ You will receive a response within 48 hours. We will work with you to understand
 
 ## Scope
 
-This policy covers the CLI tool (`@vibeflow-tools/cli`) and shared packages in this repository. The SaaS web application at [app.vibeflow.tools](https://app.vibeflow.tools) is outside the scope of this repository.
+This policy covers the CLI tool (`@vibeflow-tools/cli`) and shared packages in this repository. The SaaS web application at [freemium.vibeflow.tools](https://freemium.vibeflow.tools) is outside the scope of this repository.
 
 ## Responsible Disclosure
 

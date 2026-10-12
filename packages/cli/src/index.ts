@@ -54,6 +54,7 @@ import {
 } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
+import { getApiUrl } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
 import { watch } from "./commands/watch.js";
@@ -1611,7 +1612,7 @@ program
               for (const f of saasTask.files) {
                 const fileUrl =
                   f.url ??
-                  `${process.env.VIBEFLOW_API_URL ?? "https://app.vibeflow.tools"}/api/tasks/${saasTask.id}/files/${encodeURIComponent(f.name)}`;
+                  `${getApiUrl()}/api/tasks/${saasTask.id}/files/${encodeURIComponent(f.name)}`;
                 console.log(chalk.dim(`      - ${f.name}  ${fileUrl}`));
                 if (f.content) {
                   console.log(chalk.dim(`        ┌── content ──`));
@@ -4289,7 +4290,7 @@ program
                 for (const f of task.files) {
                   const fileUrl =
                     f.url ??
-                    `${process.env.VIBEFLOW_API_URL ?? "https://app.vibeflow.tools"}/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`;
+                    `${getApiUrl()}/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`;
                   console.log(chalk.dim(`      - ${f.name}  ${fileUrl}`));
                   // Use inlined content from the API response (no extra HTTP request needed).
                   if (f.content) {

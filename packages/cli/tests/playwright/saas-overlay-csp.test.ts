@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
 import type { ServeInstance } from "../../src/server/server.js";
 
-const SAAS_BASE_URL = "https://app.vibeflow.tools";
+const SAAS_BASE_URL = "https://freemium.vibeflow.tools";
 const BOARD_ID = "board-csp-test-123";
 const PORT = 3913;
 const BASE = `http://localhost:${PORT}`;

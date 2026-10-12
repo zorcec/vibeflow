@@ -10,13 +10,7 @@ import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
-
-// Stryker disable once StringLiteral: default API URL is a configuration constant
-const DEFAULT_API_URL = "https://app.vibeflow.tools";
-
-function getApiUrl(): string {
-  return process.env.VIBEFLOW_API_URL ?? DEFAULT_API_URL;
-}
+import { getApiUrl } from "../core/api-url.js";
 
 type ImportResult = {
   imported: number;

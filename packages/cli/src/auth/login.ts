@@ -13,14 +13,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
+import { getApiUrl } from "../core/api-url.js";
 
-// Stryker disable once StringLiteral: default API URL is a configuration constant
-const DEFAULT_API_URL = "https://app.vibeflow.tools";
 const SETTINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-
-function getApiUrl(): string {
-  return process.env.VIBEFLOW_API_URL ?? DEFAULT_API_URL;
-}
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
