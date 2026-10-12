@@ -358,11 +358,11 @@ export function buildSourcePointer(element: Element): SourcePointer {
     if (tier1.functionName != null) pointer.functionName = tier1.functionName;
   }
 
-  // Proto-id shortcut (proto-studio specific; highest priority for display + selector)
-  const protoId = element.getAttribute("data-vibeflow-id");
-  if (protoId) {
-    pointer.selector = `[data-vibeflow-id="${protoId}"]`;
-    pointer.display = protoId;
+  // Element-id shortcut (Vibeflow annotation contract; highest priority for display + selector)
+  const elementId = element.getAttribute("data-vibeflow-id");
+  if (elementId) {
+    pointer.selector = `[data-vibeflow-id="${elementId}"]`;
+    pointer.display = elementId;
     return pointer;
   }
 

@@ -158,7 +158,7 @@ describe("commitTaskChanges", () => {
     expect(task.commits[0].timestamp).toBeDefined();
   });
 
-  it("uses [proto:<id>] tag in commit message", () => {
+  it("uses [vibeflow:<id>] tag in commit message", () => {
     const taskId = "test-task-003";
     createTaskFile(tmpDir, taskId);
     stage(tmpDir, relative(tmpDir, taskFilePath(tmpDir, taskId)));
@@ -166,12 +166,12 @@ describe("commitTaskChanges", () => {
     const result = commitTaskChanges(tmpDir, taskId, "chore: update");
     expect(result.ok).toBe(true);
 
-    // Check the git log for the proto tag
+    // Check the git log for the vibeflow tag
     const log = execSync("git log --oneline -1", {
       cwd: tmpDir,
       env: gitEnv,
     }).toString();
-    expect(log).toContain(`[proto:${taskId}]`);
+    expect(log).toContain(`[vibeflow:${taskId}]`);
   });
 
   // The helper stages the task's own record itself (see the auto-stages

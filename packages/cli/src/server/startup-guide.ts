@@ -19,6 +19,11 @@
  */
 import chalk from "chalk";
 import { networkInterfaces } from "node:os";
+import {
+  BOARD_ID_GLOBAL,
+  OVERLAY_ROOT_ID,
+  OVERLAY_SCRIPT_ATTR,
+} from "../client/overlay-attributes.js";
 
 /** Returns the first non-loopback IPv4 LAN address for display when bound to 0.0.0.0. */
 function getLanIp(): string | null {
@@ -140,7 +145,7 @@ export function overlayScriptTag(
   overlayScriptUrl: string,
   boardId?: string,
 ): string {
-  return `<script src="${overlayScriptUrl}" data-vibeflow-overlay${boardId ? ` data-board-id="${boardId}"` : ""}></script>`;
+  return `<script src="${overlayScriptUrl}" ${OVERLAY_SCRIPT_ATTR}${boardId ? ` data-board-id="${boardId}"` : ""}></script>`;
 }
 
 /**
@@ -165,7 +170,7 @@ export function buildIntegrationGuide(
       ? `${urls.localUrl}${online ? "/api/overlay.js" : "/vibeflow-overlay.js"}`
       : null;
 
-  const boardIdSetup = boardId ? `window.__PROTO_BOARD_ID='${boardId}';` : "";
+  const boardIdSetup = boardId ? `window.${BOARD_ID_GLOBAL}='${boardId}';` : "";
   const boardIdSetAttr = boardId
     ? `s.setAttribute('data-board-id','${boardId}');`
     : "";
@@ -186,10 +191,10 @@ export function buildIntegrationGuide(
     // (survives `script-src` CSP). Offline: a <script> element is enough.
     consoleSnippet: online
       ? `${boardIdSetup}fetch('${overlayScriptUrl}').then(r=>r.text()).then(code=>eval(code));`
-      : `var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('data-vibeflow-overlay','');${boardIdSetAttr}document.head.appendChild(s);`,
+      : `var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('${OVERLAY_SCRIPT_ATTR}','');${boardIdSetAttr}document.head.appendChild(s);`,
     bookmarkletCode: online
-      ? `javascript:(function(){if(document.getElementById('vibeflow-studio-root')){alert('Vibeflow overlay is already active.')}else{${boardIdSetup}fetch('${overlayScriptUrl}').then(function(r){return r.text()}).then(function(code){eval(code)}).catch(function(){alert('Failed to load Vibeflow overlay')})}})()`
-      : `javascript:(function(){if(document.getElementById('vibeflow-studio-root')){alert('Vibeflow overlay is already active on this page.');}else{var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('data-vibeflow-overlay','');${boardIdSetAttr}document.head.appendChild(s);}})()`,
+      ? `javascript:(function(){if(document.getElementById('${OVERLAY_ROOT_ID}')){alert('Vibeflow overlay is already active.')}else{${boardIdSetup}fetch('${overlayScriptUrl}').then(function(r){return r.text()}).then(function(code){eval(code)}).catch(function(){alert('Failed to load Vibeflow overlay')})}})()`
+      : `javascript:(function(){if(document.getElementById('${OVERLAY_ROOT_ID}')){alert('Vibeflow overlay is already active on this page.');}else{var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('${OVERLAY_SCRIPT_ATTR}','');${boardIdSetAttr}document.head.appendChild(s);}})()`,
     boardId,
     online,
   };

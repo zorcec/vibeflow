@@ -113,7 +113,7 @@ async function listRowRects(page: Page): Promise<RowRect[]> {
     const bottom = Math.min(window.innerHeight, c.bottom);
     return [
       ...document.querySelectorAll<HTMLElement>(
-        '#kanban-list-view [data-proto-id="list-row"]',
+        '#kanban-list-view [data-testid="list-row"]',
       ),
     ]
       .map((row) => {
@@ -149,7 +149,7 @@ async function tagRowsWithGroupStatus(page: Page) {
       const span = group.querySelector(":scope > div span");
       const status = span?.textContent?.trim() ?? "";
       group
-        .querySelectorAll<HTMLElement>('[data-proto-id="list-row"]')
+        .querySelectorAll<HTMLElement>('[data-testid="list-row"]')
         .forEach((row) => {
           row.dataset.groupStatus = status;
         });
@@ -273,7 +273,7 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
     await page.waitForFunction(
       () =>
         document.querySelectorAll(
-          '#kanban-list-view [data-proto-id="list-row"]',
+          '#kanban-list-view [data-testid="list-row"]',
         ).length >= 2,
       undefined,
       { timeout: 10000 },

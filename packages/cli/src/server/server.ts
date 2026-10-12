@@ -1514,7 +1514,7 @@ function registerInjectPage(
           `<h2>Option 2 — Script tag</h2>
   <div class="card"><p>Add this tag to your HTML (before <code>&lt;/body&gt;</code>):</p>
     <pre>${escapeHtml(snippet)}</pre>
-    <div class="note">Requires the proto server to be running at port ${port}. Works without the Chrome extension.</div></div>`,
+    <div class="note">Requires the Vibeflow server to be running at port ${port}. Works without the Chrome extension.</div></div>`,
           `<h2>Option 3 — Browser console</h2>
   <div class="card"><p>Open browser DevTools console and paste:</p>
     <pre>${escapeHtml(localGuide.consoleSnippet)}</pre></div>`,
@@ -1927,7 +1927,7 @@ export async function serve(
   if (target.startsWith("http://") || target.startsWith("https://")) {
     throw new Error(
       "Proxy mode is no longer supported.\n" +
-        "To annotate an existing app, run: proto serve  (API-only mode)\n" +
+        "To annotate an existing app, run: vibeflow serve  (API-only mode)\n" +
         "Then install the Chrome extension and navigate to your app.",
     );
   }

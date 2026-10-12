@@ -726,13 +726,13 @@ describe("tasks --json partial success is a notice, not a refusal", () => {
     expect(r.stderr).not.toContain('"ok":false');
     // The task data really is on disk.
     expect(readTask(store, id).status).toBe("review");
-    // And the commit really happened: message plus [proto:<id>] tag on HEAD.
+    // And the commit really happened: message plus [vibeflow:<id>] tag on HEAD.
     const log = execSync("git log -1 --format=%B", {
       cwd: store,
       stdio: ["ignore", "pipe", "ignore"],
     }).toString();
     expect(log).toContain("feat: work");
-    expect(log).toContain(`[proto:${id}]`);
+    expect(log).toContain(`[vibeflow:${id}]`);
   });
 
   it("auto-commit in human mode prints Committed and exits 0 when nothing was staged", async () => {

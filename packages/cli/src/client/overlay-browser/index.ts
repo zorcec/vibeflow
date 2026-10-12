@@ -21,6 +21,12 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { OverlayApp, TRIGGER_HIDDEN_KEY } from "../overlay-react/OverlayApp.js";
 import { configureWasmBaseUrl } from "@vibeflow-tools/ui/kanban";
+import {
+  OVERLAY_SCRIPT_ATTR,
+  findOverlayScript,
+  isOverlayActive,
+  readBoardIdGlobal,
+} from "../overlay-attributes.js";
 
 declare const PROTO_CONFIG: import("./types.js").ProtoConfig;
 
@@ -55,12 +61,11 @@ function main(): void {
   // Prefer the script tag that carries a boardId (SaaS embed) so that the
   // pi-lens-ignore: no-open-redirect-js
   // CLI overlay script (src*="vibeflow-overlay") does not shadow it.
-  const selfScript = (document.querySelector("script[data-board-id]") ??
-    document.querySelector(
-      'script[src*="vibeflow-overlay"]',
-    )) as HTMLScriptElement | null;
-  if (selfScript && !selfScript.hasAttribute("data-vibeflow-overlay")) {
-    selfScript.setAttribute("data-vibeflow-overlay", "");
+  // Legacy snippets carrying data-proto-overlay are accepted (findOverlayScript
+  // falls back to it) but always re-marked with the new attribute.
+  const selfScript = findOverlayScript(document);
+  if (selfScript && !selfScript.hasAttribute(OVERLAY_SCRIPT_ATTR)) {
+    selfScript.setAttribute(OVERLAY_SCRIPT_ATTR, "");
   }
   // Read boardId from the script tag's data-board-id attribute (SaaS embed).
   // This MUST run before the early-return check so that re-injecting the script
@@ -70,9 +75,14 @@ function main(): void {
   }
   // Fallback: read boardId from a global variable set by fetch+eval bookmarklets
   // in CSP-restricted environments where no script element is available.
-  // SAFETY: window.__PROTO_BOARD_ID is set by fetch+eval bookmarklets in CSP-restricted environments; the Record cast reads an optional global.
-  const globalBoardId = (window as unknown as Record<string, unknown>)
-    .__PROTO_BOARD_ID as string | undefined;
+  // New snippets set window.__VIBEFLOW_BOARD_ID; older ones set
+  // window.__PROTO_BOARD_ID, which is still honoured (see overlay-attributes).
+  // SAFETY: window is narrowed to an indexable record only to read two
+  // optional board-id globals; readBoardIdGlobal validates the value is a
+  // non-empty string before use.
+  const globalBoardId = readBoardIdGlobal(
+    window as unknown as Record<string, unknown>,
+  );
   if (globalBoardId && !PROTO_CONFIG.boardId) {
     (PROTO_CONFIG as { boardId?: string }).boardId = globalBoardId;
   }
@@ -82,8 +92,10 @@ function main(): void {
       selfScript.dataset.overlayApiKey;
   }
 
-  // Skip if already injected (by extension or another script tag)
-  if (document.getElementById("vibeflow-studio-root")) return;
+  // Skip if already injected (by extension or another script tag). Both the
+  // current and the legacy shadow-host ids count — a legacy bundle may own
+  // the page already.
+  if (isOverlayActive(document)) return;
 
   // Reset the trigger-hidden state on every fresh injection so the overlay button
   // always appears when the page loads or the bookmarklet is run.  Previously, a

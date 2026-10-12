@@ -303,7 +303,12 @@ export function showInspectModal(
   );
   const dataAttrs = Array.from(element.attributes)
     .filter(
-      (a) => a.name.startsWith("data-") && !a.name.startsWith("data-proto"),
+      // Annotation-system attributes (current + legacy) are noise here —
+      // the pointer above already carries the element's identity.
+      (a) =>
+        a.name.startsWith("data-") &&
+        !a.name.startsWith("data-vibeflow") &&
+        !a.name.startsWith("data-proto"),
     )
     .map((a) => ({ name: a.name, value: a.value }));
 

@@ -4,12 +4,14 @@
  * Used by CLI commit mode, CLI edit-mode auto-commit, and MCP update_task
  * to ensure identical commit logic across all three surfaces.
  *
- * Convention: commit message is tagged with [proto:<taskId>] and the commit
+ * Convention: commit message is tagged with [vibeflow:<taskId>] (legacy
+ * [proto:<taskId>] still parses) and the commit
  * record (sha + message + timestamp) is appended to the task's `commits` array.
  */
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
+import { formatCommitTag } from "./commit-tag.js";
 import { gitEnvWithCleanLocation } from "./git-env.js";
 import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
 import { getFilesDir } from "./files.js";
@@ -48,7 +50,7 @@ export function commitTaskChanges(
   | { ok: true; sha: string; linkedExisting?: boolean }
   | { ok: false; error: string } {
   try {
-    const commitMsg = `${message} [proto:${taskId}]`;
+    const commitMsg = `${message} ${formatCommitTag(taskId)}`;
 
     const filePath = findTaskFilePath(projectDir, taskId);
     if (!filePath) {
@@ -204,7 +206,7 @@ export function commitTaskPaths(
 ): TaskCommitResult {
   try {
     const env = gitEnvWithCleanLocation();
-    const commitMsg = `${message} [proto:${taskId}]`;
+    const commitMsg = `${message} ${formatCommitTag(taskId)}`;
 
     const filePath = findTaskFilePath(projectDir, taskId);
     if (!filePath) {

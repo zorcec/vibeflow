@@ -403,7 +403,7 @@ function ListRow({
   return (
     <div
       data-task-id={task.id}
-      data-proto-id="list-row"
+      data-testid="list-row"
       draggable
       style={{
         display: "grid",

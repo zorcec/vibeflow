@@ -1,11 +1,12 @@
 import { state, PREFS_KEY } from "./state.js";
 import { OVERLAY_CSS, HOST_PAGE_CSS } from "./css.js";
+import { OVERLAY_ROOT_ID } from "../overlay-attributes.js";
 
 // ── Shadow DOM setup ──────────────────────────────────────────────────────────
 
 export function setupShadowDom(): { host: HTMLElement; root: ShadowRoot } {
   const host = document.createElement("div");
-  host.id = "vibeflow-studio-root";
+  host.id = OVERLAY_ROOT_ID;
   // Prevent the host element from intercepting pointer events on the outer page.
   // The shadow DOM's :host { pointer-events: none } only applies inside the shadow,
   // not to the host element from the outer document's perspective.

@@ -53,6 +53,7 @@ import {
   buildRemoveLinks,
 } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
+import { formatCommitTag } from "./core/commit-tag.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
 import { getApiUrl } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
@@ -2511,7 +2512,7 @@ program
           }
           const baseMsg = opts.message?.trim() || task.title;
           if (opts.dryRun) {
-            const commitMsg = `${baseMsg} [proto:${task.id}]`;
+            const commitMsg = `${baseMsg} ${formatCommitTag(task.id)}`;
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -2648,14 +2649,14 @@ program
                 chalk.green(`✓ Linked existing commit to task: ${task.title}`),
               );
               console.log(chalk.dim(`  commit: ${result.sha} (HEAD)`));
-              console.log(chalk.dim(`  proto:  ${task.id}`));
+              console.log(chalk.dim(`  vibeflow:  ${task.id}`));
               printNextHint(commitNextActions);
             } else {
               console.log(
                 chalk.green(`✓ Committed and linked to task: ${task.title}`),
               );
               console.log(chalk.dim(`  commit: ${result.sha}`));
-              console.log(chalk.dim(`  proto:  ${task.id}`));
+              console.log(chalk.dim(`  vibeflow:  ${task.id}`));
               printNextHint(commitNextActions);
             }
 
@@ -4000,7 +4001,7 @@ program
                     if (commitResult.linkedExisting) {
                       console.log(
                         chalk.green(
-                          `✓ Already committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                          `✓ Already committed: ${opts.commitMessage.trim()} ${formatCommitTag(taskForCommit.id)}`,
                         ),
                       );
                       console.log(
@@ -4011,7 +4012,7 @@ program
                     } else {
                       console.log(
                         chalk.green(
-                          `✓ Committed: ${opts.commitMessage.trim()} [proto:${taskForCommit.id}]`,
+                          `✓ Committed: ${opts.commitMessage.trim()} ${formatCommitTag(taskForCommit.id)}`,
                         ),
                       );
                       console.log(chalk.dim(`  sha: ${commitResult.sha}`));

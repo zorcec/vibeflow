@@ -106,7 +106,7 @@ async function typeIntoSearch(value: string) {
 }
 
 function filterBar(): HTMLElement {
-  const bar = container.querySelector('[data-proto-id="filter-bar"]');
+  const bar = container.querySelector('[data-testid="filter-bar"]');
   if (!bar) throw new Error("filter bar not rendered");
   return bar as HTMLElement;
 }

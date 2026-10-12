@@ -87,7 +87,7 @@ describe("buildIntegrationGuide — the URL/snippet source of truth", () => {
       "https://freemium.vibeflow.tools/api/overlay.js",
     );
     expect(g.consoleSnippet).toBe(
-      "window.__PROTO_BOARD_ID='bid1';fetch('https://freemium.vibeflow.tools/api/overlay.js').then(r=>r.text()).then(code=>eval(code));",
+      "window.__VIBEFLOW_BOARD_ID='bid1';fetch('https://freemium.vibeflow.tools/api/overlay.js').then(r=>r.text()).then(code=>eval(code));",
     );
     expect(g.bookmarkletCode).toContain("fetch('https://freemium.vibeflow.tools/api/overlay.js')");
   });

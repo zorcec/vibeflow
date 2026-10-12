@@ -92,10 +92,10 @@ Apply with Tailwind's arbitrary value or a one-line style:
 <body class="bg-gray-50 text-gray-900 min-h-screen">
 
   <!-- Navigation (copy across pages, do not link to a shared file) -->
-  <nav data-proto-id="main-nav" class="...">...</nav>
+  <nav data-vibeflow-id="main-nav" class="...">...</nav>
 
   <!-- Page content -->
-  <main data-proto-id="main-content">...</main>
+  <main data-vibeflow-id="main-content">...</main>
 
 </body>
 </html>
@@ -103,17 +103,17 @@ Apply with Tailwind's arbitrary value or a one-line style:
 
 ---
 
-## 4. Element Identification (`data-proto-id`)
+## 4. Element Identification (`data-vibeflow-id`)
 
-Every meaningful UI element **must** carry a `data-proto-id` attribute.
+Every meaningful UI element **must** carry a `data-vibeflow-id` attribute.
 
 ```html
-<nav data-proto-id="main-nav">...</nav>
-<aside data-proto-id="sidebar">...</aside>
-<section data-proto-id="hero-section">...</section>
-<form data-proto-id="login-form">...</form>
-<button data-proto-id="cta-submit">Submit</button>
-<div data-proto-id="card-listing-1">...</div>
+<nav data-vibeflow-id="main-nav">...</nav>
+<aside data-vibeflow-id="sidebar">...</aside>
+<section data-vibeflow-id="hero-section">...</section>
+<form data-vibeflow-id="login-form">...</form>
+<button data-vibeflow-id="cta-submit">Submit</button>
+<div data-vibeflow-id="card-listing-1">...</div>
 ```
 
 ### Rules
@@ -136,7 +136,7 @@ Every meaningful UI element **must** carry a `data-proto-id` attribute.
 Repeat the navigation component verbatim in every file (no shared includes):
 
 ```html
-<nav data-proto-id="main-nav" class="bg-white border-b px-6 py-3 flex items-center gap-6">
+<nav data-vibeflow-id="main-nav" class="bg-white border-b px-6 py-3 flex items-center gap-6">
   <a href="./dashboard.html" class="font-semibold text-gray-900">App</a>
   <a href="./listings.html" class="text-gray-500 hover:text-gray-900">Listings</a>
   <a href="./settings.html" class="text-gray-500 hover:text-gray-900">Settings</a>
@@ -168,5 +168,5 @@ Use the same color palette and spacing across all pages:
 - Do not create `shared.css` or `components.html` — repeat shared elements
 - Do not use absolute URLs for navigation between pages; use `./page.html`
 - Do not introduce JS frameworks (React, Vue, Alpine) unless asked
-- Do not remove `data-proto-id` attributes
-- Do not rename existing `data-proto-id` values
+- Do not remove `data-vibeflow-id` attributes
+- Do not rename existing `data-vibeflow-id` values

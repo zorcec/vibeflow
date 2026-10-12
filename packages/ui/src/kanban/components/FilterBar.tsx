@@ -105,7 +105,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
 
   return (
     <div
-      data-proto-id="filter-bar"
+      data-testid="filter-bar"
       style={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px',
         background: 'var(--t-surface)', borderBottom: '1px solid var(--t-border)', flexShrink: 0,
