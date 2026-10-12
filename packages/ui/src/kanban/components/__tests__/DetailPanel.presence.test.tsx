@@ -109,6 +109,21 @@ describe("DetailPanel presence line", () => {
     expect(line).toHaveTextContent("Ben is here");
   });
 
+  it("wraps instead of breaking the layout on narrow viewports", () => {
+    renderPanel(makeTask(), {
+      presence: [
+        { user: "Ana", userId: "u-ana", area: "description" },
+        { user: "Ben", userId: "u-ben", area: "comments" },
+        { user: "Cid", userId: "u-cid", area: "files" },
+      ],
+    });
+    const line = document.querySelector(
+      '[data-testid="presence-line"]',
+    ) as HTMLElement;
+    expect(line).not.toBeNull();
+    expect(line.style.flexWrap).toBe("wrap");
+    expect(line.style.minWidth).toBe("0px");
+  });
   it("renders no presence line when nobody else is present", () => {
     renderPanel(makeTask(), { presence: [] });
     expect(
@@ -169,5 +184,31 @@ describe("LiveActivityBadge neutrality", () => {
       "title",
       "Ben viewing",
     );
+  });
+
+  it("shows a pencil while typing and an eye while viewing", () => {
+    const { unmount } = render(
+      <LiveActivityBadge
+        activity={{
+          taskId: "t1",
+          user: "Ana",
+          userId: "u-ana",
+          state: "editing",
+          area: "description",
+        }}
+      />,
+    );
+    expect(
+      screen.getByTestId("live-activity-badge").querySelector("svg"),
+    ).toHaveClass("lucide-pencil");
+    unmount();
+    render(
+      <LiveActivityBadge
+        activity={{ taskId: "t1", user: "Ben", state: "viewing" }}
+      />,
+    );
+    expect(
+      screen.getByTestId("live-activity-badge").querySelector("svg"),
+    ).toHaveClass("lucide-eye");
   });
 });

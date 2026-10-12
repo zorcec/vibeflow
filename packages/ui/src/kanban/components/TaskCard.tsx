@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, Eye, ChevronDown } from "lucide-react";
+import { MessageCircle, Paperclip, Eye, Pencil, ChevronDown } from "lucide-react";
 import { CopyIdButton } from "./CopyIdButton";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
@@ -806,8 +806,13 @@ interface LiveActivityBadgeProps {
 export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
       // Neutral presence suffix — never a lock. Locks are gone: everyone can
       // edit, and this badge only says who else is here and where.
+      const isEditing = activity.state === "editing";
       const areaSuffix = activity.area ? ` \u00b7 ${activity.area}` : "";
-      const label = `${activity.user} ${activity.state === "editing" ? "editing" : "viewing"}${areaSuffix}`;
+      const label = `${activity.user} ${isEditing ? "editing" : "viewing"}${areaSuffix}`;
+      // The icon matches the state: an eye claimed someone was "editing"
+      // while they typed, which read as view-only presence. Pencil = typing
+      // indicator, eye = viewing — consistent with the presence line's
+      // "<user> is in <area>" wording carried in the title.
 
       const badgeStyle: React.CSSProperties = {
             display: "inline-flex",
@@ -833,7 +838,11 @@ export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
                   title={label}
                   data-testid="live-activity-badge"
             >
-                  <Eye style={{ width: 8, height: 8 }} />
+                  {isEditing ? (
+                        <Pencil style={{ width: 8, height: 8 }} />
+                  ) : (
+                        <Eye style={{ width: 8, height: 8 }} />
+                  )}
                   <span
                         style={{
                               overflow: "hidden",

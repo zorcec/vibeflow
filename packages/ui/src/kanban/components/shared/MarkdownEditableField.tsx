@@ -181,7 +181,12 @@ function RemoteCursorOverlay({
                 padding: '0 4px',
                 borderRadius: 3,
                 backgroundColor: m.color,
+                // 9px white on a 55%-lightness palette colour is low
+                // contrast on the lightest hues (yellows/greens) — the
+                // text-shadow keeps the peer name legible without changing
+                // the per-user colour identity.
                 color: '#fff',
+                textShadow: '0 1px 2px rgba(0,0,0,0.55)',
                 fontSize: 9,
                 lineHeight: '14px',
                 whiteSpace: 'nowrap',

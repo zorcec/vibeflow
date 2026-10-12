@@ -923,10 +923,19 @@ export function DetailPanel({
             style={{
               display: "flex",
               alignItems: "center",
+              // Several peers make this line long ("A is in description ·
+              // B is in comments · …"). It must wrap inside the panel on
+              // narrow viewports instead of overflowing or squeezing the
+              // header — informational only, never layout-breaking.
+              flexWrap: "wrap",
+              rowGap: 2,
+              minWidth: 0,
+              overflowWrap: "break-word",
               gap: 6,
               padding: "6px 12px 0",
               margin: "6px 12px 0",
               fontSize: 11,
+              lineHeight: 1.5,
               color: "var(--t-text-muted)",
               fontWeight: 400,
             }}

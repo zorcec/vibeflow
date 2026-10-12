@@ -4,12 +4,28 @@ export function generateId(): string {
   return createId();
 }
 
+/**
+ * Stable per-user colour for presence and remote cursors.
+ *
+ * The hue is quantized to a fixed 12-entry palette (neighbours ≥20° apart
+ * at 70%/55%) instead of a continuous hash hue: two users must never land
+ * on near-identical colours, or their cursors are indistinguishable. The
+ * mapping is a pure function of `userId`, so the colour is stable across
+ * sessions, replicas and the server/client boundary (the ws presence roster
+ * and the doc cursor binding both call this). Format stays
+ * `hsl(<int>, 70%, 55%)`.
+ */
+const USER_COLOR_HUES = [
+  0, 30, 55, 95, 140, 175, 200, 220, 250, 280, 310, 330,
+] as const;
+
 export function userColor(userId: string): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) {
     hash = userId.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const hue = ((hash % 360) + 360) % 360;
+  const hue =
+    USER_COLOR_HUES[((hash % USER_COLOR_HUES.length) + USER_COLOR_HUES.length) % USER_COLOR_HUES.length]!;
   return `hsl(${hue}, 70%, 55%)`;
 }
 

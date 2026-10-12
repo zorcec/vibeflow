@@ -34,6 +34,26 @@ describe("@vibeflow/shared utils", () => {
     it("differs for different userIds", () => {
       expect(userColor("alice")).not.toBe(userColor("bob"));
     });
+
+    it("quantizes to a fixed 12-hue palette (distinguishable cursors)", () => {
+      const palette = new Set([
+        0, 30, 55, 95, 140, 175, 200, 220, 250, 280, 310, 330,
+      ]);
+      const ids = Array.from({ length: 200 }, (_, i) => `user-${i}`);
+      const hues = ids.map((id) => {
+        const m = /^hsl\((\d+), 70%, 55%\)$/.exec(userColor(id));
+        expect(m).not.toBeNull();
+        return Number(m![1]);
+      });
+      for (const hue of hues) expect(palette.has(hue)).toBe(true);
+      // Neighbours stay ≥20° apart, so two cursors never blur together.
+      const sorted = [...palette].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length; i++) {
+        const a = sorted[i]!;
+        const b = sorted[(i + 1) % sorted.length]!;
+        expect((b - a + 360) % 360).toBeGreaterThanOrEqual(20);
+      }
+    });
   });
 
   describe("buildRoomKey / parseRoomKey", () => {
