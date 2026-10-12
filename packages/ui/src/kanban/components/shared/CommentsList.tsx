@@ -125,12 +125,55 @@ const VERIFY_ENTRY_TITLES: Record<VerifyEntryVerdict, string> = {
   cannot: 'Verification verdict: cannot — unverifiable here, so no verdict (badge) is recorded',
 };
 
-/** Minimal accent: left border + soft background on existing theme tokens. */
-const VERIFY_ENTRY_ACCENT: Record<VerifyEntryVerdict, React.CSSProperties> = {
-  pass: { borderLeft: '2px solid var(--t-success)', background: 'var(--t-success-soft)' },
-  fail: { borderLeft: '2px solid var(--t-danger)', background: 'var(--t-danger-soft)' },
-  cannot: { borderLeft: '2px solid var(--t-warning)', background: 'var(--t-warning-soft)' },
+/**
+ * Verdict badge language — the FilterBar status-chip pattern
+ * (tinted wash + tinted hairline + chip-ink text), recolored per verdict.
+ * Every token below already exists in the theme; no colours are invented.
+ */
+const VERIFY_BADGE_STYLE: Record<VerifyEntryVerdict, React.CSSProperties> = {
+  pass: { background: 'color-mix(in srgb, var(--t-success) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--t-success) 32%, transparent)', color: 'var(--t-chip-green-300)' },
+  fail: { background: 'color-mix(in srgb, var(--t-danger) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--t-danger) 32%, transparent)', color: 'var(--t-chip-red-300)' },
+  cannot: { background: 'color-mix(in srgb, var(--t-warning) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--t-warning) 38%, transparent)', color: 'var(--t-chip-amber-300)' },
 };
+
+/** Badge geometry shared by every verdict badge. */
+const VERIFY_BADGE_BASE: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, lineHeight: '16px', padding: '1px 7px',
+  borderRadius: 999, flexShrink: 0, letterSpacing: '0.02em', whiteSpace: 'nowrap',
+};
+
+/** Short verdict label per verdict — glanceable, never buried in the sentence. */
+const VERIFY_BADGE_LABEL: Record<VerifyEntryVerdict, string> = {
+  pass: 'Pass',
+  fail: 'Fail',
+  cannot: '\u26a0 Cannot verify',
+};
+
+/**
+ * Card geometry shared by every verify entry: the agent-message card rhythm
+ * (same radius, padding, type size and line-height as the MarkdownPreview card
+ * a normal comment renders), tinted per verdict with the existing soft tokens
+ * so the verdict stays glanceable. The long-text case is the one real
+ * difference from the short activities, so the body also pins wrapping.
+ */
+function verifyCardStyle(verdict: VerifyEntryVerdict): React.CSSProperties {
+  const tint =
+    verdict === 'pass'
+      ? { background: 'var(--t-success-soft)', border: '1px solid color-mix(in srgb, var(--t-success) 30%, transparent)' }
+      : verdict === 'fail'
+        ? { background: 'var(--t-danger-soft)', border: '1px solid color-mix(in srgb, var(--t-danger) 30%, transparent)' }
+        : { background: 'var(--t-warning-soft)', border: '1px solid color-mix(in srgb, var(--t-warning) 30%, transparent)' };
+  return {
+    ...tint,
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 12,
+    lineHeight: 1.6,
+    color: 'var(--t-text-sub)',
+    overflowWrap: 'break-word',
+    whiteSpace: 'pre-wrap',
+  };
+}
 
 /**
  * The verdict this activity entry records, or null when it records none.
@@ -390,16 +433,47 @@ function renderActivityItem(
     const toTrimmed = item.to.length > trimLen ? item.to.slice(0, trimLen) + '…' : item.to;
     const needsTooltip = item.from.length > trimLen || item.to.length > trimLen;
     const verdict = verifyEntryVerdict(item);
+    if (verdict) {
+      // Verdict-carrying transition: agent-message rhythm (header + card) so it
+      // belongs to the feed family; the badge carries the verdict at a glance
+      // and the from→to pills move into the card body unchanged.
+      return (
+        <div
+          key={`change-${item.sortKey}-${gIdx}-${iIdx}`}
+          className={`activity-verify activity-verify--${verdict}`}
+          title={VERIFY_ENTRY_TITLES[verdict]}
+          style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!isGrouped && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t-accent-soft)', flexShrink: 0 }}>👤 {item.actor}</span>}
+            {!isGrouped && <SourceBadge source={item.source} />}
+            <span style={{ ...VERIFY_BADGE_BASE, ...VERIFY_BADGE_STYLE[verdict] }}>{VERIFY_BADGE_LABEL[verdict]}</span>
+            {!isGrouped && (
+              <span style={{ fontSize: 11, color: 'var(--t-text-body)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
+            )}
+          </div>
+          <div style={verifyCardStyle(verdict)}>
+            <span style={{ color: 'var(--t-text-muted)' }}>
+              changed <strong style={{ color: 'var(--t-text)' }}>{item.field}</strong>
+            </span>
+            <div
+              title={needsTooltip ? `${item.from} → ${item.to}` : undefined}
+              style={{ marginTop: 4, color: 'var(--t-text-body)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}
+            >
+              <span style={{ color: 'var(--t-danger)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fromTrimmed}</span>
+              <span style={{ color: 'var(--t-text-body)' }}>→</span>
+              <span style={{ color: 'var(--t-success)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTrimmed}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         key={`change-${item.sortKey}-${gIdx}-${iIdx}`}
-        className={verdict ? `activity-verify activity-verify--${verdict}` : undefined}
-        title={verdict ? VERIFY_ENTRY_TITLES[verdict] : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 6,
-          padding: verdict ? '2px 6px' : '2px 0',
-          borderRadius: verdict ? 4 : undefined,
-          ...(verdict ? VERIFY_ENTRY_ACCENT[verdict] : {}),
+          padding: '2px 0',
         }}
       >
         <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
@@ -457,34 +531,35 @@ function renderActivityItem(
     // why the task carries no verdict (and no badge).
     const cannotMatch = c.text.match(CANNOT_VERIFY_RE);
     if (cannotMatch) {
+      // Cannot-verify verdict: agent-message rhythm (header + card) so it reads
+      // as a message, in the existing warning colours. Order is who → verdict →
+      // detail: the header names the author and badges the verdict, the card
+      // holds the long reason with comfortable line length and line-height, and
+      // the ⚠ marker lives in the badge — aligned to the first line by
+      // construction instead of floating beside a wrapped paragraph.
+      const cannotAuthorIsAgent = c.author === 'agent';
       return (
         <div
           key={c.id}
           className="activity-verify activity-verify--cannot"
           title={VERIFY_ENTRY_TITLES.cannot}
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 6,
-            padding: '2px 6px',
-            borderRadius: 4,
-            fontSize: 11,
-            ...VERIFY_ENTRY_ACCENT.cannot,
-          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
-          <span
-            style={{
-              color: 'var(--t-warning)',
-              flexShrink: 0,
-              paddingTop: 1,
-            }}
-          >
-            ⚠
-          </span>
-          <span style={{ flex: 1, minWidth: 0, color: 'var(--t-text-body)' }}>
-            Cannot verify — {cannotMatch[1].trim()}
-          </span>
-          {!isGrouped && <span style={{ flexShrink: 0, opacity: 0.6 }}>{formatDate(c.createdAt)}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!isGrouped && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: cannotAuthorIsAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)', flexShrink: 0 }}>
+                {cannotAuthorIsAgent ? '🤖 Agent' : `👤 ${c.authorName ?? gitUserName}`}
+              </span>
+            )}
+            {!isGrouped && <SourceBadge source={c.source} />}
+            <span style={{ ...VERIFY_BADGE_BASE, ...VERIFY_BADGE_STYLE.cannot }}>{VERIFY_BADGE_LABEL.cannot}</span>
+            {!isGrouped && (
+              <span style={{ fontSize: 11, color: 'var(--t-text-body)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(c.createdAt)}</span>
+            )}
+          </div>
+          <div style={verifyCardStyle('cannot')}>
+            {cannotMatch[1].trim()}
+          </div>
         </div>
       );
     }

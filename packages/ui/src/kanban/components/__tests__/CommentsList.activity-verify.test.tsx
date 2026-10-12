@@ -77,6 +77,25 @@ describe("activity verify entries", () => {
     );
   });
 
+  it("a normal agent comment keeps its card geometry (verify entries join it, not vice versa)", () => {
+    const agentComment: Comment = {
+      id: "c-agent",
+      author: "agent",
+      text: "Implemented the widget.",
+      createdAt: "2026-10-06T10:00:00.000Z",
+    };
+    const { container } = renderFeed([], [agentComment]);
+    expect(container.querySelector(".activity-verify")).toBeNull();
+    const cards = Array.from(container.querySelectorAll("div")).filter(
+      (d) => (d as HTMLElement).style.padding === "10px 14px",
+    ) as HTMLElement[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0].style.borderRadius).toBe("8px");
+    expect(cards[0].style.fontSize).toBe("12px");
+    expect(cards[0].style.lineHeight).toBe("1.6");
+    expect(cards[0].style.background).toBe("var(--t-input)");
+  });
+
   it("leaves a verdict-less status change plain", () => {
     const { container } = renderFeed([verifyChange(undefined)]);
     expect(container.querySelector(".activity-verify")).toBeNull();
@@ -87,6 +106,66 @@ describe("activity verify entries", () => {
       verifyChange(true, "in-progress" as TaskStatus),
     ]);
     expect(container.querySelector(".activity-verify")).toBeNull();
+  });
+
+  it("cannot entry orders who, verdict badge, then detail", () => {
+    const longReason =
+      "No defect exists to verify: the save and render flow was proven end to end " +
+      "on the live app (picker \u2192 boards.icon \u2192 header shows the icon, brand mark absent). " +
+      "The symptom could not be reproduced as a bug here; the measurements point elsewhere.";
+    const cannot: Comment = {
+      id: "c-long",
+      author: "agent",
+      type: "system",
+      text: `**Cannot verify:** ${longReason}`,
+      createdAt: "2026-10-06T10:01:00.000Z",
+    };
+    const { container } = renderFeed([], [cannot]);
+    const entry = container.querySelector(".activity-verify.activity-verify--cannot");
+    expect(entry).not.toBeNull();
+    const text = entry!.textContent ?? "";
+    // Header first: who said it, then the verdict badge…
+    expect(text).toContain("\u{1F916} Agent");
+    expect(text).toContain("\u26a0 Cannot verify");
+    // …then the detail, with the verdict prefix NOT repeated in the body.
+    expect(text).toContain(longReason);
+    expect(text.indexOf("\u{1F916} Agent")).toBeLessThan(text.indexOf("\u26a0 Cannot verify"));
+    expect(text.indexOf("\u26a0 Cannot verify")).toBeLessThan(text.indexOf(longReason));
+  });
+
+  it("cannot entry uses the agent-message card geometry", () => {
+    const cannot: Comment = {
+      id: "c-card",
+      author: "agent",
+      type: "system",
+      text: "**Cannot verify:** offline target",
+      createdAt: "2026-10-06T10:01:00.000Z",
+    };
+    const { container } = renderFeed([], [cannot]);
+    const entry = container.querySelector(".activity-verify--cannot") as HTMLElement;
+    expect(entry).not.toBeNull();
+    // Body card: same radius/padding/type/line-height as a normal comment card.
+    const cards = Array.from(entry.querySelectorAll("div")).filter(
+      (d) => (d as HTMLElement).style.padding === "10px 14px",
+    ) as HTMLElement[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0].style.borderRadius).toBe("8px");
+    expect(cards[0].style.fontSize).toBe("12px");
+    expect(cards[0].style.lineHeight).toBe("1.6");
+    expect(cards[0].style.overflowWrap).toBe("break-word");
+    // Warning colour language, existing tokens only.
+    expect(cards[0].style.background).toBe("var(--t-warning-soft)");
+    expect(cards[0].style.border).toContain("var(--t-warning)");
+  });
+
+  it("pass/fail entries badge the verdict and keep the from/to pills", () => {
+    const pass = renderFeed([verifyChange(true)]);
+    const passEntry = pass.container.querySelector(".activity-verify--pass");
+    expect(passEntry?.textContent).toContain("Pass");
+    expect(passEntry?.textContent).toContain("Todo");
+    expect(passEntry?.textContent).toContain("Review");
+    const fail = renderFeed([verifyChange(false)]);
+    expect(fail.container.querySelector(".activity-verify--fail")?.textContent).toContain("Fail");
   });
 
   it("leaves an ordinary comment plain but flags the cannot-verify system comment", () => {
