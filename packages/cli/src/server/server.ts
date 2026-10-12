@@ -915,7 +915,7 @@ function registerTaskApi(
   app.post(
     "/api/tasks/:id/files/:filename",
     express.raw({ type: "*/*", limit: "50mb" }),
-    (req, res) => {
+    async (req, res) => {
       const { id, filename: rawFilename } = req.params;
       if (!isValidFilename(rawFilename)) {
         res.status(400).json({ error: "Invalid filename" });
@@ -931,12 +931,24 @@ function registerTaskApi(
         return;
       }
       const info = saveFile(projectDir, id, rawFilename, data);
+      // Leave the same system trace a removal leaves, so the activity
+      // feed records the addition (949e7c0a). Awaited: the broadcast
+      // below must not outrun the write, or peers refetch too early.
+      await addComment(
+        projectDir,
+        id,
+        "user",
+        `📎 File added: \`${rawFilename}\``,
+        undefined,
+        "system",
+        "web",
+      );
       broadcastTaskUpdated(broadcast, id);
       res.json({ success: true, file: info });
     },
   );
 
-  app.delete("/api/tasks/:id/files/:filename", (req, res) => {
+  app.delete("/api/tasks/:id/files/:filename", async (req, res) => {
     const { id, filename } = req.params;
     if (!isValidFilename(filename)) {
       res.status(400).json({ error: "Invalid filename" });
@@ -948,7 +960,8 @@ function registerTaskApi(
       return;
     }
     // Add a system trace so the activity feed records the removal.
-    addComment(
+    // Awaited for the same broadcast-ordering reason as the add path.
+    await addComment(
       projectDir,
       id,
       "user",
@@ -1473,7 +1486,15 @@ function registerInjectPage(
   // The local guide has always linked the overlay at `http://localhost:<port>`
   // (NOT the LAN url) — the overlay resolves its own API from window.location,
   // so the localhost link is what a same-machine dev wants to drag.
-  const port = new URL(urls.url).port || "80";
+  // urls.url is built internally by resolveServeUrls and always parses, but
+  // new URL throws on malformed input — fall back to 80 rather than 500ing
+  // the guide on an unexpected value.
+  let port = "80";
+  try {
+    port = new URL(urls.url).port || "80";
+  } catch {
+    port = "80";
+  }
   const localGuide = buildIntegrationGuide(urls, {
     boardId: safeBoardId,
     overlayBaseUrl: `http://localhost:${port}`,

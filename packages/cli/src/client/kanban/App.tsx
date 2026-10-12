@@ -538,6 +538,18 @@ export function App() {
   const [statusChangeLog, setStatusChangeLog] = React.useState<StatusEntry[]>(
     [],
   );
+  // Version counters the open detail panel watches to refetch its
+  // comments/files without a reload (949e7c0a: file add/remove traces
+  // must appear live). Bumped from the WS handler below, not from local
+  // actions — those refetch through their own call sites.
+  const [fileVersion, setFileVersion] = React.useState(0);
+  const [commentVersion, setCommentVersion] = React.useState(0);
+  // Latest open-panel task id for the WS handler (connectWs closes over
+  // the first render, so state would read stale without the ref).
+  const panelTaskIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    panelTaskIdRef.current = panelState.task?.id ?? null;
+  }, [panelState.task?.id]);
 
   // Load initial data
   React.useEffect(() => {
@@ -938,6 +950,17 @@ export function App() {
         const msg = JSON.parse(ev.data as string);
         if (msg.type === "tasks-updated" || msg.type?.startsWith("task:")) {
           void loadTasks();
+          // The open panel's comments/files live behind their own fetches:
+          // when the update concerns the open task (file add/remove writes
+          // its trace through the same broadcast), refresh them without a
+          // reload. Version counters, not the payload — the panel refetches.
+          if (
+            typeof msg.taskId === "string" &&
+            msg.taskId === panelTaskIdRef.current
+          ) {
+            setFileVersion((v) => v + 1);
+            setCommentVersion((v) => v + 1);
+          }
           return;
         }
         if (msg.type === "task-changed" && msg.task) {
@@ -1552,8 +1575,14 @@ export function App() {
     if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
     // HTML files open in a new tab for sandboxed preview; all others use the modal.
     if (/\.html?$/i.test(name)) {
-      // Open exactly the URL that was validated, not the raw input.
-      window.open(resolved.href, "_blank", "noopener,noreferrer");
+      // Open the same-origin relative form, not the absolute href: the
+      // origin check above already passed, and a relative target cannot
+      // resolve off-site even if that guard is ever weakened.
+      window.open(
+        resolved.pathname + resolved.search + resolved.hash,
+        "_blank",
+        "noopener,noreferrer",
+      );
       return;
     }
     setFilePreview({ open: true, name, url });
@@ -1797,6 +1826,8 @@ export function App() {
                   : undefined
               }
               externalLocalChanges={panelStatusChanges}
+              commentVersion={commentVersion}
+              fileVersion={fileVersion}
               allTasks={tasks}
               onOpenTask={navigateToTask}
               createBranch={appSettings.createBranch}
