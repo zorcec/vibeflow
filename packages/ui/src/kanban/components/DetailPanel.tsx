@@ -356,6 +356,20 @@ export function DetailPanel({
   const commentsLoadGen = React.useRef(0);
   const [fileCount, setFileCount] = React.useState(0);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+  /**
+   * Files currently moving through paste → transform → upload → reload.
+   * An entry is added BEFORE the seconds-long wasm transform starts and removed
+   * only after the stored file is listed (or the attempt fails), so the
+   * pending tile in the Files pane is honest about the wait. While non-empty
+   * no new attach submission is accepted (see `uploadBusyRef`) — duplicate
+   * submissions stay disabled until the in-flight one settles. `image` is
+   * MIME knowledge from the File/clipboard item, never a filename match.
+   */
+  const [uploading, setUploading] = React.useState<{ name: string; image: boolean }[]>([]);
+  const uploadBusyRef = React.useRef(false);
+  /** Create-task mode: a paste is being transformed before it can buffer. */
+  const [bufferingPaste, setBufferingPaste] = React.useState(false);
+  const [bufferError, setBufferError] = React.useState<string | null>(null);
   const [localChanges, setLocalChanges] = React.useState<LocalChange[]>([]);
   const [draftTags, setDraftTags] = React.useState<string[]>([]);
   const [_linksSaving, setLinksSaving] = React.useState(false);
@@ -638,15 +652,18 @@ export function DetailPanel({
     }
   }
 
-  async function loadFiles(taskId: string) {
+  async function loadFiles(taskId: string): Promise<FileEntry[]> {
     setFilesLoading(true);
     setFilesError(null);
     try {
       const data = await api.getFiles(taskId);
-      setFiles(data.files ?? []);
-      setFileCount(data.files?.length ?? 0);
+      const next = data.files ?? [];
+      setFiles(next);
+      setFileCount(next.length);
+      return next;
     } catch {
       setFilesError("failed");
+      return [];
     } finally {
       setFilesLoading(false);
     }
@@ -753,46 +770,116 @@ export function DetailPanel({
     await loadComments(task.id);
   }
 
+  /**
+   * One attach submission (a paste or one file-picker batch): every job gets a
+   * pending tile the moment the submission starts, each tile clears only when
+   * its stored file is listed, and any failure — transform, upload rejection,
+   * or an upload that resolves without the file appearing — lands in the
+   * visible upload-error box instead of failing silently. While a batch is in
+   * flight (`uploadBusyRef`) new submissions are refused so duplicates cannot
+   * stack up behind a slow transform; the visible pending tile says why.
+   */
+  async function runUploadBatch(
+    taskId: string,
+    jobs: { name: string; image: boolean; produce: () => Promise<File> }[],
+  ): Promise<void> {
+    if (jobs.length === 0 || uploadBusyRef.current) return;
+    uploadBusyRef.current = true;
+    setUploadError(null);
+    setUploading((prev) => [
+      ...prev,
+      ...jobs
+        .filter((j) => !prev.some((p) => p.name === j.name))
+        .map((j) => ({ name: j.name, image: j.image })),
+    ]);
+    const failures: string[] = [];
+    try {
+      for (const job of jobs) {
+        try {
+          const stored = await job.produce();
+          const next = await loadFiles(taskId);
+          if (!next.some((f) => f.name === stored.name)) {
+            failures.push(`"${job.name}" uploaded but is not listed`);
+          }
+        } catch (err) {
+          failures.push(
+            `"${job.name}": ${err instanceof Error ? err.message : "upload failed"}`,
+          );
+        } finally {
+          setUploading((prev) => prev.filter((p) => p.name !== job.name));
+        }
+      }
+      if (failures.length > 0) {
+        setUploadError(`Couldn't attach ${failures.join("; ")}.`);
+      } else {
+        void loadBadgeCounts(taskId);
+      }
+    } finally {
+      uploadBusyRef.current = false;
+    }
+  }
+
+  /** Paste-style display name that cannot collide with an in-flight upload. */
+  function nextPasteName(): string {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const base = `paste-${ts}`;
+    let name = `${base}.png`;
+    for (let n = 2; uploading.some((u) => u.name === name); n++) name = `${base}-${n}.png`;
+    return name;
+  }
+
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!task) return;
-    const taskId = task.id;
-    setUploadError(null);
-    for (const file of Array.from(e.target.files ?? [])) {
-      if (!file.type.startsWith("image/") && file.size > MAX_UPLOAD_BYTES) {
-        setUploadError(
-          `"${file.name}" exceeds the 5 MB limit and was skipped.`,
-        );
-        continue;
-      }
-      let toUpload: File;
-      if (file.type.startsWith("image/")) {
-        // Shared ingest matrix: PNG→lossless WebP, >1920→1920+q80 WebP,
-        // JPEG kept (+metadata strip), GIF/SVG untouched. True extension.
-        ({ file: toUpload } = await transformImageForUpload(file, file.name));
-      } else {
-        toUpload = file;
-      }
-      await api.uploadFile(taskId, toUpload);
-    }
+    const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    await loadFiles(taskId);
-    void loadBadgeCounts(taskId);
+    if (picked.length === 0) return;
+    const taskId = task.id;
+    await runUploadBatch(
+      taskId,
+      picked.map((file) => ({
+        name: file.name,
+        image: file.type.startsWith("image/"),
+        produce: async () => {
+          if (!file.type.startsWith("image/") && file.size > MAX_UPLOAD_BYTES) {
+            throw new Error("exceeds the 5 MB limit and was skipped");
+          }
+          let toUpload: File;
+          if (file.type.startsWith("image/")) {
+            // Shared ingest matrix: PNG→lossless WebP, >1920→1920+q80 WebP,
+            // JPEG kept (+metadata strip), GIF/SVG untouched. True extension.
+            ({ file: toUpload } = await transformImageForUpload(file, file.name));
+          } else {
+            toUpload = file;
+          }
+          await api.uploadFile(taskId, toUpload);
+          return toUpload;
+        },
+      })),
+    );
   }
 
   async function uploadPastedImage(blob: Blob) {
     if (!task) return;
-    setUploadError(null);
-    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const { file } = await transformImageForUpload(blob, `paste-${ts}.png`);
-    await api.uploadFile(task.id, file);
-    await loadFiles(task.id);
-    void loadBadgeCounts(task.id);
+    const taskId = task.id;
+    const name = nextPasteName();
+    await runUploadBatch(taskId, [
+      {
+        name,
+        image: true,
+        produce: async () => {
+          const { file } = await transformImageForUpload(blob, name);
+          await api.uploadFile(taskId, file);
+          return file;
+        },
+      },
+    ]);
   }
 
   // Centralized paste handler — handles images, files, and file-system paths
   // Uses a document-level listener (not onPaste) so paste works even when no editable element is focused
   async function handleClipboardPaste(clipboardData: DataTransfer) {
-    if (!task) return;
+    if (!task || uploadBusyRef.current) return;
+    const taskId = task.id;
     const items = Array.from(clipboardData.items);
 
     // Images get their own named file (paste-<timestamp>.png)
@@ -804,17 +891,22 @@ export function DetailPanel({
     }
 
     // Any other pasted files (e.g. text/csv, application/pdf, …) are uploaded as-is
-    const fileItems = items.filter(
-      (item) => item.kind === "file" && !item.type.startsWith("image/"),
-    );
-    if (fileItems.length > 0) {
-      for (const item of fileItems) {
-        const file = item.getAsFile();
-        if (file) await api.uploadFile(task.id, file);
-      }
-      await loadFiles(task.id);
-      void loadBadgeCounts(task.id);
-      return;
+    const pasted = items
+      .filter((item) => item.kind === "file" && !item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (pasted.length > 0) {
+      await runUploadBatch(
+        taskId,
+        pasted.map((file) => ({
+          name: file.name,
+          image: false,
+          produce: async () => {
+            await api.uploadFile(taskId, file);
+            return file;
+          },
+        })),
+      );
     }
   }
 
@@ -844,16 +936,29 @@ export function DetailPanel({
         if (imageItem) {
           const blob = imageItem.getAsFile();
           if (blob) {
+            // Visible immediately: the transform takes seconds and previously
+            // showed nothing until the buffer note appeared. Failures surface
+            // in the footer instead of rejecting silently.
+            setBufferError(null);
+            setBufferingPaste(true);
             void (async () => {
-              const ts = new Date()
-                .toISOString()
-                .replace(/[:.]/g, "-")
-                .slice(0, 19);
-              const { file } = await transformImageForUpload(
-                blob,
-                `paste-${ts}.png`,
-              );
-              setPendingPasteFiles((prev) => [...prev, file]);
+              try {
+                const ts = new Date()
+                  .toISOString()
+                  .replace(/[:.]/g, "-")
+                  .slice(0, 19);
+                const { file } = await transformImageForUpload(
+                  blob,
+                  `paste-${ts}.png`,
+                );
+                setPendingPasteFiles((prev) => [...prev, file]);
+              } catch (err) {
+                setBufferError(
+                  `Couldn't process pasted image: ${err instanceof Error ? err.message : "unknown error"}`,
+                );
+              } finally {
+                setBufferingPaste(false);
+              }
             })();
           }
         }
@@ -1568,6 +1673,7 @@ export function DetailPanel({
               error={filesError}
               baseUrl={baseUrl}
               taskId={task?.id}
+              pendingFiles={uploading}
               onPreview={(f) =>
                 onFilePreview(
                   f.name,
@@ -1604,12 +1710,34 @@ export function DetailPanel({
                   {uploadError}
                 </div>
               )}
+              {uploading.length > 0 && (
+                <div
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 11,
+                    color: "var(--t-text-muted)",
+                    background: "rgba(37,99,235,0.08)",
+                    border: "1px solid rgba(37,99,235,0.25)",
+                    borderRadius: 5,
+                    padding: "4px 8px",
+                  }}
+                >
+                  <span className="spinner" aria-label="uploading" />
+                  {uploading.length === 1
+                    ? "Uploading pasted image…"
+                    : `Uploading ${uploading.length} files…`}
+                </div>
+              )}
               <label
+                aria-disabled={uploading.length > 0}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  cursor: "pointer",
+                  cursor: uploading.length > 0 ? "wait" : "pointer",
                   padding: "6px 10px",
                   background: "var(--t-card)",
                   border: "1px solid var(--t-border)",
@@ -1617,6 +1745,8 @@ export function DetailPanel({
                   color: "var(--t-text-muted)",
                   fontSize: 12,
                   transition: "all .15s",
+                  opacity: uploading.length > 0 ? 0.55 : 1,
+                  pointerEvents: uploading.length > 0 ? "none" : "auto",
                 }}
                 onMouseOver={(e) => {
                   e.currentTarget.style.borderColor = "var(--t-border-faint)";
@@ -1628,7 +1758,7 @@ export function DetailPanel({
                 }}
               >
                 <Upload style={{ width: 12, height: 12 }} />
-                Upload
+                {uploading.length > 0 ? "Uploading…" : "Upload"}
                 <input
                   id="dp-file-upload"
                   type="file"
@@ -1680,6 +1810,36 @@ export function DetailPanel({
           <div style={{ flex: 1 }} />
           {isAdd ? (
             <>
+              {bufferingPaste && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t-accent-soft)",
+                    marginRight: 8,
+                    background: "rgba(37,99,235,0.1)",
+                    border: "1px solid rgba(37,99,235,0.25)",
+                    borderRadius: 6,
+                    padding: "3px 8px",
+                  }}
+                >
+                  Processing pasted image…
+                </span>
+              )}
+              {bufferError && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t-danger)",
+                    marginRight: 8,
+                    background: "rgba(255,80,80,0.08)",
+                    border: "1px solid rgba(255,80,80,0.2)",
+                    borderRadius: 6,
+                    padding: "3px 8px",
+                  }}
+                >
+                  {bufferError}
+                </span>
+              )}
               {pendingPasteFiles.length > 0 && (
                 <span
                   style={{
