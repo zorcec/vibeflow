@@ -670,6 +670,14 @@ body.proto-resizing-panel {
  color: var(--t-chip-green-300);
 }
 
+/* ── Co-presence chips (detail-panel status row) ── */
+/* Chips carry their own inline geometry; the stylesheet owns only the
+   keyboard focus ring (inline styles cannot express :focus-visible). */
+.presence-chip:focus-visible {
+ outline: 2px solid var(--t-accent);
+ outline-offset: 1px;
+}
+
 /* ── Detail panel inputs ── */
 .dp-input {
  width: 100%;

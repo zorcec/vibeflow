@@ -87,14 +87,25 @@ describe("DetailPanel lock removal", () => {
   });
 });
 
-describe("DetailPanel presence line", () => {
-  it("shows the peer and the area", () => {
+describe("DetailPanel presence stack", () => {
+  function chips(): HTMLElement[] {
+    return Array.from(
+      document.querySelectorAll('[data-testid="presence-line"] .presence-chip'),
+    ) as HTMLElement[];
+  }
+
+  it("shows one initials chip per peer with the full sentence on hover and for screen readers", () => {
     renderPanel(makeTask(), {
       presence: [{ user: "Ana", userId: "u-ana", area: "description" }],
     });
     const line = document.querySelector('[data-testid="presence-line"]');
     expect(line).not.toBeNull();
-    expect(line).toHaveTextContent("Ana is in description");
+    const [chip] = chips();
+    expect(chip).toHaveTextContent("AN");
+    expect(chip).toHaveAttribute("title", "Ana is in description");
+    expect(chip).toHaveAttribute("aria-label", "Ana is in description");
+    // Keyboard-focusable so the sentence is reachable without a mouse.
+    expect(chip).toHaveAttribute("tabindex", "0");
   });
 
   it("joins several peers and degrades missing areas to task-level", () => {
@@ -104,9 +115,11 @@ describe("DetailPanel presence line", () => {
         { user: "Ben", userId: "u-ben", area: null },
       ],
     });
-    const line = document.querySelector('[data-testid="presence-line"]');
-    expect(line).toHaveTextContent("Ana is in activity");
-    expect(line).toHaveTextContent("Ben is here");
+    const [ana, ben] = chips();
+    expect(ana).toHaveAttribute("title", "Ana is in activity");
+    expect(ana).toHaveAttribute("aria-label", "Ana is in activity");
+    expect(ben).toHaveAttribute("title", "Ben is here");
+    expect(ben).toHaveAttribute("aria-label", "Ben is here");
   });
 
   it("labels every area for display: comments renders as activity, the rest verbatim", () => {
@@ -118,15 +131,66 @@ describe("DetailPanel presence line", () => {
         { user: "Dee", userId: "u-dee", area: "relations" },
       ],
     });
-    const line = document.querySelector('[data-testid="presence-line"]');
-    expect(line).toHaveTextContent("Ana is in description");
-    expect(line).toHaveTextContent("Ben is in activity");
-    expect(line).toHaveTextContent("Cid is in files");
-    expect(line).toHaveTextContent("Dee is in relations");
+    const [ana, ben, cid, dee] = chips();
+    expect(ana).toHaveAttribute("title", "Ana is in description");
+    expect(ben).toHaveAttribute("title", "Ben is in activity");
+    expect(cid).toHaveAttribute("title", "Cid is in files");
+    expect(dee).toHaveAttribute("title", "Dee is in relations");
     // The raw area key must never leak into user-facing copy.
-    expect(line?.textContent).not.toMatch(/comments/);
+    for (const chip of chips()) {
+      expect(chip.getAttribute("title")).not.toMatch(/comments/);
+      expect(chip.getAttribute("aria-label")).not.toMatch(/comments/);
+    }
   });
 
+  it("renders multi-word names as first+last initials", () => {
+    renderPanel(makeTask(), {
+      presence: [
+        { user: "Tomislav Zorčec", userId: "u-tom", area: "comments" },
+      ],
+    });
+    const [chip] = chips();
+    expect(chip).toHaveTextContent("TZ");
+    expect(chip).toHaveAttribute("title", "Tomislav Zorčec is in activity");
+  });
+
+  it("collapses crowds to a +N chip that names everyone hidden", () => {
+    renderPanel(makeTask(), {
+      presence: [
+        { user: "Ana", userId: "u-ana", area: "description" },
+        { user: "Ben", userId: "u-ben", area: "comments" },
+        { user: "Cid", userId: "u-cid", area: "files" },
+        { user: "Dee", userId: "u-dee", area: "relations" },
+        { user: "Eli", userId: "u-eli", area: "description" },
+        { user: "Fay", userId: "u-fay", area: null },
+      ],
+    });
+    const all = chips();
+    expect(all).toHaveLength(5);
+    const overflow = all[all.length - 1]!;
+    expect(overflow).toHaveTextContent("+2");
+    expect(overflow.getAttribute("title")).toMatch("Eli is in description");
+    expect(overflow.getAttribute("title")).toMatch("Fay is here");
+    expect(overflow.getAttribute("aria-label")).toMatch("Eli is in description");
+    expect(overflow).toHaveAttribute("tabindex", "0");
+  });
+
+  it("sits inlined with the status row and names everyone for assistive tech", () => {
+    renderPanel(makeTask(), {
+      presence: [{ user: "Ana", userId: "u-ana", area: "description" }],
+    });
+    const line = document.querySelector('[data-testid="presence-line"]');
+    expect(line).not.toBeNull();
+    // Inlined with STATUS: the cluster lives inside the panel header's
+    // status row, not above the header.
+    const header = document.querySelector("#detail-panel .dp-header");
+    expect(header).not.toBeNull();
+    expect(header!.contains(line)).toBe(true);
+    expect(line).toHaveAttribute(
+      "aria-label",
+      "Also in this task: Ana is in description",
+    );
+  });
   it("wraps instead of breaking the layout on narrow viewports", () => {
     renderPanel(makeTask(), {
       presence: [

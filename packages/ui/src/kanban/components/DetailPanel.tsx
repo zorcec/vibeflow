@@ -24,7 +24,7 @@ import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
 import { getTaskTypeColor } from "../../task-types";
 import { transformImageForUpload } from "../imageTransform";
-import { presenceAreaLabel } from "./shared/presence";
+import { presenceAreaLabel, presenceColor, presenceInitials } from "./shared/presence";
 
 const PASTE_HINT_KEY = "vibeflow-paste-hint-dismissed";
 
@@ -109,6 +109,88 @@ const STATUS_BUTTONS: { id: TaskStatus; label: string }[] = [
   { id: "done", label: "done" },
 ];
 
+const PRESENCE_MAX_CHIPS = 4;
+
+/**
+ * Compact co-presence stack inlined with the status row (bc908cca).
+ *
+ * One 20px initials chip per peer (avatar-stack pattern): the full
+ * "<user> is in <area>" sentence lives in each chip's title (hover) and
+ * aria-label (screen reader); chips are keyboard-focusable. Crowds
+ * collapse to a "+N" chip whose title/aria names everyone hidden, so the
+ * status row never grows with the peer count. Chip colour mirrors the
+ * peer's description-cursor colour (same person, same colour).
+ */
+function PresenceStack({ presence }: { presence: PresenceEntry[] }) {
+  if (presence.length === 0) return null;
+  const sentence = (p: PresenceEntry) =>
+    p.area ? `${p.user} is in ${presenceAreaLabel(p.area)}` : `${p.user} is here`;
+  const visible = presence.slice(0, PRESENCE_MAX_CHIPS);
+  const hidden = presence.slice(PRESENCE_MAX_CHIPS);
+  const chipStyle = (color: string, overlap: boolean): React.CSSProperties => ({
+    width: 20,
+    height: 20,
+    borderRadius: "50%",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 9,
+    fontWeight: 700,
+    lineHeight: 1,
+    color: "#fff",
+    textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+    backgroundColor: color,
+    boxShadow: "0 0 0 2px var(--t-surface)",
+    marginLeft: overlap ? -6 : 0,
+    cursor: "default",
+    outline: "none",
+    flexShrink: 0,
+  });
+  return (
+    <div
+      data-testid="presence-line"
+      role="group"
+      aria-label={`Also in this task: ${presence.map(sentence).join("; ")}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        rowGap: 4,
+        minWidth: 0,
+        marginLeft: 4,
+      }}
+    >
+      {visible.map((p, i) => {
+        const label = sentence(p);
+        return (
+          <span
+            key={p.userId ?? p.user}
+            className="presence-chip"
+            data-presence-user={p.user}
+            tabIndex={0}
+            title={label}
+            aria-label={label}
+            style={chipStyle(presenceColor(p.userId), i > 0)}
+          >
+            {presenceInitials(p.user)}
+          </span>
+        );
+      })}
+      {hidden.length > 0 && (
+        <span
+          className="presence-chip"
+          tabIndex={0}
+          title={`Also here: ${hidden.map(sentence).join("; ")}`}
+          aria-label={`Also here: ${hidden.map(sentence).join("; ")}`}
+          style={chipStyle("hsl(220, 9%, 45%)", true)}
+        >
+          +{hidden.length}
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   open: boolean;
   task: Task | null;
@@ -133,7 +215,7 @@ interface Props {
     state: "viewing" | "editing",
     area?: PresenceArea | null,
   ) => void;
-  /** Peers currently in the open task — rendered as a quiet presence line. */
+  /** Peers currently in the open task — compact avatar stack in the status row. */
   presence?: PresenceEntry[];
   /**
    * Live binding to the shared description doc. While present (and not
@@ -890,20 +972,14 @@ export function DetailPanel({
     return deduped;
   }, [externalLocalChanges, localChanges]);
 
-  // Quiet presence line: who else is in this task and in which area.
-  // Informational only — it never disables anything. Areas render through
-  // presenceAreaLabel so the copy agrees with the Activity tab ("A is in
-  // activity", never "A is in comments"); the raw area stays internal.
-  const presenceText =
-    presence.length === 0
-      ? null
-      : presence
-          .map((p) =>
-            p.area
-              ? `${p.user} is in ${presenceAreaLabel(p.area)}`
-              : `${p.user} is here`,
-          )
-          .join(" \u00b7 ");
+  // Presence avatars: who else is in this task and in which area.
+  // Informational only — it never disables anything. Rendered as a compact
+  // initials stack inlined with the status row (bc908cca): the full
+  // "<user> is in <area>" sentence lives in each chip's title/aria-label
+  // (hover or keyboard focus reveals it), so a crowd of peers never
+  // stretches the line. Areas render through presenceAreaLabel so the copy
+  // agrees with the Activity tab; the raw area stays internal.
+  // Full presence sentence per peer for chip title/aria-label.
 
   // `data-role` mirrors the id so specs can address the panel the same way
   // they address every other region of the board.
@@ -922,32 +998,6 @@ export function DetailPanel({
         ref={panelRef}
         data-fullscreen={fullscreen ? "true" : "false"}
       >
-        {presenceText && (
-          <div
-            data-testid="presence-line"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              // Several peers make this line long ("A is in description ·
-              // B is in activity · …"). It must wrap inside the panel on
-              // narrow viewports instead of overflowing or squeezing the
-              // header — informational only, never layout-breaking.
-              flexWrap: "wrap",
-              rowGap: 2,
-              minWidth: 0,
-              overflowWrap: "break-word",
-              gap: 6,
-              padding: "6px 12px 0",
-              margin: "6px 12px 0",
-              fontSize: 11,
-              lineHeight: 1.5,
-              color: "var(--t-text-muted)",
-              fontWeight: 400,
-            }}
-          >
-            {presenceText}
-          </div>
-        )}
         {/* Header */}
         <div className="dp-header">
           <div
@@ -1169,6 +1219,8 @@ export function DetailPanel({
                 {s.label}
               </button>
             ))}
+            {/* Co-presence avatars inlined with the status row (bc908cca). */}
+            <PresenceStack presence={presence} />
             {/* Verification verdict — a quiet trailing note in the status
                 cluster so it reads as one unit; the VerifyIndicator carries
                 the tooltip (what the verdict means). */}
