@@ -154,6 +154,64 @@ describe("resolveProjectRoot (CLI boundary, full rule)", () => {
   });
 });
 
+describe("$VIBEFLOW_PROJECT_DIR override (b5f90a1e scratch-store boot)", () => {
+  it("http mode honours the env var when no dir is passed", () => {
+    const dir = storeDir("vf-root-env-");
+    const result = resolveProjectRoot(undefined, { mode: "http" }, {
+      VIBEFLOW_PROJECT_DIR: dir,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.projectDir).toBe(resolve(dir));
+  });
+
+  it("an explicit dir wins over the env var", () => {
+    const explicit = storeDir("vf-root-explicit-");
+    const envDir = storeDir("vf-root-env-loses-");
+    const result = resolveProjectRoot(explicit, { mode: "http" }, {
+      VIBEFLOW_PROJECT_DIR: envDir,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.projectDir).toBe(resolve(explicit));
+  });
+
+  it("a blank env var is ignored (falls back to cwd)", () => {
+    const dir = storeDir("vf-root-envblank-");
+    const spy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    try {
+      const result = resolveProjectRoot(undefined, { mode: "http" }, {
+        VIBEFLOW_PROJECT_DIR: "   ",
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.projectDir).toBe(resolve(dir));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an invalid env dir is refused with the usual code", () => {
+    expectRefusal(
+      resolveProjectRoot(undefined, { mode: "http" }, {
+        VIBEFLOW_PROJECT_DIR: tempDir("vf-root-envbare-"),
+      }),
+      "PROJECT_ROOT_NOT_A_PROJECT",
+    );
+  });
+
+  it("stdio mode honours the env var instead of refusing", () => {
+    const dir = storeDir("vf-root-envstdio-");
+    const result = resolveProjectRoot(undefined, { mode: "stdio" }, {
+      VIBEFLOW_PROJECT_DIR: dir,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.projectDir).toBe(resolve(dir));
+  });
+
+  it("stdio mode still refuses when neither flag nor env is given", () => {
+    const result = resolveProjectRoot(undefined, { mode: "stdio" }, {});
+    expectRefusal(result, "PROJECT_ROOT_REQUIRED");
+  });
+});
+
 describe("server-layer backstop — serve() called directly, bypassing the CLI", () => {
   it("refuses the filesystem root before creating anything", async () => {
     const existedBefore = existsSync("/.vibeflow");

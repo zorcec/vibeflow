@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -322,6 +328,73 @@ describe("proto serve (e2e)", () => {
     const uploadData = await uploadRes.json();
     expect(uploadData.success).toBe(true);
     expect(uploadData.screenshot).toBe(`${task.id}.png`);
+  });
+
+  // b5f90a1e: attaching a proof screenshot must never overwrite the ticket's
+  // original annotation baseline — the second attach lands in a distinct
+  // `<id>-proof-<n>.png` and task.screenshot stays on the baseline.
+  it("POST /api/tasks/:id/screenshot never overwrites an existing baseline", async () => {
+    const filePath = join(tempDir, "test.html");
+    writeFileSync(filePath, SAMPLE_HTML, "utf-8");
+
+    instance = await serve(filePath, { port: 3772, open: false });
+
+    const createRes = await fetch("http://localhost:3772/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Annotated task",
+        selector: '[data-vibeflow-id="hero-section"]',
+        // eslint-disable-next-line no-secrets/no-secrets -- 1x1 pixel PNG test fixture, not a credential
+        screenshot:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      }),
+    });
+    const { task } = await createRes.json();
+    const shotsDir = join(tempDir, ".vibeflow", "tasks", "screenshots");
+    const baselinePath = join(shotsDir, `${task.id}.png`);
+    const baselineBytes = readFileSync(baselinePath);
+
+    const proofBody = Buffer.from("proof-bytes-one").toString("base64");
+    const first = await fetch(
+      `http://localhost:3772/api/tasks/${task.id}/screenshot`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ screenshot: proofBody }),
+      },
+    );
+    expect(first.ok).toBe(true);
+    const firstData = await first.json();
+    expect(firstData.success).toBe(true);
+    expect(firstData.screenshot).toBe(`${task.id}-proof-1.png`);
+    expect(firstData.proof).toBe(true);
+
+    // Baseline file untouched, proof file holds the new bytes.
+    expect(readFileSync(baselinePath).equals(baselineBytes)).toBe(true);
+    expect(
+      readFileSync(join(shotsDir, `${task.id}-proof-1.png`)).toString(),
+    ).toBe("proof-bytes-one");
+
+    // task.screenshot still points at the annotation baseline.
+    const listRes = await fetch("http://localhost:3772/api/tasks");
+    const listData = await listRes.json();
+    expect(listData.tasks[0].screenshot).toBe(`${task.id}.png`);
+
+    // A second proof numbers up instead of clobbering the first.
+    const second = await fetch(
+      `http://localhost:3772/api/tasks/${task.id}/screenshot`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          screenshot: Buffer.from("proof-bytes-two").toString("base64"),
+        }),
+      },
+    );
+    const secondData = await second.json();
+    expect(secondData.screenshot).toBe(`${task.id}-proof-2.png`);
+    expect(readFileSync(baselinePath).equals(baselineBytes)).toBe(true);
   });
 
   it("POST /api/tasks/:id/files/:filename uploads a file and appears in listing", async () => {

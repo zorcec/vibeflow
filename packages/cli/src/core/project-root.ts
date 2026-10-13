@@ -13,6 +13,13 @@
  *   two irreversible cases (`/` and `$HOME`). The full rule cannot live here:
  *   unit and Playwright tests call `serve()` directly on bare temp dirs, and
  *   seeding `.vibeflow/` into those fixtures is the wrong direction.
+ *
+ * Store-dir override (b5f90a1e): when no explicit dir is passed,
+ * `$VIBEFLOW_PROJECT_DIR` wins over `process.cwd()` (http) / the hard
+ * refusal (stdio). This is how e2e and dev boots point a server at a scratch
+ * store instead of the repo's real `.vibeflow/` — an explicit `--project` or
+ * positional dir always wins over the env var, so an explicit path stays an
+ * explicit intent.
  */
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -90,28 +97,40 @@ function validate(abs: string): ProjectRootResult {
 /**
  * Resolves and validates the project root once, at startup.
  *
- * `mode: "http"` — a human started `serve`/`kanban`: an omitted dir defaults
- * to `process.cwd()`. `mode: "stdio"` — an MCP client spawned the server: cwd
- * belongs to the client (often the user's home), so it is never trusted and a
- * missing `--project` is a hard refusal.
+ * `mode: "http"` — a human started `serve`/`kanban`: an omitted dir falls
+ * back to `$VIBEFLOW_PROJECT_DIR` when set, else `process.cwd()`.
+ * `mode: "stdio"` — an MCP client spawned the server: cwd belongs to the
+ * client (often the user's home), so it is never trusted and a missing
+ * `--project` with no env override is a hard refusal. The env var is
+ * explicit configuration (like the flag), not ambient cwd, so it is honoured
+ * in both modes; `env` is a parameter (default: process.env) so unit tests
+ * can inject it without mutating the process environment.
  */
 export function resolveProjectRoot(
   rawDir: string | undefined,
   opts: { mode: "http" | "stdio" },
+  env: NodeJS.ProcessEnv = process.env,
 ): ProjectRootResult {
-  if (rawDir === undefined) {
+  const envDir =
+    typeof env.VIBEFLOW_PROJECT_DIR === "string" &&
+    env.VIBEFLOW_PROJECT_DIR.trim().length > 0
+      ? env.VIBEFLOW_PROJECT_DIR.trim()
+      : undefined;
+  const effective = rawDir ?? envDir;
+  if (effective === undefined) {
     if (opts.mode === "stdio") {
       return {
         ok: false,
         code: "PROJECT_ROOT_REQUIRED",
-        message: "--project <dir> is required when the MCP client spawns the server",
+        message:
+          "--project <dir> is required when the MCP client spawns the server",
         suggestion:
           'Add "args": ["mcp", "--project", "."] to the server entry in .mcp.json.',
       };
     }
     return validate(resolve(process.cwd()));
   }
-  return validate(resolve(rawDir));
+  return validate(resolve(effective));
 }
 
 /**

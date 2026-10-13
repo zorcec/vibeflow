@@ -989,14 +989,36 @@ function registerTaskApi(
       return;
     }
     mkdirSync(screenshotsDir, { recursive: true });
-    const filename = `${id}.png`;
+    // Never overwrite an existing annotation baseline (b5f90a1e): the
+    // `<id>.png` file is the ticket's original annotation image, and a proof
+    // attach MUST NOT destroy it. First attach claims the baseline name and
+    // repoints task.screenshot; every later attach writes a distinct
+    // `<id>-proof-<n>.png` and leaves task.screenshot on the baseline, so
+    // the board keeps showing the annotation image. Proof files are evidence
+    // on disk (served via the files API, not the screenshot slot).
+    const baseline = `${id}.png`;
+    if (!existsSync(join(screenshotsDir, baseline))) {
+      writeFileSync(
+        join(screenshotsDir, baseline),
+        Buffer.from(screenshot, "base64"),
+      );
+      updateTask(projectDir, id, { screenshot: baseline } as Partial<Task>);
+      broadcastTaskUpdated(broadcast, id);
+      res.json({ success: true, screenshot: baseline });
+      return;
+    }
+    let n = 1;
+    while (n <= 10000 && existsSync(join(screenshotsDir, `${id}-proof-${n}.png`))) {
+      n++;
+    }
+    const filename =
+      n <= 10000 ? `${id}-proof-${n}.png` : `${id}-proof-${Date.now()}.png`;
     writeFileSync(
       join(screenshotsDir, filename),
       Buffer.from(screenshot, "base64"),
     );
-    updateTask(projectDir, id, { screenshot: filename } as Partial<Task>);
     broadcastTaskUpdated(broadcast, id);
-    res.json({ success: true, screenshot: filename });
+    res.json({ success: true, screenshot: filename, proof: true });
   });
 
   app.delete("/api/tasks/:id/screenshot", (req, res) => {
@@ -1928,7 +1950,15 @@ export async function serve(
 ): Promise<ServeInstance> {
   // API-only mode: no target provided
   if (!target) {
-    return serveApiOnly(options.projectDir ?? process.cwd(), options);
+    // Defence in depth (b5f90a1e): a programmatic caller that passes no
+    // projectDir from a repo cwd would otherwise read/write the repo's real
+    // `.vibeflow/` store. $VIBEFLOW_PROJECT_DIR redirects such boots at a
+    // scratch store; an explicit projectDir always wins.
+    const envDir = process.env.VIBEFLOW_PROJECT_DIR?.trim();
+    return serveApiOnly(
+      options.projectDir ?? (envDir ? envDir : process.cwd()),
+      options,
+    );
   }
 
   // Proxy mode was removed. Only API-only mode and static file serving are supported.

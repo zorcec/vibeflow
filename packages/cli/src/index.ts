@@ -924,7 +924,10 @@ program
   .description(
     "Start the Vibeflow server and open the live Kanban board in the browser",
   )
-  .argument("[dir]", "Project root directory", ".")
+  .argument(
+    "[dir]",
+    "Project root directory (default: $VIBEFLOW_PROJECT_DIR when set, else cwd)",
+  )
   .option("-p, --port <port>", "Port number", "3700")
   .option(
     "--host <host>",
@@ -938,7 +941,7 @@ program
   )
   .action(
     async (
-      dir: string,
+      dir: string | undefined,
       opts: {
         port: string;
         host?: string;
@@ -949,6 +952,8 @@ program
     ) => {
       capture("command_run", { command: "kanban" });
       await flushTelemetry();
+      // Explicit --project / positional wins; $VIBEFLOW_PROJECT_DIR fills
+      // the default inside resolveProjectRoot (b5f90a1e scratch-store boot).
       const root = resolveProjectRoot(opts.project ?? dir, { mode: "http" });
       if (!root.ok) {
         reportProjectRootFailure(root);
