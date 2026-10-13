@@ -502,15 +502,22 @@ describe("proto serve — API-only mode (no target)", () => {
     expect(result.task.url).toBe("http://localhost:5173/checkout");
   });
 
-  it("API-only mode: does not serve HTML (/ returns 404)", async () => {
+  // Owner ruling on 34938eda: the board-server root redirects to the board
+  // instead of 404ing — exact `/` → `/kanban` (302), fragment-free Location
+  // so `#task-<id>` deep links survive the hop.
+  it("API-only mode: root / redirects to /kanban (302)", async () => {
     instance = await serve(undefined, {
       port: 3782,
       open: false,
       projectDir: tempDir,
     });
 
-    const res = await fetch("http://localhost:3782/");
-    expect(res.status).toBe(404);
+    const res = await fetch("http://localhost:3782/", {
+      redirect: "manual",
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/kanban");
+    await res.text();
   });
 
   it("API-only mode: PATCH updates task status", async () => {
