@@ -6,6 +6,7 @@ import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { ConfirmModal } from '../ConfirmModal';
 import { formatDate } from '../../utils';
 import { FileItem } from './FileItem';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 interface ChangeActivityItem {
   kind: 'change';
@@ -72,6 +73,37 @@ function getItemAuthor(item: ActivityItem, gitUserName: string): string | null {
   }
   if (item.kind === 'change') return item.actor;
   return null; // files: solo
+}
+
+/**
+ * Stable identity for one activity row (b6729a0a round 2). The feed is
+ * newest-first, so every add prepends: the old `group-${index}` container
+ * keys shifted on each insert and React remounted the whole subtree — the
+ * visible "blink" on every live comment edit. Content keys keep existing
+ * DOM nodes (and their state) put; only the changed row mounts/animates.
+ */
+export function activityItemKey(item: ActivityItem): string {
+  switch (item.kind) {
+    case 'comment':
+      return `comment:${item.comment.id}`;
+    case 'file':
+      return `file:${item.sortKey}:${item.file.name}`;
+    case 'change':
+      return `change:${item.sortKey}:${item.field}:${item.actor}`;
+    case 'lifecycle':
+      return `lifecycle:${item.sortKey}:${item.label}`;
+  }
+}
+
+/**
+ * Stable identity for an author group: author plus its OLDEST member.
+ * New rows arrive newest-first (prepended), so the oldest member — and
+ * hence the key — survives inserts, splits keep their own oldest, and a
+ * genuinely new group mounts fresh with the enter animation.
+ */
+function activityGroupKey(group: ActivityGroup): string {
+  const oldest = group.items[group.items.length - 1]!;
+  return `group:${group.author ?? 'solo'}:${activityItemKey(oldest)}`;
 }
 
 /** Build consecutive groups from sorted activity list */
@@ -272,6 +304,54 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
   // Group consecutive same-author items to save visual space
   const groups = React.useMemo(() => buildGroups(visibleActivity, gitUserName), [visibleActivity, gitUserName]);
 
+  // ── Activity motion (b6729a0a round 2) ──
+  const reduceMotion = usePrefersReducedMotion();
+
+  // Rows present on first mount render quietly; rows appearing later get
+  // the enter animation while existing rows keep their DOM nodes.
+  const seenKeysRef = React.useRef<Set<string> | null>(null);
+  const itemKeys = React.useMemo(
+    () => visibleActivity.map(activityItemKey),
+    [visibleActivity],
+  );
+  if (seenKeysRef.current === null) {
+    seenKeysRef.current = new Set(itemKeys);
+  }
+  const enteringKeys = React.useMemo(() => {
+    if (reduceMotion || seenKeysRef.current === null) return new Set<string>();
+    const seen = seenKeysRef.current;
+    return new Set(itemKeys.filter((k) => !seen.has(k)));
+  }, [itemKeys, reduceMotion]);
+  React.useEffect(() => {
+    const seen = seenKeysRef.current;
+    if (!seen) return;
+    for (const k of itemKeys) seen.add(k);
+  }, [itemKeys]);
+
+  // In-place edit flash: remember the last rendered text per comment id; a
+  // known id whose text changed earns a brief highlight. New ids (they get
+  // the enter animation) and first mount never flash.
+  const lastTextRef = React.useRef(new Map<string, string>());
+  const flashedKeys = React.useMemo(() => {
+    if (reduceMotion) return new Set<string>();
+    const out = new Set<string>();
+    for (const item of visibleActivity) {
+      if (item.kind !== 'comment' || item.comment.type === 'system') continue;
+      const prev = lastTextRef.current.get(item.comment.id);
+      if (prev !== undefined && prev !== item.comment.text) {
+        out.add(activityItemKey(item));
+      }
+    }
+    return out;
+  }, [visibleActivity, reduceMotion]);
+  React.useEffect(() => {
+    for (const item of visibleActivity) {
+      if (item.kind === 'comment') {
+        lastTextRef.current.set(item.comment.id, item.comment.text);
+      }
+    }
+  }, [visibleActivity]);
+
   // Scroll to top when activity first loads (newest-first order)
   React.useEffect(() => {
     const justFinishedLoading = prevLoadingRef.current && !loading;
@@ -338,7 +418,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
         </div>
       )}
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }}>
-      {groups.map((group, gIdx) => {
+      {groups.map((group) => {
         // Only "group" (show header + indent) when 2+ consecutive items from same author
         const isGrouped = group.author !== null && group.items.length > 1;
         // Show group header only for multi-item groups; single items render their own inline header
@@ -346,7 +426,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
         const isAgent = group.author === '🤖 Agent';
 
         return (
-          <div key={`group-${gIdx}`} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <div key={activityGroupKey(group)} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {/* Group header — shown when there is an identified author */}
             {showGroupHeader && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0 2px', marginTop: 4 }}>
@@ -364,7 +444,15 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
 
             {/* Items in the group — indented when grouped */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: isGrouped ? 4 : 8, paddingLeft: isGrouped ? 8 : 0, borderLeft: isGrouped ? '1.5px solid var(--t-border)' : 'none', marginLeft: isGrouped ? 4 : 0 }}>
-              {group.items.map((item, iIdx) => renderActivityItem(item, iIdx, gIdx, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview))}
+              {group.items.map((item) => {
+                const itemKey = activityItemKey(item);
+                const animClass = enteringKeys.has(itemKey)
+                  ? 'activity-enter'
+                  : flashedKeys.has(itemKey)
+                    ? 'activity-flash'
+                    : '';
+                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview);
+              })}
             </div>
           </div>
         );
@@ -397,8 +485,8 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
 
 function renderActivityItem(
   item: ActivityItem,
-  iIdx: number,
-  gIdx: number,
+  itemKey: string,
+  animClass: string,
   isGrouped: boolean,
   gitUserName: string,
   editingId: string | null,
@@ -413,7 +501,7 @@ function renderActivityItem(
 ): React.ReactNode {
   if (item.kind === 'lifecycle') {
     return (
-      <div key={`lifecycle-${item.sortKey}-${gIdx}-${iIdx}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '2px 0' }}>
+      <div key={itemKey} className={animClass || undefined} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '2px 0' }}>
         <span style={{ fontSize: 11, color: 'var(--t-secondary)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>{item.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -439,8 +527,8 @@ function renderActivityItem(
       // and the from→to pills move into the card body unchanged.
       return (
         <div
-          key={`change-${item.sortKey}-${gIdx}-${iIdx}`}
-          className={`activity-verify activity-verify--${verdict}`}
+          key={itemKey}
+          className={`activity-verify activity-verify--${verdict}${animClass ? ` ${animClass}` : ''}`}
           title={VERIFY_ENTRY_TITLES[verdict]}
           style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
@@ -470,7 +558,8 @@ function renderActivityItem(
     }
     return (
       <div
-        key={`change-${item.sortKey}-${gIdx}-${iIdx}`}
+        key={itemKey}
+        className={animClass || undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 6,
           padding: '2px 0',
@@ -504,14 +593,15 @@ function renderActivityItem(
   if (item.kind === 'file') {
     const { file, url } = item;
     return (
-      <FileItem
-        key={`file-${file.name}-${gIdx}-${iIdx}`}
-        file={file}
+      <div key={itemKey} className={animClass || undefined}>
+        <FileItem
+          file={file}
         url={url}
         variant="compact"
         onPreview={onFilePreview ? (f, u) => onFilePreview(f.name, u) : undefined}
         onDelete={onRequestDeleteFile ? (f) => { onRequestDeleteFile(f); return Promise.resolve(); } : undefined}
-      />
+        />
+      </div>
     );
   }
 
@@ -540,8 +630,8 @@ function renderActivityItem(
       const cannotAuthorIsAgent = c.author === 'agent';
       return (
         <div
-          key={c.id}
-          className="activity-verify activity-verify--cannot"
+          key={itemKey}
+          className={`activity-verify activity-verify--cannot${animClass ? ` ${animClass}` : ''}`}
           title={VERIFY_ENTRY_TITLES.cannot}
           style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
@@ -564,7 +654,7 @@ function renderActivityItem(
       );
     }
     return (
-      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--t-text-body)', fontStyle: 'italic' }}>
+      <div key={itemKey} className={animClass || undefined} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--t-text-body)', fontStyle: 'italic' }}>
         <span style={{ opacity: 0.6 }}>⬡</span>
         <span>{c.text}</span>
         {!isGrouped && <span style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.6 }}>{formatDate(c.createdAt)}</span>}
@@ -573,7 +663,7 @@ function renderActivityItem(
   }
 
   return (
-    <div key={c.id} className="flex flex-col gap-1 group/comment" style={{ paddingTop: isGrouped ? 2 : 4 }}>
+    <div key={itemKey} className={`flex flex-col gap-1 group/comment${animClass ? ` ${animClass}` : ''}`} style={{ paddingTop: isGrouped ? 2 : 4 }}>
       {!isGrouped && (
         <div className="flex items-center justify-between gap-1.5 text-xs mb-0.5">
           <div className="flex items-center gap-1.5">
