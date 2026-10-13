@@ -90,6 +90,7 @@ export function formatPatSecret(prefix: string, secretPart: string): string {
  */
 export const PAT_READ_ONLY_SCOPES: readonly ScopeName[] = [
   "tasks:read",
+  "boards:read",
   "comments:read",
   "files:read",
   "settings:read",
@@ -104,6 +105,8 @@ export const PAT_READ_ONLY_SCOPES: readonly ScopeName[] = [
 export const PAT_READ_WRITE_SCOPES: readonly ScopeName[] = [
   "tasks:read",
   "tasks:write",
+  "boards:read",
+  "boards:write",
   "comments:read",
   "comments:write",
   "files:read",

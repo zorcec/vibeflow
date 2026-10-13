@@ -23,6 +23,8 @@ describe("scope vocabulary", () => {
   it("covers the plan §1.2 resource set plus token management", () => {
     expect([...SCOPE_NAMES].sort()).toEqual(
       [
+        "boards:read",
+        "boards:write",
         "comments:read",
         "comments:write",
         "files:read",

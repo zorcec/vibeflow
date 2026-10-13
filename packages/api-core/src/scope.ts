@@ -12,6 +12,8 @@ import type { Principal } from "./principal.js";
 export const SCOPE_NAMES = [
   "tasks:read",
   "tasks:write",
+  "boards:read",
+  "boards:write",
   "comments:read",
   "comments:write",
   "files:read",

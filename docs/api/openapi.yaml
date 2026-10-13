@@ -1825,6 +1825,257 @@ paths:
       security:
         - bearerAuth:
             []
+  "/api/v1/boards":
+    get:
+      operationId: list-boards
+      summary: List boards the principal is a member of
+      description: "P3-A cutover: cloud-only, no local HTTP handler (local board listing lives in the workspace tRPC surface). Returns the member boards with the caller's role."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "boards:read"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        []
+      responses:
+        "200":
+          description: "List boards the principal is a member of — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: create-board
+      summary: Create a board (caller becomes owner)
+      description: "P3-A cutover: mirrors the workspace createWithBoard single source (board + owner membership + default project + kanban board) so a v1 board is immediately task-ready. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "boards:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Create a board (caller becomes owner) — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/boards/{id}":
+    get:
+      operationId: get-board
+      summary: Get one board by id
+      description: "P3-A cutover: membership-scoped — a board the principal is not a member of is 404/403, never a leak. Unknown id → 404."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "boards:read"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Get one board by id — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    patch:
+      operationId: patch-board
+      summary: Update a board (name/icon/description)
+      description: "P3-A cutover: same field set and NULL-vs-'' icon rule as the workspace update surface. Membership required; settings management may additionally require owner/admin per the role rule. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "boards:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Update a board (name/icon/description) — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    delete:
+      operationId: delete-board
+      summary: Delete a board (tasks cascade, never orphaned)
+      description: "P3-A cutover: no session-side delete exists to mirror — deletion relies on the schema onDelete:cascade FKs (tasks, comments, files, kanban boards go with the board), the same cascade the task delete op documents per-row (D7). Membership required. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "boards:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Delete a board (tasks cascade, never orphaned) — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
   "/mcp":
     get:
       operationId: mcp-get

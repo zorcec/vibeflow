@@ -90,6 +90,7 @@ describe("PAT scope presets", () => {
   it("read-only holds every read scope and nothing else", () => {
     expect([...PAT_READ_ONLY_SCOPES].sort()).toEqual(
       [
+        "boards:read",
         "comments:read",
         "files:read",
         "profile:read",
@@ -104,6 +105,8 @@ describe("PAT scope presets", () => {
     for (const scope of [
       "tasks:read",
       "tasks:write",
+      "boards:read",
+      "boards:write",
       "comments:read",
       "comments:write",
       "files:read",
