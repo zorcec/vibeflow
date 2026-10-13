@@ -192,8 +192,16 @@ describe("ChildRow", () => {
   });
 
   it("renders no guides when depth is absent (popover)", () => {
-    render(<ChildRow child={makeTask()} variant="popover" />);
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="popover" />,
+    );
     expect(document.querySelector(".tree-guides")).not.toBeInTheDocument();
+    // Owner round 2 (40bae6b2): popover rows carry no depth, so the base IS
+    // the padding — 10px to match `.child-link-row--popover`, not the 2.5px
+    // tree base that pinned rows edge-flush.
+    expect(
+      container.querySelector("[data-role='child-link-row']"),
+    ).toHaveStyle({ paddingLeft: "10px" });
   });
 
   it("title has ellipsis class inside child-link-info", () => {

@@ -61,8 +61,13 @@ export function ChildRow({
     // padding only — the root pays no step and each level below it pays
     // one. The detail panel keeps the historical root step so its rows
     // stay aligned under the relation-group label (dot + gap = one step).
+    // The popover carries no depth, so its base IS its padding: 10px to
+    // match the `.child-link-row--popover` stylesheet rule (the generic
+    // 2.5px tree base would override it inline and pin rows edge-flush).
     const nestingSteps = isInline ? Math.max(guideDepth - 1, 0) : guideDepth;
-    const indentPx = (isMinimal ? 2 : 2.5) + nestingSteps * TREE_INDENT_PX;
+    const indentPx =
+        (isMinimal ? 2 : variant === "popover" ? 10 : 2.5) +
+        nestingSteps * TREE_INDENT_PX;
     // Depth dimming (was a stylesheet opacity ramp on the row root; now inline
     // on the wrapper because the row root is no longer the tree node's direct
     // child): depth 2 = 0.7, depth 3+ = 0.5. Applies only to tree rows —
