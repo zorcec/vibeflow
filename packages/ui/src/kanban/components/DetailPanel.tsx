@@ -566,7 +566,9 @@ export function DetailPanel({
       ) {
         return;
       }
-      input.focus();
+      // preventScroll: the panel just opened beside the board — focusing
+      // must not yank the page scroll (focus-scroll jank).
+      input.focus({ preventScroll: true });
     }, 50);
     return () => clearTimeout(focusTimer);
   }, [open, task?.id, tab]);

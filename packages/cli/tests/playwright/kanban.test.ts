@@ -329,6 +329,65 @@ describe("Kanban board", () => {
     expect(activeTodoExists).toBe(true);
   });
 
+  it("new-task panel autofocuses the title input (2abcec19)", async () => {
+    await closePanelIfOpen(page);
+    await openAddTask(page, "todo");
+    // Focus must land in the title input on its own — no extra click.
+    await page.waitForFunction(
+      () => document.activeElement?.id === "dp-title",
+      { timeout: 5_000 },
+    );
+    // Typing starts the task name immediately.
+    await page.keyboard.type("Focused title probe");
+    expect(await page.inputValue("#dp-title")).toContain(
+      "Focused title probe",
+    );
+    await page.click("#dp-cancel");
+  });
+
+  it("existing-task panel does not steal focus from an in-panel control", async () => {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Focus existing task",
+        description: "focus probe",
+        selector: "/",
+        status: "todo",
+      }),
+    });
+    const data = (await res.json()) as {
+      success: boolean;
+      task?: { id: string };
+    };
+    expect(data.success).toBe(true);
+    const taskId = data.task?.id;
+    expect(taskId).toBeTruthy();
+    await waitForTaskOnBoard(page, taskId!);
+
+    await closePanelIfOpen(page);
+    await openTaskByTitle(page, "Focus existing task");
+    await page.waitForSelector("#dp-title");
+    // Owner moves into the priority select, then a live update re-renders
+    // the panel underneath (another actor patches the task). Focus must
+    // stay where the owner put it — nothing yanks it back to the title.
+    await page.click("#dp-priority");
+    expect(
+      await page.evaluate(() => document.activeElement?.id),
+    ).toBe("dp-priority");
+    await fetch(`${API}/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "focus probe (updated)" }),
+    });
+    await page.waitForTimeout(800);
+    expect(
+      await page.evaluate(() => document.activeElement?.id),
+    ).toBe("dp-priority");
+    expect(await page.inputValue("#dp-title")).toBe("Focus existing task");
+    await closePanelIfOpen(page);
+  });
+
   it("typing a title and pressing Add Task creates a task with pre-filled status", async () => {
     await closePanelIfOpen(page);
     await openAddTask(page, "todo");
