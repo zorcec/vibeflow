@@ -3,7 +3,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/playwright/**/*.test.ts"],
-    setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    setupFiles: [
+      "./tests/setup/disable-telemetry.ts",
+      // Hermetic HOME (bug 072d6a8a): in-process boards must not merge the
+      // operator's real ~/.vibeflow/settings.json (e.g. panelWidth) into
+      // temp projects — it changes board geometry (kanban reflow test).
+      // The setup keeps installed Playwright browsers visible (see file).
+      "./tests/e2e/setup/hermetic-home.ts",
+    ],
     testTimeout: 15_000,
     hookTimeout: 30_000,
     // Run test files in parallel — each file uses unique ports so there are no conflicts.
