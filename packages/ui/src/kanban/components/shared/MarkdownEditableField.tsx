@@ -13,6 +13,9 @@ import type { DescriptionSelection } from '../../types';
 const FLAG_FONT_SIZE = 8;
 const FLAG_LINE_HEIGHT = 12;
 const FLAG_GAP = 2;
+/** Headroom the flag needs above a caret (flag + gap + 2px margin).
+ * Carets nearer than this to the visible top are culled with their flags. */
+const FLAG_SPACE = FLAG_LINE_HEIGHT + FLAG_GAP + 2;
 
 interface CaretMark {
   key: string;
@@ -108,28 +111,48 @@ function RemoteCursorOverlay({
 
   const scrollTop = textarea.scrollTop;
   const scrollLeft = textarea.scrollLeft;
+  // The caret layer below is unclipped (first-line flags float above the
+  // editor instead of being cut off), so carets scrolled out of view are
+  // culled with their flags. viewH === 0 means no layout (jsdom) — render
+  // everything.
+  const viewH = textarea.clientHeight;
+  const visibleMarks = marks.filter(
+    (m) =>
+      viewH === 0 ||
+      (m.top + m.height >= scrollTop - FLAG_SPACE &&
+        m.top <= scrollTop + viewH),
+  );
 
   return (
     <div
       style={{
         position: 'absolute',
         inset: 0,
-        overflow: 'hidden',
         pointerEvents: 'none',
         zIndex: 1,
       }}
     >
+      {/* Mirror layer stays clipped: the full-document transparent copies
+        must never paint outside the editor when scrolled. Mirrors duplicate
+        the whole document text for wrapping measurement — hidden from
+        assistive tech so screen readers never read the doc twice. Only the
+        caret flags in the layer below are exposed (as labelled images
+        carrying the peer's full name). */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+        }}
+      >
       {clamped.map((sel) => {
         const lo = Math.min(sel.anchor, sel.head);
         const hi = Math.max(sel.anchor, sel.head);
         return (
           <div
             key={`mirror-${sel.key}`}
-            // The mirrors duplicate the whole document text for wrapping
-            // measurement — hidden from assistive tech so screen readers
-            // never read the doc twice. Only the caret flags below are
-            // exposed (as labelled images carrying the peer's full name).
-            aria-hidden
             className="dp-textarea"
             style={{
               position: 'absolute',
@@ -155,26 +178,33 @@ function RemoteCursorOverlay({
               </span>
             )}
             <span>
+              {/* verticalAlign top: a 0×0 inline-block otherwise sits its
+                bottom edge on the text BASELINE, so offsetTop measures
+                the baseline and the caret hangs a full line-height BELOW
+                the glyphs (67af5d5b round 2 — the floating stick + the
+                flag landing on text). Top-aligned it measures the LINE
+                BOX top, so the caret spans the line like a real caret. */}
               <i
                 ref={(el) => {
                   markerRefs.current.set(sel.key, el);
                 }}
-                style={{ display: 'inline-block', width: 0, height: 0 }}
+                style={{ display: 'inline-block', width: 0, height: 0, verticalAlign: 'top' }}
               />
               {text.slice(hi)}
             </span>
           </div>
         );
-      })}
-      {marks.map((m) => {
+        })}
+      </div>
+      {visibleMarks.map((m) => {
         const top = m.top - scrollTop;
         const left = m.left - scrollLeft;
-        // The flag hugs the caret: above it with a 2px gap, dropping below
-        // only when there is no room above (first line — the flag is
-        // FLAG_LINE_HEIGHT + FLAG_GAP tall, so exactly that much headroom
-        // is required). Either way it stays attached to its own caret and
-        // inside the clipped overlay at the first/last line, scrolled or not.
-        const flagBelow = top < FLAG_LINE_HEIGHT + FLAG_GAP;
+        // The flag always hugs the caret from ABOVE (tab-style, 2px gap):
+        // hanging it below on the first line covers the next line's text
+        // (67af5d5b round 2), and the below-branch was dead in real browsers
+        // anyway (markers measure a full line-top, never < 14). The caret
+        // layer is unclipped, so first-line flags float over the editor
+        // chrome instead of being cut off — never over document text.
         return (
           <div
             key={`caret-${m.key}`}
@@ -196,9 +226,8 @@ function RemoteCursorOverlay({
               style={{
                 position: 'absolute',
                 left: -2,
-                ...(flagBelow
-                  ? { top: m.height + FLAG_GAP }
-                  : { bottom: '100%', marginBottom: FLAG_GAP }),
+                bottom: '100%',
+                marginBottom: FLAG_GAP,
                 padding: '0 3px',
                 borderRadius: 2,
                 backgroundColor: m.color,

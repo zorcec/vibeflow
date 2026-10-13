@@ -16,10 +16,8 @@
  *   (stubbed to an unmistakable 32px: a hardcoded or percentage height
  *   fails this test);
  * - the flag renders INITIALS, never the full name as visible text;
- * - the flag stays 8px/12px (never the doc font size) and hugs the caret:
- *   2px above it, or directly below it when there is no room above
- *   (jsdom lays out no boxes, so every marker measures top 0 and takes
- *   the below-caret branch — the first-line case);
+ * - the flag stays 8px/12px (never the doc font size) and always hugs
+ *   from above (bottom 100% + 2px gap) — never hung below into text;
  * - overlay, mirrors, carets and flags are all absolutely positioned —
  *   the overlay contributes zero in-flow boxes, so remote peers can
  *   never shift the local layout.
@@ -108,15 +106,16 @@ describe("MarkdownEditableField remote-caret geometry", () => {
     expect(flag).toHaveAttribute("aria-label", "Tomislav Zorčec");
   });
 
-  it("keeps the flag small and hugging the caret", () => {
+  it("keeps the flag small and hugging the caret from above", () => {
     const caret = renderEditorWithLineHeight("32px", "Tomislav Zorčec");
     const flag = caret.firstElementChild as HTMLElement;
     expect(flag.style.fontSize).toBe("8px");
     expect(flag.style.lineHeight).toBe("12px");
-    // jsdom measures every marker at top 0 (no layout), so the caret takes
-    // the first-line branch: the flag hangs directly below it — top edge at
-    // caret height + the 2px hug gap, i.e. attached, never floating.
-    expect(flag.style.top).toBe("34px");
+    // Always above (tab-style): bottom edge at the caret top + the 2px hug
+    // gap — never hung below into the next line's text (67af5d5b round 2).
+    expect(flag.style.bottom).toBe("100%");
+    expect(flag.style.marginBottom).toBe("2px");
+    expect(flag.style.top).toBe("");
     expect(flag.style.left).toBe("-2px");
   });
 
@@ -140,12 +139,28 @@ describe("MarkdownEditableField remote-caret geometry", () => {
     const caret = renderEditorWithLineHeight("19.2px");
     const overlay = caret.parentElement as HTMLElement;
     expect(overlay).not.toHaveAttribute("aria-hidden");
-    const mirrors = Array.from(overlay.children).filter((el) =>
-      el.className.includes("dp-textarea"),
+    // Mirrors live in the clipped mirror layer (one level down since the
+    // caret layer split); the layer itself carries the aria-hidden.
+    const layer = overlay.querySelector("div[aria-hidden='true']");
+    expect(layer).not.toBeNull();
+    expect((layer as HTMLElement).style.overflow).toBe("hidden");
+    const mirrors = Array.from(
+      overlay.querySelectorAll(".dp-textarea"),
     );
     expect(mirrors.length).toBeGreaterThan(0);
     for (const mirror of mirrors) {
-      expect(mirror).toHaveAttribute("aria-hidden", "true");
+      expect(mirror.closest("[aria-hidden='true']")).not.toBeNull();
     }
+  });
+
+  it("anchors markers to the line-box top so carets span the line", () => {
+    renderEditorWithLineHeight("32px");
+    // The 0×0 marker must be top-aligned: baseline-aligned it measures the
+    // baseline and the caret hangs a full line-height below the glyphs.
+    const marker = document.querySelector(
+      ".dp-textarea i",
+    ) as HTMLElement;
+    expect(marker).not.toBeNull();
+    expect(marker.style.verticalAlign).toBe("top");
   });
 });
