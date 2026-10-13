@@ -1,3 +1,5 @@
+import type { Principal } from "@vibeflow-tools/api-core";
+
 // ── Task comments ──────────────────────────────────────────────────────────
 export type CommentAuthor = "user" | "agent";
 
@@ -184,4 +186,8 @@ export interface ServeOptions {
    * the pre-extraction inline `console.log` blocks.
    */
   quiet?: boolean;
+  /** @internal Testing only: inject a principal resolver for the /api/v1 read alias (undefined = trusted local principal). */
+  _testResolvePrincipal?: (req: {
+    headers: Record<string, unknown>;
+  }) => Principal;
 }

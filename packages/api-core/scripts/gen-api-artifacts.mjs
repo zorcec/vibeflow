@@ -353,7 +353,10 @@ export function buildOpenApiDocument(contract) {
       version: contract.openapi.apiVersion,
       description: contract.openapi.description,
     },
-    servers: [{ url: "/api/v1", description: "v1 mount (Phase 1+; Phase 0 serves the contract only)" }],
+    // Root, not "/api/v1": paths below are absolute (they already carry the
+    // prefix), so a mount-valued server URL would double it and every
+    // try-it-out call would 404 (found via the /api/docs viewer, P1).
+    servers: [{ url: "/", description: "Local board — try-it-out executes against this server" }],
     paths,
     components: {
       securitySchemes: {

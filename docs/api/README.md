@@ -1,7 +1,9 @@
-# API v1 contract artifacts (Phase 0)
+# API v1 contract artifacts (Phase 1)
 
-Zero behaviour change: everything here is additive — a contract, a manifest,
-a runner skeleton, a generated registry, and a read-only spec route.
+Zero behaviour change to existing routes: Phase 0 added the contract,
+manifest, runner skeleton, generated registry and read-only spec route;
+Phase 1 adds the identity/scope layer, a local `/api/v1` read alias that
+delegates to the existing handlers, and the `/api/docs` viewer.
 
 ## Source of truth
 
@@ -39,14 +41,37 @@ from generated output:
   unlisted fields. Encodes the D3/D6/cancelled/author resolutions as
   assertions, not prose.
 
-## Guards (plan §6.4, Phase 0 wiring)
+## Phase 1: principal + scope, read alias, docs viewer
+
+- **`packages/api-core/src/{scope,principal}.ts`** — the scope vocabulary
+  (`ScopeName`, `ALL_SCOPES`), the `Principal`/`ScopeRef` shape and the
+  `requireScope` gate (403), plus the local trusted principal and the
+  pure `X-Vibeflow-Scope` / bearer header parsers the cloud adapter (P2)
+  builds on. Exported from `@vibeflow-tools/api-core`.
+- **`/api/v1` read alias** (`packages/cli/src/server/v1.ts`) — the nine
+  `runnable: local-read` operations as GET routes that gate on their
+  contract scope and rewrite to the legacy path, so the ONE existing
+  handler serves. Anything else under `/api/v1/*` is a JSON 404 (reads
+  only; writes land in Phase 3). Rollback is removing the mount call.
+- **`/api/docs`** (`packages/cli/src/server/docs.ts`) — Swagger UI page
+  rendering `/api/openapi.json`, assets vendored via
+  `scripts/embed-swagger-ui.mjs` into `swagger-ui.gen.ts` (no CDN).
+  Never auto-injects a credential; “Try it out” sends only a pasted token.
+
+## Guards (plan §6.4, Phase 1 wiring)
 
 Tested in `packages/cli/tests/unit/api-v1/drift-guards.test.ts`:
 
 - **#1 registry ⇄ spec ⇄ handler** — v1 set equality both directions;
   every registry local maps to a scanned handler; every scanned `/api`
-  handler is classified (an unregistered route fails).
-- **#2 legacy-may-not-re-implement** — no `/api/cli/*` or `/api/v1/*`
-  registration in the CLI surface; no new bearer-accepting handler
-  (allowlist: `src/mcp/auth.ts`, grandfathered until P1/P2).
+  handler is classified (an unregistered route fails); every scanned
+  `/api/v1/*` handler matches exactly one registry op, and every mounted
+  read op has exactly one handler (one handler per resource).
+- **#2 no-second-implementation** — no `/api/cli/*` registration anywhere;
+  `/api/v1/*` registrations live only in `src/server/v1.ts`, which imports
+  no `core/*` store module (statically asserted); no new
+  bearer-accepting handler (allowlist: `src/mcp/auth.ts`).
+- **#3 one parity suite, executed twice** —
+  `v1-parity.test.ts` fetches every read from the legacy path and the v1
+  path and asserts byte-identical bodies.
 - **Coverage** — every registry route has a manifest row and vice versa.

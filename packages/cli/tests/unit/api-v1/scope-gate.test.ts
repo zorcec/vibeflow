@@ -1,0 +1,111 @@
+/**
+ * Scope-gate proof for the /api/v1 read alias (P1, plan §4.3/§4.4).
+ *
+ * Boots the server with a scoped-down principal (via the
+ * `_testResolvePrincipal` seam — the production default is the trusted
+ * local principal) and asserts the gate denies per-scope: reads without
+ * the grant are 403 SCOPE_DENIED, granted and public reads pass, and the
+ * legacy routes are untouched by the gate.
+ *
+ * Non-vacuity: with the requireScope call removed from server/v1.ts these
+ * 403 assertions fail (demonstrated during development — see the report).
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createServer } from "node:net";
+import { writeConfig } from "../../../src/core/config.js";
+import { createTask } from "../../../src/core/tasks.js";
+import type { Principal } from "@vibeflow-tools/api-core";
+
+const { serve } = await import("../../../src/server/server.js");
+type ServeInstance = Awaited<ReturnType<typeof serve>>;
+
+process.env.VIBEFLOW_TELEMETRY = "0";
+
+/** A user principal holding only profile:read on the local scope. */
+function limitedPrincipal(): Principal {
+  return {
+    kind: "user",
+    userId: "u-scope-gate",
+    scopes: new Set(["profile:read"]),
+    scope: { kind: "local" },
+    tokenId: "t-scope-gate",
+  };
+}
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address() as { port: number };
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
+
+describe("v1 scope gate denies per-scope, legacy untouched", () => {
+  let tempDir: string;
+  let instance: ServeInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-v1-gate-"));
+    writeConfig(tempDir, { mode: "attach", port: 3700 });
+    createTask(tempDir, {
+      title: "P1 gate fixture",
+      description: "scope-gate fixture",
+      status: "todo",
+      selector: "#gate-fixture",
+    });
+    const port = await getFreePort();
+    instance = await serve(undefined, {
+      port,
+      open: false,
+      projectDir: tempDir,
+      _testToken: null,
+      _testWorkspace: null,
+      _testResolvePrincipal: limitedPrincipal,
+    });
+    baseUrl = `http://127.0.0.1:${port}`;
+  }, 30000);
+
+  afterAll(async () => {
+    await instance?.close();
+    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("denies a read whose scope the principal lacks (403 SCOPE_DENIED)", async () => {
+    for (const path of [
+      "/api/v1/tasks",
+      "/api/v1/settings",
+      "/api/v1/project",
+    ]) {
+      const res = await fetch(baseUrl + path);
+      expect(res.status, `GET ${path} must be denied`).toBe(403);
+      expect(await res.json()).toMatchObject({
+        error: "Forbidden",
+        code: "SCOPE_DENIED",
+      });
+    }
+  });
+
+  it("allows the granted scope and the public read", async () => {
+    const me = await fetch(`${baseUrl}/api/v1/me`);
+    expect(me.status).toBe(200);
+    const changelog = await fetch(`${baseUrl}/api/v1/changelog`);
+    expect(changelog.status).toBe(200);
+  });
+
+  it("leaves the legacy routes untouched (no gate there)", async () => {
+    // The gate lives only on the v1 alias: the same reads on the legacy
+    // paths still serve with no principal check at all.
+    for (const path of ["/api/tasks", "/api/settings", "/api/project"]) {
+      const res = await fetch(baseUrl + path);
+      expect(res.status, `legacy GET ${path} must be un-gated`).toBe(200);
+    }
+  });
+});

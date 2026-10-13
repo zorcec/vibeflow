@@ -7,3 +7,6 @@
 export * from "./types.js";
 export * from "./normalize.js";
 export * from "./conformance.js";
+export * from "./route-registry.gen.js";
+export * from "./scope.js";
+export * from "./principal.js";

@@ -1,5 +1,5 @@
 /**
- * Anti-drift guards, Phase 0 wiring (plan §6.4).
+ * Anti-drift guards, Phase 1 wiring (plan §6.4).
  *
  * Guard #1 — registry ⇄ spec ⇄ handler agreement: a v1 route must appear in
  * the generated registry, in the OpenAPI document, AND as a real handler; a
@@ -8,10 +8,12 @@
  * drift so the guard is proven non-vacuous even without touching real files
  * (the manual break-and-revert demonstration is reported separately).
  *
- * Guard #2 — legacy-may-not-re-implement: no /api/cli/* or /api/v1/*
- * registration may appear in the CLI surface (the legacy cloud surface is
- * removed at cutover, not aliased), and no bearer-accepting handler may
- * exist outside the (future) /api/v1 mount — today that means the only
+ * Guard #2 — no-second-implementation: no /api/cli/* registration may
+ * appear anywhere, and every /api/v1/* registration must live in the
+ * single alias module (src/server/v1.ts), which statically imports no
+ * store module — the alias delegates, it does not re-implement. No
+ * bearer-accepting handler may exist outside /api/v1 (which itself reads
+ * no Authorization header in P1) — today that means the only
  * Authorization-reader is the loopback MCP auth, allowlisted by name.
  *
  * Coverage guard (§6.3): every registry route has ≥1 manifest row, and every
@@ -111,6 +113,14 @@ function loadScannedHandlers(): { method: string; path: string }[] {
       text: readFileSync(join(SRC_ROOT, "server", "server.ts"), "utf-8"),
     },
     {
+      file: "server/v1.ts",
+      text: readFileSync(join(SRC_ROOT, "server", "v1.ts"), "utf-8"),
+    },
+    {
+      file: "server/docs.ts",
+      text: readFileSync(join(SRC_ROOT, "server", "docs.ts"), "utf-8"),
+    },
+    {
       file: "mcp/http.ts",
       text: readFileSync(join(SRC_ROOT, "mcp", "http.ts"), "utf-8"),
     },
@@ -169,7 +179,12 @@ describe("guard #1: registry ⇄ spec ⇄ handler agreement", () => {
     const carveOuts = contract.nonApiCarveOuts.map((c) => c.prefix);
     const unclassified = loadScannedHandlers().filter((h) => {
       if (classified.has(opKey(h))) return false;
-      // The contract viewer route is infra, carved out by exact prefix.
+      // /api/v1/* handlers are classified by the dedicated template
+      // test below (registry {param} vs express :param), not here.
+      if (h.path === "/api/v1" || h.path.startsWith("/api/v1/")) {
+        return false;
+      }
+      // Infra routes (openapi.json, /api/docs) are carved out by prefix.
       if (carveOuts.some((p) => h.path === p || h.path.startsWith(p + "/"))) {
         return false;
       }
@@ -200,6 +215,74 @@ describe("guard #1: registry ⇄ spec ⇄ handler agreement", () => {
     expect(keys.has("POST /api/mcp")).toBe(true);
     // Sanity floor: the surface the ticket names (prevents a silent scan break).
     expect(keys.size).toBeGreaterThan(25);
+  });
+});
+
+/**
+ * Template agreement: registry v1 paths use {param}, express routes use
+ * :param. Equal method + equal segments up to that rename = agreement.
+ */
+export function v1PathsAgree(registryPath: string, expressPath: string): boolean {
+  const norm = (s: string): string =>
+    s.replace(/\{(\w+)\}/g, ":$1");
+  return norm(registryPath) === expressPath;
+}
+
+describe("guard #1: v1 alias ⇄ registry agreement (one handler per resource)", () => {
+  it("the template comparison itself is non-vacuous", () => {
+    expect(v1PathsAgree("/api/v1/tasks/{id}", "/api/v1/tasks/:id")).toBe(true);
+    expect(v1PathsAgree("/api/v1/tasks", "/api/v1/tasks")).toBe(true);
+    expect(v1PathsAgree("/api/v1/tasks/{id}", "/api/v1/tasks/:other")).toBe(
+      false,
+    );
+    expect(v1PathsAgree("/api/v1/tasks/{id}", "/api/v1/tasks")).toBe(false);
+    expect(v1PathsAgree("/api/v1/tasks", "/api/v1/users")).toBe(false);
+  });
+
+  it("every scanned /api/v1 handler matches exactly one registry op", async () => {
+    const { V1_READ_IDS } = await import("../../../src/server/v1.js");
+    const contract = loadContract();
+    const registry = contract.operations;
+    const v1Handlers = loadScannedHandlers().filter((h) =>
+      h.path.startsWith("/api/v1/"),
+    );
+    expect(v1Handlers.length).toBeGreaterThan(0);
+    const mounted = new Set<string>(V1_READ_IDS as readonly string[]);
+    for (const h of v1Handlers) {
+      const matches = registry.filter(
+        (op) => op.method === h.method && v1PathsAgree(op.v1Path, h.path),
+      );
+      expect(
+        matches.map((m) => m.id),
+        `${opKey(h)} must match exactly one registry op`,
+      ).toHaveLength(1);
+      expect(
+        mounted.has(matches[0].id),
+        `${opKey(h)} matches ${matches[0].id}, which is not a mounted P1 read`,
+      ).toBe(true);
+    }
+  });
+
+  it("every mounted P1 read op has exactly one scanned handler", async () => {
+    const { V1_READ_IDS } = await import("../../../src/server/v1.js");
+    const contract = loadContract();
+    const byId = new Map(contract.operations.map((op) => [op.id, op]));
+    const v1Handlers = loadScannedHandlers().filter((h) =>
+      h.path.startsWith("/api/v1/"),
+    );
+    for (const id of V1_READ_IDS as readonly string[]) {
+      const op = byId.get(id);
+      expect(op, `mounted read ${id} must be a registry op`).toBeDefined();
+      const handlers = v1Handlers.filter(
+        (h) =>
+          h.method === op?.method &&
+          v1PathsAgree(op?.v1Path as string, h.path),
+      );
+      expect(
+        handlers.map(opKey),
+        `P1 read ${id} must have exactly one handler (one handler per resource)`,
+      ).toHaveLength(1);
+    }
   });
 });
 
@@ -292,16 +375,22 @@ describe("coverage guard: every registry route appears in the manifest", () => {
   });
 });
 
-describe("guard #2: legacy-may-not-re-implement + bearer-surface invariant", () => {
-  it("no /api/cli/* or /api/v1/* ROUTE is registered in the CLI surface", () => {
+describe("guard #2: no-second-implementation + bearer-surface invariant", () => {
+  it("no /api/cli/* route is registered; /api/v1/* routes live only in server/v1.ts", () => {
     // Registration-scoped, deliberately: outbound client fetch URLs to the
     // cloud legacy surface (saas/client.ts, auth/login.ts, push proxy) are
     // the CLI *consuming* the cloud — they move to /api/v1 with the client
     // at cutover (Phase 3) and are out of scope here. What must never exist
-    // is a served route under those prefixes (an alias/shim/compat mount).
-    const offenders: string[] = [];
-    const regRe =
-      /app\.(get|post|patch|put|delete|all|use)\s*\([^)]*["']\/api\/(cli|v1)(\/|"|')/;
+    // is a SERVED route under /api/cli/*, and /api/v1/* routes may only be
+    // served by the single alias module (server/v1.ts) — never a second
+    // implementation scattered across the surface.
+    const cliOffenders: string[] = [];
+    const v1Offenders: string[] = [];
+    const cliRe =
+      /app\.(get|post|patch|put|delete|all|use)\s*\([^)]*["']\/api\/cli(\/|"|')/;
+    const v1Re =
+      /app\.(get|post|patch|put|delete|all|use)\s*\([^)]*["']\/api\/v1(\/|"|')/;
+    const v1Home = join(SRC_ROOT, "server", "v1.ts");
     const walk = (dir: string): void => {
       const { readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
       for (const name of readdirSync(dir)) {
@@ -312,15 +401,58 @@ describe("guard #2: legacy-may-not-re-implement + bearer-surface invariant", () 
         }
         if (!full.endsWith(".ts") || full.endsWith(".gen.ts")) continue;
         const text = readFileSync(full, "utf-8");
-        if (regRe.test(text)) {
-          offenders.push(full);
+        if (cliRe.test(text)) {
+          cliOffenders.push(full);
+        }
+        if (v1Re.test(text) && full !== v1Home) {
+          v1Offenders.push(full);
         }
       }
     };
     walk(SRC_ROOT);
-    expect(offenders, `legacy/alias route registration in: ${offenders.join(", ")}`).toEqual([]);
+    expect(cliOffenders, `legacy route registration in: ${cliOffenders.join(", ")}`).toEqual([]);
+    expect(v1Offenders, `/api/v1 registration outside server/v1.ts in: ${v1Offenders.join(", ")}`).toEqual([]);
+    // Sanity: the alias surface is actually seen (prevents a silent scan break).
+    const v1Source = readFileSync(v1Home, "utf-8");
+    const v1Regs = v1Source.match(/app\.(get|use)\s*\(\s*["']\/api\/v1/g) ?? [];
+    expect(v1Regs.length, "server/v1.ts must hold the v1 registrations").toBeGreaterThanOrEqual(9);
+  });
+});
+
+/**
+ * The alias delegates — it must not re-parse bodies or reach the store
+ * (ticket anti-drift rule). v1.ts may import express types and api-core
+ * only; any relative import is a second implementation taking shape.
+ */
+export function relativeImports(source: string): string[] {
+  return [...source.matchAll(/from\s+["'](\.[^"']+)["']/g)].map((m) => m[1]);
+}
+
+describe("guard #2 support: the v1 alias reaches no store", () => {
+  it("the import check itself is non-vacuous", () => {
+    expect(relativeImports(`import x from "../core/tasks.js";`)).toEqual([
+      "../core/tasks.js",
+    ]);
+    expect(
+      relativeImports(
+        `import type { Express } from "express";\nimport { x } from "@vibeflow-tools/api-core";`,
+      ),
+    ).toEqual([]);
   });
 
+  it("server/v1.ts holds no relative import (no body parsing, no store)", () => {
+    const source = readFileSync(
+      join(SRC_ROOT, "server", "v1.ts"),
+      "utf-8",
+    );
+    expect(
+      relativeImports(source),
+      `server/v1.ts must not import sibling modules — it delegates: ${relativeImports(source).join(", ")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("guard #2 support: bearer-surface invariant", () => {
   it("no bearer-accepting handler outside the allowlist (bearer only under /api/v1/*)", () => {
     // Inbound Authorization readers. Outbound `Authorization: Bearer ${token}`
     // fetch headers (push proxy) do not match these patterns (lowercase

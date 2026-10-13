@@ -2,13 +2,13 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vibeflow API v1",
-    "version": "1.0.0-phase0",
-    "description": "Unified local + cloud task API (contract only in Phase 0 — no /api/v1 mount yet; see localPath on each operation for the current local handler)."
+    "version": "1.0.0-phase1",
+    "description": "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document."
   },
   "servers": [
     {
-      "url": "/api/v1",
-      "description": "v1 mount (Phase 1+; Phase 0 serves the contract only)"
+      "url": "/",
+      "description": "Local board — try-it-out executes against this server"
     }
   ],
   "paths": {

@@ -3,7 +3,7 @@
 import type { LocalOnlyRoute, V1Operation } from "./types.js";
 
 /** Contract version this registry was generated from. */
-export const SPEC_VERSION = "1.0.0-phase0";
+export const SPEC_VERSION = "1.0.0-phase1";
 
 /** Every v1 operation with its current local handler (null = no local HTTP handler yet). */
 export const V1_OPERATIONS: V1Operation[] = [
@@ -340,4 +340,5 @@ export const NON_API_CARVE_OUTS: { prefix: string; reason: string }[] = [
   { prefix: "/__vibeflow__/codecs/", reason: "WASM image codecs — browser-only (§2.5)." },
   { prefix: "/", reason: "Exact-root redirect to /kanban — no API semantics." },
   { prefix: "/api/openapi.json", reason: "Phase 0 contract viewer source (this ticket) — infra, not a v1 operation." },
+  { prefix: "/api/docs", reason: "Phase 1 docs viewer page (Swagger UI, vendored assets, no CDN) rendering the spec — infra, not a v1 operation." },
 ];

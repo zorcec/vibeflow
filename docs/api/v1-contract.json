@@ -1,12 +1,12 @@
 {
   "$schema": "https://vibeflow.tools/schemas/v1-contract.json",
-  "title": "Vibeflow API v1 contract source (Phase 0)",
+  "title": "Vibeflow API v1 contract source (Phase 1)",
   "description": "Single source of truth for the /api/v1 contract, derived from the local surface per plan api-v1-unification.md §1.1/§1.2. The OpenAPI document (docs/api/openapi.yaml + docs/api/openapi.json), the generated route registry (packages/api-core/src/route-registry.gen.ts) and the served spec embed (packages/cli/src/server/openapi.gen.ts) are all generated from THIS file by packages/api-core/scripts/gen-api-artifacts.mjs — never hand-edited. Plan section references below are to docs/plans/api-v1-unification.md in the private repo.",
   "openapi": {
     "version": "3.1.0",
     "title": "Vibeflow API v1",
-    "apiVersion": "1.0.0-phase0",
-    "description": "Unified local + cloud task API (contract only in Phase 0 — no /api/v1 mount yet; see localPath on each operation for the current local handler)."
+    "apiVersion": "1.0.0-phase1",
+    "description": "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document."
   },
   "conventions": {
     "statusVocabulary": ["backlog", "todo", "in-progress", "review", "done", "cancelled"],
@@ -67,6 +67,7 @@
     { "prefix": "/screenshots/", "reason": "Disk-file screenshot serving; v1 serves screenshots through files ops (§2.5)." },
     { "prefix": "/__vibeflow__/codecs/", "reason": "WASM image codecs — browser-only (§2.5)." },
     { "prefix": "/", "reason": "Exact-root redirect to /kanban — no API semantics." },
-    { "prefix": "/api/openapi.json", "reason": "Phase 0 contract viewer source (this ticket) — infra, not a v1 operation." }
+    { "prefix": "/api/openapi.json", "reason": "Phase 0 contract viewer source (this ticket) — infra, not a v1 operation." },
+    { "prefix": "/api/docs", "reason": "Phase 1 docs viewer page (Swagger UI, vendored assets, no CDN) rendering the spec — infra, not a v1 operation." }
   ]
 }
