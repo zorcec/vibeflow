@@ -45,8 +45,17 @@ export default function ChildPopover({
   const visible = children.slice(0, MAX_VISIBLE);
   const remaining = children.length - MAX_VISIBLE;
 
+  // Estimate what actually renders: at most MAX_VISIBLE rows plus the
+  // header (and the "…and N more" line when truncated), capped by the
+  // stylesheet's max-height: 50vh on .child-popover. Estimating from the
+  // full child count flips the popover above the chip on a phantom height
+  // and pins it to the viewport top, far from the anchor.
   const EST_ROW_H = 28;
-  const EST_H = 30 + children.length * EST_ROW_H;
+  const EST_MORE_H = 22;
+  const EST_H = Math.min(
+    30 + visible.length * EST_ROW_H + (remaining > 0 ? EST_MORE_H : 0),
+    window.innerHeight * 0.5,
+  );
 
   const pos = computePopoverPosition(
     anchorRect,
