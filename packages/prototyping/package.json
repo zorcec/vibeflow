@@ -3,7 +3,7 @@
   "version": "0.2.2",
   "description": "In-app variant switching for React — page-level and component-level prototyping with URL persistence",
   "license": "Apache-2.0",
-  "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
+  "author": "Tomislav Zorcec <contact@vibeflow.tools>",
   "homepage": "https://www.vibeflow.tools",
   "repository": {
     "type": "git",

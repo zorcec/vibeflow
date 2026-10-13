@@ -4,7 +4,7 @@
   "mcpName": "io.github.zorcec/vibeflow",
   "description": "A CLI and MCP Kanban for agentic development: annotate any UI element to open a ticket with its selector, file and line.",
   "license": "Apache-2.0",
-  "author": "Tomislav Zorcec <vibeflow.tools@gmail.com>",
+  "author": "Tomislav Zorcec <contact@vibeflow.tools>",
   "homepage": "https://www.vibeflow.tools",
   "repository": {
     "type": "git",

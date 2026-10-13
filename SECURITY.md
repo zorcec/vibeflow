@@ -11,7 +11,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Report security issues privately by emailing: **vibeflow.tools@gmail.com**
+Report security issues privately by emailing: **contact@vibeflow.tools**
 
 Please include:
 - A description of the vulnerability
