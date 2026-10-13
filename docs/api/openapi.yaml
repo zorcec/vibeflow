@@ -1,0 +1,2171 @@
+openapi: 3.1.0
+info:
+  title: Vibeflow API v1
+  version: 1.0.0-phase0
+  description: "Unified local + cloud task API (contract only in Phase 0 — no /api/v1 mount yet; see localPath on each operation for the current local handler)."
+servers:
+  - url: "/api/v1"
+    description: v1 mount (Phase 1+; Phase 0 serves the contract only)
+paths:
+  "/api/v1/tasks":
+    get:
+      operationId: list-tasks
+      summary: List tasks with optional status filter and pagination
+      description: "v1 returns task summary + counts with { items, nextCursor }; local returns { tasks: [...] } with commentCount/fileCount today."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:read"
+      x-vibeflow-local: GET /api/tasks
+      x-plan-row: 1
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - backlog
+              - todo
+              - in-progress
+              - review
+              - done
+              - cancelled
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "List tasks with optional status filter and pagination — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TaskList"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: create-task
+      summary: Create a task
+      description: "v1 makes 'selector' optional (annotation is local-only); local requires it today. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: POST /api/tasks
+      x-plan-row: 3
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Create a task — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TaskCreate"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}":
+    get:
+      operationId: get-task
+      summary: Get one task by id
+      description: "Cloud must add GET-by-id (PATCH-only today). Unknown id → 404; malformed id → 400 (local app.param guard)."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:read"
+      x-vibeflow-local: "GET /api/tasks/:id"
+      x-plan-row: 2
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Get one task by id — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    patch:
+      operationId: patch-task
+      summary: Update a task
+      description: "Unify the accepted field set with the cloud cliPatchSchema subset. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "PATCH /api/tasks/:id"
+      x-plan-row: 4
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Update a task — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TaskPatch"
+      security:
+        - bearerAuth:
+            []
+    delete:
+      operationId: delete-task
+      summary: Delete a task (cascade)
+      description: "Local cascade-deletes descendants + child links; cloud adapter must implement or v1 refuses (D7). Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "DELETE /api/tasks/:id"
+      x-plan-row: 5
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Delete a task (cascade) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/opened":
+    post:
+      operationId: mark-opened
+      summary: Record presence/telemetry open
+      description: "Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/opened"
+      x-plan-row: 6
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Record presence/telemetry open — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/expanded":
+    post:
+      operationId: mark-expanded
+      summary: Record card expanded state
+      description: "Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/expanded"
+      x-plan-row: 7
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Record card expanded state — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/links":
+    post:
+      operationId: add-link
+      summary: Add a task link
+      description: "New endpoint shape (biggest genuine gap). Locally links ride on create/update/detach today. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "PATCH /api/tasks/:id"
+      x-plan-row: 8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Add a task link — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TaskLinkInput"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/links/{type}/{target}":
+    delete:
+      operationId: remove-link
+      summary: Remove a task link
+      description: "Local detach is the pre-image of the typed v1 removal. Write — Phase 3."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/detach"
+      x-plan-row: 8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: target
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Remove a task link — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/claim-next":
+    post:
+      operationId: claim-next
+      summary: Atomically claim the next actionable task
+      description: "No local HTTP handler — local claim lives in core claimNextTaskAtomic + MCP claim_next_task. Cloud needs SELECT FOR UPDATE SKIP LOCKED (Phase 3). Runner marks NOT-RUNNABLE locally."
+      tags:
+        - Agent
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 9
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Atomically claim the next actionable task — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ClaimNext"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ClaimFilter"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/verify":
+    post:
+      operationId: verify-task
+      summary: Attest a verify verdict (pass/fail/cannot)
+      description: "No local HTTP handler — CLI 'vibeflow verify' + --set-verify + MCP verify_task. 'cannot' also writes the '**Cannot verify:**' comment. Runner marks NOT-RUNNABLE locally."
+      tags:
+        - Agent
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 10
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Attest a verify verdict (pass/fail/cannot) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Task"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/VerifyAttestation"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/comments":
+    get:
+      operationId: list-comments
+      summary: List comments
+      description: "Direct match ({ comments: [...] })."
+      tags:
+        - Comments
+      x-vibeflow-scope: "comments:read"
+      x-vibeflow-local: "GET /api/tasks/:id/comments"
+      x-plan-row: 11
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "List comments — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CommentList"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: add-comment
+      summary: Add a comment
+      description: "Author semantics (L1): author preserved verbatim. Write — Phase 3."
+      tags:
+        - Comments
+      x-vibeflow-scope: "comments:write"
+      x-vibeflow-local: "POST /api/tasks/:id/comments"
+      x-plan-row: 11
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Add a comment — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Comment"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CommentInput"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/comments/{commentId}":
+    patch:
+      operationId: patch-comment
+      summary: Edit a comment
+      description: "Cloud must add. Write — Phase 3."
+      tags:
+        - Comments
+      x-vibeflow-scope: "comments:write"
+      x-vibeflow-local: "PATCH /api/tasks/:id/comments/:commentId"
+      x-plan-row: 12
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Edit a comment — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Comment"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+              required:
+                - text
+      security:
+        - bearerAuth:
+            []
+    delete:
+      operationId: delete-comment
+      summary: Delete a comment
+      description: "Cloud must add. Write — Phase 3."
+      tags:
+        - Comments
+      x-vibeflow-scope: "comments:write"
+      x-vibeflow-local: "DELETE /api/tasks/:id/comments/:commentId"
+      x-plan-row: 12
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Delete a comment — success"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/files":
+    get:
+      operationId: list-files
+      summary: List files
+      description: "Direct match ({ files: [...] })."
+      tags:
+        - Files
+      x-vibeflow-scope: "files:read"
+      x-vibeflow-local: "GET /api/tasks/:id/files"
+      x-plan-row: 13
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "List files — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/FileList"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: upload-file
+      summary: Upload a file
+      description: "Both multipart and raw body accepted; residual divergence is the allowlist (extension vs MIME) + freemium checks, not the wire encoding. Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "files:write"
+      x-vibeflow-local: "POST /api/tasks/:id/files/:filename"
+      x-plan-row: 13
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Upload a file — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/FileEntry"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/files/{fileId}":
+    get:
+      operationId: get-file
+      summary: Download a file
+      description: Match.
+      tags:
+        - Files
+      x-vibeflow-scope: "files:read"
+      x-vibeflow-local: "GET /api/tasks/:id/files/:filename"
+      x-plan-row: 14
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    delete:
+      operationId: delete-file
+      summary: Delete a file
+      description: "Match. Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "files:write"
+      x-vibeflow-local: "DELETE /api/tasks/:id/files/:filename"
+      x-plan-row: 14
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Delete a file — success"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/screenshot":
+    post:
+      operationId: put-screenshot
+      summary: Attach a screenshot
+      description: "Cloud stores as a system file. Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/screenshot"
+      x-plan-row: 15
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Attach a screenshot — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ScreenshotResult"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ScreenshotInput"
+      security:
+        - bearerAuth:
+            []
+    delete:
+      operationId: delete-screenshot
+      summary: Remove the screenshot
+      description: "Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "DELETE /api/tasks/:id/screenshot"
+      x-plan-row: 15
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Remove the screenshot — success"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/baseline":
+    post:
+      operationId: put-baseline
+      summary: Store baseline snapshot envelope
+      description: "Merges the two local routes (baseline-element + baseline-page) into one envelope. Second local handler POST /api/tasks/:id/baseline-page is classified under this op. Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "files:write"
+      x-vibeflow-local: "POST /api/tasks/:id/baseline"
+      x-plan-row: 16
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Store baseline snapshot envelope — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/BaselineResult"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/BaselineEnvelope"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/auth-state":
+    post:
+      operationId: put-auth-state
+      summary: Store encrypted auth state (LOCAL-ONLY)
+      description: "Local-only concept (§2.5) — cloud answers 501 { code: LOCAL_ONLY }. Write — Phase 3."
+      tags:
+        - Agent
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/auth-state"
+      x-plan-row: 17
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Store encrypted auth state (LOCAL-ONLY) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthStateResult"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Local-only operation on the cloud surface
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AuthStateInput"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/project":
+    get:
+      operationId: get-project
+      summary: Describe the scope
+      description: "Local { kind: local, name, branch }; cloud { kind: board, ... }. /api/github-url folds into this description."
+      tags:
+        - Meta
+      x-vibeflow-scope: "tasks:read"
+      x-vibeflow-local: GET /api/project
+      x-plan-row: 18
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Describe the scope — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Project"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/me":
+    get:
+      operationId: get-me
+      summary: Current principal
+      description: Match.
+      tags:
+        - Meta
+      x-vibeflow-scope: "profile:read"
+      x-vibeflow-local: GET /api/user
+      x-plan-row: 19
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Current principal — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Principal"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/settings":
+    get:
+      operationId: get-settings
+      summary: Read settings
+      description: Match.
+      tags:
+        - Meta
+      x-vibeflow-scope: "settings:read"
+      x-vibeflow-local: GET /api/settings
+      x-plan-row: 20
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Read settings — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Settings"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    patch:
+      operationId: patch-settings
+      summary: Update settings
+      description: "v1 uses PATCH; local uses POST today. Cloud must add PATCH. Write — Phase 3."
+      tags:
+        - Meta
+      x-vibeflow-scope: "settings:write"
+      x-vibeflow-local: POST /api/settings
+      x-plan-row: 20
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Update settings — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Settings"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Settable UI preference keys
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/changelog":
+    get:
+      operationId: get-changelog
+      summary: CLI changelog (public read)
+      description: Public read, single implementation.
+      tags:
+        - Meta
+      x-vibeflow-scope: none (public)
+      x-vibeflow-local: GET /api/changelog
+      x-plan-row: 21
+      parameters:
+        []
+      responses:
+        "200":
+          description: "CLI changelog (public read) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Changelog"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/tasks/{id}/prompt":
+    post:
+      operationId: export-prompt
+      summary: Export the structured agent prompt
+      description: "No local HTTP handler — MCP export_prompt. New endpoint. Runner marks NOT-RUNNABLE locally."
+      tags:
+        - Agent
+      x-vibeflow-scope: "tasks:read"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 22
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Export the structured agent prompt — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PromptExport"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PromptExportInput"
+      security:
+        - bearerAuth:
+            []
+  "/mcp":
+    get:
+      operationId: mcp-get
+      summary: Hosted MCP (StreamableHTTP session)
+      description: "Local /api/mcp mounts POST|GET|DELETE; DELETE is session teardown (local-only extension, classified here). Phase 4 for hosted."
+      tags:
+        - MCP
+      x-vibeflow-scope: token scopes
+      x-vibeflow-local: GET /api/mcp
+      x-plan-row: 23
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Hosted MCP (StreamableHTTP session) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/McpSession"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: mcp-post
+      summary: Hosted MCP call
+      description: See mcp-get. Phase 4 for hosted.
+      tags:
+        - MCP
+      x-vibeflow-scope: token scopes
+      x-vibeflow-local: POST /api/mcp
+      x-plan-row: 23
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Hosted MCP call — success"
+          content:
+            application/json:
+              schema:
+                type: object
+                description: JSON-RPC response envelope
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: vbf_pat
+  schemas:
+    Task:
+      type: object
+      description: "v1 canonical task = local Task fields plus external id, counts, and createdAt alias. D3: responses carry BOTH id and externalId."
+      properties:
+        id:
+          type: string
+          description: "External id (cli_id ?? id on cloud; the local id locally)"
+        externalId:
+          type: string
+          description: "Universal external id — equal to id on the local surface"
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - backlog
+            - todo
+            - in-progress
+            - review
+            - done
+            - cancelled
+        selector:
+          type: string
+        priority:
+          type: string
+        verified:
+          type: boolean
+          nullable: true
+        links:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TaskLink"
+        commentCount:
+          type: integer
+        fileCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - externalId
+        - title
+        - status
+    TaskSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        externalId:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+            - backlog
+            - todo
+            - in-progress
+            - review
+            - done
+            - cancelled
+        commentCount:
+          type: integer
+        fileCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - externalId
+        - title
+        - status
+    TaskList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TaskSummary"
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+        - items
+    TaskCreate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - backlog
+            - todo
+            - in-progress
+            - review
+            - done
+            - cancelled
+        selector:
+          type: string
+          description: Optional in v1 (annotation is local-only); required by the local handler today
+        priority:
+          type: string
+      required:
+        - title
+    TaskPatch:
+      type: object
+      description: All fields optional; status speaks the hyphenated set
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - backlog
+            - todo
+            - in-progress
+            - review
+            - done
+            - cancelled
+        priority:
+          type: string
+        verified:
+          type: boolean
+          nullable: true
+    TaskLink:
+      type: object
+      properties:
+        taskId:
+          type: string
+        type:
+          type: string
+          enum:
+            - parent
+            - relates
+            - blocks
+      required:
+        - taskId
+        - type
+    TaskLinkInput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - parent
+            - relates
+            - blocks
+        target:
+          type: string
+      required:
+        - type
+        - target
+    ClaimFilter:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - backlog
+            - todo
+            - in-progress
+            - review
+            - done
+            - cancelled
+        tags:
+          type: array
+          items:
+            type: string
+    ClaimNext:
+      type: object
+      properties:
+        task:
+          oneOf:
+            - "$ref": "#/components/schemas/Task"
+            - type: "null"
+              description: No actionable task
+      required:
+        - task
+    VerifyAttestation:
+      type: object
+      description: "Agent attestation tri-state: pass/fail/cannot (+reason). 'cannot' also writes the Cannot-verify comment."
+      properties:
+        verdict:
+          type: string
+          enum:
+            - pass
+            - fail
+            - cannot
+        reason:
+          type: string
+      required:
+        - verdict
+    Comment:
+      type: object
+      description: "Ledger L1: author is explicit and preserved end to end."
+      properties:
+        id:
+          type: string
+        author:
+          type: string
+          enum:
+            - user
+            - agent
+        text:
+          type: string
+        type:
+          type: string
+          enum:
+            - comment
+            - system
+        source:
+          type: string
+          enum:
+            - cli
+            - web
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - author
+        - text
+    CommentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Comment"
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+        - items
+    CommentInput:
+      type: object
+      properties:
+        author:
+          type: string
+          enum:
+            - user
+            - agent
+        text:
+          type: string
+          minLength: 1
+      required:
+        - text
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+        mimeType:
+          type: string
+        system:
+          type: boolean
+      required:
+        - name
+    FileList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FileEntry"
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+        - items
+    ScreenshotResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        screenshot:
+          type: string
+      required:
+        - success
+    ScreenshotInput:
+      type: object
+      properties:
+        screenshot:
+          type: string
+          contentEncoding: base64
+      required:
+        - screenshot
+    BaselineResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required:
+        - success
+    BaselineEnvelope:
+      type: object
+      description: Merges the two local baseline routes into one envelope
+      properties:
+        baseline:
+          type: object
+          description: "Element snapshot { selector, outerHTML }"
+        page:
+          type: object
+          description: "Page-wide snapshot { version, elements, capturedAt }"
+    AuthStateResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required:
+        - success
+    AuthStateInput:
+      type: object
+      properties:
+        authState:
+          type: object
+        taskAuthor:
+          type: string
+      required:
+        - authState
+        - taskAuthor
+    Project:
+      type: object
+      description: "Scope description: local { kind: local, name, branch }; cloud { kind: board, ... }"
+      properties:
+        kind:
+          type: string
+          enum:
+            - local
+            - board
+        name:
+          type: string
+        branch:
+          type: string
+          nullable: true
+        boardId:
+          type: string
+        workspaceId:
+          type: string
+      required:
+        - kind
+    Principal:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+            - local
+            - user
+        userId:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+        - kind
+    Settings:
+      type: object
+      description: UI preference keys
+    Changelog:
+      type: object
+      description: CLI changelog payload
+    PromptExport:
+      type: object
+      properties:
+        prompt:
+          type: string
+      required:
+        - prompt
+    PromptExportInput:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum:
+            - task
+            - board
+    McpSession:
+      type: object
+      description: StreamableHTTP session descriptor
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+      required:
+        - error

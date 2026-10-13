@@ -98,6 +98,7 @@ import type { ServeOptions, Task } from "../core/types.js";
 import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { getGitUser } from "../core/git-user.js";
+import { OPENAPI_JSON } from "./openapi.gen.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
 import type { FSWatcher } from "chokidar";
 
@@ -1351,6 +1352,19 @@ function registerMetaApis(
 }
 
 /**
+ * Serves the checked-in /api/v1 contract at GET /api/openapi.json.
+ *
+ * Phase 0 addition (fully revertible): serves the generated OPENAPI_JSON
+ * string verbatim — the same bytes as docs/api/openapi.json. No existing
+ * endpoint is touched. Gives the Phase 1 docs viewer a drift-proof source.
+ */
+function registerOpenApiRoute(app: express.Application): void {
+  app.get("/api/openapi.json", (_req, res) => {
+    res.type("application/json").send(OPENAPI_JSON);
+  });
+}
+
+/**
  * Serves the image-codec wasm binaries (`/__vibeflow__/codecs/<name>`) that
  * the browser bundles fetch lazily on first image transform. Pure wasm,
  * immutable versioned binaries — long-cacheable. The allowlist rejects
@@ -1816,6 +1830,7 @@ async function serveApiOnly(
     registerTaskApi(app, projectDir, broadcast);
     registerTrpcApi(app, projectDir, broadcast);
     registerMetaApis(app, projectDir, broadcast);
+    registerOpenApiRoute(app);
 
     // Mount MCP server (StreamableHTTP transport)
     mountMcp(app, projectDir, "local");
@@ -2072,6 +2087,7 @@ li{margin:8px 0}</style></head>
   registerTaskApi(app, projectDir, broadcast);
   registerTrpcApi(app, projectDir, broadcast);
   registerMetaApis(app, projectDir, broadcast);
+  registerOpenApiRoute(app);
   registerKanbanRoute(app, options.port);
   registerCodecRoute(app);
   registerInjectPage(app, serveUrls);

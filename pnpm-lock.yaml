@@ -31,6 +31,12 @@ importers:
         specifier: ^8.71.1
         version: 8.71.1(eslint@10.12.0(jiti@1.21.7)(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3)
 
+  packages/api-core:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/cli:
     dependencies:
       '@inquirer/select':
@@ -106,6 +112,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.0
         version: 8.18.1
+      '@vibeflow-tools/api-core':
+        specifier: workspace:*
+        version: link:../api-core
       '@vibeflow-tools/shared':
         specifier: workspace:*
         version: link:../shared

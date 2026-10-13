@@ -36,7 +36,7 @@
     "vf": "dist/cli/index.js"
   },
   "scripts": {
-    "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-codec-assets.mjs",
+    "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-codec-assets.mjs && node ../api-core/scripts/gen-api-artifacts.mjs",
     "build": "tsup && tsup --config tsup.cli.config.ts",
     "dev": "tsup --watch",
     "test": "vitest run",
@@ -100,6 +100,7 @@
     "@types/react-dom": "^18.3.7",
     "@types/ws": "^8.5.0",
     "@vibeflow-tools/shared": "workspace:*",
+    "@vibeflow-tools/api-core": "workspace:*",
     "@vibeflow-tools/ui": "workspace:*",
     "@vitest/coverage-v8": "^3.0.0",
     "autoprefixer": "^10.4.27",

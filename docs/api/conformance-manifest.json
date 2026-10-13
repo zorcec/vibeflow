@@ -1,0 +1,190 @@
+{
+  "$schema": "https://vibeflow.tools/schemas/conformance-manifest.json",
+  "title": "Vibeflow API v1 conformance manifest (Phase 0: local reads runnable)",
+  "description": "One entry per contract operation with the cases each must satisfy on both surfaces. Phase 0 executes runnable=local-read cases against the local board; writes and handler-less ops are manifest DATA (reported skipped with their target phase) until Phase 3. Open-question resolutions are encoded as cases: D3 external-id presence (get-task/v1-shape), D6 status vocabulary incl. cancelled passthrough (list-tasks/vocabulary + normalizer), comment-author preservation L1 (list-comments/author-preserved), selector-optional delta (create-task case, phase 3).",
+  "version": 1,
+  "entries": [
+    {
+      "id": "list-tasks",
+      "v1": { "method": "GET", "path": "/api/v1/tasks" },
+      "local": { "method": "GET", "path": "/api/tasks" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "task-list",
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/tasks" }, "expect": { "status": 200, "shape": "task-list", "conformance": "seeded fixture tasks all present; v1 delta: envelope becomes { items, nextCursor } with TaskSummary items" } },
+        { "name": "status-filter", "request": { "method": "GET", "path": "/api/tasks", "query": { "status": "todo" } }, "expect": { "status": 200, "shape": "task-list", "conformance": "every returned item has status todo" } },
+        { "name": "limit", "request": { "method": "GET", "path": "/api/tasks", "query": { "limit": "1" } }, "expect": { "status": 200, "shape": "task-list", "conformance": "at most 1 item; v1 replaces limit-only with cursor pagination" } },
+        { "name": "vocabulary", "request": { "method": "GET", "path": "/api/tasks" }, "expect": { "status": 200, "shape": "task-list", "conformance": "D6: every status is in the canonical vocabulary; 'cancelled' must pass through on read, never map to done (accepted, not emitted locally)" } },
+        { "name": "unknown-status-empty", "request": { "method": "GET", "path": "/api/tasks", "query": { "status": "no-such-status" } }, "expect": { "status": 200, "shape": "task-list", "conformance": "unknown filter matches nothing (empty list, still 200)" } }
+      ]
+    },
+    {
+      "id": "get-task",
+      "v1": { "method": "GET", "path": "/api/v1/tasks/{id}" },
+      "local": { "method": "GET", "path": "/api/tasks/{taskId}" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "task",
+      "seed": { "taskId": "<fixture todo task>" },
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}" }, "expect": { "status": 200, "shape": "task", "conformance": "D3: v1 carries id + externalId (equal locally); local Phase 0 carries id (delta recorded, not asserted)" } },
+        { "name": "unknown-id-404", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expect": { "status": 404, "conformance": "well-formed but unknown id → 404 { error }" } },
+        { "name": "malformed-id-400", "request": { "method": "GET", "path": "/api/tasks/not-an-id!!" }, "expect": { "status": 400, "conformance": "router-level id guard rejects before the handler" } }
+      ]
+    },
+    { "id": "create-task", "v1": { "method": "POST", "path": "/api/v1/tasks" }, "local": { "method": "POST", "path": "/api/tasks" }, "runnable": "write", "phase": 3, "shape": "task", "cases": [
+      { "name": "minimal-no-selector", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 minimal" } }, "expect": { "status": 201, "shape": "task", "conformance": "v1: selector OPTIONAL (annotation is local-only); local handler requires it today — convergence item" } },
+      { "name": "full", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 full", "selector": "#app", "priority": "High" } }, "expect": { "status": 201, "shape": "task", "conformance": "created task echoes the write vocabulary" } }
+    ] },
+    { "id": "patch-task", "v1": { "method": "PATCH", "path": "/api/v1/tasks/{id}" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "shape": "task", "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "status-transition", "request": { "method": "PATCH", "path": "/api/tasks/{taskId}", "body": { "status": "in-progress" } }, "expect": { "status": 200, "shape": "task", "conformance": "hyphenated status accepted on write (D6)" } }
+    ] },
+    { "id": "delete-task", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "shape": "task", "seed": { "taskId": "<fixture leaf task>" }, "cases": [
+      { "name": "leaf", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}" }, "expect": { "status": 200, "conformance": "leaf delete; cascade case (D7) runs against a parent fixture in Phase 3" } }
+    ] },
+    { "id": "mark-opened", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/opened" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/opened" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/opened" }, "expect": { "status": 200, "conformance": "presence recorded" } }
+    ] },
+    { "id": "mark-expanded", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/expanded" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/expanded" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/expanded" }, "expect": { "status": 200, "conformance": "expanded state recorded" } }
+    ] },
+    { "id": "add-link", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/links" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "shape": "task", "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/links", "body": { "type": "relates", "target": "<other>" } }, "expect": { "status": 200, "shape": "task", "conformance": "genuine gap: no dedicated local route today (links ride on update)" } }
+    ] },
+    { "id": "remove-link", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/links/{type}/{target}" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/detach" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture child task>" }, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/v1/tasks/{taskId}/links/parent/{target}" }, "expect": { "status": 200, "conformance": "typed removal; local detach is the pre-image" } }
+    ] },
+    { "id": "claim-next", "v1": { "method": "POST", "path": "/api/v1/tasks/claim-next" }, "local": null, "runnable": "no-local-handler", "phase": 3, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/claim-next", "body": {} }, "expect": { "status": 200, "conformance": "atomic claim; cloud needs SELECT FOR UPDATE SKIP LOCKED — real design work, listed so it is not dropped" } }
+    ] },
+    { "id": "verify-task", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/verify" }, "local": null, "runnable": "no-local-handler", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "pass", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/verify", "body": { "verdict": "pass" } }, "expect": { "status": 200, "conformance": "verdict tri-state; verified=true" } },
+      { "name": "cannot-writes-comment", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/verify", "body": { "verdict": "cannot", "reason": "needs staging" } }, "expect": { "status": 200, "conformance": "'cannot' also writes the **Cannot verify:** comment" } }
+    ] },
+    {
+      "id": "list-comments",
+      "v1": { "method": "GET", "path": "/api/v1/tasks/{id}/comments" },
+      "local": { "method": "GET", "path": "/api/tasks/{taskId}/comments" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "comment-list",
+      "seed": { "taskId": "<fixture commented task>" },
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "seeded user + agent comments present" } },
+        { "name": "author-preserved", "request": { "method": "GET", "path": "/api/tasks/{taskId}/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "L1: author reads back verbatim (user|agent); the normalizer throws if author is absent" } },
+        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id — convergence item for Phase 1/3, asserted here so the difference cannot slip through silently" } }
+      ]
+    },
+    { "id": "add-comment", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/comments" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/comments" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/comments", "body": { "author": "agent", "text": "L1 probe" } }, "expect": { "status": 200, "conformance": "written author reads back verbatim (L1)" } }
+    ] },
+    { "id": "patch-comment", "v1": { "method": "PATCH", "path": "/api/v1/tasks/{id}/comments/{commentId}" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}/comments/{commentId}" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture commented task>", "commentId": "<seeded>" }, "cases": [
+      { "name": "green", "request": { "method": "PATCH", "path": "/api/tasks/{taskId}/comments/{commentId}", "body": { "text": "edited" } }, "expect": { "status": 200, "conformance": "text updated, author untouched" } }
+    ] },
+    { "id": "delete-comment", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/comments/{commentId}" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/comments/{commentId}" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture commented task>", "commentId": "<seeded>" }, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/comments/{commentId}" }, "expect": { "status": 200, "conformance": "soft-delete trace kept" } }
+    ] },
+    {
+      "id": "list-files",
+      "v1": { "method": "GET", "path": "/api/v1/tasks/{id}/files" },
+      "local": { "method": "GET", "path": "/api/tasks/{taskId}/files" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "file-list",
+      "seed": { "taskId": "<fixture file task>" },
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files" }, "expect": { "status": 200, "shape": "file-list", "conformance": "seeded text + binary files listed" } },
+        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/files" }, "expect": { "status": 200, "shape": "file-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id — convergence item, see list-comments" } }
+      ]
+    },
+    { "id": "upload-file", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/files" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "raw-body", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/note.txt" }, "expect": { "status": 200, "conformance": "raw body accepted; multipart also accepted (both, not either)" } },
+      { "name": "disallowed-type-415", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/run.exe" }, "expect": { "status": 415, "conformance": "allowlist enforced (extension vs MIME is the residual divergence)" } }
+    ] },
+    {
+      "id": "get-file",
+      "v1": { "method": "GET", "path": "/api/v1/tasks/{id}/files/{fileId}" },
+      "local": { "method": "GET", "path": "/api/tasks/{taskId}/files/{filename}" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "raw-bytes",
+      "seed": { "taskId": "<fixture file task>", "filename": "note.txt" },
+      "cases": [
+        { "name": "green-bytes", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files/{filename}" }, "expect": { "status": 200, "shape": "raw-bytes", "conformance": "bytes round-trip against the seeded content" } },
+        { "name": "unknown-file-404", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files/missing.txt" }, "expect": { "status": 404, "conformance": "unknown filename → 404" } }
+      ]
+    },
+    { "id": "delete-file", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/files/{fileId}" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture file task>", "filename": "note.txt" }, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "expect": { "status": 200, "conformance": "system trace comment records the removal" } }
+    ] },
+    { "id": "put-screenshot", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/screenshot" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "expect": { "status": 200, "conformance": "cloud stores as a system file via the files port" } }
+    ] },
+    { "id": "delete-screenshot", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/screenshot" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/screenshot" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/screenshot" }, "expect": { "status": 200, "conformance": "screenshot slot cleared" } }
+    ] },
+    { "id": "put-baseline", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/baseline" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/baseline" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "element-envelope", "request": { "method": "POST", "path": "/api/tasks/{taskId}/baseline", "body": { "baseline": { "selector": "#a", "outerHTML": "<a/>" } } }, "expect": { "status": 200, "conformance": "merged envelope: element and page snapshots in one call" } }
+    ] },
+    { "id": "put-auth-state", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/auth-state" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/auth-state" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "cloud-501", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/auth-state" }, "expect": { "status": 501, "conformance": "LOCAL_ONLY on cloud — truthful 501 with machine code, never silent divergence" } }
+    ] },
+    {
+      "id": "get-project",
+      "v1": { "method": "GET", "path": "/api/v1/project" },
+      "local": { "method": "GET", "path": "/api/project" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "project",
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/project" }, "expect": { "status": 200, "shape": "project", "conformance": "scope description shape" } }
+      ]
+    },
+    {
+      "id": "get-me",
+      "v1": { "method": "GET", "path": "/api/v1/me" },
+      "local": { "method": "GET", "path": "/api/user" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "me",
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/user" }, "expect": { "status": 200, "shape": "me", "conformance": "git user shape" } }
+      ]
+    },
+    {
+      "id": "get-settings",
+      "v1": { "method": "GET", "path": "/api/v1/settings" },
+      "local": { "method": "GET", "path": "/api/settings" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "settings",
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/settings" }, "expect": { "status": 200, "shape": "settings", "conformance": "settings object" } }
+      ]
+    },
+    { "id": "patch-settings", "v1": { "method": "PATCH", "path": "/api/v1/settings" }, "local": { "method": "POST", "path": "/api/settings" }, "runnable": "write", "phase": 3, "cases": [
+      { "name": "green", "request": { "method": "PATCH", "path": "/api/v1/settings", "body": { "viewMode": "compact" } }, "expect": { "status": 200, "conformance": "v1 PATCH vs local POST — method convergence item" } }
+    ] },
+    {
+      "id": "get-changelog",
+      "v1": { "method": "GET", "path": "/api/v1/changelog" },
+      "local": { "method": "GET", "path": "/api/changelog" },
+      "runnable": "local-read",
+      "phase": 0,
+      "shape": "changelog",
+      "cases": [
+        { "name": "green", "request": { "method": "GET", "path": "/api/changelog" }, "expect": { "status": 200, "shape": "changelog", "conformance": "public read, no auth" } }
+      ]
+    },
+    { "id": "export-prompt", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/prompt" }, "local": null, "runnable": "no-local-handler", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/prompt", "body": {} }, "expect": { "status": 200, "conformance": "structured agent prompt; local pre-image is MCP export_prompt" } }
+    ] },
+    { "id": "mcp-get", "v1": { "method": "GET", "path": "/mcp" }, "local": { "method": "GET", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "cases": [
+      { "name": "session", "request": { "method": "GET", "path": "/api/mcp" }, "expect": { "status": 200, "conformance": "hosted MCP session over StreamableHTTP (Phase 4)" } }
+    ] },
+    { "id": "mcp-post", "v1": { "method": "POST", "path": "/mcp" }, "local": { "method": "POST", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "cases": [
+      { "name": "call", "request": { "method": "POST", "path": "/api/mcp", "body": {} }, "expect": { "status": 200, "conformance": "hosted MCP call with scoped PAT (Phase 4)" } }
+    ] }
+  ]
+}
