@@ -284,7 +284,9 @@ export const TaskCard = React.memo(function TaskCard({
       // Compact view (any lane) or done column: single-row card.
       // Done cards stay title-only; compact cards additionally inline the
       // nonzero file / children / message indicators with the title
-      // (0a2fa3d6) — no description, no badges either way.
+      // (0a2fa3d6) — no description, no badges either way. Compact cards
+      // carry no copy-ID button: its 22px box was reserved even while
+      // invisible (opacity 0), stealing title width for no affordance.
       const showInlineIcons = !!compact && !isDone;
       if (compact || isDone) {
             return (
@@ -371,7 +373,10 @@ export const TaskCard = React.memo(function TaskCard({
                                           {childCount}
                                     </button>
                               )}
-                              <CopyIdButton taskId={task.id} />
+                              {/* No CopyIdButton in compact view (owner call 0a2fa3d6):
+                                  the pill keeps its 22px box while invisible. Done-lane
+                                  cards in board view keep theirs. */}
+                              {!compact && <CopyIdButton taskId={task.id} />}
                         </div>
                   </article>
             );

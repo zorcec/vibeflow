@@ -418,7 +418,7 @@ describe("TaskCard compact inline icons (0a2fa3d6)", () => {
       'article.task-card[data-compact="true"]',
     )!;
     expect(card).toBeInTheDocument();
-    // Indicators sit in the same title row as the title and copy button.
+    // Indicators sit in the same title row as the title (no copy button).
     const row = card.firstElementChild!;
     const roles = [...row.children].map(
       (el) => el.getAttribute("data-role") ?? el.tagName,
@@ -433,11 +433,14 @@ describe("TaskCard compact inline icons (0a2fa3d6)", () => {
     expect(
       row.querySelector('[data-role="compact-child-count"]'),
     ).toHaveTextContent("1");
-    // Title keeps its flex:1 ellipsis slot; the copy affordance still fits.
+    // Title keeps its flex:1 ellipsis slot; the copy affordance is gone
+    // from compact view (owner call 0a2fa3d6) so the title reclaims its box.
     expect(
       row.querySelector('[data-role="card-title"]'),
     ).toHaveStyle({ flex: "1" });
-    expect(card.querySelector("button[title^='Copy task id']")).toBeInTheDocument();
+    expect(
+      card.querySelector("button[title^='Copy task id']"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows no description text and no badges in compact view", () => {

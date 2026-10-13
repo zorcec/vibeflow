@@ -117,9 +117,14 @@ describe("TaskCard copy-id button", () => {
     expect(appendSpy).toHaveBeenCalled();
   });
 
-  it("renders in the compact/done single-row variant too", () => {
+  it("renders in the done single-row variant but NOT in compact view", () => {
+    // Owner call 0a2fa3d6: the copy-ID button is removed from the compact
+    // card (its 22px box was reserved even while invisible). Done-lane
+    // cards in board view keep theirs.
     const { container } = renderCard(makeTask(), { compact: true });
-    expect(container.querySelector('[data-role="copy-id"]')).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-role="copy-id"]'),
+    ).not.toBeInTheDocument();
     const { container: doneContainer } = renderCard(
       makeTask({ status: "done" }),
     );
