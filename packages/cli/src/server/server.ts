@@ -1808,6 +1808,14 @@ async function serveApiOnly(
     isOnline ? workspace?.id : undefined,
     isOnline ? saasApiUrl : undefined,
   );
+  // Stopgap root (Part A of the board-server root page): the bare `/` is
+  // otherwise Express's default 404. Redirect EXACT `/` → `/kanban` only —
+  // Express matches "/" literally, so no other route is shadowed. The
+  // Location carries no fragment, so browsers re-attach any `#task-<id>`
+  // fragment across the redirect and board deep links keep working.
+  app.get("/", (_req, res) => {
+    res.redirect(302, "/kanban");
+  });
 
   const taskWatcher = isOnline
     ? null
