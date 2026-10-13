@@ -15,7 +15,12 @@ export default defineConfig({
   },
   test: {
     include: ["tests/e2e/**/*.test.ts"],
-    setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    setupFiles: [
+      "./tests/setup/disable-telemetry.ts",
+      // Hermetic HOME (bug 072d6a8a): in-process servers must not merge the
+      // operator's real ~/.vibeflow/settings.json into temp task stores.
+      "./tests/e2e/setup/hermetic-home.ts",
+    ],
     testTimeout: 30_000,
     hookTimeout: 30_000, // match testTimeout — server-boot hooks flake under fork-pool load
     pool: "forks",
