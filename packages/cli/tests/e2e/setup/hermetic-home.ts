@@ -20,9 +20,22 @@
  * settings for real projects. Owner-global settings SHOULD govern real
  * projects — they just must not govern a scratch store.
  */
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// Capture BEFORE overriding: two verify-* e2e files launch a real chromium
+// in-process, and Playwright resolves its browsers under ~/.cache by
+// default — an empty temp HOME would hide the installed browsers. Point
+// Playwright at the operator's real browser cache (read-only use); the
+// .vibeflow settings leak this file exists to fix stays fully isolated.
+const realHome = process.env.HOME;
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && realHome) {
+  const browsersPath = join(realHome, ".cache", "ms-playwright");
+  if (existsSync(browsersPath)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = browsersPath;
+  }
+}
 
 const cleanHome = mkdtempSync(join(tmpdir(), "vibeflow-e2e-home-"));
 process.env.HOME = cleanHome;
