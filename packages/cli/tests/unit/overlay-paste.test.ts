@@ -12,6 +12,7 @@ import {
   buildPasteFilename,
   collectPastedFiles,
   hasFileItems,
+  pasteFailureMessage,
   pastedImageToFile,
   pasteExtensionForMime,
   shouldInterceptPaste,
@@ -164,6 +165,19 @@ describe("shouldInterceptPaste", () => {
   });
 });
 
+describe("pasteFailureMessage", () => {
+  it("names the paste and the underlying error (kanban wording parity)", () => {
+    expect(pasteFailureMessage("pasted image", new Error("HTTP 500"))).toBe(
+      "Couldn't attach pasted image: HTTP 500",
+    );
+  });
+
+  it("falls back to a generic reason for non-Error rejections", () => {
+    expect(pasteFailureMessage("pasted image", "boom")).toBe(
+      "Couldn't attach pasted image: upload failed",
+    );
+  });
+});
 describe("pastedImageToFile", () => {
   it("keeps the raw blob with its true extension without a browser pipeline", async () => {
     const file = await pastedImageToFile(

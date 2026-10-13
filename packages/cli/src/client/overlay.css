@@ -373,6 +373,41 @@
   color: #e2e8f0;
 }
 
+/* ── Paste processing + failure states (14b61260 round 2) ─────────────────
+   The wasm transform + upload takes seconds: the pending pill shows the
+   moment a paste lands and clears exactly when the chip renders; a failed
+   transform lands in the error box instead of failing silently. */
+.vibeflow-paste-processing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #050d1a;
+  border: 1px dashed #1e3a5f;
+  color: #c4b5fd;
+  font-size: 11px;
+  font-family: system-ui, sans-serif;
+  line-height: 1.4;
+  animation: vibeflow-paste-pulse 1.2s ease-in-out infinite;
+}
+@keyframes vibeflow-paste-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.vibeflow-paste-error {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  font-family: system-ui, sans-serif;
+  line-height: 1.4;
+}
+
 .vibeflow-popover button {
   padding: 7px 16px;
   border-radius: 7px;

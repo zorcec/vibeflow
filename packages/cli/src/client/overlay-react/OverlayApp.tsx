@@ -8,6 +8,7 @@ import { uploadFile } from "../overlay-browser/api.js";
 import {
   collectPastedFiles,
   hasFileItems,
+  pasteFailureMessage,
   pastedImageToFile,
   revokePreviewUrl,
   safePreviewUrl,
@@ -539,6 +540,11 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
     isImage: boolean;
   }
   const [pasteFiles, setPasteFiles] = React.useState<PasteEntry[]>([]);
+  // Visible paste states (14b61260 round 2): the wasm transform + upload
+  // takes seconds, so a paste shows "Processing pasted image…" immediately
+  // and a transform failure lands in pasteError instead of failing silently.
+  const [pasteProcessing, setPasteProcessing] = React.useState(false);
+  const [pasteError, setPasteError] = React.useState<string | null>(null);
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const pasteFilesRef = React.useRef<PasteEntry[]>([]);
   pasteFilesRef.current = pasteFiles;
@@ -555,20 +561,28 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
       const { images, others } = collectPastedFiles(clipboardData);
       if (images.length === 0 && others.length === 0) return;
       e.preventDefault();
+      if (images.length > 0) setPasteProcessing(true);
+      setPasteError(null);
       void (async () => {
-        const next: PasteEntry[] = [];
-        for (const blob of images) {
-          const file = await pastedImageToFile(blob);
-          next.push({
-            file,
-            url: safePreviewUrl(file),
-            isImage: true,
-          });
+        try {
+          const next: PasteEntry[] = [];
+          for (const blob of images) {
+            const file = await pastedImageToFile(blob);
+            next.push({
+              file,
+              url: safePreviewUrl(file),
+              isImage: true,
+            });
+          }
+          for (const file of others) {
+            next.push({ file, url: null, isImage: false });
+          }
+          setPasteFiles((prev) => [...prev, ...next]);
+        } catch (err) {
+          setPasteError(pasteFailureMessage("pasted image", err));
+        } finally {
+          setPasteProcessing(false);
         }
-        for (const file of others) {
-          next.push({ file, url: null, isImage: false });
-        }
-        setPasteFiles((prev) => [...prev, ...next]);
       })();
     }
     dialog.addEventListener("paste", onPaste);
@@ -1028,11 +1042,21 @@ function OverlayAddModal({ opts, onClose, onSubmit }: AddModalProps) {
         </div>
 
         {/* ── Pasted screenshots/files: quiet chips, buffered until save ── */}
-        {pasteFiles.length > 0 && (
+        {(pasteFiles.length > 0 || pasteProcessing || pasteError) && (
           <div
             className="vibeflow-paste-row"
             style={{ padding: "6px 16px" }}
           >
+            {pasteProcessing && (
+              <span className="vibeflow-paste-processing">
+                Processing pasted image…
+              </span>
+            )}
+            {pasteError && (
+              <div className="vibeflow-paste-error" role="alert">
+                {pasteError}
+              </div>
+            )}
             {pasteFiles.map((p, i) => (
               <span
                 key={`${p.file.name}-${i}`}

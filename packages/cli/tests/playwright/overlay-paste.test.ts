@@ -318,6 +318,79 @@ describe("Overlay popover — paste screenshot to attach", () => {
     await closePopover();
   });
 
+  it("paste shows processing immediately and clears it exactly when the chip renders (14b61260 round 2)", async () => {
+    await openPopover("paste-title");
+    // Dispatch a 2500px-wide paste and sample the shadow DOM every 5 ms in
+    // the SAME evaluate: the wasm resize + WebP encode takes long enough
+    // that a separate round-trip could miss the processing window.
+    const seq = await page.evaluate(async () => {
+      const host = document.querySelector(
+        "#vibeflow-studio-root",
+      ) as HTMLElement;
+      const sr = host?.shadowRoot;
+      const textarea = sr?.querySelector(
+        ".vibeflow-popover textarea",
+      ) as HTMLElement;
+      if (!textarea) throw new Error("popover textarea not found");
+      const canvas = document.createElement("canvas");
+      canvas.width = 2500;
+      canvas.height = 100;
+      const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+      ctx.fillStyle = "#3b82f6";
+      ctx.fillRect(0, 0, 2500, 100);
+      const blob = (await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      )) as Blob;
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], "screenshot.png", { type: "image/png" }));
+      const t0 = performance.now();
+      textarea.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt,
+        }),
+      );
+      let processingAt = -1;
+      let chipAt = -1;
+      while (performance.now() - t0 < 10_000) {
+        const proc = sr?.querySelector(
+          ".vibeflow-paste-processing",
+        ) as HTMLElement | null;
+        if (proc && proc.style.display !== "none" && processingAt < 0) {
+          processingAt = Math.round(performance.now() - t0);
+        }
+        if (sr?.querySelector(".vibeflow-paste-name") && chipAt < 0) {
+          chipAt = Math.round(performance.now() - t0);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const procEnd = sr?.querySelector(
+        ".vibeflow-paste-processing",
+      ) as HTMLElement | null;
+      return {
+        processingAt,
+        chipAt,
+        processingText: procEnd?.textContent ?? null,
+        processingHidden: procEnd?.style.display === "none",
+        chipName:
+          sr?.querySelector(".vibeflow-paste-name")?.textContent ?? "",
+        errorShown:
+          ((sr?.querySelector(".vibeflow-paste-error") as HTMLElement | null)
+            ?.style.display ?? "none") !== "none",
+      };
+    });
+    // Measured state sequence: paste → processing → chip.
+    expect(seq.processingAt).toBeGreaterThanOrEqual(0);
+    expect(seq.processingAt).toBeLessThan(1000);
+    expect(seq.chipAt).toBeGreaterThanOrEqual(seq.processingAt);
+    expect(seq.processingHidden).toBe(true);
+    expect(seq.chipName).toMatch(/^paste-.*\.webp$/);
+    expect(seq.errorShown).toBe(false);
+    await closePopover();
+  });
+
   it("plain-text paste is not intercepted (no chip for words)", async () => {
     await openPopover("paste-title");
     // Text first, then an image: waiting for exactly one chip proves the text

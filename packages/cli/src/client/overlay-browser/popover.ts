@@ -5,6 +5,7 @@ import { submitTask, uploadFile } from "./api.js";
 import {
   collectPastedFiles,
   hasFileItems,
+  pasteFailureMessage,
   pastedImageToFile,
   revokePreviewUrl,
   safePreviewUrl,
@@ -269,10 +270,27 @@ export async function showPopover(
   const pendingPaste: PendingPaste[] = [];
   const pasteRow = el("div", { className: "vibeflow-paste-row" });
   pasteRow.style.display = "none";
+  // Visible paste states (14b61260 round 2): the wasm transform takes
+  // seconds, so a paste shows "Processing pasted image…" immediately and
+  // a transform failure lands in the error box instead of failing silently.
+  const pastePending = el(
+    "div",
+    { className: "vibeflow-paste-processing" },
+    "Processing pasted image…",
+  );
+  pastePending.style.display = "none";
+  const pasteError = el("div", { className: "vibeflow-paste-error" });
+  pasteError.setAttribute("role", "alert");
+  pasteError.style.display = "none";
+  pasteRow.append(pastePending, pasteError);
   body.insertBefore(pasteRow, advSection);
 
   function updatePasteRowVisibility(): void {
-    pasteRow.style.display = pendingPaste.length > 0 ? "" : "none";
+    const visible =
+      pendingPaste.length > 0 ||
+      pastePending.style.display !== "none" ||
+      pasteError.style.display !== "none";
+    pasteRow.style.display = visible ? "" : "none";
   }
 
   function revokePendingPasteUrls(): void {
@@ -419,21 +437,35 @@ export async function showPopover(
     const { images, others } = collectPastedFiles(clipboardData);
     if (images.length === 0 && others.length === 0) return;
     pasteEvent.preventDefault();
+    pasteError.style.display = "none";
+    const needsTransform = images.length > 0;
+    if (needsTransform) {
+      pastePending.style.display = "";
+      updatePasteRowVisibility();
+    }
     void (async () => {
-      const startAt = pendingPaste.length;
-      for (const blob of images) {
-        const file = await pastedImageToFile(blob);
-        pendingPaste.push({
-          file,
-          url: safePreviewUrl(file),
-          isImage: true,
-        });
-      }
-      for (const file of others) {
-        pendingPaste.push({ file, url: null, isImage: false });
-      }
-      for (const entry of pendingPaste.slice(startAt)) {
-        addPasteChip(entry);
+      try {
+        const startAt = pendingPaste.length;
+        for (const blob of images) {
+          const file = await pastedImageToFile(blob);
+          pendingPaste.push({
+            file,
+            url: safePreviewUrl(file),
+            isImage: true,
+          });
+        }
+        for (const file of others) {
+          pendingPaste.push({ file, url: null, isImage: false });
+        }
+        for (const entry of pendingPaste.slice(startAt)) {
+          addPasteChip(entry);
+        }
+      } catch (err) {
+        pasteError.textContent = pasteFailureMessage("pasted image", err);
+        pasteError.style.display = "";
+      } finally {
+        pastePending.style.display = "none";
+        updatePasteRowVisibility();
       }
     })();
   });

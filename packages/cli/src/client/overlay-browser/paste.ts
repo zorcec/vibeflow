@@ -160,3 +160,13 @@ export async function uploadTaskFile(
     body: buf,
   });
 }
+
+/**
+ * Visible failure text for a paste-to-attach transform failure.
+ * Mirrors the kanban DetailPanel `Couldn't attach …` wording so an
+ * overlay paste never fails silently (14b61260 round 2).
+ */
+export function pasteFailureMessage(what: string, err: unknown): string {
+  const detail = err instanceof Error ? err.message : "upload failed";
+  return `Couldn't attach ${what}: ${detail}`;
+}
