@@ -40,9 +40,11 @@ describe("board-server root stopgap redirect", () => {
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "root-redirect-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
-    // Bounded retry-bind (same rationale as kanban-board-cache-header).
+    // Bounded retry-bind (same rationale as kanban-board-cache-header;
+    // five attempts: under the full-suite thread pool several server-booting
+    // files race for ports and three can exhaust).
     let lastErr: unknown = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         instance = await serve(undefined, {
           port: await getFreePort(),
