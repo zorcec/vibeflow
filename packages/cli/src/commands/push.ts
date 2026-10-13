@@ -252,6 +252,11 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       // Stryker disable once StringLiteral: display message for failed file
       console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
     }
+    // Fail LOUDLY, not silently: the local files are deleted below while the
+    // remote task is missing these attachments, so exiting 0 would let
+    // `push && ...` chains (and humans) believe everything synced. The names
+    // above say WHAT failed; this says THAT it failed.
+    process.exitCode = ExitCode.GENERAL;
   }
 
   if (opts.keepLocalFiles) {
