@@ -177,6 +177,17 @@
         { "name": "green", "request": { "method": "GET", "path": "/api/changelog" }, "expect": { "status": 200, "shape": "changelog", "conformance": "public read, no auth" } }
       ]
     },
+    { "id": "list-tokens", "v1": { "method": "GET", "path": "/api/v1/tokens" }, "local": null, "runnable": "no-local-handler", "phase": 2, "cases": [
+      { "name": "green", "request": { "method": "GET", "path": "/api/v1/tokens" }, "expect": { "status": 200, "conformance": "prefix-only rows (name, prefix, scopes, lastUsedAt, expiresAt, revokedAt); never the secret" } },
+      { "name": "revoked-visible", "request": { "method": "GET", "path": "/api/v1/tokens" }, "expect": { "status": 200, "conformance": "soft-revoked rows stay visible with revokedAt (audit trail), but cannot authenticate (H1)" } }
+    ] },
+    { "id": "create-token", "v1": { "method": "POST", "path": "/api/v1/tokens" }, "local": null, "runnable": "no-local-handler", "phase": 2, "cases": [
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tokens", "body": { "name": "My integration", "scopes": ["tasks:read"] } }, "expect": { "status": 200, "conformance": "plaintext vbf_pat_ secret returned exactly once with the prefix-only row; hash + prefix stored, never plaintext" } },
+      { "name": "read-scope-cannot-mint", "request": { "method": "POST", "path": "/api/v1/tokens", "body": { "name": "x", "scopes": ["tasks:read"] } }, "expect": { "status": 403, "conformance": "H2: a read-scoped PAT cannot mint tokens (requires tokens:manage)" } }
+    ] },
+    { "id": "revoke-token", "v1": { "method": "DELETE", "path": "/api/v1/tokens/{id}" }, "local": null, "runnable": "no-local-handler", "phase": 2, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/v1/tokens/{id}" }, "expect": { "status": 200, "conformance": "H1: sets revoked_at; the string authenticates nowhere afterwards (single authority, structurally hollow-proof)" } }
+    ] },
     { "id": "export-prompt", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/prompt" }, "local": null, "runnable": "no-local-handler", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/prompt", "body": {} }, "expect": { "status": 200, "conformance": "structured agent prompt; local pre-image is MCP export_prompt" } }
     ] },

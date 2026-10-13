@@ -3,7 +3,7 @@
 import type { LocalOnlyRoute, V1Operation } from "./types.js";
 
 /** Contract version this registry was generated from. */
-export const SPEC_VERSION = "1.0.0-phase1";
+export const SPEC_VERSION = "1.0.0-phase2";
 
 /** Every v1 operation with its current local handler (null = no local HTTP handler yet). */
 export const V1_OPERATIONS: V1Operation[] = [
@@ -296,6 +296,36 @@ export const V1_OPERATIONS: V1Operation[] = [
     planRow: 22,
     summary: "Export the structured agent prompt",
     notes: "No local HTTP handler — MCP export_prompt. New endpoint. Runner marks NOT-RUNNABLE locally.",
+  },
+  {
+    id: "list-tokens",
+    method: "GET",
+    v1Path: "/api/v1/tokens",
+    local: null,
+    scope: "tokens:manage",
+    planRow: 0,
+    summary: "List personal access tokens (prefix only, never secrets)",
+    notes: "Plan §4.5 account endpoint (not a §1.2 task-surface row, hence planRow 0): cloud-only, no local handler — token management is online-only. Returns rows with prefix, name, scopes, lastUsedAt, expiresAt, revokedAt.",
+  },
+  {
+    id: "create-token",
+    method: "POST",
+    v1Path: "/api/v1/tokens",
+    local: null,
+    scope: "tokens:manage",
+    planRow: 0,
+    summary: "Create a personal access token (secret returned once)",
+    notes: "Plan §4.5: {name, scopes, expiresAt?} returns the plaintext vbf_pat_ secret exactly once, plus the prefix-only row. Session-authenticated for bootstrap, or bearer with tokens:manage.",
+  },
+  {
+    id: "revoke-token",
+    method: "DELETE",
+    v1Path: "/api/v1/tokens/{id}",
+    local: null,
+    scope: "tokens:manage",
+    planRow: 0,
+    summary: "Revoke a personal access token (soft revoke, audit trail kept)",
+    notes: "Plan §4.5/H1: sets revoked_at; api_tokens is the single authority so revocation is structurally authoritative — no fallback path can authenticate the string.",
   },
   {
     id: "mcp-get",

@@ -1,11 +1,11 @@
 {
   "$schema": "https://vibeflow.tools/schemas/v1-contract.json",
-  "title": "Vibeflow API v1 contract source (Phase 1)",
+  "title": "Vibeflow API v1 contract source (Phase 2)",
   "description": "Single source of truth for the /api/v1 contract, derived from the local surface per plan api-v1-unification.md §1.1/§1.2. The OpenAPI document (docs/api/openapi.yaml + docs/api/openapi.json), the generated route registry (packages/api-core/src/route-registry.gen.ts) and the served spec embed (packages/cli/src/server/openapi.gen.ts) are all generated from THIS file by packages/api-core/scripts/gen-api-artifacts.mjs — never hand-edited. Plan section references below are to docs/plans/api-v1-unification.md in the private repo.",
   "openapi": {
     "version": "3.1.0",
     "title": "Vibeflow API v1",
-    "apiVersion": "1.0.0-phase1",
+    "apiVersion": "1.0.0-phase2",
     "description": "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document."
   },
   "conventions": {
@@ -47,6 +47,9 @@
     { "id": "patch-settings", "method": "PATCH", "v1Path": "/api/v1/settings", "local": { "method": "POST", "path": "/api/settings" }, "scope": "settings:write", "planRow": 20, "summary": "Update settings", "notes": "v1 uses PATCH; local uses POST today. Cloud must add PATCH. Write — Phase 3." },
     { "id": "get-changelog", "method": "GET", "v1Path": "/api/v1/changelog", "local": { "method": "GET", "path": "/api/changelog" }, "scope": null, "planRow": 21, "summary": "CLI changelog (public read)", "notes": "Public read, single implementation." },
     { "id": "export-prompt", "method": "POST", "v1Path": "/api/v1/tasks/{id}/prompt", "local": null, "scope": "tasks:read", "planRow": 22, "summary": "Export the structured agent prompt", "notes": "No local HTTP handler — MCP export_prompt. New endpoint. Runner marks NOT-RUNNABLE locally." },
+    { "id": "list-tokens", "method": "GET", "v1Path": "/api/v1/tokens", "local": null, "scope": "tokens:manage", "planRow": 0, "summary": "List personal access tokens (prefix only, never secrets)", "notes": "Plan §4.5 account endpoint (not a §1.2 task-surface row, hence planRow 0): cloud-only, no local handler — token management is online-only. Returns rows with prefix, name, scopes, lastUsedAt, expiresAt, revokedAt." },
+    { "id": "create-token", "method": "POST", "v1Path": "/api/v1/tokens", "local": null, "scope": "tokens:manage", "planRow": 0, "summary": "Create a personal access token (secret returned once)", "notes": "Plan §4.5: {name, scopes, expiresAt?} returns the plaintext vbf_pat_ secret exactly once, plus the prefix-only row. Session-authenticated for bootstrap, or bearer with tokens:manage." },
+    { "id": "revoke-token", "method": "DELETE", "v1Path": "/api/v1/tokens/{id}", "local": null, "scope": "tokens:manage", "planRow": 0, "summary": "Revoke a personal access token (soft revoke, audit trail kept)", "notes": "Plan §4.5/H1: sets revoked_at; api_tokens is the single authority so revocation is structurally authoritative — no fallback path can authenticate the string." },
     { "id": "mcp-get", "method": "GET", "v1Path": "/mcp", "local": { "method": "GET", "path": "/api/mcp" }, "scope": "token scopes", "planRow": 23, "summary": "Hosted MCP (StreamableHTTP session)", "notes": "Local /api/mcp mounts POST|GET|DELETE; DELETE is session teardown (local-only extension, classified here). Phase 4 for hosted." },
     { "id": "mcp-post", "method": "POST", "v1Path": "/mcp", "local": { "method": "POST", "path": "/api/mcp" }, "scope": "token scopes", "planRow": 23, "summary": "Hosted MCP call", "notes": "See mcp-get. Phase 4 for hosted." }
   ],

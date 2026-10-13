@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Vibeflow API v1
-  version: 1.0.0-phase1
+  version: 1.0.0-phase2
   description: Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document.
 servers:
   - url: "/"
@@ -1667,6 +1667,164 @@ paths:
       security:
         - bearerAuth:
             []
+  "/api/v1/tokens":
+    get:
+      operationId: list-tokens
+      summary: List personal access tokens (prefix only, never secrets)
+      description: "Plan §4.5 account endpoint (not a §1.2 task-surface row, hence planRow 0): cloud-only, no local handler — token management is online-only. Returns rows with prefix, name, scopes, lastUsedAt, expiresAt, revokedAt."
+      tags:
+        - Auth
+      x-vibeflow-scope: "tokens:manage"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        []
+      responses:
+        "200":
+          description: "List personal access tokens (prefix only, never secrets) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TokenList"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+    post:
+      operationId: create-token
+      summary: Create a personal access token (secret returned once)
+      description: "Plan §4.5: {name, scopes, expiresAt?} returns the plaintext vbf_pat_ secret exactly once, plus the prefix-only row. Session-authenticated for bootstrap, or bearer with tokens:manage."
+      tags:
+        - Auth
+      x-vibeflow-scope: "tokens:manage"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Create a personal access token (secret returned once) — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TokenSecret"
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TokenCreate"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tokens/{id}":
+    delete:
+      operationId: revoke-token
+      summary: Revoke a personal access token (soft revoke, audit trail kept)
+      description: "Plan §4.5/H1: sets revoked_at; api_tokens is the single authority so revocation is structurally authoritative — no fallback path can authenticate the string."
+      tags:
+        - Auth
+      x-vibeflow-scope: "tokens:manage"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 0
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Revoke a personal access token (soft revoke, audit trail kept) — success"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
   "/mcp":
     get:
       operationId: mcp-get
@@ -2158,6 +2316,95 @@ components:
     McpSession:
       type: object
       description: StreamableHTTP session descriptor
+    Token:
+      type: object
+      description: "Prefix-only token row — the secret is never re-revealable (plan §4.5)."
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+          description: "Display prefix, e.g. vbf_pat_9f2c…"
+        scopes:
+          type: array
+          items:
+            type: string
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - prefix
+        - scopes
+    TokenList:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Token"
+      required:
+        - tokens
+    TokenCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        scopes:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - name
+        - scopes
+    TokenSecret:
+      type: object
+      description: "Creation response — the secret appears here exactly once (plan §4.5)."
+      properties:
+        token:
+          type: string
+          description: "Full vbf_pat_ secret — shown once, never stored"
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - token
+        - id
+        - name
+        - prefix
+        - scopes
     Error:
       type: object
       properties:

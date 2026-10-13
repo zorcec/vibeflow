@@ -9,4 +9,5 @@ export * from "./normalize.js";
 export * from "./conformance.js";
 export * from "./route-registry.gen.js";
 export * from "./scope.js";
+export * from "./tokens.js";
 export * from "./principal.js";

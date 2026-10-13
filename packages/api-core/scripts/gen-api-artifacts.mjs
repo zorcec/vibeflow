@@ -156,6 +156,7 @@ const TAG_BY_ID = [
   [/settings|project|me|changelog/, "Meta"],
   [/verify|claim|prompt|auth-state/, "Agent"],
   [/link|opened|expanded/, "Tasks"],
+  [/token/, "Auth"],
   [/./, "Tasks"],
 ];
 
@@ -211,6 +212,13 @@ function responseFor(op) {
     "export-prompt": { $ref: "#/components/schemas/PromptExport" },
     "mcp-get": { $ref: "#/components/schemas/McpSession" },
     "mcp-post": { type: "object", description: "JSON-RPC response envelope" },
+    "list-tokens": { $ref: "#/components/schemas/TokenList" },
+    "create-token": { $ref: "#/components/schemas/TokenSecret" },
+    "revoke-token": {
+      type: "object",
+      properties: { success: { type: "boolean" } },
+      required: ["success"],
+    },
   };
   return schemaById[op.id] ?? { type: "object" };
 }
@@ -259,6 +267,10 @@ function requestBodyFor(op) {
       schema: { type: "object", description: "Settable UI preference keys" },
     },
     "export-prompt": { schema: { $ref: "#/components/schemas/PromptExportInput" } },
+    "create-token": {
+      schema: { $ref: "#/components/schemas/TokenCreate" },
+      required: true,
+    },
   };
   const found = bodies[op.id];
   if (!found) return undefined;
@@ -596,6 +608,50 @@ function buildSchemas(contract) {
       properties: { scope: { type: "string", enum: ["task", "board"] } },
     },
     McpSession: { type: "object", description: "StreamableHTTP session descriptor" },
+    Token: {
+      type: "object",
+      description: "Prefix-only token row — the secret is never re-revealable (plan §4.5).",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        prefix: { type: "string", description: "Display prefix, e.g. vbf_pat_9f2c…" },
+        scopes: { type: "array", items: { type: "string" } },
+        lastUsedAt: { type: "string", format: "date-time", nullable: true },
+        expiresAt: { type: "string", format: "date-time", nullable: true },
+        revokedAt: { type: "string", format: "date-time", nullable: true },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "name", "prefix", "scopes"],
+    },
+    TokenList: {
+      type: "object",
+      properties: {
+        tokens: { type: "array", items: { $ref: "#/components/schemas/Token" } },
+      },
+      required: ["tokens"],
+    },
+    TokenCreate: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 100 },
+        scopes: { type: "array", items: { type: "string" } },
+        expiresAt: { type: "string", format: "date-time", nullable: true },
+      },
+      required: ["name", "scopes"],
+    },
+    TokenSecret: {
+      type: "object",
+      description: "Creation response — the secret appears here exactly once (plan §4.5).",
+      properties: {
+        token: { type: "string", description: "Full vbf_pat_ secret — shown once, never stored" },
+        id: { type: "string" },
+        name: { type: "string" },
+        prefix: { type: "string" },
+        scopes: { type: "array", items: { type: "string" } },
+        expiresAt: { type: "string", format: "date-time", nullable: true },
+      },
+      required: ["token", "id", "name", "prefix", "scopes"],
+    },
     Error: {
       type: "object",
       properties: {
