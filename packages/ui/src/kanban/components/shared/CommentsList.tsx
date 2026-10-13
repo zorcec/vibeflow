@@ -6,6 +6,7 @@ import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { ConfirmModal } from '../ConfirmModal';
 import { formatDate } from '../../utils';
 import { FileItem } from './FileItem';
+import { Paperclip, Trash2 } from "lucide-react";
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 interface ChangeActivityItem {
@@ -148,7 +149,38 @@ export type VerifyEntryVerdict = 'pass' | 'fail' | 'cannot';
  * literally `**Cannot verify:** <reason>` (the colon sits INSIDE the bold).
  * The second alternative tolerates the colon-outside spelling `**Cannot verify**:`.
  */
-const CANNOT_VERIFY_RE = /^\*\*Cannot verify(?::\*\*|\*\*:)\s*(.+)$/s;
+const CANNOT_VERIFY_RE = /^\*\*Cannot verify(?::\*\*|\*\*:)(.+)$/s;
+
+/**
+ * File-operation system traces (65ea2a68): the server writes `📎 File added:
+ * `name`` on upload and `🗑️ File removed: `name`` on delete. The feed used
+ * to render that emoji verbatim; it now renders a lucide action icon
+ * instead and drops the emoji prefix, keeping the human text intact.
+ *
+ * Keyed off the fixed action prefix on a `type: 'system'` comment — never
+ * off the filename that follows it (see files-no-regex-guard: read paths
+ * must not infer anything from names). Both emoji-prefixed rows (already
+ * stored) and bare `File added:/removed:` rows (forward-compatible) match.
+ */
+export type FileActivityAction = 'added' | 'removed';
+
+const FILE_TRACE_EMOJI = ['📎', '🗑️'];
+
+/** Stored trace text minus its leading emoji prefix, if present. */
+export function stripFileTraceEmoji(text: string): string {
+  for (const emoji of FILE_TRACE_EMOJI) {
+    if (text.startsWith(emoji)) return text.slice(emoji.length).trimStart();
+  }
+  return text;
+}
+
+/** The file-operation action a system comment records, or null. */
+export function fileActivityAction(text: string): FileActivityAction | null {
+  const body = stripFileTraceEmoji(text);
+  if (body.startsWith('File added:')) return 'added';
+  if (body.startsWith('File removed:')) return 'removed';
+  return null;
+}
 
 /** Hover text per verdict — what the agent attested, in plain words. */
 const VERIFY_ENTRY_TITLES: Record<VerifyEntryVerdict, string> = {
@@ -653,10 +685,24 @@ function renderActivityItem(
         </div>
       );
     }
+    // File-operation trace (65ea2a68): lucide action icon in place of the
+    // stored emoji prefix — same row geometry as the generic system row,
+    // icon sized to the other activity glyphs (12px) and labelled so screen
+    // readers keep the "File added/removed" semantics. Human text renders
+    // intact, minus the emoji.
+    const fileAction = fileActivityAction(c.text);
+    const FileActionIcon = fileAction === 'removed' ? Trash2 : Paperclip;
+    const fileActionLabel = fileAction === 'removed' ? 'File removed' : 'File added';
     return (
       <div key={itemKey} className={animClass || undefined} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 11, color: 'var(--t-text-body)', fontStyle: 'italic' }}>
-        <span style={{ opacity: 0.6 }}>⬡</span>
-        <span>{c.text}</span>
+        {fileAction !== null ? (
+          <span role="img" aria-label={fileActionLabel} title={fileActionLabel} style={{ display: 'inline-flex', flexShrink: 0, color: 'var(--t-text-muted)' }}>
+            <FileActionIcon style={{ width: 12, height: 12 }} />
+          </span>
+        ) : (
+          <span style={{ opacity: 0.6 }}>⬡</span>
+        )}
+        <span>{fileAction !== null ? stripFileTraceEmoji(c.text) : c.text}</span>
         {!isGrouped && <span style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.6 }}>{formatDate(c.createdAt)}</span>}
       </div>
     );
