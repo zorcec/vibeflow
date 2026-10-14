@@ -131,8 +131,8 @@ async function fetchAndSelectWorkspace(
  * `boardId` is optional: callers that push without a selected board omit it
  * and the cloud files the task under the default board (the legacy batch
  * import likewise carried no board when none was selected). `idMap` maps
- * each created task's local id to its cloud id (parsed from the
- * `{ task }` create envelope, falling back to the bare task shape) so
+ * each created task's local id to its cloud id (parsed from the bare v1
+ * task body) so
  * callers can follow up with per-task file uploads.
  *
  * Push is TWO-PHASE so links survive the local-id → cloud-id namespace
@@ -205,17 +205,12 @@ export async function createTasksOneByOne(
     }
     imported++;
     if (typeof localId === "string" && localId.length > 0) {
-      const body = (await res.json().catch(() => null)) as
-        | { task?: Record<string, unknown> }
-        | Record<string, unknown>
-        | null;
-      const created =
-        body !== null &&
-        typeof body === "object" &&
-        "task" in body &&
-        typeof (body as { task?: unknown }).task === "object"
-          ? ((body as { task: Record<string, unknown> }).task ?? {})
-          : ((body ?? {}) as Record<string, unknown>);
+      // v1 answers the bare created task (contract Task).
+      const body = (await res.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
+      const created = (body ?? {}) as Record<string, unknown>;
       const remoteId =
         typeof created.id === "string" && created.id.length > 0
           ? created.id

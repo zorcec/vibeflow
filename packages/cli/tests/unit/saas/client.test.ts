@@ -173,20 +173,20 @@ describe("fetchSaasTasks", () => {
 
 describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     const result = await updateSaasTask("task-1", { status: "in-progress" });
     expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: undefined } });
   });
 
   it("maps CLI status to SaaS status in request body", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" });
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.status).toBe("in_progress");
   });
 
   it("returns warning when server provides one", async () => {
-    mockFetch({ task: SAMPLE_TASK, warning: "Task is already in-progress by another user" });
+    mockFetch({ ...SAMPLE_TASK, warning: "Task is already in-progress by another user" });
     const result = await updateSaasTask("task-1", { status: "in-progress" });
     expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: "Task is already in-progress by another user" } });
   });
@@ -212,7 +212,7 @@ describe("updateSaasTask", () => {
   });
 
   it("sends Authorization header with Bearer token", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -220,7 +220,7 @@ describe("updateSaasTask", () => {
   });
 
   it("sends PATCH request to correct URL", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1");
@@ -228,14 +228,14 @@ describe("updateSaasTask", () => {
   });
 
   it("never hits the deleted cloud legacy surface", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "todo" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 
   it("sends Content-Type header with JSON body", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -243,21 +243,21 @@ describe("updateSaasTask", () => {
   });
 
   it("sends verified:true in the PATCH body", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { verified: true });
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.verified).toBe(true);
   });
 
   it("sends verified:false as a real verdict", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { verified: false });
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.verified).toBe(false);
   });
 
   it("sends verified:null to clear the verdict (not false)", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { verified: null });
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect("verified" in body).toBe(true);
@@ -266,7 +266,7 @@ describe("updateSaasTask", () => {
   });
 
   it("omits verified when no verdict is supplied (leaves the server value untouched)", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { title: "New Title" });
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect("verified" in body).toBe(false);
@@ -613,7 +613,7 @@ describe("fetchSaasComments", () => {
 
 describe("createSaasTask", () => {
   it("returns created task on success", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     const result = await createSaasTask({ title: "New Task" });
     expect(result).toEqual({ ok: true, data: SAMPLE_TASK });
   });
@@ -639,7 +639,7 @@ describe("createSaasTask", () => {
   });
 
   it("sends POST request with Authorization header", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await createSaasTask({ title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -648,7 +648,7 @@ describe("createSaasTask", () => {
   });
 
   it("sends task params in JSON body", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await createSaasTask({ title: "Test Task", description: "Test desc" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
@@ -657,7 +657,7 @@ describe("createSaasTask", () => {
   });
 
   it("requests tasks from correct URL", async () => {
-    mockFetch({ task: SAMPLE_TASK });
+    mockFetch(SAMPLE_TASK);
     await createSaasTask({ title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v1/tasks");

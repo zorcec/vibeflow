@@ -357,8 +357,11 @@ export async function updateSaasTask(
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    const data = (await res.json()) as { task: SaasTask; warning?: string };
-    return { ok: true, data: { task: data.task, warning: data.warning } };
+    // v1 answers the bare task (contract Task) with an optional `warning`
+    // alongside it on the already-claimed path — never a `{ task }` envelope.
+    const data = (await res.json()) as SaasTask & { warning?: string };
+    const { warning, ...task } = data;
+    return { ok: true, data: { task, warning } };
   } catch (err) {
     return {
       ok: false,
@@ -484,8 +487,9 @@ export async function createSaasTask(params: {
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    const data = (await res.json()) as { task: SaasTask };
-    return { ok: true, data: data.task };
+    // v1 answers the bare created task (contract Task), status 201.
+    const data = (await res.json()) as SaasTask;
+    return { ok: true, data };
   } catch (err) {
     return {
       ok: false,

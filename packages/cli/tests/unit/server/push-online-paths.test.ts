@@ -82,7 +82,7 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
         }
         if (u.includes("/api/v1/tasks")) {
           return new Response(
-            JSON.stringify({ task: { id: "remote-1" } }),
+            JSON.stringify({ id: "remote-1" }),
             { status: 200 },
           );
         }

@@ -181,7 +181,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-abc" } });
+    mockFetchSuccess({ id: "remote-1", externalId: "task-abc" });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -205,7 +205,7 @@ describe("push — import API interaction", () => {
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-xyz" } }),
+      json: () => Promise.resolve({ id: "remote-1", externalId: "task-xyz" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -246,7 +246,7 @@ describe("push — import API interaction", () => {
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "remote-1" } }),
+      json: () => Promise.resolve({ id: "remote-1" }),
     });
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -404,7 +404,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-del" } });
+    mockFetchSuccess({ id: "remote-1", externalId: "task-del" });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -425,7 +425,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-keep" } });
+    mockFetchSuccess({ id: "remote-1", externalId: "task-keep" });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -446,7 +446,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-1" } });
+    mockFetchSuccess({ id: "remote-1" });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -480,12 +480,12 @@ describe("push — two-phase link preservation", () => {
   function mockCreateThenLinks() {
     return vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
       if (String(url).endsWith("/links")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ task: {} }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
       }
       const body = JSON.parse(init?.body as string) as { id: string };
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ task: { id: `remote-${body.id}` } }),
+        json: () => Promise.resolve({ id: `remote-${body.id}` }),
       });
     });
   }
@@ -610,7 +610,7 @@ describe("push — two-phase link preservation", () => {
       const body = JSON.parse(init?.body as string) as { id: string };
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ task: { id: `remote-${body.id}` } }),
+        json: () => Promise.resolve({ id: `remote-${body.id}` }),
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -666,7 +666,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-files" } }),
+        json: () => Promise.resolve({ id: "remote-1", externalId: "task-files" }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -698,7 +698,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     });
 
     // listFiles is mocked to [] in this block — nothing to upload.
-    mockFetchSuccess({ task: { id: "remote-9", cliId: "task-nomap" } });
+    mockFetchSuccess({ id: "remote-9", externalId: "task-nomap" });
 
     const fetchSpy = vi.spyOn(global, "fetch");
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -738,7 +738,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "remote-2", cliId: "task-fail-upload" } }),
+        json: () => Promise.resolve({ id: "remote-2", externalId: "task-fail-upload" }),
       })
       .mockResolvedValueOnce({
         ok: false,
@@ -773,7 +773,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     ]);
     vi.mocked(filesModule.getFilesDir).mockReturnValue("/nonexistent");
 
-    mockFetchSuccess({ task: { id: "remote-3", cliId: "task-readerr" } });
+    mockFetchSuccess({ id: "remote-3", externalId: "task-readerr" });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -825,7 +825,7 @@ describe("push — upload compression (single-encode wire format)", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "remote-1", cliId: taskId } }),
+        json: () => Promise.resolve({ id: "remote-1", externalId: taskId }),
       })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal("fetch", fetchMock);
@@ -910,7 +910,7 @@ describe("push — edge cases", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-1" } });
+    mockFetchSuccess({ id: "remote-1" });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -965,7 +965,7 @@ describe("push — edge cases", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ task: { id: "remote-4", cliId: "task-keep2" } });
+    mockFetchSuccess({ id: "remote-4", externalId: "task-keep2" });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -1057,7 +1057,7 @@ describe("push — system-file flag round-trip", () => {
         { name: "notes.md", addedAt: "2025-01-01T00:00:00.000Z" },
       ],
     });
-    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-flagged" } });
+    mockFetchSuccess({ id: "remote-1", externalId: "task-flagged" });
 
     const fetchSpy = vi.spyOn(global, "fetch");
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -1101,7 +1101,7 @@ describe("push — system-file flag round-trip", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-files" } }),
+        json: () => Promise.resolve({ id: "remote-1", externalId: "task-files" }),
       })
       .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal("fetch", fetchMock);

@@ -9,7 +9,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
   it("POSTs once per task to /api/v1/tasks with the board id", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "x" } }),
+      json: () => Promise.resolve({ id: "x" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -40,17 +40,17 @@ describe("createTasksOneByOne (v1 import loop)", () => {
     ).toBe(false);
   });
 
-  it("maps each local id to its cloud id from the create envelope", async () => {
+  it("maps each local id to its cloud id from the bare create body", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
         json: () =>
-          Promise.resolve({ task: { id: "saas-1", cliId: "a" } }),
+          Promise.resolve({ id: "saas-1", externalId: "a" }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "saas-2", cliId: "b" } }),
+        json: () => Promise.resolve({ id: "saas-2", externalId: "b" }),
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -69,7 +69,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
   it("falls back to the local id when the create response carries no cloud id", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "x" } }),
+      json: () => Promise.resolve({ id: "x" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -83,7 +83,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
   it("omits boardId from the create body when no board is selected", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "saas-1" } }),
+      json: () => Promise.resolve({ id: "saas-1" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -124,7 +124,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
   it("creates without links in phase 1 so a parent/child pair fully imports", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task: { id: "cloud-x" } }),
+      json: () => Promise.resolve({ id: "cloud-x" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -166,7 +166,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       const { applyPushLinks } = await import("../../../src/auth/login.js");
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ task: { id: "cloud-child" } }),
+        json: () => Promise.resolve({ id: "cloud-child" }),
       });
       vi.stubGlobal("fetch", fetchMock);
 
@@ -278,7 +278,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
         const body = JSON.parse(init?.body as string) as { id: string };
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ task: { id: `cloud-${body.id}` } }),
+          json: () => Promise.resolve({ id: `cloud-${body.id}` }),
         });
       });
       vi.stubGlobal("fetch", fetchMock);
