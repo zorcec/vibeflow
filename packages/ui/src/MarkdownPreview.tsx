@@ -1,13 +1,26 @@
 import React from "react";
 import { renderMarkdown } from "./renderMarkdown";
 
+/** Hover-card data for a task ref. Returned by `taskLookup`; kept in one
+    place so the editor's mention index and the preview's hover card agree. */
+export interface TaskHoverInfo {
+  title: string;
+  status: string;
+}
+
 interface Props {
   markdown: string;
   className?: string;
   style?: React.CSSProperties;
+  /** Resolve a task ref to hover-card data WITHOUT a network request.
+      When provided, the legacy `GET /api/tasks/:id` hover fetch never
+      fires: hits render from the lookup, misses render the `Task <id>`
+      fallback. Omit only where the caller has no task list (e.g. the
+      standalone file preview) — there the CLI-board fetch remains. */
+  taskLookup?: (id: string) => TaskHoverInfo | undefined;
 }
 
-export function MarkdownPreview({ markdown, className, style }: Props) {
+export function MarkdownPreview({ markdown, className, style, taskLookup }: Props) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const cacheRef = React.useRef<Record<string, { title: string; status: string }>>({});
   const [hoverPreview, setHoverPreview] = React.useState<{
@@ -45,6 +58,13 @@ export function MarkdownPreview({ markdown, className, style }: Props) {
         return;
       }
 
+      if (taskLookup) {
+        const hit = taskLookup(id);
+        const info = hit ?? { title: `Task ${id}`, status: "unknown" };
+        cacheRef.current[id] = info;
+        setHoverPreview({ id, title: info.title, status: info.status, x: rect.left, y: rect.bottom + 6 });
+        return;
+      }
       try {
         const res = await fetch(`/api/tasks/${id}`);
         const data = await res.json() as { title?: string; status?: string };
@@ -79,7 +99,7 @@ export function MarkdownPreview({ markdown, className, style }: Props) {
       root.removeEventListener("mouseleave", clearPreview);
       root.removeEventListener("click", handleRefClick);
     };
-  }, []);
+  }, [taskLookup]);
 
   return (
     <div style={{ position: "relative" }}>

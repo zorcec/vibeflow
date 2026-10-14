@@ -51,6 +51,12 @@ interface Props {
   remoteSelections?: DescriptionSelection[];
   /** Local caret/selection movement, for the throttled cursor broadcast. */
   onDescriptionSelection?: (anchor: number, head: number) => void;
+  /** Task index for `#` mentions in the description editor — threaded to
+      it so its legacy `GET /api/tasks` mount fetch never fires (web app
+      has no such route). */
+  mentionTasks?: Array<{ id: string; title: string }>;
+  /** Hover-card lookup for task refs in the description preview. */
+  taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
 export function TaskDetailsTab({
@@ -76,6 +82,8 @@ export function TaskDetailsTab({
   isAdd = false,
   remoteSelections,
   onDescriptionSelection,
+  mentionTasks,
+  taskLookup,
 }: Props) {
   const taskFiles = task?.files ?? [];
   const fileList: Array<{
@@ -117,6 +125,8 @@ export function TaskDetailsTab({
           value={description}
           previewValue={consolePart ? userPart : undefined}
           onChange={setDescription}
+          mentionTasks={mentionTasks}
+          taskLookup={taskLookup}
           onBlur={onDescriptionBlur}
           showPreview={showDescPreview}
           setShowPreview={setShowDescPreview}

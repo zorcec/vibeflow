@@ -13,16 +13,24 @@ interface Props {
   commentSubmitting: boolean;
   onSubmit: () => void;
   baseRows?: number;
+  /** Task index for `#` mentions — threaded to the editor so its legacy
+      `GET /api/tasks` mount fetch never fires (web app has no such route). */
+  mentionTasks?: Array<{ id: string; title: string }>;
+  /** Hover-card lookup for task refs in the preview. */
+  taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
 export function CommentsInputArea({
   commentInput, setCommentInput, commentSubmitting, onSubmit, baseRows = 4,
+  mentionTasks, taskLookup,
 }: Props) {
   return (
     <div id="dp-comment-input-area">
       <MarkdownEditableField
         value={commentInput}
         onChange={setCommentInput}
+        mentionTasks={mentionTasks}
+        taskLookup={taskLookup}
         showPreview={false}
         setShowPreview={() => {}}
         previewId="dp-comment-tab-edit"

@@ -326,6 +326,28 @@ export function DetailPanel({
     return [...set].sort();
   }, [allTasks]);
 
+  // `#` mention index + hover-card lookup for the markdown editors and
+  // previews below. Threading the in-memory task list here (instead of the
+  // editors' legacy `GET /api/tasks*` fetches) is what keeps the detail
+  // pane request-clean on hosts without the CLI-board API (ticket d4c533f9:
+  // the web app has no `/api/tasks` route, so every mount 404'd).
+  const mentionTasks = React.useMemo(
+    () =>
+      (allTasks ?? [])
+        .filter((t) => t?.id)
+        .map((t) => ({ id: t.id, title: t.title ?? "" })),
+    [allTasks],
+  );
+  const taskLookup = React.useCallback(
+    (id: string) => {
+      const hit = (allTasks ?? []).find((t) => t?.id === id);
+      return hit
+        ? { title: hit.title ?? `Task ${id}`, status: hit.status ?? "unknown" }
+        : undefined;
+    },
+    [allTasks],
+  );
+
   // Local form state
   const [activeTab, setActiveTab] = React.useState<Tab>(tab);
   const [title, setTitle] = React.useState("");
@@ -1562,6 +1584,8 @@ export function DetailPanel({
                 overrideTags={isAdd ? draftTags : undefined}
                 onTagsChange={isAdd ? setDraftTags : undefined}
                 isAdd={isAdd}
+                mentionTasks={mentionTasks}
+                taskLookup={taskLookup}
               />
             </div>
             {!isAdd && task && (
@@ -1662,6 +1686,8 @@ export function DetailPanel({
                 commentSubmitting={commentSubmitting}
                 onSubmit={() => void handleSubmitComment()}
                 baseRows={2}
+                mentionTasks={mentionTasks}
+                taskLookup={taskLookup}
               />
             </div>
             <CommentsList
@@ -1680,6 +1706,7 @@ export function DetailPanel({
               onDelete={handleDeleteComment}
               onDeleteFile={handleDeleteFile}
               onFilePreview={onFilePreview}
+              taskLookup={taskLookup}
             />
           </div>
 

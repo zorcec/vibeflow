@@ -105,6 +105,7 @@ export { FilesList } from "./components/shared/FilesList";
 export { MarkdownEditableField } from "./components/shared/MarkdownEditableField";
 export { AutoExpandTextarea } from "./components/shared/AutoExpandTextarea";
 export { MarkdownPreview } from "./components/shared/MarkdownPreview";
+export type { TaskHoverInfo } from "../MarkdownPreview";
 export { TypePicker } from "./components/shared/TypePicker";
 export { TagPills } from "./components/shared/TagPills";
 export { TagInput } from "./components/shared/TagInput";

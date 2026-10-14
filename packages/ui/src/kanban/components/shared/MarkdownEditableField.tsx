@@ -284,6 +284,15 @@ interface Props {
   remoteSelections?: DescriptionSelection[];
   /** Local caret/selection movement, for the throttled cursor broadcast. */
   onSelectionChange?: (anchor: number, head: number) => void;
+  /** Task index for `#` mention autocomplete. When provided, the legacy
+      `GET /api/tasks` mount fetch never fires — that endpoint exists only
+      on the CLI board, so mounting this editor in the web app without the
+      prop is a guaranteed 404 (ticket d4c533f9). Callers with a task list
+      (DetailPanel et al.) must pass it. */
+  mentionTasks?: Array<{ id: string; title: string }>;
+  /** Hover-card lookup for task refs in the preview. Same contract as
+      MarkdownPreview's `taskLookup`; threaded through to it. */
+  taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
 export function MarkdownEditableField({
@@ -309,6 +318,8 @@ export function MarkdownEditableField({
   onBlur: onBlurProp,
   remoteSelections,
   onSelectionChange,
+  mentionTasks,
+  taskLookup,
 }: Props) {
   const localTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   // Element state (not just a ref) so the cursor overlay re-renders once
@@ -330,6 +341,17 @@ export function MarkdownEditableField({
   const [dropdownAnchor, setDropdownAnchor] = React.useState<{ top: number; left: number; width: number } | null>(null);
 
   React.useEffect(() => {
+    // Caller-provided index wins: no network request at all. The fetch
+    // below is the legacy CLI-board path, kept only for callers with no
+    // task list (standalone file preview et al.).
+    if (mentionTasks) {
+      setTaskIndex(
+        mentionTasks
+          .map((t) => ({ id: String(t.id ?? ''), title: String(t.title ?? '') }))
+          .filter((t) => t.id.length > 0),
+      );
+      return;
+    }
     let active = true;
     fetch('/api/tasks')
       .then((r) => r.json() as Promise<{ tasks?: Array<{ id?: string; title?: string }> }>)
@@ -343,7 +365,7 @@ export function MarkdownEditableField({
       })
       .catch(() => {});
     return () => { active = false; };
-  }, []);
+  }, [mentionTasks]);
 
   function updateTaskRefSuggest(nextValue: string) {
     const el = localTextareaRef.current;
@@ -460,7 +482,7 @@ export function MarkdownEditableField({
       }}
     >
       {(previewValue ?? value).trim()
-        ? <MarkdownPreview markdown={previewValue ?? value} />
+        ? <MarkdownPreview markdown={previewValue ?? value} taskLookup={taskLookup} />
         : <span style={{ color: 'var(--t-text-faint)' }}>{previewEmptyText ?? placeholder}</span>}
     </div>
   ) : (
