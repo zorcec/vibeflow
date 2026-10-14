@@ -92,4 +92,25 @@ describe("openapi-ship (source): printOpenApi writes exactly the spec", () => {
     expect(printedYaml).toBe(readDoc("openapi.yaml"));
     expect(`corrupted${printedYaml}`).not.toBe(readDoc("openapi.yaml"));
   });
+
+  it("exits quietly on EPIPE (closed pipe) instead of throwing", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as typeof process.exit);
+    try {
+      printOpenApi({});
+      const callback = write.mock.calls[0][1] as (err?: Error) => void;
+      expect(typeof callback).toBe("function");
+      // No error: no exit.
+      callback();
+      expect(exit).not.toHaveBeenCalled();
+      // Closed pipe: quiet exit 0, no traceback.
+      const epipe = new Error("write EPIPE") as NodeJS.ErrnoException;
+      epipe.code = "EPIPE";
+      expect(() => callback(epipe)).toThrow("process.exit called");
+      expect(exit).toHaveBeenCalledWith(0);
+    } finally {
+      exit.mockRestore();
+    }
+  });
 });

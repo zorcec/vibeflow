@@ -11,7 +11,18 @@ import { OPENAPI_JSON, OPENAPI_YAML } from "../server/openapi.gen.js";
  *
  * Writes the payload with a single stdout write and nothing else — no
  * framing, no colour, no update notice — so the bytes stay pipe-clean.
+ * The write carries a completion callback: a closed pipe (e.g.
+ * `vibeflow openapi | head -c 200`) surfaces as EPIPE, which is normal Unix
+ * plumbing rather than a failure, so it exits quietly instead of throwing
+ * an EPIPE traceback. Any other write error still throws.
  */
 export function printOpenApi(opts: { yaml?: boolean } = {}): void {
-  process.stdout.write(opts.yaml === true ? OPENAPI_YAML : OPENAPI_JSON);
+  process.stdout.write(
+    opts.yaml === true ? OPENAPI_YAML : OPENAPI_JSON,
+    (err) => {
+      if (err === undefined || err === null) return;
+      if ((err as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
+      else throw err;
+    },
+  );
 }
