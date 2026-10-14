@@ -62,6 +62,7 @@ import { watch } from "./commands/watch.js";
 import { showChangelog } from "./commands/changelog.js";
 import { changelogText, readChangelogContent } from "./core/changelog.js";
 import { clearAuthState, listAuthStateFiles } from "./commands/auth.js";
+import { printOpenApi } from "./commands/openapi.js";
 import { runVerify } from "./commands/verify.js";
 import { runVerifyTool, VERIFY_TOOLS } from "./commands/verify-tools.js";
 import {
@@ -827,6 +828,7 @@ For coding agents — quick reference:
   vibeflow kanban                      Open the Kanban board in browser
   vibeflow watch [dir]                 Watch task store; print new + moved-to-todo tickets
   vibeflow changelog [--all]           Show the changelog (latest version / all versions)
+  vibeflow openapi [--yaml]            Print the bundled OpenAPI spec (no server needed)
 
 Task statuses: backlog | todo | in-progress | review | done
 
@@ -4933,6 +4935,16 @@ program
     capture("command_run", { command: "changelog" });
     await flushTelemetry();
     showChangelog({ all: opts.all === true });
+  });
+
+program
+  .command("openapi")
+  .description("Print the bundled OpenAPI spec to stdout (no server needed)")
+  .option("--yaml", "Emit the YAML form instead of JSON")
+  .action(async (opts: { yaml?: boolean }) => {
+    capture("command_run", { command: "openapi" });
+    await flushTelemetry();
+    printOpenApi({ yaml: opts.yaml === true });
   });
 
   return program;

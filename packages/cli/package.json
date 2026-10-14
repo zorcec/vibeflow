@@ -23,6 +23,8 @@
     "dist/client/",
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/openapi.json",
+    "dist/openapi.yaml",
     "dist/overlay.css",
     "dist/overlay-host.css",
     "dist/chunk-*.js",
@@ -34,6 +36,11 @@
   "bin": {
     "vibeflow": "dist/cli/index.js",
     "vf": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./openapi.json": "./dist/openapi.json",
+    "./openapi.yaml": "./dist/openapi.yaml"
   },
   "scripts": {
     "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-codec-assets.mjs && node scripts/embed-swagger-ui.mjs && node ../api-core/scripts/gen-api-artifacts.mjs",

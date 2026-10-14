@@ -66,6 +66,7 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     logout: "clears the local auth token; hidden; local credential mutation",
     push: "hidden SaaS-sync command; stays available as hidden CLI push, but is not reachable over MCP",
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
+    openapi: "prints the bundled OpenAPI spec to stdout; no task state",
     serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     status:

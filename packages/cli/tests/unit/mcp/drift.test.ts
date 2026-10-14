@@ -210,6 +210,7 @@ describe("MCP drift test", () => {
       "login",
       "logout",
       "mcp",
+      "openapi",
       "push",
       "serve",
       "status",
