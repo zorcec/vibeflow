@@ -211,6 +211,18 @@ describe("ChildRow", () => {
     expect(title!.textContent).toBe("Test task");
   });
 
+  it("carries the full title as a hover tooltip on every variant (ea96894c)", () => {
+    const long = makeTask({ title: "A very long child title that must truncate with an ellipsis" });
+    for (const variant of ["inline", "detail", "popover"] as const) {
+      const { unmount } = render(<ChildRow child={long} variant={variant} />);
+      const title = document.querySelector(".child-link-title");
+      // Visible text stays CSS-truncated; the native tooltip shows it all.
+      expect(title).toHaveAttribute("title", long.title);
+      unmount();
+      document.body.innerHTML = "";
+    }
+  });
+
   it("does not render Unlink button when onRemove is not provided", () => {
     render(<ChildRow child={makeTask()} variant="inline" />);
     expect(screen.queryByText("Remove")).not.toBeInTheDocument();

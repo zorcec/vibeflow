@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, Eye, Pencil, ChevronDown } from "lucide-react";
+import { MessageCircle, Paperclip, ChevronDown } from "lucide-react";
 import { CopyIdButton } from "./CopyIdButton";
 import type { Task, Column, LiveActivity } from "../types";
 import { isNewComments } from "../utils";
@@ -17,7 +17,7 @@ import {
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 import { displayedVerifyState } from "./VerifyIndicator";
-import { presenceAreaLabel } from "./shared/presence";
+import { presenceAreaLabel, presenceChipFill, presenceInitials } from "./shared/presence";
 import { LeadingSlot } from "./TaskCardLeadingSlot";
 
 interface Props {
@@ -158,6 +158,11 @@ const CARD_FOOTER_STYLE: React.CSSProperties = {
       alignItems: "center",
       gap: 2,
       marginTop: 1,
+      // The badge cluster owns no growth and shrinks to zero, but only if
+      // the footer itself can shrink — without minWidth 0 a wide badge
+      // (0bc9922f) pushes the comment/file/children actions out of view.
+      minWidth: 0,
+      flexWrap: "nowrap",
 };
 // Compact title-row indicators (file / children / messages, 0a2fa3d6): the
 // normal card's footer icons moved inline with the title. Rendered only
@@ -549,7 +554,7 @@ export const TaskCard = React.memo(function TaskCard({
                         )}
                         <div style={SPACER_STYLE} />
                         {liveActivity && (
-                              <LiveActivityBadge activity={liveActivity} />
+                              <LiveActivityBadge activities={[liveActivity]} />
                         )}
                         <CardIconButton
                               icon={
@@ -822,6 +827,9 @@ function CardIconButton({
                         fontSize: 9,
                         color: hovered ? hoverColor : color,
                         transition: "color .1s, background .1s",
+                        // Action buttons never shrink: the activity cluster
+                        // truncates before them (0bc9922f).
+                        flexShrink: 0,
                   }}
                   title={title}
                   onMouseEnter={() => setHovered(true)}
@@ -846,60 +854,93 @@ function CardIconButton({
 }
 
 interface LiveActivityBadgeProps {
-      activity: LiveActivity;
+      /** Peers currently in the task. One 18px initials circle each;
+          crowds collapse to a "+N" chip (vibeflow task 0bc9922f). */
+      activities: LiveActivity[];
 }
 
-export function LiveActivityBadge({ activity }: LiveActivityBadgeProps) {
-      // Neutral presence suffix — never a lock. Locks are gone: everyone can
-      // edit, and this badge only says who else is here and where.
-      const isEditing = activity.state === "editing";
-      const areaSuffix = activity.area ? ` \u00b7 ${presenceAreaLabel(activity.area)}` : "";
-      const label = `${activity.user} ${isEditing ? "editing" : "viewing"}${areaSuffix}`;
-      // The icon matches the state: an eye claimed someone was "editing"
-      // while they typed, which read as view-only presence. Pencil = typing
-      // indicator, eye = viewing — consistent with the presence line's
-      // "<user> is in <area>" wording carried in the title.
+/** Max initials circles before the "+N" overflow chip. */
+export const LIVE_BADGE_MAX_CIRCLES = 3;
 
-      const badgeStyle: React.CSSProperties = {
+export function liveActivityLabel(activity: LiveActivity): string {
+      // Neutral presence sentence — never a lock. Locks are gone: everyone can
+      // edit, and this badge only says who else is here and where.
+      const areaSuffix = activity.area
+            ? ` \u00b7 ${presenceAreaLabel(activity.area)}`
+            : "";
+      return `${activity.user} ${activity.state === "editing" ? "editing" : "viewing"}${areaSuffix}`;
+}
+
+export function LiveActivityBadge({ activities }: LiveActivityBadgeProps) {
+      if (activities.length === 0) return null;
+      // Full roster in the hover tooltip AND the screen-reader label: the
+      // circles carry initials only, so this is the one place every name
+      // is readable.
+      const label = activities.map(liveActivityLabel).join("; ");
+      const visible = activities.slice(0, LIVE_BADGE_MAX_CIRCLES);
+      const hidden = activities.slice(LIVE_BADGE_MAX_CIRCLES);
+      const circleStyle = (
+            backgroundColor: string,
+            overlap: boolean,
+      ): React.CSSProperties => ({
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
             display: "inline-flex",
             alignItems: "center",
-            gap: 3,
-            borderRadius: 999,
-            padding: "1px 5px",
-            fontSize: 9,
-            fontWeight: 600,
-            border: "1px solid rgba(59,130,246,0.35)",
-            color: "var(--t-chip-blue-200)",
-            background: "rgba(30,58,138,0.28)",
+            justifyContent: "center",
+            fontSize: 8,
+            fontWeight: 700,
+            lineHeight: 1,
+            color: "#fff",
+            textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+            backgroundColor,
+            boxShadow: "0 0 0 2px var(--t-surface)",
+            marginLeft: overlap ? -5 : 0,
             flexShrink: 0,
-            maxWidth: 110,
-            overflow: "hidden",
-            whiteSpace: "nowrap",
-            flexWrap: "nowrap",
-      };
-
+            cursor: "default",
+      });
+      // The cluster never wraps and never pushes the card's action buttons
+      // out: it owns no flex growth, shrinks to zero, and clips under
+      // extreme squeeze (the "+N" chip + tooltip keep every name
+      // reachable). Same initials-in-a-circle pattern as the detail panel's
+      // PresenceStack, including the per-user hue.
       return (
             <span
-                  style={badgeStyle}
+                  style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        flexWrap: "nowrap",
+                        minWidth: 0,
+                        overflow: "hidden",
+                        flexShrink: 1,
+                  }}
                   title={label}
+                  aria-label={label}
+                  role="group"
                   data-testid="live-activity-badge"
             >
-                  {isEditing ? (
-                        <Pencil style={{ width: 8, height: 8 }} />
-                  ) : (
-                        <Eye style={{ width: 8, height: 8 }} />
+                  {visible.map((a, i) => (
+                        <span
+                              key={a.userId ?? a.user}
+                              title={liveActivityLabel(a)}
+                              style={circleStyle(
+                                    presenceChipFill(a.userId),
+                                    i > 0,
+                              )}
+                        >
+                              {presenceInitials(a.user)}
+                        </span>
+                  ))}
+                  {hidden.length > 0 && (
+                        <span
+                              title={hidden.map(liveActivityLabel).join("; ")}
+                              aria-label={`${hidden.length} more: ${hidden.map(liveActivityLabel).join("; ")}`}
+                              style={circleStyle("hsl(220, 9%, 45%)", true)}
+                        >
+                              +{hidden.length}
+                        </span>
                   )}
-                  <span
-                        style={{
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              minWidth: 0,
-                              flex: "1 1 0",
-                        }}
-                  >
-                        {activity.user}
-                        {areaSuffix}
-                  </span>
             </span>
       );
 }

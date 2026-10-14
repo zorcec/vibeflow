@@ -277,7 +277,10 @@ export function ChildRow({
               Detail keeps the historical dot + title only. */}
                 {isMinimal ? (
                     <span className="child-link-info">
-                        <span className="child-link-title">{title}</span>
+                        {/* Full title in the native tooltip (ea96894c): the
+                            visible text stays ellipsis-truncated by
+                            `.child-link-title`, the hover reveals everything. */}
+                        <span className="child-link-title" title={title}>{title}</span>
                         {isInline && (
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
@@ -308,7 +311,7 @@ export function ChildRow({
                             {shortId(child?.id ?? "")}
                         </span>
                         <span className="child-link-info">
-                            <span className="child-link-title">{title}</span>
+                            <span className="child-link-title" title={title}>{title}</span>
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
                             >

@@ -236,40 +236,48 @@ describe("DetailPanel presence stack", () => {
   });
 });
 
-describe("LiveActivityBadge neutrality", () => {
-  it("renders a neutral suffix with user and area, never a lock", () => {
+describe("LiveActivityBadge initials circles (0bc9922f)", () => {
+  it("renders initials in a small circle, full sentence in the tooltip", () => {
     render(
       <LiveActivityBadge
-        activity={{
-          taskId: "t1",
-          user: "Ana",
-          userId: "u-ana",
-          state: "editing",
-          area: "description",
-        }}
+        activities={[
+          {
+            taskId: "t1",
+            user: "Tomislav Zorčec",
+            userId: "u-tom",
+            state: "editing",
+            area: "description",
+          },
+        ]}
       />,
     );
     const badge = screen.getByTestId("live-activity-badge");
-    expect(badge).toHaveTextContent("Ana");
-    expect(badge).toHaveTextContent("description");
-    expect(badge).toHaveAttribute("title", "Ana editing · description");
+    // Initials only — the full name must not take footer space.
+    expect(badge).toHaveTextContent("TZ");
+    expect(badge.textContent).not.toMatch(/Tomislav/);
+    expect(badge).toHaveAttribute(
+      "title",
+      "Tomislav Zorčec editing · description",
+    );
     expect(screen.queryByText(/Locked by/)).not.toBeInTheDocument();
   });
 
-  it("labels the comments area as activity in the suffix and title", () => {
+  it("labels the comments area as activity in the tooltip", () => {
     render(
       <LiveActivityBadge
-        activity={{
-          taskId: "t1",
-          user: "Ana",
-          userId: "u-ana",
-          state: "editing",
-          area: "comments",
-        }}
+        activities={[
+          {
+            taskId: "t1",
+            user: "Ana",
+            userId: "u-ana",
+            state: "editing",
+            area: "comments",
+          },
+        ]}
       />,
     );
     const badge = screen.getByTestId("live-activity-badge");
-    expect(badge).toHaveTextContent("activity");
+    expect(badge).toHaveTextContent("AN");
     expect(badge).toHaveAttribute("title", "Ana editing · activity");
     expect(badge.textContent).not.toMatch(/comments/);
   });
@@ -277,7 +285,7 @@ describe("LiveActivityBadge neutrality", () => {
   it("renders a viewing badge without an area suffix", () => {
     render(
       <LiveActivityBadge
-        activity={{ taskId: "t1", user: "Ben", state: "viewing" }}
+        activities={[{ taskId: "t1", user: "Ben", state: "viewing" }]}
       />,
     );
     expect(screen.getByTestId("live-activity-badge")).toHaveAttribute(
@@ -286,30 +294,31 @@ describe("LiveActivityBadge neutrality", () => {
     );
   });
 
-  it("shows a pencil while typing and an eye while viewing", () => {
-    const { unmount } = render(
-      <LiveActivityBadge
-        activity={{
-          taskId: "t1",
-          user: "Ana",
-          userId: "u-ana",
-          state: "editing",
-          area: "description",
-        }}
-      />,
+  it("collapses crowds to a +N chip with every hidden name in its tooltip", () => {
+    const activities = ["Ana", "Ben", "Cid", "Dea", "Eli"].map(
+      (user, i) => ({
+        taskId: "t1",
+        user,
+        userId: `u-${i}`,
+        state: "viewing" as const,
+      }),
     );
+    render(<LiveActivityBadge activities={activities} />);
+    const badge = screen.getByTestId("live-activity-badge");
+    // Full roster stays reachable: the container tooltip names everyone.
+    expect(badge.getAttribute("title")).toMatch(/Ana viewing/);
+    expect(badge.getAttribute("title")).toMatch(/Eli viewing/);
+    expect(badge).toHaveTextContent("+2");
+    // Only the first three peers get circles.
+    expect(badge.textContent).toMatch(/AN/);
+    expect(badge.textContent).not.toMatch(/EL/);
+  });
+
+  it("renders nothing for an empty roster", () => {
+    render(<LiveActivityBadge activities={[]} />);
     expect(
-      screen.getByTestId("live-activity-badge").querySelector("svg"),
-    ).toHaveClass("lucide-pencil");
-    unmount();
-    render(
-      <LiveActivityBadge
-        activity={{ taskId: "t1", user: "Ben", state: "viewing" }}
-      />,
-    );
-    expect(
-      screen.getByTestId("live-activity-badge").querySelector("svg"),
-    ).toHaveClass("lucide-eye");
+      screen.queryByTestId("live-activity-badge"),
+    ).not.toBeInTheDocument();
   });
 });
 

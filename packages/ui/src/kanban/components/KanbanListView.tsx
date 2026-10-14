@@ -557,7 +557,7 @@ function ListRow({
       )}
 
       {/* Live activity badge */}
-      {liveActivity && <LiveActivityBadge activity={liveActivity} />}
+      {liveActivity && <LiveActivityBadge activities={[liveActivity]} />}
     </div>
   );
 }
