@@ -113,6 +113,10 @@ export function ChildRow({
             className={`child-row-wrap child-row-wrap--${variant}${isOrphan ? " child-row-wrap--orphan" : ""}`}
             data-role="child-row-wrap"
             data-task-id={child?.id}
+            // The detail variant renders status as a coloured dot only (no
+            // badge), so the row root carries the machine-readable status:
+            // live-status assertions (dd380f25) read this, not dot colour.
+            data-status={child?.status ?? "todo"}
             data-orphan={isOrphan || undefined}
             style={{
                 display: "flex",

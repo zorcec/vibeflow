@@ -41,6 +41,19 @@ describe("ChildRow", () => {
     expect(screen.getByText("Test task")).toBeInTheDocument();
   });
 
+  it("every variant exposes the child status on the row root (dd380f25)", () => {
+    // Detail rows render status as a coloured dot only, so live-status
+    // assertions read data-status off the row root instead of dot colour.
+    for (const variant of ["popover", "detail", "inline"] as const) {
+      const { container, unmount } = render(
+        <ChildRow child={makeTask({ status: "done" })} variant={variant} />,
+      );
+      const wrap = container.querySelector('[data-role="child-row-wrap"]');
+      expect(wrap).toHaveAttribute("data-status", "done");
+      unmount();
+    }
+  });
+
   it("inline variant renders the child's OWN status badge (c8160a0c)", () => {
     // A child in review nested under another parent's card must read as
     // review, not as a plain row of its parent — the badge carries the
