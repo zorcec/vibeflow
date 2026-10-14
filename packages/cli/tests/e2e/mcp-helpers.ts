@@ -18,16 +18,17 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { getFreePort } from "../ports.js";
+import { serveWithPort } from "../helpers/serve-with-port.js";
 import { expect } from "vitest";
 
 // Suppress telemetry in every test process
 process.env.VIBEFLOW_TELEMETRY = "0";
 
-const { serve } = await import("../../src/server/server.js");
+import type { ServeInstance } from "../../src/server/server.js";
+
 const { stopMcpForTests, getSessionCount } = await import(
   "../../src/mcp/http.js"
 );
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
 
 // ── Port allocation ──────────────────────────────────────────────────────────
 
@@ -48,9 +49,7 @@ export interface McpTestEnv {
 
 export async function bootMcpServer(projectDir?: string): Promise<McpTestEnv> {
   const dir = projectDir ?? mkdtempSync(join(tmpdir(), "mcp-e2e-"));
-  const port = await getFreePort();
-  const instance = await (serve as any)(undefined, {
-    port,
+  const instance = await serveWithPort(undefined, {
     open: false,
     projectDir: dir,
     // @internal test hooks — force OFFLINE mode deterministically

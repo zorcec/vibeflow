@@ -12,26 +12,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
 
-const { serve } = await import("../../../src/server/server.js");
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import { serveWithPort } from "../../helpers/serve-with-port.js";
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
 const REMOTE_ORIGIN = "https://stage.example.test";
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
 
 describe("CORS (useCors)", () => {
   let tempDir: string;
@@ -40,27 +28,13 @@ describe("CORS (useCors)", () => {
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-cors-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
-    // Bounded retry-bind: getFreePort() probes then releases, so under the
-    // unit-suite thread pool another worker can claim the port before serve()
-    // binds it. Retry with a fresh port on EADDRINUSE instead of failing.
-    let lastErr: unknown = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        instance = await serve(undefined, {
-          port: await getFreePort(),
-          open: false,
-          projectDir: tempDir,
-          // @internal test hooks — force OFFLINE mode so local task routes mount
-          _testToken: null,
-          _testWorkspace: null,
-        });
-        return;
-      } catch (err) {
-        lastErr = err;
-        if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw err;
-      }
-    }
-    throw lastErr;
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir: tempDir,
+      // @internal test hooks — force OFFLINE mode so local task routes mount
+      _testToken: null,
+      _testWorkspace: null,
+    });
   });
 
   afterEach(async () => {

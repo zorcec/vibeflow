@@ -1959,7 +1959,31 @@ async function serveApiOnly(
       };
     }
 
-    httpServer.on("error", reject);
+    // A refused bind (EADDRINUSE) must not leak the watchers and sockets
+    // created above: a failed start leaves no listener behind, so a retry
+    // starts clean and no file watcher survives a server that never served.
+    // Best-effort — cleanup failures never mask the bind error. NOTE: no
+    // disposeMcp() here — MCP sessions and the reaper are module-global and
+    // may belong to a LIVE server (e.g. the session delivering this very
+    // refusal); a failed boot creates no sessions of its own, so there is
+    // nothing of MCP's to clean.
+    httpServer.on("error", (err) => {
+      void (async () => {
+        try {
+          if (taskWatcher) await taskWatcher.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+        try {
+          wss.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+      })().then(
+        () => reject(err),
+        () => reject(err),
+      );
+    });
   });
 }
 
@@ -2198,6 +2222,30 @@ li{margin:8px 0}</style></head>
       });
     });
 
-    httpServer.on("error", reject);
+    // Same refused-bind cleanup as the API-only path above: a failed start
+    // leaves no listener or watcher behind, so a retry starts clean
+    // (and, like there, no disposeMcp() — MCP state is process-global).
+    httpServer.on("error", (err) => {
+      void (async () => {
+        try {
+          if (watcher) await watcher.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+        try {
+          await taskWatcher.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+        try {
+          wss.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+      })().then(
+        () => reject(err),
+        () => reject(err),
+      );
+    });
   });
 }

@@ -13,7 +13,6 @@ import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
 import { createTask } from "../../../src/core/tasks.js";
 import { addComment } from "../../../src/core/comments.js";
@@ -25,24 +24,14 @@ import {
   type RunnerTransport,
 } from "@vibeflow-tools/api-core";
 
-const { serve } = await import("../../../src/server/server.js");
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import { serveWithPort } from "../../helpers/serve-with-port.js";
+import { getFreePort } from "../../ports.js";
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..", "..", "..");
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
 
 function makeTransport(baseUrl: string, timeoutMs: number): RunnerTransport {
   return {
@@ -143,15 +132,13 @@ describe("conformance manifest: local reads green, writes explicitly skipped", (
     ids["commented"] = commented.id;
     ids["files"] = withFiles.id;
 
-    const port = await getFreePort();
-    instance = await serve(undefined, {
-      port,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
       _testToken: null,
       _testWorkspace: null,
     });
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = instance.url;
   }, 30000);
 
   afterAll(async () => {

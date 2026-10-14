@@ -10,6 +10,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
+import { serveWithPort } from "../helpers/serve-with-port.js";
 import type { ServeInstance } from "../../src/server/server.js";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
@@ -43,10 +44,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3750, open: false });
-    expect(instance.url).toBe("http://localhost:3750");
+    instance = await serveWithPort(filePath, { open: false });
+    expect(instance.url).toMatch(/^http:\/\/localhost:\d+$/);
 
-    const response = await fetch("http://localhost:3750/");
+    const response = await fetch(`${instance.url}/`);
     expect(response.ok).toBe(true);
     const body = await response.text();
     expect(body).toContain("Hello World");
@@ -57,9 +58,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3751, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const response = await fetch("http://localhost:3751/");
+    const response = await fetch(`${instance.url}/`);
     const body = await response.text();
     expect(body).toContain("data-vibeflow-overlay");
     // Overlay uses window.location.host for dynamic URL resolution (supports remote --host access)
@@ -74,17 +75,17 @@ describe("proto serve (e2e)", () => {
       "utf-8",
     );
 
-    instance = await serve(tempDir, { port: 3752, open: false });
+    instance = await serveWithPort(tempDir, { open: false });
 
-    const indexResponse = await fetch("http://localhost:3752/");
+    const indexResponse = await fetch(`${instance.url}/`);
     const indexBody = await indexResponse.text();
     expect(indexBody).toContain("page1.html");
     expect(indexBody).toContain("page2.html");
 
-    const page1 = await fetch("http://localhost:3752/page1.html");
+    const page1 = await fetch(`${instance.url}/page1.html`);
     expect(await page1.text()).toContain("Hello World");
 
-    const page2 = await fetch("http://localhost:3752/page2.html");
+    const page2 = await fetch(`${instance.url}/page2.html`);
     expect(await page2.text()).toContain("Page Two");
   });
 
@@ -93,9 +94,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3753, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const response = await fetch("http://localhost:3753/api/tasks");
+    const response = await fetch(`${instance.url}/api/tasks`);
     expect(response.ok).toBe(true);
     const data = await response.json();
     expect(data.tasks).toEqual([]);
@@ -105,9 +106,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3754, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const response = await fetch("http://localhost:3754/api/tasks", {
+    const response = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -123,7 +124,7 @@ describe("proto serve (e2e)", () => {
     expect(result.task.title).toBe("Fix the button");
 
     // Verify it appears in the list
-    const listRes = await fetch("http://localhost:3754/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks).toHaveLength(1);
   });
@@ -132,9 +133,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3755, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const response = await fetch("http://localhost:3755/api/tasks", {
+    const response = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "No selector" }),
@@ -147,10 +148,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3756, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     // Create a task first
-    const createRes = await fetch("http://localhost:3756/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -162,7 +163,7 @@ describe("proto serve (e2e)", () => {
 
     // Update it
     const updateRes = await fetch(
-      `http://localhost:3756/api/tasks/${task.id}`,
+      `${instance.url}/api/tasks/${task.id}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -179,10 +180,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3757, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     // Create then delete
-    const createRes = await fetch("http://localhost:3757/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -193,14 +194,14 @@ describe("proto serve (e2e)", () => {
     const { task } = await createRes.json();
 
     const deleteRes = await fetch(
-      `http://localhost:3757/api/tasks/${task.id}`,
+      `${instance.url}/api/tasks/${task.id}`,
       {
         method: "DELETE",
       },
     );
     expect(deleteRes.ok).toBe(true);
 
-    const listRes = await fetch("http://localhost:3757/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks).toHaveLength(0);
   });
@@ -209,10 +210,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3758, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     const response = await fetch(
-      "http://localhost:3758/api/tasks/aabbccddeeff001122334455667788",
+      `${instance.url}/api/tasks/aabbccddeeff001122334455667788`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -226,7 +227,7 @@ describe("proto serve (e2e)", () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "proto-empty-"));
     try {
       await expect(
-        serve(emptyDir, { port: 3762, open: false }),
+        serveWithPort(emptyDir, { open: false }),
       ).rejects.toThrow("No HTML files");
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
@@ -237,7 +238,7 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3763, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     const { existsSync } = await import("node:fs");
     expect(existsSync(join(tempDir, ".vibeflow", "tasks"))).toBe(true);
@@ -250,10 +251,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3764, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     // Create a task with a screenshot
-    const createRes = await fetch("http://localhost:3764/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -268,7 +269,7 @@ describe("proto serve (e2e)", () => {
 
     // Delete the screenshot
     const deleteRes = await fetch(
-      `http://localhost:3764/api/tasks/${task.id}/screenshot`,
+      `${instance.url}/api/tasks/${task.id}/screenshot`,
       { method: "DELETE" },
     );
     expect(deleteRes.ok).toBe(true);
@@ -276,7 +277,7 @@ describe("proto serve (e2e)", () => {
     expect(deleteData.success).toBe(true);
 
     // Verify screenshot is gone from task
-    const listRes = await fetch("http://localhost:3764/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks[0].screenshot).toBeUndefined();
   });
@@ -285,10 +286,10 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3765, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     const res = await fetch(
-      "http://localhost:3765/api/tasks/aabbccddeeff001122334455667788/screenshot",
+      `${instance.url}/api/tasks/aabbccddeeff001122334455667788/screenshot`,
       {
         method: "DELETE",
       },
@@ -300,9 +301,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3766, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const createRes = await fetch("http://localhost:3766/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -313,7 +314,7 @@ describe("proto serve (e2e)", () => {
     const { task } = await createRes.json();
 
     const uploadRes = await fetch(
-      `http://localhost:3766/api/tasks/${task.id}/screenshot`,
+      `${instance.url}/api/tasks/${task.id}/screenshot`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -337,9 +338,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3772, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const createRes = await fetch("http://localhost:3772/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -357,7 +358,7 @@ describe("proto serve (e2e)", () => {
 
     const proofBody = Buffer.from("proof-bytes-one").toString("base64");
     const first = await fetch(
-      `http://localhost:3772/api/tasks/${task.id}/screenshot`,
+      `${instance.url}/api/tasks/${task.id}/screenshot`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -377,13 +378,13 @@ describe("proto serve (e2e)", () => {
     ).toBe("proof-bytes-one");
 
     // task.screenshot still points at the annotation baseline.
-    const listRes = await fetch("http://localhost:3772/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks[0].screenshot).toBe(`${task.id}.png`);
 
     // A second proof numbers up instead of clobbering the first.
     const second = await fetch(
-      `http://localhost:3772/api/tasks/${task.id}/screenshot`,
+      `${instance.url}/api/tasks/${task.id}/screenshot`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -401,9 +402,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3767, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const createRes = await fetch("http://localhost:3767/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -414,7 +415,7 @@ describe("proto serve (e2e)", () => {
     const { task } = await createRes.json();
 
     const uploadRes = await fetch(
-      `http://localhost:3767/api/tasks/${task.id}/files/design-notes.md`,
+      `${instance.url}/api/tasks/${task.id}/files/design-notes.md`,
       {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
@@ -424,7 +425,7 @@ describe("proto serve (e2e)", () => {
     expect(uploadRes.ok).toBe(true);
 
     const listRes = await fetch(
-      `http://localhost:3767/api/tasks/${task.id}/files`,
+      `${instance.url}/api/tasks/${task.id}/files`,
     );
     const listData = await listRes.json();
     expect(listData.files).toHaveLength(1);
@@ -435,9 +436,9 @@ describe("proto serve (e2e)", () => {
     const filePath = join(tempDir, "test.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 3768, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const createRes = await fetch("http://localhost:3768/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -448,7 +449,7 @@ describe("proto serve (e2e)", () => {
     const { task } = await createRes.json();
 
     const uploadRes = await fetch(
-      `http://localhost:3768/api/tasks/${task.id}/files/..%2Fescape.md`,
+      `${instance.url}/api/tasks/${task.id}/files/..%2Fescape.md`,
       {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
@@ -499,10 +500,10 @@ describe("proto serve (e2e)", () => {
       "utf-8",
     );
 
-    instance = await serve(filePath, { port: 3769, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     const listRes = await fetch(
-      "http://localhost:3769/api/tasks/130ed97a/files",
+      `${instance.url}/api/tasks/130ed97a/files`,
     );
     expect(listRes.status).toBe(200);
     const listData = await listRes.json();
@@ -510,13 +511,13 @@ describe("proto serve (e2e)", () => {
     expect(listData.files[0].name).toBe("legacy-notes.md");
 
     const fileRes = await fetch(
-      "http://localhost:3769/api/tasks/130ed97a/files/legacy-notes.md",
+      `${instance.url}/api/tasks/130ed97a/files/legacy-notes.md`,
     );
     expect(fileRes.status).toBe(200);
 
     // Non-hex IDs are still rejected at the router level.
     const badRes = await fetch(
-      "http://localhost:3769/api/tasks/invalid-id/files",
+      `${instance.url}/api/tasks/invalid-id/files`,
     );
     expect(badRes.status).toBe(400);
   });
@@ -540,27 +541,25 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("starts without a target and serves the task API", async () => {
-    instance = await serve(undefined, {
-      port: 3780,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
-    expect(instance.url).toBe("http://localhost:3780");
+    expect(instance.url).toMatch(/^http:\/\/localhost:\d+$/);
 
-    const res = await fetch("http://localhost:3780/api/tasks");
+    const res = await fetch(`${instance.url}/api/tasks`);
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(Array.isArray(data.tasks)).toBe(true);
   });
 
   it("API-only mode: creates and retrieves tasks", async () => {
-    instance = await serve(undefined, {
-      port: 3781,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
-    const createRes = await fetch("http://localhost:3781/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -579,13 +578,12 @@ describe("proto serve — API-only mode (no target)", () => {
   // instead of 404ing — exact `/` → `/kanban` (302), fragment-free Location
   // so `#task-<id>` deep links survive the hop.
   it("API-only mode: root / redirects to /kanban (302)", async () => {
-    instance = await serve(undefined, {
-      port: 3782,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
-    const res = await fetch("http://localhost:3782/", {
+    const res = await fetch(`${instance.url}/`, {
       redirect: "manual",
     });
     expect(res.status).toBe(302);
@@ -594,13 +592,12 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: PATCH updates task status", async () => {
-    instance = await serve(undefined, {
-      port: 3783,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
-    const createRes = await fetch("http://localhost:3783/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -610,7 +607,7 @@ describe("proto serve — API-only mode (no target)", () => {
     });
     const { task } = await createRes.json();
 
-    const patchRes = await fetch(`http://localhost:3783/api/tasks/${task.id}`, {
+    const patchRes = await fetch(`${instance.url}/api/tasks/${task.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "done" }),
@@ -621,13 +618,12 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: DELETE removes a task", async () => {
-    instance = await serve(undefined, {
-      port: 3784,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
-    const createRes = await fetch("http://localhost:3784/api/tasks", {
+    const createRes = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -638,14 +634,14 @@ describe("proto serve — API-only mode (no target)", () => {
     const { task } = await createRes.json();
 
     const deleteRes = await fetch(
-      `http://localhost:3784/api/tasks/${task.id}`,
+      `${instance.url}/api/tasks/${task.id}`,
       {
         method: "DELETE",
       },
     );
     expect(deleteRes.ok).toBe(true);
 
-    const listRes = await fetch("http://localhost:3784/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks.every((t: { id: string }) => t.id !== task.id)).toBe(
       true,
@@ -653,8 +649,7 @@ describe("proto serve — API-only mode (no target)", () => {
   });
 
   it("API-only mode: creates .proto dirs in the specified projectDir", async () => {
-    instance = await serve(undefined, {
-      port: 3785,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
@@ -706,13 +701,13 @@ describe("proto serve — regression: pageRoutes ReferenceError (dir mode)", () 
       "utf-8",
     );
 
-    // Must not throw
-    await expect(
-      serve(tempDir, { port: 9720, open: false }),
-    ).resolves.toBeDefined();
+    // Must not throw (closed right away: the boot below is the assertion
+    // subject, and a leaked server would hold its port for the whole run).
+    const probe = await serveWithPort(tempDir, { open: false });
+    await probe.close();
 
-    instance = await serve(tempDir, { port: 9721, open: false });
-    const res = await fetch(`http://localhost:9721/index.html`);
+    instance = await serveWithPort(tempDir, { open: false });
+    const res = await fetch(`${instance.url}/index.html`);
     expect(res.ok).toBe(true);
   });
 
@@ -724,9 +719,9 @@ describe("proto serve — regression: pageRoutes ReferenceError (dir mode)", () 
       "utf-8",
     );
 
-    instance = await serve(tempDir, { port: 9722, open: false });
+    instance = await serveWithPort(tempDir, { open: false });
 
-    const res = await fetch("http://localhost:9722/api/pages");
+    const res = await fetch(`${instance.url}/api/pages`);
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { pages: string[] };
     expect(body.pages).toContain("/index.html");
@@ -738,22 +733,21 @@ describe("proto serve — regression: pageRoutes ReferenceError (dir mode)", () 
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 9723, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9723/api/pages");
+    const res = await fetch(`${instance.url}/api/pages`);
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { pages: string[] };
     expect(body.pages).toEqual([]);
   });
 
   it("GET /api/pages returns empty array in API-only mode", async () => {
-    const apiInstance = await serve(undefined, {
-      port: 9724,
+    const apiInstance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
     try {
-      const res = await fetch("http://localhost:9724/api/pages");
+      const res = await fetch(`${apiInstance.url}/api/pages`);
       expect(res.ok).toBe(true);
       const body = (await res.json()) as { pages: string[] };
       expect(body.pages).toEqual([]);
@@ -785,9 +779,9 @@ describe("proto serve — regression: overlay SyntaxError (Unexpected token ',')
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 9725, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9725/vibeflow-overlay.js");
+    const res = await fetch(`${instance.url}/vibeflow-overlay.js`);
     expect(res.ok).toBe(true);
     const script = await res.text();
 
@@ -800,9 +794,9 @@ describe("proto serve — regression: overlay SyntaxError (Unexpected token ',')
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, SAMPLE_HTML, "utf-8");
 
-    instance = await serve(filePath, { port: 9726, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9726/vibeflow-overlay.js");
+    const res = await fetch(`${instance.url}/vibeflow-overlay.js`);
     const script = await res.text();
 
     // The broken regex would appear as /^// in the script
@@ -817,10 +811,10 @@ describe("proto serve — regression: overlay SyntaxError (Unexpected token ',')
       "utf-8",
     );
 
-    instance = await serve(tempDir, { port: 9727, open: false });
+    instance = await serveWithPort(tempDir, { open: false });
 
     // The HTML page has the overlay injected inline
-    const res = await fetch("http://localhost:9727/page1.html");
+    const res = await fetch(`${instance.url}/page1.html`);
     const html = await res.text();
 
     const match = html.match(
@@ -865,10 +859,10 @@ describe("proto serve — task url field and overlay url-filtering", () => {
       "utf-8",
     );
 
-    instance = await serve(tempDir, { port: 9728, open: false });
+    instance = await serveWithPort(tempDir, { open: false });
 
     // Create task for page1
-    const r1 = await fetch("http://localhost:9728/api/tasks", {
+    const r1 = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -886,7 +880,7 @@ describe("proto serve — task url field and overlay url-filtering", () => {
     expect(d1.task.url).toBe("/page1.html");
 
     // Create task for page2
-    const r2 = await fetch("http://localhost:9728/api/tasks", {
+    const r2 = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -904,7 +898,7 @@ describe("proto serve — task url field and overlay url-filtering", () => {
     expect(d2.task.url).toBe("/page2.html");
 
     // Create global task (no url)
-    const r3 = await fetch("http://localhost:9728/api/tasks", {
+    const r3 = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -921,7 +915,7 @@ describe("proto serve — task url field and overlay url-filtering", () => {
     expect(d3.task.url).toBeUndefined();
 
     // API returns ALL three tasks (no server-side URL filtering)
-    const listRes = await fetch("http://localhost:9728/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = (await listRes.json()) as {
       tasks: Array<{ url?: string; title: string }>;
     };
@@ -936,9 +930,9 @@ describe("proto serve — task url field and overlay url-filtering", () => {
   it("overlay script includes client-side page URL filtering", async () => {
     writeFileSync(join(tempDir, "index.html"), SAMPLE_HTML, "utf-8");
 
-    instance = await serve(tempDir, { port: 9729, open: false });
+    instance = await serveWithPort(tempDir, { open: false });
 
-    const res = await fetch("http://localhost:9729/index.html");
+    const res = await fetch(`${instance.url}/index.html`);
     const html = await res.text();
 
     const match = html.match(
@@ -972,9 +966,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9730, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9730/api/tasks", {
+    const res = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -988,7 +982,7 @@ describe("proto serve — regression: tasks.md fixes", () => {
     expect(data.task.id).toBeDefined();
 
     // Verify cssSelector is stored and returned
-    const listRes = await fetch("http://localhost:9730/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks[0].cssSelector).toBe("main > section > h1");
   });
@@ -997,9 +991,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9731, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9731/api/tasks", {
+    const res = await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1010,7 +1004,7 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const data = await res.json();
     expect(data.success).toBe(true);
 
-    const listRes = await fetch("http://localhost:9731/api/tasks");
+    const listRes = await fetch(`${instance.url}/api/tasks`);
     const listData = await listRes.json();
     expect(listData.tasks[0].cssSelector).toBeUndefined();
   });
@@ -1019,9 +1013,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9732, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9732/");
+    const res = await fetch(`${instance.url}/`);
     const html = await res.text();
     const match = html.match(
       /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
@@ -1041,9 +1035,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9733, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9733/");
+    const res = await fetch(`${instance.url}/`);
     const html = await res.text();
     const match = html.match(
       /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
@@ -1057,9 +1051,9 @@ describe("proto serve — regression: tasks.md fixes", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9734, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
-    const res = await fetch("http://localhost:9734/");
+    const res = await fetch(`${instance.url}/`);
     const html = await res.text();
     const match = html.match(
       /<script data-vibeflow-overlay[^>]*>([\s\S]*?)<\/script>/,
@@ -1092,10 +1086,10 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
     const filePath = join(tempDir, "index.html");
     writeFileSync(filePath, "<html><body><h1>Test</h1></body></html>", "utf-8");
 
-    instance = await serve(filePath, { port: 9800, open: false });
+    instance = await serveWithPort(filePath, { open: false });
 
     // Create a task via API so the tasks dir exists
-    await fetch("http://localhost:9800/api/tasks", {
+    await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "Initial task", selector: "#hero" }),
@@ -1103,7 +1097,7 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
 
     // Connect WebSocket and listen for WS notifications
     const { WebSocket: WS } = await import("ws");
-    const ws = new WS("ws://localhost:9800");
+    const ws = new WS(instance.url.replace("http://", "ws://"));
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
     const msgReceived = new Promise<string>((resolve) => {
@@ -1147,21 +1141,20 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
   });
 
   it("broadcasts WS notification when a task file is externally modified (API-only mode)", async () => {
-    instance = await serve(undefined, {
-      port: 9801,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create a task via API so the tasks dir exists
-    await fetch("http://localhost:9801/api/tasks", {
+    await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "Initial task", selector: "#hero" }),
     });
 
     const { WebSocket: WS } = await import("ws");
-    const ws = new WS("ws://localhost:9801");
+    const ws = new WS(instance.url.replace("http://", "ws://"));
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
     const msgReceived = new Promise<string>((resolve) => {
@@ -1204,15 +1197,14 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
   });
 
   it("one dead socket does not starve the other clients or fail the mutation (API-only mode)", async () => {
-    instance = await serve(undefined, {
-      port: 9802,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     const { WebSocket: WS } = await import("ws");
-    const wsA = new WS("ws://localhost:9802");
-    const wsB = new WS("ws://localhost:9802");
+    const wsA = new WS(instance.url.replace("http://", "ws://"));
+    const wsB = new WS(instance.url.replace("http://", "ws://"));
     await Promise.all([
       new Promise<void>((resolve) => wsA.on("open", resolve)),
       new Promise<void>((resolve) => wsB.on("open", resolve)),
@@ -1249,7 +1241,7 @@ describe("proto serve — kanban live refresh (WebSocket task watcher)", () => {
     try {
       // The mutation must succeed (no throw escapes broadcast into the
       // handler) even though one send threw.
-      const res = await fetch("http://localhost:9802/api/tasks", {
+      const res = await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "Broadcast survivor", selector: "#hero" }),
@@ -1298,27 +1290,25 @@ describe("proto serve — deprecated agents API", () => {
   });
 
   it("/api/agents is no longer exposed as JSON", async () => {
-    instance = await serve(undefined, {
-      port: 9820,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
-    const res = await fetch("http://localhost:9820/api/agents");
+    const res = await fetch(`${instance.url}/api/agents`);
     expect(res.ok).toBe(false);
     expect([404, 503]).toContain(res.status);
   });
 
   // ── GET /api/tasks query params (?status=, ?limit=) ──────────────────────
   it("GET /api/tasks?status= filters by status", async () => {
-    instance = await serve(undefined, {
-      port: 9830,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create 3 tasks with different statuses
     for (const status of ["todo", "in-progress", "done"] as const) {
-      const res = await fetch("http://localhost:9830/api/tasks", {
+      const res = await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1331,14 +1321,14 @@ describe("proto serve — deprecated agents API", () => {
     }
 
     // Filter by todo
-    const todoRes = await fetch("http://localhost:9830/api/tasks?status=todo");
+    const todoRes = await fetch(`${instance.url}/api/tasks?status=todo`);
     expect(todoRes.ok).toBe(true);
     const todoData = (await todoRes.json()) as { tasks: { status: string }[] };
     expect(todoData.tasks).toHaveLength(1);
     expect(todoData.tasks[0].status).toBe("todo");
 
     // Filter by done
-    const doneRes = await fetch("http://localhost:9830/api/tasks?status=done");
+    const doneRes = await fetch(`${instance.url}/api/tasks?status=done`);
     expect(doneRes.ok).toBe(true);
     const doneData = (await doneRes.json()) as { tasks: { status: string }[] };
     expect(doneData.tasks).toHaveLength(1);
@@ -1346,15 +1336,14 @@ describe("proto serve — deprecated agents API", () => {
   });
 
   it("GET /api/tasks?limit= limits results", async () => {
-    instance = await serve(undefined, {
-      port: 9831,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create 5 tasks
     for (let i = 0; i < 5; i++) {
-      const res = await fetch("http://localhost:9831/api/tasks", {
+      const res = await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: `Limit task ${i}`, selector: "/body" }),
@@ -1363,22 +1352,21 @@ describe("proto serve — deprecated agents API", () => {
     }
 
     // Limit to 2
-    const res = await fetch("http://localhost:9831/api/tasks?limit=2");
+    const res = await fetch(`${instance.url}/api/tasks?limit=2`);
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { tasks: unknown[] };
     expect(data.tasks.length).toBeLessThanOrEqual(2);
   });
 
   it("GET /api/tasks?status= and ?limit= combined", async () => {
-    instance = await serve(undefined, {
-      port: 9832,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create tasks: 3 todo, 2 done
     for (let i = 0; i < 3; i++) {
-      await fetch("http://localhost:9832/api/tasks", {
+      await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1389,7 +1377,7 @@ describe("proto serve — deprecated agents API", () => {
       });
     }
     for (let i = 0; i < 2; i++) {
-      await fetch("http://localhost:9832/api/tasks", {
+      await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1402,7 +1390,7 @@ describe("proto serve — deprecated agents API", () => {
 
     // Filter todo + limit 1
     const res = await fetch(
-      "http://localhost:9832/api/tasks?status=todo&limit=1",
+      `${instance.url}/api/tasks?status=todo&limit=1`,
     );
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { tasks: { status: string }[] };
@@ -1413,14 +1401,13 @@ describe("proto serve — deprecated agents API", () => {
   });
 
   it("GET /api/tasks?status= with no matches returns empty", async () => {
-    instance = await serve(undefined, {
-      port: 9833,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create a task
-    await fetch("http://localhost:9833/api/tasks", {
+    await fetch(`${instance.url}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1432,7 +1419,7 @@ describe("proto serve — deprecated agents API", () => {
 
     // Filter by nonexistent status
     const res = await fetch(
-      "http://localhost:9833/api/tasks?status=nonexistent",
+      `${instance.url}/api/tasks?status=nonexistent`,
     );
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { tasks: unknown[] };
@@ -1440,15 +1427,14 @@ describe("proto serve — deprecated agents API", () => {
   });
 
   it("GET /api/tasks?limit=0 returns all (ignored, 0 is not > 0)", async () => {
-    instance = await serve(undefined, {
-      port: 9834,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create 2 tasks
     for (let i = 0; i < 2; i++) {
-      await fetch("http://localhost:9834/api/tasks", {
+      await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: `Task ${i}`, selector: "/body" }),
@@ -1456,22 +1442,21 @@ describe("proto serve — deprecated agents API", () => {
     }
 
     // limit=0 is ignored (0 > 0 is false), all tasks returned
-    const res = await fetch("http://localhost:9834/api/tasks?limit=0");
+    const res = await fetch(`${instance.url}/api/tasks?limit=0`);
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { tasks: unknown[] };
     expect(data.tasks).toHaveLength(2);
   });
 
   it("GET /api/tasks?limit=abc is ignored and returns all", async () => {
-    instance = await serve(undefined, {
-      port: 9835,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
 
     // Create 3 tasks
     for (let i = 0; i < 3; i++) {
-      await fetch("http://localhost:9835/api/tasks", {
+      await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: `Task ${i}`, selector: "/body" }),
@@ -1479,16 +1464,16 @@ describe("proto serve — deprecated agents API", () => {
     }
 
     // limit=abc should be ignored (NaN), returning all tasks
-    const res = await fetch("http://localhost:9835/api/tasks?limit=abc");
+    const res = await fetch(`${instance.url}/api/tasks?limit=abc`);
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { tasks: unknown[] };
     expect(data.tasks).toHaveLength(3);
   });
 
   // ── Recursive delete (?deleteChildren) ───────────────────────────────
-  const createTree = async (port: number) => {
+  const createTree = async (base: string) => {
     const post = async (title: string, parentId?: string) => {
-      const r = await fetch(`http://localhost:${port}/api/tasks`, {
+      const r = await fetch(`${base}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1507,67 +1492,64 @@ describe("proto serve — deprecated agents API", () => {
     const grand = await post("del-grand", child);
     return { parent, child, grand };
   };
-  const listIds = async (port: number) => {
-    const r = await fetch(`http://localhost:${port}/api/tasks`);
+  const listIds = async (base: string) => {
+    const r = await fetch(`${base}/api/tasks`);
     const data = (await r.json()) as { tasks: Array<{ id: string }> };
     return data.tasks.map((t) => t.id);
   };
 
   it("DELETE ?deleteChildren=true removes the whole subtree", async () => {
-    instance = await serve(undefined, {
-      port: 9840,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
-    const { parent, child, grand } = await createTree(9840);
+    const { parent, child, grand } = await createTree(instance.url);
 
     const del = await fetch(
-      `http://localhost:9840/api/tasks/${parent}?deleteChildren=true`,
+      `${instance.url}/api/tasks/${parent}?deleteChildren=true`,
       { method: "DELETE" },
     );
     expect(del.ok).toBe(true);
-    const remaining = await listIds(9840);
+    const remaining = await listIds(instance.url);
     expect(remaining).not.toContain(parent);
     expect(remaining).not.toContain(child);
     expect(remaining).not.toContain(grand);
   });
 
   it("DELETE ?deleteChildren wins when both flags are passed", async () => {
-    instance = await serve(undefined, {
-      port: 9841,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
-    const { parent, child } = await createTree(9841);
+    const { parent, child } = await createTree(instance.url);
 
     const del = await fetch(
-      `http://localhost:9841/api/tasks/${parent}?deleteChildren=true&unlinkChildren=true`,
+      `${instance.url}/api/tasks/${parent}?deleteChildren=true&unlinkChildren=true`,
       { method: "DELETE" },
     );
     expect(del.ok).toBe(true);
-    const remaining = await listIds(9841);
+    const remaining = await listIds(instance.url);
     expect(remaining).not.toContain(parent);
     expect(remaining).not.toContain(child);
   });
 
   it("DELETE without flags keeps children, 404 for unknown id", async () => {
-    instance = await serve(undefined, {
-      port: 9842,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
     });
-    const { parent, child } = await createTree(9842);
+    const { parent, child } = await createTree(instance.url);
 
-    const del = await fetch(`http://localhost:9842/api/tasks/${parent}`, {
+    const del = await fetch(`${instance.url}/api/tasks/${parent}`, {
       method: "DELETE",
     });
     expect(del.ok).toBe(true);
-    const remaining = await listIds(9842);
+    const remaining = await listIds(instance.url);
     expect(remaining).not.toContain(parent);
     expect(remaining).toContain(child);
 
     const missing = await fetch(
-      `http://localhost:9842/api/tasks/aabbccddeeff001122334455667788?deleteChildren=true`,
+      `${instance.url}/api/tasks/aabbccddeeff001122334455667788?deleteChildren=true`,
       { method: "DELETE" },
     );
     expect(missing.status).toBe(404);
@@ -1580,7 +1562,7 @@ describe("proto serve — deprecated agents API", () => {
 // `WebSocketServer({ server })` subscribes to the HTTP server's `error` event
 // and re-emits it on itself, and an EventEmitter `error` with no listener
 // throws. So before createBaseServer() installed a `wss.on("error")` handler, a
-// port collision did NOT reject the promise serve() returns — it surfaced as an
+// port collision did NOT reject the promise serveWithPort() returns — it surfaced as an
 // unhandled 'error' event and the caller hung forever. That made it impossible
 // for a tool (or the CLI) to report "port in use" at all.
 
@@ -1671,9 +1653,9 @@ describe("proto serve — regression: attachments under .vibeflow need dotfiles 
       ).call(this, path, options, callback);
     };
     try {
-      instance = await serve(filePath, { port: 3771, open: false });
+      instance = await serveWithPort(filePath, { open: false });
 
-      const createRes = await fetch("http://localhost:3771/api/tasks", {
+      const createRes = await fetch(`${instance.url}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1686,7 +1668,7 @@ describe("proto serve — regression: attachments under .vibeflow need dotfiles 
       };
 
       const uploadRes = await fetch(
-        `http://localhost:3771/api/tasks/${task.id}/files/x.png`,
+        `${instance.url}/api/tasks/${task.id}/files/x.png`,
         {
           method: "POST",
           headers: { "Content-Type": "image/png" },
@@ -1696,7 +1678,7 @@ describe("proto serve — regression: attachments under .vibeflow need dotfiles 
       expect(uploadRes.ok).toBe(true);
 
       const fileRes = await fetch(
-        `http://localhost:3771/api/tasks/${task.id}/files/x.png`,
+        `${instance.url}/api/tasks/${task.id}/files/x.png`,
       );
       expect(fileRes.status).toBe(200);
       expect(fileRes.headers.get("content-type")).toContain("image/png");

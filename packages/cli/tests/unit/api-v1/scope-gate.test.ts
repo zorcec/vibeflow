@@ -15,13 +15,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
 import { createTask } from "../../../src/core/tasks.js";
 import type { Principal } from "@vibeflow-tools/api-core";
-
-const { serve } = await import("../../../src/server/server.js");
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import { serveWithPort } from "../../helpers/serve-with-port.js";
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
@@ -34,17 +32,6 @@ function limitedPrincipal(): Principal {
     scope: { kind: "local" },
     tokenId: "t-scope-gate",
   };
-}
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
 }
 
 describe("v1 scope gate denies per-scope, legacy untouched", () => {
@@ -61,16 +48,14 @@ describe("v1 scope gate denies per-scope, legacy untouched", () => {
       status: "todo",
       selector: "#gate-fixture",
     });
-    const port = await getFreePort();
-    instance = await serve(undefined, {
-      port,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
       _testToken: null,
       _testWorkspace: null,
       _testResolvePrincipal: limitedPrincipal,
     });
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = instance.url;
   }, 30000);
 
   afterAll(async () => {

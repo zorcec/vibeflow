@@ -12,12 +12,10 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
 import { OPENAPI_SHA256 } from "../../../src/server/openapi.gen.js";
-
-const { serve } = await import("../../../src/server/server.js");
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import { serveWithPort } from "../../helpers/serve-with-port.js";
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
@@ -32,22 +30,13 @@ describe("GET /api/openapi.json", () => {
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-openapi-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
-    const port = await new Promise<number>((resolve, reject) => {
-      const srv = createServer();
-      srv.listen(0, "127.0.0.1", () => {
-        const { port: p } = srv.address() as { port: number };
-        srv.close(() => resolve(p));
-      });
-      srv.on("error", reject);
-    });
-    instance = await serve(undefined, {
-      port,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
       _testToken: null,
       _testWorkspace: null,
     });
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = instance.url;
   }, 30000);
 
   afterAll(async () => {

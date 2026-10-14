@@ -12,30 +12,17 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
 import { createTask } from "../../../src/core/tasks.js";
 import { addComment } from "../../../src/core/comments.js";
 import { saveFile } from "../../../src/core/files.js";
 import { SWAGGER_UI_BUNDLE_JS } from "../../../src/server/swagger-ui.gen.js";
 import { SWAGGER_UI_CSS } from "../../../src/server/swagger-ui.gen.js";
-
-const { serve } = await import("../../../src/server/server.js");
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import { serveWithPort } from "../../helpers/serve-with-port.js";
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
 
 describe("v1 read alias parity: legacy and /api/v1 return identical bodies", () => {
   let tempDir: string;
@@ -85,15 +72,13 @@ describe("v1 read alias parity: legacy and /api/v1 return identical bodies", () 
     ids["commented"] = commented.id;
     ids["files"] = withFiles.id;
 
-    const port = await getFreePort();
-    instance = await serve(undefined, {
-      port,
+    instance = await serveWithPort(undefined, {
       open: false,
       projectDir: tempDir,
       _testToken: null,
       _testWorkspace: null,
     });
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = instance.url;
   }, 30000);
 
   afterAll(async () => {

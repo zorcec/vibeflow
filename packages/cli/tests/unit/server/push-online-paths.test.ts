@@ -15,9 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:net";
 import { writeConfig } from "../../../src/core/config.js";
-import { serve } from "../../../src/server/server.js";
+import { serveWithPort } from "../../helpers/serve-with-port.js";
 
 vi.mock("../../../src/auth/token.js", () => ({
   readToken: vi.fn(),
@@ -26,22 +25,11 @@ vi.mock("../../../src/auth/token.js", () => ({
 
 import * as tokenModule from "../../../src/auth/token.js";
 
-type ServeInstance = Awaited<ReturnType<typeof serve>>;
+import type { ServeInstance } from "../../../src/server/server.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
 const CLOUD = "http://cloud.test";
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
 
 function createTaskFile(projectDir: string, task: Record<string, unknown>): void {
   const dir = join(projectDir, ".vibeflow", "tasks", "2025-01-01");
@@ -93,26 +81,15 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
       return realFetch(url as string, init);
     });
 
-    let lastErr: unknown = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        instance = await serve(undefined, {
-          port: await getFreePort(),
-          open: false,
-          projectDir: tempDir,
-          quiet: true,
-          // @internal test hooks — force OFFLINE mode so the proxy routes
-          // (registered only offline) are reachable.
-          _testToken: null,
-          _testWorkspace: null,
-        });
-        return;
-      } catch (err) {
-        lastErr = err;
-        if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE") throw err;
-      }
-    }
-    throw lastErr;
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir: tempDir,
+      quiet: true,
+      // @internal test hooks — force OFFLINE mode so the proxy routes
+      // (registered only offline) are reachable.
+      _testToken: null,
+      _testWorkspace: null,
+    });
   });
 
   afterEach(async () => {
