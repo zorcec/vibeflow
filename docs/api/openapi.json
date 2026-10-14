@@ -3744,6 +3744,7 @@
       },
       "TaskLinkInput": {
         "type": "object",
+        "description": "Body of POST /api/v1/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v1 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400.",
         "properties": {
           "type": {
             "type": "string",
@@ -3753,13 +3754,14 @@
               "blocks"
             ]
           },
-          "target": {
-            "type": "string"
+          "taskId": {
+            "type": "string",
+            "description": "Id of the task to link to (external id on the cloud, local id locally)"
           }
         },
         "required": [
           "type",
-          "target"
+          "taskId"
         ]
       },
       "ClaimFilter": {

@@ -26,7 +26,23 @@ const REPO_ROOT = join(HERE, "..", "..", "..");
 const CONTRACT_PATH = join(REPO_ROOT, "docs", "api", "v1-contract.json");
 
 export function loadContract() {
-  return JSON.parse(readFileSync(CONTRACT_PATH, "utf-8"));
+  // Fail loudly and usefully: a malformed contract is a build-time error, and
+  // a bare JSON.parse here reports only "Unexpected token" with no path.
+  let raw;
+  try {
+    raw = readFileSync(CONTRACT_PATH, "utf-8");
+  } catch (err) {
+    throw new Error(
+      `gen-api-artifacts: cannot read the contract at ${CONTRACT_PATH}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `gen-api-artifacts: ${CONTRACT_PATH} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ── Minimal deterministic YAML emitter ──────────────────────────────────────
@@ -455,11 +471,16 @@ function buildSchemas(contract) {
     },
     TaskLinkInput: {
       type: "object",
+      description:
+        "Body of POST /api/v1/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v1 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400.",
       properties: {
         type: { type: "string", enum: ["parent", "relates", "blocks"] },
-        target: { type: "string" },
+        taskId: {
+          type: "string",
+          description: "Id of the task to link to (external id on the cloud, local id locally)",
+        },
       },
-      required: ["type", "target"],
+      required: ["type", "taskId"],
     },
     ClaimFilter: {
       type: "object",
