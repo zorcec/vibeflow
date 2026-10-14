@@ -1,5 +1,5 @@
 // ── Task link helpers (pure, mirrors CLI task-links.ts) ──────────────────
-import type { Task, TaskLinkType } from "./types";
+import type { Task, TaskLinkType, TaskStatus } from "./types";
 import { compareTaskOrder, computeReorder, maxSortKey } from "./utils";
 import type { ReorderPatch } from "./utils";
 
@@ -206,6 +206,39 @@ export function groupTasksByRoot(
  }
 
  return { standalone, groups };
+}
+
+/**
+ * Column child counts (ticket f2bef66a): for each column status, the number
+ * of non-standalone tasks owned by that column's standalone roots —
+ * regardless of the children's own status. A child belongs to its parent's
+ * column (the board renders it only inside the parent's card), so a parent
+ * in Review with 3 children of any status contributes 3 to the Review
+ * header. Grandchildren resolve to the top root, so every nested row is
+ * counted exactly once, in the column where its card renders. Children
+ * whose root is absent from `tasks` are standalone fallback (see
+ * groupTasksByRoot) and are never counted as nested. Null-entry safe and
+ * cycle-safe (resolveRootTask carries the visited-set). */
+export function countChildrenByColumn(
+ tasks: Task[],
+ standalone: Task[],
+): Map<TaskStatus, number> {
+ const counts = new Map<TaskStatus, number>();
+ const statusById = new Map<string, TaskStatus>();
+ const standaloneIds = new Set<string>();
+ for (const s of standalone ?? []) {
+  if (!s?.id) continue;
+  standaloneIds.add(s.id);
+  if (s.status) statusById.set(s.id, s.status);
+ }
+ for (const t of tasks ?? []) {
+  if (!t?.id || standaloneIds.has(t.id)) continue;
+  const rootId = resolveRootTask(tasks, t.id);
+  const status = statusById.get(rootId);
+  if (status === undefined) continue;
+  counts.set(status, (counts.get(status) ?? 0) + 1);
+ }
+ return counts;
 }
 
 /** Reorder-band geometry constants — exported for unit testing and reuse. */

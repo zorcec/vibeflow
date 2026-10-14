@@ -5,6 +5,7 @@ import { TaskCard } from "./TaskCard";
 import { laneReservesLeadingSlot } from "./TaskCardLeadingSlot";
 import {
   groupTasksByRoot,
+  countChildrenByColumn,
   classifyForDropIntent,
   targetValid,
   canReparent,
@@ -753,32 +754,22 @@ export function KanbanBoard({
   );
 
   {
-    /* Honest per-status breakdown (c8160a0c): the CLI counts every task
-       bearing a status, but the column only renders standalone cards — a
-       child renders solely inside its parent's card (owner decision above).
-       nestedByStatus[col] = tasks with this status that render nested
-       elsewhere = total-by-status minus standalone-by-status, computed from
-       `filtered` (the same data the board already holds — no second fetch).
-       When zero for a column, the header renders exactly as before. */
+    /* Column child counts (f2bef66a): a child belongs to its parent's
+       column — the board renders it only inside the parent's card — so
+       each header accounts for the descendants of the column's own cards,
+       regardless of the children's own status. A parent in Review with 3
+       children of any status contributes 3 to the Review header
+       ("Review 1 3"). A child whose parent sits in another column is
+       counted there, NOT in the child's own status column: the count
+       follows where the row renders, so the header always reconciles with
+       the board's own rendering. Computed from `filtered` (the same data
+       the board already holds — no second fetch). When zero for a column,
+       the header renders exactly as before. */
   }
-  const nestedByStatus = React.useMemo(() => {
-    const total = new Map<TaskStatus, number>();
-    for (const t of filtered) {
-      if (!t?.status) continue;
-      total.set(t.status, (total.get(t.status) ?? 0) + 1);
-    }
-    const standaloneCount = new Map<TaskStatus, number>();
-    for (const t of allStandalone) {
-      if (!t?.status) continue;
-      standaloneCount.set(t.status, (standaloneCount.get(t.status) ?? 0) + 1);
-    }
-    const nested = new Map<TaskStatus, number>();
-    for (const [status, n] of total) {
-      const hidden = n - (standaloneCount.get(status) ?? 0);
-      if (hidden > 0) nested.set(status, hidden);
-    }
-    return nested;
-  }, [filtered, allStandalone]);
+  const childCountByStatus = React.useMemo(
+    () => countChildrenByColumn(filtered, allStandalone),
+    [filtered, allStandalone],
+  );
 
   return (
     <>
@@ -802,7 +793,7 @@ export function KanbanBoard({
             : allStandalone.filter((t) => t.status === col.id);
           const nestedCount = isLoading
             ? 0
-            : (nestedByStatus.get(col.id) ?? 0);
+            : (childCountByStatus.get(col.id) ?? 0);
 
           // Done column: show latest modified tasks first (reverse order)
           const displayTasks =
@@ -912,11 +903,10 @@ export function KanbanBoard({
 interface ColumnProps {
   col: Column;
   tasks: Task[];
-  /** Tasks carrying this column's status that render nested inside parent
-      cards in other columns — the header count stays root-only (tasks.length)
-      and this drives the separate visible nested hint + hover title so
-      nothing is silently hidden. 0/undefined renders the header exactly as
-      before. */
+  /** Descendants owned by this column's cards (any status) — the header
+      count stays root-only (tasks.length) and this drives the separate
+      visible nested hint + hover title so nothing is silently hidden.
+      0/undefined renders the header exactly as before. */
   nestedCount?: number;
   allTasks: Task[];
   isLoading?: boolean;
@@ -1092,14 +1082,15 @@ function KanbanColumn({
           data-role="column-count"
           data-nested-count={nestedCount > 0 ? nestedCount : undefined}
           /* Hover title keeps the numbers reconcilable (owner lane
-             bba8e7f9/f476bfbc): the VISIBLE number is the root-card count
-             only; the title states the full breakdown (total = cards +
-             nested) for every column at zero layout cost. The separate
-             [data-role="nested-hint"] chip beside it is the discoverable
-             visible affordance — the title alone would be invisible. */
+             f2bef66a): the VISIBLE number is the root-card count only;
+             the title states the full breakdown (total = cards + the
+             column's owned nested children) for every column at zero
+             layout cost. The separate [data-role="nested-hint"] chip
+             beside it is the discoverable visible affordance — the title
+             alone would be invisible. */
           title={
             !isLoading && nestedCount > 0
-              ? `${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`
+              ? `${tasks.length + nestedCount} tasks in ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in this column`
               : undefined
           }
           style={{
@@ -1115,8 +1106,8 @@ function KanbanColumn({
           <span
             data-role="nested-hint"
             data-nested-count={nestedCount}
-            title={`${tasks.length + nestedCount} tasks have status ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in other columns`}
-            aria-label={`${nestedCount} tasks with status ${col.label} nested inside parent cards in other columns`}
+            title={`${tasks.length + nestedCount} tasks in ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in this column`}
+            aria-label={`${nestedCount} tasks nested inside parent cards in this column`}
             /* Minimal by request (93f10f06): just the count next to the ⇳
                mark — no pill, no border, no padding, no word. The
                explanation stays in the title and aria-label, which cost zero

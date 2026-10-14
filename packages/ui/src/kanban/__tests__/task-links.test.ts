@@ -7,6 +7,7 @@ import {
   getParent,
   groupDetailRelations,
   groupTasksByRoot,
+  countChildrenByColumn,
   resolveRootTask,
   classifyDropZone,
   classifyTreeDropZone,
@@ -413,5 +414,69 @@ describe("computeTreeReorder (sibling order plan)", () => {
   it("returns null for missing ids (null-safe)", () => {
     expect(computeTreeReorder(keyless, "", "r", "b", "after")).toBeNull();
     expect(computeTreeReorder(keyless, "a", "", "b", "after")).toBeNull();
+  });
+});
+
+/**
+ * Column child counts (ticket f2bef66a): each header accounts for the
+ * descendants of the column's own cards, regardless of the children's own
+ * status. A child belongs to its parent's column — the board renders it
+ * only inside the parent's card — so a child whose parent sits in another
+ * column is counted there, never in the child's own status column.
+ */
+describe("countChildrenByColumn (f2bef66a header child counts)", () => {
+  const childOf = (parentId: string) => [{ taskId: parentId, type: "parent" as const }];
+
+  function counted(tasks: Task[]): Record<string, number> {
+    const { standalone } = groupTasksByRoot(tasks);
+    return Object.fromEntries(countChildrenByColumn(tasks, standalone));
+  }
+
+  it("counts a parent's children regardless of their status (owner example: Review 1 3)", () => {
+    const tasks = [
+      makeTask({ id: "epic", title: "Epic", status: "review" }),
+      makeTask({ id: "c1", status: "todo", links: childOf("epic") }),
+      makeTask({ id: "c2", status: "done", links: childOf("epic") }),
+      makeTask({ id: "c3", status: "review", links: childOf("epic") }),
+    ];
+    expect(counted(tasks)).toEqual({ review: 3 });
+  });
+
+  it("a task with no children contributes zero (no entry)", () => {
+    const tasks = [
+      makeTask({ id: "solo", status: "todo" }),
+      makeTask({ id: "other", status: "todo" }),
+    ];
+    expect(counted(tasks)).toEqual({});
+  });
+
+  it("a child whose parent sits in another column counts ONLY in the parent column", () => {
+    const tasks = [
+      makeTask({ id: "epic", status: "in-progress" }),
+      makeTask({ id: "r1", status: "review" }),
+      makeTask({ id: "c1", status: "review", links: childOf("epic") }),
+    ];
+    // c1 carries status review but renders inside the in-progress card.
+    expect(counted(tasks)).toEqual({ "in-progress": 1 });
+  });
+
+  it("grandchildren resolve to the top root's column (counted once)", () => {
+    const tasks = [
+      makeTask({ id: "epic", status: "review" }),
+      makeTask({ id: "mid", status: "todo", links: childOf("epic") }),
+      makeTask({ id: "leaf", status: "done", links: childOf("mid") }),
+    ];
+    expect(counted(tasks)).toEqual({ review: 2 });
+  });
+
+  it("ignores dangling roots and null entries (null-safe)", () => {
+    const tasks = [
+      makeTask({ id: "epic", status: "review" }),
+      makeTask({ id: "orphan", status: "todo", links: childOf("missing") }),
+      null,
+      undefined,
+    ] as unknown as Task[];
+    // orphan's root is absent → standalone fallback card, never nested.
+    expect(counted(tasks)).toEqual({});
   });
 });
