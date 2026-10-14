@@ -10,11 +10,8 @@ import type {
   Task,
   TaskComment,
   TaskLink,
-  TaskLinkType,
 } from "../core/types.js";
 import {
-  TASK_LINK_TYPES,
-  TASK_STATUSES,
   compareTasksByPriorityThenCreated,
   type TaskStatus,
 } from "../core/types.js";
@@ -172,348 +169,63 @@ export function isDryRun(
 ): boolean {
   return ctx.dryRun === true || input.dryRun === true;
 }
-
-// ── Schemas ────────────────────────────────────────────────────────────────
-
-export const ListTasksInput = z.object({
-  // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
-  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
-  type: z
-    .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .optional(),
-  user: z.string().optional(),
-  tag: z.array(z.string()).optional(),
-  // DESCRIBED, not just typed: `tools/list` is the ONLY place a client can
-  // read this before the SDK's input validation refuses the call with
-  // `MCP error -32602: … at limit`, which is raised before any handler runs and
-  // carries no `suggestion`. See the field-description note below.
-  limit: z
-    .number()
-    .min(0)
-    .default(5)
-    .describe(
-      "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs.",
-    ),
-  fields: z.array(z.string()).optional(),
-  /**
-   * Include child tasks. Default false: only ROOT tasks are listed, matching
-   * the board, where a child is rendered inside its parent's card rather than
-   * as a peer. See `isChildTask` in ./tasks.js.
-   */
-  children: z.boolean().default(false),
-});
-export type ListTasksInputType = z.infer<typeof ListTasksInput>;
-
-export const GetTaskInput = z.object({
-  // Descriptions are load-bearing on the fields agents most often get wrong:
-  // see ListTasksInput.limit for why `tools/list` is the only place they can be
-  // read before the SDK refuses the call.
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Task id — a full id, or any unique prefix of one. Get a real id from list_tasks; an id that matches nothing is refused with TASK_NOT_FOUND.",
-    ),
-  fields: z.array(z.string()).optional(),
-});
-export type GetTaskInputType = z.infer<typeof GetTaskInput>;
-
-// No input by design: the project root is resolved once at server startup
-// (ctx.projectDir) and is never a per-call parameter — see getProject below.
-export const GetProjectInput = z.object({});
-export type GetProjectInputType = z.infer<typeof GetProjectInput>;
-
-export const CreateTaskInput = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
-  // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
-  status: z
-    .enum(TASK_STATUSES as unknown as [string, ...string[]])
-    .default("todo"),
-  type: z
-    .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .default("Task"),
-  priority: z.enum(["Critical", "High", "Medium", "Low"]).default("Medium"),
-  tags: z.array(z.string()).optional(),
-  url: z.string().optional(),
-  selector: z.string().default("/"),
-  cssSelector: z.string().optional(),
-  // Optional explicit ordering key; core auto-assigns one when omitted.
-  sortKey: z.string().optional(),
-  // Optional parent task id (full id or unique prefix); links the new task
-  // under it as a child.
-  parent: z.string().min(1).optional(),
-  // MERGE semantics, identical to `update_task`'s `links` and to the CLI's
-  // `--relates` / `--blocks`: every listed pair is ADDED to the new task,
-  // and `parent` (when given) is folded into the same set, so sending both
-  // merges their union once — a pair named twice is a no-op, never a
-  // duplicate-parent refusal. A brand-new task has no links yet, so there
-  // is nothing to preserve; merge still matters because it is what makes
-  // `parent` + `links` composable instead of mutually exclusive.
-  // `links: []` is refused (E_USAGE) rather than read as "no links": the
-  // same trap `update_task` closes — under merge an empty array names no
-  // links, and silently doing nothing would hide a client that still assumes
-  // replace semantics. Omit the field entirely for no links.
-  links: z
-    .array(
-      z.object({
-        taskId: z.string().min(1),
-        // SAFETY: TASK_LINK_TYPES is a readonly tuple; z.enum requires a mutable tuple type.
-        type: z.enum(
-          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
-        ),
-      }),
-    )
-    .optional()
-    .describe(
-      "ADD the listed links to the new task (merge, same as update_task's `links`). Combined with `parent` as a union; a pair named twice is a no-op. `links: []` is REFUSED — omit the field for no links.",
-    ),
-  // Preview only — never writes a task file. Present so the manifest's claim
-  // that every mutating tool exposes `dryRun` is true for create_task too.
-  dryRun: z.boolean().default(false),
-});
-export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
-
-export const UpdateTaskInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Task id — a full id, or any unique prefix of one, of the task to update. An id that matches nothing is refused with TASK_NOT_FOUND and changes nothing.",
-    ),
-  // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
-  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  branch: z.string().optional(),
-  comment: z.string().optional(),
-  commitMessage: z.string().optional(),
-  // Verification verdict (parity with the CLI's --set-verify / --verify-reason):
-  // "pass" => verified=true (green badge), "fail" => verified=false (amber
-  // badge, the review gate rejects it), "cannot" => verified=absent (no badge)
-  // and REQUIRES verifyReason, which is recorded in the task's activity.
-  // Omitting the field leaves any stored verdict untouched. `vibeflow verify`
-  // never writes this flag — only the agent does, and review-gate.ts Gate 4
-  // requires a verdict that lets the task through on the review transition.
-  setVerify: z
-    .enum(["pass", "fail", "cannot"])
-    .optional()
-    .describe(
-      "Your verification verdict: \"pass\" = the task IS implemented correctly (required for an annotated task at review), \"fail\" = it is NOT (the review gate blocks it), \"cannot\" = unverifiable here, which REQUIRES verifyReason. Omit to leave any stored verdict untouched.",
-    ),
-  verifyReason: z
-    .string()
-    .optional()
-    .describe(
-      "Why the task cannot be verified. REQUIRED with setVerify:\"cannot\", and refused as E_USAGE on its own — a reason belongs to a \"cannot\" verdict.",
-    ),
-  dryRun: z.boolean().default(false),
-  // MERGE semantics, identical to the CLI's `--relates` / `--blocks` and to
-  // `addLinks` below: every listed pair is ADDED, a pair already present is a
-  // no-op (idempotent), and a link you leave out stays exactly where it is.
-  // This is a deliberate change from the old REPLACE behaviour, which made a
-  // partial array silently DELETE every link it omitted — the single most
-  // destructive thing an MCP agent could do by accident.
-  // `links: []` is refused (E_USAGE) rather than read as "clear": under merge an
-  // empty array is almost certainly a client that still believes replace
-  // semantics apply, and silently doing nothing would be the worst outcome. To
-  // clear, say so explicitly with `clearLinks: true`.
-  // Omit the field entirely and links are untouched.
-  links: z
-    .array(
-      z.object({
-        taskId: z.string().min(1),
-        // SAFETY: TASK_LINK_TYPES is a readonly tuple; z.enum requires a mutable tuple type.
-        type: z.enum(
-          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
-        ),
-      }),
-    )
-    .optional()
-    .describe(
-      "ADD the listed links without touching the rest (merge, same as the CLI's --relates/--blocks). A pair already present is a no-op. `links: []` is REFUSED — use clearLinks:true to clear. Combining `links` with `addLinks` merges their union once.",
-    ),
-  // CLEAR: drop the WHOLE link set in one call. Only `true` acts; `false` (or
-  // an absent field) leaves links alone, so a client that always sends the flag
-  // cannot wipe links by omission.
-  // Combinable with the other three styles, and the order is fixed and
-  // deterministic: clearLinks first, then the `links`/`addLinks` merge, then
-  // `removeLinks` — so "start over and set exactly these, minus these" reads
-  // the way it is written. `links: []` remains refused regardless.
-  clearLinks: z
-    .boolean()
-    .optional()
-    .describe(
-      "Remove EVERY link from the task. Applied BEFORE the merge: clearLinks -> (links + addLinks) -> removeLinks. `true` clears; `false` or absent is a no-op.",
-    ),
-  // ADDITIVE: merge semantics, mirroring the CLI's `--relates` / `--blocks` and
-  // the CLI's `--set-parent` (surgical, keeps every other link). A link already
-  // present is a no-op, so the call is idempotent. Same meaning as `links`; when
-  // both are sent they are merged as a union in ONE pass, never applied twice.
-  addLinks: z
-    .array(
-      z.object({
-        taskId: z.string().min(1),
-        // SAFETY: as above — readonly tuple widened for z.enum.
-        type: z.enum(
-          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
-        ),
-      }),
-    )
-    .optional()
-    .describe(
-      "ADD links without touching the rest (merge). Same semantics as `links` — sending both merges their union once. Use clearLinks:true to drop the whole set.",
-    ),
-  // SUBTRACTIVE: removes exactly the listed taskId+type pairs and leaves every
-  // other link alone. A pair that is not present is a no-op. Applied LAST, after
-  // clearLinks and after the links/addLinks merge.
-  removeLinks: z
-    .array(
-      z.object({
-        taskId: z.string().min(1),
-        // SAFETY: as above — readonly tuple widened for z.enum.
-        type: z.enum(
-          TASK_LINK_TYPES as unknown as [TaskLinkType, ...TaskLinkType[]],
-        ),
-      }),
-    )
-    .optional()
-    .describe(
-      "REMOVE the listed links without touching the rest. Applied after clearLinks and after the links/addLinks merge.",
-    ),
-});
-export type UpdateTaskInputType = z.infer<typeof UpdateTaskInput>;
-
-export const ClaimNextTaskInput = z.object({
-  type: z
-    .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .optional(),
-  user: z.string().optional(),
-  tag: z.array(z.string()).optional(),
-  dryRun: z.boolean().default(false),
-});
-export type ClaimNextTaskInputType = z.infer<typeof ClaimNextTaskInput>;
-
-export const AddCommentInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Task id — a full id, or any unique prefix of one, of the task to comment on. An id that matches nothing is refused with TASK_NOT_FOUND; no task is created.",
-    ),
-  // Named `comment`, not `text`: the CLI flag is `--comment` and update_task
-  // already uses `comment`, so one concept must not have two names.
-  comment: z
-    .string()
-    .min(1)
-    .describe(
-      "The comment body — what changed, what you verified, what a reviewer should know. Required and non-empty: an empty body is refused by input validation before the tool runs.",
-    ),
-  author: z.enum(["agent", "user"]).default("agent"),
-  dryRun: z.boolean().default(false),
-});
-export type AddCommentInputType = z.infer<typeof AddCommentInput>;
-
-export const AttachFileInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Task id — a full id, or any unique prefix of one, of the task to attach to. An id that matches nothing is refused with TASK_NOT_FOUND; no file is written.",
-    ),
-  filename: z
-    .string()
-    .min(1)
-    .describe(
-      "Bare filename, no directory part. The EXTENSION decides acceptance: a .md is what satisfies the research-report gate, and an unsupported extension is refused with UNSUPPORTED_FILE_TYPE.",
-    ),
-  contentB64: z
-    .string()
-    .min(1)
-    .describe(
-      "The file content, base64-encoded (not raw bytes, and not a path to read). Required: omitting it is refused by input validation before the tool runs.",
-    ),
-  dryRun: z.boolean().default(false),
-});
-export type AttachFileInputType = z.infer<typeof AttachFileInput>;
-
-export const ExportPromptInput = z.object({
-  id: z
-    .string()
-    .optional()
-    .describe(
-      "A FULL task id to export — this tool matches ids EXACTLY, so a prefix is NOT resolved and is refused with TASK_NOT_FOUND. Omit it (or pass `ids`) to export the whole board.",
-    ),
-  // Real behaviour, stated because it differs from the other id-bearing tools:
-  // no prefix resolution, and an id that matches nothing is SKIPPED rather than
-  // refused (a list is best-effort), so the answer can name fewer tasks than
-  // were asked for.
-  ids: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "FULL task ids to export, matched exactly. An id that matches no task is skipped rather than refused, so check that the rendered output names every id you asked for.",
-    ),
-  format: z.enum(["markdown", "json"]).default("markdown"),
-});
-export type ExportPromptInputType = z.infer<typeof ExportPromptInput>;
-
-export const VerifyTaskInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Task id — a full id, or any unique prefix of one, resolved by the same shared rule every other task tool uses. An id that matches nothing is refused with E_NOT_FOUND (this tool runs the CLI verify engine, which has its own code), and every refusal it returns carries a `suggestion`.",
-    ),
-  url: z.string().url().optional(),
-  timeoutMs: z.number().min(1000).max(300000).default(60000),
-  // Preview only — never writes a task file and never launches a browser.
-  // verify_task mutates (it adds a system comment and records a verdict), so
-  // without this input the manifest's claim that every mutating tool exposes
-  // a `dryRun` was false for this one tool.
-  dryRun: z.boolean().default(false),
-});
-export type VerifyTaskInputType = z.infer<typeof VerifyTaskInput>;
-
-export const PushTasksInput = z.object({
-  workspace: z.string().optional(),
-  keepLocalFiles: z.boolean().default(true),
-  dryRun: z.boolean().default(false),
-});
-export type PushTasksInputType = z.infer<typeof PushTasksInput>;
-
-export const StartKanbanInput = z.object({
-  port: z
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
-    .optional()
-    .describe(
-      "Port to bind. Defaults to 3700, the same default as the `vibeflow serve` / `vibeflow kanban` commands. Ignored when the server is already running.",
-    ),
-  host: z
-    .string()
-    .optional()
-    .describe(
-      "Bind hostname. Defaults to localhost; use 0.0.0.0 to expose the board on the LAN (the tool then also returns a localhost URL). Ignored when the server is already running.",
-    ),
-  // The manifest's own rule (`tests/unit/mcp/parity.test.ts`): a tool that is
-  // not readOnly must expose a preview. Starting the board is exactly the kind
-  // of side effect an agent wants to check before committing a port.
-  dryRun: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Preview only: report the URLs and guide the server WOULD serve, and bind nothing. Never starts a process.",
-    ),
-});
-export type StartKanbanInputType = z.infer<typeof StartKanbanInput>;
-
-export const GetIntegrationGuideInput = z.object({});
-export type GetIntegrationGuideInputType = z.infer<
-  typeof GetIntegrationGuideInput
->;
+// ── Input schemas ──────────────────────────────────────────────────────────
+// Canonical home is `@vibeflow-tools/api-core` (P4a decision (B): both the
+// local and the hosted surface consume the same schemas); imported for the
+// run functions below and re-exported so the manifest, the CLI and the
+// drift tests keep importing from this module unchanged.
+import {
+  AddCommentInput,
+  type AddCommentInputType,
+  AttachFileInput,
+  type AttachFileInputType,
+  ClaimNextTaskInput,
+  type ClaimNextTaskInputType,
+  CreateTaskInput,
+  type CreateTaskInputType,
+  ExportPromptInput,
+  type ExportPromptInputType,
+  GetIntegrationGuideInput,
+  type GetIntegrationGuideInputType,
+  GetProjectInput,
+  type GetProjectInputType,
+  GetTaskInput,
+  type GetTaskInputType,
+  ListTasksInput,
+  type ListTasksInputType,
+  StartKanbanInput,
+  type StartKanbanInputType,
+  UpdateTaskInput,
+  type UpdateTaskInputType,
+  VerifyTaskInput,
+  type VerifyTaskInputType,
+} from "@vibeflow-tools/api-core";
+export {
+  AddCommentInput,
+  type AddCommentInputType,
+  AttachFileInput,
+  type AttachFileInputType,
+  ClaimNextTaskInput,
+  type ClaimNextTaskInputType,
+  CreateTaskInput,
+  type CreateTaskInputType,
+  ExportPromptInput,
+  type ExportPromptInputType,
+  GetIntegrationGuideInput,
+  type GetIntegrationGuideInputType,
+  GetProjectInput,
+  type GetProjectInputType,
+  GetTaskInput,
+  type GetTaskInputType,
+  ListTasksInput,
+  type ListTasksInputType,
+  StartKanbanInput,
+  type StartKanbanInputType,
+  UpdateTaskInput,
+  type UpdateTaskInputType,
+  VerifyTaskInput,
+  type VerifyTaskInputType,
+};
 
 /** True for a Node listen() EADDRINUSE failure, on the error or its `cause`. */
 function isAddrInUse(err: unknown): boolean {
@@ -1606,6 +1318,13 @@ export async function verifyTaskOp(
     }
   });
 }
+
+export const PushTasksInput = z.object({
+  workspace: z.string().optional(),
+  keepLocalFiles: z.boolean().default(true),
+  dryRun: z.boolean().default(false),
+});
+export type PushTasksInputType = z.infer<typeof PushTasksInput>;
 
 export async function pushTasks(
   ctx: OperationContext,

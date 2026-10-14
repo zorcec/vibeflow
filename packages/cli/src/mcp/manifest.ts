@@ -5,6 +5,7 @@
  * Maps CLI commands/flags to MCP tool definitions.
  */
 import type { z } from "zod";
+import type { McpToolDeclaration } from "@vibeflow-tools/api-core";
 import type { OperationContext, OperationResult } from "../core/operations.js";
 import {
   ListTasksInput,
@@ -35,27 +36,7 @@ import {
 
 // ── Manifest Types ─────────────────────────────────────────────────────────
 
-export interface ToolManifest {
-  name: string;
-  title: string;
-  description: string;
-  cliRef: {
-    command: string;
-    flags: string[];
-  };
-  category:
-    | "task-read"
-    | "task-write"
-    | "task-mutate"
-    | "admin"
-    | "server";
-  annotations: {
-    readOnlyHint: boolean;
-    destructiveHint: boolean;
-    idempotentHint: boolean;
-    openWorldHint: boolean;
-  };
-  input: z.ZodRawShape;
+export interface ToolManifest extends McpToolDeclaration {
   run: (
     ctx: OperationContext,
     input: unknown,

@@ -220,11 +220,11 @@
     { "id": "export-prompt", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/prompt" }, "local": null, "runnable": "no-local-handler", "phase": 3, "surfaces": [], "cloudSkipReason": "no cloud v1 handler: POST /api/v1/tasks/{id}/prompt is not implemented cloud-side (local pre-image is MCP export_prompt); skipped on the cloud surface", "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/prompt", "body": {} }, "expect": { "status": 200, "conformance": "structured agent prompt; local pre-image is MCP export_prompt" } }
     ] },
-    { "id": "mcp-get", "v1": { "method": "GET", "path": "/mcp" }, "local": { "method": "GET", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "surfaces": [], "cloudSkipReason": "P4: hosted MCP over StreamableHTTP is not a v1 operation on either surface yet; skipped on the cloud surface", "cases": [
+    { "id": "mcp-get", "v1": { "method": "GET", "path": "/mcp" }, "local": { "method": "GET", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "surfaces": [], "cloudSkipReason": "P4a: hosted GET /mcp is the StreamableHTTP SSE/notification stream and needs a live mcp-session-id the stateless runner cannot carry across cases; session lifecycle is covered by the dedicated hosted-MCP spec, skipped on the cloud surface", "cases": [
       { "name": "session", "request": { "method": "GET", "path": "/api/mcp" }, "expect": { "status": 200, "conformance": "hosted MCP session over StreamableHTTP (Phase 4)" } }
     ] },
-    { "id": "mcp-post", "v1": { "method": "POST", "path": "/mcp" }, "local": { "method": "POST", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "surfaces": [], "cloudSkipReason": "P4: hosted MCP over StreamableHTTP is not a v1 operation on either surface yet; skipped on the cloud surface", "cases": [
-      { "name": "call", "request": { "method": "POST", "path": "/api/mcp", "body": {} }, "expect": { "status": 200, "conformance": "hosted MCP call with scoped PAT (Phase 4)" } }
+    { "id": "mcp-post", "v1": { "method": "POST", "path": "/mcp" }, "local": { "method": "POST", "path": "/api/mcp" }, "runnable": "phase-4", "phase": 4, "surfaces": ["cloud"], "cases": [
+      { "name": "call", "request": { "method": "POST", "path": "/api/mcp", "body": {} }, "cloudRequest": { "method": "POST", "path": "/mcp", "body": { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "conformance", "version": "0.0.0" } } }, "headers": { "accept": "application/json, text/event-stream" } }, "expect": { "status": 200 } }
     ] }
   ]
 }

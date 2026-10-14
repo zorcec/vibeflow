@@ -4,8 +4,16 @@ import type { Principal } from "@vibeflow-tools/api-core";
 export type CommentAuthor = "user" | "agent";
 
 // ── Task links (parent / relates / blocks) ──────────────────────────────
-export const TASK_LINK_TYPES = ["parent", "relates", "blocks"] as const;
-export type TaskLinkType = (typeof TASK_LINK_TYPES)[number];
+// Canonical home is `@vibeflow-tools/api-core` (P4a decision (B): both the
+// local and the hosted surface consume the same vocabulary); re-exported
+// here so CLI-internal importers do not churn.
+import {
+  TASK_LINK_TYPES,
+  TASK_STATUSES,
+  type TaskLinkType,
+  type TaskStatus,
+} from "@vibeflow-tools/api-core";
+export { TASK_LINK_TYPES, TASK_STATUSES, type TaskLinkType, type TaskStatus };
 
 export interface TaskLink {
   /** ID of the linked task (target of the link from this task). */
@@ -46,14 +54,6 @@ export interface TaskFileRef {
 }
 
 // ── Task system (.proto/tasks/{id}.json) ───────────────────────────────────
-export const TASK_STATUSES = [
-  "backlog",
-  "todo",
-  "in-progress",
-  "review",
-  "done",
-] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** Returns true if the value is a valid TaskStatus. */
 export function isTaskStatus(v: unknown): v is TaskStatus {
