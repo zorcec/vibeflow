@@ -345,7 +345,8 @@ export function normalizeFileRef(
 /**
  * Normalize a full operation response envelope.
  * `shape` selects the envelope: task | task-list | comment-list |
- * file-list | project | me | settings | changelog | raw-bytes.
+ * file-list | screenshot-result | project | me | settings | changelog |
+ * raw-bytes.
  */
 export function normalizeResponse(
   shape: string,
@@ -416,6 +417,36 @@ export function normalizeResponse(
       return {
         items: items.map((f, i) => normalizeFileRef(f, ctx, `${where}[${i}]`)),
       };
+    }
+    case "screenshot-result": {
+      // POST /api/v1/tasks/{id}/screenshot answers { success, screenshot }
+      // on both surfaces (plus `proof` on later attaches, which leave the
+      // baseline row untouched). The filename embeds the task id, so it is
+      // scrubbed — the shape assertion is success + a string slot.
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        throw new NormalizeError(`expected screenshot-result object in ${where}`);
+      }
+      const rec = body as Record<string, unknown>;
+      const allowed = new Set(["success", "screenshot", "proof"]);
+      for (const key of Object.keys(rec)) {
+        if (!allowed.has(key)) {
+          throw new NormalizeError(
+            `screenshot-result field ${JSON.stringify(key)} in ${where} is not allowlisted`,
+          );
+        }
+      }
+      if (rec["success"] !== true) {
+        throw new NormalizeError(`screenshot-result in ${where} must carry success: true`);
+      }
+      if (typeof rec["screenshot"] !== "string" || rec["screenshot"].length === 0) {
+        throw new NormalizeError(`screenshot-result in ${where} must carry a screenshot filename`);
+      }
+      const out: Record<string, JsonValue> = {
+        success: true,
+        screenshot: "<screenshot>",
+      };
+      if (rec["proof"] !== undefined) out["proof"] = rec["proof"] === true;
+      return out;
     }
     case "project":
     case "me":

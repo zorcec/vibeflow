@@ -115,7 +115,7 @@
         "x-plan-row": 3,
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": "Create a task — success",
             "content": {
               "application/json": {
@@ -661,7 +661,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "Add a task link — success",
             "content": {
               "application/json": {
@@ -2815,7 +2815,7 @@
         "x-plan-row": 0,
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": "Create a personal access token (secret returned once) — success",
             "content": {
               "application/json": {
@@ -3063,7 +3063,7 @@
         "x-plan-row": 0,
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": "Create a board (caller becomes owner) — success",
             "content": {
               "application/json": {

@@ -59,8 +59,12 @@ export interface ManifestCase {
    * conventions (200-empty for unknown ids, router-level 400s) that the
    * contract's own v1 error convention contradicts (404/400 per openapi) —
    * the override documents the v1-correct expectation instead of hiding
-   * the divergence. Shape still validates from `expect.shape`. Absent on
-   * `local` — the local surface always asserts `expect.status`.
+   * the divergence. Others assert a local-legacy success code (200 for
+   * POST /api/tasks) where v1 declares the correct 201 Created — the
+   * override carries the 201 while `expect.status` keeps the local truth.
+   * Shape still validates from `expect.shape` on 2xx; only an error-status
+   * divergence asserts the v1 error envelope instead of the data shape.
+   * Absent on `local` — the local surface always asserts `expect.status`.
    */
   expectCloud?: {
     status: number;
@@ -181,6 +185,66 @@ export function toSurfacePath(
 }
 
 /**
+ * Substitute seed placeholders in one body/query string. The SAME seed map
+ * paths resolve from, in two spellings:
+ * - `{name}` anywhere in the string (the path syntax) — always a
+ *   placeholder: unknown names throw, like paths.
+ * - `<name>` as the WHOLE string (the manifest's body-placeholder spelling
+ *   — e.g. `"<other>"` for a link target id) — substituted only when the
+ *   seed map holds `name`. The manifest also uses whole angle-bracket
+ *   strings as literal example data (page snapshots carry
+ *   `"capturedAt": "<iso>"`), so an unseeded `<name>` passes through
+ *   untouched rather than throwing.
+ * Unlike paths, values are NOT URI-encoded — they travel as JSON, not as
+ * a URL segment.
+ */
+export function resolveSeedString(
+  value: string,
+  seed: Record<string, string> | undefined,
+  where: string,
+): string {
+  const whole = value.match(/^<(\w+)>$/);
+  if (whole) {
+    const resolved = seed?.[whole[1] as string];
+    if (resolved === undefined) return value;
+    return resolved;
+  }
+  return value.replace(/\{(\w+)\}/g, (match, name: string) => {
+    const resolved = seed?.[name];
+    if (resolved === undefined) {
+      throw new Error(
+        `manifest entry ${where}: no seed value for placeholder ${match}`,
+      );
+    }
+    return resolved;
+  });
+}
+
+/**
+ * Substitute seed placeholders anywhere in a case body (objects and arrays
+ * resolve recursively; non-string scalars pass through untouched). Generic
+ * over the body type so substitution preserves the caller's static type.
+ */
+export function resolveSeedBody<T>(
+  value: T,
+  seed: Record<string, string> | undefined,
+  where: string,
+): T {
+  if (typeof value === "string") return resolveSeedString(value, seed, where) as T;
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveSeedBody(item, seed, where)) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = resolveSeedBody(item, seed, where);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
  * Assert the v1 error envelope ({ error: string, ... }) — the shape an
  * `expectCloud` divergence asserts in place of the data shape. A 404 with
  * an HTML body (misconfigured route) or an empty body must not pass as a
@@ -272,8 +336,24 @@ export async function runConformance(
         const method = cr?.method ?? c.request.method;
         const template =
           cr?.path ?? toSurfacePath(entry, c.request.path, surface);
-        const query = cr?.query ?? c.request.query;
-        const body = cr?.body !== undefined ? cr.body : c.request.body;
+        // Bodies and query values resolve seed placeholders from the SAME
+        // seed map as paths (e.g. a link-target task id) — on BOTH
+        // surfaces, so a seeded body never travels with a literal "<other>".
+        const rawQuery = cr?.query ?? c.request.query;
+        const query =
+          rawQuery === undefined
+            ? undefined
+            : Object.fromEntries(
+                Object.entries(rawQuery).map(([key, value]) => [
+                  key,
+                  resolveSeedString(value, entry.seed, entry.id),
+                ]),
+              );
+        const rawBody = cr?.body !== undefined ? cr.body : c.request.body;
+        const body =
+          rawBody === undefined
+            ? undefined
+            : resolveSeedBody(rawBody, entry.seed, entry.id);
         const path = resolvePath(template, entry.seed, entry.id);
         const { status, body: responseBody } = await transport.fetchJson(
           method,
@@ -299,13 +379,16 @@ export async function runConformance(
         }
         if (c.expect.shape) {
           // A cloud status divergence asserts the v1 error envelope, not
-          // the data shape: the `expect` shape describes the local 2xx
-          // path, and an error body must never validate as data (nor pass
-          // without any body assertion at all).
+          // the data shape — but only when the diverged status is an
+          // error: the `expect` shape describes the local 2xx path, and an
+          // error body must never validate as data (nor pass without any
+          // body assertion at all). A success-status divergence (local 200
+          // vs v1 201 Created) still validates the data shape.
           if (
             surface === "cloud" &&
             c.expectCloud?.status !== undefined &&
-            c.expectCloud.status !== c.expect.status
+            c.expectCloud.status !== c.expect.status &&
+            want >= 400
           ) {
             assertErrorEnvelope(responseBody, where);
           } else {

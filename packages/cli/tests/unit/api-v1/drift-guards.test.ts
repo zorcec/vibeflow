@@ -348,10 +348,27 @@ describe("guard #1 support: generated artifacts are fresh and canonical", () => 
         `unresolvable ref ${ref}`,
       ).toBe(true);
     }
+    // v1 create ops answer 201 Created (create-task precedent, add-link
+    // included — POST .../links creates a link and the cloud answers 201);
+    // every other op answers 200. The success code is asserted exactly — a
+    // create declaring 200 (or a read declaring 201) fails, so the spec
+    // cannot drift back without failing loudly.
+    const created = new Set([
+      "create-task",
+      "create-token",
+      "create-board",
+      "add-link",
+    ]);
     for (const [path, item] of Object.entries(doc.paths)) {
       for (const [method, op] of Object.entries(item)) {
         expect(op.operationId, `${method} ${path}`).toBeTruthy();
-        expect(op.responses?.["200"], `${method} ${path}`).toBeDefined();
+        const want = created.has(op.operationId as string) ? "201" : "200";
+        const other = want === "201" ? "200" : "201";
+        expect(op.responses?.[want], `${method} ${path}`).toBeDefined();
+        expect(
+          op.responses?.[other],
+          `${method} ${path}: must declare exactly ${want}, not both`,
+        ).toBeUndefined();
       }
     }
   });

@@ -14,6 +14,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  resolveSeedBody,
+  resolveSeedString,
   runConformance,
   toSurfacePath,
   type ManifestEntry,
@@ -432,5 +434,98 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     expect(htmlReport.passed).toEqual([]);
     expect(htmlReport.failed).toHaveLength(1);
     expect(htmlReport.failed[0]?.detail).toMatch(/error envelope/);
+  });
+
+  it("a success-status expectCloud divergence still validates the data shape", async () => {
+    // create-task precedent: local answers 200, v1 declares 201 Created —
+    // the 201 body is data (bare task), so expect.shape must validate it,
+    // not assert the error envelope.
+    const entry: ManifestEntry = {
+      id: "create-task",
+      v1: { method: "POST", path: "/api/v1/tasks" },
+      local: { method: "POST", path: "/api/tasks" },
+      runnable: "write",
+      phase: 3,
+      surfaces: ["local", "cloud"],
+      cases: [
+        {
+          name: "full",
+          request: { method: "POST", path: "/api/tasks", body: { title: "t" } },
+          expect: { status: 200, shape: "task" },
+          expectCloud: { status: 201 },
+        },
+      ],
+    };
+    const okReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({
+        status: 201,
+        body: { id: "n", externalId: "n", title: "t", status: "todo" },
+      })),
+      { surface: "cloud" },
+    );
+    expect(okReport.failed).toEqual([]);
+    expect(okReport.passed).toHaveLength(1);
+    // A malformed 201 body still fails — the shape is asserted, not skipped.
+    const badReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({ status: 201, body: { nope: true } })),
+      { surface: "cloud" },
+    );
+    expect(badReport.passed).toEqual([]);
+    expect(badReport.failed).toHaveLength(1);
+  });
+
+  it("seed placeholders substitute in bodies and query values from the same seed map", async () => {
+    const entry: ManifestEntry = {
+      id: "add-link",
+      v1: { method: "POST", path: "/api/v1/tasks/{id}/links" },
+      local: { method: "PATCH", path: "/api/tasks/{taskId}" },
+      runnable: "write",
+      phase: 3,
+      surfaces: ["local", "cloud"],
+      seed: { taskId: "task-1", other: "task-2" },
+      cases: [
+        {
+          name: "green",
+          request: {
+            method: "POST",
+            path: "/api/v1/tasks/{taskId}/links",
+            query: { link: "{other}" },
+            body: { type: "relates", taskId: "<other>", nested: [{ id: "{taskId}" }] },
+          },
+          expect: { status: 200 },
+        },
+      ],
+    };
+    const seen: Seen[] = [];
+    const report = await runConformance(
+      [entry],
+      stubTransport(seen, () => ({ status: 200, body: {} })),
+      { surface: "cloud" },
+    );
+    expect(report.failed).toEqual([]);
+    expect(report.passed).toHaveLength(1);
+    expect(seen[0]?.path).toBe("/api/v1/tasks/task-1/links");
+    expect(seen[0]?.query).toEqual({ link: "task-2" });
+    expect(seen[0]?.body).toEqual({
+      type: "relates",
+      taskId: "task-2",
+      nested: [{ id: "task-1" }],
+    });
+    // `{name}` fails fast on unknown names, like paths. Whole-string
+    // `<name>` passes through when unseeded — the manifest also carries
+    // literal angle-bracket example data (page snapshots use `"<iso>"`).
+    expect(() => resolveSeedString("{nope}", { a: "b" }, "add-link")).toThrow(
+      /no seed value for placeholder \{nope\}/,
+    );
+    expect(resolveSeedString("<iso>", { a: "b" }, "put-baseline-page")).toBe("<iso>");
+    expect(
+      resolveSeedBody(
+        { page: { capturedAt: "<iso>", v: 1 } },
+        { a: "b" },
+        "put-baseline-page",
+      ),
+    ).toEqual({ page: { capturedAt: "<iso>", v: 1 } });
   });
 });

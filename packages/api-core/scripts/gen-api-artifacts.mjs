@@ -165,6 +165,25 @@ function pathParams(v1Path) {
   return params;
 }
 
+/**
+ * v1 ops that create a resource answer 201 Created (create-task,
+ * create-token, create-board, add-link — the cloud answers 201 and the
+ * private suites assert it). Every other op answers 200. The success key
+ * below and the lint both read this one set, so the contract cannot drift
+ * back to 200-for-creates without failing loudly.
+ */
+const CREATED_201_OPS = new Set([
+  "create-task",
+  "create-token",
+  "create-board",
+  "add-link",
+]);
+
+/** Success status the contract declares for an op: 201 for creates, 200 otherwise. */
+export function successStatusFor(op) {
+  return CREATED_201_OPS.has(op.id) ? 201 : 200;
+}
+
 const TAG_BY_ID = [
   [/^mcp-/, "MCP"],
   [/comment/, "Comments"],
@@ -323,7 +342,7 @@ export function buildOpenApiDocument(contract) {
       "x-plan-row": op.planRow,
       parameters: pathParams(op.v1Path),
       responses: {
-        200: {
+        [successStatusFor(op)]: {
           description: `${op.summary} — success`,
           content: { "application/json": { schema: responseFor(op) } },
         },
@@ -725,10 +744,15 @@ export function lintOpenApiDocument(doc, contract) {
       problems.push(`unresolvable $ref ${ref}`);
     }
   }
+  const successByOperationId = new Map(
+    contract.operations.map((op) => [op.id, successStatusFor(op)]),
+  );
   for (const [path, item] of Object.entries(doc.paths)) {
     for (const [method, op] of Object.entries(item)) {
       if (!op.operationId) problems.push(`${method.toUpperCase()} ${path}: missing operationId`);
-      if (!op.responses?.["200"]) problems.push(`${method.toUpperCase()} ${path}: missing 200 response`);
+      const want = String(successByOperationId.get(op.operationId) ?? 200);
+      if (!op.responses?.[want])
+        problems.push(`${method.toUpperCase()} ${path}: missing ${want} response`);
       for (const p of op.parameters ?? []) {
         if (p.in === "path" && !path.includes(`{${p.name}}`)) {
           problems.push(`${method.toUpperCase()} ${path}: path param ${p.name} not in path`);

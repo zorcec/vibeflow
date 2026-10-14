@@ -232,4 +232,32 @@ describe("normalizeResponse envelopes", () => {
       normalizeResponse("widget", {}, createNormalizeContext(), "w"),
     ).toThrow(/unknown response shape/);
   });
+
+  it("screenshot-result asserts success + filename, scrubs the id-bearing name", () => {
+    const ctx = createNormalizeContext();
+    const out = normalizeResponse(
+      "screenshot-result",
+      { success: true, screenshot: "cmgb1234.png" },
+      ctx,
+      "put-screenshot/green",
+    ) as Record<string, unknown>;
+    expect(out).toEqual({ success: true, screenshot: "<screenshot>" });
+    // success:false (or missing) is a failure, never a silent pass.
+    expect(() =>
+      normalizeResponse(
+        "screenshot-result",
+        { success: false, screenshot: "x.png" },
+        createNormalizeContext(),
+        "s",
+      ),
+    ).toThrow(/success: true/);
+    expect(() =>
+      normalizeResponse(
+        "screenshot-result",
+        { success: true },
+        createNormalizeContext(),
+        "s",
+      ),
+    ).toThrow(/screenshot filename/);
+  });
 });

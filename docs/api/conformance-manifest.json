@@ -36,8 +36,8 @@
       ]
     },
     { "id": "create-task", "v1": { "method": "POST", "path": "/api/v1/tasks" }, "local": { "method": "POST", "path": "/api/tasks" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "shape": "task", "cases": [
-      { "name": "minimal-no-selector", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 minimal" } }, "expect": { "status": 201, "shape": "task", "conformance": "v1: selector OPTIONAL (annotation is local-only); local handler requires it today — convergence item" } },
-      { "name": "full", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 full", "selector": "#app", "priority": "High" } }, "expect": { "status": 201, "shape": "task", "conformance": "created task echoes the write vocabulary" } }
+      { "name": "minimal-no-selector", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 minimal" } }, "expect": { "status": 200, "shape": "task", "conformance": "v1: selector OPTIONAL (annotation is local-only); local handler requires it today — convergence item" }, "expectCloud": { "status": 201 } },
+      { "name": "full", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v1 full", "selector": "#app", "priority": "High" } }, "expect": { "status": 200, "shape": "task", "conformance": "created task echoes the write vocabulary" }, "expectCloud": { "status": 201 } }
     ] },
     { "id": "patch-task", "v1": { "method": "PATCH", "path": "/api/v1/tasks/{id}" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "shape": "task", "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "status-transition", "request": { "method": "PATCH", "path": "/api/tasks/{taskId}", "body": { "status": "in-progress" } }, "expect": { "status": 200, "shape": "task", "conformance": "hyphenated status accepted on write (D6)" } }
@@ -52,7 +52,7 @@
       { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/expanded" }, "expect": { "status": 200, "conformance": "expanded state recorded" } }
     ] },
     { "id": "add-link", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/links" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "shape": "task", "seed": { "taskId": "<fixture todo task>" }, "cases": [
-      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/links", "body": { "type": "relates", "target": "<other>" } }, "expect": { "status": 200, "shape": "task", "conformance": "genuine gap: no dedicated local route today (links ride on update)" } }
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/links", "body": { "type": "relates", "taskId": "<other>" } }, "expect": { "status": 200, "shape": "task", "conformance": "genuine gap: no dedicated local route today (links ride on update; local PATCH answers 200)" }, "expectCloud": { "status": 201 } }
     ] },
     { "id": "remove-link", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/links/{type}/{target}" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/detach" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture child task>" }, "cases": [
       { "name": "green", "request": { "method": "DELETE", "path": "/api/v1/tasks/{taskId}/links/parent/{target}" }, "expect": { "status": 200, "conformance": "typed removal; local detach is the pre-image" } }
@@ -124,7 +124,7 @@
       { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "cloudRequest": { "method": "DELETE", "path": "/api/v1/tasks/{taskId}/files/{fileId}" }, "expect": { "status": 200, "conformance": "system trace comment records the removal. Cloud addresses files by id (v1 path) — the filename case path is the local shape" } }
     ] },
     { "id": "put-screenshot", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/screenshot" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
-      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "expect": { "status": 200, "conformance": "cloud stores as a system file via the files port" } }
+      { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot", "body": { "screenshot": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" } }, "expect": { "status": 200, "shape": "screenshot-result", "conformance": "v1 success shape { success, screenshot }; cloud stores as a system file via the files port" } }
     ] },
     { "id": "delete-screenshot", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/screenshot" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/screenshot" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/screenshot" }, "expect": { "status": 200, "conformance": "screenshot slot cleared" } }
