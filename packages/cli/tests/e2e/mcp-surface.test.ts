@@ -33,6 +33,7 @@ const COMMANDS = [
   "login",
   "logout",
   "mcp",
+  "openapi",
   "push",
   "serve",
   "status",
