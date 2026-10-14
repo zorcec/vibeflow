@@ -78,21 +78,24 @@ async function startFakeBackend(): Promise<{
         req.method === "PATCH" &&
         req.url === `/api/v1/tasks/${task.id}`
       ) {
-        finish(200, { task: { ...task, ...JSON.parse(body || "{}") } });
+        // The v1 cloud surface answers the BARE contract Task here (conformance
+        // group 1 unwrapped the old { task } envelope).
+        finish(200, { ...task, ...JSON.parse(body || "{}") });
         return;
       }
       if (
         req.method === "POST" &&
         req.url === `/api/v1/tasks/${task.id}/comments`
       ) {
+        // Contract Comment: { id, author, text, createdAt, updatedAt } —
+        // serializeV1Comment on the cloud (was body/authorId before the
+        // convergence to the contract shape).
         finish(200, {
-          comment: {
-            id: "c1",
-            taskId: task.id,
-            body: "x",
-            authorId: "u1",
-            createdAt: "2026-01-01T00:00:00.000Z",
-          },
+          id: "c1",
+          author: "user",
+          text: "x",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
         });
         return;
       }
