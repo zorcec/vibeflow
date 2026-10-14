@@ -32,9 +32,14 @@ from generated output:
 - **`conformance-manifest.json`** — one entry per contract operation with
   the cases each must satisfy on both surfaces. `runnable: local-read`
   entries run in Phase 0; writes and handler-less ops are data until
-  Phase 3 and are reported skipped with their target phase.
-- **`packages/api-core/src/conformance.ts`** — local-side runner skeleton:
-  fail-fast transport (hard timeouts, named errors, never hangs), response
+  Phase 3 and are reported skipped with their target phase. `surfaces`
+  names the surfaces an entry executes on: the cloud run executes every
+  `"cloud"` entry against the v1 paths and reports the rest skipped by
+  name with `cloudSkipReason` (local-only ops, P4 MCP).
+- **`packages/api-core/src/conformance.ts`** — per-surface runner:
+  `runConformance(entries, transport, { surface })` (`local` default,
+  bit-identical to Phase 0; `cloud` translates case paths to the v1 base).
+  Fail-fast transport (hard timeouts, named errors, never hangs), response
   normalization, explicit skip accounting.
 - **`packages/api-core/src/normalize.ts`** — the normalizer (unit-tested):
   strips volatile fields via a per-run id table and FAILS CLOSED on

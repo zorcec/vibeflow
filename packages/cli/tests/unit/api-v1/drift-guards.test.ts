@@ -373,6 +373,46 @@ describe("coverage guard: every registry route appears in the manifest", () => {
     ).toEqual({ missing: [], extra: [] });
     expect(manifestIds.length).toBe(registryIds.length);
   });
+
+  it("every manifest entry declares its surfaces; cloud skips name their reason", () => {
+    const manifest = readJson(
+      join(REPO_ROOT, "docs", "api", "conformance-manifest.json"),
+    ) as {
+      entries: { id: string; surfaces?: unknown; cloudSkipReason?: unknown }[];
+    };
+    const badSurfaces: string[] = [];
+    const reasonless: string[] = [];
+    for (const e of manifest.entries) {
+      const surfaces = e.surfaces;
+      if (
+        !Array.isArray(surfaces) ||
+        surfaces.length > 2 ||
+        !surfaces.every((s) => s === "local" || s === "cloud")
+      ) {
+        badSurfaces.push(e.id);
+        continue;
+      }
+      if (
+        !surfaces.includes("cloud") &&
+        (typeof e.cloudSkipReason !== "string" || e.cloudSkipReason.length === 0)
+      ) {
+        reasonless.push(e.id);
+      }
+    }
+    // The cloud run takes its skip/run decision from `surfaces` and reports
+    // every other entry skipped with `cloudSkipReason` — a malformed row or
+    // a reasonless skip would make the cloud report lie by omission.
+    expect(badSurfaces, `entries with malformed surfaces: ${badSurfaces.join(", ")}`).toEqual([]);
+    expect(reasonless, `cloud-skipped entries with no cloudSkipReason: ${reasonless.join(", ")}`).toEqual([]);
+    const cloudIds = manifest.entries
+      .filter((e) => (e.surfaces as string[]).includes("cloud"))
+      .map((e) => e.id)
+      .sort();
+    expect(
+      cloudIds.length,
+      `cloud-surfaced ops (${cloudIds.length}): ${cloudIds.join(", ")}`,
+    ).toBeGreaterThan(0);
+  });
 });
 
 describe("guard #2: no-second-implementation + bearer-surface invariant", () => {
