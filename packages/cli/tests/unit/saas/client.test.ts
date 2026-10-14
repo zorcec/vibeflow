@@ -27,11 +27,21 @@ const SAMPLE_TASK = {
   updatedAt: "2025-01-01T00:00:00Z",
 };
 
+// v1 contract Comment row as the cloud answers it.
+const V1_COMMENT = {
+  id: "comment-1",
+  author: "user",
+  text: "Hello",
+  createdAt: "2025-01-01T00:00:00Z",
+};
+
+// The CLI-internal shape the mapper produces (body + filled taskId).
 const SAMPLE_COMMENT = {
   id: "comment-1",
   taskId: "task-1",
   body: "Hello",
-  authorId: "user-1",
+  authorId: "",
+  author: "user",
   createdAt: "2025-01-01T00:00:00Z",
 };
 
@@ -366,7 +376,7 @@ describe("fetchSaasTasks — v1 envelope", () => {
     mockV1({
       seen,
       comments: [
-        { id: "c1", body: "note", authorId: "u1", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "c1", author: "agent", text: "note", createdAt: "2026-01-01T00:00:00.000Z" },
       ],
       files: [
         {
@@ -391,7 +401,8 @@ describe("fetchSaasTasks — v1 envelope", () => {
       {
         id: "c1",
         body: "note",
-        authorId: "u1",
+        authorId: "",
+        author: "agent",
         createdAt: "2026-01-01T00:00:00.000Z",
         taskId: "ext-1",
       },
@@ -500,7 +511,7 @@ describe("fetchSaasTasks — verified tri-state round-trip", () => {
 
 describe("addSaasComment", () => {
   it("returns created comment on success", async () => {
-    mockFetch({ comment: SAMPLE_COMMENT });
+    mockFetch(V1_COMMENT);
     const result = await addSaasComment("task-1", "Hello");
     expect(result).toEqual({ ok: true, data: SAMPLE_COMMENT });
   });
@@ -526,7 +537,7 @@ describe("addSaasComment", () => {
   });
 
   it("sends POST request with Authorization header", async () => {
-    mockFetch({ comment: SAMPLE_COMMENT });
+    mockFetch(V1_COMMENT);
     await addSaasComment("task-1", "Hello");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -535,15 +546,15 @@ describe("addSaasComment", () => {
   });
 
   it("sends comment body in JSON payload", async () => {
-    mockFetch({ comment: SAMPLE_COMMENT });
+    mockFetch(V1_COMMENT);
     await addSaasComment("task-1", "Test comment");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
-    expect(body.body).toBe("Test comment");
+    expect(body.text).toBe("Test comment");
   });
 
   it("posts comments to the v1 path", async () => {
-    mockFetch({ comment: SAMPLE_COMMENT });
+    mockFetch(V1_COMMENT);
     await addSaasComment("task-1", "Hello");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
@@ -552,7 +563,7 @@ describe("addSaasComment", () => {
 
 describe("fetchSaasComments", () => {
   it("returns comments on success", async () => {
-    mockFetch({ comments: [SAMPLE_COMMENT] });
+    mockFetch({ comments: [V1_COMMENT] });
     const result = await fetchSaasComments("task-1");
     expect(result).toEqual([SAMPLE_COMMENT]);
   });
@@ -576,7 +587,7 @@ describe("fetchSaasComments", () => {
   });
 
   it("sends GET request with Authorization header", async () => {
-    mockFetch({ comments: [SAMPLE_COMMENT] });
+    mockFetch({ comments: [V1_COMMENT] });
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -584,18 +595,18 @@ describe("fetchSaasComments", () => {
   });
 
   it("requests comments from correct URL", async () => {
-    mockFetch({ comments: [SAMPLE_COMMENT] });
+    mockFetch({ comments: [V1_COMMENT] });
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
   });
 
-  // v1 comment rows carry no `taskId` — the legacy shape did. Fill it so
-  // renderers keying on `comment.taskId` keep working.
+  // v1 comment rows carry no `taskId` — fill it so renderers keying on
+  // `comment.taskId` keep working.
   it("fills taskId on v1 comment rows that omit it", async () => {
     mockFetch({
       comments: [
-        { id: "c1", body: "x", authorId: "u1", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "c1", author: "agent", text: "x", createdAt: "2026-01-01T00:00:00.000Z" },
       ],
     });
     const result = await fetchSaasComments("task-9");
@@ -603,7 +614,8 @@ describe("fetchSaasComments", () => {
       {
         id: "c1",
         body: "x",
-        authorId: "u1",
+        authorId: "",
+        author: "agent",
         createdAt: "2026-01-01T00:00:00.000Z",
         taskId: "task-9",
       },

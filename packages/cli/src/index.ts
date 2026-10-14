@@ -1604,7 +1604,7 @@ program
               for (const c of saasComments) {
                 console.log(
                   chalk.dim(
-                    `      [${(c as { author?: string }).author ?? "agent"}] ${c.createdAt}`,
+                    `      [${c.author ?? "agent"}] ${c.createdAt}`,
                   ),
                 );
                 for (const line of c.body.split("\n"))
@@ -4282,10 +4282,9 @@ program
                   chalk.dim(`    comments (${sortedComments.length}):`),
                 );
                 for (const c of sortedComments) {
-                  // SaasComment has authorId (not author) and body (not text).
-                  const author = c.authorId
-                    ? `user:${c.authorId.slice(0, 8)}`
-                    : "agent";
+                  // v1 contract author (user|agent) reads back verbatim (L1);
+                  // fall back to the ownership id only when it is absent.
+                  const author = c.author ?? (c.authorId ? `user:${c.authorId.slice(0, 8)}` : "agent");
                   console.log(chalk.dim(`      [${author}] ${c.createdAt}`));
                   for (const line of c.body.split("\n"))
                     console.log(chalk.dim(`        ${line}`));

@@ -49,7 +49,32 @@ export interface SaasComment {
   taskId: string;
   body: string;
   authorId: string;
+  /** v1 contract author (user|agent), preserved verbatim (ledger L1). */
+  author?: string;
   createdAt: string;
+}
+
+/**
+ * Map one v1 contract Comment ({ id, author, text }) onto the CLI-internal
+ * SaasComment. Rows without contract text are dropped (null) — a comment
+ * with no text cannot render, and the list read stays best-effort.
+ */
+export function toSaasComment(
+  row: Record<string, unknown>,
+  taskId: string,
+): SaasComment | null {
+  if (typeof row.id !== "string" || typeof row.createdAt !== "string") {
+    return null;
+  }
+  if (typeof row.text !== "string") return null;
+  return {
+    id: row.id,
+    taskId,
+    body: row.text,
+    authorId: typeof row.authorId === "string" ? row.authorId : "",
+    ...(typeof row.author === "string" ? { author: row.author } : {}),
+    createdAt: row.createdAt,
+  };
 }
 
 export interface SaasTask {
@@ -214,12 +239,16 @@ async function fetchV1Comments(
   try {
     const res = await fetch(`${apiUrl}${taskBase}/comments`, { headers });
     if (!res.ok) return [];
-    const data = (await res.json()) as { comments?: SaasComment[] };
-    // v1 comment rows carry no `taskId` — the legacy shape did.
-    return (Array.isArray(data.comments) ? data.comments : []).map((c) => ({
-      ...c,
-      taskId: c.taskId ?? taskId,
-    }));
+    const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
+    if (!Array.isArray(data.comments)) return [];
+    // v1 comment rows carry no `taskId` — fill it so renderers keep working.
+    const out: SaasComment[] = [];
+    for (const row of data.comments) {
+      if (typeof row !== "object" || row === null) continue;
+      const mapped = toSaasComment(row, taskId);
+      if (mapped) out.push(mapped);
+    }
+    return out;
   } catch {
     return [];
   }
@@ -395,7 +424,9 @@ export async function addSaasComment(
       {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        // Contract CommentInput: `text` required, `author` preserved.
+        // The CLI posts human-authored text; the server defaults author.
+        body: JSON.stringify({ text: body }),
       },
     );
     if (!res.ok) {
@@ -409,8 +440,16 @@ export async function addSaasComment(
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    const data = (await res.json()) as { comment: SaasComment };
-    return { ok: true, data: data.comment };
+    // v1 answers the bare contract Comment (status 200).
+    const data = (await res.json()) as Record<string, unknown>;
+    const mapped = toSaasComment(data, taskId);
+    if (!mapped) {
+      return {
+        ok: false,
+        error: { code: "HTTP_ERROR", message: "Malformed comment response" },
+      };
+    }
+    return { ok: true, data: mapped };
   } catch (err) {
     return {
       ok: false,
@@ -439,10 +478,16 @@ export async function fetchSaasComments(
       { headers },
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as { comments: SaasComment[] };
+    const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
     if (!Array.isArray(data.comments)) return [];
-    // v1 comment rows carry no `taskId` — the legacy shape did.
-    return data.comments.map((c) => ({ ...c, taskId: c.taskId ?? taskId }));
+    // v1 comment rows carry no `taskId` — fill it so renderers keep working.
+    const out: SaasComment[] = [];
+    for (const row of data.comments) {
+      if (typeof row !== "object" || row === null) continue;
+      const mapped = toSaasComment(row, taskId);
+      if (mapped) out.push(mapped);
+    }
+    return out;
   } catch {
     return null;
   }
