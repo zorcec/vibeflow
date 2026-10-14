@@ -320,6 +320,41 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     );
   });
 
+  it("hits the v1 device-auth paths (no bearer on auth infrastructure)", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ expired: true }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/v1\/auth\/device-init$/);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/api\/v1\/auth\/device-poll$/);
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1] as RequestInit).headers ?? {}).not.toMatchObject({
+        Authorization: expect.anything(),
+      });
+    }
+  });
+
   it("stores the device-flow PAT and sends it as Bearer on cloud calls", async () => {
     const pat =
       "vbf_pat_01234567_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";

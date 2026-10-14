@@ -64,7 +64,10 @@ export type ApiSurfaceMode = "local" | "cloud";
  * equivalent (`/api/tasks/*` → `/api/v1/tasks/*` with any suffix preserved;
  * `/api/cli/settings` → `/api/v1/settings`; `/api/cli/workspaces` →
  * `/api/v1/boards`; `/api/cli/profile` → `/api/v1/me`; `/api/cli/tasks/*` →
- * `/api/v1/tasks/*`). A trailing query string is preserved verbatim.
+ * `/api/v1/tasks/*`; `/api/cli/auth/*` → `/api/v1/auth/*` (device auth is
+ * auth infrastructure that moved under the v1 prefix — it accepts no
+ * bearer and is not a resource-contract op). A trailing query string is
+ * preserved verbatim.
  * Unmapped paths pass through unchanged (additive safety).
  *
  * `/api/cli/import` has NO v1 equivalent — the contract offers no batch
@@ -94,6 +97,7 @@ const V1_PREFIX_TABLE: Array<readonly [string, string]> = [
   ["/api/cli/workspaces", "/api/v1/boards"],
   ["/api/cli/settings", "/api/v1/settings"],
   ["/api/cli/profile", "/api/v1/me"],
+  ["/api/cli/auth", "/api/v1/auth"],
   ["/api/cli/tasks", "/api/v1/tasks"],
   ["/api/tasks", "/api/v1/tasks"],
 ];

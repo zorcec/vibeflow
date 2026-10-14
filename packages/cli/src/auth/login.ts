@@ -309,7 +309,8 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
   let initRes: Response;
   try {
     // Step 1: Request device code
-    initRes = await fetch(`${apiUrl}/api/cli/auth/device-init`, {
+    // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+    initRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/auth/device-init")}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
@@ -373,7 +374,8 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
 
     let pollRes: Response | null = null;
     try {
-      pollRes = await fetch(`${apiUrl}/api/cli/auth/device-poll`, {
+      // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+      pollRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/auth/device-poll")}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceCode }),

@@ -83,12 +83,21 @@ describe("core/api-url surfacePath", () => {
     );
   });
 
-  it("cloud target leaves unmapped paths unchanged", () => {
+  it("cloud target maps device auth under the v1 prefix", () => {
     expect(surfacePath("cloud", "/api/cli/auth/device-init")).toBe(
-      "/api/cli/auth/device-init",
+      "/api/v1/auth/device-init",
     );
     expect(surfacePath("cloud", "/api/cli/auth/device-poll")).toBe(
-      "/api/cli/auth/device-poll",
+      "/api/v1/auth/device-poll",
+    );
+    expect(surfacePath("cloud", "/api/cli/auth/verify")).toBe(
+      "/api/v1/auth/verify",
+    );
+  });
+
+  it("cloud target leaves unmapped paths unchanged", () => {
+    expect(surfacePath("cloud", "/api/cli/unknown-path")).toBe(
+      "/api/cli/unknown-path",
     );
   });
 
