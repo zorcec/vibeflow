@@ -49,11 +49,19 @@ export const ListTasksInput = z.object({
     .describe(
       "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs.",
     ),
-  fields: z.array(z.string()).optional(),
+  fields: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Return only these task fields per row (e.g. [\"id\",\"title\",\"status\"]) to save context. Omit for the full task objects.",
+    ),
   /**
-   * Include child tasks. Default false: only ROOT tasks are listed, matching
-   * the board, where a child is rendered inside its parent's card rather than
-   * as a peer. See `isChildTask` in ./tasks.js.
+   * Include child tasks in the UNFILTERED listing. Default false: only ROOT
+   * tasks are listed, matching the board, where a child is rendered inside
+   * its parent's card rather than as a peer. See `isChildTask` in ./tasks.js.
+   * A FILTERED query (status/type/user/tag) is an explicit search and ALWAYS
+   * includes matching children — exactly like `vibeflow tasks --status todo`
+   * — so no match is ever hidden because its parent did not match.
    */
   children: z.boolean().default(false),
 });
@@ -399,7 +407,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters. Returns task list with configurable fields. ROOT tasks only by default — a task with a parent belongs to that parent, so set children:true to include them. The response's hiddenChildren reports how many matched but were omitted.",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all).",
     cliRef: {
       command: "tasks",
       flags: [

@@ -195,7 +195,7 @@ export const manifest: ToolManifest[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters. Returns task list with configurable fields. ROOT tasks only by default — a task with a parent belongs to that parent, so set children:true to include them. The response's hiddenChildren reports how many matched but were omitted.",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all).",
     cliRef: {
       command: "tasks",
       flags: [

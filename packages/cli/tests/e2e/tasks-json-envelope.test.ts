@@ -5,8 +5,9 @@
  * Fix A: every `tasks --json` success payload starts with `ok: true` on stdout
  * (named payloads: list → `tasks`, get/add/edit/next → `task`), and no success
  * payload carries the old top-level `success` key. The list envelope reports
- * `hiddenChildren` — child tasks are omitted from the listing by default and
- * the count is machine-readable metadata, not footer text.
+ * the shared listing counts (`totalMatching`, `totalRoots`, `returned`,
+ * `limit`, `truncated`, `hiddenChildren`) — the same vocabulary the MCP
+ * `list_tasks` tool answers with, so the two surfaces cannot disagree.
  *
  * Fix B: a review-gate refusal (e.g. REVIEW_COMMENT_REQUIRED) reaches `--json`
  * consumers as `{ok:false, error:{code, …}}` on stderr with exit code 2 — the

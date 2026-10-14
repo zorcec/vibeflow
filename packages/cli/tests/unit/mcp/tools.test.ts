@@ -77,7 +77,11 @@ describe("list_tasks", () => {
     const result = await listTasks(ctx, { limit: 5 });
     expect(result.ok).toBe(true);
     expect(result.data?.tasks).toEqual([]);
-    expect(result.data?.total).toBe(0);
+    expect(result.data?.totalMatching).toBe(0);
+    expect(result.data?.totalRoots).toBe(0);
+    expect(result.data?.returned).toBe(0);
+    expect(result.data?.truncated).toBe(false);
+    expect(result.data?.hiddenChildren).toBe(0);
   });
 
   it("returns all tasks", async () => {
@@ -87,7 +91,11 @@ describe("list_tasks", () => {
     const result = await listTasks(ctx, { limit: 10 });
     expect(result.ok).toBe(true);
     expect(result.data?.tasks).toHaveLength(2);
-    expect(result.data?.total).toBe(2);
+    expect(result.data?.totalMatching).toBe(2);
+    expect(result.data?.totalRoots).toBe(2);
+    expect(result.data?.returned).toBe(2);
+    expect(result.data?.limit).toBe(10);
+    expect(result.data?.truncated).toBe(false);
   });
 
   it("filters by status", async () => {
@@ -110,7 +118,7 @@ describe("list_tasks", () => {
     expect(result.data?.tasks[0].id).toBe("task-1");
   });
 
-  it("applies limit", async () => {
+  it("applies limit and discloses the truncation", async () => {
     createTestTask({ id: "task-1" });
     createTestTask({ id: "task-2" });
     createTestTask({ id: "task-3" });
@@ -118,7 +126,12 @@ describe("list_tasks", () => {
     const result = await listTasks(ctx, { limit: 2 });
     expect(result.ok).toBe(true);
     expect(result.data?.tasks).toHaveLength(2);
-    expect(result.data?.total).toBe(3);
+    expect(result.data?.totalMatching).toBe(3);
+    expect(result.data?.totalRoots).toBe(3);
+    expect(result.data?.returned).toBe(2);
+    expect(result.data?.limit).toBe(2);
+    expect(result.data?.truncated).toBe(true);
+    expect(result.data?.hint).toContain("limit 0");
   });
 
   it("returns specific fields", async () => {

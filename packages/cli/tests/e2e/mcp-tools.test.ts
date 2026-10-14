@@ -7,7 +7,7 @@
  *
  * Return shapes (from formatResult → result.data):
  *   createTask     → Task object (id, title, status, ...)
- *   listTasks      → { tasks: Task[], total: number }
+ *   listTasks      → { tasks: Task[], totalMatching, totalRoots, returned, limit, truncated, hint?, hiddenChildren }
  *   getTask        → Task object
  *   getProject     → { root, name, branch, mode }
  *   updateTask     → Task object
@@ -147,7 +147,9 @@ describe("MCP tools happy paths", () => {
     const res = await callTool(client, "list_tasks", { limit: 0 });
     const parsed = await assertJsonTextContent(res);
     expect(parsed.tasks.length).toBeGreaterThanOrEqual(2);
-    expect(parsed.total).toBeGreaterThanOrEqual(2);
+    expect(parsed.totalMatching).toBeGreaterThanOrEqual(2);
+    expect(parsed.totalRoots).toBeGreaterThanOrEqual(2);
+    expect(parsed.returned).toBe(parsed.tasks.length);
     const ids = parsed.tasks.map((t: any) => t.id);
     expect(ids).toContain(p1.id);
     expect(ids).toContain(p2.id);

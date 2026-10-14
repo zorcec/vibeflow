@@ -298,6 +298,123 @@ describe("review-gate parity — CLI vs MCP on the same workspace", () => {
   });
 });
 
+// ═══ 2b. listing parity — CLI vs MCP on the same workspace ═════════════════
+//
+// Parity contract 83159002 + children c1835c1d (silent truncation) and
+// d0b6ee54 (total semantics): the same filter asked of both surfaces must
+// give the same rows, the same labelled counts, and the same disclosure.
+// This is the differential test that would have caught both defects.
+
+describe("listing parity — CLI vs MCP on the same workspace", () => {
+  let env: McpTestEnv;
+  let client: McpClient;
+  let home: string;
+
+  beforeEach(async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "mcp-parity-list-"));
+    seedGitUser(projectDir);
+    env = await bootMcpServer(projectDir);
+    client = newClient(env.mcpUrl);
+    await initialize(client);
+    home = mkdtempSync(join(tmpdir(), "mcp-parity-list-home-"));
+
+    // 3 roots (2 todo, 1 done) + 2 todo children on different parents.
+    const r1 = await callJson(client, "create_task", { title: "root one" });
+    const r2 = await callJson(client, "create_task", { title: "root two" });
+    await callJson(client, "create_task", {
+      title: "root done",
+      status: "done",
+    });
+    await callJson(client, "create_task", {
+      title: "kid of one",
+      parent: r1.id,
+    });
+    await callJson(client, "create_task", {
+      title: "kid of two",
+      parent: r2.id,
+    });
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+  });
+
+  async function cliList(args: string[]): Promise<any> {
+    const res = await runCli(["tasks", ...args, "--json"], {
+      cwd: env.projectDir,
+      home,
+    });
+    expect(res.code, `CLI tasks ${args.join(" ")} failed: ${res.stderr}`).toBe(0);
+    return JSON.parse(res.stdout);
+  }
+
+  it("unfiltered: same roots, same labelled counts on both surfaces", async () => {
+    const cli = await cliList([]);
+    const mcp = await callJson(client, "list_tasks", { limit: 0 });
+    // 3 roots visible, 2 children hidden — on BOTH surfaces.
+    for (const [name, parsed] of [["cli", cli], ["mcp", mcp]] as const) {
+      expect(parsed.totalMatching, name).toBe(5);
+      expect(parsed.totalRoots, name).toBe(3);
+      expect(parsed.hiddenChildren, name).toBe(2);
+      expect(parsed.returned, name).toBe(3);
+      expect(parsed.truncated, name).toBe(false);
+    }
+    expect(mcp.limit).toBe(0);
+    expect(mcp.tasks.map((t: any) => t.id)).toEqual(
+      cli.tasks.map((t: any) => t.id),
+    );
+  });
+
+  it("filtered: a status query includes matching children on both surfaces", async () => {
+    const cli = await cliList(["--status", "todo"]);
+    const mcp = await callJson(client, "list_tasks", {
+      status: "todo",
+      limit: 0,
+    });
+    // 2 todo roots + 2 todo children = 4 matches, none hidden.
+    for (const [name, parsed] of [["cli", cli], ["mcp", mcp]] as const) {
+      expect(parsed.totalMatching, name).toBe(4);
+      expect(parsed.totalRoots, name).toBe(2);
+      expect(parsed.hiddenChildren, name).toBe(0);
+      expect(parsed.returned, name).toBe(4);
+    }
+    expect(mcp.tasks.map((t: any) => t.id)).toEqual(
+      cli.tasks.map((t: any) => t.id),
+    );
+  });
+
+  it("limit: MCP discloses the cut like the CLI footer does", async () => {
+    const mcp = await callJson(client, "list_tasks", {
+      status: "todo",
+      limit: 2,
+    });
+    expect(mcp.returned).toBe(2);
+    expect(mcp.totalMatching).toBe(4);
+    expect(mcp.truncated).toBe(true);
+    expect(mcp.hint).toMatch(/showing 2 of 4 matching.*limit 0/);
+
+    const cli = await runCli(["tasks", "--status", "todo", "--limit", "2"], {
+      cwd: env.projectDir,
+      home,
+    });
+    expect(cli.code).toBe(0);
+    expect(cli.stdout).toMatch(/showing 2 of 4 matching.+--limit 0/);
+  });
+
+  it("children:true matches CLI --children on the unfiltered listing", async () => {
+    const cli = await cliList(["--children"]);
+    const mcp = await callJson(client, "list_tasks", {
+      children: true,
+      limit: 0,
+    });
+    expect(cli.hiddenChildren).toBe(0);
+    expect(mcp.hiddenChildren).toBe(0);
+    expect(mcp.tasks.map((t: any) => t.id)).toEqual(
+      cli.tasks.map((t: any) => t.id),
+    );
+  });
+});
+
 // ═══ 3. verify + verdict semantics ════════════════════════════════════════
 
 describe("verify/verdict parity — CLI vs MCP", () => {

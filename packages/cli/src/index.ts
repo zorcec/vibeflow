@@ -23,7 +23,6 @@ import {
   resolveTaskId,
   claimNextTaskAtomic,
   summariseChildren,
-  isChildTask,
   getParentId,
   getUnfinishedBlockers,
   writeSortKeyMinimal,
@@ -31,6 +30,7 @@ import {
   matchesIdOrPrefix,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
+import { queryTaskList } from "./core/task-listing.js";
 import { listFiles } from "./core/files.js";
 import { readConfig, getCurrentBranch } from "./core/config.js";
 import {
@@ -4326,50 +4326,32 @@ program
 
         const all = listTasksWithPaths(dir);
         if (opts.user && !validateUserFilter(opts.user, all, opts.json)) return;
-        let filtered = opts.status
-          ? all.filter((t) => t.status === opts.status)
-          : all;
-        if (opts.type)
-          filtered = filtered.filter(
-            (t) =>
-              (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
-          );
-        if (opts.user)
-          filtered = filtered.filter((t) =>
-            matchesUserFilter(t.author, opts.user!),
-          );
-        if (opts.tag && opts.tag.length > 0)
-          filtered = filtered.filter((t) =>
-            opts.tag!.every((tag) => (t.tags ?? []).includes(tag)),
-          );
 
-        // Root-only is the DEFAULT (board parity: a child belongs to its
-        // parent's card). But a filtered query (--status/--type/--tag/--user)
-        // is an explicit search: it returns EVERY matching task, children
-        // included, so a matching task can never be invisible because its
-        // parent did not match. `--children` includes children in the
-        // unfiltered listing too. Counted AFTER the other filters so the
-        // footer describes this query.
-        const hasSearchFilter = Boolean(
-          opts.status ||
-            opts.type ||
-            opts.user ||
-            (opts.tag && opts.tag.length > 0),
-        );
-        const includeChildren = Boolean(opts.children) || hasSearchFilter;
-        const matchingChildren = filtered.filter(isChildTask);
-        const hiddenChildCount = includeChildren ? 0 : matchingChildren.length;
-        if (!includeChildren) {
-          filtered = filtered.filter((t) => !isChildTask(t));
-        }
-
+        // Parity contract 83159002: filter/scope/sort/limit/counts come from
+        // the ONE shared listing model (core/task-listing.ts) — the same one
+        // the MCP list_tasks tool renders. Root-only is the default, but a
+        // filtered query is an explicit search returning EVERY match.
         const taskLimit =
           opts.limit === undefined ? 5 : parseInt(opts.limit, 10);
+        // The --json envelope returns the whole answer (limit applies to the
+        // human listing only), so it queries unlimited and reports the same
+        // labelled counts the MCP tool does.
+        const listed = queryTaskList(all, {
+          status: opts.status,
+          type: opts.type,
+          user: opts.user,
+          tag: opts.tag,
+          children: opts.children,
+          limit: opts.json ? 0 : taskLimit,
+        });
+        const hiddenChildCount = listed.hiddenChildren;
+        let filtered = listed.tasks;
 
         if (opts.json) {
           // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
-          // `hiddenChildren` reports how many matching child tasks were omitted
-          // from `tasks` (root-only listing is the default; pass --children).
+          // Counts share the MCP vocabulary: totalMatching (every match),
+          // totalRoots (matching roots), returned (rows in `tasks`), limit
+          // (0 = unlimited), truncated + hiddenChildren.
           outputEnvelope({
             ok: true,
             json: opts.json,
@@ -4380,29 +4362,21 @@ program
                   parsedFields,
                 ),
               ),
+              totalMatching: listed.totalMatching,
+              totalRoots: listed.totalRoots,
+              returned: listed.returned,
+              limit: listed.limit,
+              truncated: listed.truncated,
               hiddenChildren: hiddenChildCount,
             },
           });
           return;
         }
 
-        filtered = filtered.sort((a, b) => {
-          const byStatus = getStatusRank(a.status) - getStatusRank(b.status);
-          if (byStatus !== 0) return byStatus;
-          const byPriority =
-            getPriorityRank(a.priority) - getPriorityRank(b.priority);
-          if (byPriority !== 0) return byPriority;
-
-          const aDate = new Date(a.updated ?? a.created).getTime();
-          const bDate = new Date(b.updated ?? b.created).getTime();
-          if (aDate !== bDate) return bDate - aDate;
-
-          return a.id.localeCompare(b.id);
-        });
-
-        const totalFiltered = filtered.length;
-        if (!isNaN(taskLimit) && taskLimit > 0)
-          filtered = filtered.slice(0, taskLimit);
+        // Scoped pre-slice size for the footer: the roots when root-only,
+        // every match when children are included.
+        const totalFiltered =
+          hiddenChildCount > 0 ? listed.totalRoots : listed.totalMatching;
 
         if (filtered.length === 0) {
           console.log(chalk.dim("No tasks found."));

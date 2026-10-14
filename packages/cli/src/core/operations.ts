@@ -16,6 +16,7 @@ import {
   type TaskStatus,
 } from "../core/types.js";
 import type { FileInfo } from "../core/files.js";
+import type { TaskListResult } from "../core/task-listing.js";
 import { resolve, basename } from "node:path";
 import { getCurrentBranch, getProjectName } from "./config.js";
 import { getGitUser } from "./git-user.js";
@@ -240,54 +241,28 @@ function isAddrInUse(err: unknown): boolean {
 export async function listTasks(
   ctx: OperationContext,
   input: ListTasksInputType,
-): Promise<
-  OperationResult<{ tasks: Task[]; total: number; hiddenChildren: number }>
-> {
+): Promise<OperationResult<TaskListResult>> {
   try {
     // Dynamic import to avoid circular dependencies
-    const { listTasks: coreListTasks, isChildTask } = await import(
-      "../core/tasks.js"
-    );
-    let tasks = coreListTasks(ctx.projectDir);
-
-    // Apply filters
-    if (input.status) {
-      tasks = tasks.filter((t) => t.status === input.status);
-    }
-    if (input.type) {
-      tasks = tasks.filter((t) => t.type === input.type);
-    }
-    if (input.user) {
-      tasks = tasks.filter((t) => t.author === input.user);
-    }
-    if (input.tag && input.tag.length > 0) {
-      tasks = tasks.filter(
-        (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
-      );
-    }
-
-    // OWNER DECISION: list ROOT tasks only unless asked otherwise. A child
-    // belongs to its parent, so listing it as a peer would contradict the
-    // board, which renders it inside the parent's card. Mirrors the CLI's
-    // `tasks` / `--children` behaviour.
-    const hiddenChildren = input.children
-      ? 0
-      : tasks.filter(isChildTask).length;
-    if (!input.children) {
-      tasks = tasks.filter((t) => !isChildTask(t));
-    }
-
-    const total = tasks.length;
-
-    // Apply limit
-    if (input.limit > 0) {
-      tasks = tasks.slice(0, input.limit);
-    }
+    const { listTasks: coreListTasks } = await import("../core/tasks.js");
+    const { queryTaskList } = await import("../core/task-listing.js");
+    // Parity contract 83159002: filter/scope/sort/limit/counts come from the
+    // ONE shared listing model (core/task-listing.ts), the same one the CLI
+    // `tasks` listing renders — including the filtered-query rule (a filter
+    // is an explicit search, so children are included, exactly like the CLI).
+    const result = queryTaskList(coreListTasks(ctx.projectDir), {
+      status: input.status,
+      type: input.type,
+      user: input.user,
+      tag: input.tag,
+      children: input.children,
+      limit: input.limit,
+    });
 
     // Apply field selection
     if (input.fields && input.fields.length > 0) {
       const fieldSet = new Set(input.fields);
-      tasks = tasks.map((t) => {
+      result.tasks = result.tasks.map((t) => {
         const filtered: Record<string, unknown> = {};
         for (const key of Object.keys(t)) {
           if (fieldSet.has(key)) {
@@ -300,7 +275,7 @@ export async function listTasks(
       });
     }
 
-    return { ok: true, data: { tasks, total, hiddenChildren } };
+    return { ok: true, data: result };
   } catch (err) {
     return {
       ok: false,

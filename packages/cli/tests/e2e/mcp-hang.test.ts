@@ -107,6 +107,15 @@ describe("MCP CLI hang regression", () => {
     expect(r.code).toBe(0);
     expect(r.elapsedMs).toBeLessThan(HANG_BUDGET_MS);
     const parsed = JSON.parse(r.stdout);
-    expect(parsed).toEqual({ ok: true, tasks: [], hiddenChildren: 0 });
+    expect(parsed).toEqual({
+      ok: true,
+      tasks: [],
+      totalMatching: 0,
+      totalRoots: 0,
+      returned: 0,
+      limit: 0,
+      truncated: false,
+      hiddenChildren: 0,
+    });
   });
 });
