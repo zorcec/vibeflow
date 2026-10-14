@@ -20,8 +20,15 @@ export interface PageElementRecord {
   /** First 200 chars of visible text */
   text: string;
   position: { x: number; y: number; width: number; height: number };
-  /** Computed baseline styles (only RELEVANT_STYLES subset, or null if not captured) */
-  baseline: Record<string, string> | null;
+  /**
+   * Computed baseline styles (only RELEVANT_STYLES subset, or null if not
+   * captured). Optional: the local store is after-only (the annotation
+   * capture fills both maps with the same values, so only `.after` is
+   * stored — ticket 1caca8cc, 2026-10-14). Readers must not dereference this
+   * on a stored file without the back-fill (verify.ts step 14, verify-tools
+   * readEvidence) that restores it FROM `.after` at read time.
+   */
+  baseline?: Record<string, string> | null;
   /** Computed post-verify styles (or null if element was removed) */
   after: Record<string, string> | null;
 }

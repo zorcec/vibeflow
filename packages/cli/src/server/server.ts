@@ -1157,11 +1157,36 @@ function registerTaskApi(
 
       try {
         const filename = "baseline-page.json";
+        // One style map per element: the capture fills `baseline` and
+        // `after` with the SAME values (no "before" exists at annotation
+        // time), so storing both doubles the file for zero readers — every
+        // consumer reads `.after` (verify.ts step 14, verify-tools
+        // readEvidence back-fill, page-diff.ts) and back-fills `.baseline`
+        // from it at read time. Stripping here (not at capture) is the single
+        // choke point: stale overlay bundles already in the wild still send
+        // both maps, and every one of them lands one-map on disk. Compact
+        // JSON by owner decision 2026-10-14 (ticket 1caca8cc): size over
+        // git-diffability; the file stays plain JSON, just not pretty-printed.
+        const elements =
+          page.elements && typeof page.elements === "object"
+            ? (page.elements as Record<string, Record<string, unknown>>)
+            : {};
+        const storedElements: Record<string, Record<string, unknown>> = {};
+        for (const [key, el] of Object.entries(elements)) {
+          if (el && typeof el === "object" && !Array.isArray(el)) {
+            const { baseline: _dropped, ...rest } = el;
+            storedElements[key] = rest;
+          } else {
+            storedElements[key] = el as Record<string, unknown>;
+          }
+        }
         saveFile(
           projectDir,
           id,
           filename,
-          Buffer.from(JSON.stringify(page, null, 2)),
+          Buffer.from(
+            JSON.stringify({ ...page, elements: storedElements }),
+          ),
           { system: true },
         );
         updateTask(projectDir, id, { baselineFile: filename } as Partial<Task>);

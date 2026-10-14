@@ -50,9 +50,17 @@
  * and position.scrollPosition (only position.boundingBox is diffed; the after
  * position is re-captured live).
  *
- * The local on-disk store stays plain full JSON by owner policy
- * (git-diffable) — this module shapes what may be SENT/STORED remotely, and
- * what verify must accept back. It performs no compression or encoding.
+ * The local on-disk store is compact plain JSON since 2026-10-14 (ticket
+ * 1caca8cc, implemented in child 66c16b50): compact `JSON.stringify` (no
+ * indentation) and ONE style map per element (`.after` only — the capture
+ * fills `baseline` and `after` with the same values, so storing both doubled
+ * the file for zero readers; every consumer reads `.after` and back-fills
+ * `.baseline` from it at read time). This OVERRIDES the previous owner policy
+ * that kept the local store pretty-printed full JSON as git-diffable: size won
+ * over diffability (§7 Q2 — pretty-print was not load-bearing for anyone's
+ * debugging workflow; `JSON.parse` + diff serves the rare inspection need).
+ * This module still shapes what may be SENT remotely and what verify must
+ * accept back; it performs no compression or encoding.
  */
 
 import type { DomSnapshot, PositionContext } from "./verification-types.js";
