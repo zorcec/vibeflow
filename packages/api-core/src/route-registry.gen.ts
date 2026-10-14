@@ -225,7 +225,17 @@ export const V1_OPERATIONS: V1Operation[] = [
     scope: "files:write",
     planRow: 16,
     summary: "Store baseline snapshot envelope",
-    notes: "Merges the two local routes (baseline-element + baseline-page) into one envelope. Second local handler POST /api/tasks/:id/baseline-page is classified under this op. Write — Phase 3.",
+    notes: "Merges the two local routes (baseline-element + baseline-page) into one envelope. The page-wide sibling handler POST /api/tasks/:id/baseline-page is classified under put-baseline-page. Write — Phase 3.",
+  },
+  {
+    id: "put-baseline-page",
+    method: "POST",
+    v1Path: "/api/v1/tasks/{id}/baseline-page",
+    local: { method: "POST", path: "/api/tasks/:id/baseline-page" },
+    scope: "tasks:write",
+    planRow: 16,
+    summary: "Store page-wide baseline snapshot as a system file",
+    notes: "P3-A cutover: the second local baseline handler (POST /api/tasks/:id/baseline-page) keeps its own op — stores { page: { version: 1, elements, capturedAt, truncated } } as the baseline-page.json system file. Scope tasks:write per the published CLI online-mode call. Write — Phase 3.",
   },
   {
     id: "put-auth-state",
@@ -406,7 +416,6 @@ export const LOCAL_ONLY_ROUTES: LocalOnlyRoute[] = [
   { method: "GET", path: "/api/push/workspaces", reason: "Local→cloud push stays a CLI command (§2.5) — not v1." },
   { method: "POST", path: "/api/push", reason: "Local→cloud push stays a CLI command (§2.5) — not v1." },
   { method: "GET", path: "/api/github-url", reason: "Folded into GET /api/v1/project scope description — not a standalone v1 op." },
-  { method: "POST", path: "/api/tasks/:id/baseline-page", reason: "Merged into the POST /api/v1/tasks/:id/baseline envelope (classified under put-baseline)." },
   { method: "DELETE", path: "/api/mcp", reason: "MCP session teardown — local transport detail, classified under mcp-get/mcp-post." },
 ];
 

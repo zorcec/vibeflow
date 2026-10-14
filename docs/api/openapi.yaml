@@ -1264,7 +1264,7 @@ paths:
     post:
       operationId: put-baseline
       summary: Store baseline snapshot envelope
-      description: "Merges the two local routes (baseline-element + baseline-page) into one envelope. Second local handler POST /api/tasks/:id/baseline-page is classified under this op. Write — Phase 3."
+      description: "Merges the two local routes (baseline-element + baseline-page) into one envelope. The page-wide sibling handler POST /api/tasks/:id/baseline-page is classified under put-baseline-page. Write — Phase 3."
       tags:
         - Files
       x-vibeflow-scope: "files:write"
@@ -1319,6 +1319,62 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/BaselineEnvelope"
+      security:
+        - bearerAuth:
+            []
+  "/api/v1/tasks/{id}/baseline-page":
+    post:
+      operationId: put-baseline-page
+      summary: Store page-wide baseline snapshot as a system file
+      description: "P3-A cutover: the second local baseline handler (POST /api/tasks/:id/baseline-page) keeps its own op — stores { page: { version: 1, elements, capturedAt, truncated } } as the baseline-page.json system file. Scope tasks:write per the published CLI online-mode call. Write — Phase 3."
+      tags:
+        - Files
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: "POST /api/tasks/:id/baseline-page"
+      x-plan-row: 16
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Store page-wide baseline snapshot as a system file — success"
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
       security:
         - bearerAuth:
             []

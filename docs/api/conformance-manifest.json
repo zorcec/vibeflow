@@ -127,6 +127,9 @@
     { "id": "put-baseline", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/baseline" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/baseline" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "element-envelope", "request": { "method": "POST", "path": "/api/tasks/{taskId}/baseline", "body": { "baseline": { "selector": "#a", "outerHTML": "<a/>" } } }, "expect": { "status": 200, "conformance": "merged envelope: element and page snapshots in one call" } }
     ] },
+    { "id": "put-baseline-page", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/baseline-page" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/baseline-page" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
+      { "name": "page-envelope", "request": { "method": "POST", "path": "/api/tasks/{taskId}/baseline-page", "body": { "page": { "version": 1, "elements": {}, "capturedAt": "<iso>", "truncated": false } } }, "expect": { "status": 200, "conformance": "page snapshot stored as the baseline-page.json system file; requires page.version 1 + page.elements" } }
+    ] },
     { "id": "put-auth-state", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/auth-state" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/auth-state" }, "runnable": "write", "phase": 3, "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "cloud-501", "request": { "method": "POST", "path": "/api/v1/tasks/{taskId}/auth-state" }, "expect": { "status": 501, "conformance": "LOCAL_ONLY on cloud — truthful 501 with machine code, never silent divergence" } }
     ] },
