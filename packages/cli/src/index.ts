@@ -2476,11 +2476,23 @@ program
 
           const localAddNextActions = getNextActions("add", created.id);
           if (opts.json) {
+            // --fields narrows the returned task (same selector the MCP
+            // create_task `fields` takes; parity contract 83159002).
+            const addFields = opts.fields
+              ? opts.fields
+                  .split(",")
+                  .map((f: string) => f.trim())
+                  .filter(Boolean)
+              : [];
+            // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
             outputEnvelope({
               ok: true,
               json: opts.json,
               payload: {
-                task: created,
+                task: pickFields(
+                  created as unknown as Record<string, unknown>,
+                  addFields,
+                ),
                 next_actions: localAddNextActions,
               },
             });
@@ -4085,11 +4097,23 @@ program
           // `cannot` leaves `verified` absent and its reason lives in the
           // activity comment (see verifyOutcome above).
           if (opts.json && !lostWrite) {
+            // --fields narrows the returned task (same selector the MCP
+            // update_task `fields` takes; parity contract 83159002).
+            const editFields = opts.fields
+              ? opts.fields
+                  .split(",")
+                  .map((f: string) => f.trim())
+                  .filter(Boolean)
+              : [];
+            // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
             outputEnvelope({
               ok: true,
               json: opts.json,
               payload: {
-                task: updated,
+                task: pickFields(
+                  updated as unknown as Record<string, unknown>,
+                  editFields,
+                ),
                 ...(verifyOutcome
                   ? {
                       verification: {

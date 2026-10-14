@@ -415,6 +415,120 @@ describe("listing parity — CLI vs MCP on the same workspace", () => {
   });
 });
 
+// ═══ 2c. write/shape parity — unknown fields, parent, fields ═════════════
+//
+// Tickets 48c89cc8 (silent accept-and-ignore), 9a1a2bb8 (no compact answer)
+// under the same parity contract: what the CLI refuses, the MCP refuses;
+// what one surface writes, the other reads back identically.
+
+describe("write/shape parity — CLI vs MCP on the same workspace", () => {
+  let env: McpTestEnv;
+  let client: McpClient;
+  let home: string;
+
+  beforeEach(async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "mcp-parity-shape-"));
+    seedGitUser(projectDir);
+    env = await bootMcpServer(projectDir);
+    client = newClient(env.mcpUrl);
+    await initialize(client);
+    home = mkdtempSync(join(tmpdir(), "mcp-parity-shape-home-"));
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+  });
+
+  it("unknown fields: MCP refuses -32602, CLI refuses unknown option", async () => {
+    // MCP side — strict schema: accepted-and-ignored is gone.
+    const mcpRaw = await callTool(client, "list_tasks", {
+      status: "todo",
+      project: ".",
+    });
+    const mcpBody = await mcpRaw.json();
+    expect(mcpBody.result.isError).toBe(true);
+    const mcpText = mcpBody.result.content[0].text as string;
+    expect(mcpText).toMatch(/^MCP error -32602:/);
+    expect(mcpText).toMatch(/Unrecognized key.*project/);
+
+    // CLI side — commander refuses the unknown flag, non-zero exit.
+    const cli = await runCli(["tasks", "--project", "."], {
+      cwd: env.projectDir,
+      home,
+    });
+    expect(cli.code).not.toBe(0);
+    expect(cli.stdout + cli.stderr).toMatch(/unknown option/i);
+  });
+
+  it("parent: MCP set/clear/dangling answers like CLI --set-parent", async () => {
+    const parent = await callJson(client, "create_task", { title: "p" });
+    const kid = await callJson(client, "create_task", { title: "k" });
+
+    // Set via MCP writes a real parent link.
+    const set = await callJson(client, "update_task", {
+      id: kid.id,
+      parent: parent.id,
+    });
+    expect(set.links).toEqual([{ taskId: parent.id, type: "parent" }]);
+    expect(readTaskFromDisk(env.projectDir, kid.id).links).toEqual([
+      { taskId: parent.id, type: "parent" },
+    ]);
+
+    // Clear via MCP (empty string, like --no-parent).
+    await callJson(client, "update_task", { id: kid.id, parent: "" });
+    expect(
+      readTaskFromDisk(env.projectDir, kid.id).links ?? [],
+    ).toEqual([]);
+
+    // Dangling parent: same TASK_NOT_FOUND code on both surfaces.
+    const mcpBad = await callJson(client, "update_task", {
+      id: kid.id,
+      parent: "deadbeef",
+    });
+    expect(mcpBad.error.code).toBe("TASK_NOT_FOUND");
+    const cliBad = await runCli(
+      ["tasks", "--edit", kid.id, "--set-parent", "deadbeef", "--json"],
+      { cwd: env.projectDir, home },
+    );
+    // NOT_FOUND exit (3): the refusal carries the same TASK_NOT_FOUND code
+    // (error envelopes print to stderr — same convention as the gate tests).
+    expect(cliBad.code).toBe(3);
+    expect(JSON.parse(cliBad.stderr).error.code).toBe("TASK_NOT_FOUND");
+  });
+
+  it("fields: compact answers carry exactly the requested keys on both surfaces", async () => {
+    const created = await callJson(client, "create_task", {
+      title: "compact me",
+      description: "a long description that costs context",
+    });
+
+    const mcp = await callJson(client, "update_task", {
+      id: created.id,
+      status: "in-progress",
+      fields: ["id", "status"],
+    });
+    expect(Object.keys(mcp).sort()).toEqual(["id", "status"]);
+    expect(mcp.status).toBe("in-progress");
+
+    const cli = await runCli(
+      [
+        "tasks",
+        "--edit",
+        created.id,
+        "--set-status",
+        "todo",
+        "--fields",
+        "id,status",
+        "--json",
+      ],
+      { cwd: env.projectDir, home },
+    );
+    expect(cli.code).toBe(0);
+    const cliTask = JSON.parse(cli.stdout).task;
+    expect(Object.keys(cliTask).sort()).toEqual(["id", "status"]);
+  });
+});
+
 // ═══ 3. verify + verdict semantics ════════════════════════════════════════
 
 describe("verify/verdict parity — CLI vs MCP", () => {

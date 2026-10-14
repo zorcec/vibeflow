@@ -5,6 +5,7 @@
  * Maps CLI commands/flags to MCP tool definitions.
  */
 import type { z } from "zod";
+import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import type { McpToolDeclaration } from "@vibeflow-tools/api-core";
 import type { OperationContext, OperationResult } from "../core/operations.js";
 import {
@@ -37,6 +38,14 @@ import {
 // ── Manifest Types ─────────────────────────────────────────────────────────
 
 export interface ToolManifest extends McpToolDeclaration {
+  /**
+   * The full input schema, pre-strictified. The server registers this (not
+   * `input`) so an unrecognized field is REFUSED with -32602 instead of
+   * silently stripped — the CLI fails `unknown option`, the MCP surface
+   * must give the same signal (parity contract 83159002, ticket 48c89cc8).
+   * `input` (the shape) stays for introspection (drift/parity tests read it).
+   */
+  schema: AnySchema;
   run: (
     ctx: OperationContext,
     input: unknown,
@@ -145,6 +154,8 @@ export const mcpOnlyFields: Record<string, string> = {
   // from reaching data loss by sending an empty array.
   "update_task.clearLinks":
     "the ONLY way to remove links wholesale, and MCP-only by design. No CLI flag clears the whole set — every --set-parent/--relates/--blocks/--unrelates/--unblocks preserves the links it does not name — so the destructive path is an explicitly named boolean rather than an empty array a client could send by accident. To drop one link, name it in removeLinks instead.",
+  "update_task.parent":
+    "set/replace the parent link through buildSetParentLinks, the same helper as --set-parent (empty string clears, same as --no-parent). MCP-only in field SHAPE: one string-or-empty field vs two CLI flags. Applied after clearLinks/links/addLinks/removeLinks so it wins when combined.",
 
   // ── Annotated-task fields ──────────────────────────────────────────────
   // An annotated task (url + selector) is the whole point of the overlay. The
@@ -216,6 +227,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ListTasksInput.shape,
+    schema: ListTasksInput.strict(),
     run: (ctx, input) =>
       listTasks(ctx, input as z.infer<typeof ListTasksInput>),
   },
@@ -236,6 +248,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: GetTaskInput.shape,
+    schema: GetTaskInput.strict(),
     run: (ctx, input) => getTask(ctx, input as z.infer<typeof GetTaskInput>),
   },
   {
@@ -252,13 +265,14 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: GetProjectInput.shape,
+    schema: GetProjectInput.strict(),
     run: (ctx, input) => getProject(ctx, input as z.infer<typeof GetProjectInput>),
   },
   {
     name: "create_task",
     title: "Create task",
     description:
-      "Create a new task with title, description, and metadata. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
+      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -272,6 +286,7 @@ export const manifest: ToolManifest[] = [
         "--url",
         "--selector",
         "--sort-key",
+        "--fields",
       ],
     },
     category: "task-write",
@@ -282,6 +297,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: CreateTaskInput.shape,
+    schema: CreateTaskInput.strict(),
     run: (ctx, input) =>
       createTask(ctx, input as z.infer<typeof CreateTaskInput>),
   },
@@ -289,7 +305,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass `fields` (e.g. [\"id\",\"status\"]) for a compact answer instead of the full task object. REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -308,6 +324,7 @@ export const manifest: ToolManifest[] = [
         "--blocks",
         "--unrelates",
         "--unblocks",
+        "--fields",
       ],
     },
     category: "task-mutate",
@@ -318,6 +335,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: UpdateTaskInput.shape,
+    schema: UpdateTaskInput.strict(),
     run: (ctx, input) =>
       updateTask(ctx, input as z.infer<typeof UpdateTaskInput>),
   },
@@ -338,6 +356,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ClaimNextTaskInput.shape,
+    schema: ClaimNextTaskInput.strict(),
     run: (ctx, input) =>
       claimNextTask(ctx, input as z.infer<typeof ClaimNextTaskInput>),
   },
@@ -360,6 +379,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: AddCommentInput.shape,
+    schema: AddCommentInput.strict(),
     run: (ctx, input) =>
       addComment(ctx, input as z.infer<typeof AddCommentInput>),
   },
@@ -387,6 +407,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: AttachFileInput.shape,
+    schema: AttachFileInput.strict(),
     run: (ctx, input) =>
       attachFile(ctx, input as z.infer<typeof AttachFileInput>),
   },
@@ -406,6 +427,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: ExportPromptInput.shape,
+    schema: ExportPromptInput.strict(),
     run: (ctx, input) =>
       exportPrompt(ctx, input as z.infer<typeof ExportPromptInput>),
   },
@@ -426,6 +448,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: VerifyTaskInput.shape,
+    schema: VerifyTaskInput.strict(),
     run: (ctx, input) =>
       verifyTaskOp(ctx, input as z.infer<typeof VerifyTaskInput>),
   },
@@ -449,6 +472,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: true,
     },
     input: StartKanbanInput.shape,
+    schema: StartKanbanInput.strict(),
     run: (ctx, input) =>
       startKanban(ctx, input as z.infer<typeof StartKanbanInput>),
   },
@@ -469,6 +493,7 @@ export const manifest: ToolManifest[] = [
       openWorldHint: false,
     },
     input: GetIntegrationGuideInput.shape,
+    schema: GetIntegrationGuideInput.strict(),
     run: (ctx, input) =>
       getIntegrationGuide(ctx, input as z.infer<typeof GetIntegrationGuideInput>),
   },

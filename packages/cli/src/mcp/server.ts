@@ -35,12 +35,20 @@ export function createMcpServer(
   const ctx: OperationContext = { projectDir: abs, mode, userId: getGitUser(abs).name };
 
   for (const tool of manifest) {
-    server.tool(
+    // registerTool (not the deprecated tool() shape overload): tool.schema
+    // is strict, so an unrecognized field is refused with -32602 instead of
+    // silently stripped — the same accept-nothing-unknown rule as the CLI's
+    // `unknown option` refusal (ticket 48c89cc8). tool.input (the shape)
+    // stays the introspection surface for drift/parity tests.
+    server.registerTool(
       tool.name,
-      tool.description,
-      tool.input,
-      tool.annotations,
-      async (input) => {
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.schema,
+        annotations: tool.annotations,
+      },
+      async (input: unknown) => {
         const result = await tool.run(ctx, input);
         return formatResult(result);
       },

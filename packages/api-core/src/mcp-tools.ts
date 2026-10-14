@@ -134,6 +134,12 @@ export const CreateTaskInput = z.object({
   // Preview only — never writes a task file. Present so the manifest's claim
   // that every mutating tool exposes `dryRun` is true for create_task too.
   dryRun: z.boolean().default(false),
+  fields: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Return only these task fields (e.g. [\"id\",\"title\",\"status\"]) instead of the full task object. Omit for the full object — same selector list_tasks and get_task take.",
+    ),
 });
 export type CreateTaskInputType = z.infer<typeof CreateTaskInput>;
 
@@ -149,8 +155,36 @@ export const UpdateTaskInput = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   branch: z.string().optional(),
-  comment: z.string().optional(),
-  commitMessage: z.string().optional(),
+  comment: z
+    .string()
+    .optional()
+    .describe(
+      "Comment to attach (same as the CLI's --comment). REQUIRED when status is \"review\" — the review transition is refused with REVIEW_COMMENT_REQUIRED without one.",
+    ),
+  commitMessage: z
+    .string()
+    .optional()
+    .describe(
+      "Commit message for the review auto-commit (same as the CLI's --commit-message). REQUIRED when status is \"review\" and auto-commit is ON (refused with COMMIT_MESSAGE_REQUIRED); ignored when auto-commit is off.",
+    ),
+  // Set/replace the parent link (same as the CLI's --set-parent; empty
+  // string clears it, same as --no-parent). Validated like every other link
+  // (exists, not self, no cycle) and refused with the --set-parent wording.
+  // Applied AFTER clearLinks/links/addLinks/removeLinks, so it wins when
+  // combined — clearLinks:true + parent:X means "start over with exactly
+  // this parent".
+  parent: z
+    .string()
+    .optional()
+    .describe(
+      "Set/replace the parent task link (full id or unique prefix; same as the CLI's --set-parent). Empty string clears the parent (same as --no-parent). Applied after clearLinks/links/addLinks/removeLinks.",
+    ),
+  fields: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Return only these task fields (e.g. [\"id\",\"status\"]) instead of the full task object — a status flip need not cost a full ticket dump. Omit for the full object.",
+    ),
   // Verification verdict (parity with the CLI's --set-verify / --verify-reason):
   // "pass" => verified=true (green badge), "fail" => verified=false (amber
   // badge, the review gate rejects it), "cannot" => verified=absent (no badge)
@@ -466,7 +500,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "create_task",
     title: "Create task",
     description:
-      "Create a new task with title, description, and metadata. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
+      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -495,7 +529,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
     cliRef: {
       command: "tasks",
       flags: [

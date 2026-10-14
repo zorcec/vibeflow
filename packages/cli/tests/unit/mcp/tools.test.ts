@@ -245,6 +245,25 @@ describe("create_task", () => {
     expect(result.data?.priority).toBe("High");
     expect(result.data?.tags).toEqual(["urgent", "backend"]);
   });
+
+  it("fields narrows the answer to the named keys", async () => {
+    const result = await createTask(ctx, {
+      title: "Narrow me",
+      description: "a long description that costs context",
+      fields: ["id", "title", "status"],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data?.id).toBeTruthy();
+    expect(result.data?.title).toBe("Narrow me");
+    // Exactly the requested keys — the long description is not echoed.
+    expect(Object.keys(result.data as Record<string, unknown>).sort()).toEqual(
+      ["id", "status", "title"],
+    );
+    // The full task is still stored.
+    expect(readStoredTask(result.data!.id).description).toBe(
+      "a long description that costs context",
+    );
+  });
 });
 
 // ── update_task ────────────────────────────────────────────────────────────
@@ -279,6 +298,97 @@ describe("update_task", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("TASK_NOT_FOUND");
+  });
+
+  it("fields narrows a status-only write to a compact ack", async () => {
+    createTestTask({
+      id: "task-1",
+      status: "todo",
+      description: "a long description that costs context",
+    });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      status: "in-progress",
+      fields: ["id", "status"],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data?.status).toBe("in-progress");
+    expect(result.data as Record<string, unknown>).not.toHaveProperty(
+      "description",
+    );
+    expect(readStoredTask("task-1").status).toBe("in-progress");
+  });
+
+  it("parent sets the parent link (same helper as CLI --set-parent)", async () => {
+    createTestTask({ id: "parent-1" });
+    createTestTask({ id: "task-1" });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      parent: "parent-1",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data?.links).toEqual([
+      { taskId: "parent-1", type: "parent" },
+    ]);
+    expect(readStoredTask("task-1").links).toEqual([
+      { taskId: "parent-1", type: "parent" },
+    ]);
+  });
+
+  it("parent resolves unique id prefixes like the CLI", async () => {
+    const parent = createTestTask({ id: "parent-abc123" });
+    createTestTask({ id: "task-1" });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      parent: parent.id.slice(0, 8),
+    });
+    expect(result.ok).toBe(true);
+    expect(readStoredTask("task-1").links).toEqual([
+      { taskId: parent.id, type: "parent" },
+    ]);
+  });
+
+  it("parent empty string clears the parent and keeps other links", async () => {
+    createTestTask({ id: "parent-1" });
+    createTestTask({
+      id: "task-1",
+      links: [
+        { taskId: "parent-1", type: "parent" },
+        { taskId: "parent-1", type: "relates" },
+      ],
+    });
+
+    const result = await updateTask(ctx, { id: "task-1", parent: "" });
+    expect(result.ok).toBe(true);
+    expect(readStoredTask("task-1").links).toEqual([
+      { taskId: "parent-1", type: "relates" },
+    ]);
+  });
+
+  it("parent with a dangling target is refused with TASK_NOT_FOUND", async () => {
+    createTestTask({ id: "task-1" });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      parent: "deadbeef",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("TASK_NOT_FOUND");
+    expect(readStoredTask("task-1").links).toBeUndefined();
+  });
+
+  it("parent naming the task itself is refused", async () => {
+    createTestTask({ id: "task-1" });
+
+    const result = await updateTask(ctx, {
+      id: "task-1",
+      parent: "task-1",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("E_USAGE");
   });
 
   it("respects dry_run", async () => {

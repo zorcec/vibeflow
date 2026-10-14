@@ -228,6 +228,26 @@ export {
   type VerifyTaskInputType,
 };
 
+/**
+ * Field selection for single-task results (parity with list_tasks/get_task
+ * and the CLI --fields flag): keep only the named top-level fields so a
+ * status flip need not cost a full ticket dump. Empty/absent returns the
+ * task unchanged.
+ */
+function pickTaskFields(task: Task, fields: string[] | undefined): Task {
+  if (!fields || fields.length === 0) return task;
+  const fieldSet = new Set(fields);
+  const picked: Record<string, unknown> = {};
+  for (const key of Object.keys(task)) {
+    if (fieldSet.has(key)) {
+      // SAFETY: Task is a plain JSON object; runtime keys match the type's properties
+      picked[key] = (task as unknown as Record<string, unknown>)[key];
+    }
+  }
+  // SAFETY: picked contains a subset of Task's keys; partial Task is still structurally valid for JSON serialization
+  return picked as unknown as Task;
+}
+
 /** True for a Node listen() EADDRINUSE failure, on the error or its `cause`. */
 function isAddrInUse(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
@@ -512,7 +532,7 @@ export async function createTask(
     }
 
     const { createTask: coreCreateTask } = await import("../core/tasks.js");
-    const task = coreCreateTask(ctx.projectDir, {
+    const created = coreCreateTask(ctx.projectDir, {
       title: input.title,
       description: input.description ?? "",
       status: input.status as TaskStatus,
@@ -529,7 +549,11 @@ export async function createTask(
       author: ctx.userId ?? getGitUser(ctx.projectDir).name,
     });
 
-    return { ok: true, data: task };
+    // Field selection (parity with list_tasks/get_task and the CLI --fields).
+    if (input.fields && input.fields.length > 0) {
+      return { ok: true, data: pickTaskFields(created, input.fields) };
+    }
+    return { ok: true, data: created };
   } catch (err) {
     return {
       ok: false,
@@ -656,6 +680,9 @@ export async function updateTask(
     const linksProvided = input.links !== undefined;
     const addLinksProvided = input.addLinks !== undefined;
     const removeLinksProvided = input.removeLinks !== undefined;
+    // `parent` (set/replace/clear the single parent link) is the fifth link
+    // style — the MCP spelling of the CLI's --set-parent / --no-parent.
+    const parentProvided = input.parent !== undefined;
     // Only `true` is an instruction. `clearLinks: false` (or absent) is a
     // no-op, so a client that always sends the flag cannot wipe links by
     // omission — the same "absent means untouched" rule as every other
@@ -683,12 +710,14 @@ export async function updateTask(
       clearLinksRequested ||
       linksProvided ||
       addLinksProvided ||
-      removeLinksProvided
+      removeLinksProvided ||
+      parentProvided
     ) {
-      const { buildAddLinks, buildRemoveLinks } = await import(
-        "../core/task-links.js"
+      const { buildAddLinks, buildRemoveLinks, buildSetParentLinks } =
+        await import("../core/task-links.js");
+      const { listTasks: coreListTasks, matchesIdOrPrefix } = await import(
+        "../core/tasks.js"
       );
-      const { listTasks: coreListTasks } = await import("../core/tasks.js");
       let current = coreListTasks(ctx.projectDir);
       // Each helper validates against the state it is handed, so every pass
       // folds what the previous pass decided back into the board it re-reads.
@@ -730,8 +759,8 @@ export async function updateTask(
         );
       }
 
-      // 3. removeLinks last: subtract exactly the named pairs, after the
-      // merge, so "add X back except Y" is expressible.
+      // 3. removeLinks: subtract exactly the named pairs, after the merge,
+      // so "add X back except Y" is expressible.
       if (removeLinksProvided) {
         const removed = buildRemoveLinks({
           allTasks: current,
@@ -748,6 +777,54 @@ export async function updateTask(
             },
           };
         next = removed.links;
+        current = current.map((t) =>
+          t.id === existingTask.id ? { ...t, links: next ?? [] } : t,
+        );
+      }
+
+      // 4. parent LAST: set/replace (or clear on "") the single parent link
+      // through buildSetParentLinks — the same helper the CLI --set-parent /
+      // --no-parent path uses, validated against the board the passes above
+      // left behind. Last-wins is deliberate: clearLinks:true + parent:X
+      // means "start over with exactly this parent".
+      if (parentProvided) {
+        let parentId: string | null;
+        if (input.parent === "") {
+          parentId = null;
+        } else {
+          const target = current.find((t) =>
+            matchesIdOrPrefix(t, input.parent!),
+          );
+          if (!target) {
+            return {
+              ok: false,
+              error: {
+                code: "TASK_NOT_FOUND",
+                message: `Parent task not found: ${input.parent}`,
+                suggestion: TASK_NOT_FOUND_SUGGESTION,
+              },
+            };
+          }
+          parentId = target.id;
+        }
+        const applied = buildSetParentLinks({
+          allTasks: current,
+          taskId: existingTask.id,
+          parentId,
+        });
+        if (!applied.ok)
+          return {
+            ok: false,
+            error: {
+              code: applied.code,
+              message: applied.reason,
+              suggestion:
+                applied.code === "TASK_NOT_FOUND"
+                  ? TASK_NOT_FOUND_SUGGESTION
+                  : "The parent link was refused as invalid — fix what the message names and resend. Existing links are untouched by a refused set.",
+            },
+          };
+        next = applied.links;
       }
       linksUpdate = next;
     }
@@ -777,7 +854,8 @@ export async function updateTask(
       clearLinksRequested ||
       linksProvided ||
       addLinksProvided ||
-      removeLinksProvided
+      removeLinksProvided ||
+      parentProvided
     )
       updates.links = linksUpdate;
 
@@ -868,9 +946,10 @@ export async function updateTask(
       }
     }
 
+    // Field selection (parity with list_tasks/get_task and the CLI --fields).
     return {
       ok: true,
-      data: task,
+      data: pickTaskFields(task, input.fields),
       steps: steps.length > 0 ? steps : undefined,
     };
   } catch (err) {

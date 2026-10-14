@@ -653,10 +653,16 @@ describe("MCP tools happy paths", () => {
       expect(parsed.mode).toBe("local");
     });
 
-    it("13a: get_project ignores a caller-supplied root (no per-call root)", async () => {
+    it("13a: get_project refuses a caller-supplied root (no per-call root)", async () => {
+      // Strict inputs (ticket 48c89cc8): an unrecognized field is REFUSED
+      // with -32602, never silently stripped — so a per-call root cannot
+      // even reach the handler, let alone retarget the server.
       const res = await callTool(client, "get_project", { root: "/evil" });
-      const parsed = await assertJsonTextContent(res);
-      expect(parsed.root).toBe(env.projectDir);
+      const body = await res.json();
+      expect(body.result.isError).toBe(true);
+      const text = body.result.content[0].text as string;
+      expect(text).toMatch(/^MCP error -32602:/);
+      expect(text).toMatch(/Unrecognized key.*root/);
     });
   });
 });
