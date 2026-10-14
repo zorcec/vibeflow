@@ -1,9 +1,12 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+// Leaf subpath, not the barrel: the shared barrel re-exports modules that pull
+// @paralleldrive/cuid2 (whose Node build requires crypto via CJS), which made the
+// built ESM CLI die with `Dynamic require of "crypto" is not supported` at load.
 import {
   WEBHOOK_SIGNATURE_HEADER,
   signWebhookBody,
-} from "@vibeflow-tools/shared";
+} from "@vibeflow-tools/shared/webhooks";
 import type { WatchEvent } from "./watch-events.js";
 
 export type SinkFactory = (sink: WatchSink) => void;
