@@ -25,8 +25,12 @@ export interface WatchOptions {
   json?: boolean;
   output?: string;
   webhook?: string;
+  webhookSecret?: string;
   once?: boolean;
 }
+
+/** Env fallback for --webhook-secret (resolved in watch(), not in the sink). */
+export const WEBHOOK_SECRET_ENV_VAR = "VIBEFLOW_WEBHOOK_SECRET";
 
 /**
  * Classifies a task update into an "important" event or nothing.
@@ -275,9 +279,14 @@ function watchOnce(projectDir: string, opts: WatchOptions): void {
  * --json       emit JSONL to stdout
  * --output <f> append JSONL to file
  * --webhook <u> POST each event to URL
+ * --webhook-secret <s> (or VIBEFLOW_WEBHOOK_SECRET) sign webhook deliveries
  */
 export function watch(dir: string, opts: WatchOptions = {}): void {
   const projectDir = resolve(dir);
+
+  if (opts.webhook && !opts.webhookSecret) {
+    opts.webhookSecret = process.env[WEBHOOK_SECRET_ENV_VAR];
+  }
 
   if (!existsSync(projectDir)) {
     console.error(

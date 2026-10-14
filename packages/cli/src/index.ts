@@ -4698,6 +4698,7 @@ program
       "  --json: emit JSONL to stdout.\n" +
       "  --output <file>: append JSONL to file.\n" +
       "  --webhook <url>: POST each event to URL.\n" +
+      "  --webhook-secret <secret> (or VIBEFLOW_WEBHOOK_SECRET): sign webhook deliveries.\n" +
       "  State: .vibeflow/watch-state.json (append-only journal, per-consumer cursors).\n" +
       "  Gap rule: events older than 1 min that were not delivered trigger a gap event.",
   )
@@ -4705,6 +4706,10 @@ program
   .option("--json", "Emit events as JSONL lines to stdout")
   .option("--output <file>", "Append JSONL events to a file")
   .option("--webhook <url>", "POST each event as JSON to a webhook URL")
+  .option(
+    "--webhook-secret <secret>",
+    "Sign webhook deliveries (or set VIBEFLOW_WEBHOOK_SECRET)",
+  )
   .option("--once", "One-shot poll: diff against state, emit events, exit")
   .action(
     async (
@@ -4713,6 +4718,7 @@ program
         json?: boolean;
         output?: string;
         webhook?: string;
+        webhookSecret?: string;
         once?: boolean;
       },
     ) => {

@@ -45,3 +45,14 @@ export {
   parseRoomKey,
   slugify,
 } from "./utils";
+
+// Signed webhooks (scheme documented in ./webhooks)
+export {
+  WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_SIGNATURE_VERSION,
+  WEBHOOK_DEFAULT_MAX_AGE_SEC,
+  WEBHOOK_MAX_FUTURE_SKEW_SEC,
+  signWebhookBody,
+  verifyWebhookSignature,
+} from "./webhooks";
+export type { SignedWebhook, VerifyWebhookOptions } from "./webhooks";
