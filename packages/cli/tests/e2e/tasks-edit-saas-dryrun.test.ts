@@ -37,9 +37,9 @@ function saasHome(): string {
 type RecordedRequest = { method: string; url: string; body: string };
 
 /**
- * A tiny fake online backend. GET /api/cli/tasks answers the read-only
- * conflict-detection fetch; PATCH /api/cli/tasks/:id and
- * POST /api/cli/tasks/:id/comments RECORD every mutating request instead of
+ * A tiny fake online backend. GET /api/v1/tasks answers the read-only
+ * conflict-detection fetch; PATCH /api/v1/tasks/:id and
+ * POST /api/v1/tasks/:id/comments RECORD every mutating request instead of
  * applying it, so the tests can assert on the count.
  */
 async function startFakeBackend(): Promise<{
@@ -64,7 +64,7 @@ async function startFakeBackend(): Promise<{
       res.writeHead(code, { "Content-Type": "application/json" });
       res.end(JSON.stringify(payload));
     };
-    if (req.method === "GET" && req.url?.startsWith("/api/cli/tasks")) {
+    if (req.method === "GET" && req.url?.startsWith("/api/v1/tasks")) {
       finish(200, { tasks: [task], boardId: "board-1" });
       return;
     }
@@ -74,14 +74,14 @@ async function startFakeBackend(): Promise<{
       requests.push({ method: req.method ?? "", url: req.url ?? "", body });
       if (
         req.method === "PATCH" &&
-        req.url === `/api/cli/tasks/${task.id}`
+        req.url === `/api/v1/tasks/${task.id}`
       ) {
         finish(200, { task: { ...task, ...JSON.parse(body || "{}") } });
         return;
       }
       if (
         req.method === "POST" &&
-        req.url === `/api/cli/tasks/${task.id}/comments`
+        req.url === `/api/v1/tasks/${task.id}/comments`
       ) {
         finish(200, {
           comment: {
@@ -198,7 +198,7 @@ describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
     expect(r.code).toBe(0);
     expect(
       requests.filter(
-        (q) => q.method === "PATCH" && q.url === "/api/cli/tasks/onlinetask1",
+        (q) => q.method === "PATCH" && q.url === "/api/v1/tasks/onlinetask1",
       ),
     ).toHaveLength(1);
     const payload = JSON.parse(r.stdout) as { ok: boolean };
@@ -210,7 +210,7 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
   function patchBodies(requests: RecordedRequest[]): unknown[] {
     return requests
       .filter(
-        (q) => q.method === "PATCH" && q.url === "/api/cli/tasks/onlinetask1",
+        (q) => q.method === "PATCH" && q.url === "/api/v1/tasks/onlinetask1",
       )
       .map((q) => JSON.parse(q.body || "{}") as unknown);
   }
@@ -296,7 +296,7 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
     const comments = requests.filter(
       (q) =>
         q.method === "POST" &&
-        q.url === "/api/cli/tasks/onlinetask1/comments",
+        q.url === "/api/v1/tasks/onlinetask1/comments",
     );
     expect(comments).toHaveLength(1);
     expect(comments[0].body).toContain("no browser here");
