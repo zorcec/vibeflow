@@ -30,23 +30,38 @@ export const MAX_FILENAME_LENGTH = 255;
 /** Maximum decoded file size: 50 MB in bytes (≈ base64 encoded size). */
 export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-/** Extensions allowed for uploaded files (lowercase, includes leading dot). */
-export const ALLOWED_FILE_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".pdf",
-  ".txt",
-  ".md",
-  ".html",
-  ".json",
-  ".csv",
-  ".svg",
-  ".mp4",
-  ".mov",
-  ".zip",
+/**
+ * File-type policy (ticket 6a6ed2b8 — "attach ANY kind of file, including
+ * .har"): there is NO allowlist. Any extension (or none) is accepted —
+ * `.har`, `.mp3`, `.xml`, `.sh`, extensionless names and whatever the owner
+ * tries next all pass this gate. The safety that remains is structural,
+ * not typed: `isValidFilename` (no traversal/hidden/control chars/length)
+ * + `MAX_FILE_SIZE`.
+ *
+ * The ONE narrow refusal below is executables: attachments are served back
+ * from the board origin and land on collaborators' machines, so Windows
+ * executables, scripts and libraries are refused as a malware-droppoint
+ * precaution. This set is deliberately IDENTICAL to the web v0 files
+ * route's EXECUTABLE_EXTENSIONS (and the MCP mirror's) — one policy in
+ * every layer, so a fix in one place cannot leave a sibling gate closed.
+ * To share a refused file, zip it first (`.zip` is always accepted).
+ */
+export const BLOCKED_FILE_EXTENSIONS = new Set([
+  ".exe",
+  ".msi",
+  ".bat",
+  ".cmd",
+  ".com",
+  ".scr",
+  ".pif",
+  ".ps1",
+  ".vbs",
+  ".vbe",
+  ".jse",
+  ".wsf",
+  ".wsh",
+  ".jar",
+  ".dll",
 ]);
 
 /**
@@ -68,10 +83,14 @@ export function isValidFilename(name: string): boolean {
   return true;
 }
 
-/** Returns true when the file extension (lowercased) is in ALLOWED_FILE_EXTENSIONS. */
+/**
+ * Returns true for every filename EXCEPT executables (see
+ * BLOCKED_FILE_EXTENSIONS for the why). Name kept so the two HTTP/MCP
+ * call sites read unchanged: "allowed" now means "not an executable".
+ */
 export function isAllowedFileExtension(filename: string): boolean {
   const ext = extname(filename).toLowerCase();
-  return ALLOWED_FILE_EXTENSIONS.has(ext);
+  return !BLOCKED_FILE_EXTENSIONS.has(ext);
 }
 
 export type FileValidationResult =
@@ -110,8 +129,8 @@ export function validateFilename(
     return {
       valid: false,
       errorCode: "UNSUPPORTED_FILE_TYPE",
-      errorMessage: `Unsupported file type "${ext}". Allowed: ${[...ALLOWED_FILE_EXTENSIONS].join(", ")}`,
-      errorSuggestion: `Rename the file to one of the allowed extensions (${[...ALLOWED_FILE_EXTENSIONS].join(", ")}) — for a research report that means a .md name`,
+      errorMessage: `Executable file type "${ext}" is not allowed (malware-droppoint precaution, same list as the web files route)`,
+      errorSuggestion: `Zip the file first and attach the .zip instead — archives of any content are always accepted`,
     };
   }
   if (bufferSize !== undefined && bufferSize > MAX_FILE_SIZE) {

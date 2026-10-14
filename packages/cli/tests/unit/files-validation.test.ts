@@ -7,7 +7,7 @@ import {
   isAllowedFileExtension,
   validateFilename,
   MAX_FILENAME_LENGTH,
-  ALLOWED_FILE_EXTENSIONS,
+  BLOCKED_FILE_EXTENSIONS,
 } from "../../src/core/files.js";
 
 const PROTO = ".vibeflow";
@@ -92,18 +92,40 @@ describe("isValidFilename", () => {
 });
 
 describe("isAllowedFileExtension", () => {
-  it("accepts all ALLOWED_FILE_EXTENSIONS", () => {
-    for (const ext of ALLOWED_FILE_EXTENSIONS) {
-      expect(isAllowedFileExtension("file" + ext)).toBe(true);
+  // Ticket 6a6ed2b8: NO allowlist — any kind of file attaches, including
+  // .har (the ticket's example), former rejects, and extensionless names.
+  // Only the executable deny-list refuses.
+  it("accepts .har and every formerly-allowed extension", () => {
+    for (const name of [
+      "trace.har",
+      "localhost.har",
+      "screenshot.png",
+      "clip.mp4",
+      "report.pdf",
+      "notes.md",
+      "data.json",
+      "page.html",
+    ]) {
+      expect(isAllowedFileExtension(name)).toBe(true);
     }
   });
 
-  it("rejects executable and unsafe extensions", () => {
+  it("accepts types the old allowlist rejected (.xml, .mp3, .sh, extensionless)", () => {
+    // Non-vacuity: each of these returned false before the policy change.
+    expect(isAllowedFileExtension("data.xml")).toBe(true);
+    expect(isAllowedFileExtension("x.mp3")).toBe(true);
+    expect(isAllowedFileExtension("script.sh")).toBe(true);
+    expect(isAllowedFileExtension("Makefile")).toBe(true);
+    expect(isAllowedFileExtension("LICENSE")).toBe(true);
+  });
+
+  it("rejects every BLOCKED_FILE_EXTENSION (executables only)", () => {
+    for (const ext of BLOCKED_FILE_EXTENSIONS) {
+      expect(isAllowedFileExtension("file" + ext)).toBe(false);
+    }
     expect(isAllowedFileExtension("x.exe")).toBe(false);
-    expect(isAllowedFileExtension("script.sh")).toBe(false);
     expect(isAllowedFileExtension("payload.dll")).toBe(false);
-    expect(isAllowedFileExtension("data.xml")).toBe(false);
-    expect(isAllowedFileExtension(".htaccess")).toBe(false);
+    expect(isAllowedFileExtension("run.PS1")).toBe(false);
   });
 
   it("rejects .linked.json (the manifest file)", () => {
@@ -148,12 +170,20 @@ describe("validateFilename", () => {
     }
   });
 
-  it("returns UNSUPPORTED_FILE_TYPE for disallowed extensions", () => {
+  it("returns UNSUPPORTED_FILE_TYPE for executables (the only refusal)", () => {
     const result = validateFilename("x.exe");
     expect(result.valid).toBe(false);
     if (!result.valid) {
       expect(result.errorCode).toBe("UNSUPPORTED_FILE_TYPE");
       expect(result.errorMessage).toContain(".exe");
+      expect(result.errorSuggestion).toContain(".zip");
+    }
+  });
+
+  it("accepts .har, formerly-rejected types, and extensionless names", () => {
+    // Non-vacuity: every one of these failed validation before 6a6ed2b8.
+    for (const name of ["localhost.har", "x.mp3", "data.xml", "Makefile"]) {
+      expect(validateFilename(name)).toEqual({ valid: true });
     }
   });
 
@@ -177,13 +207,12 @@ describe("validateFilename", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("includes suggestion list in UNSUPPORTED_FILE_TYPE error message", () => {
-    const result = validateFilename("x.mp3");
+  it("names the executable reason (no allowlist enumeration) in the refusal", () => {
+    const result = validateFilename("payload.dll");
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errorMessage).toContain(".png");
-      expect(result.errorMessage).toContain(".pdf");
-      expect(result.errorMessage).toContain(".svg");
+      expect(result.errorMessage).toContain(".dll");
+      expect(result.errorMessage).not.toContain("Allowed:");
     }
   });
 });

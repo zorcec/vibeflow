@@ -1139,7 +1139,7 @@ export async function attachFile(
         code: "ATTACH_FILE_ERROR",
         message: err instanceof Error ? err.message : "Failed to attach file",
         suggestion:
-          "The file was NOT written — confirm the task exists (get_task), the filename is in the allowed extension list, and the payload is under the size limit, then resend",
+          "The file was NOT written — confirm the task exists (get_task), the filename is not an executable type (.exe/.dll/.ps1 and siblings are refused; zip it first), and the payload is under the size limit, then resend",
       },
     };
   }

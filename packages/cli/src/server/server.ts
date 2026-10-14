@@ -926,8 +926,10 @@ function registerTaskApi(
         res.status(400).json({ error: "Invalid filename" });
         return;
       }
+      // Any file type is accepted EXCEPT executables (malware-droppoint
+      // precaution, same list as the web files route — ticket 6a6ed2b8).
       if (!isAllowedFileExtension(rawFilename)) {
-        res.status(415).json({ error: "File type not allowed" });
+        res.status(415).json({ error: "Executable file type not allowed (zip it first)" });
         return;
       }
       const data = req.body as Buffer;
