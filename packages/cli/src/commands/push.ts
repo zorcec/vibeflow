@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { login } from "../auth/login.js";
+import { createTasksOneByOne, login } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -200,29 +200,30 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing to SaaS...`));
 
   const apiUrl = getApiUrl();
-  const requestBody: { tasks: unknown[]; workspaceId?: string } = { tasks: taskList };
-  if (workspaceId) requestBody.workspaceId = workspaceId;
 
+  // No batch import exists in the v1 contract: one POST per task via the
+  // shared createTasksOneByOne() loop (same shape as the login flow —
+  // cloud-only, so the mode inside is always "cloud"). A per-task non-ok
+  // counts as skipped; only a network throw fails the push outright.
   let result: ImportResult;
   try {
-    const res = await fetch(`${apiUrl}/api/cli/import`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as Record<string, unknown>;
-      // Stryker disable once StringLiteral: display message for import failure
-      console.error(chalk.red(`  Import failed: ${res.status} ${(err.error as string) ?? res.statusText}`));
-      process.exitCode = ExitCode.GENERAL;
-      return;
-    }
-
-    result = await res.json() as ImportResult;
+    // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
+    // filePath string — each entry spreads as a plain record into the JSON
+    // create body, so the record cast is representation-preserving.
+    const loop = await createTasksOneByOne(
+      apiUrl,
+      token,
+      workspaceId,
+      taskList as unknown as Array<Record<string, unknown>>,
+    );
+    result = {
+      imported: loop.imported,
+      skipped: loop.skipped,
+      ids: Object.values(loop.idMap),
+      workspaceId: workspaceId ?? "",
+      boardId: workspaceId ?? "",
+      idMap: loop.idMap,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Stryker disable once StringLiteral: display message for network error

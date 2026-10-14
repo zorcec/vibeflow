@@ -127,29 +127,66 @@ async function fetchAndSelectWorkspace(
  * (`surfacePath("cloud", "/api/cli/tasks")`). A non-ok response counts the
  * task as skipped (same message shape the single-call import produced).
  * Mode is always `"cloud"`: callers address the `getApiUrl()` SaaS base.
+ *
+ * `boardId` is optional: callers that push without a selected board omit it
+ * and the cloud files the task under the default board (the legacy batch
+ * import likewise carried no board when none was selected). `idMap` maps
+ * each created task's local id to its cloud id (parsed from the
+ * `{ task }` create envelope, falling back to the bare task shape) so
+ * callers can follow up with per-task file uploads.
  */
 export async function createTasksOneByOne(
   apiUrl: string,
   token: string,
-  boardId: string,
+  boardId: string | undefined,
   tasks: Array<Record<string, unknown>>,
-): Promise<{ imported: number; skipped: number }> {
+): Promise<{
+  imported: number;
+  skipped: number;
+  idMap: Record<string, string>;
+}> {
   let imported = 0;
   let skipped = 0;
+  const idMap: Record<string, string> = {};
   const createPath = surfacePath("cloud", "/api/cli/tasks");
   for (const task of tasks) {
+    const localId = task.id;
     const res = await fetch(`${apiUrl}${createPath}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ ...task, boardId }),
+      body: JSON.stringify({
+        ...task,
+        ...(boardId !== undefined ? { boardId } : {}),
+      }),
     });
-    if (res.ok) imported++;
-    else skipped++;
+    if (!res.ok) {
+      skipped++;
+      continue;
+    }
+    imported++;
+    if (typeof localId === "string" && localId.length > 0) {
+      const body = (await res.json().catch(() => null)) as
+        | { task?: Record<string, unknown> }
+        | Record<string, unknown>
+        | null;
+      const created =
+        body !== null &&
+        typeof body === "object" &&
+        "task" in body &&
+        typeof (body as { task?: unknown }).task === "object"
+          ? ((body as { task: Record<string, unknown> }).task ?? {})
+          : ((body ?? {}) as Record<string, unknown>);
+      const remoteId =
+        typeof created.id === "string" && created.id.length > 0
+          ? created.id
+          : localId;
+      idMap[localId] = remoteId;
+    }
   }
-  return { imported, skipped };
+  return { imported, skipped, idMap };
 }
 
 async function promptPushLocalTasks(

@@ -25,7 +25,8 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       tasks,
     );
 
-    expect(result).toEqual({ imported: 3, skipped: 0 });
+    expect(result.imported).toBe(3);
+    expect(result.skipped).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const call of fetchMock.mock.calls) {
       expect(call[0]).toBe("https://freemium.vibeflow.tools/api/v1/tasks");
@@ -37,6 +38,62 @@ describe("createTasksOneByOne (v1 import loop)", () => {
     expect(
       fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/cli/import")),
     ).toBe(false);
+  });
+
+  it("maps each local id to its cloud id from the create envelope", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ task: { id: "saas-1", cliId: "a" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: "saas-2", cliId: "b" } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createTasksOneByOne("https://x.test", "tok", "b", [
+      { id: "a", title: "A" },
+      { id: "b", title: "B" },
+    ]);
+
+    expect(result).toEqual({
+      imported: 2,
+      skipped: 0,
+      idMap: { a: "saas-1", b: "saas-2" },
+    });
+  });
+
+  it("falls back to the local id when the create response carries no cloud id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ task: { id: "x" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createTasksOneByOne("https://x.test", "tok", "b", [
+      { id: "a", title: "A" },
+    ]);
+
+    expect(result.idMap).toEqual({ a: "x" });
+  });
+
+  it("omits boardId from the create body when no board is selected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ task: { id: "saas-1" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createTasksOneByOne("https://x.test", "tok", undefined, [
+      { id: "a", title: "A" },
+    ]);
+
+    expect(result.imported).toBe(1);
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body as string);
+    expect("boardId" in body).toBe(false);
   });
 
   it("counts non-ok responses as skipped", async () => {
@@ -51,6 +108,9 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       { id: "b" },
     ]);
 
-    expect(result).toEqual({ imported: 1, skipped: 1 });
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toBe(1);
+    // The failed task contributes no id mapping.
+    expect(result.idMap).toEqual({ a: "a" });
   });
 });

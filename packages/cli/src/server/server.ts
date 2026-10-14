@@ -88,6 +88,8 @@ import { encryptAuthState } from "../core/auth.js";
 import { loadSettings, saveSettings } from "../core/settings.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
+import { createTasksOneByOne } from "../auth/login.js";
+import { surfacePath } from "../core/api-url.js";
 import { appRouter } from "./trpc.js";
 import {
   wasmAssetNames,
@@ -1226,7 +1228,9 @@ function registerMetaApis(
     }
     const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
     try {
-      const r = await fetch(`${apiUrl}/api/cli/workspaces`, {
+      // Cloud-only path: apiUrl is the SaaS base (Bearer-authenticated) →
+      // always "cloud", so the legacy workspaces path maps to /api/v1/boards.
+      const r = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/workspaces")}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!r.ok) {
@@ -1253,7 +1257,7 @@ function registerMetaApis(
 
   // ── SaaS push: import local tasks into a board ───────────────────────────────
   app.post("/api/push", express.json(), async (req, res) => {
-    const { workspaceId: _workspaceId, keepLocalFiles } = req.body as {
+    const { workspaceId, keepLocalFiles } = req.body as {
       workspaceId?: string;
       keepLocalFiles?: boolean;
     };
@@ -1268,34 +1272,19 @@ function registerMetaApis(
       return;
     }
     const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
-    const requestBody: { tasks: unknown[]; workspaceId?: string } = {
-      tasks: taskList,
-    };
     try {
-      const r = await fetch(`${apiUrl}/api/cli/import`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
-      });
-      if (!r.ok) {
-        const err = (await r.json().catch(() => ({}))) as Record<
-          string,
-          unknown
-        >;
-        res
-          .status(r.status)
-          .json({ error: (err.error as string) ?? "Import failed" });
-        return;
-      }
-      const result = (await r.json()) as {
-        imported: number;
-        skipped?: number;
-        workspaceId: string;
-        boardId: string;
-      };
+      // No batch import exists in the v1 contract: one POST per task via
+      // the shared createTasksOneByOne() loop (same shape as the login
+      // flow — cloud-only, so the mode inside is always "cloud").
+      // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
+      // filePath string — each entry spreads as a plain record into the
+      // JSON create body, so the record cast is representation-preserving.
+      const result = await createTasksOneByOne(
+        apiUrl,
+        token,
+        workspaceId,
+        taskList as unknown as Array<Record<string, unknown>>,
+      );
       if (!keepLocalFiles) {
         for (const task of taskList) {
           try {
@@ -1308,9 +1297,9 @@ function registerMetaApis(
       }
       res.json({
         imported: result.imported,
-        skipped: result.skipped ?? 0,
-        workspaceId: result.workspaceId,
-        boardId: result.boardId,
+        skipped: result.skipped,
+        workspaceId,
+        boardId: workspaceId,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1414,7 +1403,9 @@ function registerKanbanRoute(app: express.Application, port: number): void {
     let isAdmin = false;
     if (adminEmail) {
       try {
-        const profileRes = await fetch(`${apiUrl}/api/cli/profile`, {
+        // Cloud-only path: apiUrl is the SaaS base (Bearer-authenticated) →
+        // always "cloud", so the legacy profile path maps to /api/v1/me.
+        const profileRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`, {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(() => null);
         if (profileRes?.ok) {

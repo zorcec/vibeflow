@@ -55,7 +55,7 @@ import {
 import { getGitUser } from "./core/git-user.js";
 import { formatCommitTag } from "./core/commit-tag.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
-import { getApiUrl } from "./core/api-url.js";
+import { getApiUrl, surfacePath } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
 import { watch } from "./commands/watch.js";
@@ -1616,9 +1616,11 @@ program
                 chalk.dim(`    linked files (${saasTask.files.length}):`),
               );
               for (const f of saasTask.files) {
+                // Cloud-only URL: getApiUrl() is the SaaS base → always
+                // "cloud", so the legacy files path maps to /api/v1.
                 const fileUrl =
                   f.url ??
-                  `${getApiUrl()}/api/tasks/${saasTask.id}/files/${encodeURIComponent(f.name)}`;
+                  `${getApiUrl()}${surfacePath("cloud", `/api/tasks/${saasTask.id}/files/${encodeURIComponent(f.name)}`)}`;
                 console.log(chalk.dim(`      - ${f.name}  ${fileUrl}`));
                 if (f.content) {
                   console.log(chalk.dim(`        ┌── content ──`));
@@ -4294,9 +4296,11 @@ program
                   chalk.dim(`    linked files (${task.files.length}):`),
                 );
                 for (const f of task.files) {
+                  // Cloud-only URL: getApiUrl() is the SaaS base → always
+                  // "cloud", so the legacy files path maps to /api/v1.
                   const fileUrl =
                     f.url ??
-                    `${getApiUrl()}/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`;
+                    `${getApiUrl()}${surfacePath("cloud", `/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`)}`;
                   console.log(chalk.dim(`      - ${f.name}  ${fileUrl}`));
                   // Use inlined content from the API response (no extra HTTP request needed).
                   if (f.content) {

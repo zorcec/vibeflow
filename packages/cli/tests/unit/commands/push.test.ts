@@ -13,10 +13,17 @@ vi.mock("../../../src/auth/workspace.js", () => ({
   readWorkspace: vi.fn(),
   writeWorkspace: vi.fn(),
 }));
-vi.mock("../../../src/auth/login.js", () => ({
-  login: vi.fn(),
-  maybeRefreshSettings: vi.fn(),
-}));
+// Keep the real createTasksOneByOne() (the v1 import loop under test rides
+// through push); only the interactive login flow is stubbed out.
+vi.mock("../../../src/auth/login.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../src/auth/login.js")>();
+  return {
+    ...actual,
+    login: vi.fn(),
+    maybeRefreshSettings: vi.fn(),
+  };
+});
 vi.mock("../../../src/core/files.js", () => ({
   listFiles: vi.fn(),
   getFilesDir: vi.fn(),
@@ -174,7 +181,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: ["task-abc"], workspaceId: "ws-1", boardId: "board-1", idMap: {} });
+    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-abc" } });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -186,7 +193,7 @@ describe("push — import API interaction", () => {
     consoleSpy.mockRestore();
   });
 
-  it("sets workspaceId from --workspace option override", async () => {
+  it("sets boardId from --workspace option override on every create", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-xyz",
@@ -198,7 +205,7 @@ describe("push — import API interaction", () => {
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ imported: 1, skipped: 0, ids: ["task-xyz"], workspaceId: "explicit-ws", boardId: "b-1", idMap: {} }),
+      json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-xyz" } }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -206,8 +213,14 @@ describe("push — import API interaction", () => {
 
     await push(projectDir, { workspace: "explicit-ws", keepLocalFiles: true });
 
+    // One POST per task to the v1 create op — no batch import call.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/v1/tasks");
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-    expect(body.workspaceId).toBe("explicit-ws");
+    expect(body.boardId).toBe("explicit-ws");
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/cli/import")),
+    ).toBe(false);
   });
 
   // Round-trip input: the push payload is the ONLY route a local verdict takes
@@ -233,22 +246,26 @@ describe("push — import API interaction", () => {
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ imported: 2, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} }),
+      json: () => Promise.resolve({ task: { id: "remote-1" } }),
     });
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
 
-    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    // One create per task; each body is the task itself.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = fetchMock.mock.calls.map(
+      (c) => JSON.parse(c[1]?.body as string) as Record<string, unknown>,
+    );
     const byId = Object.fromEntries(
-      (body.tasks as Array<{ id: string }>).map((t) => [t.id, t]),
+      bodies.map((t) => [t.id as string, t]),
     ) as Record<string, Record<string, unknown>>;
     expect(byId["task-attested"].verified).toBe(true);
     expect("verified" in byId["task-unassessed"]).toBe(false);
   });
 
-  it("reports failure and sets process.exitCode on API error", async () => {
+  it("counts per-task API errors as skipped without failing the push", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-fail",
@@ -258,15 +275,20 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
+    // No batch import exists in v1: a non-ok create counts as skipped
+    // (same shape as the login-flow import loop).
     mockFetchFailure(422, { error: "Board not found" });
 
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
 
-    await push(projectDir, {});
+    await push(projectDir, { keepLocalFiles: true });
 
-    expect(process.exitCode).toBe(1);
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Import failed"));
+    expect(process.exitCode).toBeUndefined();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Skipped 1 already-imported"),
+    );
 
     consoleSpy.mockRestore();
     process.exitCode = originalExitCode;
@@ -306,7 +328,8 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 0, skipped: 1, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} });
+    // A non-ok create (e.g. already-imported 409) counts as skipped.
+    mockFetchFailure(409, { error: "Already imported" });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -342,7 +365,7 @@ describe("push — import API interaction", () => {
     expect(headers["Content-Type"]).toBe("application/json");
   });
 
-  it("uses default API URL when VIBEFLOW_API_URL is not set", async () => {
+  it("posts creates to the v1 path on the default API URL when VIBEFLOW_API_URL is not set", async () => {
     const originalEnv = process.env.VIBEFLOW_API_URL;
     delete process.env.VIBEFLOW_API_URL;
 
@@ -366,6 +389,7 @@ describe("push — import API interaction", () => {
 
     const url = fetchMock.mock.calls[0]?.[0] as string;
     expect(url).toContain("https://freemium.vibeflow.tools");
+    expect(url).toContain("/api/v1/tasks");
 
     process.env.VIBEFLOW_API_URL = originalEnv;
   });
@@ -380,7 +404,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: ["task-del"], workspaceId: "ws-1", boardId: "b-1", idMap: { "task-del": "remote-1" } });
+    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-del" } });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -401,7 +425,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: ["task-keep"], workspaceId: "ws-1", boardId: "b-1", idMap: { "task-keep": "remote-1" } });
+    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-keep" } });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -422,7 +446,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} });
+    mockFetchSuccess({ task: { id: "remote-1" } });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -476,14 +500,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({
-          imported: 1,
-          skipped: 0,
-          ids: ["task-files"],
-          workspaceId: "ws-1",
-          boardId: "b-1",
-          idMap: { "task-files": "remote-1" },
-        }),
+        json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-files" } }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -504,7 +521,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     expect(uploadCall[1].headers["x-filename"]).toBe("screenshot.png");
   });
 
-  it("skips file upload when idMap is empty (no task mappings)", async () => {
+  it("skips file upload when the task has no local files", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-nomap",
@@ -514,20 +531,23 @@ describe("push — file upload (uploadTaskFiles)", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    // Return empty idMap — no files to upload
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} });
+    // listFiles is mocked to [] in this block — nothing to upload.
+    mockFetchSuccess({ task: { id: "remote-9", cliId: "task-nomap" } });
 
     const fetchSpy = vi.spyOn(global, "fetch");
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // Only one fetch call (import API), no file upload
+    // Only one fetch call (the v1 create), no file upload, no batch import.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/api/cli/import"),
+      expect.stringContaining("/api/v1/tasks"),
       expect.any(Object),
     );
+    expect(
+      fetchSpy.mock.calls.some((c) => String(c[0]).includes("/api/cli/import")),
+    ).toBe(false);
   });
 
   it("handles file upload failures gracefully", async () => {
@@ -552,14 +572,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({
-          imported: 1,
-          skipped: 0,
-          ids: ["task-fail-upload"],
-          workspaceId: "ws-1",
-          boardId: "b-1",
-          idMap: { "task-fail-upload": "remote-2" },
-        }),
+        json: () => Promise.resolve({ task: { id: "remote-2", cliId: "task-fail-upload" } }),
       })
       .mockResolvedValueOnce({
         ok: false,
@@ -594,14 +607,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     ]);
     vi.mocked(filesModule.getFilesDir).mockReturnValue("/nonexistent");
 
-    mockFetchSuccess({
-      imported: 1,
-      skipped: 0,
-      ids: ["task-readerr"],
-      workspaceId: "ws-1",
-      boardId: "b-1",
-      idMap: { "task-readerr": "remote-3" },
-    });
+    mockFetchSuccess({ task: { id: "remote-3", cliId: "task-readerr" } });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -653,15 +659,7 @@ describe("push — upload compression (single-encode wire format)", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            imported: 1,
-            skipped: 0,
-            ids: [taskId],
-            workspaceId: "ws-1",
-            boardId: "b-1",
-            idMap: { [taskId]: "remote-1" },
-          }),
+        json: () => Promise.resolve({ task: { id: "remote-1", cliId: taskId } }),
       })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal("fetch", fetchMock);
@@ -746,7 +744,7 @@ describe("push — edge cases", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-from-server", boardId: "b-1", idMap: {} });
+    mockFetchSuccess({ task: { id: "remote-1" } });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -759,7 +757,7 @@ describe("push — edge cases", () => {
     consoleSpy.mockRestore();
   });
 
-  it("handles API error response without error field", async () => {
+  it("counts a bare 500 create response as skipped without failing", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-noerrfield",
@@ -776,13 +774,16 @@ describe("push — edge cases", () => {
       json: () => Promise.resolve({}), // no error field
     }));
 
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
 
-    await push(projectDir, {});
+    await push(projectDir, { keepLocalFiles: true });
 
-    expect(process.exitCode).toBe(1);
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Import failed"));
+    expect(process.exitCode).toBeUndefined();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Skipped 1 already-imported"),
+    );
 
     consoleSpy.mockRestore();
     process.exitCode = originalExitCode;
@@ -798,14 +799,7 @@ describe("push — edge cases", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({
-      imported: 1,
-      skipped: 0,
-      ids: ["task-keep2"],
-      workspaceId: "ws-1",
-      boardId: "b-1",
-      idMap: { "task-keep2": "remote-4" },
-    });
+    mockFetchSuccess({ task: { id: "remote-4", cliId: "task-keep2" } });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -897,21 +891,22 @@ describe("push — system-file flag round-trip", () => {
         { name: "notes.md", addedAt: "2025-01-01T00:00:00.000Z" },
       ],
     });
-    mockFetchSuccess({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} });
+    mockFetchSuccess({ task: { id: "remote-1", cliId: "task-flagged" } });
 
     const fetchSpy = vi.spyOn(global, "fetch");
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
 
-    const importCall = fetchSpy.mock.calls.find((c) =>
-      String(c[0]).includes("/api/cli/import"),
+    // The v1 create body is the task itself — file refs ride along verbatim.
+    const createCall = fetchSpy.mock.calls.find((c) =>
+      String(c[0]).includes("/api/v1/tasks"),
     );
-    expect(importCall).toBeDefined();
-    const body = JSON.parse(importCall![1].body) as {
-      tasks: Array<{ files?: Array<{ name: string; system?: boolean }> }>;
+    expect(createCall).toBeDefined();
+    const body = JSON.parse(createCall![1].body) as {
+      files?: Array<{ name: string; system?: boolean }>;
     };
-    const files = body.tasks[0]!.files!;
+    const files = body.files!;
     expect(files.find((f) => f.name === "verify-after.json")!.system).toBe(true);
     expect("system" in files.find((f) => f.name === "notes.md")!).toBe(false);
   });
@@ -940,14 +935,7 @@ describe("push — system-file flag round-trip", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({
-          imported: 1,
-          skipped: 0,
-          ids: ["task-files"],
-          workspaceId: "ws-1",
-          boardId: "b-1",
-          idMap: { "task-files": "remote-1" },
-        }),
+        json: () => Promise.resolve({ task: { id: "remote-1", cliId: "task-files" } }),
       })
       .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal("fetch", fetchMock);

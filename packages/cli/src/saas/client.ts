@@ -5,7 +5,7 @@
  * comments from the SaaS backend instead of local .proto/ files.
  */
 import { readToken } from "../auth/token.js";
-import { getApiUrl } from "../core/api-url.js";
+import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 export type SaasResult<T> =
   | { ok: true; data: T }
@@ -92,7 +92,8 @@ export async function fetchSaasTasks(
     };
 
   const apiUrl = getApiUrl();
-  const url = new URL(`${apiUrl}/api/cli/tasks`);
+  // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+  const url = new URL(`${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}`);
   if (boardId) url.searchParams.set("boardId", boardId);
 
   try {
@@ -164,7 +165,8 @@ export async function updateSaasTask(
 
   try {
     const res = await fetch(
-      `${getApiUrl()}/api/cli/tasks/${encodeURIComponent(taskId)}`,
+      // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
+      `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}`)}`,
       {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
@@ -212,7 +214,8 @@ export async function addSaasComment(
 
   try {
     const res = await fetch(
-      `${getApiUrl()}/api/cli/tasks/${encodeURIComponent(taskId)}/comments`,
+      // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
+      `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}/comments`)}`,
       {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
@@ -255,7 +258,8 @@ export async function fetchSaasComments(
 
   try {
     const res = await fetch(
-      `${getApiUrl()}/api/cli/tasks/${encodeURIComponent(taskId)}/comments`,
+      // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
+      `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}/comments`)}`,
       { headers },
     );
     if (!res.ok) return null;
@@ -288,7 +292,8 @@ export async function createSaasTask(params: {
     };
 
   try {
-    const res = await fetch(`${getApiUrl()}/api/cli/tasks`, {
+    // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
+    const res = await fetch(`${getApiUrl()}${surfacePath("cloud", "/api/cli/tasks")}`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(params),

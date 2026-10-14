@@ -103,6 +103,14 @@ describe("fetchSaasTasks", () => {
     expect((fetchCall[0] as string)).toContain("boardId=b-2");
   });
 
+  it("hits the v1 tasks list, never the deleted cloud legacy surface", async () => {
+    mockFetch({ tasks: [], boardId: "b-1" });
+    await fetchSaasTasks("b-1");
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    expect((fetchCall[0] as string)).toContain("/api/v1/tasks");
+    expect((fetchCall[0] as string)).not.toContain("/api/cli/");
+  });
+
   it("uses VIBEFLOW_API_URL env var when set", async () => {
     process.env.VIBEFLOW_API_URL = "http://custom-api:9000";
     mockFetch({ tasks: [], boardId: "b-x" });
@@ -200,8 +208,15 @@ describe("updateSaasTask", () => {
     mockFetch({ task: SAMPLE_TASK });
     await updateSaasTask("task-1", { status: "in-progress" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/cli/tasks/task-1");
+    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1");
     expect((fetchCall[1] as RequestInit).method).toBe("PATCH");
+  });
+
+  it("never hits the deleted cloud legacy surface", async () => {
+    mockFetch({ task: SAMPLE_TASK });
+    await updateSaasTask("task-1", { status: "todo" });
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 
   it("sends Content-Type header with JSON body", async () => {
@@ -323,6 +338,13 @@ describe("addSaasComment", () => {
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
     expect(body.body).toBe("Test comment");
   });
+
+  it("posts comments to the v1 path", async () => {
+    mockFetch({ comment: SAMPLE_COMMENT });
+    await addSaasComment("task-1", "Hello");
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
+  });
 });
 
 describe("fetchSaasComments", () => {
@@ -362,7 +384,7 @@ describe("fetchSaasComments", () => {
     mockFetch({ comments: [SAMPLE_COMMENT] });
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/cli/tasks/task-1/comments");
+    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
   });
 });
 
@@ -415,6 +437,7 @@ describe("createSaasTask", () => {
     mockFetch({ task: SAMPLE_TASK });
     await createSaasTask({ title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/cli/tasks");
+    expect((fetchCall[0] as string)).toContain("/api/v1/tasks");
+    expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 });
