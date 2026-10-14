@@ -113,4 +113,70 @@ describe("createTasksOneByOne (v1 import loop)", () => {
     // The failed task contributes no id mapping.
     expect(result.idMap).toEqual({ a: "a" });
   });
+
+  // Regression pin: the loop used to spread the whole local task record
+  // into the create body. A local parent link names a LOCAL id the cloud
+  // has never seen, so v1's parent-target validation answered 400 and a
+  // fresh 3-task push with one parent/child pair reported
+  // `Pushed 2 … Skipped 1`. The deleted batch import never validated links
+  // (they did not round-trip), so the loop drops them — all new tasks push.
+  it("drops links so a parent/child pair fully imports", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ task: { id: "cloud-x" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createTasksOneByOne("https://x.test", "tok", "b", [
+      { id: "sync-parent", title: "Parent", status: "todo", filePath: "/tmp/x.json" },
+      {
+        id: "sync-child",
+        title: "Child",
+        status: "in-progress",
+        links: [{ taskId: "sync-parent", type: "parent" }],
+      },
+      { id: "sync-done", title: "Done", status: "done" },
+    ]);
+
+    expect(result).toEqual({
+      imported: 3,
+      skipped: 0,
+      idMap: {
+        "sync-parent": "cloud-x",
+        "sync-child": "cloud-x",
+        "sync-done": "cloud-x",
+      },
+    });
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(call[1].body as string);
+      expect("links" in body).toBe(false);
+    }
+    // The v1 field set still travels.
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1].body as string)).toMatchObject({
+      id: "sync-child",
+      title: "Child",
+      status: "in-progress",
+      boardId: "b",
+    });
+  });
+
+  it("toV1CreateBody strips links, keeps the record, omits undefined/absent boardId", async () => {
+    const { toV1CreateBody } = await import("../../../src/auth/login.js");
+    expect(toV1CreateBody({ id: "a", title: "A" }, undefined)).toEqual({
+      id: "a",
+      title: "A",
+    });
+    expect(
+      toV1CreateBody(
+        {
+          id: "a",
+          title: "A",
+          links: [{ taskId: "p", type: "parent" }],
+          filePath: "x",
+          status: undefined,
+        },
+        "b",
+      ),
+    ).toEqual({ id: "a", title: "A", filePath: "x", boardId: "b" });
+  });
 });

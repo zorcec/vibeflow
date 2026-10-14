@@ -64,6 +64,13 @@ describe("toCliStatus", () => {
     expect(toCliStatus("done")).toBe("done");
   });
 
+  // v1 speaks hyphenated statuses on the wire; the deleted legacy surface
+  // spoke snake_case. Both must resolve — otherwise every in-progress task
+  // reads back as the `?? "todo"` fallback.
+  it("maps the v1 hyphenated in-progress spelling (not just snake_case)", () => {
+    expect(toCliStatus("in-progress")).toBe("in-progress");
+  });
+
   it("maps cancelled to done", () => {
     expect(toCliStatus("cancelled")).toBe("done");
   });
@@ -90,10 +97,18 @@ describe("toSaasStatus", () => {
 });
 
 describe("fetchSaasTasks", () => {
-  it("returns tasks on success", async () => {
+  it("returns tasks on success (hydrated with the legacy comments/files shape)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
     const result = await fetchSaasTasks();
-    expect(result).toEqual({ ok: true, data: { tasks: [SAMPLE_TASK], boardId: "board-1" } });
+    // The v1 read hydrates comments/files per task (best-effort `[]` when
+    // the subpaths answer nothing shaped) — the legacy row keeps its fields.
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        tasks: [{ ...SAMPLE_TASK, comments: [], files: [] }],
+        boardId: "",
+      },
+    });
   });
 
   it("passes boardId query param when provided", async () => {
@@ -258,6 +273,194 @@ describe("updateSaasTask", () => {
   });
 });
 
+describe("fetchSaasTasks — v1 envelope", () => {
+  const V1_ITEM = {
+    id: "ext-1",
+    externalId: "ext-1",
+    cloudId: "cloud-1",
+    title: "V1 task",
+    description: "desc",
+    status: "in-progress",
+    priority: null,
+    type: null,
+    boardId: "board-1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    commentCount: 0,
+    fileCount: 0,
+  };
+
+  /** URL-routed fake: list → `{ items, nextCursor }`, subpaths → edge data. */
+  function mockV1(opts: {
+    pages?: Array<{ items: unknown[]; nextCursor: string | null }>;
+    comments?: unknown[];
+    files?: unknown[];
+    fileText?: Record<string, string>;
+    seen?: string[];
+  }) {
+    const seen: string[] = opts.seen ?? [];
+    let pageIdx = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        if (/\/api\/v1\/tasks\/[^/]+\/comments$/.test(url)) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ comments: opts.comments ?? [] }),
+          });
+        }
+        if (/\/api\/v1\/tasks\/[^/]+\/files$/.test(url)) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ files: opts.files ?? [] }),
+          });
+        }
+        if (/\/api\/v1\/tasks\/[^/]+\/files\//.test(url)) {
+          const text = opts.fileText?.[url] ?? "";
+          return Promise.resolve({ ok: true, text: () => Promise.resolve(text) });
+        }
+        const pages = opts.pages ?? [{ items: [V1_ITEM], nextCursor: null }];
+        const page = pages[Math.min(pageIdx++, pages.length - 1)]!;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(page),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  it("parses the v1 { items, nextCursor } envelope (not the legacy { tasks })", async () => {
+    mockV1({});
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks).toHaveLength(1);
+    expect(result.data.tasks[0]).toMatchObject({
+      id: "ext-1",
+      title: "V1 task",
+      status: "in-progress",
+    });
+    // Hydration degrades to empty when the subpaths answer empty.
+    expect(result.data.tasks[0]?.comments).toEqual([]);
+    expect(result.data.tasks[0]?.files).toEqual([]);
+  });
+
+  it("follows nextCursor until the last page", async () => {
+    const seen = mockV1({
+      pages: [
+        { items: [{ ...V1_ITEM, id: "a" }], nextCursor: "cursor-1" },
+        { items: [{ ...V1_ITEM, id: "b" }], nextCursor: null },
+      ],
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks.map((t) => t.id)).toEqual(["a", "b"]);
+    expect(seen.some((u) => u.includes("cursor=cursor-1"))).toBe(true);
+  });
+
+  it("hydrates comments (filling the v1-missing taskId), file rows, and text content", async () => {
+    const seen: string[] = [];
+    mockV1({
+      seen,
+      comments: [
+        { id: "c1", body: "note", authorId: "u1", createdAt: "2026-01-01T00:00:00.000Z" },
+      ],
+      files: [
+        {
+          id: "f1",
+          name: "field-notes.md",
+          mimeType: "text/markdown",
+          sizeBytes: 20,
+          system: false,
+          url: "/api/v1/tasks/ext-1/files/f1",
+        },
+      ],
+      fileText: {
+        "https://freemium.vibeflow.tools/api/v1/tasks/ext-1/files/f1":
+          "field notes line one\n",
+      },
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const task = result.data.tasks[0]!;
+    expect(task.comments).toEqual([
+      {
+        id: "c1",
+        body: "note",
+        authorId: "u1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        taskId: "ext-1",
+      },
+    ]);
+    expect(task.files).toHaveLength(1);
+    expect(task.files![0]).toMatchObject({
+      name: "field-notes.md",
+      size: 20,
+      url: "https://freemium.vibeflow.tools/api/v1/tasks/ext-1/files/f1",
+      content: "field notes line one\n",
+      system: false,
+    });
+  });
+
+  it("skips content download for binary attachments", async () => {
+    const seen: string[] = [];
+    mockV1({
+      seen,
+      files: [
+        {
+          id: "f9",
+          name: "evidence.png",
+          mimeType: "image/png",
+          sizeBytes: 70,
+          url: "/api/v1/tasks/ext-1/files/f9",
+        },
+      ],
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks[0]?.files).toMatchObject([{ name: "evidence.png" }]);
+    expect(result.data.tasks[0]?.files![0]?.content).toBeUndefined();
+    expect(seen.some((u) => u.endsWith("/files/f9"))).toBe(false);
+  });
+
+  it("tolerates the legacy { tasks } envelope (pre-cutover fakes)", async () => {
+    mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // SAMPLE_TASK carries no comments/files arrays, so hydration runs and
+    // the tolerant single-response fake answers `{ tasks }` → `[]`.
+    expect(result.data.tasks[0]?.comments).toEqual([]);
+    expect(result.data.tasks[0]?.files).toEqual([]);
+  });
+
+  it("degrades a failed hydration to empty instead of failing the read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/comments") || url.includes("/files")) {
+          return Promise.resolve({ ok: false, status: 500 });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [V1_ITEM], nextCursor: null }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks).toHaveLength(1);
+    expect(result.data.tasks[0]?.comments).toEqual([]);
+    expect(result.data.tasks[0]?.files).toEqual([]);
+  });
+});
+
 describe("fetchSaasTasks — verified tri-state round-trip", () => {
   it("preserves verified:true and verified:false from the server", async () => {
     mockFetch({
@@ -385,6 +588,26 @@ describe("fetchSaasComments", () => {
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
+  });
+
+  // v1 comment rows carry no `taskId` — the legacy shape did. Fill it so
+  // renderers keying on `comment.taskId` keep working.
+  it("fills taskId on v1 comment rows that omit it", async () => {
+    mockFetch({
+      comments: [
+        { id: "c1", body: "x", authorId: "u1", createdAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    });
+    const result = await fetchSaasComments("task-9");
+    expect(result).toEqual([
+      {
+        id: "c1",
+        body: "x",
+        authorId: "u1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        taskId: "task-9",
+      },
+    ]);
   });
 });
 

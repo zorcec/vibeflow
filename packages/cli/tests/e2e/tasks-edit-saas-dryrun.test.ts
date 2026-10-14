@@ -38,9 +38,11 @@ type RecordedRequest = { method: string; url: string; body: string };
 
 /**
  * A tiny fake online backend. GET /api/v1/tasks answers the read-only
- * conflict-detection fetch; PATCH /api/v1/tasks/:id and
- * POST /api/v1/tasks/:id/comments RECORD every mutating request instead of
- * applying it, so the tests can assert on the count.
+ * conflict-detection fetch with the REAL v1 envelope (`{ items,
+ * nextCursor }` — hydration subpaths for comments/files answer empty);
+ * PATCH /api/v1/tasks/:id and POST /api/v1/tasks/:id/comments RECORD every
+ * mutating request instead of applying it, so the tests can assert on the
+ * count.
  */
 async function startFakeBackend(): Promise<{
   url: string;
@@ -65,7 +67,7 @@ async function startFakeBackend(): Promise<{
       res.end(JSON.stringify(payload));
     };
     if (req.method === "GET" && req.url?.startsWith("/api/v1/tasks")) {
-      finish(200, { tasks: [task], boardId: "board-1" });
+      finish(200, { items: [task], nextCursor: null });
       return;
     }
     let body = "";

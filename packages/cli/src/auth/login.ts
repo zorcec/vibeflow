@@ -134,7 +134,41 @@ async function fetchAndSelectWorkspace(
  * each created task's local id to its cloud id (parsed from the
  * `{ task }` create envelope, falling back to the bare task shape) so
  * callers can follow up with per-task file uploads.
+ *
+ * The create body is the local record minus `links` (`toV1CreateBody`)
+ * — NOT a verbatim spread. A local parent link names a LOCAL id the cloud
+ * has never seen, so v1's parent-target validation answers 400 and the
+ * whole task counts as skipped (a fresh 3-task push with one parent/child
+ * pair reported `Pushed 2 … Skipped 1`). The deleted batch import never
+ * validated links — they simply did not round-trip — so the loop drops
+ * them too (documented limitation, asserted by the e2e spec: both tasks
+ * of a pair stay visible, the link itself is not preserved).
  */
+/**
+ * Build the `POST /api/v1/tasks` body for one local task record: the
+ * record itself minus `links`, plus `boardId` when selected. Only `links`
+ * is stripped because it is the one key v1 validates against server state
+ * (parent targets must already exist in-board) — everything else unknown
+ * (`filePath`, timestamps, `files[]` refs, …) the POST ignores, and the
+ * `files[]` refs deliberately ride along (system-flag round-trip pin in
+ * `push.test.ts`). See `createTasksOneByOne` for why `links` must not
+ * travel. `undefined` values are omitted so absent stays absent.
+ */
+export function toV1CreateBody(
+  task: Record<string, unknown>,
+  boardId: string | undefined,
+): Record<string, unknown> {
+  const { links: _dropped, ...rest } = task;
+  void _dropped;
+  const body: Record<string, unknown> = { ...rest };
+  for (const key of Object.keys(body)) {
+    if (body[key] === undefined) delete body[key];
+  }
+  if (boardId !== undefined) body.boardId = boardId;
+  else delete body.boardId;
+  return body;
+}
+
 export async function createTasksOneByOne(
   apiUrl: string,
   token: string,
@@ -157,10 +191,7 @@ export async function createTasksOneByOne(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        ...task,
-        ...(boardId !== undefined ? { boardId } : {}),
-      }),
+      body: JSON.stringify(toV1CreateBody(task, boardId)),
     });
     if (!res.ok) {
       skipped++;
@@ -242,14 +273,25 @@ async function promptPushLocalTasks(
     }).catch(() => null);
     if (res?.ok) {
       const data = (await res.json()) as {
+        items?: Array<Record<string, unknown>>;
+        // Legacy fallback: the deleted `/api/cli/tasks` surface answered
+        // `{ tasks }`; its rows carried `id` + `cliId`.
         tasks?: Array<{ id: string; cliId?: string | null }>;
       };
-      onlineIds = new Set(
-        (data.tasks ?? []).flatMap((t) => [
-          t.id,
-          ...(t.cliId ? [t.cliId] : []),
-        ]),
-      );
+      // v1 canonical shape carries BOTH `id` (external) and `externalId`
+      // (§3.1: `cliId ?? cloudId`); collect every id-like key so a local
+      // task matching ANY of them counts as already synced.
+      const rows = Array.isArray(data.items)
+        ? data.items
+        : (Array.isArray(data.tasks) ? data.tasks : []);
+      const ids: string[] = [];
+      for (const t of rows) {
+        for (const key of ["id", "externalId", "cloudId", "cliId"]) {
+          const v = (t as Record<string, unknown>)[key];
+          if (typeof v === "string" && v.length > 0) ids.push(v);
+        }
+      }
+      onlineIds = new Set(ids);
     }
   } catch {
     /* non-critical — treat all as unsynced */
