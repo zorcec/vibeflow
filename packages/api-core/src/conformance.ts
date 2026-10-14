@@ -17,7 +17,7 @@
  *   dependency-free and the caller owns server boot/teardown/auth.
  */
 
-import { createNormalizeContext, normalizeResponse } from "./normalize.js";
+import { createNormalizeContext, normalizeResponse, NormalizeError } from "./normalize.js";
 
 /** One runnable case from the manifest. */
 export interface ManifestCase {
@@ -53,6 +53,17 @@ export interface ManifestCase {
     shape?: string;
     /** Assertion the normalized body must satisfy. */
     conformance?: string;
+  };
+  /**
+   * Cloud-surface status override. Some cases assert local-legacy
+   * conventions (200-empty for unknown ids, router-level 400s) that the
+   * contract's own v1 error convention contradicts (404/400 per openapi) —
+   * the override documents the v1-correct expectation instead of hiding
+   * the divergence. Shape still validates from `expect.shape`. Absent on
+   * `local` — the local surface always asserts `expect.status`.
+   */
+  expectCloud?: {
+    status: number;
   };
 }
 
@@ -169,6 +180,25 @@ export function toSurfacePath(
   return casePath;
 }
 
+/**
+ * Assert the v1 error envelope ({ error: string, ... }) — the shape an
+ * `expectCloud` divergence asserts in place of the data shape. A 404 with
+ * an HTML body (misconfigured route) or an empty body must not pass as a
+ * "correct" 404: the contract's error convention is machine-readable.
+ */
+function assertErrorEnvelope(body: unknown, where: string): void {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new NormalizeError(
+      `expected v1 error envelope { error } in ${where}, got ${typeof body}`,
+    );
+  }
+  if (typeof (body as Record<string, unknown>)["error"] !== "string") {
+    throw new NormalizeError(
+      `expected v1 error envelope { error: string } in ${where}`,
+    );
+  }
+}
+
 /** Named reason for a cloud skip taken from the manifest, never invented. */
 function cloudSkipReasonFor(entry: ManifestEntry): string {
   if (entry.cloudSkipReason) return entry.cloudSkipReason;
@@ -256,17 +286,31 @@ export async function runConformance(
             timeoutMs,
           },
         );
-        if (status !== c.expect.status) {
+        const want =
+          surface === "cloud" ? (c.expectCloud?.status ?? c.expect.status) : c.expect.status;
+        if (status !== want) {
           report.failed.push({
             entryId: entry.id,
             caseName: c.name,
             outcome: "failed",
-            detail: `expected status ${c.expect.status}, got ${status} at ${where}`,
+            detail: `expected status ${want}, got ${status} at ${where}`,
           });
           continue;
         }
         if (c.expect.shape) {
-          normalizeResponse(c.expect.shape, responseBody, ctx, where);
+          // A cloud status divergence asserts the v1 error envelope, not
+          // the data shape: the `expect` shape describes the local 2xx
+          // path, and an error body must never validate as data (nor pass
+          // without any body assertion at all).
+          if (
+            surface === "cloud" &&
+            c.expectCloud?.status !== undefined &&
+            c.expectCloud.status !== c.expect.status
+          ) {
+            assertErrorEnvelope(responseBody, where);
+          } else {
+            normalizeResponse(c.expect.shape, responseBody, ctx, where);
+          }
         }
         report.passed.push({
           entryId: entry.id,

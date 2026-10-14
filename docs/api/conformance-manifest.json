@@ -32,7 +32,7 @@
       "cases": [
         { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}" }, "expect": { "status": 200, "shape": "task", "conformance": "D3: v1 carries id + externalId (equal locally); local Phase 0 carries id (delta recorded, not asserted)" } },
         { "name": "unknown-id-404", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expect": { "status": 404, "conformance": "well-formed but unknown id → 404 { error }" } },
-        { "name": "malformed-id-400", "request": { "method": "GET", "path": "/api/tasks/not-an-id!!" }, "expect": { "status": 400, "conformance": "router-level id guard rejects before the handler" } }
+        { "name": "malformed-id-400", "request": { "method": "GET", "path": "/api/tasks/not-an-id!!" }, "expect": { "status": 400, "conformance": "router-level id guard rejects before the handler (local app.param guard; v1 documents 404 for get-task, which the cloud answers — see expectCloud)" }, "expectCloud": { "status": 404 } }
       ]
     },
     { "id": "create-task", "v1": { "method": "POST", "path": "/api/v1/tasks" }, "local": { "method": "POST", "path": "/api/tasks" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "shape": "task", "cases": [
@@ -76,7 +76,7 @@
       "cases": [
         { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "seeded user + agent comments present" } },
         { "name": "author-preserved", "request": { "method": "GET", "path": "/api/tasks/{taskId}/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "L1: author reads back verbatim (user|agent); the normalizer throws if author is absent" } },
-        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id — convergence item for Phase 1/3, asserted here so the difference cannot slip through silently" } }
+        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/comments" }, "expect": { "status": 200, "shape": "comment-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id (the cloud answers 404 — see expectCloud) — convergence item for Phase 1/3, asserted here so the difference cannot slip through silently" }, "expectCloud": { "status": 404 } }
       ]
     },
     { "id": "add-comment", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/comments" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/comments" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
@@ -99,7 +99,7 @@
       "seed": { "taskId": "<fixture file task>" },
       "cases": [
         { "name": "green", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files" }, "expect": { "status": 200, "shape": "file-list", "conformance": "seeded text + binary files listed" } },
-        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/files" }, "expect": { "status": 200, "shape": "file-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id — convergence item, see list-comments" } }
+        { "name": "unknown-task-empty-200", "request": { "method": "GET", "path": "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/files" }, "expect": { "status": 200, "shape": "file-list", "conformance": "DIVERGENCE NOTED: local returns 200 empty for an unknown task; v1 error convention says 404 unknown id (the cloud answers 404 — see expectCloud) — convergence item, see list-comments" }, "expectCloud": { "status": 404 } }
       ]
     },
     { "id": "upload-file", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/files" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
@@ -209,7 +209,7 @@
       { "name": "green", "request": { "method": "GET", "path": "/api/v1/boards/{id}" }, "expect": { "status": 200, "conformance": "single member board with role; foreign id is 404/403, never a leak" } }
     ] },
     { "id": "create-board", "v1": { "method": "POST", "path": "/api/v1/boards" }, "local": null, "runnable": "no-local-handler", "phase": 3, "surfaces": ["local", "cloud"], "cases": [
-      { "name": "green", "request": { "method": "POST", "path": "/api/v1/boards", "body": { "name": "My board" } }, "expect": { "status": 200, "conformance": "board + owner membership + default project + kanban board (createWithBoard parity); caller is owner" } }
+      { "name": "green", "request": { "method": "POST", "path": "/api/v1/boards", "body": { "name": "My board" } }, "expect": { "status": 201, "conformance": "board + owner membership + default project + kanban board (createWithBoard parity); caller is owner. v1 create ops answer 201 (create-task precedent)" } }
     ] },
     { "id": "patch-board", "v1": { "method": "PATCH", "path": "/api/v1/boards/{id}" }, "local": null, "runnable": "no-local-handler", "phase": 3, "surfaces": ["local", "cloud"], "cases": [
       { "name": "green", "request": { "method": "PATCH", "path": "/api/v1/boards/{id}", "body": { "name": "Renamed" } }, "expect": { "status": 200, "conformance": "name/icon/description update with the workspace NULL-vs-'' icon rule" } }

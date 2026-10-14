@@ -360,4 +360,77 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     ]);
     expect(seenLocal[0]?.rawBody).toBeUndefined();
   });
+
+  it("expectCloud overrides the status on cloud, ignored on local", async () => {
+    const entry: ManifestEntry = {
+      id: "get-task",
+      v1: { method: "GET", path: "/api/v1/tasks/{id}" },
+      local: { method: "GET", path: "/api/tasks/{taskId}" },
+      runnable: "local-read",
+      phase: 0,
+      surfaces: ["local", "cloud"],
+      seed: { taskId: "abc" },
+      cases: [
+        {
+          name: "malformed-id-400",
+          request: { method: "GET", path: "/api/tasks/not-an-id!!" },
+          expect: { status: 400 },
+          expectCloud: { status: 404 },
+        },
+      ],
+    };
+    // Cloud answers the v1 404 → passes via expectCloud.
+    const cloudReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({ status: 404, body: { error: "x" } })),
+      { surface: "cloud" },
+    );
+    expect(cloudReport.failed).toEqual([]);
+    expect(cloudReport.passed).toHaveLength(1);
+    // The same 404 on local is a failure — local asserts expect.status.
+    const localReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({ status: 404, body: { error: "x" } })),
+      { surface: "local" },
+    );
+    expect(localReport.passed).toEqual([]);
+    expect(localReport.failed).toHaveLength(1);
+  });
+
+  it("a diverged cloud status asserts the v1 error envelope, not the data shape", async () => {
+    const entry: ManifestEntry = {
+      id: "list-comments",
+      v1: { method: "GET", path: "/api/v1/tasks/{id}/comments" },
+      local: { method: "GET", path: "/api/tasks/{taskId}/comments" },
+      runnable: "local-read",
+      phase: 0,
+      surfaces: ["local", "cloud"],
+      seed: { taskId: "abc" },
+      cases: [
+        {
+          name: "unknown-task-empty-200",
+          request: { method: "GET", path: "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/comments" },
+          expect: { status: 200, shape: "comment-list" },
+          expectCloud: { status: 404 },
+        },
+      ],
+    };
+    // A machine-readable { error } 404 passes.
+    const okReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({ status: 404, body: { error: "nope", code: "NOT_FOUND" } })),
+      { surface: "cloud" },
+    );
+    expect(okReport.failed).toEqual([]);
+    expect(okReport.passed).toHaveLength(1);
+    // An HTML/plain 404 (misconfigured route) fails — never a silent pass.
+    const htmlReport = await runConformance(
+      [entry],
+      stubTransport([], () => ({ status: 404, body: "<html>nope</html>" })),
+      { surface: "cloud" },
+    );
+    expect(htmlReport.passed).toEqual([]);
+    expect(htmlReport.failed).toHaveLength(1);
+    expect(htmlReport.failed[0]?.detail).toMatch(/error envelope/);
+  });
 });
