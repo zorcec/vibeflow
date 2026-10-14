@@ -1,0 +1,404 @@
+{
+  "$schema": "https://vibeflow.tools/schemas/v1-examples.json",
+  "title": "Vibeflow API v1 per-endpoint examples (Phase 5 docs polish)",
+  "description": "Illustrative request/response examples for EVERY registry operation, keyed by operation id. Merged into the OpenAPI document by packages/api-core/scripts/gen-api-artifacts.mjs — never hand-edit the emitted examples. The §6.4 docs coverage guard fails if an operation id here does not match the registry exactly (both directions), or if an emitted operation lacks its example. Ids, tokens and timestamps below are illustrative, not fixtures.",
+  "examples": {
+    "list-tasks": {
+      "request": { "method": "GET", "path": "/api/v1/tasks?status=todo&limit=2" },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [
+            {
+              "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+              "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+              "title": "Annotate the checkout button",
+              "status": "todo",
+              "commentCount": 2,
+              "fileCount": 1,
+              "createdAt": "2026-10-10T09:00:00.000Z"
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    "get-task": {
+      "request": { "method": "GET", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90" },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "description": "Button needs an accessible name",
+          "status": "in-progress",
+          "selector": "text=Checkout",
+          "priority": "high",
+          "verified": null,
+          "links": [],
+          "commentCount": 2,
+          "fileCount": 1,
+          "createdAt": "2026-10-10T09:00:00.000Z"
+        }
+      }
+    },
+    "create-task": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks",
+        "body": { "title": "Annotate the checkout button", "status": "todo", "priority": "high" }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo",
+          "priority": "high"
+        }
+      }
+    },
+    "patch-task": {
+      "request": {
+        "method": "PATCH",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "body": { "status": "in-progress", "priority": "high" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "in-progress"
+        }
+      }
+    },
+    "delete-task": {
+      "request": { "method": "DELETE", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90" },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo"
+        }
+      }
+    },
+    "mark-opened": {
+      "request": { "method": "POST", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/opened" },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo"
+        }
+      }
+    },
+    "mark-expanded": {
+      "request": { "method": "POST", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/expanded" },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo"
+        }
+      }
+    },
+    "add-link": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links",
+        "body": { "type": "blocks", "taskId": "b2c3d4e5f60718293a4b5c6d7e8f90a1" }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo"
+        }
+      }
+    },
+    "remove-link": {
+      "request": { "method": "DELETE", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links/blocks/b2c3d4e5f60718293a4b5c6d7e8f90a1" },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "todo"
+        }
+      }
+    },
+    "claim-next": {
+      "request": { "method": "POST", "path": "/api/v1/tasks/claim-next", "body": { "status": "todo" } },
+      "response": {
+        "status": 200,
+        "body": {
+          "task": {
+            "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "title": "Annotate the checkout button",
+            "status": "in-progress"
+          }
+        }
+      }
+    },
+    "verify-task": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/verify",
+        "body": { "verdict": "pass", "reason": "Checked against the baseline screenshot" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "externalId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "title": "Annotate the checkout button",
+          "status": "review"
+        }
+      }
+    },
+    "list-comments": {
+      "request": { "method": "GET", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments" },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [
+            {
+              "id": "c0ffee1234567890",
+              "author": "user",
+              "text": "Reproduced on staging",
+              "type": "comment",
+              "source": "web",
+              "createdAt": "2026-10-10T10:00:00.000Z"
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    "add-comment": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments",
+        "body": { "author": "agent", "text": "Fix drafted, requesting review" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "c0ffee1234567890",
+          "author": "agent",
+          "text": "Fix drafted, requesting review",
+          "type": "comment",
+          "source": "cli",
+          "createdAt": "2026-10-10T11:00:00.000Z"
+        }
+      }
+    },
+    "patch-comment": {
+      "request": {
+        "method": "PATCH",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890",
+        "body": { "text": "Fix drafted, requesting review (edited)" }
+      },
+      "response": {
+        "status": 200,
+        "body": { "id": "c0ffee1234567890", "author": "agent", "text": "Fix drafted, requesting review (edited)" }
+      }
+    },
+    "delete-comment": {
+      "request": { "method": "DELETE", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890" },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "list-files": {
+      "request": { "method": "GET", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files" },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [{ "name": "note.txt", "size": 42, "mimeType": "text/plain", "system": false }],
+          "nextCursor": null
+        }
+      }
+    },
+    "upload-file": {
+      "request": { "method": "POST", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files" },
+      "response": {
+        "status": 200,
+        "body": { "name": "note.txt", "size": 42, "mimeType": "text/plain", "system": false }
+      }
+    },
+    "get-file": {
+      "request": { "method": "GET", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt" },
+      "response": { "status": 200, "note": "Binary download (application/octet-stream) — no JSON body to example." }
+    },
+    "delete-file": {
+      "request": { "method": "DELETE", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt" },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "put-screenshot": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot",
+        "body": { "screenshot": "<base64 PNG bytes>" }
+      },
+      "response": {
+        "status": 200,
+        "body": { "success": true, "screenshot": "a1b2c3d4e5f60718293a4b5c6d7e8f90.png" }
+      }
+    },
+    "delete-screenshot": {
+      "request": { "method": "DELETE", "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot" },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "put-baseline": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline",
+        "body": { "baseline": { "selector": "text=Checkout", "outerHTML": "<button>Checkout</button>" } }
+      },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "put-baseline-page": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline-page",
+        "body": { "page": { "version": 1, "elements": {}, "capturedAt": "2026-10-10T09:00:00.000Z", "truncated": false } }
+      },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "put-auth-state": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/auth-state",
+        "body": { "authState": { "cookies": [] }, "taskAuthor": "alice@example.com" }
+      },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "get-project": {
+      "request": { "method": "GET", "path": "/api/v1/project" },
+      "response": {
+        "status": 200,
+        "body": { "kind": "board", "name": "Acme checkout", "boardId": "board_01H", "workspaceId": "ws_01H" }
+      }
+    },
+    "get-me": {
+      "request": { "method": "GET", "path": "/api/v1/me" },
+      "response": {
+        "status": 200,
+        "body": { "id": "user_01H", "name": "Ada", "email": "ada@example.com", "image": null }
+      }
+    },
+    "get-settings": {
+      "request": { "method": "GET", "path": "/api/v1/settings" },
+      "response": { "status": 200, "body": { "settings": { "viewMode": "kanban", "autoCommit": false } } }
+    },
+    "patch-settings": {
+      "request": { "method": "PATCH", "path": "/api/v1/settings", "body": { "viewMode": "kanban" } },
+      "response": { "status": 200, "body": { "success": true, "settings": { "viewMode": "kanban", "autoCommit": false } } }
+    },
+    "get-changelog": {
+      "request": { "method": "GET", "path": "/api/v1/changelog" },
+      "response": { "status": 200, "body": { "version": "1.2.3", "sections": [{ "version": "1.2.3", "notes": ["Fixed checkout annotation"] }] } }
+    },
+    "export-prompt": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/prompt",
+        "body": { "scope": "task" }
+      },
+      "response": {
+        "status": 200,
+        "body": { "prompt": "Implement: Annotate the checkout button (status todo) …" }
+      }
+    },
+    "list-tokens": {
+      "request": { "method": "GET", "path": "/api/v1/tokens" },
+      "response": {
+        "status": 200,
+        "body": {
+          "tokens": [
+            {
+              "id": "tok_01H",
+              "name": "CI runner",
+              "prefix": "vbf_pat_9f2c",
+              "scopes": ["tasks:read", "tasks:write"],
+              "createdAt": "2026-10-10T09:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    "create-token": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/tokens",
+        "body": { "name": "CI runner", "scopes": ["tasks:read", "tasks:write"] }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "token": "vbf_pat_9f2c_<redacted — returned once>",
+          "id": "tok_01H",
+          "name": "CI runner",
+          "prefix": "vbf_pat_9f2c",
+          "scopes": ["tasks:read", "tasks:write"],
+          "expiresAt": null
+        }
+      }
+    },
+    "revoke-token": {
+      "request": { "method": "DELETE", "path": "/api/v1/tokens/tok_01H" },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "list-boards": {
+      "request": { "method": "GET", "path": "/api/v1/boards" },
+      "response": {
+        "status": 200,
+        "body": { "items": [{ "id": "board_01H", "name": "Acme checkout", "slug": "acme-checkout", "role": "owner" }], "nextCursor": null }
+      }
+    },
+    "get-board": {
+      "request": { "method": "GET", "path": "/api/v1/boards/board_01H" },
+      "response": { "status": 200, "body": { "board": { "id": "board_01H", "name": "Acme checkout", "slug": "acme-checkout", "role": "owner" } } }
+    },
+    "create-board": {
+      "request": { "method": "POST", "path": "/api/v1/boards", "body": { "name": "Acme checkout" } },
+      "response": { "status": 201, "body": { "board": { "id": "board_01H", "name": "Acme checkout", "slug": "acme-checkout", "role": "owner" } } }
+    },
+    "patch-board": {
+      "request": { "method": "PATCH", "path": "/api/v1/boards/board_01H", "body": { "name": "Acme checkout v2" } },
+      "response": { "status": 200, "body": { "board": { "id": "board_01H", "name": "Acme checkout v2", "slug": "acme-checkout", "role": "owner" } } }
+    },
+    "delete-board": {
+      "request": { "method": "DELETE", "path": "/api/v1/boards/board_01H" },
+      "response": { "status": 200, "body": { "success": true } }
+    },
+    "mcp-get": {
+      "request": { "method": "GET", "path": "/mcp" },
+      "response": { "status": 200, "body": { "sessionId": "sess_01H", "protocolVersion": "2025-06-18" } }
+    },
+    "mcp-post": {
+      "request": {
+        "method": "POST",
+        "path": "/mcp",
+        "body": { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "example", "version": "0.0.0" } } }
+      },
+      "response": {
+        "status": 200,
+        "body": { "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": { "name": "vibeflow", "version": "1.0.0" } } }
+      }
+    }
+  }
+}

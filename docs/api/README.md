@@ -21,11 +21,27 @@ from generated output:
 
 - **`openapi.yaml` / `openapi.json`** — the `/api/v1` contract (OpenAPI 3.1)
   as a human doc and its canonical JSON twin. The generator also lints
-  (3.1 marker, operation count, operationId + 200 per op, resolvable $refs).
+  (3.1 marker, operation count, operationId + 200 per op, resolvable $refs,
+  per-endpoint examples — see below).
 - **`packages/api-core/src/route-registry.gen.ts`** — the typed route
   registry (every v1 op + local-only list + carve-outs).
 - **`packages/cli/src/server/openapi.gen.ts`** — byte-exact payload served
   at `GET /api/openapi.json`.
+
+## Per-endpoint examples (Phase 5 docs polish)
+
+- **`v1-examples.json`** — hand-authored, reviewed: one illustrative
+  request/response example per registry operation, keyed by operation id.
+  The generator merges them into the emitted operations as
+  `x-vibeflow-example-request` (always) plus standard OpenAPI `examples`
+  on the JSON request/response media types (binary download carries
+  `x-vibeflow-example-note` instead). Swagger UI renders all of these
+  inline, and `deepLinking` exposes `#/<tag>/<operationId>` per route —
+  the viewer is still the one docs stack, not a second one.
+- The per-replica quota caveat lives in the contract's own
+  `openapi.description`, so it renders in `info.description` (viewer +
+  YAML/JSON): counters are per-replica, effective limit = configured ×
+  replicas, Redis is the future path.
 
 ## Runner + manifest
 
@@ -80,3 +96,10 @@ Tested in `packages/cli/tests/unit/api-v1/drift-guards.test.ts`:
   `v1-parity.test.ts` fetches every read from the legacy path and the v1
   path and asserts byte-identical bodies.
 - **Coverage** — every registry route has a manifest row and vice versa.
+- **Docs coverage** (`docs-coverage-guard.test.ts`) — every registry route
+  has an examples entry and vice versa; every emitted operation carries
+  its `x-vibeflow-example-request` (method + template-matching path),
+  JSON wire-shape `examples`, and a deep-link identity
+  (`operationId` + tag); the viewer keeps `deepLinking: true` over the
+  served spec. A route missing from the docs fails, so docs cannot
+  silently rot.

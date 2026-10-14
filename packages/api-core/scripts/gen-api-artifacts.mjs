@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * Generate every checked-in API artifact from docs/api/v1-contract.json.
+ * Generate every checked-in API artifact from docs/api/v1-contract.json +
+ * docs/api/v1-examples.json.
  *
- * Single source of truth: docs/api/v1-contract.json (hand-authored, reviewed).
+ * Single source of truth: docs/api/v1-contract.json (hand-authored, reviewed)
+ * for the route set, plus docs/api/v1-examples.json (hand-authored,
+ * reviewed) for one illustrative request/response example per operation.
  * Generated outputs (NEVER hand-edited — a freshness test fails otherwise):
  *   docs/api/openapi.yaml                        — the /api/v1 contract doc
  *   docs/api/openapi.json                        — canonical JSON twin
@@ -24,6 +27,39 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
 const CONTRACT_PATH = join(REPO_ROOT, "docs", "api", "v1-contract.json");
+const EXAMPLES_PATH = join(REPO_ROOT, "docs", "api", "v1-examples.json");
+
+/**
+ * Load the per-endpoint examples file: `{ examples: { <opId>: { request,
+ * response } } }`. Key parity with the contract operations is enforced by
+ * `lintOpenApiDocument` (and independently by the §6.4 docs coverage
+ * guard), so an operation added without an example — or an example for
+ * an operation that no longer exists — fails loudly instead of rotting.
+ */
+export function loadExamples() {
+  let raw;
+  try {
+    raw = readFileSync(EXAMPLES_PATH, "utf-8");
+  } catch (err) {
+    throw new Error(
+      `gen-api-artifacts: cannot read the examples at ${EXAMPLES_PATH}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `gen-api-artifacts: ${EXAMPLES_PATH} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed.examples) || typeof parsed.examples !== "object" || parsed.examples === null) {
+    throw new Error(
+      `gen-api-artifacts: ${EXAMPLES_PATH} must be { examples: { <opId>: {...} } }`,
+    );
+  }
+  return parsed.examples;
+}
 
 export function loadContract() {
   // Fail loudly and usefully: a malformed contract is a build-time error, and
@@ -144,7 +180,7 @@ function errorResponses(codes) {
                     : code === 422
                       ? "Ambiguous scope (SCOPE_REQUIRED)"
                       : code === 429
-                        ? "Rate limited"
+                        ? "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
                         : "Local-only operation on the cloud surface",
       content: { "application/json": { schema: ERROR_REF } },
     };
@@ -316,7 +352,46 @@ function requestBodyFor(op) {
   };
 }
 
-export function buildOpenApiDocument(contract) {
+/**
+ * Merge one operation's hand-authored example into its emitted OpenAPI
+ * operation (Phase 5 docs polish). Every op gets:
+ * - `x-vibeflow-example-request` { method, path }: the curl-able shape,
+ *   always present (even bodyless GETs and binary up/downloads),
+ * - standard `examples: { documented: { value } }` on the JSON request
+ *   media type when the example carries a request body,
+ * - standard `examples` on the JSON success media type when the example
+ *   carries a response body, or `x-vibeflow-example-note` when the
+ *   response has no JSON body to example (binary download).
+ */
+export function applyExample(operation, op, example, successStatus) {
+  operation["x-vibeflow-example-request"] = {
+    method: example.request.method,
+    path: example.request.path,
+  };
+  const requestBody = operation.requestBody;
+  if (
+    example.request.body !== undefined &&
+    requestBody?.content?.["application/json"]
+  ) {
+    requestBody.content["application/json"].examples = {
+      documented: { value: example.request.body },
+    };
+  }
+  const success = operation.responses?.[String(successStatus)];
+  const jsonMedia = success?.content?.["application/json"];
+  if (example.response?.body !== undefined && jsonMedia) {
+    jsonMedia.examples = {
+      documented: { value: example.response.body },
+    };
+  } else if (
+    example.response?.body === undefined &&
+    typeof example.response?.note === "string"
+  ) {
+    operation["x-vibeflow-example-note"] = example.response.note;
+  }
+}
+
+export function buildOpenApiDocument(contract, examples = loadExamples()) {
   const paths = {};
   for (const op of contract.operations) {
     const pathItem = paths[op.v1Path] ?? {};
@@ -388,6 +463,10 @@ export function buildOpenApiDocument(contract) {
     }
     if (op.scope !== null) {
       operation.security = [{ bearerAuth: [] }];
+    }
+    const example = examples[op.id];
+    if (example) {
+      applyExample(operation, op, example, successStatusFor(op));
     }
     pathItem[method] = operation;
     paths[op.v1Path] = pathItem;
@@ -706,7 +785,69 @@ function buildSchemas(contract) {
 
 // ── Structural lint (runs inside generation; fails loudly, not silently) ────
 
-export function lintOpenApiDocument(doc, contract) {
+/**
+ * Example-shape lint: the emitted operation must carry the example the
+ * examples file documents for it. Returns problem strings (empty = clean).
+ * Exported so the §6.4 docs coverage guard can prove non-vacuity on
+ * synthetic drift without touching real files.
+ */
+export function lintExampleCoverage(doc, contract, examples) {
+  const problems = [];
+  const opIds = new Set(contract.operations.map((op) => op.id));
+  for (const id of Object.keys(examples)) {
+    if (!opIds.has(id)) problems.push(`example for unknown operation ${JSON.stringify(id)}`);
+  }
+  const byOperationId = new Map();
+  for (const [path, item] of Object.entries(doc.paths ?? {})) {
+    for (const [method, op] of Object.entries(item)) {
+      if (op?.operationId) byOperationId.set(op.operationId, { path, method, op });
+    }
+  }
+  for (const op of contract.operations) {
+    const example = examples[op.id];
+    if (!example || typeof example !== "object") {
+      problems.push(`${op.id}: missing examples entry (docs cannot silently rot)`);
+      continue;
+    }
+    if (example.request?.method !== op.method) {
+      problems.push(`${op.id}: example request method ${JSON.stringify(example.request?.method)} !== ${op.method}`);
+    }
+    const templateRe = new RegExp(
+      "^" + op.v1Path.split(/\{\w+\}/).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]+") + "$",
+    );
+    const examplePath = typeof example.request?.path === "string" ? example.request.path.split("?")[0] : "";
+    if (!templateRe.test(examplePath)) {
+      problems.push(`${op.id}: example request path ${JSON.stringify(example.request?.path)} does not match ${op.v1Path}`);
+    }
+    const emitted = byOperationId.get(op.id);
+    if (!emitted) {
+      problems.push(`${op.id}: not emitted in paths (covered by the op-count lint)`);
+      continue;
+    }
+    if (emitted.op["x-vibeflow-example-request"] === undefined) {
+      problems.push(`${op.id}: emitted operation lacks x-vibeflow-example-request`);
+    }
+    const wantStatus = String(successStatusFor(op));
+    const jsonMedia = emitted.op.responses?.[wantStatus]?.content?.["application/json"];
+    if (example.response?.body !== undefined) {
+      if (!jsonMedia) {
+        problems.push(`${op.id}: example has a response body but ${wantStatus} has no JSON media type`);
+      } else if (jsonMedia.examples?.documented?.value === undefined) {
+        problems.push(`${op.id}: JSON success response lacks examples.documented`);
+      }
+    }
+    if (
+      example.request?.body !== undefined &&
+      emitted.op.requestBody?.content?.["application/json"] &&
+      emitted.op.requestBody.content["application/json"].examples?.documented?.value === undefined
+    ) {
+      problems.push(`${op.id}: JSON requestBody lacks examples.documented`);
+    }
+  }
+  return problems;
+}
+
+export function lintOpenApiDocument(doc, contract, examples = loadExamples()) {
   const problems = [];
   if (!/^3\.1\.\d+$/.test(doc.openapi ?? "")) {
     problems.push(`openapi version must be 3.1.x, got ${JSON.stringify(doc.openapi)}`);
@@ -744,6 +885,7 @@ export function lintOpenApiDocument(doc, contract) {
       problems.push(`unresolvable $ref ${ref}`);
     }
   }
+  for (const p of lintExampleCoverage(doc, contract, examples)) problems.push(p);
   const successByOperationId = new Map(
     contract.operations.map((op) => [op.id, successStatusFor(op)]),
   );
@@ -765,7 +907,7 @@ export function lintOpenApiDocument(doc, contract) {
 
 // ── Registry + embed emitters ───────────────────────────────────────────────
 
-const GEN_HEADER = `// AUTO-GENERATED by packages/api-core/scripts/gen-api-artifacts.mjs — do not edit.\n// Source: docs/api/v1-contract.json. Re-run 'pnpm --filter @vibeflow-tools/api-core gen:api'.\n`;
+const GEN_HEADER = `// AUTO-GENERATED by packages/api-core/scripts/gen-api-artifacts.mjs — do not edit.\n// Sources: docs/api/v1-contract.json + docs/api/v1-examples.json. Re-run 'pnpm --filter @vibeflow-tools/api-core gen:api'.\n`;
 
 function tsString(value) {
   return JSON.stringify(value);

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Vibeflow API v1
   version: 1.0.0-phase2
-  description: Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document.
+  description: "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document. On the cloud surface, bearer calls carry per-token quotas — reads 300/min, writes 60/min, token creation 10/hour — and a quota-exceeding call answers 429 with Retry-After. Quota counters are PER-REPLICA in-memory counters, so the effective limit is the configured value × replicas (a shared store such as Redis is the future path if cross-replica enforcement is ever needed)."
 servers:
   - url: "/"
     description: "Local board — try-it-out executes against this server"
@@ -45,6 +45,18 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/TaskList"
+              examples:
+                documented:
+                  value:
+                    items:
+                      - id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                        externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                        title: Annotate the checkout button
+                        status: todo
+                        commentCount: 2
+                        fileCount: 1
+                        createdAt: "2026-10-10T09:00:00.000Z"
+                    nextCursor: null
         "401":
           description: Missing or invalid principal
           content:
@@ -58,7 +70,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -66,6 +78,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tasks?status=todo&limit=2"
     post:
       operationId: create-task
       summary: Create a task
@@ -84,6 +99,14 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
+                    priority: high
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -109,7 +132,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -120,9 +143,18 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/TaskCreate"
+            examples:
+              documented:
+                value:
+                  title: Annotate the checkout button
+                  status: todo
+                  priority: high
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks"
   "/api/v1/tasks/{id}":
     get:
       operationId: get-task
@@ -146,6 +178,22 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    description: Button needs an accessible name
+                    status: in-progress
+                    selector: "text=Checkout"
+                    priority: high
+                    verified: null
+                    links:
+                      []
+                    commentCount: 2
+                    fileCount: 1
+                    createdAt: "2026-10-10T09:00:00.000Z"
         "401":
           description: Missing or invalid principal
           content:
@@ -165,7 +213,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -173,6 +221,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
     patch:
       operationId: patch-task
       summary: Update a task
@@ -195,6 +246,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: in-progress
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -220,7 +278,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -231,9 +289,17 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/TaskPatch"
+            examples:
+              documented:
+                value:
+                  status: in-progress
+                  priority: high
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: PATCH
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
     delete:
       operationId: delete-task
       summary: Delete a task (cascade)
@@ -256,6 +322,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -281,7 +354,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -289,6 +362,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
   "/api/v1/tasks/{id}/opened":
     post:
       operationId: mark-opened
@@ -312,6 +388,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -337,7 +420,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -345,6 +428,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/opened"
   "/api/v1/tasks/{id}/expanded":
     post:
       operationId: mark-expanded
@@ -368,6 +454,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -393,7 +486,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -401,6 +494,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/expanded"
   "/api/v1/tasks/{id}/links":
     post:
       operationId: add-link
@@ -424,6 +520,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -449,7 +552,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -460,9 +563,17 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/TaskLinkInput"
+            examples:
+              documented:
+                value:
+                  type: blocks
+                  taskId: b2c3d4e5f60718293a4b5c6d7e8f90a1
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links"
   "/api/v1/tasks/{id}/links/{type}/{target}":
     delete:
       operationId: remove-link
@@ -496,6 +607,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: todo
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -521,7 +639,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -529,6 +647,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links/blocks/b2c3d4e5f60718293a4b5c6d7e8f90a1"
   "/api/v1/tasks/claim-next":
     post:
       operationId: claim-next
@@ -548,6 +669,14 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ClaimNext"
+              examples:
+                documented:
+                  value:
+                    task:
+                      id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                      externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                      title: Annotate the checkout button
+                      status: in-progress
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -573,7 +702,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -584,9 +713,16 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/ClaimFilter"
+            examples:
+              documented:
+                value:
+                  status: todo
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/claim-next"
   "/api/v1/tasks/{id}/verify":
     post:
       operationId: verify-task
@@ -610,6 +746,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Task"
+              examples:
+                documented:
+                  value:
+                    id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    externalId: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                    title: Annotate the checkout button
+                    status: review
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -635,7 +778,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -646,9 +789,17 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/VerifyAttestation"
+            examples:
+              documented:
+                value:
+                  verdict: pass
+                  reason: Checked against the baseline screenshot
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/verify"
   "/api/v1/tasks/{id}/comments":
     get:
       operationId: list-comments
@@ -672,6 +823,17 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CommentList"
+              examples:
+                documented:
+                  value:
+                    items:
+                      - id: c0ffee1234567890
+                        author: user
+                        text: Reproduced on staging
+                        type: comment
+                        source: web
+                        createdAt: "2026-10-10T10:00:00.000Z"
+                    nextCursor: null
         "401":
           description: Missing or invalid principal
           content:
@@ -691,7 +853,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -699,6 +861,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
     post:
       operationId: add-comment
       summary: Add a comment
@@ -721,6 +886,15 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Comment"
+              examples:
+                documented:
+                  value:
+                    id: c0ffee1234567890
+                    author: agent
+                    text: Fix drafted, requesting review
+                    type: comment
+                    source: cli
+                    createdAt: "2026-10-10T11:00:00.000Z"
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -746,7 +920,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -757,9 +931,17 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/CommentInput"
+            examples:
+              documented:
+                value:
+                  author: agent
+                  text: Fix drafted, requesting review
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
   "/api/v1/tasks/{id}/comments/{commentId}":
     patch:
       operationId: patch-comment
@@ -788,6 +970,12 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Comment"
+              examples:
+                documented:
+                  value:
+                    id: c0ffee1234567890
+                    author: agent
+                    text: Fix drafted, requesting review (edited)
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -813,7 +1001,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -830,9 +1018,16 @@ paths:
                   minLength: 1
               required:
                 - text
+            examples:
+              documented:
+                value:
+                  text: Fix drafted, requesting review (edited)
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: PATCH
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
     delete:
       operationId: delete-comment
       summary: Delete a comment
@@ -865,6 +1060,10 @@ paths:
                     type: boolean
                 required:
                   - success
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -890,7 +1089,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -898,6 +1097,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
   "/api/v1/tasks/{id}/files":
     get:
       operationId: list-files
@@ -921,6 +1123,15 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/FileList"
+              examples:
+                documented:
+                  value:
+                    items:
+                      - name: note.txt
+                        size: 42
+                        mimeType: text/plain
+                        system: false
+                    nextCursor: null
         "401":
           description: Missing or invalid principal
           content:
@@ -940,7 +1151,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -948,6 +1159,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
     post:
       operationId: upload-file
       summary: Upload a file
@@ -970,6 +1184,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/FileEntry"
+              examples:
+                documented:
+                  value:
+                    name: note.txt
+                    size: 42
+                    mimeType: text/plain
+                    system: false
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -995,7 +1216,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1017,6 +1238,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
   "/api/v1/tasks/{id}/files/{fileId}":
     get:
       operationId: get-file
@@ -1065,7 +1289,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1073,6 +1297,10 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
+      x-vibeflow-example-note: "Binary download (application/octet-stream) — no JSON body to example."
     delete:
       operationId: delete-file
       summary: Delete a file
@@ -1105,6 +1333,10 @@ paths:
                     type: boolean
                 required:
                   - success
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1130,7 +1362,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1138,6 +1370,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
   "/api/v1/tasks/{id}/screenshot":
     post:
       operationId: put-screenshot
@@ -1161,6 +1396,11 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ScreenshotResult"
+              examples:
+                documented:
+                  value:
+                    success: true
+                    screenshot: a1b2c3d4e5f60718293a4b5c6d7e8f90.png
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1186,7 +1426,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1197,9 +1437,16 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/ScreenshotInput"
+            examples:
+              documented:
+                value:
+                  screenshot: "<base64 PNG bytes>"
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
     delete:
       operationId: delete-screenshot
       summary: Remove the screenshot
@@ -1227,6 +1474,10 @@ paths:
                     type: boolean
                 required:
                   - success
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1252,7 +1503,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1260,6 +1511,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
   "/api/v1/tasks/{id}/baseline":
     post:
       operationId: put-baseline
@@ -1283,6 +1537,10 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/BaselineResult"
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1308,7 +1566,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1319,9 +1577,18 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/BaselineEnvelope"
+            examples:
+              documented:
+                value:
+                  baseline:
+                    selector: "text=Checkout"
+                    outerHTML: "<button>Checkout</button>"
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline"
   "/api/v1/tasks/{id}/baseline-page":
     post:
       operationId: put-baseline-page
@@ -1345,6 +1612,10 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1370,7 +1641,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1378,6 +1649,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline-page"
   "/api/v1/tasks/{id}/auth-state":
     post:
       operationId: put-auth-state
@@ -1401,6 +1675,10 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/AuthStateResult"
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1426,7 +1704,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1443,9 +1721,19 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/AuthStateInput"
+            examples:
+              documented:
+                value:
+                  authState:
+                    cookies:
+                      []
+                  taskAuthor: alice@example.com
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/auth-state"
   "/api/v1/project":
     get:
       operationId: get-project
@@ -1465,6 +1753,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Project"
+              examples:
+                documented:
+                  value:
+                    kind: board
+                    name: Acme checkout
+                    boardId: board_01H
+                    workspaceId: ws_01H
         "401":
           description: Missing or invalid principal
           content:
@@ -1478,7 +1773,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1486,6 +1781,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/project"
   "/api/v1/me":
     get:
       operationId: get-me
@@ -1505,6 +1803,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Principal"
+              examples:
+                documented:
+                  value:
+                    id: user_01H
+                    name: Ada
+                    email: ada@example.com
+                    image: null
         "401":
           description: Missing or invalid principal
           content:
@@ -1518,7 +1823,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1526,6 +1831,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/me"
   "/api/v1/settings":
     get:
       operationId: get-settings
@@ -1545,6 +1853,12 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Settings"
+              examples:
+                documented:
+                  value:
+                    settings:
+                      viewMode: kanban
+                      autoCommit: false
         "401":
           description: Missing or invalid principal
           content:
@@ -1558,7 +1872,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1566,6 +1880,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/settings"
     patch:
       operationId: patch-settings
       summary: Update settings
@@ -1584,6 +1901,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Settings"
+              examples:
+                documented:
+                  value:
+                    success: true
+                    settings:
+                      viewMode: kanban
+                      autoCommit: false
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1609,7 +1933,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1621,9 +1945,16 @@ paths:
             schema:
               type: object
               description: Settable UI preference keys
+            examples:
+              documented:
+                value:
+                  viewMode: kanban
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: PATCH
+        path: "/api/v1/settings"
   "/api/v1/changelog":
     get:
       operationId: get-changelog
@@ -1643,6 +1974,14 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Changelog"
+              examples:
+                documented:
+                  value:
+                    version: 1.2.3
+                    sections:
+                      - version: 1.2.3
+                        notes:
+                          - Fixed checkout annotation
         "401":
           description: Missing or invalid principal
           content:
@@ -1656,11 +1995,14 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/changelog"
   "/api/v1/tasks/{id}/prompt":
     post:
       operationId: export-prompt
@@ -1684,6 +2026,10 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/PromptExport"
+              examples:
+                documented:
+                  value:
+                    prompt: "Implement: Annotate the checkout button (status todo) …"
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1709,7 +2055,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1720,9 +2066,16 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/PromptExportInput"
+            examples:
+              documented:
+                value:
+                  scope: task
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/prompt"
   "/api/v1/tokens":
     get:
       operationId: list-tokens
@@ -1742,6 +2095,17 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/TokenList"
+              examples:
+                documented:
+                  value:
+                    tokens:
+                      - id: tok_01H
+                        name: CI runner
+                        prefix: vbf_pat_9f2c
+                        scopes:
+                          - "tasks:read"
+                          - "tasks:write"
+                        createdAt: "2026-10-10T09:00:00.000Z"
         "401":
           description: Missing or invalid principal
           content:
@@ -1755,7 +2119,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1763,6 +2127,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/tokens"
     post:
       operationId: create-token
       summary: Create a personal access token (secret returned once)
@@ -1781,6 +2148,17 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/TokenSecret"
+              examples:
+                documented:
+                  value:
+                    token: "vbf_pat_9f2c_<redacted — returned once>"
+                    id: tok_01H
+                    name: CI runner
+                    prefix: vbf_pat_9f2c
+                    scopes:
+                      - "tasks:read"
+                      - "tasks:write"
+                    expiresAt: null
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1806,7 +2184,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1817,9 +2195,19 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/TokenCreate"
+            examples:
+              documented:
+                value:
+                  name: CI runner
+                  scopes:
+                    - "tasks:read"
+                    - "tasks:write"
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/tokens"
   "/api/v1/tokens/{id}":
     delete:
       operationId: revoke-token
@@ -1848,6 +2236,10 @@ paths:
                     type: boolean
                 required:
                   - success
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1873,7 +2265,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1881,6 +2273,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/tokens/tok_01H"
   "/api/v1/boards":
     get:
       operationId: list-boards
@@ -1900,6 +2295,15 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    items:
+                      - id: board_01H
+                        name: Acme checkout
+                        slug: acme-checkout
+                        role: owner
+                    nextCursor: null
         "401":
           description: Missing or invalid principal
           content:
@@ -1913,7 +2317,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1921,6 +2325,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/boards"
     post:
       operationId: create-board
       summary: Create a board (caller becomes owner)
@@ -1939,6 +2346,14 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    board:
+                      id: board_01H
+                      name: Acme checkout
+                      slug: acme-checkout
+                      role: owner
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -1964,7 +2379,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -1972,6 +2387,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v1/boards"
   "/api/v1/boards/{id}":
     get:
       operationId: get-board
@@ -1995,6 +2413,14 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    board:
+                      id: board_01H
+                      name: Acme checkout
+                      slug: acme-checkout
+                      role: owner
         "401":
           description: Missing or invalid principal
           content:
@@ -2014,7 +2440,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -2022,6 +2448,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v1/boards/board_01H"
     patch:
       operationId: patch-board
       summary: Update a board (name/icon/description)
@@ -2044,6 +2473,14 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    board:
+                      id: board_01H
+                      name: Acme checkout v2
+                      slug: acme-checkout
+                      role: owner
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -2069,7 +2506,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -2077,6 +2514,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: PATCH
+        path: "/api/v1/boards/board_01H"
     delete:
       operationId: delete-board
       summary: Delete a board (tasks cascade, never orphaned)
@@ -2099,6 +2539,10 @@ paths:
             application/json:
               schema:
                 type: object
+              examples:
+                documented:
+                  value:
+                    success: true
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -2124,7 +2568,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -2132,6 +2576,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: DELETE
+        path: "/api/v1/boards/board_01H"
   "/mcp":
     get:
       operationId: mcp-get
@@ -2151,6 +2598,11 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/McpSession"
+              examples:
+                documented:
+                  value:
+                    sessionId: sess_01H
+                    protocolVersion: 2025-06-18
         "401":
           description: Missing or invalid principal
           content:
@@ -2164,7 +2616,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -2172,6 +2624,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/mcp"
     post:
       operationId: mcp-post
       summary: Hosted MCP call
@@ -2191,6 +2646,18 @@ paths:
               schema:
                 type: object
                 description: JSON-RPC response envelope
+              examples:
+                documented:
+                  value:
+                    jsonrpc: "2.0"
+                    id: 1
+                    result:
+                      protocolVersion: 2025-06-18
+                      capabilities:
+                        {}
+                      serverInfo:
+                        name: vibeflow
+                        version: 1.0.0
         "400":
           description: Malformed request (includes invalid task/comment id form)
           content:
@@ -2216,7 +2683,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
         "429":
-          description: Rate limited
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
           content:
             application/json:
               schema:
@@ -2224,6 +2691,9 @@ paths:
       security:
         - bearerAuth:
             []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/mcp"
 components:
   securitySchemes:
     bearerAuth:

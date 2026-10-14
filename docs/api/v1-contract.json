@@ -6,7 +6,7 @@
     "version": "3.1.0",
     "title": "Vibeflow API v1",
     "apiVersion": "1.0.0-phase2",
-    "description": "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document."
+    "description": "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document. On the cloud surface, bearer calls carry per-token quotas — reads 300/min, writes 60/min, token creation 10/hour — and a quota-exceeding call answers 429 with Retry-After. Quota counters are PER-REPLICA in-memory counters, so the effective limit is the configured value × replicas (a shared store such as Redis is the future path if cross-replica enforcement is ever needed)."
   },
   "conventions": {
     "statusVocabulary": ["backlog", "todo", "in-progress", "review", "done", "cancelled"],
