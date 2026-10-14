@@ -380,10 +380,9 @@ describe("fetchSaasTasks — v1 envelope", () => {
       ],
       files: [
         {
-          id: "f1",
           name: "field-notes.md",
           mimeType: "text/markdown",
-          sizeBytes: 20,
+          size: 20,
           system: false,
           url: "/api/v1/tasks/ext-1/files/f1",
         },
@@ -423,10 +422,9 @@ describe("fetchSaasTasks — v1 envelope", () => {
       seen,
       files: [
         {
-          id: "f9",
           name: "evidence.png",
           mimeType: "image/png",
-          sizeBytes: 70,
+          size: 70,
           url: "/api/v1/tasks/ext-1/files/f9",
         },
       ],

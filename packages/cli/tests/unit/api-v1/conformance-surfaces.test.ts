@@ -25,6 +25,8 @@ interface Seen {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+  rawBody?: string;
+  headers?: Record<string, string>;
 }
 
 function stubTransport(
@@ -41,6 +43,8 @@ function stubTransport(
         path,
         query: options?.query,
         body: options?.body,
+        rawBody: options?.rawBody,
+        headers: options?.headers,
       };
       seen.push(call);
       return respond(call);
@@ -303,5 +307,57 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     expect(report.skipped).toEqual([]);
     expect(report.failed).toHaveLength(1);
     expect(report.failed[0]?.detail).toMatch(/expected status 200, got 400/);
+  });
+
+  it("cloudRequest replaces the translated request on cloud, ignored on local", async () => {
+    const entry: ManifestEntry = {
+      id: "upload-file",
+      v1: { method: "POST", path: "/api/v1/tasks/{id}/files" },
+      local: { method: "POST", path: "/api/tasks/{taskId}/files/{filename}" },
+      runnable: "write",
+      phase: 3,
+      surfaces: ["local", "cloud"],
+      seed: { taskId: "t1" },
+      cases: [
+        {
+          name: "raw-body",
+          request: { method: "POST", path: "/api/tasks/{taskId}/files/note.txt" },
+          cloudRequest: {
+            method: "POST",
+            path: "/api/v1/tasks/{taskId}/files",
+            rawBody: "hello\n",
+            headers: { "content-type": "text/plain", "x-filename": "note.txt" },
+          },
+          expect: { status: 200 },
+        },
+      ],
+    };
+    const seenCloud: Seen[] = [];
+    const cloudReport = await runConformance(
+      [entry],
+      stubTransport(seenCloud, () => ({ status: 200, body: {} })),
+      { surface: "cloud" },
+    );
+    expect(cloudReport.failed).toEqual([]);
+    expect(cloudReport.passed).toHaveLength(1);
+    expect(seenCloud).toEqual([
+      {
+        method: "POST",
+        path: "/api/v1/tasks/t1/files",
+        rawBody: "hello\n",
+        headers: { "content-type": "text/plain", "x-filename": "note.txt" },
+      },
+    ]);
+    // Local runs the authored request untouched — cloudRequest is invisible.
+    const seenLocal: Seen[] = [];
+    await runConformance(
+      [{ ...entry, runnable: "local-read" }],
+      stubTransport(seenLocal, () => ({ status: 200, body: {} })),
+      { surface: "local" },
+    );
+    expect(seenLocal.map((s) => `${s.method} ${s.path}`)).toEqual([
+      "POST /api/tasks/t1/files/note.txt",
+    ]);
+    expect(seenLocal[0]?.rawBody).toBeUndefined();
   });
 });

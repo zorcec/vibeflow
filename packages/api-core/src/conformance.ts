@@ -31,6 +31,22 @@ export interface ManifestCase {
     /** Placeholder values are substituted from `seed`. */
     body?: unknown;
   };
+  /**
+   * Cloud-surface request override. Case paths are authored against the
+   * `local` mapping, which cannot express v1-only wire shapes (id-addressed
+   * file routes, header-carried uploads): on `cloud` this replaces the
+   * translated request instead. Placeholders resolve from the same seed.
+   * `rawBody` sends bytes verbatim (never JSON-encoded) with `headers`.
+   * Absent on `local` — the local surface always runs `request`.
+   */
+  cloudRequest?: {
+    method?: string;
+    path?: string;
+    query?: Record<string, string>;
+    body?: unknown;
+    rawBody?: string;
+    headers?: Record<string, string>;
+  };
   expect: {
     status: number;
     /** Envelope shape for the normalizer. */
@@ -76,6 +92,10 @@ export interface RunnerTransport {
     options?: {
       query?: Record<string, string>;
       body?: unknown;
+      /** Raw (non-JSON) body, sent verbatim — for byte-upload cases. */
+      rawBody?: string;
+      /** Extra headers (e.g. content-type + x-filename for raw uploads). */
+      headers?: Record<string, string>;
       timeoutMs?: number;
     },
   ): Promise<{ status: number; body: unknown; rawBytes?: Uint8Array }>;
@@ -165,8 +185,11 @@ function cloudSkipReasonFor(entry: ManifestEntry): string {
  *   entries with a local handler execute; everything else is reported
  *   skipped with its target phase. Never executed, never silent.
  * - `cloud`: entries whose `surfaces` include `"cloud"` execute against
- *   their v1 paths (see `toSurfacePath`); every other entry is reported
- *   skipped BY NAME with its manifest `cloudSkipReason`.
+ *   their v1 paths (see `toSurfacePath`); a case-level `cloudRequest`
+ *   replaces the translated request where the local-authored path cannot
+ *   express the v1 wire shape (id-addressed files, header-carried uploads).
+ *   Every other entry is reported skipped BY NAME with its manifest
+ *   `cloudSkipReason`.
  *
  * The skip/run decision comes from the manifest (`runnable`/`local` on
  * local, `surfaces` on cloud) — never from a hard-coded op list here.
@@ -212,12 +235,26 @@ export async function runConformance(
     for (const c of entry.cases) {
       const where = `${entry.id}/${c.name}`;
       try {
-        const template = toSurfacePath(entry, c.request.path, surface);
+        // On cloud a case-level `cloudRequest` replaces the translated
+        // local-authored request (v1-only wire shapes); otherwise the
+        // manifest request is translated and sent as before.
+        const cr = surface === "cloud" ? c.cloudRequest : undefined;
+        const method = cr?.method ?? c.request.method;
+        const template =
+          cr?.path ?? toSurfacePath(entry, c.request.path, surface);
+        const query = cr?.query ?? c.request.query;
+        const body = cr?.body !== undefined ? cr.body : c.request.body;
         const path = resolvePath(template, entry.seed, entry.id);
-        const { status, body } = await transport.fetchJson(
-          c.request.method,
+        const { status, body: responseBody } = await transport.fetchJson(
+          method,
           path,
-          { query: c.request.query, body: c.request.body, timeoutMs },
+          {
+            query,
+            body,
+            rawBody: cr?.rawBody,
+            headers: cr?.headers,
+            timeoutMs,
+          },
         );
         if (status !== c.expect.status) {
           report.failed.push({
@@ -229,7 +266,7 @@ export async function runConformance(
           continue;
         }
         if (c.expect.shape) {
-          normalizeResponse(c.expect.shape, body, ctx, where);
+          normalizeResponse(c.expect.shape, responseBody, ctx, where);
         }
         report.passed.push({
           entryId: entry.id,

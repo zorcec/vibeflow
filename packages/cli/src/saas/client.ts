@@ -186,12 +186,10 @@ export async function fetchSaasTasks(
 
 /** v1 file-list row shape (`GET /api/v1/tasks/:id/files` → `{ files }`). */
 interface V1FileRow {
-  id?: string;
   name?: string;
   mimeType?: string | null;
-  sizeBytes?: number | null;
+  size?: number | null;
   system?: boolean;
-  contentEncoding?: string | null;
   createdAt?: string;
   url?: string;
 }
@@ -277,7 +275,7 @@ async function fetchV1FilesWithContent(
                 ? `${apiUrl}${rawUrl}`
                 : undefined;
           const size =
-            typeof f.sizeBytes === "number" ? f.sizeBytes : undefined;
+            typeof f.size === "number" ? f.size : undefined;
           let content: string | undefined;
           if (
             isInlineableText(name) &&

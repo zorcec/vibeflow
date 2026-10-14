@@ -103,8 +103,8 @@
       ]
     },
     { "id": "upload-file", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/files" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
-      { "name": "raw-body", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/note.txt" }, "expect": { "status": 200, "conformance": "raw body accepted; multipart also accepted (both, not either)" } },
-      { "name": "disallowed-type-415", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/run.exe" }, "expect": { "status": 415, "conformance": "allowlist enforced (extension vs MIME is the residual divergence)" } }
+      { "name": "raw-body", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/note.txt" }, "cloudRequest": { "method": "POST", "path": "/api/v1/tasks/{taskId}/files", "rawBody": "hello conformance\n", "headers": { "content-type": "text/plain", "x-filename": "note.txt" } }, "expect": { "status": 200, "conformance": "raw body accepted; multipart also accepted (both, not either). Cloud takes the v1 shape (POST .../files + x-filename header) — the filename-in-path case path is the local shape" } },
+      { "name": "disallowed-type-415", "request": { "method": "POST", "path": "/api/tasks/{taskId}/files/run.exe" }, "cloudRequest": { "method": "POST", "path": "/api/v1/tasks/{taskId}/files", "rawBody": "MZ fake executable", "headers": { "content-type": "application/octet-stream", "x-filename": "run.exe" } }, "expect": { "status": 415, "conformance": "allowlist enforced (extension vs MIME is the residual divergence)" } }
     ] },
     {
       "id": "get-file",
@@ -114,14 +114,14 @@
       "phase": 0,
       "surfaces": ["local", "cloud"],
       "shape": "raw-bytes",
-      "seed": { "taskId": "<fixture file task>", "filename": "note.txt" },
+      "seed": { "taskId": "<fixture file task>", "filename": "note.txt", "fileId": "<seeded>" },
       "cases": [
-        { "name": "green-bytes", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files/{filename}" }, "expect": { "status": 200, "shape": "raw-bytes", "conformance": "bytes round-trip against the seeded content" } },
+        { "name": "green-bytes", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files/{filename}" }, "cloudRequest": { "method": "GET", "path": "/api/v1/tasks/{taskId}/files/{fileId}" }, "expect": { "status": 200, "shape": "raw-bytes", "conformance": "bytes round-trip against the seeded content. Cloud addresses files by id (v1 path) — the filename case path is the local shape" } },
         { "name": "unknown-file-404", "request": { "method": "GET", "path": "/api/tasks/{taskId}/files/missing.txt" }, "expect": { "status": 404, "conformance": "unknown filename → 404" } }
       ]
     },
-    { "id": "delete-file", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/files/{fileId}" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture file task>", "filename": "note.txt" }, "cases": [
-      { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "expect": { "status": 200, "conformance": "system trace comment records the removal" } }
+    { "id": "delete-file", "v1": { "method": "DELETE", "path": "/api/v1/tasks/{id}/files/{fileId}" }, "local": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture file task>", "filename": "note.txt", "fileId": "<seeded>" }, "cases": [
+      { "name": "green", "request": { "method": "DELETE", "path": "/api/tasks/{taskId}/files/{filename}" }, "cloudRequest": { "method": "DELETE", "path": "/api/v1/tasks/{taskId}/files/{fileId}" }, "expect": { "status": 200, "conformance": "system trace comment records the removal. Cloud addresses files by id (v1 path) — the filename case path is the local shape" } }
     ] },
     { "id": "put-screenshot", "v1": { "method": "POST", "path": "/api/v1/tasks/{id}/screenshot" }, "local": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "green", "request": { "method": "POST", "path": "/api/tasks/{taskId}/screenshot" }, "expect": { "status": 200, "conformance": "cloud stores as a system file via the files port" } }
