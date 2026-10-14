@@ -10,7 +10,7 @@ import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
-import { getApiUrl } from "../core/api-url.js";
+import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 type ImportResult = {
   imported: number;
@@ -86,7 +86,9 @@ async function uploadTaskFiles(
         data,
       );
       const res = await fetch(
-        `${apiUrl}/api/tasks/${encodeURIComponent(job.remoteId)}/files`,
+        // Cloud-only path: push runs Bearer-authenticated against the SaaS
+        // base from getApiUrl(), so the mode is always "cloud" → v1 files op.
+        `${apiUrl}${surfacePath("cloud", `/api/tasks/${encodeURIComponent(job.remoteId)}/files`)}`,
         {
           method: "POST",
           headers: {

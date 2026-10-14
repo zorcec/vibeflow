@@ -499,7 +499,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     // Second fetch call should be the file upload
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const uploadCall = fetchMock.mock.calls[1];
-    expect(uploadCall[0]).toContain("/api/tasks/remote-1/files");
+    expect(uploadCall[0]).toContain("/api/v1/tasks/remote-1/files");
     expect(uploadCall[1].method).toBe("POST");
     expect(uploadCall[1].headers["x-filename"]).toBe("screenshot.png");
   });
@@ -958,7 +958,7 @@ describe("push — system-file flag round-trip", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const uploads = fetchMock.mock.calls.filter((c) =>
-      String(c[0]).includes("/api/tasks/remote-1/files"),
+      String(c[0]).includes("/api/v1/tasks/remote-1/files"),
     );
     expect(uploads).toHaveLength(2);
     const sys = uploads.find(

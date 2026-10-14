@@ -34,3 +34,75 @@ export function getApiUrl(): string {
     return DEFAULT_API_URL;
   }
 }
+
+/**
+ * Which API surface a request targets.
+ *
+ * - `"local"` — the CLI's own board server (same origin / localhost). It
+ *   serves the legacy paths (`/api/tasks/*`, `/api/cli/*`) and never had
+ *   `/api/v1` writes, so legacy paths must pass through byte-for-byte.
+ * - `"cloud"` — the SaaS base returned by `getApiUrl()`. It serves the
+ *   unified `/api/v1` contract, so legacy paths map to their v1 equivalent.
+ *
+ * RULE: this function never guesses the target — every caller passes the
+ * mode derived from the address it already uses:
+ * - Node cloud paths (`push.ts`, `login.ts`) build URLs from `getApiUrl()`
+ *   (always the SaaS base, Bearer-authenticated) → always `"cloud"`.
+ * - Browser overlay (`capture.ts`) reads the server-injected `PROTO_CONFIG`:
+ *   a `cfg.apiUrl` containing `/api/overlay/tasks` is the SaaS-injected
+ *   config (see `getOverlaySaasScript`) → `"cloud"`; the local injected
+ *   config (`<origin>/api/tasks`, see `getOverlayScript`) → `"local"`.
+ * - Same-origin relative URLs (`baseline-capture.ts`) by construction hit
+ *   the serving CLI board, never the cloud → always `"local"`.
+ */
+export type ApiSurfaceMode = "local" | "cloud";
+
+/**
+ * Map a legacy local path to the surface the target serves.
+ *
+ * `"local"` returns `localPath` unchanged. `"cloud"` returns the `/api/v1`
+ * equivalent (`/api/tasks/*` → `/api/v1/tasks/*` with any suffix preserved;
+ * `/api/cli/settings` → `/api/v1/settings`; `/api/cli/workspaces` →
+ * `/api/v1/boards`; `/api/cli/profile` → `/api/v1/me`; `/api/cli/tasks/*` →
+ * `/api/v1/tasks/*`). A trailing query string is preserved verbatim.
+ * Unmapped paths pass through unchanged (additive safety).
+ *
+ * `/api/cli/import` has NO v1 equivalent — the contract offers no batch
+ * import, so callers must loop `POST /api/v1/tasks` (one per task). Passing
+ * it here in `"cloud"` mode throws instead of silently hitting legacy.
+ */
+export function surfacePath(
+  mode: ApiSurfaceMode,
+  localPath: string,
+): string {
+  if (mode === "local") return localPath;
+  const q = localPath.indexOf("?");
+  const path = q === -1 ? localPath : localPath.slice(0, q);
+  const query = q === -1 ? "" : localPath.slice(q);
+  if (path === "/api/cli/import" || path.startsWith("/api/cli/import/")) {
+    throw new Error(
+      "surfacePath: /api/cli/import has no /api/v1 equivalent — loop POST /api/v1/tasks (one per task)",
+    );
+  }
+  const mapped = mapLegacyPathToV1(path);
+  return mapped + query;
+}
+
+/** Cloud-mode prefix table: first match wins. Kept here — and only here —
+ * so no cloud-facing call site scatters its own path strings. */
+const V1_PREFIX_TABLE: Array<readonly [string, string]> = [
+  ["/api/cli/workspaces", "/api/v1/boards"],
+  ["/api/cli/settings", "/api/v1/settings"],
+  ["/api/cli/profile", "/api/v1/me"],
+  ["/api/cli/tasks", "/api/v1/tasks"],
+  ["/api/tasks", "/api/v1/tasks"],
+];
+
+function mapLegacyPathToV1(path: string): string {
+  for (const [from, to] of V1_PREFIX_TABLE) {
+    if (path === from || path.startsWith(from + "/")) {
+      return to + path.slice(from.length);
+    }
+  }
+  return path;
+}

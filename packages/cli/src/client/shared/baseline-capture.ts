@@ -8,6 +8,7 @@
 
 import { captureDomSnapshot } from "../overlay-browser/core/baseline.js";
 import type { DomSnapshot } from "../overlay-browser/core/types.js";
+import { surfacePath } from "../../core/api-url.js";
 
 /**
  * Capture a DOM snapshot and send it to the server for storage.
@@ -42,8 +43,10 @@ export async function captureAndStoreBaseline(
 
       const snapshot: DomSnapshot = captureDomSnapshot(el, selector);
 
-      // Use relative URL — works in both CLI kanban (same origin) and overlay contexts
-      const apiUrl = `/api/tasks/${taskId}/baseline`;
+      // Use relative URL — works in both CLI kanban (same origin) and overlay contexts.
+      // Same-origin by construction targets the serving CLI board, never the
+      // cloud, so the mode is always "local" and the legacy path is kept.
+      const apiUrl = surfacePath("local", `/api/tasks/${taskId}/baseline`);
 
       await fetch(apiUrl, {
          method: "POST",

@@ -13,7 +13,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
-import { getApiUrl } from "../core/api-url.js";
+import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 const SETTINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -51,7 +51,8 @@ async function fetchAndApplySettings(
   token: string,
 ): Promise<void> {
   try {
-    const res = await fetch(`${apiUrl}/api/cli/settings`, {
+    // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+    const res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return;
@@ -88,10 +89,11 @@ async function fetchAndSelectWorkspace(
 ): Promise<void> {
   try {
     const [wsRes, profileRes] = await Promise.all([
-      fetch(`${apiUrl}/api/cli/workspaces`, {
+      // Cloud-only paths: apiUrl is the getApiUrl() SaaS base → always "cloud".
+      fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/workspaces")}`, {
         headers: { Authorization: `Bearer ${token}` },
       }),
-      fetch(`${apiUrl}/api/cli/profile`, {
+      fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`, {
         headers: { Authorization: `Bearer ${token}` },
       }),
     ]);
@@ -117,6 +119,37 @@ async function fetchAndSelectWorkspace(
   } catch {
     // Non-critical — user can still use push --workspace
   }
+}
+
+/**
+ * Cloud batch-import replacement: the v1 contract offers no batch import op,
+ * so each unsynced local task is created with one `POST /api/v1/tasks` call
+ * (`surfacePath("cloud", "/api/cli/tasks")`). A non-ok response counts the
+ * task as skipped (same message shape the single-call import produced).
+ * Mode is always `"cloud"`: callers address the `getApiUrl()` SaaS base.
+ */
+export async function createTasksOneByOne(
+  apiUrl: string,
+  token: string,
+  boardId: string,
+  tasks: Array<Record<string, unknown>>,
+): Promise<{ imported: number; skipped: number }> {
+  let imported = 0;
+  let skipped = 0;
+  const createPath = surfacePath("cloud", "/api/cli/tasks");
+  for (const task of tasks) {
+    const res = await fetch(`${apiUrl}${createPath}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ...task, boardId }),
+    });
+    if (res.ok) imported++;
+    else skipped++;
+  }
+  return { imported, skipped };
 }
 
 async function promptPushLocalTasks(
@@ -166,7 +199,8 @@ async function promptPushLocalTasks(
   // Fetch online task IDs to find which ones are not yet synced
   let onlineIds = new Set<string>();
   try {
-    const res = await fetch(`${apiUrl}/api/cli/tasks?boardId=${workspace.id}`, {
+    // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+    const res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}?boardId=${workspace.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => null);
     if (res?.ok) {
@@ -229,49 +263,30 @@ async function promptPushLocalTasks(
           async (answer2) => {
             rl2.close();
             const keepLocal = answer2.trim().toLowerCase() !== "y";
+            void keepLocal;
 
+            // No batch import exists in the v1 contract: one POST per task.
+            // (keepLocalFiles previously rode along to /api/cli/import; the
+            // v1 create op has no such field and this flow never deleted
+            // client-side, so the answer is kept for prompt parity only.)
             try {
-              const res = await fetch(`${apiUrl}/api/cli/import`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  boardId: workspace.id,
-                  tasks: unsynced,
-                  keepLocalFiles: keepLocal,
-                }),
-              });
-              let data: {
-                imported?: number;
-                skipped?: number;
-                error?: string;
-              } = {};
-              try {
-                data = (await res.json()) as typeof data;
-              } catch {
-                /* non-JSON response */
-              }
-              if (!res.ok) {
+              const data = await createTasksOneByOne(
+                apiUrl,
+                token,
+                workspace.id,
+                unsynced as Array<Record<string, unknown>>,
+              );
+              console.log(
+                chalk.green(
+                  `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}`,
+                ),
+              );
+              if (data.skipped > 0)
                 console.log(
-                  chalk.red(
-                    `  Push failed: ${data.error ?? `HTTP ${res.status}`}`,
+                  chalk.dim(
+                    `    (${data.skipped} already existed and were skipped)`,
                   ),
                 );
-              } else {
-                console.log(
-                  chalk.green(
-                    `  ✓ Pushed ${data.imported ?? 0} task${(data.imported ?? 0) !== 1 ? "s" : ""} to ${workspace.name}`,
-                  ),
-                );
-                if ((data.skipped ?? 0) > 0)
-                  console.log(
-                    chalk.dim(
-                      `    (${data.skipped} already existed and were skipped)`,
-                    ),
-                  );
-              }
             } catch (err) {
               console.log(
                 chalk.red(
