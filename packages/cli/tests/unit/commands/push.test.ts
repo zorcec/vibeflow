@@ -459,6 +459,172 @@ describe("push — import API interaction", () => {
   });
 });
 
+describe("push — two-phase link preservation", () => {
+  beforeEach(() => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
+      id: "ws-1",
+      name: "My Board",
+      url: "http://localhost:3000",
+      icon: null,
+      email: null,
+    });
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function mockCreateThenLinks() {
+    return vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
+      if (String(url).endsWith("/links")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ task: {} }) });
+      }
+      const body = JSON.parse(init?.body as string) as { id: string };
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: `remote-${body.id}` } }),
+      });
+    });
+  }
+
+  it("preserves a parent link with the TARGET EXTERNAL ID via the v1 links op", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "p1",
+      title: "Parent",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+    createTaskFile(projectDir, {
+      id: "c1",
+      title: "Child",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      links: [{ taskId: "p1", type: "parent" }],
+    });
+
+    const fetchMock = mockCreateThenLinks();
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    // Phase 1 creates carry no links (parent target unknown until created).
+    const creates = fetchMock.mock.calls.filter((c) => !String(c[0]).endsWith("/links"));
+    expect(creates).toHaveLength(2);
+    for (const c of creates) {
+      expect("links" in JSON.parse(c[1]?.body as string)).toBe(false);
+    }
+    // Phase 2 replays the link against the child's REMOTE id with the
+    // parent's REMOTE id — never the local ids.
+    const linkCalls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/links"));
+    expect(linkCalls).toHaveLength(1);
+    expect(linkCalls[0]?.[0]).toBe("https://freemium.vibeflow.tools/api/v1/tasks/remote-c1/links");
+    expect(JSON.parse(linkCalls[0]?.[1]?.body as string)).toEqual({
+      taskId: "remote-p1",
+      type: "parent",
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Applied 1 link"));
+    consoleSpy.mockRestore();
+  });
+
+  it("skips an unknown-target link, reports it, and still completes the push", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "lonely",
+      title: "Lonely",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      links: [{ taskId: "ghost", type: "relates" }],
+    });
+
+    const fetchMock = mockCreateThenLinks();
+    vi.stubGlobal("fetch", fetchMock);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    // No link POST for the ghost; the push itself is not fatal.
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/links"))).toHaveLength(0);
+    expect(process.exitCode).toBeUndefined();
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Skipped 1 link(s) with unknown targets"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("lonely→ghost"));
+
+    logSpy.mockRestore();
+    process.exitCode = originalExitCode;
+  });
+
+  it("carries link notices on the PushResult when local files are deleted", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "n1",
+      title: "N1",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      links: [{ taskId: "ghost", type: "relates" }],
+    });
+
+    vi.stubGlobal("fetch", mockCreateThenLinks());
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = (await push(projectDir, {})) as { notices: Array<{ code: string; message: string }> };
+
+    expect(result.notices.some((n) => n.code === "PUSH_COMPLETED")).toBe(true);
+    const skipped = result.notices.find((n) => n.code === "LINKS_SKIPPED");
+    expect(skipped?.message).toContain("n1→ghost");
+  });
+
+  it("sends no link POST before every create has completed (two-phase order)", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "child-first",
+      title: "Child",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+      links: [{ taskId: "parent-second", type: "parent" }],
+    });
+    createTaskFile(projectDir, {
+      id: "parent-second",
+      title: "Parent",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const order: string[] = [];
+    const fetchMock = vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
+      order.push(String(url));
+      if (String(url).endsWith("/links")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }
+      const body = JSON.parse(init?.body as string) as { id: string };
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: `remote-${body.id}` } }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    const firstLink = order.findIndex((u) => u.endsWith("/links"));
+    expect(firstLink).toBeGreaterThan(-1);
+    expect(order.slice(0, firstLink).every((u) => !u.endsWith("/links"))).toBe(true);
+    expect(order.slice(0, firstLink)).toHaveLength(2);
+  });
+});
+
 describe("push — file upload (uploadTaskFiles)", () => {
   beforeEach(() => {
     vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");

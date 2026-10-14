@@ -118,9 +118,10 @@ describe("createTasksOneByOne (v1 import loop)", () => {
   // into the create body. A local parent link names a LOCAL id the cloud
   // has never seen, so v1's parent-target validation answered 400 and a
   // fresh 3-task push with one parent/child pair reported
-  // `Pushed 2 … Skipped 1`. The deleted batch import never validated links
-  // (they did not round-trip), so the loop drops them — all new tasks push.
-  it("drops links so a parent/child pair fully imports", async () => {
+  // `Pushed 2 … Skipped 1`. Phase 1 therefore creates WITHOUT links (all
+  // new tasks push); phase 2 (`applyPushLinks`) replays them with resolved
+  // cloud ids so no link is silently lost.
+  it("creates without links in phase 1 so a parent/child pair fully imports", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ task: { id: "cloud-x" } }),
@@ -157,6 +158,150 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       title: "Child",
       status: "in-progress",
       boardId: "b",
+    });
+  });
+
+  describe("applyPushLinks (phase 2: link replay with resolved cloud ids)", () => {
+    it("posts each link with the TARGET EXTERNAL ID, not the local id", async () => {
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: "cloud-child" } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await applyPushLinks(
+        "https://x.test",
+        "tok",
+        [
+          { id: "local-parent", title: "Parent" },
+          {
+            id: "local-child",
+            title: "Child",
+            links: [
+              { taskId: "local-parent", type: "parent" },
+              { taskId: "local-other", type: "relates" },
+            ],
+          },
+          { id: "local-other", title: "Other" },
+        ],
+        {
+          "local-parent": "cloud-parent",
+          "local-child": "cloud-child",
+          "local-other": "cloud-other",
+        },
+      );
+
+      expect(result).toEqual({ applied: 2, skipped: [] });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // Source is the child's cloud id; targets are cloud ids.
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://x.test/api/v1/tasks/cloud-child/links",
+      );
+      expect(JSON.parse(fetchMock.mock.calls[0]?.[1].body as string)).toEqual({
+        taskId: "cloud-parent",
+        type: "parent",
+      });
+      expect(JSON.parse(fetchMock.mock.calls[1]?.[1].body as string)).toEqual({
+        taskId: "cloud-other",
+        type: "relates",
+      });
+      for (const call of fetchMock.mock.calls) {
+        expect(call[1].method).toBe("POST");
+        expect(call[1].headers.Authorization).toBe("Bearer tok");
+      }
+    });
+
+    it("skips an unknown-target link and reports it instead of failing", async () => {
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await applyPushLinks(
+        "https://x.test",
+        "tok",
+        [
+          {
+            id: "local-child",
+            title: "Child",
+            links: [
+              { taskId: "ghost-target", type: "blocks" },
+              { taskId: "local-parent", type: "parent" },
+            ],
+          },
+          { id: "local-parent", title: "Parent" },
+        ],
+        { "local-child": "cloud-child", "local-parent": "cloud-parent" },
+      );
+
+      // The known link still applies; the ghost is reported, not fatal.
+      expect(result.applied).toBe(1);
+      expect(result.skipped).toEqual([
+        {
+          from: "local-child",
+          to: "ghost-target",
+          type: "blocks",
+          reason: "link target is not part of this push",
+        },
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips malformed link entries and links from uncreated sources", async () => {
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await applyPushLinks("https://x.test", "tok", [{ id: "a", links: [{ type: "parent" }, { taskId: "b", type: "nonsense" }, { taskId: "b", type: "parent" }] }], {});
+
+      expect(result.applied).toBe(0);
+      expect(result.skipped).toHaveLength(3);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("is two-phase: no link POST is sent before its target's create", async () => {
+      const { applyPushLinks, createTasksOneByOne } = await import(
+        "../../../src/auth/login.js"
+      );
+      const calls: string[] = [];
+      const fetchMock = vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
+        calls.push(String(url));
+        if (String(url).endsWith("/links")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        }
+        const body = JSON.parse(init?.body as string) as { id: string };
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ task: { id: `cloud-${body.id}` } }),
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const tasks = [
+        { id: "child", title: "Child", links: [{ taskId: "parent", type: "parent" }] },
+        { id: "parent", title: "Parent" },
+      ];
+      // Child listed FIRST: phase 1 still creates both without links.
+      const created = await createTasksOneByOne("https://x.test", "tok", "b", tasks);
+      const links = await applyPushLinks("https://x.test", "tok", tasks, created.idMap);
+
+      expect(created.imported).toBe(2);
+      expect(links).toEqual({ applied: 1, skipped: [] });
+      const firstLinkIdx = calls.findIndex((u) => u.endsWith("/links"));
+      const lastCreateIdx = calls.map((u) => !u.endsWith("/links")).lastIndexOf(true);
+      expect(firstLinkIdx).toBeGreaterThan(lastCreateIdx);
+      // The link names the created cloud id even though the child came first.
+      const linkCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/links"));
+      expect(JSON.parse(linkCall?.[1].body as string)).toEqual({
+        taskId: "cloud-parent",
+        type: "parent",
+      });
     });
   });
 

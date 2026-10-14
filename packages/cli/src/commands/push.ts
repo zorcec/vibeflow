@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { createTasksOneByOne, login } from "../auth/login.js";
+import { applyPushLinks, createTasksOneByOne, login } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -238,6 +238,30 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // Stryker disable once StringLiteral: display message for skipped tasks
     console.log(chalk.dim(`  Skipped ${result.skipped} already-imported task(s).`));
   }
+
+  // Phase 2 of the two-phase push: replay stored links with targets
+  // translated from local ids to the created cloud ids from `idMap`, via
+  // POST /api/v1/tasks/{id}/links ({ taskId, type } — the v1 add-link op).
+  // Unknown targets are skipped and REPORTED, never fatal to the push —
+  // nothing is silently lost. Local mode is untouched (cloud push only).
+  // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
+  // filePath string — each entry spreads as a plain record, so the cast is
+  // representation-preserving (same invariant as the phase-1 loop above).
+  const linkRecords = taskList as unknown as Array<Record<string, unknown>>;
+  const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
+  if (linkResult.applied > 0) {
+    console.log(chalk.green(`  ✓ Applied ${linkResult.applied} link(s)`));
+  }
+  const skippedLinkSummary = linkResult.skipped
+    .map((l) => `${l.from}→${l.to} (${l.type})`)
+    .join(", ");
+  if (linkResult.skipped.length > 0) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ Skipped ${linkResult.skipped.length} link(s) with unknown targets: ${skippedLinkSummary}`,
+      ),
+    );
+  }
   console.log(chalk.dim(`  Board: ${boardLabel}`));
 
   // Upload local files for each pushed task (idMap: cliId → saasId)
@@ -302,6 +326,13 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     console.log(chalk.dim(`  Cleaned ${orphanDirsRemoved} orphaned asset dir(s).`));
   }
 
-  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices: [{ code: "PUSH_COMPLETED", message: "Push completed" }] };
+  const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
+  if (linkResult.applied > 0) {
+    notices.push({ code: "LINKS_APPLIED", message: `Applied ${linkResult.applied} link(s)` });
+  }
+  if (linkResult.skipped.length > 0) {
+    notices.push({ code: "LINKS_SKIPPED", message: `Skipped ${linkResult.skipped.length} link(s) with unknown targets: ${skippedLinkSummary}` });
+  }
+  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices };
 }
 
