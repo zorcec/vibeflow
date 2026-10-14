@@ -14,7 +14,7 @@
  *   accepted 'cancelled') throws — a lossy read-map would surface here.
  * - Ledger L1/comment author: 'author' is allowlisted and asserted to be
  *   'user' | 'agent' — the normalizer must never strip or rewrite it.
- * - D3/external id: normalizeTask asserts a v1-shaped task carries BOTH
+ * - D3/external id: normalizeTask asserts a v0-shaped task carries BOTH
  *   'id' and 'externalId' when present (locally they are equal).
  */
 
@@ -63,7 +63,7 @@ function assertStatus(
     !(STATUS_VOCABULARY as readonly string[]).includes(value)
   ) {
     throw new NormalizeError(
-      `status ${JSON.stringify(value)} in ${where} is outside the v1 vocabulary ` +
+      `status ${JSON.stringify(value)} in ${where} is outside the v0 vocabulary ` +
         `(${(STATUS_VOCABULARY as readonly string[]).join(", ")})`,
     );
   }
@@ -99,14 +99,14 @@ const VOLATILE = new Set<string>(VOLATILE_TASK_FIELDS as readonly string[]);
 
 /**
  * Normalize one task record. `where` names the operation for error messages.
- * `strictV1` additionally requires the v1 envelope fields (id + externalId);
+ * `strictV0` additionally requires the v0 envelope fields (id + externalId);
  * local Phase 0 reads run non-strict and record the delta in the manifest.
  */
 export function normalizeTask(
   task: unknown,
   ctx: NormalizeContext,
   where: string,
-  strictV1 = false,
+  strictV0 = false,
 ): Record<string, JsonValue> {
   if (typeof task !== "object" || task === null || Array.isArray(task)) {
     throw new NormalizeError(`expected task object in ${where}`);
@@ -182,9 +182,9 @@ export function normalizeTask(
       ctx,
       `${where}.externalId`,
     );
-  } else if (strictV1) {
+  } else if (strictV0) {
     throw new NormalizeError(
-      `v1 task in ${where} must carry both id and externalId (D3)`,
+      `v0 task in ${where} must carry both id and externalId (D3)`,
     );
   }
   if (out["status"] !== undefined) {
@@ -362,7 +362,7 @@ export function normalizeResponse(
         throw new NormalizeError(`expected task-list object in ${where}`);
       }
       const rec = body as Record<string, unknown>;
-      // v1 envelope { items, nextCursor } vs local { tasks: [...] } — accept
+      // v0 envelope { items, nextCursor } vs local { tasks: [...] } — accept
       // both in Phase 0; the manifest records which surface returns which.
       const items = Array.isArray(rec["items"])
         ? rec["items"]
@@ -419,7 +419,7 @@ export function normalizeResponse(
       };
     }
     case "screenshot-result": {
-      // POST /api/v1/tasks/{id}/screenshot answers { success, screenshot }
+      // POST /api/v0/tasks/{id}/screenshot answers { success, screenshot }
       // on both surfaces (plus `proof` on later attaches, which leave the
       // baseline row untouched). The filename embeds the task id, so it is
       // scrubbed — the shape assertion is success + a string slot.

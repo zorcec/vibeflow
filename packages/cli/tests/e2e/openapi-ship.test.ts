@@ -1,7 +1,7 @@
 /**
  * openapi-ship guard (shipped side), ticket ee0996b1.
  *
- * Pins what the unit twin (tests/unit/api-v1/openapi-ship.test.ts) cannot:
+ * Pins what the unit twin (tests/unit/api-v0/openapi-ship.test.ts) cannot:
  * the SHIPPED artifacts. `dist/openapi.json` + `dist/openapi.yaml` (emitted
  * at build time by gen-api-artifacts.mjs, carried in package.json `files`
  * with `./openapi.json` / `./openapi.yaml` exports leaves) and the spawned

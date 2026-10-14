@@ -13,7 +13,7 @@ vi.mock("../../../src/auth/workspace.js", () => ({
   readWorkspace: vi.fn(),
   writeWorkspace: vi.fn(),
 }));
-// Keep the real createTasksOneByOne() (the v1 import loop under test rides
+// Keep the real createTasksOneByOne() (the v0 import loop under test rides
 // through push); only the interactive login flow is stubbed out.
 vi.mock("../../../src/auth/login.js", async (importOriginal) => {
   const actual =
@@ -213,9 +213,9 @@ describe("push — import API interaction", () => {
 
     await push(projectDir, { workspace: "explicit-ws", keepLocalFiles: true });
 
-    // One POST per task to the v1 create op — no batch import call.
+    // One POST per task to the v0 create op — no batch import call.
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/v1/tasks");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/v0/tasks");
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(body.boardId).toBe("explicit-ws");
     expect(
@@ -275,7 +275,7 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    // No batch import exists in v1: a non-ok create counts as skipped
+    // No batch import exists in v0: a non-ok create counts as skipped
     // (same shape as the login-flow import loop).
     mockFetchFailure(422, { error: "Board not found" });
 
@@ -365,7 +365,7 @@ describe("push — import API interaction", () => {
     expect(headers["Content-Type"]).toBe("application/json");
   });
 
-  it("posts creates to the v1 path on the default API URL when VIBEFLOW_API_URL is not set", async () => {
+  it("posts creates to the v0 path on the default API URL when VIBEFLOW_API_URL is not set", async () => {
     const originalEnv = process.env.VIBEFLOW_API_URL;
     delete process.env.VIBEFLOW_API_URL;
 
@@ -389,7 +389,7 @@ describe("push — import API interaction", () => {
 
     const url = fetchMock.mock.calls[0]?.[0] as string;
     expect(url).toContain("https://freemium.vibeflow.tools");
-    expect(url).toContain("/api/v1/tasks");
+    expect(url).toContain("/api/v0/tasks");
 
     process.env.VIBEFLOW_API_URL = originalEnv;
   });
@@ -490,7 +490,7 @@ describe("push — two-phase link preservation", () => {
     });
   }
 
-  it("preserves a parent link with the TARGET EXTERNAL ID via the v1 links op", async () => {
+  it("preserves a parent link with the TARGET EXTERNAL ID via the v0 links op", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "p1",
@@ -524,7 +524,7 @@ describe("push — two-phase link preservation", () => {
     // parent's REMOTE id — never the local ids.
     const linkCalls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/links"));
     expect(linkCalls).toHaveLength(1);
-    expect(linkCalls[0]?.[0]).toBe("https://freemium.vibeflow.tools/api/v1/tasks/remote-c1/links");
+    expect(linkCalls[0]?.[0]).toBe("https://freemium.vibeflow.tools/api/v0/tasks/remote-c1/links");
     expect(JSON.parse(linkCalls[0]?.[1]?.body as string)).toEqual({
       taskId: "remote-p1",
       type: "parent",
@@ -682,7 +682,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
     // Second fetch call should be the file upload
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const uploadCall = fetchMock.mock.calls[1];
-    expect(uploadCall[0]).toContain("/api/v1/tasks/remote-1/files");
+    expect(uploadCall[0]).toContain("/api/v0/tasks/remote-1/files");
     expect(uploadCall[1].method).toBe("POST");
     expect(uploadCall[1].headers["x-filename"]).toBe("screenshot.png");
   });
@@ -705,10 +705,10 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // Only one fetch call (the v1 create), no file upload, no batch import.
+    // Only one fetch call (the v0 create), no file upload, no batch import.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/tasks"),
+      expect.stringContaining("/api/v0/tasks"),
       expect.any(Object),
     );
     expect(
@@ -1064,9 +1064,9 @@ describe("push — system-file flag round-trip", () => {
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // The v1 create body is the task itself — file refs ride along verbatim.
+    // The v0 create body is the task itself — file refs ride along verbatim.
     const createCall = fetchSpy.mock.calls.find((c) =>
-      String(c[0]).includes("/api/v1/tasks"),
+      String(c[0]).includes("/api/v0/tasks"),
     );
     expect(createCall).toBeDefined();
     const body = JSON.parse(createCall![1].body) as {
@@ -1112,7 +1112,7 @@ describe("push — system-file flag round-trip", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const uploads = fetchMock.mock.calls.filter((c) =>
-      String(c[0]).includes("/api/v1/tasks/remote-1/files"),
+      String(c[0]).includes("/api/v0/tasks/remote-1/files"),
     );
     expect(uploads).toHaveLength(2);
     const sys = uploads.find(

@@ -27,8 +27,8 @@ const SAMPLE_TASK = {
   updatedAt: "2025-01-01T00:00:00Z",
 };
 
-// v1 contract Comment row as the cloud answers it.
-const V1_COMMENT = {
+// v0 contract Comment row as the cloud answers it.
+const V0_COMMENT = {
   id: "comment-1",
   author: "user",
   text: "Hello",
@@ -74,10 +74,10 @@ describe("toCliStatus", () => {
     expect(toCliStatus("done")).toBe("done");
   });
 
-  // v1 speaks hyphenated statuses on the wire; the deleted legacy surface
+  // v0 speaks hyphenated statuses on the wire; the deleted legacy surface
   // spoke snake_case. Both must resolve — otherwise every in-progress task
   // reads back as the `?? "todo"` fallback.
-  it("maps the v1 hyphenated in-progress spelling (not just snake_case)", () => {
+  it("maps the v0 hyphenated in-progress spelling (not just snake_case)", () => {
     expect(toCliStatus("in-progress")).toBe("in-progress");
   });
 
@@ -110,7 +110,7 @@ describe("fetchSaasTasks", () => {
   it("returns tasks on success (hydrated with the legacy comments/files shape)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
     const result = await fetchSaasTasks();
-    // The v1 read hydrates comments/files per task (best-effort `[]` when
+    // The v0 read hydrates comments/files per task (best-effort `[]` when
     // the subpaths answer nothing shaped) — the legacy row keeps its fields.
     expect(result).toEqual({
       ok: true,
@@ -128,11 +128,11 @@ describe("fetchSaasTasks", () => {
     expect((fetchCall[0] as string)).toContain("boardId=b-2");
   });
 
-  it("hits the v1 tasks list, never the deleted cloud legacy surface", async () => {
+  it("hits the v0 tasks list, never the deleted cloud legacy surface", async () => {
     mockFetch({ tasks: [], boardId: "b-1" });
     await fetchSaasTasks("b-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/v1/tasks");
+    expect((fetchCall[0] as string)).toContain("/api/v0/tasks");
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 
@@ -233,7 +233,7 @@ describe("updateSaasTask", () => {
     mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1");
+    expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1");
     expect((fetchCall[1] as RequestInit).method).toBe("PATCH");
   });
 
@@ -283,12 +283,12 @@ describe("updateSaasTask", () => {
   });
 });
 
-describe("fetchSaasTasks — v1 envelope", () => {
-  const V1_ITEM = {
+describe("fetchSaasTasks — v0 envelope", () => {
+  const V0_ITEM = {
     id: "ext-1",
     externalId: "ext-1",
     cloudId: "cloud-1",
-    title: "V1 task",
+    title: "V0 task",
     description: "desc",
     status: "in-progress",
     priority: null,
@@ -301,7 +301,7 @@ describe("fetchSaasTasks — v1 envelope", () => {
   };
 
   /** URL-routed fake: list → `{ items, nextCursor }`, subpaths → edge data. */
-  function mockV1(opts: {
+  function mockV0(opts: {
     pages?: Array<{ items: unknown[]; nextCursor: string | null }>;
     comments?: unknown[];
     files?: unknown[];
@@ -314,23 +314,23 @@ describe("fetchSaasTasks — v1 envelope", () => {
       "fetch",
       vi.fn().mockImplementation((url: string) => {
         seen.push(url);
-        if (/\/api\/v1\/tasks\/[^/]+\/comments$/.test(url)) {
+        if (/\/api\/v0\/tasks\/[^/]+\/comments$/.test(url)) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ comments: opts.comments ?? [] }),
           });
         }
-        if (/\/api\/v1\/tasks\/[^/]+\/files$/.test(url)) {
+        if (/\/api\/v0\/tasks\/[^/]+\/files$/.test(url)) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ files: opts.files ?? [] }),
           });
         }
-        if (/\/api\/v1\/tasks\/[^/]+\/files\//.test(url)) {
+        if (/\/api\/v0\/tasks\/[^/]+\/files\//.test(url)) {
           const text = opts.fileText?.[url] ?? "";
           return Promise.resolve({ ok: true, text: () => Promise.resolve(text) });
         }
-        const pages = opts.pages ?? [{ items: [V1_ITEM], nextCursor: null }];
+        const pages = opts.pages ?? [{ items: [V0_ITEM], nextCursor: null }];
         const page = pages[Math.min(pageIdx++, pages.length - 1)]!;
         return Promise.resolve({
           ok: true,
@@ -341,15 +341,15 @@ describe("fetchSaasTasks — v1 envelope", () => {
     return seen;
   }
 
-  it("parses the v1 { items, nextCursor } envelope (not the legacy { tasks })", async () => {
-    mockV1({});
+  it("parses the v0 { items, nextCursor } envelope (not the legacy { tasks })", async () => {
+    mockV0({});
     const result = await fetchSaasTasks();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(1);
     expect(result.data.tasks[0]).toMatchObject({
       id: "ext-1",
-      title: "V1 task",
+      title: "V0 task",
       status: "in-progress",
     });
     // Hydration degrades to empty when the subpaths answer empty.
@@ -358,10 +358,10 @@ describe("fetchSaasTasks — v1 envelope", () => {
   });
 
   it("follows nextCursor until the last page", async () => {
-    const seen = mockV1({
+    const seen = mockV0({
       pages: [
-        { items: [{ ...V1_ITEM, id: "a" }], nextCursor: "cursor-1" },
-        { items: [{ ...V1_ITEM, id: "b" }], nextCursor: null },
+        { items: [{ ...V0_ITEM, id: "a" }], nextCursor: "cursor-1" },
+        { items: [{ ...V0_ITEM, id: "b" }], nextCursor: null },
       ],
     });
     const result = await fetchSaasTasks();
@@ -371,9 +371,9 @@ describe("fetchSaasTasks — v1 envelope", () => {
     expect(seen.some((u) => u.includes("cursor=cursor-1"))).toBe(true);
   });
 
-  it("hydrates comments (filling the v1-missing taskId), file rows, and text content", async () => {
+  it("hydrates comments (filling the v0-missing taskId), file rows, and text content", async () => {
     const seen: string[] = [];
-    mockV1({
+    mockV0({
       seen,
       comments: [
         { id: "c1", author: "agent", text: "note", createdAt: "2026-01-01T00:00:00.000Z" },
@@ -384,11 +384,11 @@ describe("fetchSaasTasks — v1 envelope", () => {
           mimeType: "text/markdown",
           size: 20,
           system: false,
-          url: "/api/v1/tasks/ext-1/files/f1",
+          url: "/api/v0/tasks/ext-1/files/f1",
         },
       ],
       fileText: {
-        "https://freemium.vibeflow.tools/api/v1/tasks/ext-1/files/f1":
+        "https://freemium.vibeflow.tools/api/v0/tasks/ext-1/files/f1":
           "field notes line one\n",
       },
     });
@@ -410,7 +410,7 @@ describe("fetchSaasTasks — v1 envelope", () => {
     expect(task.files![0]).toMatchObject({
       name: "field-notes.md",
       size: 20,
-      url: "https://freemium.vibeflow.tools/api/v1/tasks/ext-1/files/f1",
+      url: "https://freemium.vibeflow.tools/api/v0/tasks/ext-1/files/f1",
       content: "field notes line one\n",
       system: false,
     });
@@ -418,14 +418,14 @@ describe("fetchSaasTasks — v1 envelope", () => {
 
   it("skips content download for binary attachments", async () => {
     const seen: string[] = [];
-    mockV1({
+    mockV0({
       seen,
       files: [
         {
           name: "evidence.png",
           mimeType: "image/png",
           size: 70,
-          url: "/api/v1/tasks/ext-1/files/f9",
+          url: "/api/v0/tasks/ext-1/files/f9",
         },
       ],
     });
@@ -457,7 +457,7 @@ describe("fetchSaasTasks — v1 envelope", () => {
         }
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ items: [V1_ITEM], nextCursor: null }),
+          json: () => Promise.resolve({ items: [V0_ITEM], nextCursor: null }),
         });
       }),
     );
@@ -509,7 +509,7 @@ describe("fetchSaasTasks — verified tri-state round-trip", () => {
 
 describe("addSaasComment", () => {
   it("returns created comment on success", async () => {
-    mockFetch(V1_COMMENT);
+    mockFetch(V0_COMMENT);
     const result = await addSaasComment("task-1", "Hello");
     expect(result).toEqual({ ok: true, data: SAMPLE_COMMENT });
   });
@@ -535,7 +535,7 @@ describe("addSaasComment", () => {
   });
 
   it("sends POST request with Authorization header", async () => {
-    mockFetch(V1_COMMENT);
+    mockFetch(V0_COMMENT);
     await addSaasComment("task-1", "Hello");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -544,24 +544,24 @@ describe("addSaasComment", () => {
   });
 
   it("sends comment body in JSON payload", async () => {
-    mockFetch(V1_COMMENT);
+    mockFetch(V0_COMMENT);
     await addSaasComment("task-1", "Test comment");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
     expect(body.text).toBe("Test comment");
   });
 
-  it("posts comments to the v1 path", async () => {
-    mockFetch(V1_COMMENT);
+  it("posts comments to the v0 path", async () => {
+    mockFetch(V0_COMMENT);
     await addSaasComment("task-1", "Hello");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
+    expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1/comments");
   });
 });
 
 describe("fetchSaasComments", () => {
   it("returns comments on success", async () => {
-    mockFetch({ comments: [V1_COMMENT] });
+    mockFetch({ comments: [V0_COMMENT] });
     const result = await fetchSaasComments("task-1");
     expect(result).toEqual([SAMPLE_COMMENT]);
   });
@@ -585,7 +585,7 @@ describe("fetchSaasComments", () => {
   });
 
   it("sends GET request with Authorization header", async () => {
-    mockFetch({ comments: [V1_COMMENT] });
+    mockFetch({ comments: [V0_COMMENT] });
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
@@ -593,15 +593,15 @@ describe("fetchSaasComments", () => {
   });
 
   it("requests comments from correct URL", async () => {
-    mockFetch({ comments: [V1_COMMENT] });
+    mockFetch({ comments: [V0_COMMENT] });
     await fetchSaasComments("task-1");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/v1/tasks/task-1/comments");
+    expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1/comments");
   });
 
-  // v1 comment rows carry no `taskId` — fill it so renderers keying on
+  // v0 comment rows carry no `taskId` — fill it so renderers keying on
   // `comment.taskId` keep working.
-  it("fills taskId on v1 comment rows that omit it", async () => {
+  it("fills taskId on v0 comment rows that omit it", async () => {
     mockFetch({
       comments: [
         { id: "c1", author: "agent", text: "x", createdAt: "2026-01-01T00:00:00.000Z" },
@@ -670,7 +670,7 @@ describe("createSaasTask", () => {
     mockFetch(SAMPLE_TASK);
     await createSaasTask({ title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("/api/v1/tasks");
+    expect((fetchCall[0] as string)).toContain("/api/v0/tasks");
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 });

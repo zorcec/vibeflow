@@ -101,7 +101,7 @@ import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { getGitUser } from "../core/git-user.js";
 import { OPENAPI_JSON } from "./openapi.gen.js";
-import { registerV1ReadAlias } from "./v1.js";
+import { registerV0ReadAlias } from "./v0.js";
 import { registerDocsViewer } from "./docs.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
 import type { FSWatcher } from "chokidar";
@@ -1229,7 +1229,7 @@ function registerMetaApis(
     const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
     try {
       // Cloud-only path: apiUrl is the SaaS base (Bearer-authenticated) →
-      // always "cloud", so the legacy workspaces path maps to /api/v1/boards.
+      // always "cloud", so the legacy workspaces path maps to /api/v0/boards.
       const r = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/workspaces")}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1273,7 +1273,7 @@ function registerMetaApis(
     }
     const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
     try {
-      // No batch import exists in the v1 contract: one POST per task via
+      // No batch import exists in the v0 contract: one POST per task via
       // the shared createTasksOneByOne() loop (same shape as the login
       // flow — cloud-only, so the mode inside is always "cloud").
       // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
@@ -1343,7 +1343,7 @@ function registerMetaApis(
 }
 
 /**
- * Serves the checked-in /api/v1 contract at GET /api/openapi.json.
+ * Serves the checked-in /api/v0 contract at GET /api/openapi.json.
  *
  * Phase 0 addition (fully revertible): serves the generated OPENAPI_JSON
  * string verbatim — the same bytes as docs/api/openapi.json. No existing
@@ -1404,7 +1404,7 @@ function registerKanbanRoute(app: express.Application, port: number): void {
     if (adminEmail) {
       try {
         // Cloud-only path: apiUrl is the SaaS base (Bearer-authenticated) →
-        // always "cloud", so the legacy profile path maps to /api/v1/me.
+        // always "cloud", so the legacy profile path maps to /api/v0/me.
         const profileRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`, {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(() => null);
@@ -1820,11 +1820,11 @@ async function serveApiOnly(
     });
 
     registerPagesApi(app, []);
-    // P1: the /api/v1 read alias + docs viewer mount BEFORE the legacy
+    // P1: the /api/v0 read alias + docs viewer mount BEFORE the legacy
     // registrations — the alias rewrites to legacy paths and continues down
     // the stack, so its layers must precede the handlers they delegate to.
     // Rollback is removing these two lines; legacy routes are untouched.
-    registerV1ReadAlias(
+    registerV0ReadAlias(
       app,
       options._testResolvePrincipal
         ? { resolvePrincipal: options._testResolvePrincipal }
@@ -2114,7 +2114,7 @@ li{margin:8px 0}</style></head>
   registerPagesApi(app, isDir ? pageRoutes : []);
   // P1: same read-alias + docs mount as the API-only branch (see above) —
   // the alias layers must precede the legacy handlers they delegate to.
-  registerV1ReadAlias(
+  registerV0ReadAlias(
     app,
     options._testResolvePrincipal
       ? { resolvePrincipal: options._testResolvePrincipal }

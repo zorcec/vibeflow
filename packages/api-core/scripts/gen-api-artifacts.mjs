@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Generate every checked-in API artifact from docs/api/v1-contract.json +
- * docs/api/v1-examples.json.
+ * Generate every checked-in API artifact from docs/api/v0-contract.json +
+ * docs/api/v0-examples.json.
  *
- * Single source of truth: docs/api/v1-contract.json (hand-authored, reviewed)
- * for the route set, plus docs/api/v1-examples.json (hand-authored,
+ * Single source of truth: docs/api/v0-contract.json (hand-authored, reviewed)
+ * for the route set, plus docs/api/v0-examples.json (hand-authored,
  * reviewed) for one illustrative request/response example per operation.
  * Generated outputs (NEVER hand-edited — a freshness test fails otherwise):
- *   docs/api/openapi.yaml                        — the /api/v1 contract doc
+ *   docs/api/openapi.yaml                        — the /api/v0 contract doc
  *   docs/api/openapi.json                        — canonical JSON twin
  *   packages/api-core/src/route-registry.gen.ts  — typed route registry
  *   packages/cli/src/server/openapi.gen.ts       — byte-exact served payload
@@ -32,8 +32,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
-const CONTRACT_PATH = join(REPO_ROOT, "docs", "api", "v1-contract.json");
-const EXAMPLES_PATH = join(REPO_ROOT, "docs", "api", "v1-examples.json");
+const CONTRACT_PATH = join(REPO_ROOT, "docs", "api", "v0-contract.json");
+const EXAMPLES_PATH = join(REPO_ROOT, "docs", "api", "v0-examples.json");
 
 /**
  * Load the per-endpoint examples file: `{ examples: { <opId>: { request,
@@ -194,9 +194,9 @@ function errorResponses(codes) {
   return out;
 }
 
-function pathParams(v1Path) {
+function pathParams(v0Path) {
   const params = [];
-  for (const match of v1Path.matchAll(/\{(\w+)\}/g)) {
+  for (const match of v0Path.matchAll(/\{(\w+)\}/g)) {
     params.push({
       name: match[1],
       in: "path",
@@ -208,7 +208,7 @@ function pathParams(v1Path) {
 }
 
 /**
- * v1 ops that create a resource answer 201 Created (create-task,
+ * v0 ops that create a resource answer 201 Created (create-task,
  * create-token, create-board, add-link — the cloud answers 201 and the
  * private suites assert it). Every other op answers 200. The success key
  * below and the lint both read this one set, so the contract cannot drift
@@ -400,9 +400,9 @@ export function applyExample(operation, op, example, successStatus) {
 export function buildOpenApiDocument(contract, examples = loadExamples()) {
   const paths = {};
   for (const op of contract.operations) {
-    const pathItem = paths[op.v1Path] ?? {};
+    const pathItem = paths[op.v0Path] ?? {};
     const method = op.method.toLowerCase();
-    const hasIdParam = op.v1Path.includes("{id}");
+    const hasIdParam = op.v0Path.includes("{id}");
     const codes =
       op.method === "GET"
         ? hasIdParam
@@ -421,7 +421,7 @@ export function buildOpenApiDocument(contract, examples = loadExamples()) {
         ? `${op.local.method} ${op.local.path}`
         : "no local HTTP handler",
       "x-plan-row": op.planRow,
-      parameters: pathParams(op.v1Path),
+      parameters: pathParams(op.v0Path),
       responses: {
         [successStatusFor(op)]: {
           description: `${op.summary} — success`,
@@ -475,7 +475,7 @@ export function buildOpenApiDocument(contract, examples = loadExamples()) {
       applyExample(operation, op, example, successStatusFor(op));
     }
     pathItem[method] = operation;
-    paths[op.v1Path] = pathItem;
+    paths[op.v0Path] = pathItem;
   }
 
   return {
@@ -485,7 +485,7 @@ export function buildOpenApiDocument(contract, examples = loadExamples()) {
       version: contract.openapi.apiVersion,
       description: contract.openapi.description,
     },
-    // Root, not "/api/v1": paths below are absolute (they already carry the
+    // Root, not "/api/v0": paths below are absolute (they already carry the
     // prefix), so a mount-valued server URL would double it and every
     // try-it-out call would 404 (found via the /api/docs viewer, P1).
     servers: [{ url: "/", description: "Local board — try-it-out executes against this server" }],
@@ -505,7 +505,7 @@ function buildSchemas(contract) {
     Task: {
       type: "object",
       description:
-        "v1 canonical task = local Task fields plus external id, counts, and createdAt alias. D3: responses carry BOTH id and externalId.",
+        "v0 canonical task = local Task fields plus external id, counts, and createdAt alias. D3: responses carry BOTH id and externalId.",
       properties: {
         id: { type: "string", description: "External id (cli_id ?? id on cloud; the local id locally)" },
         externalId: { type: "string", description: "Universal external id — equal to id on the local surface" },
@@ -549,7 +549,7 @@ function buildSchemas(contract) {
         title: { type: "string" },
         description: { type: "string" },
         status: { type: "string", enum: statusEnum },
-        selector: { type: "string", description: "Optional in v1 (annotation is local-only); required by the local handler today" },
+        selector: { type: "string", description: "Optional in v0 (annotation is local-only); required by the local handler today" },
         priority: { type: "string" },
       },
       required: ["title"],
@@ -576,7 +576,7 @@ function buildSchemas(contract) {
     TaskLinkInput: {
       type: "object",
       description:
-        "Body of POST /api/v1/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v1 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400.",
+        "Body of POST /api/v0/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v0 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400.",
       properties: {
         type: { type: "string", enum: ["parent", "relates", "blocks"] },
         taskId: {
@@ -819,11 +819,11 @@ export function lintExampleCoverage(doc, contract, examples) {
       problems.push(`${op.id}: example request method ${JSON.stringify(example.request?.method)} !== ${op.method}`);
     }
     const templateRe = new RegExp(
-      "^" + op.v1Path.split(/\{\w+\}/).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]+") + "$",
+      "^" + op.v0Path.split(/\{\w+\}/).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]+") + "$",
     );
     const examplePath = typeof example.request?.path === "string" ? example.request.path.split("?")[0] : "";
     if (!templateRe.test(examplePath)) {
-      problems.push(`${op.id}: example request path ${JSON.stringify(example.request?.path)} does not match ${op.v1Path}`);
+      problems.push(`${op.id}: example request path ${JSON.stringify(example.request?.path)} does not match ${op.v0Path}`);
     }
     const emitted = byOperationId.get(op.id);
     if (!emitted) {
@@ -913,7 +913,7 @@ export function lintOpenApiDocument(doc, contract, examples = loadExamples()) {
 
 // ── Registry + embed emitters ───────────────────────────────────────────────
 
-const GEN_HEADER = `// AUTO-GENERATED by packages/api-core/scripts/gen-api-artifacts.mjs — do not edit.\n// Sources: docs/api/v1-contract.json + docs/api/v1-examples.json. Re-run 'pnpm --filter @vibeflow-tools/api-core gen:api'.\n`;
+const GEN_HEADER = `// AUTO-GENERATED by packages/api-core/scripts/gen-api-artifacts.mjs — do not edit.\n// Sources: docs/api/v0-contract.json + docs/api/v0-examples.json. Re-run 'pnpm --filter @vibeflow-tools/api-core gen:api'.\n`;
 
 function tsString(value) {
   return JSON.stringify(value);
@@ -929,7 +929,7 @@ export function emitRegistry(contract) {
         `  {\n` +
         `    id: ${tsString(op.id)},\n` +
         `    method: ${tsString(op.method)},\n` +
-        `    v1Path: ${tsString(op.v1Path)},\n` +
+        `    v0Path: ${tsString(op.v0Path)},\n` +
         `    local: ${local},\n` +
         `    scope: ${op.scope === null ? "null" : tsString(op.scope)},\n` +
         `    planRow: ${op.planRow},\n` +
@@ -953,12 +953,12 @@ export function emitRegistry(contract) {
     .join("\n");
   return (
     GEN_HEADER +
-    `import type { LocalOnlyRoute, V1Operation } from "./types.js";\n\n` +
+    `import type { LocalOnlyRoute, V0Operation } from "./types.js";\n\n` +
     `/** Contract version this registry was generated from. */\n` +
     `export const SPEC_VERSION = ${tsString(contract.openapi.apiVersion)};\n\n` +
-    `/** Every v1 operation with its current local handler (null = no local HTTP handler yet). */\n` +
-    `export const V1_OPERATIONS: V1Operation[] = [\n${ops}\n];\n\n` +
-    `/** Local handlers deliberately excluded from v1, each with its reason. */\n` +
+    `/** Every v0 operation with its current local handler (null = no local HTTP handler yet). */\n` +
+    `export const V0_OPERATIONS: V0Operation[] = [\n${ops}\n];\n\n` +
+    `/** Local handlers deliberately excluded from v0, each with its reason. */\n` +
     `export const LOCAL_ONLY_ROUTES: LocalOnlyRoute[] = [\n${localOnly}\n];\n\n` +
     `/** Non-API route prefixes carved out of the duplication guard, with reasons. */\n` +
     `export const NON_API_CARVE_OUTS: { prefix: string; reason: string }[] = [\n${carveOuts}\n];\n`
@@ -971,7 +971,7 @@ export function emitServerEmbed(openApiJson, openApiYaml) {
     GEN_HEADER +
     `/**\n` +
     ` * Byte-exact payload served at GET /api/openapi.json.\n` +
-    ` * Generated from docs/api/v1-contract.json — the route serves the JSON\n` +
+    ` * Generated from docs/api/v0-contract.json — the route serves the JSON\n` +
     ` * string verbatim so the Phase 1 docs viewer has a drift-proof source,\n` +
     ` * and \`vibeflow openapi [--yaml]\` prints either form with no server.\n` +
     ` */\n` +

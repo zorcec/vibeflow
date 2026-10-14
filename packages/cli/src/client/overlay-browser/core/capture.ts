@@ -41,7 +41,7 @@ export async function sendBaselineToServer(
     const cfg = PROTO_CONFIG;
 
     // Construct the baseline API URL from the base API URL
-    // Cloud targets serve the v1 contract; local targets keep the legacy path.
+    // Cloud targets serve the v0 contract; local targets keep the legacy path.
     const baselinePath = surfacePath(
       isCloudTarget(cfg?.apiUrl) ? "cloud" : "local",
       `/api/tasks/${taskId}/baseline`,
@@ -91,7 +91,7 @@ export async function sendPageBaselineToServer(
   try {
     const cfg = PROTO_CONFIG;
 
-    // Cloud targets serve the v1 contract; local targets keep the legacy path.
+    // Cloud targets serve the v0 contract; local targets keep the legacy path.
     const pagePath = surfacePath(
       isCloudTarget(cfg?.apiUrl) ? "cloud" : "local",
       `/api/tasks/${taskId}/baseline-page`,
@@ -133,7 +133,7 @@ export async function captureAndStoreAuthState(
     const cfg = PROTO_CONFIG;
 
     // Construct the auth-state API URL from the base API URL
-    // Cloud targets serve the v1 contract (cloud answers 501 LOCAL_ONLY for
+    // Cloud targets serve the v0 contract (cloud answers 501 LOCAL_ONLY for
     // auth-state per the contract); local targets keep the legacy path.
     const authPath = surfacePath(
       isCloudTarget(cfg?.apiUrl) ? "cloud" : "local",

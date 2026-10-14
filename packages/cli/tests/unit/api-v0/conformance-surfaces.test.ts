@@ -7,7 +7,7 @@
  *   everything else skips with its target phase. The `surfaces` manifest
  *   field must not change local behaviour.
  * - `cloud`: entries whose `surfaces` include "cloud" execute against the
- *   v1 path translation (`toSurfacePath`); every other entry skips BY NAME
+ *   v0 path translation (`toSurfacePath`); every other entry skips BY NAME
  *   with its manifest `cloudSkipReason` (or a fallback that still names the
  *   phase and runnable label — never silent).
  */
@@ -56,7 +56,7 @@ function stubTransport(
 
 const LOCAL_READ: ManifestEntry = {
   id: "list-tasks",
-  v1: { method: "GET", path: "/api/v1/tasks" },
+  v0: { method: "GET", path: "/api/v0/tasks" },
   local: { method: "GET", path: "/api/tasks" },
   runnable: "local-read",
   phase: 0,
@@ -72,7 +72,7 @@ const LOCAL_READ: ManifestEntry = {
 
 const SEEDED_READ: ManifestEntry = {
   id: "get-task",
-  v1: { method: "GET", path: "/api/v1/tasks/{id}" },
+  v0: { method: "GET", path: "/api/v0/tasks/{id}" },
   local: { method: "GET", path: "/api/tasks/{taskId}" },
   runnable: "local-read",
   phase: 0,
@@ -89,7 +89,7 @@ const SEEDED_READ: ManifestEntry = {
 
 const WRITE: ManifestEntry = {
   id: "create-task",
-  v1: { method: "POST", path: "/api/v1/tasks" },
+  v0: { method: "POST", path: "/api/v0/tasks" },
   local: { method: "POST", path: "/api/tasks" },
   runnable: "write",
   phase: 3,
@@ -97,7 +97,7 @@ const WRITE: ManifestEntry = {
   cases: [
     {
       name: "minimal-no-selector",
-      request: { method: "POST", path: "/api/tasks", body: { title: "v1 minimal" } },
+      request: { method: "POST", path: "/api/tasks", body: { title: "v0 minimal" } },
       expect: { status: 201, shape: "task" },
     },
   ],
@@ -105,12 +105,12 @@ const WRITE: ManifestEntry = {
 
 const LOCAL_ONLY: ManifestEntry = {
   id: "get-project",
-  v1: { method: "GET", path: "/api/v1/project" },
+  v0: { method: "GET", path: "/api/v0/project" },
   local: { method: "GET", path: "/api/project" },
   runnable: "local-read",
   phase: 0,
   surfaces: ["local"],
-  cloudSkipReason: "local-only: no cloud GET /api/v1/project; skipped on the cloud surface",
+  cloudSkipReason: "local-only: no cloud GET /api/v0/project; skipped on the cloud surface",
   cases: [
     {
       name: "green",
@@ -122,12 +122,12 @@ const LOCAL_ONLY: ManifestEntry = {
 
 const NOWHERE: ManifestEntry = {
   id: "mcp-get",
-  v1: { method: "GET", path: "/mcp" },
+  v0: { method: "GET", path: "/mcp" },
   local: { method: "GET", path: "/api/mcp" },
   runnable: "phase-4",
   phase: 4,
   surfaces: [],
-  cloudSkipReason: "P4: hosted MCP is not a v1 operation on either surface yet; skipped",
+  cloudSkipReason: "P4: hosted MCP is not a v0 operation on either surface yet; skipped",
   cases: [
     {
       name: "session",
@@ -137,11 +137,11 @@ const NOWHERE: ManifestEntry = {
   ],
 };
 
-describe("toSurfacePath: local base becomes the v1 base on cloud", () => {
+describe("toSurfacePath: local base becomes the v0 base on cloud", () => {
   it("rewrites the exact local base and longer local paths", () => {
-    expect(toSurfacePath(LOCAL_READ, "/api/tasks", "cloud")).toBe("/api/v1/tasks");
+    expect(toSurfacePath(LOCAL_READ, "/api/tasks", "cloud")).toBe("/api/v0/tasks");
     expect(toSurfacePath(SEEDED_READ, "/api/tasks/{taskId}", "cloud")).toBe(
-      "/api/v1/tasks/{taskId}",
+      "/api/v0/tasks/{taskId}",
     );
   });
 
@@ -152,25 +152,25 @@ describe("toSurfacePath: local base becomes the v1 base on cloud", () => {
     };
     expect(
       toSurfacePath(entry, "/api/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "cloud"),
-    ).toBe("/api/v1/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    ).toBe("/api/v0/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   });
 
-  it("leaves already-v1 case paths and handler-less entries untouched", () => {
-    const alreadyV1: ManifestEntry = {
+  it("leaves already-v0 case paths and handler-less entries untouched", () => {
+    const alreadyV0: ManifestEntry = {
       id: "claim-next",
-      v1: { method: "POST", path: "/api/v1/tasks/claim-next" },
+      v0: { method: "POST", path: "/api/v0/tasks/claim-next" },
       local: null,
       runnable: "no-local-handler",
       phase: 3,
       surfaces: ["local", "cloud"],
       cases: [],
     };
-    expect(toSurfacePath(alreadyV1, "/api/v1/tasks/claim-next", "cloud")).toBe(
-      "/api/v1/tasks/claim-next",
+    expect(toSurfacePath(alreadyV0, "/api/v0/tasks/claim-next", "cloud")).toBe(
+      "/api/v0/tasks/claim-next",
     );
     const mixed: ManifestEntry = {
       id: "add-link",
-      v1: { method: "POST", path: "/api/v1/tasks/{id}/links" },
+      v0: { method: "POST", path: "/api/v0/tasks/{id}/links" },
       local: { method: "PATCH", path: "/api/tasks/{taskId}" },
       runnable: "write",
       phase: 3,
@@ -178,8 +178,8 @@ describe("toSurfacePath: local base becomes the v1 base on cloud", () => {
       cases: [],
     };
     expect(
-      toSurfacePath(mixed, "/api/v1/tasks/{taskId}/links", "cloud"),
-    ).toBe("/api/v1/tasks/{taskId}/links");
+      toSurfacePath(mixed, "/api/v0/tasks/{taskId}/links", "cloud"),
+    ).toBe("/api/v0/tasks/{taskId}/links");
   });
 
   it("never rewrites on local — the authored path is the request", () => {
@@ -225,7 +225,7 @@ describe("runConformance local default is bit-identical to Phase 0", () => {
 });
 
 describe("runConformance cloud executes the surfaced set, skips the rest by name", () => {
-  it("runs cloud-surfaced entries against v1 paths, including writes", async () => {
+  it("runs cloud-surfaced entries against v0 paths, including writes", async () => {
     const seen: Seen[] = [];
     const report = await runConformance(
       [LOCAL_READ, SEEDED_READ, WRITE],
@@ -233,10 +233,10 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
         if (c.method === "POST") {
           return {
             status: 201,
-            body: { id: "n", title: "v1 minimal", status: "todo" },
+            body: { id: "n", title: "v0 minimal", status: "todo" },
           };
         }
-        if (c.path === "/api/v1/tasks/abc123") {
+        if (c.path === "/api/v0/tasks/abc123") {
           return {
             status: 200,
             body: { id: "abc123", title: "t", status: "todo" },
@@ -249,12 +249,12 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     expect(report.failed).toEqual([]);
     expect(report.passed).toHaveLength(3);
     expect(seen.map((s) => `${s.method} ${s.path}`)).toEqual([
-      "GET /api/v1/tasks",
-      "GET /api/v1/tasks/abc123",
-      "POST /api/v1/tasks",
+      "GET /api/v0/tasks",
+      "GET /api/v0/tasks/abc123",
+      "POST /api/v0/tasks",
     ]);
     // The write body travels untouched — the runner translates paths, not payloads.
-    expect(seen[2]?.body).toEqual({ title: "v1 minimal" });
+    expect(seen[2]?.body).toEqual({ title: "v0 minimal" });
   });
 
   it("reports non-cloud entries skipped by name with the manifest reason", async () => {
@@ -280,7 +280,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
   it("falls back to a phase-and-runnable reason when the manifest names none", async () => {
     const legacy: ManifestEntry = {
       id: "legacy-op",
-      v1: { method: "GET", path: "/api/v1/legacy" },
+      v0: { method: "GET", path: "/api/v0/legacy" },
       local: { method: "GET", path: "/api/legacy" },
       runnable: "local-read",
       phase: 0,
@@ -314,7 +314,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
   it("cloudRequest replaces the translated request on cloud, ignored on local", async () => {
     const entry: ManifestEntry = {
       id: "upload-file",
-      v1: { method: "POST", path: "/api/v1/tasks/{id}/files" },
+      v0: { method: "POST", path: "/api/v0/tasks/{id}/files" },
       local: { method: "POST", path: "/api/tasks/{taskId}/files/{filename}" },
       runnable: "write",
       phase: 3,
@@ -326,7 +326,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
           request: { method: "POST", path: "/api/tasks/{taskId}/files/note.txt" },
           cloudRequest: {
             method: "POST",
-            path: "/api/v1/tasks/{taskId}/files",
+            path: "/api/v0/tasks/{taskId}/files",
             rawBody: "hello\n",
             headers: { "content-type": "text/plain", "x-filename": "note.txt" },
           },
@@ -345,7 +345,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     expect(seenCloud).toEqual([
       {
         method: "POST",
-        path: "/api/v1/tasks/t1/files",
+        path: "/api/v0/tasks/t1/files",
         rawBody: "hello\n",
         headers: { "content-type": "text/plain", "x-filename": "note.txt" },
       },
@@ -366,7 +366,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
   it("expectCloud overrides the status on cloud, ignored on local", async () => {
     const entry: ManifestEntry = {
       id: "get-task",
-      v1: { method: "GET", path: "/api/v1/tasks/{id}" },
+      v0: { method: "GET", path: "/api/v0/tasks/{id}" },
       local: { method: "GET", path: "/api/tasks/{taskId}" },
       runnable: "local-read",
       phase: 0,
@@ -381,7 +381,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
         },
       ],
     };
-    // Cloud answers the v1 404 → passes via expectCloud.
+    // Cloud answers the v0 404 → passes via expectCloud.
     const cloudReport = await runConformance(
       [entry],
       stubTransport([], () => ({ status: 404, body: { error: "x" } })),
@@ -399,10 +399,10 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     expect(localReport.failed).toHaveLength(1);
   });
 
-  it("a diverged cloud status asserts the v1 error envelope, not the data shape", async () => {
+  it("a diverged cloud status asserts the v0 error envelope, not the data shape", async () => {
     const entry: ManifestEntry = {
       id: "list-comments",
-      v1: { method: "GET", path: "/api/v1/tasks/{id}/comments" },
+      v0: { method: "GET", path: "/api/v0/tasks/{id}/comments" },
       local: { method: "GET", path: "/api/tasks/{taskId}/comments" },
       runnable: "local-read",
       phase: 0,
@@ -437,12 +437,12 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
   });
 
   it("a success-status expectCloud divergence still validates the data shape", async () => {
-    // create-task precedent: local answers 200, v1 declares 201 Created —
+    // create-task precedent: local answers 200, v0 declares 201 Created —
     // the 201 body is data (bare task), so expect.shape must validate it,
     // not assert the error envelope.
     const entry: ManifestEntry = {
       id: "create-task",
-      v1: { method: "POST", path: "/api/v1/tasks" },
+      v0: { method: "POST", path: "/api/v0/tasks" },
       local: { method: "POST", path: "/api/tasks" },
       runnable: "write",
       phase: 3,
@@ -479,7 +479,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
   it("seed placeholders substitute in bodies and query values from the same seed map", async () => {
     const entry: ManifestEntry = {
       id: "add-link",
-      v1: { method: "POST", path: "/api/v1/tasks/{id}/links" },
+      v0: { method: "POST", path: "/api/v0/tasks/{id}/links" },
       local: { method: "PATCH", path: "/api/tasks/{taskId}" },
       runnable: "write",
       phase: 3,
@@ -490,7 +490,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
           name: "green",
           request: {
             method: "POST",
-            path: "/api/v1/tasks/{taskId}/links",
+            path: "/api/v0/tasks/{taskId}/links",
             query: { link: "{other}" },
             body: { type: "relates", taskId: "<other>", nested: [{ id: "{taskId}" }] },
           },
@@ -506,7 +506,7 @@ describe("runConformance cloud executes the surfaced set, skips the rest by name
     );
     expect(report.failed).toEqual([]);
     expect(report.passed).toHaveLength(1);
-    expect(seen[0]?.path).toBe("/api/v1/tasks/task-1/links");
+    expect(seen[0]?.path).toBe("/api/v0/tasks/task-1/links");
     expect(seen[0]?.query).toEqual({ link: "task-2" });
     expect(seen[0]?.body).toEqual({
       type: "relates",

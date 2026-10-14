@@ -122,8 +122,8 @@ async function fetchAndSelectWorkspace(
 }
 
 /**
- * Cloud batch-import replacement: the v1 contract offers no batch import op,
- * so each unsynced local task is created with one `POST /api/v1/tasks` call
+ * Cloud batch-import replacement: the v0 contract offers no batch import op,
+ * so each unsynced local task is created with one `POST /api/v0/tasks` call
  * (`surfacePath("cloud", "/api/cli/tasks")`). A non-ok response counts the
  * task as skipped (same message shape the single-call import produced).
  * Mode is always `"cloud"`: callers address the `getApiUrl()` SaaS base.
@@ -131,36 +131,36 @@ async function fetchAndSelectWorkspace(
  * `boardId` is optional: callers that push without a selected board omit it
  * and the cloud files the task under the default board (the legacy batch
  * import likewise carried no board when none was selected). `idMap` maps
- * each created task's local id to its cloud id (parsed from the bare v1
+ * each created task's local id to its cloud id (parsed from the bare v0
  * task body) so
  * callers can follow up with per-task file uploads.
  *
  * Push is TWO-PHASE so links survive the local-id → cloud-id namespace
  * hop. Phase 1 (`createTasksOneByOne` below) creates every task WITHOUT
  * `links`: a local parent link names a LOCAL id the cloud has never seen,
- * so v1's parent-target validation answers 400 and the whole task counts
+ * so v0's parent-target validation answers 400 and the whole task counts
  * as skipped (a fresh 3-task push with one parent/child pair reported
  * `Pushed 2 … Skipped 1`), and create-order cannot fix it in general — a
  * child pushed before its parent has an unknown target id. Phase 2
  * (`applyPushLinks`) then replays each stored link with the target
  * translated from the local id to the created cloud id from `idMap`, via
- * `POST /api/v1/tasks/{id}/links` (`{ taskId, type }` — the contract's
+ * `POST /api/v0/tasks/{id}/links` (`{ taskId, type }` — the contract's
  * `add-link` op; see its doc comment for the shape choice). Links whose
  * target is not in the push set and unknown in-board are skipped and
  * REPORTED, never fatal to the push.
  */
 /**
- * Build the `POST /api/v1/tasks` body for one local task record: the
+ * Build the `POST /api/v0/tasks` body for one local task record: the
  * record itself minus `links`, plus `boardId` when selected. Phase 1 of
  * the two-phase push (see `createTasksOneByOne`): `links` is the one key
- * v1 validates against server state (parent targets must already exist
+ * v0 validates against server state (parent targets must already exist
  * in-board), so it travels in phase 2 via `applyPushLinks` with resolved
  * cloud ids — never inline. Everything else unknown (`filePath`,
  * timestamps, `files[]` refs, …) the POST ignores, and the `files[]` refs
  * deliberately ride along (system-flag round-trip pin in `push.test.ts`).
  * `undefined` values are omitted so absent stays absent.
  */
-export function toV1CreateBody(
+export function toV0CreateBody(
   task: Record<string, unknown>,
   boardId: string | undefined,
 ): Record<string, unknown> {
@@ -197,7 +197,7 @@ export async function createTasksOneByOne(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(toV1CreateBody(task, boardId)),
+      body: JSON.stringify(toV0CreateBody(task, boardId)),
     });
     if (!res.ok) {
       skipped++;
@@ -205,7 +205,7 @@ export async function createTasksOneByOne(
     }
     imported++;
     if (typeof localId === "string" && localId.length > 0) {
-      // v1 answers the bare created task (contract Task).
+      // v0 answers the bare created task (contract Task).
       const body = (await res.json().catch(() => null)) as Record<
         string,
         unknown
@@ -221,7 +221,7 @@ export async function createTasksOneByOne(
   return { imported, skipped, idMap };
 }
 
-/** Link types the v1 link surface accepts. */
+/** Link types the v0 link surface accepts. */
 const PUSH_LINK_TYPES = new Set(["parent", "relates", "blocks"]);
 
 export interface SkippedPushLink {
@@ -242,10 +242,10 @@ export interface ApplyPushLinksResult {
  * Phase 2 of the two-phase push: replay every stored `links` entry with
  * the target translated from the local id to the created cloud id.
  *
- * Mechanism is `POST /api/v1/tasks/{id}/links` with `{ taskId, type }`
- * — the v1 contract's `add-link` op (`docs/api/v1-contract.json`, new
+ * Mechanism is `POST /api/v0/tasks/{id}/links` with `{ taskId, type }`
+ * — the v0 contract's `add-link` op (`docs/api/v0-contract.json`, new
  * endpoint shape for links which no longer ride on create/update). The
- * `{ taskId, type }` key spelling matches the live cloud parser (the v1
+ * `{ taskId, type }` key spelling matches the live cloud parser (the v0
  * tasks route validates `body.links[]` as `{ taskId, type }` and the
  * links route reads `body.taskId`); the public openapi draft spells the
  * target key `target`, but the cloud this path talks to reads `taskId`,
@@ -321,7 +321,7 @@ export async function applyPushLinks(
       try {
         // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always
         // "cloud", so the legacy `/api/cli/tasks/:id/links` form maps to
-        // the v1 `add-link` op (`/api/v1/tasks/:id/links`).
+        // the v0 `add-link` op (`/api/v0/tasks/:id/links`).
         const res = await fetch(
           `${apiUrl}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(remoteSource)}/links`)}`,
           {
@@ -414,7 +414,7 @@ async function promptPushLocalTasks(
         // `{ tasks }`; its rows carried `id` + `cliId`.
         tasks?: Array<{ id: string; cliId?: string | null }>;
       };
-      // v1 canonical shape carries BOTH `id` (external) and `externalId`
+      // v0 canonical shape carries BOTH `id` (external) and `externalId`
       // (§3.1: `cliId ?? cloudId`); collect every id-like key so a local
       // task matching ANY of them counts as already synced.
       const rows = Array.isArray(data.items)
@@ -480,10 +480,10 @@ async function promptPushLocalTasks(
             const keepLocal = answer2.trim().toLowerCase() !== "y";
             void keepLocal;
 
-            // No batch import exists in the v1 contract: one POST per task
+            // No batch import exists in the v0 contract: one POST per task
             // (phase 1), then links replayed with resolved cloud ids
             // (phase 2). (keepLocalFiles previously rode along to
-            // /api/cli/import; the v1 create op has no such field and this
+            // /api/cli/import; the v0 create op has no such field and this
             // flow never deleted client-side, so the answer is kept for
             // prompt parity only.)
             try {
@@ -627,7 +627,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
     // mints it on authorization and returns the plaintext exactly once in
     // `{ token }`. There is no other token shape — the PAT is stored
     // verbatim and is the Bearer credential for every cloud call below
-    // (`/api/v1` via `surfacePath("cloud", …)`).
+    // (`/api/v0` via `surfacePath("cloud", …)`).
     const data = (await pollRes.json()) as
       | { pending: true }
       | { token: string }

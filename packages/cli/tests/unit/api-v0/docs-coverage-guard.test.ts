@@ -6,7 +6,7 @@
  * asserting, for EVERY registry route, that the served spec carries:
  * - a per-endpoint example (`x-vibeflow-example-request` + standard
  *   `examples` on the JSON request/response media types), sourced from
- *   docs/api/v1-examples.json, and
+ *   docs/api/v0-examples.json, and
  * - a deep-linkable identity (`operationId` + ≥1 tag, so Swagger UI's
  *   `deepLinking` exposes `#/<tag>/<operationId>` for the route).
  *
@@ -28,19 +28,19 @@ const SRC_ROOT = join(CLI_ROOT, "src");
 interface RegistryOp {
   id: string;
   method: string;
-  v1Path: string;
+  v0Path: string;
 }
 
 function loadRegistryIds(): RegistryOp[] {
   const contract = JSON.parse(
-    readFileSync(join(REPO_ROOT, "docs", "api", "v1-contract.json"), "utf-8"),
+    readFileSync(join(REPO_ROOT, "docs", "api", "v0-contract.json"), "utf-8"),
   ) as { operations: RegistryOp[] };
   return contract.operations;
 }
 
 function loadExamples(): Record<string, unknown> {
   const doc = JSON.parse(
-    readFileSync(join(REPO_ROOT, "docs", "api", "v1-examples.json"), "utf-8"),
+    readFileSync(join(REPO_ROOT, "docs", "api", "v0-examples.json"), "utf-8"),
   ) as { examples: Record<string, unknown> };
   return doc.examples;
 }
@@ -126,8 +126,8 @@ describe("docs coverage guard: examples cover every registry route", () => {
       if (xr.method !== reg.method) {
         failures.push(`${id}: example method ${JSON.stringify(xr.method)} !== ${reg.method}`);
       }
-      if (typeof xr.path !== "string" || !templateMatches(reg.v1Path, xr.path)) {
-        failures.push(`${id}: example path ${JSON.stringify(xr.path)} does not match ${reg.v1Path}`);
+      if (typeof xr.path !== "string" || !templateMatches(reg.v0Path, xr.path)) {
+        failures.push(`${id}: example path ${JSON.stringify(xr.path)} does not match ${reg.v0Path}`);
       }
       // Standard OpenAPI examples on the JSON wire shapes, so the viewer
       // renders them inline (binary download is the exempt case — it
@@ -185,24 +185,24 @@ describe("docs coverage guard support: the lint is non-vacuous", () => {
     )) as typeof import("../../../../api-core/scripts/gen-api-artifacts.mjs");
     const contract = {
       operations: [
-        { id: "a-op", method: "GET", v1Path: "/api/v1/things" },
-        { id: "b-op", method: "POST", v1Path: "/api/v1/things/{id}" },
+        { id: "a-op", method: "GET", v0Path: "/api/v0/things" },
+        { id: "b-op", method: "POST", v0Path: "/api/v0/things/{id}" },
       ],
     };
     // As the generator emits it (applyExample already merged): the marker
     // plus standard examples on the JSON wire shapes.
     const cleanDoc = {
       paths: {
-        "/api/v1/things": {
+        "/api/v0/things": {
           get: {
             operationId: "a-op",
-            "x-vibeflow-example-request": { method: "GET", path: "/api/v1/things" },
+            "x-vibeflow-example-request": { method: "GET", path: "/api/v0/things" },
             responses: { 200: { content: { "application/json": { schema: {}, examples: { documented: { value: { items: [] } } } } } } } },
           },
-        "/api/v1/things/{id}": {
+        "/api/v0/things/{id}": {
           post: {
             operationId: "b-op",
-            "x-vibeflow-example-request": { method: "POST", path: "/api/v1/things/x" },
+            "x-vibeflow-example-request": { method: "POST", path: "/api/v0/things/x" },
             requestBody: { content: { "application/json": { schema: {}, examples: { documented: { value: {} } } } } },
             responses: { 200: { content: { "application/json": { schema: {}, examples: { documented: { value: { ok: true } } } } } } } },
           },
@@ -210,11 +210,11 @@ describe("docs coverage guard support: the lint is non-vacuous", () => {
     };
     const cleanExamples = {
       "a-op": {
-        request: { method: "GET", path: "/api/v1/things" },
+        request: { method: "GET", path: "/api/v0/things" },
         response: { status: 200, body: { items: [] } },
       },
       "b-op": {
-        request: { method: "POST", path: "/api/v1/things/x", body: {} },
+        request: { method: "POST", path: "/api/v0/things/x", body: {} },
         response: { status: 200, body: { ok: true } },
       },
     };
@@ -242,7 +242,7 @@ describe("docs coverage guard support: the lint is non-vacuous", () => {
         {
           ...cleanExamples,
           "b-op": {
-            request: { method: "DELETE", path: "/api/v1/elsewhere" },
+            request: { method: "DELETE", path: "/api/v0/elsewhere" },
             response: { status: 200, body: {} },
           },
         },
@@ -250,7 +250,7 @@ describe("docs coverage guard support: the lint is non-vacuous", () => {
     ).toBeGreaterThan(0);
     // Emitted op without the merged example marker.
     const stripped = JSON.parse(JSON.stringify(cleanDoc)) as typeof cleanDoc;
-    delete (stripped.paths["/api/v1/things"].get as Record<string, unknown>)[
+    delete (stripped.paths["/api/v0/things"].get as Record<string, unknown>)[
       "x-vibeflow-example-request"
     ];
     expect(

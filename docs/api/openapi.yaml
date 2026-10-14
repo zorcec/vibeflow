@@ -1,17 +1,17 @@
 openapi: 3.1.0
 info:
-  title: Vibeflow API v1
-  version: 1.0.0-phase2
-  description: "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v1, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document. On the cloud surface, bearer calls carry per-token quotas — reads 300/min, writes 60/min, token creation 10/hour — and a quota-exceeding call answers 429 with Retry-After. Quota counters are PER-REPLICA in-memory counters, so the effective limit is the configured value × replicas (a shared store such as Redis is the future path if cross-replica enforcement is ever needed)."
+  title: Vibeflow API v0
+  version: 0.1.0
+  description: "Unified local + cloud task API. Locally the Phase 1 read alias (/api/v0, GET only) delegates to the local handler in localPath, and GET /api/docs renders this document. On the cloud surface, bearer calls carry per-token quotas — reads 300/min, writes 60/min, token creation 10/hour — and a quota-exceeding call answers 429 with Retry-After. Quota counters are PER-REPLICA in-memory counters, so the effective limit is the configured value × replicas (a shared store such as Redis is the future path if cross-replica enforcement is ever needed)."
 servers:
   - url: "/"
     description: "Local board — try-it-out executes against this server"
 paths:
-  "/api/v1/tasks":
+  "/api/v0/tasks":
     get:
       operationId: list-tasks
       summary: List tasks with optional status filter and pagination
-      description: "v1 returns task summary + counts with { items, nextCursor }; local returns { tasks: [...] } with commentCount/fileCount today."
+      description: "v0 returns task summary + counts with { items, nextCursor }; local returns { tasks: [...] } with commentCount/fileCount today."
       tags:
         - Tasks
       x-vibeflow-scope: "tasks:read"
@@ -80,11 +80,11 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tasks?status=todo&limit=2"
+        path: "/api/v0/tasks?status=todo&limit=2"
     post:
       operationId: create-task
       summary: Create a task
-      description: "v1 makes 'selector' optional (annotation is local-only); local requires it today. Write — Phase 3."
+      description: "v0 makes 'selector' optional (annotation is local-only); local requires it today. Write — Phase 3."
       tags:
         - Tasks
       x-vibeflow-scope: "tasks:write"
@@ -154,8 +154,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks"
-  "/api/v1/tasks/{id}":
+        path: "/api/v0/tasks"
+  "/api/v0/tasks/{id}":
     get:
       operationId: get-task
       summary: Get one task by id
@@ -223,7 +223,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
     patch:
       operationId: patch-task
       summary: Update a task
@@ -299,11 +299,11 @@ paths:
             []
       x-vibeflow-example-request:
         method: PATCH
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
     delete:
       operationId: delete-task
       summary: Delete a task (cascade)
-      description: "Local cascade-deletes descendants + child links; cloud adapter must implement or v1 refuses (D7). Write — Phase 3."
+      description: "Local cascade-deletes descendants + child links; cloud adapter must implement or v0 refuses (D7). Write — Phase 3."
       tags:
         - Tasks
       x-vibeflow-scope: "tasks:write"
@@ -364,8 +364,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
-  "/api/v1/tasks/{id}/opened":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+  "/api/v0/tasks/{id}/opened":
     post:
       operationId: mark-opened
       summary: Record presence/telemetry open
@@ -430,8 +430,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/opened"
-  "/api/v1/tasks/{id}/expanded":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/opened"
+  "/api/v0/tasks/{id}/expanded":
     post:
       operationId: mark-expanded
       summary: Record card expanded state
@@ -496,8 +496,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/expanded"
-  "/api/v1/tasks/{id}/links":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/expanded"
+  "/api/v0/tasks/{id}/links":
     post:
       operationId: add-link
       summary: Add a task link
@@ -573,12 +573,12 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links"
-  "/api/v1/tasks/{id}/links/{type}/{target}":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links"
+  "/api/v0/tasks/{id}/links/{type}/{target}":
     delete:
       operationId: remove-link
       summary: Remove a task link
-      description: "Local detach is the pre-image of the typed v1 removal. Write — Phase 3."
+      description: "Local detach is the pre-image of the typed v0 removal. Write — Phase 3."
       tags:
         - Tasks
       x-vibeflow-scope: "tasks:write"
@@ -649,8 +649,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links/blocks/b2c3d4e5f60718293a4b5c6d7e8f90a1"
-  "/api/v1/tasks/claim-next":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/links/blocks/b2c3d4e5f60718293a4b5c6d7e8f90a1"
+  "/api/v0/tasks/claim-next":
     post:
       operationId: claim-next
       summary: Atomically claim the next actionable task
@@ -722,8 +722,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/claim-next"
-  "/api/v1/tasks/{id}/verify":
+        path: "/api/v0/tasks/claim-next"
+  "/api/v0/tasks/{id}/verify":
     post:
       operationId: verify-task
       summary: Attest a verify verdict (pass/fail/cannot)
@@ -799,8 +799,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/verify"
-  "/api/v1/tasks/{id}/comments":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/verify"
+  "/api/v0/tasks/{id}/comments":
     get:
       operationId: list-comments
       summary: List comments
@@ -863,7 +863,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
     post:
       operationId: add-comment
       summary: Add a comment
@@ -941,8 +941,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
-  "/api/v1/tasks/{id}/comments/{commentId}":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments"
+  "/api/v0/tasks/{id}/comments/{commentId}":
     patch:
       operationId: patch-comment
       summary: Edit a comment
@@ -1027,7 +1027,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: PATCH
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
     delete:
       operationId: delete-comment
       summary: Delete a comment
@@ -1099,8 +1099,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
-  "/api/v1/tasks/{id}/files":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/comments/c0ffee1234567890"
+  "/api/v0/tasks/{id}/files":
     get:
       operationId: list-files
       summary: List files
@@ -1161,7 +1161,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
     post:
       operationId: upload-file
       summary: Upload a file
@@ -1240,8 +1240,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
-  "/api/v1/tasks/{id}/files/{fileId}":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files"
+  "/api/v0/tasks/{id}/files/{fileId}":
     get:
       operationId: get-file
       summary: Download a file
@@ -1299,7 +1299,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
       x-vibeflow-example-note: "Binary download (application/octet-stream) — no JSON body to example."
     delete:
       operationId: delete-file
@@ -1372,8 +1372,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
-  "/api/v1/tasks/{id}/screenshot":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/files/note.txt"
+  "/api/v0/tasks/{id}/screenshot":
     post:
       operationId: put-screenshot
       summary: Attach a screenshot
@@ -1446,7 +1446,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
     delete:
       operationId: delete-screenshot
       summary: Remove the screenshot
@@ -1513,8 +1513,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
-  "/api/v1/tasks/{id}/baseline":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/screenshot"
+  "/api/v0/tasks/{id}/baseline":
     post:
       operationId: put-baseline
       summary: Store baseline snapshot envelope
@@ -1588,8 +1588,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline"
-  "/api/v1/tasks/{id}/baseline-page":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline"
+  "/api/v0/tasks/{id}/baseline-page":
     post:
       operationId: put-baseline-page
       summary: Store page-wide baseline snapshot as a system file
@@ -1651,8 +1651,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline-page"
-  "/api/v1/tasks/{id}/auth-state":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/baseline-page"
+  "/api/v0/tasks/{id}/auth-state":
     post:
       operationId: put-auth-state
       summary: Store encrypted auth state (LOCAL-ONLY)
@@ -1733,8 +1733,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/auth-state"
-  "/api/v1/project":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/auth-state"
+  "/api/v0/project":
     get:
       operationId: get-project
       summary: Describe the scope
@@ -1783,8 +1783,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/project"
-  "/api/v1/me":
+        path: "/api/v0/project"
+  "/api/v0/me":
     get:
       operationId: get-me
       summary: Current principal
@@ -1833,8 +1833,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/me"
-  "/api/v1/settings":
+        path: "/api/v0/me"
+  "/api/v0/settings":
     get:
       operationId: get-settings
       summary: Read settings
@@ -1882,11 +1882,11 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/settings"
+        path: "/api/v0/settings"
     patch:
       operationId: patch-settings
       summary: Update settings
-      description: "v1 uses PATCH; local uses POST today. Cloud must add PATCH. Write — Phase 3."
+      description: "v0 uses PATCH; local uses POST today. Cloud must add PATCH. Write — Phase 3."
       tags:
         - Meta
       x-vibeflow-scope: "settings:write"
@@ -1954,8 +1954,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: PATCH
-        path: "/api/v1/settings"
-  "/api/v1/changelog":
+        path: "/api/v0/settings"
+  "/api/v0/changelog":
     get:
       operationId: get-changelog
       summary: CLI changelog (public read)
@@ -2002,8 +2002,8 @@ paths:
                 "$ref": "#/components/schemas/Error"
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/changelog"
-  "/api/v1/tasks/{id}/prompt":
+        path: "/api/v0/changelog"
+  "/api/v0/tasks/{id}/prompt":
     post:
       operationId: export-prompt
       summary: Export the structured agent prompt
@@ -2075,8 +2075,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/prompt"
-  "/api/v1/tokens":
+        path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90/prompt"
+  "/api/v0/tokens":
     get:
       operationId: list-tokens
       summary: List personal access tokens (prefix only, never secrets)
@@ -2129,7 +2129,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/tokens"
+        path: "/api/v0/tokens"
     post:
       operationId: create-token
       summary: Create a personal access token (secret returned once)
@@ -2207,8 +2207,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/tokens"
-  "/api/v1/tokens/{id}":
+        path: "/api/v0/tokens"
+  "/api/v0/tokens/{id}":
     delete:
       operationId: revoke-token
       summary: Revoke a personal access token (soft revoke, audit trail kept)
@@ -2275,8 +2275,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/tokens/tok_01H"
-  "/api/v1/boards":
+        path: "/api/v0/tokens/tok_01H"
+  "/api/v0/boards":
     get:
       operationId: list-boards
       summary: List boards the principal is a member of
@@ -2327,11 +2327,11 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/boards"
+        path: "/api/v0/boards"
     post:
       operationId: create-board
       summary: Create a board (caller becomes owner)
-      description: "P3-A cutover: mirrors the workspace createWithBoard single source (board + owner membership + default project + kanban board) so a v1 board is immediately task-ready. Write — Phase 3."
+      description: "P3-A cutover: mirrors the workspace createWithBoard single source (board + owner membership + default project + kanban board) so a v0 board is immediately task-ready. Write — Phase 3."
       tags:
         - Tasks
       x-vibeflow-scope: "boards:write"
@@ -2389,8 +2389,8 @@ paths:
             []
       x-vibeflow-example-request:
         method: POST
-        path: "/api/v1/boards"
-  "/api/v1/boards/{id}":
+        path: "/api/v0/boards"
+  "/api/v0/boards/{id}":
     get:
       operationId: get-board
       summary: Get one board by id
@@ -2450,7 +2450,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: GET
-        path: "/api/v1/boards/board_01H"
+        path: "/api/v0/boards/board_01H"
     patch:
       operationId: patch-board
       summary: Update a board (name/icon/description)
@@ -2516,7 +2516,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: PATCH
-        path: "/api/v1/boards/board_01H"
+        path: "/api/v0/boards/board_01H"
     delete:
       operationId: delete-board
       summary: Delete a board (tasks cascade, never orphaned)
@@ -2578,7 +2578,7 @@ paths:
             []
       x-vibeflow-example-request:
         method: DELETE
-        path: "/api/v1/boards/board_01H"
+        path: "/api/v0/boards/board_01H"
   "/mcp":
     get:
       operationId: mcp-get
@@ -2703,7 +2703,7 @@ components:
   schemas:
     Task:
       type: object
-      description: "v1 canonical task = local Task fields plus external id, counts, and createdAt alias. D3: responses carry BOTH id and externalId."
+      description: "v0 canonical task = local Task fields plus external id, counts, and createdAt alias. D3: responses carry BOTH id and externalId."
       properties:
         id:
           type: string
@@ -2807,7 +2807,7 @@ components:
             - cancelled
         selector:
           type: string
-          description: Optional in v1 (annotation is local-only); required by the local handler today
+          description: Optional in v0 (annotation is local-only); required by the local handler today
         priority:
           type: string
       required:
@@ -2850,7 +2850,7 @@ components:
         - type
     TaskLinkInput:
       type: object
-      description: "Body of POST /api/v1/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v1 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400."
+      description: "Body of POST /api/v0/tasks/{id}/links. Field names match what BOTH implementations actually read (the cloud v0 route and the local /api/tasks/:id handler): `taskId` is the id of the task to link TO. The earlier `target` spelling was wrong — a client following it got a 400."
       properties:
         type:
           type: string

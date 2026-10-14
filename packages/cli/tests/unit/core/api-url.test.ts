@@ -48,50 +48,50 @@ describe("core/api-url surfacePath", () => {
     expect(surfacePath("local", "/api/cli/import")).toBe("/api/cli/import");
   });
 
-  it("cloud target maps task-subresource paths to the v1 equivalents", () => {
+  it("cloud target maps task-subresource paths to the v0 equivalents", () => {
     expect(surfacePath("cloud", "/api/tasks/abc/baseline")).toBe(
-      "/api/v1/tasks/abc/baseline",
+      "/api/v0/tasks/abc/baseline",
     );
     expect(surfacePath("cloud", "/api/tasks/abc/baseline-page")).toBe(
-      "/api/v1/tasks/abc/baseline-page",
+      "/api/v0/tasks/abc/baseline-page",
     );
     expect(surfacePath("cloud", "/api/tasks/abc/auth-state")).toBe(
-      "/api/v1/tasks/abc/auth-state",
+      "/api/v0/tasks/abc/auth-state",
     );
     expect(surfacePath("cloud", "/api/tasks/abc/files")).toBe(
-      "/api/v1/tasks/abc/files",
+      "/api/v0/tasks/abc/files",
     );
   });
 
-  it("cloud target maps the cli surface to the v1 equivalents", () => {
+  it("cloud target maps the cli surface to the v0 equivalents", () => {
     expect(surfacePath("cloud", "/api/cli/settings")).toBe(
-      "/api/v1/settings",
+      "/api/v0/settings",
     );
     expect(surfacePath("cloud", "/api/cli/workspaces")).toBe(
-      "/api/v1/boards",
+      "/api/v0/boards",
     );
-    expect(surfacePath("cloud", "/api/cli/profile")).toBe("/api/v1/me");
-    expect(surfacePath("cloud", "/api/cli/tasks")).toBe("/api/v1/tasks");
+    expect(surfacePath("cloud", "/api/cli/profile")).toBe("/api/v0/me");
+    expect(surfacePath("cloud", "/api/cli/tasks")).toBe("/api/v0/tasks");
     expect(surfacePath("cloud", "/api/cli/tasks/abc/comments")).toBe(
-      "/api/v1/tasks/abc/comments",
+      "/api/v0/tasks/abc/comments",
     );
   });
 
   it("cloud target preserves a trailing query string verbatim", () => {
     expect(surfacePath("cloud", "/api/cli/tasks?boardId=ws-1")).toBe(
-      "/api/v1/tasks?boardId=ws-1",
+      "/api/v0/tasks?boardId=ws-1",
     );
   });
 
-  it("cloud target maps device auth under the v1 prefix", () => {
+  it("cloud target maps device auth under the v0 prefix", () => {
     expect(surfacePath("cloud", "/api/cli/auth/device-init")).toBe(
-      "/api/v1/auth/device-init",
+      "/api/v0/auth/device-init",
     );
     expect(surfacePath("cloud", "/api/cli/auth/device-poll")).toBe(
-      "/api/v1/auth/device-poll",
+      "/api/v0/auth/device-poll",
     );
     expect(surfacePath("cloud", "/api/cli/auth/verify")).toBe(
-      "/api/v1/auth/verify",
+      "/api/v0/auth/verify",
     );
   });
 
@@ -101,7 +101,7 @@ describe("core/api-url surfacePath", () => {
     );
   });
 
-  it("cloud target throws for /api/cli/import (no batch op — loop POST /api/v1/tasks)", () => {
-    expect(() => surfacePath("cloud", "/api/cli/import")).toThrow(/no \/api\/v1 equivalent/);
+  it("cloud target throws for /api/cli/import (no batch op — loop POST /api/v0/tasks)", () => {
+    expect(() => surfacePath("cloud", "/api/cli/import")).toThrow(/no \/api\/v0 equivalent/);
   });
 });

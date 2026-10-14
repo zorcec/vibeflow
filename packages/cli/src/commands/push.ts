@@ -87,7 +87,7 @@ async function uploadTaskFiles(
       );
       const res = await fetch(
         // Cloud-only path: push runs Bearer-authenticated against the SaaS
-        // base from getApiUrl(), so the mode is always "cloud" → v1 files op.
+        // base from getApiUrl(), so the mode is always "cloud" → v0 files op.
         `${apiUrl}${surfacePath("cloud", `/api/tasks/${encodeURIComponent(job.remoteId)}/files`)}`,
         {
           method: "POST",
@@ -201,7 +201,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
 
   const apiUrl = getApiUrl();
 
-  // No batch import exists in the v1 contract: one POST per task via the
+  // No batch import exists in the v0 contract: one POST per task via the
   // shared createTasksOneByOne() loop (same shape as the login flow —
   // cloud-only, so the mode inside is always "cloud"). A per-task non-ok
   // counts as skipped; only a network throw fails the push outright.
@@ -241,7 +241,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
 
   // Phase 2 of the two-phase push: replay stored links with targets
   // translated from local ids to the created cloud ids from `idMap`, via
-  // POST /api/v1/tasks/{id}/links ({ taskId, type } — the v1 add-link op).
+  // POST /api/v0/tasks/{id}/links ({ taskId, type } — the v0 add-link op).
   // Unknown targets are skipped and REPORTED, never fatal to the push —
   // nothing is silently lost. Local mode is untouched (cloud push only).
   // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a

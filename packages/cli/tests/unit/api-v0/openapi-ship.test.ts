@@ -1,7 +1,7 @@
 /**
  * openapi-ship guard (source side), ticket ee0996b1.
  *
- * The shipped spec must be GENERATED from docs/api/v1-contract.json via
+ * The shipped spec must be GENERATED from docs/api/v0-contract.json via
  * packages/api-core/scripts/gen-api-artifacts.mjs — never hand-maintained.
  * This pins the source half of that chain: the bundled embed
  * (src/server/openapi.gen.ts, printed by `vibeflow openapi`) is byte-identical

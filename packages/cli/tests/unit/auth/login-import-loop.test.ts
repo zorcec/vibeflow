@@ -5,8 +5,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("createTasksOneByOne (v1 import loop)", () => {
-  it("POSTs once per task to /api/v1/tasks with the board id", async () => {
+describe("createTasksOneByOne (v0 import loop)", () => {
+  it("POSTs once per task to /api/v0/tasks with the board id", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ id: "x" }),
@@ -29,7 +29,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
     expect(result.skipped).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const call of fetchMock.mock.calls) {
-      expect(call[0]).toBe("https://freemium.vibeflow.tools/api/v1/tasks");
+      expect(call[0]).toBe("https://freemium.vibeflow.tools/api/v0/tasks");
       expect(call[1].method).toBe("POST");
       expect(call[1].headers.Authorization).toBe("Bearer tok");
       expect(JSON.parse(call[1].body).boardId).toBe("board-1");
@@ -116,7 +116,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
 
   // Regression pin: the loop used to spread the whole local task record
   // into the create body. A local parent link names a LOCAL id the cloud
-  // has never seen, so v1's parent-target validation answered 400 and a
+  // has never seen, so v0's parent-target validation answered 400 and a
   // fresh 3-task push with one parent/child pair reported
   // `Pushed 2 … Skipped 1`. Phase 1 therefore creates WITHOUT links (all
   // new tasks push); phase 2 (`applyPushLinks`) replays them with resolved
@@ -152,7 +152,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       const body = JSON.parse(call[1].body as string);
       expect("links" in body).toBe(false);
     }
-    // The v1 field set still travels.
+    // The v0 field set still travels.
     expect(JSON.parse(fetchMock.mock.calls[1]?.[1].body as string)).toMatchObject({
       id: "sync-child",
       title: "Child",
@@ -196,7 +196,7 @@ describe("createTasksOneByOne (v1 import loop)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       // Source is the child's cloud id; targets are cloud ids.
       expect(fetchMock.mock.calls[0]?.[0]).toBe(
-        "https://x.test/api/v1/tasks/cloud-child/links",
+        "https://x.test/api/v0/tasks/cloud-child/links",
       );
       expect(JSON.parse(fetchMock.mock.calls[0]?.[1].body as string)).toEqual({
         taskId: "cloud-parent",
@@ -305,14 +305,14 @@ describe("createTasksOneByOne (v1 import loop)", () => {
     });
   });
 
-  it("toV1CreateBody strips links, keeps the record, omits undefined/absent boardId", async () => {
-    const { toV1CreateBody } = await import("../../../src/auth/login.js");
-    expect(toV1CreateBody({ id: "a", title: "A" }, undefined)).toEqual({
+  it("toV0CreateBody strips links, keeps the record, omits undefined/absent boardId", async () => {
+    const { toV0CreateBody } = await import("../../../src/auth/login.js");
+    expect(toV0CreateBody({ id: "a", title: "A" }, undefined)).toEqual({
       id: "a",
       title: "A",
     });
     expect(
-      toV1CreateBody(
+      toV0CreateBody(
         {
           id: "a",
           title: "A",

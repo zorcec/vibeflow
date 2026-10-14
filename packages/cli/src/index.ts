@@ -1619,7 +1619,7 @@ program
               );
               for (const f of saasTask.files) {
                 // Cloud-only URL: getApiUrl() is the SaaS base → always
-                // "cloud", so the legacy files path maps to /api/v1.
+                // "cloud", so the legacy files path maps to /api/v0.
                 const fileUrl =
                   f.url ??
                   `${getApiUrl()}${surfacePath("cloud", `/api/tasks/${saasTask.id}/files/${encodeURIComponent(f.name)}`)}`;
@@ -4284,7 +4284,7 @@ program
                   chalk.dim(`    comments (${sortedComments.length}):`),
                 );
                 for (const c of sortedComments) {
-                  // v1 contract author (user|agent) reads back verbatim (L1);
+                  // v0 contract author (user|agent) reads back verbatim (L1);
                   // fall back to the ownership id only when it is absent.
                   const author = c.author ?? (c.authorId ? `user:${c.authorId.slice(0, 8)}` : "agent");
                   console.log(chalk.dim(`      [${author}] ${c.createdAt}`));
@@ -4298,7 +4298,7 @@ program
                 );
                 for (const f of task.files) {
                   // Cloud-only URL: getApiUrl() is the SaaS base → always
-                  // "cloud", so the legacy files path maps to /api/v1.
+                  // "cloud", so the legacy files path maps to /api/v0.
                   const fileUrl =
                     f.url ??
                     `${getApiUrl()}${surfacePath("cloud", `/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`)}`;

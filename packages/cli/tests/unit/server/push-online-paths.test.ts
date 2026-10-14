@@ -2,7 +2,7 @@
  * Online-mode cloud cutover for the board server's SaaS-proxy routes.
  *
  * The cloud legacy surface (`/api/cli/*`, `/api/tasks/*`) is deleted, so the
- * CLI server's cloud-facing calls must hit `/api/v1` (via `surfacePath`
+ * CLI server's cloud-facing calls must hit `/api/v0` (via `surfacePath`
  * in `"cloud"` mode). The local board routes served by this same server
  * (`/api/tasks/*`) stay byte-for-byte untouched — these tests only cover the
  * three cloud calls: boards list, task import loop, and profile fetch.
@@ -37,7 +37,7 @@ function createTaskFile(projectDir: string, task: Record<string, unknown>): void
   writeFileSync(join(dir, `${task.id}.json`), JSON.stringify(task));
 }
 
-describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
+describe("server SaaS-proxy routes hit /api/v0 (never deleted legacy)", () => {
   let tempDir: string;
   let instance: ServeInstance;
   let cloudCalls: Array<{ url: string; init?: RequestInit }>;
@@ -56,19 +56,19 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
       if (String(url).startsWith(CLOUD)) {
         cloudCalls.push({ url: String(url), init });
         const u = String(url);
-        if (u.includes("/api/v1/boards")) {
+        if (u.includes("/api/v0/boards")) {
           return new Response(
             JSON.stringify({ workspaces: [{ id: "ws-1", name: "B" }] }),
             { status: 200 },
           );
         }
-        if (u.includes("/api/v1/me")) {
+        if (u.includes("/api/v0/me")) {
           return new Response(
             JSON.stringify({ email: "admin@example.com" }),
             { status: 200 },
           );
         }
-        if (u.includes("/api/v1/tasks")) {
+        if (u.includes("/api/v0/tasks")) {
           return new Response(
             JSON.stringify({ id: "remote-1" }),
             { status: 200 },
@@ -101,7 +101,7 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
     delete process.env.VIBEFLOW_ADMIN_EMAIL;
   });
 
-  it("GET /api/push/workspaces proxies to /api/v1/boards", async () => {
+  it("GET /api/push/workspaces proxies to /api/v0/boards", async () => {
     const res = await realFetch(`${instance.url}/api/push/workspaces`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -109,14 +109,14 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
     });
 
     expect(cloudCalls).toHaveLength(1);
-    expect(cloudCalls[0]!.url).toBe(`${CLOUD}/api/v1/boards`);
+    expect(cloudCalls[0]!.url).toBe(`${CLOUD}/api/v0/boards`);
     expect(cloudCalls[0]!.url).not.toContain("/api/cli/");
     expect(cloudCalls[0]!.init?.headers).toMatchObject({
       Authorization: "Bearer test-token",
     });
   });
 
-  it("POST /api/push loops POST /api/v1/tasks (no batch import)", async () => {
+  it("POST /api/push loops POST /api/v0/tasks (no batch import)", async () => {
     createTaskFile(tempDir, {
       id: "task-a",
       title: "A",
@@ -142,18 +142,18 @@ describe("server SaaS-proxy routes hit /api/v1 (never deleted legacy)", () => {
 
     expect(cloudCalls).toHaveLength(2);
     for (const call of cloudCalls) {
-      expect(call.url).toBe(`${CLOUD}/api/v1/tasks`);
+      expect(call.url).toBe(`${CLOUD}/api/v0/tasks`);
     }
     expect(
       cloudCalls.some((c) => c.url.includes("/api/cli/import")),
     ).toBe(false);
   });
 
-  it("GET /kanban fetches the admin profile from /api/v1/me", async () => {
+  it("GET /kanban fetches the admin profile from /api/v0/me", async () => {
     const res = await realFetch(`${instance.url}/kanban`);
     expect(res.status).toBe(200);
 
-    const profileCall = cloudCalls.find((c) => c.url.includes("/api/v1/me"));
+    const profileCall = cloudCalls.find((c) => c.url.includes("/api/v0/me"));
     expect(profileCall).toBeDefined();
     expect(profileCall!.init?.headers).toMatchObject({
       Authorization: "Bearer test-token",

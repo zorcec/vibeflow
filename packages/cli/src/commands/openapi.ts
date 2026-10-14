@@ -5,7 +5,7 @@ import { OPENAPI_JSON, OPENAPI_YAML } from "../server/openapi.gen.js";
  *
  * No server or port is involved: the spec is embedded at build time by
  * packages/api-core/scripts/gen-api-artifacts.mjs (generated from
- * docs/api/v1-contract.json, never hand-maintained), so this is pipeable
+ * docs/api/v0-contract.json, never hand-maintained), so this is pipeable
  * (`vibeflow openapi > openapi.json`) and usable from codegen / CI /
  * agent harnesses. `--yaml` prints the YAML twin (docs/api/openapi.yaml).
  *

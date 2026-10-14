@@ -95,7 +95,7 @@ describe("normalizeTask", () => {
     ).toThrow(/not in the normalizer allowlist/);
   });
 
-  it("asserts D3 externalId form when present; requires it in strict v1", () => {
+  it("asserts D3 externalId form when present; requires it in strict v0", () => {
     const ctx = createNormalizeContext();
     const withBoth = normalizeTask(
       {
@@ -203,7 +203,7 @@ describe("normalizeFileRef", () => {
 });
 
 describe("normalizeResponse envelopes", () => {
-  it("accepts both v1 { items } and local { tasks } list envelopes", () => {
+  it("accepts both v0 { items } and local { tasks } list envelopes", () => {
     const ctx = createNormalizeContext();
     const fromTasks = normalizeResponse(
       "task-list",

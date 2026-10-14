@@ -1,5 +1,5 @@
 /**
- * Principal abstraction for the /api/v1 contract (plan §4.3).
+ * Principal abstraction for the /api/v0 contract (plan §4.3).
  *
  * One resolver, one shape — route code never branches on environment:
  * the local side resolves the trusted principal (today's localhost trust

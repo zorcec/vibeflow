@@ -37,10 +37,10 @@ function saasHome(): string {
 type RecordedRequest = { method: string; url: string; body: string };
 
 /**
- * A tiny fake online backend. GET /api/v1/tasks answers the read-only
- * conflict-detection fetch with the REAL v1 envelope (`{ items,
+ * A tiny fake online backend. GET /api/v0/tasks answers the read-only
+ * conflict-detection fetch with the REAL v0 envelope (`{ items,
  * nextCursor }` — hydration subpaths for comments/files answer empty);
- * PATCH /api/v1/tasks/:id and POST /api/v1/tasks/:id/comments RECORD every
+ * PATCH /api/v0/tasks/:id and POST /api/v0/tasks/:id/comments RECORD every
  * mutating request instead of applying it, so the tests can assert on the
  * count.
  */
@@ -66,7 +66,7 @@ async function startFakeBackend(): Promise<{
       res.writeHead(code, { "Content-Type": "application/json" });
       res.end(JSON.stringify(payload));
     };
-    if (req.method === "GET" && req.url?.startsWith("/api/v1/tasks")) {
+    if (req.method === "GET" && req.url?.startsWith("/api/v0/tasks")) {
       finish(200, { items: [task], nextCursor: null });
       return;
     }
@@ -76,19 +76,19 @@ async function startFakeBackend(): Promise<{
       requests.push({ method: req.method ?? "", url: req.url ?? "", body });
       if (
         req.method === "PATCH" &&
-        req.url === `/api/v1/tasks/${task.id}`
+        req.url === `/api/v0/tasks/${task.id}`
       ) {
-        // The v1 cloud surface answers the BARE contract Task here (conformance
+        // The v0 cloud surface answers the BARE contract Task here (conformance
         // group 1 unwrapped the old { task } envelope).
         finish(200, { ...task, ...JSON.parse(body || "{}") });
         return;
       }
       if (
         req.method === "POST" &&
-        req.url === `/api/v1/tasks/${task.id}/comments`
+        req.url === `/api/v0/tasks/${task.id}/comments`
       ) {
         // Contract Comment: { id, author, text, createdAt, updatedAt } —
-        // serializeV1Comment on the cloud (was body/authorId before the
+        // serializeV0Comment on the cloud (was body/authorId before the
         // convergence to the contract shape).
         finish(200, {
           id: "c1",
@@ -203,7 +203,7 @@ describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
     expect(r.code).toBe(0);
     expect(
       requests.filter(
-        (q) => q.method === "PATCH" && q.url === "/api/v1/tasks/onlinetask1",
+        (q) => q.method === "PATCH" && q.url === "/api/v0/tasks/onlinetask1",
       ),
     ).toHaveLength(1);
     const payload = JSON.parse(r.stdout) as { ok: boolean };
@@ -215,7 +215,7 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
   function patchBodies(requests: RecordedRequest[]): unknown[] {
     return requests
       .filter(
-        (q) => q.method === "PATCH" && q.url === "/api/v1/tasks/onlinetask1",
+        (q) => q.method === "PATCH" && q.url === "/api/v0/tasks/onlinetask1",
       )
       .map((q) => JSON.parse(q.body || "{}") as unknown);
   }
@@ -301,7 +301,7 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
     const comments = requests.filter(
       (q) =>
         q.method === "POST" &&
-        q.url === "/api/v1/tasks/onlinetask1/comments",
+        q.url === "/api/v0/tasks/onlinetask1/comments",
     );
     expect(comments).toHaveLength(1);
     expect(comments[0].body).toContain("no browser here");

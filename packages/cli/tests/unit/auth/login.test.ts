@@ -320,7 +320,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     );
   });
 
-  it("hits the v1 device-auth paths (no bearer on auth infrastructure)", async () => {
+  it("hits the v0 device-auth paths (no bearer on auth infrastructure)", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -346,8 +346,8 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     await login();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/v1\/auth\/device-init$/);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/api\/v1\/auth\/device-poll$/);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/v0\/auth\/device-init$/);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/api\/v0\/auth\/device-poll$/);
     for (const call of fetchMock.mock.calls) {
       expect((call[1] as RequestInit).headers ?? {}).not.toMatchObject({
         Authorization: expect.anything(),
@@ -405,7 +405,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     // The PAT is stored verbatim …
     expect(tokenModule.writeToken).toHaveBeenCalledWith(pat);
     // … and rides as the Bearer credential on every follow-up cloud call
-    // (boards, profile, settings, tasks — all /api/v1 via surfacePath).
+    // (boards, profile, settings, tasks — all /api/v0 via surfacePath).
     // Calls 0–1 are device-init/poll, which carry no Authorization header.
     const authedCalls = fetchMock.mock.calls.slice(2);
     expect(authedCalls.length).toBeGreaterThan(0);

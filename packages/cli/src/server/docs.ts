@@ -31,7 +31,7 @@ function buildDocsHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vibeflow API v1 — docs</title>
+<title>Vibeflow API v0 — docs</title>
 <link rel="stylesheet" href="/api/docs/swagger-ui.css?v=${v}">
 <link rel="icon" href="data:,">
 <style>

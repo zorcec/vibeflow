@@ -1,7 +1,7 @@
 /**
- * Scope vocabulary for the /api/v1 contract (plan §1.2 table, §4.2/§4.3).
+ * Scope vocabulary for the /api/v0 contract (plan §1.2 table, §4.2/§4.3).
  *
- * Scopes are resource-level, namespaced `resource:action`. Every v1
+ * Scopes are resource-level, namespaced `resource:action`. Every v0
  * operation declares one in the contract (`scope` on each registry entry);
  * `requireScope` is the single gate both surfaces call before serving.
  */

@@ -22,7 +22,7 @@ const CLI_TO_SAAS_STATUS: Record<string, string> = {
 
 /** Map SaaS DB enum values back to CLI status values.
  *
- * The v1 contract speaks hyphenated statuses on the wire (`in-progress`)
+ * The v0 contract speaks hyphenated statuses on the wire (`in-progress`)
  * while storage (and the deleted legacy surface) used snake_case
  * (`in_progress`) — both spellings must resolve, or every in-progress
  * task reads back as the `?? "todo"` fallback. */
@@ -49,13 +49,13 @@ export interface SaasComment {
   taskId: string;
   body: string;
   authorId: string;
-  /** v1 contract author (user|agent), preserved verbatim (ledger L1). */
+  /** v0 contract author (user|agent), preserved verbatim (ledger L1). */
   author?: string;
   createdAt: string;
 }
 
 /**
- * Map one v1 contract Comment ({ id, author, text }) onto the CLI-internal
+ * Map one v0 contract Comment ({ id, author, text }) onto the CLI-internal
  * SaasComment. Rows without contract text are dropped (null) — a comment
  * with no text cannot render, and the list read stays best-effort.
  */
@@ -112,10 +112,10 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
  * Fetch tasks from the SaaS for the given board (or the user's default board).
  * Returns null if not authenticated or the request fails.
  *
- * v1 envelope: `GET /api/v1/tasks` answers `{ items, nextCursor }` (NOT the
+ * v0 envelope: `GET /api/v0/tasks` answers `{ items, nextCursor }` (NOT the
  * legacy `{ tasks, boardId }` the deleted `/api/cli/tasks` surface spoke).
  * Pages are followed via `?cursor=` until `nextCursor` is null so a large
- * board still reads back whole. The v1 items carry neither comments nor
+ * board still reads back whole. The v0 items carry neither comments nor
  * files (only `commentCount`/`fileCount`), so each task is hydrated with
  * its comments + file list (+ inlined text content for small `.md`/`.txt`,
  * mirroring the legacy list shape) — best-effort per task, never fatal.
@@ -184,8 +184,8 @@ export async function fetchSaasTasks(
   }
 }
 
-/** v1 file-list row shape (`GET /api/v1/tasks/:id/files` → `{ files }`). */
-interface V1FileRow {
+/** v0 file-list row shape (`GET /api/v0/tasks/:id/files` → `{ files }`). */
+interface V0FileRow {
   name?: string;
   mimeType?: string | null;
   size?: number | null;
@@ -203,7 +203,7 @@ function isInlineableText(name: string): boolean {
 
 /**
  * Best-effort per-task hydration: comments + files (+ text content) onto a
- * v1 list item. Anything missing/failed degrades to `[]`/absent content —
+ * v0 list item. Anything missing/failed degrades to `[]`/absent content —
  * a hydration failure must never fail the whole list read. Items that
  * already carry the legacy inlined shape keep it (no refetch).
  */
@@ -220,15 +220,15 @@ async function hydrateSaasTask(
   const [comments, files] = await Promise.all([
     hasComments
       ? Promise.resolve(item.comments as SaasComment[])
-      : fetchV1Comments(apiUrl, headers, base, taskId),
+      : fetchV0Comments(apiUrl, headers, base, taskId),
     hasFiles
       ? Promise.resolve(item.files)
-      : fetchV1FilesWithContent(apiUrl, headers, base),
+      : fetchV0FilesWithContent(apiUrl, headers, base),
   ]);
   return { ...item, comments, files };
 }
 
-async function fetchV1Comments(
+async function fetchV0Comments(
   apiUrl: string,
   headers: Record<string, string>,
   taskBase: string,
@@ -239,7 +239,7 @@ async function fetchV1Comments(
     if (!res.ok) return [];
     const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
     if (!Array.isArray(data.comments)) return [];
-    // v1 comment rows carry no `taskId` — fill it so renderers keep working.
+    // v0 comment rows carry no `taskId` — fill it so renderers keep working.
     const out: SaasComment[] = [];
     for (const row of data.comments) {
       if (typeof row !== "object" || row === null) continue;
@@ -252,7 +252,7 @@ async function fetchV1Comments(
   }
 }
 
-async function fetchV1FilesWithContent(
+async function fetchV0FilesWithContent(
   apiUrl: string,
   headers: Record<string, string>,
   taskBase: string,
@@ -260,7 +260,7 @@ async function fetchV1FilesWithContent(
   try {
     const res = await fetch(`${apiUrl}${taskBase}/files`, { headers });
     if (!res.ok) return [];
-    const data = (await res.json()) as { files?: V1FileRow[] };
+    const data = (await res.json()) as { files?: V0FileRow[] };
     const rows = Array.isArray(data.files) ? data.files : [];
     return await Promise.all(
       rows
@@ -384,7 +384,7 @@ export async function updateSaasTask(
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    // v1 answers the bare task (contract Task) with an optional `warning`
+    // v0 answers the bare task (contract Task) with an optional `warning`
     // alongside it on the already-claimed path — never a `{ task }` envelope.
     const data = (await res.json()) as SaasTask & { warning?: string };
     const { warning, ...task } = data;
@@ -438,7 +438,7 @@ export async function addSaasComment(
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    // v1 answers the bare contract Comment (status 200).
+    // v0 answers the bare contract Comment (status 200).
     const data = (await res.json()) as Record<string, unknown>;
     const mapped = toSaasComment(data, taskId);
     if (!mapped) {
@@ -478,7 +478,7 @@ export async function fetchSaasComments(
     if (!res.ok) return null;
     const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
     if (!Array.isArray(data.comments)) return [];
-    // v1 comment rows carry no `taskId` — fill it so renderers keep working.
+    // v0 comment rows carry no `taskId` — fill it so renderers keep working.
     const out: SaasComment[] = [];
     for (const row of data.comments) {
       if (typeof row !== "object" || row === null) continue;
@@ -530,7 +530,7 @@ export async function createSaasTask(params: {
         error: { code: "HTTP_ERROR", message: msg, status: res.status },
       };
     }
-    // v1 answers the bare created task (contract Task), status 201.
+    // v0 answers the bare created task (contract Task), status 201.
     const data = (await res.json()) as SaasTask;
     return { ok: true, data };
   } catch (err) {

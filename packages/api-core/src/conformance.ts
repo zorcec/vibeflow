@@ -2,9 +2,9 @@
  * Conformance runner, per-surface (plan §6.1; P3 step 14 adds the cloud surface).
  *
  * Drives one board surface over HTTP and normalizes each response for
- * comparison. On `local` (the default) v1 operations run through their
+ * comparison. On `local` (the default) v0 operations run through their
  * current local handler paths from the manifest's `local` mapping; on
- * `cloud` they run against the v1 paths directly (the caller authenticates
+ * `cloud` they run against the v0 paths directly (the caller authenticates
  * the transport with a PAT + board scope). Design constraints:
  * - Fail fast: boot and every request carry hard timeouts and reject with a
  *   named error instead of hanging (the web e2e harness stalls on a missing
@@ -22,7 +22,7 @@ import { createNormalizeContext, normalizeResponse, NormalizeError } from "./nor
 /** One runnable case from the manifest. */
 export interface ManifestCase {
   name: string;
-  /** Local request (translated from the v1 op by the manifest's `local` map). */
+  /** Local request (translated from the v0 op by the manifest's `local` map). */
   request: {
     method: string;
     /** May contain {taskId} / {commentId} / {filename} placeholders. */
@@ -33,7 +33,7 @@ export interface ManifestCase {
   };
   /**
    * Cloud-surface request override. Case paths are authored against the
-   * `local` mapping, which cannot express v1-only wire shapes (id-addressed
+   * `local` mapping, which cannot express v0-only wire shapes (id-addressed
    * file routes, header-carried uploads): on `cloud` this replaces the
    * translated request instead. Placeholders resolve from the same seed.
    * `rawBody` sends bytes verbatim (never JSON-encoded) with `headers`.
@@ -57,13 +57,13 @@ export interface ManifestCase {
   /**
    * Cloud-surface status override. Some cases assert local-legacy
    * conventions (200-empty for unknown ids, router-level 400s) that the
-   * contract's own v1 error convention contradicts (404/400 per openapi) —
-   * the override documents the v1-correct expectation instead of hiding
+   * contract's own v0 error convention contradicts (404/400 per openapi) —
+   * the override documents the v0-correct expectation instead of hiding
    * the divergence. Others assert a local-legacy success code (200 for
-   * POST /api/tasks) where v1 declares the correct 201 Created — the
+   * POST /api/tasks) where v0 declares the correct 201 Created — the
    * override carries the 201 while `expect.status` keeps the local truth.
    * Shape still validates from `expect.shape` on 2xx; only an error-status
-   * divergence asserts the v1 error envelope instead of the data shape.
+   * divergence asserts the v0 error envelope instead of the data shape.
    * Absent on `local` — the local surface always asserts `expect.status`.
    */
   expectCloud?: {
@@ -74,16 +74,16 @@ export interface ManifestCase {
 /** Surface a manifest entry's cases execute on. */
 export type ConformanceSurface = "local" | "cloud";
 
-/** One manifest entry (one v1 operation). */
+/** One manifest entry (one v0 operation). */
 export interface ManifestEntry {
   id: string;
-  v1: { method: string; path: string };
+  v0: { method: string; path: string };
   local: { method: string; path: string } | null;
   /** "local-read" entries execute in Phase 0; everything else is reported skipped. */
   runnable: string;
   phase: number;
   /**
-   * Surfaces whose v1 op exists and whose cases execute there. Absent
+   * Surfaces whose v0 op exists and whose cases execute there. Absent
    * means local-only (the pre-surfaces manifest): the cloud run skips the
    * entry with a fallback reason naming its phase and runnable label.
    */
@@ -154,12 +154,12 @@ export function resolvePath(
 
 /**
  * Rewrite a manifest case path to the surface under test. Case paths are
- * authored against the `local` mapping (or already against v1 for
- * handler-less ops); on `cloud` the local static prefix becomes the v1
+ * authored against the `local` mapping (or already against v0 for
+ * handler-less ops); on `cloud` the local static prefix becomes the v0
  * static prefix — e.g. `/api/tasks/{taskId}/comments` under entry
- * get-task (`local` /api/tasks/{taskId}, `v1` /api/v1/tasks/{id}) becomes
- * `/api/v1/tasks/{taskId}/comments`, whose placeholders still resolve from
- * the entry seed. Paths that do not start on the local base (already-v1
+ * get-task (`local` /api/tasks/{taskId}, `v0` /api/v0/tasks/{id}) becomes
+ * `/api/v0/tasks/{taskId}/comments`, whose placeholders still resolve from
+ * the entry seed. Paths that do not start on the local base (already-v0
  * case paths, handler-less entries) pass through untouched.
  */
 export function toSurfacePath(
@@ -169,17 +169,17 @@ export function toSurfacePath(
 ): string {
   if (surface !== "cloud" || entry.local === null) return casePath;
   const localBase = entry.local.path.split("{")[0] as string;
-  const v1Base = entry.v1.path.split("{")[0] as string;
-  if (localBase === v1Base) return casePath;
+  const v0Base = entry.v0.path.split("{")[0] as string;
+  if (localBase === v0Base) return casePath;
   if (localBase.endsWith("/")) {
     if (casePath.startsWith(localBase)) {
-      return v1Base + casePath.slice(localBase.length);
+      return v0Base + casePath.slice(localBase.length);
     }
     return casePath;
   }
-  if (casePath === localBase) return v1Base;
+  if (casePath === localBase) return v0Base;
   if (casePath.startsWith(localBase + "/")) {
-    return v1Base + casePath.slice(localBase.length);
+    return v0Base + casePath.slice(localBase.length);
   }
   return casePath;
 }
@@ -245,7 +245,7 @@ export function resolveSeedBody<T>(
 }
 
 /**
- * Assert the v1 error envelope ({ error: string, ... }) — the shape an
+ * Assert the v0 error envelope ({ error: string, ... }) — the shape an
  * `expectCloud` divergence asserts in place of the data shape. A 404 with
  * an HTML body (misconfigured route) or an empty body must not pass as a
  * "correct" 404: the contract's error convention is machine-readable.
@@ -253,12 +253,12 @@ export function resolveSeedBody<T>(
 function assertErrorEnvelope(body: unknown, where: string): void {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new NormalizeError(
-      `expected v1 error envelope { error } in ${where}, got ${typeof body}`,
+      `expected v0 error envelope { error } in ${where}, got ${typeof body}`,
     );
   }
   if (typeof (body as Record<string, unknown>)["error"] !== "string") {
     throw new NormalizeError(
-      `expected v1 error envelope { error: string } in ${where}`,
+      `expected v0 error envelope { error: string } in ${where}`,
     );
   }
 }
@@ -267,7 +267,7 @@ function assertErrorEnvelope(body: unknown, where: string): void {
 function cloudSkipReasonFor(entry: ManifestEntry): string {
   if (entry.cloudSkipReason) return entry.cloudSkipReason;
   return (
-    `not on the cloud v1 surface ` +
+    `not on the cloud v0 surface ` +
     `(phase ${entry.phase}, runnable=${entry.runnable}) — entry declares no cloudSkipReason`
   );
 }
@@ -279,9 +279,9 @@ function cloudSkipReasonFor(entry: ManifestEntry): string {
  *   entries with a local handler execute; everything else is reported
  *   skipped with its target phase. Never executed, never silent.
  * - `cloud`: entries whose `surfaces` include `"cloud"` execute against
- *   their v1 paths (see `toSurfacePath`); a case-level `cloudRequest`
+ *   their v0 paths (see `toSurfacePath`); a case-level `cloudRequest`
  *   replaces the translated request where the local-authored path cannot
- *   express the v1 wire shape (id-addressed files, header-carried uploads).
+ *   express the v0 wire shape (id-addressed files, header-carried uploads).
  *   Every other entry is reported skipped BY NAME with its manifest
  *   `cloudSkipReason`.
  *
@@ -330,7 +330,7 @@ export async function runConformance(
       const where = `${entry.id}/${c.name}`;
       try {
         // On cloud a case-level `cloudRequest` replaces the translated
-        // local-authored request (v1-only wire shapes); otherwise the
+        // local-authored request (v0-only wire shapes); otherwise the
         // manifest request is translated and sent as before.
         const cr = surface === "cloud" ? c.cloudRequest : undefined;
         const method = cr?.method ?? c.request.method;
@@ -378,12 +378,12 @@ export async function runConformance(
           continue;
         }
         if (c.expect.shape) {
-          // A cloud status divergence asserts the v1 error envelope, not
+          // A cloud status divergence asserts the v0 error envelope, not
           // the data shape — but only when the diverged status is an
           // error: the `expect` shape describes the local 2xx path, and an
           // error body must never validate as data (nor pass without any
           // body assertion at all). A success-status divergence (local 200
-          // vs v1 201 Created) still validates the data shape.
+          // vs v0 201 Created) still validates the data shape.
           if (
             surface === "cloud" &&
             c.expectCloud?.status !== undefined &&

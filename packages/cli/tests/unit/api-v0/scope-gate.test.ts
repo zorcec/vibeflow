@@ -1,5 +1,5 @@
 /**
- * Scope-gate proof for the /api/v1 read alias (P1, plan §4.3/§4.4).
+ * Scope-gate proof for the /api/v0 read alias (P1, plan §4.3/§4.4).
  *
  * Boots the server with a scoped-down principal (via the
  * `_testResolvePrincipal` seam — the production default is the trusted
@@ -7,7 +7,7 @@
  * the grant are 403 SCOPE_DENIED, granted and public reads pass, and the
  * legacy routes are untouched by the gate.
  *
- * Non-vacuity: with the requireScope call removed from server/v1.ts these
+ * Non-vacuity: with the requireScope call removed from server/v0.ts these
  * 403 assertions fail (demonstrated during development — see the report).
  */
 
@@ -34,13 +34,13 @@ function limitedPrincipal(): Principal {
   };
 }
 
-describe("v1 scope gate denies per-scope, legacy untouched", () => {
+describe("v0 scope gate denies per-scope, legacy untouched", () => {
   let tempDir: string;
   let instance: ServeInstance;
   let baseUrl: string;
 
   beforeAll(async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "proto-v1-gate-"));
+    tempDir = mkdtempSync(join(tmpdir(), "proto-v0-gate-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
     createTask(tempDir, {
       title: "P1 gate fixture",
@@ -65,9 +65,9 @@ describe("v1 scope gate denies per-scope, legacy untouched", () => {
 
   it("denies a read whose scope the principal lacks (403 SCOPE_DENIED)", async () => {
     for (const path of [
-      "/api/v1/tasks",
-      "/api/v1/settings",
-      "/api/v1/project",
+      "/api/v0/tasks",
+      "/api/v0/settings",
+      "/api/v0/project",
     ]) {
       const res = await fetch(baseUrl + path);
       expect(res.status, `GET ${path} must be denied`).toBe(403);
@@ -79,14 +79,14 @@ describe("v1 scope gate denies per-scope, legacy untouched", () => {
   });
 
   it("allows the granted scope and the public read", async () => {
-    const me = await fetch(`${baseUrl}/api/v1/me`);
+    const me = await fetch(`${baseUrl}/api/v0/me`);
     expect(me.status).toBe(200);
-    const changelog = await fetch(`${baseUrl}/api/v1/changelog`);
+    const changelog = await fetch(`${baseUrl}/api/v0/changelog`);
     expect(changelog.status).toBe(200);
   });
 
   it("leaves the legacy routes untouched (no gate there)", async () => {
-    // The gate lives only on the v1 alias: the same reads on the legacy
+    // The gate lives only on the v0 alias: the same reads on the legacy
     // paths still serve with no principal check at all.
     for (const path of ["/api/tasks", "/api/settings", "/api/project"]) {
       const res = await fetch(baseUrl + path);

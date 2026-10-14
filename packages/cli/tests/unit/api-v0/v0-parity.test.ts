@@ -1,7 +1,7 @@
 /**
  * Anti-drift guard §6.4 #3 — one parity suite, executed twice (P1, read surface).
  *
- * The SAME assertions run against the legacy path and the /api/v1 read
+ * The SAME assertions run against the legacy path and the /api/v0 read
  * alias: every pair must return the same status and byte-identical bodies.
  * Byte-identity is the point — the alias delegates to the ONE existing
  * handler, so any second implementation (or any behaviour change to a
@@ -24,14 +24,14 @@ import type { ServeInstance } from "../../../src/server/server.js";
 process.env.VIBEFLOW_TELEMETRY = "0";
 
 
-describe("v1 read alias parity: legacy and /api/v1 return identical bodies", () => {
+describe("v0 read alias parity: legacy and /api/v0 return identical bodies", () => {
   let tempDir: string;
   let instance: ServeInstance;
   let baseUrl: string;
   const ids: Record<string, string> = {};
 
   beforeAll(async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "proto-v1-parity-"));
+    tempDir = mkdtempSync(join(tmpdir(), "proto-v0-parity-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
     const todo = createTask(tempDir, {
       title: "P1 parity todo",
@@ -91,63 +91,63 @@ describe("v1 read alias parity: legacy and /api/v1 return identical bodies", () 
     return { status: res.status, text: await res.text() };
   }
 
-  async function expectParity(legacyPath: string, v1Path: string): Promise<void> {
-    const [legacy, v1] = await Promise.all([
+  async function expectParity(legacyPath: string, v0Path: string): Promise<void> {
+    const [legacy, v0] = await Promise.all([
       getRaw(legacyPath),
-      getRaw(v1Path),
+      getRaw(v0Path),
     ]);
     expect(
-      v1.status,
-      `status mismatch: GET ${v1Path} -> ${v1.status}, GET ${legacyPath} -> ${legacy.status}`,
+      v0.status,
+      `status mismatch: GET ${v0Path} -> ${v0.status}, GET ${legacyPath} -> ${legacy.status}`,
     ).toBe(legacy.status);
     expect(
-      v1.text,
-      `body mismatch: GET ${v1Path} differs from GET ${legacyPath}`,
+      v0.text,
+      `body mismatch: GET ${v0Path} differs from GET ${legacyPath}`,
     ).toBe(legacy.text);
   }
 
   it.each([
-    ["list", "/api/tasks", "/api/v1/tasks"],
-    ["list filtered", "/api/tasks?status=todo&limit=1", "/api/v1/tasks?status=todo&limit=1"],
-    ["get one", `/api/tasks/{id}`, `/api/v1/tasks/{id}`],
-    ["comments empty", `/api/tasks/{todo}/comments`, `/api/v1/tasks/{todo}/comments`],
-    ["comments listed", `/api/tasks/{commented}/comments`, `/api/v1/tasks/{commented}/comments`],
-    ["files listed", `/api/tasks/{files}/files`, `/api/v1/tasks/{files}/files`],
-    ["file bytes", `/api/tasks/{files}/files/note.txt`, `/api/v1/tasks/{files}/files/note.txt`],
-    ["project", "/api/project", "/api/v1/project"],
-    ["me", "/api/user", "/api/v1/me"],
-    ["settings", "/api/settings", "/api/v1/settings"],
-    ["changelog", "/api/changelog", "/api/v1/changelog"],
-  ])("parity: %s", async (_name, legacyT, v1T) => {
+    ["list", "/api/tasks", "/api/v0/tasks"],
+    ["list filtered", "/api/tasks?status=todo&limit=1", "/api/v0/tasks?status=todo&limit=1"],
+    ["get one", `/api/tasks/{id}`, `/api/v0/tasks/{id}`],
+    ["comments empty", `/api/tasks/{todo}/comments`, `/api/v0/tasks/{todo}/comments`],
+    ["comments listed", `/api/tasks/{commented}/comments`, `/api/v0/tasks/{commented}/comments`],
+    ["files listed", `/api/tasks/{files}/files`, `/api/v0/tasks/{files}/files`],
+    ["file bytes", `/api/tasks/{files}/files/note.txt`, `/api/v0/tasks/{files}/files/note.txt`],
+    ["project", "/api/project", "/api/v0/project"],
+    ["me", "/api/user", "/api/v0/me"],
+    ["settings", "/api/settings", "/api/v0/settings"],
+    ["changelog", "/api/changelog", "/api/v0/changelog"],
+  ])("parity: %s", async (_name, legacyT, v0T) => {
     const sub = (t: string): string =>
       t
         .replace("{id}", ids["todo"])
         .replace("{todo}", ids["todo"])
         .replace("{commented}", ids["commented"])
         .replace("{files}", ids["files"]);
-    await expectParity(sub(legacyT), sub(v1T));
+    await expectParity(sub(legacyT), sub(v0T));
   });
 
   it("unknown ids 404 identically on both surfaces", async () => {
     const missing = "a1b2c3d4";
-    await expectParity(`/api/tasks/${missing}`, `/api/v1/tasks/${missing}`);
+    await expectParity(`/api/tasks/${missing}`, `/api/v0/tasks/${missing}`);
     const legacy = await getRaw(`/api/tasks/${missing}`);
     expect(legacy.status).toBe(404);
   });
 
   it("malformed ids 400 identically (the app.param guard is inherited)", async () => {
-    await expectParity("/api/tasks/xyz", "/api/v1/tasks/xyz");
+    await expectParity("/api/tasks/xyz", "/api/v0/tasks/xyz");
     const legacy = await getRaw("/api/tasks/xyz");
     expect(legacy.status).toBe(400);
   });
 
-  it("reads only: unmounted v1 writes are a JSON 404, not a new capability", async () => {
+  it("reads only: unmounted v0 writes are a JSON 404, not a new capability", async () => {
     for (const [method, path] of [
-      ["POST", "/api/v1/tasks"],
-      ["PATCH", `/api/v1/tasks/${ids["todo"]}`],
-      ["DELETE", `/api/v1/tasks/${ids["todo"]}`],
-      ["POST", `/api/v1/tasks/${ids["commented"]}/comments`],
-      ["GET", "/api/v1/no-such-route"],
+      ["POST", "/api/v0/tasks"],
+      ["PATCH", `/api/v0/tasks/${ids["todo"]}`],
+      ["DELETE", `/api/v0/tasks/${ids["todo"]}`],
+      ["POST", `/api/v0/tasks/${ids["commented"]}/comments`],
+      ["GET", "/api/v0/no-such-route"],
     ] as const) {
       const res = await fetch(baseUrl + path, { method });
       expect(res.status, `${method} ${path} must not execute`).toBe(404);
@@ -159,14 +159,14 @@ describe("v1 read alias parity: legacy and /api/v1 return identical bodies", () 
   });
 
   it("a well-formed X-Vibeflow-Scope header is accepted locally (single project, ignored)", async () => {
-    const res = await fetch(`${baseUrl}/api/v1/tasks`, {
+    const res = await fetch(`${baseUrl}/api/v0/tasks`, {
       headers: { "X-Vibeflow-Scope": "board-1" },
     });
     expect(res.status).toBe(200);
   });
 
   it("a malformed X-Vibeflow-Scope header is a 400, not a silent route-on", async () => {
-    const res = await fetch(`${baseUrl}/api/v1/tasks`, {
+    const res = await fetch(`${baseUrl}/api/v0/tasks`, {
       headers: { "X-Vibeflow-Scope": "not a board\tid" },
     });
     expect(res.status).toBe(400);
