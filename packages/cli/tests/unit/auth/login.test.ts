@@ -282,7 +282,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       // Mock device-poll → success
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ token: "test-token-123" }),
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
       })
       // Mock workspaces fetch
       .mockResolvedValueOnce({
@@ -320,6 +320,67 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     );
   });
 
+  it("stores the device-flow PAT and sends it as Bearer on cloud calls", async () => {
+    const pat =
+      "vbf_pat_01234567_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";
+    const workspace = { id: "ws-1", name: "My Board", url: "http://localhost:3000", icon: "📋", email: null };
+    vi.mocked(tokenModule.writeToken).mockClear();
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 1,
+        }),
+      })
+      // Device-poll hands out the PAT plaintext exactly once.
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ token: pat }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ workspaces: [workspace] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ email: "user@example.com" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ settings: { autoCommit: true } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ tasks: [] }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(workspace);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login();
+
+    // The PAT is stored verbatim …
+    expect(tokenModule.writeToken).toHaveBeenCalledWith(pat);
+    // … and rides as the Bearer credential on every follow-up cloud call
+    // (boards, profile, settings, tasks — all /api/v1 via surfacePath).
+    // Calls 0–1 are device-init/poll, which carry no Authorization header.
+    const authedCalls = fetchMock.mock.calls.slice(2);
+    expect(authedCalls.length).toBeGreaterThan(0);
+    for (const call of authedCalls) {
+      expect((call[1] as RequestInit).headers).toMatchObject({
+        Authorization: `Bearer ${pat}`,
+      });
+    }
+  });
+
   it("handles empty workspaces list gracefully", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -333,7 +394,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ token: "test-token-123" }),
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -374,7 +435,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ token: "test-token-123" }),
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
       })
       .mockResolvedValueOnce({
         ok: false, // workspace fetch fails

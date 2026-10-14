@@ -390,26 +390,32 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
       continue;
     }
 
+    // The device flow issues an `api_tokens` PAT directly: the server
+    // mints it on authorization and returns the plaintext exactly once in
+    // `{ token }`. There is no other token shape — the PAT is stored
+    // verbatim and is the Bearer credential for every cloud call below
+    // (`/api/v1` via `surfacePath("cloud", …)`).
     const data = (await pollRes.json()) as
       | { pending: true }
       | { token: string }
       | { expired: true };
 
     if ("token" in data) {
-      await writeToken(data.token);
+      const pat = data.token;
+      await writeToken(pat);
       console.log();
       console.log(
         chalk.green("  Logged in successfully. Now operating in SaaS mode."),
       );
       await Promise.all([
-        fetchAndSelectWorkspace(apiUrl, data.token),
-        fetchAndApplySettings(apiUrl, data.token),
+        fetchAndSelectWorkspace(apiUrl, pat),
+        fetchAndApplySettings(apiUrl, pat),
       ]);
       // After login, ask if user wants to push local tasks
       const { readWorkspace } = await import("./workspace.js");
       const workspace = await readWorkspace();
       if (workspace) {
-        await promptPushLocalTasks(projectDir, apiUrl, data.token, workspace);
+        await promptPushLocalTasks(projectDir, apiUrl, pat, workspace);
       }
       return;
     }
