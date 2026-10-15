@@ -28,6 +28,22 @@ export interface CollabEvent {
   [key: string]: unknown;
 }
 
+/**
+ * A missed event detected WITHOUT any reconnect (ticket cb3d0506).
+ *
+ * The server numbers every durable board mutation with a 1-based per-board
+ * `rev` (see `board.revision` in `@vibeflow-tools/shared`). When a seen `rev`
+ * jumps by more than one since the previous sighting, at least one event was
+ * lost while this socket stayed up — the reconnect resync can never fire for
+ * it, so the consumer must re-fetch instead of trusting its event stream.
+ */
+export interface RevisionGap {
+  /** The revision just seen (data event or `board.revision` heartbeat). */
+  rev: number;
+  /** The newest revision previously seen — everything after it is suspect. */
+  lastSeen: number;
+}
+
 /** Minimal surface of a realtime socket — implemented by Socket.IO on web. */
 export interface RealtimeSocket {
   readonly connected: boolean;
@@ -72,6 +88,15 @@ export interface CollabSocket {
    * session silently stale.
    */
   onReconnect(handler: () => void): () => void;
+  /**
+   * Fires once per detected revision gap: a seen `rev` exceeds the previous
+   * sighting by more than one. The first `rev` ever seen only baselines (an
+   * older server never sends one; a fresh join fetches anyway). Replays and
+   * duplicates never fire. Deliberately timer-free — the signal rides the
+   * realtime channel (data events plus the server's `board.revision`
+   * heartbeat), never a poll. Consumers run ONE bounded resync per gap.
+   */
+  onGap(handler: (gap: RevisionGap) => void): () => void;
   disconnect(): void;
 }
 
@@ -98,6 +123,12 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
   const eventHandlers = new Set<(event: CollabEvent) => void>();
   const statusHandlers = new Set<(connected: boolean) => void>();
   const reconnectHandlers = new Set<() => void>();
+  const gapHandlers = new Set<(gap: RevisionGap) => void>();
+  // Newest board `rev` seen on this socket, or null before the first one.
+  // Survives reconnects (same client): after a rejoin the server baselines
+  // the joiner with its current rev, so a genuinely missed event still
+  // shows as a gap instead of silently re-baselining.
+  let lastRev: number | null = null;
   let connected = false;
   // True once the first connect completes. Distinguishes the initial
   // connect (queries fetch on mount — no resync needed) from a reconnect
@@ -138,6 +169,25 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
     socket.on(SERVER_EVENT, (event: unknown) => {
       if (!isCollabEvent(event)) return;
       for (const handler of eventHandlers) handler(event);
+      // Gap detection runs AFTER delivery: this event is real in-order data
+      // and must still apply; the gap says something ELSE is missing.
+      const rev = (event as { rev?: unknown }).rev;
+      if (typeof rev !== "number" || !Number.isInteger(rev) || rev <= 0)
+        return;
+      if (lastRev === null) {
+        lastRev = rev;
+        return;
+      }
+      if (rev > lastRev + 1) {
+        const gap: RevisionGap = { rev, lastSeen: lastRev };
+        // Advance BEFORE firing: repeats of this rev (heartbeats re-emit
+        // the current value) must not retrigger, and the resync's refetch
+        // — not another gap — is what converges the board.
+        lastRev = rev;
+        for (const handler of gapHandlers) handler(gap);
+      } else if (rev > lastRev) {
+        lastRev = rev;
+      }
     });
   }
 
@@ -162,6 +212,10 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
       reconnectHandlers.add(handler);
       return () => reconnectHandlers.delete(handler);
     },
+    onGap(handler) {
+      gapHandlers.add(handler);
+      return () => gapHandlers.delete(handler);
+    },
     disconnect() {
       socket?.emit("leave-workspace", workspaceId);
       socket?.disconnect();
@@ -179,6 +233,8 @@ export interface UseCollabResult {
   onEvent: (handler: (event: CollabEvent) => void) => () => void;
   /** One bounded resync trigger per true reconnect — see `CollabSocket`. */
   onReconnect: (handler: () => void) => () => void;
+  /** One bounded resync trigger per detected revision gap — see `CollabSocket`. */
+  onGap: (handler: (gap: RevisionGap) => void) => () => void;
 }
 
 /**
@@ -191,6 +247,7 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
   const socketRef = React.useRef<CollabSocket | null>(null);
   const handlersRef = React.useRef(new Set<(event: CollabEvent) => void>());
   const reconnectHandlersRef = React.useRef(new Set<() => void>());
+  const gapHandlersRef = React.useRef(new Set<(gap: RevisionGap) => void>());
   // `createTransport` / `auth` only matter at (re)connect time; keep the latest
   // render's options without making them effect dependencies.
   const optionsRef = React.useRef(options);
@@ -208,12 +265,16 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     const reconnectUnsubscribers = [...reconnectHandlersRef.current].map(
       (handler) => socket.onReconnect(handler),
     );
+    const gapUnsubscribers = [...gapHandlersRef.current].map((handler) =>
+      socket.onGap(handler),
+    );
     const unsubscribeStatus = socket.onStatus(setConnected);
 
     return () => {
       unsubscribeStatus();
       for (const unsubscribe of unsubscribers) unsubscribe();
       for (const unsubscribe of reconnectUnsubscribers) unsubscribe();
+      for (const unsubscribe of gapUnsubscribers) unsubscribe();
       socket.disconnect();
       socketRef.current = null;
       setConnected(false);
@@ -242,5 +303,14 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     };
   }, []);
 
-  return { connected, sendEvent, onEvent, onReconnect };
+  const onGap = React.useCallback((handler: (gap: RevisionGap) => void) => {
+    gapHandlersRef.current.add(handler);
+    const unsubscribe = socketRef.current?.onGap(handler);
+    return () => {
+      gapHandlersRef.current.delete(handler);
+      unsubscribe?.();
+    };
+  }, []);
+
+  return { connected, sendEvent, onEvent, onReconnect, onGap };
 }

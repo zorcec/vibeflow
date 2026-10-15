@@ -181,6 +181,104 @@ describe("createSocket", () => {
     });
   });
 
+  describe("onGap (ticket cb3d0506: missed broadcast while still connected)", () => {
+    function setup() {
+      const transport = createFakeTransport();
+      const client = createSocket({
+        workspaceId: "board-1",
+        url: "http://rt.test",
+        createTransport: () => transport.socket,
+      });
+      const gaps: Array<{ rev: number; lastSeen: number }> = [];
+      client.onGap((gap) => gaps.push(gap));
+      transport.connect();
+      return { transport, client, gaps };
+    }
+
+    it("the first rev seen only baselines (a fresh join fetches anyway)", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 7 });
+      expect(gaps).toHaveLength(0);
+    });
+
+    it("sequential revs never fire", () => {
+      const { transport, gaps } = setup();
+      for (const rev of [1, 2, 3, 4]) {
+        transport.fire(SERVER_EVENT, { type: "task.patch", rev });
+      }
+      expect(gaps).toHaveLength(0);
+    });
+
+    it("a jump of more than one fires exactly once with the gap bounds", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 5 });
+      expect(gaps).toEqual([{ rev: 5, lastSeen: 3 }]);
+    });
+
+    it("replays and duplicates never fire", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 4 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 4 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 4 });
+      expect(gaps).toHaveLength(0);
+    });
+
+    it("a repeated heartbeat at the gap rev does not retrigger", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 5 });
+      expect(gaps).toEqual([{ rev: 5, lastSeen: 3 }]);
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 5 });
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 5 });
+      expect(gaps).toHaveLength(1);
+    });
+
+    it("events without a rev (older servers, ephemeral traffic) are ignored", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "presence.join" });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 2 });
+      transport.fire(SERVER_EVENT, { type: "typing.update" });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: "4" });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 0 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: -1 });
+      expect(gaps).toHaveLength(0);
+    });
+
+    it("the gap event itself is still delivered to data subscribers", () => {
+      const { transport, client, gaps } = setup();
+      const received: CollabEvent[] = [];
+      client.onEvent((event) => received.push(event));
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 2 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 4 });
+      expect(received).toHaveLength(2);
+      expect(gaps).toEqual([{ rev: 4, lastSeen: 2 }]);
+    });
+
+    it("tracking survives a reconnect (missed-while-down still shows as a gap)", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.disconnect();
+      transport.connect();
+      // Join baselines nothing new here; the next heartbeat exposes the loss.
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 5 });
+      expect(gaps).toEqual([{ rev: 5, lastSeen: 3 }]);
+    });
+
+    it("unsubscribes cleanly", () => {
+      const { transport, client, gaps } = setup();
+      const extra: unknown[] = [];
+      const unsubscribe = client.onGap((gap) => extra.push(gap));
+      unsubscribe();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 1 });
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 9 });
+      expect(extra).toHaveLength(0);
+      expect(gaps).toEqual([{ rev: 9, lastSeen: 1 }]);
+    });
+  });
+
   it("sends client events only while connected and leaves on disconnect", () => {
     const transport = createFakeTransport();
     const client = createSocket({

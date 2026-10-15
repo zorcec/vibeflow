@@ -100,6 +100,17 @@ export type ClientEvent =
   | { type: "task.subscribe"; workspaceId: string }
   | { type: "task.unsubscribe"; workspaceId: string };
 
+/**
+ * Per-board data revision (ticket cb3d0506, missed broadcast while connected).
+ *
+ * The ws service numbers every durable board mutation it emits (1-based,
+ * monotonic per board). A client that sees `rev` jump by more than one has
+ * missed an event WITHOUT any reconnect — the reconnect resync cannot fire —
+ * so it must re-fetch instead of trusting its event stream. Ephemeral events
+ * (presence/typing/cursor/health) never carry it; `board.revision` carries
+ * the current value as a heartbeat so a gap is exposed even in total silence.
+ * Absent on emits from older servers — clients baseline on first sight.
+ */
 export type ServerEvent =
   | { type: "presence.join"; user: UserPresence }
   | {
@@ -150,15 +161,17 @@ export type ServerEvent =
       patch: Record<string, unknown>;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
-  | { type: "task.create"; task: Record<string, unknown>; actorId: UserId }
-  | { type: "task.delete"; taskId: string; actorId: UserId }
+  | { type: "task.create"; task: Record<string, unknown>; actorId: UserId; rev?: number }
+  | { type: "task.delete"; taskId: string; actorId: UserId; rev?: number }
   | {
       type: "task.comment.add";
       taskId: string;
       commentId: string;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
   /** A comment was deleted — clients drop it without a reload. */
   | {
@@ -167,6 +180,7 @@ export type ServerEvent =
       commentId: string;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
   /**
    * A comment was edited — clients apply `body` to the matching comment
@@ -181,8 +195,9 @@ export type ServerEvent =
       body: string;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
-  | { type: "task.comment.count"; taskId: string; count: number }
+  | { type: "task.comment.count"; taskId: string; count: number; rev?: number }
   | {
       type: "task.file.add";
       taskId: string;
@@ -191,6 +206,7 @@ export type ServerEvent =
       fileId?: string;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
   /** A file was deleted — clients drop it without a reload. */
   | {
@@ -200,6 +216,7 @@ export type ServerEvent =
       fileName?: string;
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
   /**
    * A task link was added/removed. Links are persisted through the generic
@@ -213,6 +230,7 @@ export type ServerEvent =
       link: { taskId: string; type: string };
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
   | {
       type: "task.relation.remove";
@@ -220,12 +238,21 @@ export type ServerEvent =
       link: { taskId: string; type: string };
       actorId: UserId;
       actorName?: string;
+      rev?: number;
     }
+  /**
+   * Server → client: the board's current data revision, sent (a) to every
+   * joiner right after `join-workspace` so it baselines without a false gap,
+   * and (b) to every active room on a heartbeat so a client that missed an
+   * event while CONNECTED still converges — no reconnect, no data poll.
+   * Data events carry the same counter per emit; this one carries it alone.
+   */
+  | { type: "board.revision"; rev: number }
   | { type: "health.ping"; redisOk?: boolean }
   | { type: "error"; message: string }
-  | { type: "agent-run-started"; taskId: string; model?: string; agent?: string; command?: string; actorId: UserId }
-  | { type: "agent-run-log"; taskId: string; log: string }
-  | { type: "agent-run-finished"; taskId: string; exitCode: number | null; success: boolean; actorId: UserId; inputTokens?: number; outputTokens?: number; totalTokens?: number; reasoningTokens?: number; cost?: number };
+  | { type: "agent-run-started"; taskId: string; model?: string; agent?: string; command?: string; actorId: UserId; rev?: number }
+  | { type: "agent-run-log"; taskId: string; log: string; rev?: number }
+  | { type: "agent-run-finished"; taskId: string; exitCode: number | null; success: boolean; actorId: UserId; inputTokens?: number; outputTokens?: number; totalTokens?: number; reasoningTokens?: number; cost?: number; rev?: number };
 
 export interface RedisEnvelope {
   roomKey: RoomKey;
