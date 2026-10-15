@@ -5,6 +5,10 @@
   "private": true,
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <contact@vibeflow.tools>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zorcec/vibeflow.git"
+  },
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @vibeflow-tools/cli run build",
