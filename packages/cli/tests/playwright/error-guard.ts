@@ -126,6 +126,26 @@ function createGuard(
       if (msg.type() !== "error") return;
       const text = msg.text();
       if (allowedConsole.some((a) => matches(text, a.pattern))) return;
+      // A resource-load failure logs a console error whose TEXT carries no
+      // URL — Chrome only says "Failed to load resource: ... 404". The
+      // message's LOCATION does carry it, so correlate with the allow-listed
+      // failed request rather than demanding a broad text pattern: a blanket
+      // "status of 404" pattern would hide every other 404 in the file, and
+      // the pin would stop being URL-scoped.
+      // The "Failed to load resource" check is what keeps this honest — a
+      // genuine app-level console error is never masked merely because it
+      // happens to be logged at an allow-listed URL.
+      if (text.includes("Failed to load resource")) {
+        const locUrl = msg.location()?.url ?? "";
+        if (
+          locUrl !== "" &&
+          allowedRequests.some(
+            (a) => a.urlPattern !== undefined && matches(locUrl, a.urlPattern),
+          )
+        ) {
+          return;
+        }
+      }
       consoleErrors.push(`[console.error] ${text.slice(0, 300)}`);
     });
     page.on("pageerror", (err) => {
