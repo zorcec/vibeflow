@@ -1369,10 +1369,14 @@ body.proto-resizing-panel {
 .recursive-children-tree-node {
  position: relative;
 }
-/* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges */
+/* Inset styling: darker bg, top hairline, spine, negative margins bleed to card edges.
+   9ec6fbbb: NO horizontal padding here — the zone spans the full card
+   width so the hover well painted on .child-row-wrap bleeds edge to edge.
+   The 10/8 content inset lives on .child-row-wrap--inline below, so row
+   content stays exactly where this padding used to place it. */
 .card-children-zone[data-expanded="true"] {
  background: var(--t-card-inset);
- padding: 4px 8px 8px 10px;
+ padding: 4px 0 8px 0;
  margin: 2px -8px -7px -8px;
  border-radius: 0 0 10px 10px;
  position: relative;
@@ -1386,6 +1390,16 @@ body.proto-resizing-panel {
  border-radius: 3px;
  gap: 8px;
  animation: child-row-in 180ms ease both;
+}
+/* 9ec6fbbb: the zone no longer pads horizontally, so the hover well
+   (painted on the wrapper) bleeds to the card edge. The 10/8 keeps the
+   row CONTENT where the zone padding used to place it (border-box:
+   width:100% stays full width, content shrinks by the pad). The wrapper
+   inline style sets width/display/radius/background but not padding, so
+   this stylesheet rule applies. */
+.child-row-wrap--inline {
+ padding-left: 10px;
+ padding-right: 8px;
 }
 /* Continuous spine: inline/detail rows carry NO vertical padding, so the
    stretched in-flow guide spans touch across row boundaries instead of
@@ -1436,12 +1450,14 @@ body.proto-resizing-panel {
 }
 
 /* Tree-row insertion line — sibling BETWEEN nodes, never inside rows
-   (keeps the row geometry used for band classification intact). */
+   (keeps the row geometry used for band classification intact).
+   9ec6fbbb: the 20px left offset preserves the line's card-relative
+   position after the zone's 10px pad moved onto the row wrapper. */
 .tree-drop-line {
  height: 2px;
  border-radius: 1px;
  background: var(--t-accent);
- margin: 2px 0 2px 10px;
+ margin: 2px 0 2px 20px;
  box-shadow: 0 0 6px color-mix(in srgb, var(--t-accent) 55%, transparent);
  animation: pill-fade-in 100ms ease both;
 }

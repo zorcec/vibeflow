@@ -498,6 +498,37 @@ describe("ChildRow copy-id pill", () => {
     ).toBe("0px");
     withUnlink.unmount();
   });
+
+  it("inline wrapper paints a square full-bleed hover well (9ec6fbbb)", () => {
+    // The well is the wrapper's own background (row + actions strip read
+    // as one surface). The inline wrapper spans the full zone width, so
+    // its corners must be square — the zone's own radius clips the bar.
+    // Non-inline variants keep the 6px rounding. Non-vacuity: pre-fix the
+    // inline wrapper also carries "6px", reding the first assertion.
+    for (const variant of ["popover", "detail"] as const) {
+      const { container, unmount } = render(
+        <ChildRow child={makeTask()} variant={variant} />,
+      );
+      const wrap = container.querySelector(
+        '[data-role="child-row-wrap"]',
+      ) as HTMLElement;
+      expect(wrap.style.borderRadius).toBe("6px");
+      unmount();
+    }
+    const { container } = render(
+      <ChildRow child={makeTask()} variant="inline" depth={1} />,
+    );
+    const wrap = container.querySelector(
+      '[data-role="child-row-wrap"]',
+    ) as HTMLElement;
+    expect(wrap.style.borderRadius).toBe("0px");
+    // The well mechanism itself is unchanged: hover still lights it.
+    expect(wrap.style.background).toBe("");
+    fireEvent.mouseEnter(wrap);
+    expect(wrap.style.background).toBe("var(--t-hover)");
+    fireEvent.mouseLeave(wrap);
+    expect(wrap.style.background).toBe("");
+  });
 });
 
 describe("ChildRow verify indicator (three states)", () => {

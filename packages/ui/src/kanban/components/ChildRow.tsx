@@ -122,7 +122,11 @@ export function ChildRow({
                 display: "flex",
                 alignItems: "stretch",
                 width: "100%",
-                borderRadius: 6,
+                // 9ec6fbbb: the inline wrapper IS the full-bleed hover well
+                // (the zone carries no horizontal pad), so its corners stay
+                // square — the zone's own radius clips the bar. Other
+                // variants keep the 6px rounding.
+                borderRadius: isInline ? 0 : 6,
                 background: wrapActive ? "var(--t-hover)" : undefined,
                 opacity: wrapDragging ? 0.4 : depthDim,
             }}
