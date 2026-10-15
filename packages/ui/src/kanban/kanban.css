@@ -1660,6 +1660,30 @@ body.proto-resizing-panel {
  color: var(--t-text);
 }
 
+/* Done-lane drop hint (43f03542) — rendered INSTEAD of the done cards while
+   a board drag is in flight. The column <section> keeps its own
+   onDragOver/onDrop handlers, so this box is itself a valid drop zone into
+   done; a cancelled drag (dragend) unmounts it and the cards return. */
+.done-drop-hint {
+ border: 2px dashed color-mix(in srgb, var(--t-success) 55%, transparent);
+ border-radius: 10px;
+ padding: 28px 12px;
+ min-height: 120px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ text-align: center;
+ font-size: 12px;
+ font-weight: 600;
+ color: var(--t-success);
+ background: color-mix(in srgb, var(--t-success) 8%, transparent);
+ animation: pill-fade-in 120ms ease both;
+}
+.done-drop-hint--active {
+ border-style: solid;
+ background: color-mix(in srgb, var(--t-success) 16%, transparent);
+}
+
 /* Make-child pill */
 .dnd-make-child-pill {
  position: relative;

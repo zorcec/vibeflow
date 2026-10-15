@@ -1150,9 +1150,28 @@ function KanbanColumn({
         </button>
       </div>
 
-      {/* Cards */}
+      {/* Cards.
+          Owner rule (43f03542): while ANY board drag is in flight the done
+          lane hides its cards and shows the drop hint instead — "drop here
+          to mark as done". The <section> above keeps its onDragOver/onDrop
+          handlers, so the hint box is itself a valid drop zone into done;
+          dropping anywhere else (or cancelling → dragend) clears
+          `dragTaskId`, which restores the cards. */}
       <div className="column-scroll" data-status={col.id} ref={scrollRef}>
-        {isLoading ? (
+        {isDone && isDragging ? (
+          <div
+            data-done-drop-hint
+            role="status"
+            aria-label="Drop here to mark as done"
+            className={
+              isDragOver
+                ? "done-drop-hint done-drop-hint--active"
+                : "done-drop-hint"
+            }
+          >
+            Drop here to mark as done
+          </div>
+        ) : isLoading ? (
           Array.from({ length: SKELETON_COUNT }).map((_, i) => (
             <SkeletonCard key={i} />
           ))
