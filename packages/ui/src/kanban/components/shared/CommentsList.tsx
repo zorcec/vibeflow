@@ -46,6 +46,16 @@ interface LifecycleActivityItem {
 
 export type ActivityItem = FileActivityItem | CommentActivityItem | LifecycleActivityItem | ChangeActivityItem;
 
+/**
+ * Change-row actor label (9314e404). Agent/CLI moves arrive with the
+ * '🤖 Agent' marker as the actor (the agent borrows the human's credential,
+ * so the id alone would render as the owner) — it already carries its glyph
+ * and must not gain a second 👤 prefix.
+ */
+function changeActorLabel(actor: string): string {
+  return actor === '🤖 Agent' ? actor : `👤 ${actor}`;
+}
+
 /** Minimalistic source indicator (CLI terminal icon) */
 function SourceBadge({ source }: { source?: 'cli' | 'web' }) {
   if (source !== 'cli') return null;
@@ -64,13 +74,26 @@ interface ActivityGroup {
   items: ActivityItem[];
 }
 
+/**
+ * Display name for a feed comment (e051e9d6). The server sends the actor
+ * vocabulary in `author` ('user'|'agent', Ledger L1) and the human name in
+ * `authorName`; legacy/local rows carry the name directly in `author`. The
+ * viewer fallback applies ONLY when no name is known at all — the old
+ * `authorName ?? viewer` shape rendered every peer row as the viewer.
+ */
+export function commentDisplayName(c: Comment, viewer: string): string {
+  if (c.authorName) return c.authorName;
+  if (c.author && c.author !== 'user' && c.author !== 'agent') return c.author;
+  return viewer;
+}
+
 /** Extract the groupable author key from an activity item, or null for solo items */
 function getItemAuthor(item: ActivityItem, gitUserName: string): string | null {
   if (item.kind === 'lifecycle') return item.author ?? null;
   if (item.kind === 'comment') {
     const c = item.comment;
     if (c.type === 'system') return null;
-    return c.author === 'agent' ? '🤖 Agent' : (c.authorName ?? gitUserName);
+    return c.author === 'agent' ? '🤖 Agent' : commentDisplayName(c, gitUserName);
   }
   if (item.kind === 'change') return item.actor;
   return null; // files: solo
@@ -614,7 +637,7 @@ function renderActivityItem(
           style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {!isGrouped && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t-accent-soft)', flexShrink: 0 }}>👤 {item.actor}</span>}
+            {!isGrouped && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t-accent-soft)', flexShrink: 0 }}>{changeActorLabel(item.actor)}</span>}
             {!isGrouped && <SourceBadge source={item.source} />}
             <span style={{ ...VERIFY_BADGE_BASE, ...VERIFY_BADGE_STYLE[verdict] }}>{VERIFY_BADGE_LABEL[verdict]}</span>
             {!isGrouped && (
@@ -649,7 +672,7 @@ function renderActivityItem(
         <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>👤 {item.actor}</span>}
+            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>{changeActorLabel(item.actor)}</span>}
             {!isGrouped && <SourceBadge source={item.source} />}
             <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>
               changed <strong style={{ color: 'var(--t-text)' }}>{item.field}</strong>
@@ -719,7 +742,7 @@ function renderActivityItem(
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {!isGrouped && (
               <span style={{ fontSize: 12, fontWeight: 600, color: cannotAuthorIsAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)', flexShrink: 0 }}>
-                {cannotAuthorIsAgent ? '🤖 Agent' : `👤 ${c.authorName ?? gitUserName}`}
+                {cannotAuthorIsAgent ? '🤖 Agent' : `👤 ${commentDisplayName(c, gitUserName)}`}
               </span>
             )}
             {!isGrouped && <SourceBadge source={c.source} />}
@@ -763,7 +786,7 @@ function renderActivityItem(
         <div className="flex items-center justify-between gap-1.5 text-xs mb-0.5">
           <div className="flex items-center gap-1.5">
             <span style={{ color: isDeleted ? 'var(--t-text-body)' : (isAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)') }}>
-              {isAgent ? '🤖 Agent' : `👤 ${c.authorName ?? gitUserName}`}
+              {isAgent ? '🤖 Agent' : `👤 ${commentDisplayName(c, gitUserName)}`}
             </span>
             <SourceBadge source={c.source} />
             <span style={{ color: 'var(--t-text-body)' }}>
