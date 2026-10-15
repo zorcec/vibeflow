@@ -167,7 +167,20 @@ describe("Kanban board", () => {
       colorScheme: "dark",
     });
     page = await context.newPage();
-    guard = guardContext(context);
+    // Allow-list entries are NAMED MAPS with a reason, never blanket ignores.
+    // The entry below is a KNOWN DEFECT with its own ticket: after a file is
+    // removed the pane still requests that file's image and gets a 404. Remove
+    // this entry when the ticket is fixed — a pinned allowance left behind
+    // after the fix is the same lie as an expected-failure pin.
+    guard = guardContext(context, {
+      allowedFailedRequests: {
+        removedFileImage404: {
+          urlPattern: "/files/trace-test.png",
+          status: 404,
+          reason: "known defect: removed file's image is still requested (open ticket)",
+        },
+      },
+    });
 
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
