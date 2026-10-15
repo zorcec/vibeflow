@@ -168,19 +168,11 @@ describe("Kanban board", () => {
     });
     page = await context.newPage();
     // Allow-list entries are NAMED MAPS with a reason, never blanket ignores.
-    // The entry below is a KNOWN DEFECT with its own ticket: after a file is
-    // removed the pane still requests that file's image and gets a 404. Remove
-    // this entry when the ticket is fixed — a pinned allowance left behind
-    // after the fix is the same lie as an expected-failure pin.
-    guard = guardContext(context, {
-      allowedFailedRequests: {
-        removedFileImage404: {
-          urlPattern: "/files/trace-test.png",
-          status: 404,
-          reason: "known defect: removed file's image is still requested (open ticket)",
-        },
-      },
-    });
+    // (Ticket 17d42681's temporary `removedFileImage404` entry lived here
+    // while the removed file's image was still requested; it was deleted
+    // with the fix — a pinned allowance left behind after a fix is the same
+    // lie as an expected-failure pin.)
+    guard = guardContext(context);
 
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
@@ -1057,6 +1049,42 @@ describe("Kanban board", () => {
   });
 
   it("shows file-removal activity and removes deleted comment content", async () => {
+    // TEMPORARY attribution probe for 17d42681 (reverted before submit):
+    // traps every img src assignment for the removed file with phase info.
+    await page.evaluate(() => {
+      const win = window as unknown as Record<string, unknown>;
+      win.__srcSets = [] as Array<Record<string, unknown>>;
+      const trap = (img: HTMLImageElement, value: string, how: string) => {
+        if (typeof value === "string" && value.includes("trace-test")) {
+          (win.__srcSets as Array<Record<string, unknown>>).push({
+            how,
+            role: img.getAttribute("data-role"),
+            inCard: !!img.closest("[data-task-id]"),
+            inScreenshotBox: !!img.closest("#dp-screenshot-preview"),
+            panelOpen: !!document.querySelector("#detail-panel.open"),
+          });
+        }
+      };
+      const proto = HTMLImageElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "src");
+      if (desc?.set) {
+        Object.defineProperty(proto, "src", {
+          configurable: true,
+          enumerable: desc.enumerable,
+          get: desc.get,
+          set(v: string) {
+            trap(this as HTMLImageElement, v, "setter");
+            desc.set!.call(this, v);
+          },
+        });
+      }
+      const origSetAttr = proto.setAttribute;
+      proto.setAttribute = function (name: string, value: string) {
+        if (name.toLowerCase() === "src")
+          trap(this as unknown as HTMLImageElement, value, "setAttribute");
+        return origSetAttr.call(this, name, value);
+      };
+    });
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1135,6 +1163,20 @@ describe("Kanban board", () => {
     });
     expect(hasFfileTrace).toBe(true);
 
+    // Ticket 17d42681: the details screenshot must not hold the removed
+    // file's image. The panel's fresh (empty) files list is authoritative
+    // over the board snapshot, so no `#dp-screenshot-preview` may reference
+    // the deleted asset — otherwise the pane requests it and gets a 404.
+    // (Evaluated after the activity wait above, so the panel's files fetch
+    // has settled.)
+    const staleScreenshot = await page.evaluate(() => {
+      const box = document.getElementById("dp-screenshot-preview");
+      if (!box) return false;
+      const src = box.querySelector("img")?.getAttribute("src") ?? "";
+      return src.includes("trace-test.png");
+    });
+    expect(staleScreenshot).toBe(false);
+
     const comments = await page.evaluate(
       async (args) => {
         const res = await fetch(`${args.api}/${args.taskId}/comments`);
@@ -1156,6 +1198,11 @@ describe("Kanban board", () => {
           deletedComment.text === "[Comment deleted]",
       ).toBe(true);
     }
+    // TEMPORARY attribution probe dump for 17d42681 (reverted before submit).
+    const srcSets = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__srcSets,
+    );
+    console.log("SRC_SETS_REAL_SPEC:" + JSON.stringify(srcSets));
   });
 
   it("does not render left-side priority bullet in task cards", async () => {

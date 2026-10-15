@@ -40,14 +40,15 @@ function emitResponse(page: FakePage, status: number, url: string): void {
 const RESOURCE_404 =
   "Failed to load resource: the server responded with a status of 404 (Not Found)";
 
-/** The real pin: one removed file's image, URL-scoped, with a named reason. */
+/** Example pin: one image URL, URL-scoped, with a named reason. (Not a
+ * product allowance — the removed-file pin that used to live here left with
+ * the ticket-17d42681 fix; a pinned allowance after a fix is a lie.) */
 const OPTIONS = {
   allowedFailedRequests: {
-    removedFileImage404: {
-      urlPattern: "/files/trace-test.png",
+    exampleImage404: {
+      urlPattern: "/files/example-image.png",
       status: 404,
-      reason:
-        "known defect: a removed file's image is still requested (open ticket)",
+      reason: "example pin exercising the request/console correlation",
     },
   },
 };
@@ -56,7 +57,7 @@ describe("error guard — console error / failed request correlation", () => {
   it("allows the resource-load console error that belongs to an allow-listed URL", () => {
     const page = fakePage();
     const guard = guardPage(page as never, OPTIONS);
-    const url = "http://localhost:1/api/tasks/abc/files/trace-test.png";
+    const url = "http://localhost:1/api/tasks/abc/files/example-image.png";
 
     emitResponse(page, 404, url);
     emitConsole(page, RESOURCE_404, url);
@@ -86,7 +87,7 @@ describe("error guard — console error / failed request correlation", () => {
     emitConsole(
       page,
       "TypeError: cannot read properties of undefined (reading 'files')",
-      "http://localhost:1/api/tasks/abc/files/trace-test.png",
+      "http://localhost:1/api/tasks/abc/files/example-image.png",
     );
 
     // Only "Failed to load resource" echoes are correlated. A real JS error
