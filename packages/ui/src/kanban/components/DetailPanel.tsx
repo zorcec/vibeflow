@@ -386,6 +386,17 @@ export function DetailPanel({
   const [files, setFiles] = React.useState<FileEntry[]>([]);
   const [filesLoading, setFilesLoading] = React.useState(false);
   const [filesError, setFilesError] = React.useState<string | null>(null);
+  /**
+   * True once the files list has been successfully fetched for the open
+   * task (reset with `files` in the open effect below). While false the
+   * details screenshot falls back to the board snapshot's `task.files`;
+   * once true the fetched list is authoritative EVEN WHEN EMPTY — an empty
+   * fetch means the file is gone, and falling back to the possibly-stale
+   * snapshot would keep requesting the removed file's image (404, ticket
+   * 17d42681). The error path leaves this untouched so a failed fetch keeps
+   * today's fallback instead of hiding a screenshot that may still exist.
+   */
+  const [filesLoaded, setFilesLoaded] = React.useState(false);
 
   const [commentCount, setCommentCount] = React.useState(0);
   const commentsLoadGen = React.useRef(0);
@@ -523,6 +534,7 @@ export function DetailPanel({
     setCommentInput("");
     setComments([]);
     setFiles([]);
+    setFilesLoaded(false);
     setCommentCount(0);
     setFileCount(0);
     setLocalChanges([]);
@@ -697,6 +709,7 @@ export function DetailPanel({
       setCommentCount(cd.comments?.length ?? 0);
       const next = fd.files ?? [];
       setFiles(next);
+      setFilesLoaded(true);
       setFileCount(next.length);
     } catch {
       /* network error — counts stay at their reset zero, lists stay empty */
@@ -740,6 +753,7 @@ export function DetailPanel({
       const data = await api.getFiles(taskId);
       const next = data.files ?? [];
       setFiles(next);
+      setFilesLoaded(true);
       setFileCount(next.length);
       return next;
     } catch {
@@ -1633,7 +1647,7 @@ export function DetailPanel({
                 onFilePreview={onFilePreview}
                 onDeleteScreenshot={handleDeleteScreenshot}
                 onPatch={onPatch}
-                liveFiles={files.length > 0 || filesLoading ? files : undefined}
+                liveFiles={filesLoaded || filesLoading ? files : undefined}
                 allTags={allTags}
                 overrideTags={isAdd ? draftTags : undefined}
                 onTagsChange={isAdd ? setDraftTags : undefined}
