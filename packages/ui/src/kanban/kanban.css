@@ -285,6 +285,92 @@ body {
  position: relative;
 }
 
+/* ── Card badge cluster (690858e0 — badges stay on ONE line; overflow
+   collapses behind a "..." chip whose tooltip stacks the rest) ── */
+.card-badge-wrap {
+ position: relative;
+ display: inline-flex;
+ min-width: 0;
+ /* The cluster owns no growth but shrinks to zero so the footer
+  action buttons are never pushed out (same contract TagPills had
+  via the footer's minWidth: 0). */
+ flex: 0 1 auto;
+}
+.card-badge-cluster {
+ display: flex;
+ align-items: center;
+ /* Keep in sync with BADGE_GAP_PX in TaskCard.tsx — the fit math
+  assumes this exact gap. */
+ gap: 3px;
+ flex-wrap: nowrap;
+ overflow: hidden;
+ min-width: 0;
+ width: 100%;
+}
+/* Hidden measurer: identical pills, laid out but invisible, so hidden
+   badges stay measurable (display:none would report 0 width). */
+.card-badge-measure {
+ position: absolute;
+ top: 0;
+ left: 0;
+ display: inline-flex;
+ align-items: center;
+ gap: 3px;
+ visibility: hidden;
+ pointer-events: none;
+}
+.card-badge-overflow {
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ min-width: 20px;
+ height: 16px;
+ padding: 0 5px;
+ border-radius: 8px;
+ border: 1px solid var(--t-border-faint);
+ background: transparent;
+ color: var(--t-text-muted);
+ font-size: 10px;
+ font-weight: 700;
+ line-height: 1;
+ cursor: pointer;
+ flex-shrink: 0;
+}
+.card-badge-overflow:hover,
+.card-badge-overflow:focus-visible {
+ background: var(--t-hover);
+ color: var(--t-text);
+ border-color: var(--t-text-muted);
+}
+.card-badge-overflow:focus-visible {
+ outline: 2px solid var(--t-accent);
+ outline-offset: 1px;
+}
+/* Overflow tooltip: the hidden badges one after another, opening
+   upward so it never covers the footer's action buttons. Left-anchored
+   to the cluster: the wrap sits at the footer's left, so right-anchoring
+   would push the tip past the card's left edge (and into the column's
+   scroll clipping); growing rightward stays over the card. */
+.card-badge-tip {
+ position: absolute;
+ bottom: calc(100% + 6px);
+ left: 0;
+ z-index: 60;
+ display: flex;
+ flex-direction: column;
+ align-items: flex-start;
+ gap: 4px;
+ max-width: 220px;
+ padding: 6px;
+ background: var(--t-card);
+ border: 1px solid var(--t-border);
+ border-radius: 8px;
+ box-shadow: var(--t-shadow-popover);
+}
+.card-badge-tip-row {
+ display: inline-flex;
+}
+
 /* ── Status dot ── */
 .status-dot {
  width: 7px;

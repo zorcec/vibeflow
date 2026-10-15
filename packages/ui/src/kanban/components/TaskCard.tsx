@@ -7,7 +7,7 @@ import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
 import { getTaskTypeColor } from "../../task-types";
-import { TagPills } from "./shared/TagPills";
+import { getTagColors } from "../tag-colors";
 import {
       getBlockers,
       getChildren,
@@ -525,33 +525,19 @@ export const TaskCard = React.memo(function TaskCard({
                         </div>
                   )}
 
-                  {/* Footer: TypeBadge + PriorityBadge + Assignee + tags + spacer + action buttons */}
+                  {/* Footer: badge cluster (type + priority + assignee + tags,
+                      single-line with "..." overflow) + spacer + actions */}
                   <div className="flex items-center" style={CARD_FOOTER_STYLE}>
-                        <TypeBadge type={task.type} />
-                        {task.priority && (
-                              <PriorityBadge priority={task.priority} />
-                        )}
-                        {isInProgress && task.assigneeName && (
-                              <span
-                                    style={{
-                                          fontSize: 10,
-                                          fontWeight: 600,
-                                          padding: "1px 6px",
-                                          borderRadius: 6,
-                                          background: "rgba(59,130,246,0.12)",
-                                          color: "var(--t-accent-soft)",
-                                          whiteSpace: "nowrap",
-                                          overflow: "hidden",
-                                          textOverflow: "ellipsis",
-                                          maxWidth: 80,
-                                    }}
-                              >
-                                    {task.assigneeName}
-                              </span>
-                        )}
-                        {task.tags && task.tags.length > 0 && (
-                              <TagPills tags={task.tags} size="xs" />
-                        )}
+                        <BadgeCluster
+                              type={task.type}
+                              priority={task.priority}
+                              assigneeName={
+                                    isInProgress
+                                          ? task.assigneeName
+                                          : undefined
+                              }
+                              tags={task.tags}
+                        />
                         <div style={SPACER_STYLE} />
                         {liveActivity && (
                               <LiveActivityBadge activities={[liveActivity]} />
@@ -788,6 +774,306 @@ export const TaskCard = React.memo(function TaskCard({
             </article>
       );
 });
+
+/**
+ * Badge overflow model (ticket 690858e0 — "Badges should be only
+ * inlined"). Badges render in ONE line; once they no longer fit, only
+ * "..." shows and the remaining badges stack one after another inside a
+ * tooltip. `label` is the plain-text name used for the accessible name
+ * and the native tooltip; `node` is the pill exactly as rendered inline
+ * (the same element object is reused in the visible row, the hidden
+ * measurer and the tooltip — elements are immutable descriptions, so
+ * sharing one across three parents is safe).
+ */
+export interface CardBadge {
+      key: string;
+      label: string;
+      node: React.ReactNode;
+}
+
+/** Gap between two inline badges — must match .card-badge-cluster's gap. */
+export const BADGE_GAP_PX = 3;
+/** Overflow-chip width guess before it has ever been measured. */
+export const OVERFLOW_CHIP_FALLBACK_PX = 26;
+
+/**
+ * Pure fit computation: how many leading badges fit in `availableWidth`
+ * once the "..." chip (shown iff something is hidden) reserves its
+ * width. Returns a count in [0, childWidths.length]. Unit-tested without
+ * layout in TaskCard.badges.test.tsx.
+ */
+export function computeHiddenFrom(
+      childWidths: number[],
+      availableWidth: number,
+      gap: number = BADGE_GAP_PX,
+      overflowChipWidth: number = OVERFLOW_CHIP_FALLBACK_PX,
+): number {
+      const n = childWidths.length;
+      const rowWidth = (count: number): number => {
+            let total = 0;
+            for (let i = 0; i < count; i++) total += childWidths[i] ?? 0;
+            if (count > 1) total += gap * (count - 1);
+            return total;
+      };
+      if (rowWidth(n) <= availableWidth) return n;
+      for (let keep = n - 1; keep >= 0; keep--) {
+            const reserved =
+                  rowWidth(keep) +
+                  (keep > 0 ? gap : 0) +
+                  overflowChipWidth;
+            if (reserved <= availableWidth) return keep;
+      }
+      return 0;
+}
+
+interface BadgeClusterProps {
+      type?: Task["type"];
+      priority?: Task["priority"];
+      assigneeName?: string | null;
+      tags?: string[];
+}
+
+/**
+ * Single-line badge row with measured overflow (690858e0). The visible
+ * row never wraps; a hidden measurer (same pills, absolutely positioned
+ * and invisible) supplies per-badge widths so hidden badges stay
+ * measurable — `display:none` would report 0 and corrupt the fit. The
+ * overflow chip is a real button: hover, focus and click (touch) all open
+ * the tooltip, Escape closes it, and the accessible name lists every
+ * hidden badge (the visual tooltip is aria-hidden to avoid announcing
+ * the roster twice).
+ */
+export function BadgeCluster({
+      type,
+      priority,
+      assigneeName,
+      tags,
+}: BadgeClusterProps) {
+      const badges: CardBadge[] = React.useMemo(() => {
+            const list: CardBadge[] = [
+                  {
+                        key: "type",
+                        label: String(type ?? "Task"),
+                        node: <TypeBadge type={type} />,
+                  },
+            ];
+            if (priority) {
+                  list.push({
+                        key: "priority",
+                        label: priority,
+                        node: <PriorityBadge priority={priority} />,
+                  });
+            }
+            if (assigneeName) {
+                  list.push({
+                        key: "assignee",
+                        label: assigneeName,
+                        node: (
+                              <span
+                                    style={{
+                                          fontSize: 10,
+                                          fontWeight: 600,
+                                          padding: "1px 6px",
+                                          borderRadius: 6,
+                                          background:
+                                                "rgba(59,130,246,0.12)",
+                                          color: "var(--t-accent-soft)",
+                                          whiteSpace: "nowrap",
+                                          flexShrink: 0,
+                                    }}
+                              >
+                                    {assigneeName}
+                              </span>
+                        ),
+                  });
+            }
+            for (const tag of tags ?? []) {
+                  const { bg, text, border } = getTagColors(tag);
+                  list.push({
+                        key: `tag:${tag}`,
+                        label: tag,
+                        // Same xs pill TagPills renders (including the
+                        // data-testid / data-tag hooks) minus the wrapping
+                        // container — the cluster owns the single line.
+                        node: (
+                              <span
+                                    data-testid="tag-pill"
+                                    data-tag={tag}
+                                    style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 3,
+                                          padding: "1px 6px",
+                                          borderRadius: 100,
+                                          background: bg,
+                                          border: `1px solid ${border}`,
+                                          color: text,
+                                          fontSize: 9,
+                                          fontWeight: 600,
+                                          whiteSpace: "nowrap",
+                                          flexShrink: 0,
+                                    }}
+                              >
+                                    {tag}
+                              </span>
+                        ),
+                  });
+            }
+            return list;
+      }, [type, priority, assigneeName, tags]);
+
+      const containerRef = React.useRef<HTMLDivElement>(null);
+      const chipRef = React.useRef<HTMLButtonElement>(null);
+      // Start fully shown: the first layout measure corrects before paint.
+      const [hiddenFrom, setHiddenFrom] = React.useState(badges.length);
+      const [hoverTip, setHoverTip] = React.useState(false);
+      const [focusTip, setFocusTip] = React.useState(false);
+      const [pinned, setPinned] = React.useState(false);
+
+      const remeasure = React.useCallback(() => {
+            const el = containerRef.current;
+            if (!el) return;
+            const available = el.clientWidth;
+            // Not laid out (or zero-width) — keep showing everything
+            // rather than collapsing to a lone "...".
+            if (!(available > 0)) return;
+            const measureRow = el.querySelector(
+                  ".card-badge-measure",
+            );
+            const kids = measureRow
+                  ? Array.from(measureRow.children)
+                  : [];
+            // The measurer always renders every badge; a count mismatch
+            // means layout is mid-commit — keep the current state rather
+            // than collapsing to a lone "..." on zero widths.
+            if (kids.length !== badges.length) return;
+            const widths = kids.map(
+                  (child) => (child as HTMLElement).offsetWidth,
+            );
+            const chipMeasured = chipRef.current?.offsetWidth ?? 0;
+            // A zero chip box means "not measurable" (jsdom, or a
+            // display:none ancestor) — never a truly zero-width chip.
+            const chipWidth =
+                  chipMeasured > 0
+                        ? chipMeasured
+                        : OVERFLOW_CHIP_FALLBACK_PX;
+            const next = computeHiddenFrom(
+                  widths,
+                  available,
+                  BADGE_GAP_PX,
+                  chipWidth,
+            );
+            setHiddenFrom((prev) => (prev === next ? prev : next));
+      }, [badges.length]);
+
+      // Layout-phase: correct before paint so no clipped mid-badge frame
+      // ever shows. Guarded setState — steady state performs no update.
+      React.useLayoutEffect(() => {
+            remeasure();
+      });
+      React.useEffect(() => {
+            remeasure();
+            if (typeof ResizeObserver !== "undefined") {
+                  const ro = new ResizeObserver(() => remeasure());
+                  if (containerRef.current) ro.observe(containerRef.current);
+                  window.addEventListener("resize", remeasure);
+                  return () => {
+                        ro.disconnect();
+                        window.removeEventListener("resize", remeasure);
+                  };
+            }
+            window.addEventListener("resize", remeasure);
+            return () => window.removeEventListener("resize", remeasure);
+      }, [remeasure, badges.length]);
+
+      // Webfont swaps change badge widths without resizing the container
+      // (nothing observes the measurer), so re-fit once fonts settle.
+      React.useEffect(() => {
+            let cancelled = false;
+            document.fonts?.ready.then(() => {
+                  if (!cancelled) remeasure();
+            }).catch(() => {});
+            return () => {
+                  cancelled = true;
+            };
+      }, [remeasure]);
+
+      if (badges.length === 0) return null;
+      const hidden = badges.slice(hiddenFrom);
+      const tipOpen = pinned || hoverTip || focusTip;
+      const hiddenNames = hidden.map((b) => b.label).join(", ");
+      return (
+            <span
+                  className="card-badge-wrap"
+                  data-role="badge-cluster"
+                  onMouseEnter={() => setHoverTip(true)}
+                  onMouseLeave={() => setHoverTip(false)}
+            >
+                  <div ref={containerRef} className="card-badge-cluster">
+                        {badges.slice(0, hiddenFrom).map((b) => (
+                              <React.Fragment key={b.key}>
+                                    {b.node}
+                              </React.Fragment>
+                        ))}
+                        {hidden.length > 0 && (
+                              <button
+                                    ref={chipRef}
+                                    type="button"
+                                    data-role="badge-overflow"
+                                    data-overflow-chip="true"
+                                    className="card-badge-overflow"
+                                    aria-label={`${hidden.length} more badge(s): ${hiddenNames}`}
+                                    aria-expanded={tipOpen}
+                                    title={hiddenNames}
+                                    onClick={(e) => {
+                                          // Inside the card article's onClick
+                                          // (opens the panel) — a tooltip
+                                          // toggle must not open the task.
+                                          e.stopPropagation();
+                                          setPinned((p) => !p);
+                                    }}
+                                    onFocus={() => setFocusTip(true)}
+                                    onBlur={() => setFocusTip(false)}
+                                    onKeyDown={(e) => {
+                                          if (e.key === "Escape")
+                                                setPinned(false);
+                                    }}
+                              >
+                                    …
+                              </button>
+                        )}
+                        <span
+                              aria-hidden="true"
+                              className="card-badge-measure"
+                        >
+                              {badges.map((b) => (
+                                    <React.Fragment key={b.key}>
+                                          {b.node}
+                                    </React.Fragment>
+                              ))}
+                        </span>
+                  </div>
+                  {tipOpen && hidden.length > 0 && (
+                        <span
+                              role="tooltip"
+                              aria-hidden="true"
+                              data-role="badge-overflow-tip"
+                              className="card-badge-tip"
+                              onClick={(e) => e.stopPropagation()}
+                        >
+                              {hidden.map((b) => (
+                                    <span
+                                          key={b.key}
+                                          className="card-badge-tip-row"
+                                    >
+                                          {b.node}
+                                    </span>
+                              ))}
+                        </span>
+                  )}
+            </span>
+      );
+}
 
 interface CardIconButtonProps {
       icon: React.ReactNode;
