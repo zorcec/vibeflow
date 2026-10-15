@@ -2243,29 +2243,16 @@ program
 
           const addMode = await getMode();
           if (addMode === "saas") {
-            if (typeof opts.parent === "string") {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: "E_USAGE",
-                  message: "--parent is only supported for local tasks",
-                  suggestion:
-                    "Parent links are not supported by the online backend yet.",
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red("✗ --parent is only supported for local tasks"),
-                );
-                console.log(
-                  chalk.dim(
-                    "  Parent links are not supported by the online backend yet.",
-                  ),
-                );
-              }
-              process.exitCode = ExitCode.USAGE;
-              return;
-            }
+            // Online parent links (parity with hosted MCP create_task):
+            // the v0 POST body carries `links`, and a parent entry is the
+            // online spelling of the local `--parent` flag. The server
+            // validates the target exists — its refusal code (INVALID_LINKS)
+            // is surfaced verbatim below, the same code the hosted MCP
+            // answers, so both surfaces refuse a dangling parent identically.
+            const addLinks =
+              typeof opts.parent === "string"
+                ? [{ taskId: opts.parent, type: "parent" }]
+                : undefined;
             const addWorkspace = await readWorkspace();
             const validSaasStatuses = [
               "backlog",
@@ -2285,6 +2272,7 @@ program
                 description: opts.description?.trim() ?? "",
                 status: saasStatus,
                 boardId: addWorkspace?.id,
+                ...(addLinks ? { links: addLinks } : {}),
               };
               if (opts.json) {
                 outputEnvelope({
@@ -2301,6 +2289,10 @@ program
                 console.log(chalk.yellow("  [dry-run] Would create task:"));
                 console.log(chalk.dim(`    title:  ${dryTask.title}`));
                 console.log(chalk.dim(`    status: ${dryTask.status}`));
+                if (addLinks)
+                  console.log(
+                    chalk.dim(`    parent: ${opts.parent}`),
+                  );
                 if (dryTask.description)
                   console.log(
                     chalk.dim(`    description: ${dryTask.description}`),
@@ -2315,15 +2307,31 @@ program
               description: opts.description?.trim(),
               status: saasStatus,
               boardId: addWorkspace?.id,
+              ...(addLinks ? { links: addLinks } : {}),
             });
             if (!saasCreated.ok) {
+              // A structured backend refusal (e.g. INVALID_LINKS for a
+              // dangling parent) is the server's answer, not an outage —
+              // surface its code verbatim so CLI-online and hosted MCP
+              // refuse identically instead of hiding behind
+              // E_BACKEND_UNAVAILABLE ("retry" would never fix it).
+              const createServerCode = saasCreated.error.serverCode;
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...saasFailure(saasCreated.error),
-                  message: "Failed to create task in online board.",
+                  ...(createServerCode
+                    ? {
+                        code: createServerCode,
+                        message: saasCreated.error.message,
+                      }
+                    : {
+                        ...saasFailure(saasCreated.error),
+                        message: "Failed to create task in online board.",
+                      }),
                   json: opts.json,
                 });
+              } else if (createServerCode) {
+                console.log(chalk.red(`✗ ${saasCreated.error.message}`));
               } else {
                 console.log(
                   chalk.red("✗ Failed to create task in online board."),
@@ -3183,31 +3191,64 @@ program
           }
 
           // ── SaaS edit path (online mode) ────────────────────────────────
+          // Online parent links (parity with hosted MCP update_task): the
+          // v0 PATCH `links` replaces the whole set, so the set/replace/clear
+          // is computed here from the task just read (relates/blocks kept,
+          // old parent swapped, never stacked) and sent as `links`.
+          // Validation (exists, not self, no cycle) lives server-side — its
+          // refusal code (INVALID_LINKS) is surfaced verbatim below, the same
+          // code the hosted MCP answers, so both surfaces refuse a dangling
+          // parent identically instead of the CLI pre-validating to a
+          // different code.
+          let saasParentLinks:
+            | Array<{ taskId: string; type: string }>
+            | undefined;
           if (wantsParentChange && editMode === "saas") {
-            if (opts.json) {
-              outputEnvelope({
-                ok: false,
-                code: "E_USAGE",
-                message:
-                  "--set-parent / --no-parent is only supported for local tasks",
-                suggestion:
-                  "Parent links are not supported by the online backend yet.",
-                json: opts.json,
-              });
-            } else {
-              console.log(
-                chalk.red(
-                  "✗ --set-parent / --no-parent is only supported for local tasks",
-                ),
-              );
-              console.log(
-                chalk.dim(
-                  "  Parent links are not supported by the online backend yet.",
-                ),
-              );
+            const boardTasks = await fetchSaasTasks();
+            if (!boardTasks.ok) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(boardTasks.error),
+                  message: `Unable to read task ${taskId} from the online board — the parent change needs its current links.`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Unable to read task ${taskId} from the online board — the parent change needs its current links.`,
+                  ),
+                );
+              }
+              process.exitCode = ExitCode.GENERAL;
+              return;
             }
-            process.exitCode = ExitCode.USAGE;
-            return;
+            const current = boardTasks.data.tasks.find(
+              (t) => t.id === taskId,
+            );
+            if (!current) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${taskId}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ Task not found: ${taskId}`));
+              }
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
+            }
+            const kept = (current.links ?? []).filter(
+              (l) => l.type !== "parent",
+            );
+            saasParentLinks =
+              opts.parent === false || opts.setParent === ""
+                ? kept
+                : [...kept, { taskId: opts.setParent ?? "", type: "parent" }];
           }
           if (editMode === "saas") {
             const saasPatch: {
@@ -3216,11 +3257,14 @@ program
               description?: string;
               branchName?: string;
               verified?: boolean | null;
+              links?: Array<{ taskId: string; type: string }>;
             } = {};
             if (opts.setStatus) saasPatch.status = opts.setStatus;
             if (opts.title) saasPatch.title = opts.title;
             if (opts.description) saasPatch.description = opts.description;
             if (opts.branch) saasPatch.branchName = opts.branch;
+            if (saasParentLinks !== undefined)
+              saasPatch.links = saasParentLinks;
 
             // ── Agent attestation (--set-verify) ─────────────────────
             // Same tri-state mapping the local path uses (see
@@ -3290,6 +3334,8 @@ program
                 dryUpdates.branchName = saasPatch.branchName;
               if (saasPatch.verified !== undefined)
                 dryUpdates.verified = saasPatch.verified;
+              if (saasPatch.links !== undefined)
+                dryUpdates.links = saasParentLinks;
               // A `cannot` verdict also posts the reason as a comment (see
               // the write path below), so the preview names that second
               // write instead of letting --dry-run hide it.
@@ -3334,13 +3380,26 @@ program
 
             const saasResult = await updateSaasTask(taskId, saasPatch);
             if (!saasResult.ok) {
+              // Like the --add path: a structured backend refusal (e.g.
+              // INVALID_LINKS for a dangling parent) keeps its code so
+              // CLI-online and hosted MCP refuse identically.
+              const updateServerCode = saasResult.error.serverCode;
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...saasFailure(saasResult.error),
-                  message: `Failed to update task: ${taskId}`,
+                  ...(updateServerCode
+                    ? {
+                        code: updateServerCode,
+                        message: saasResult.error.message,
+                      }
+                    : {
+                        ...saasFailure(saasResult.error),
+                        message: `Failed to update task: ${taskId}`,
+                      }),
                   json: opts.json,
                 });
+              } else if (updateServerCode) {
+                console.log(chalk.red(`✗ ${saasResult.error.message}`));
               } else {
                 console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
                 console.log(
@@ -4226,6 +4285,21 @@ program
               ),
             );
 
+          const saasIsChild = (t: SaasTask): boolean =>
+            Array.isArray(t.links) &&
+            t.links.some((l) => l?.type === "parent");
+          // Root-only default, the same scope the hosted MCP surface and the
+          // local board apply: a task carrying a parent link belongs to that
+          // parent, not to the peer list. --children includes them (then
+          // nothing is hidden). Filtered searches stay on the same scoped set
+          // the hosted list_tasks answers — the local filtered-includes-
+          // children exception is a local-CLI rule, not the online one.
+          const saasHiddenChildren = opts.children
+            ? 0
+            : saasTasks.filter(saasIsChild).length;
+          if (!opts.children)
+            saasTasks = saasTasks.filter((t) => !saasIsChild(t));
+
           const saasLimit =
             opts.limit === undefined ? 5 : parseInt(opts.limit, 10);
           if (!isNaN(saasLimit) && saasLimit > 0)
@@ -4243,8 +4317,7 @@ program
                     parsedFields,
                   ),
                 ),
-                // The online backend has no parent links, so nothing is hidden.
-                hiddenChildren: 0,
+                hiddenChildren: saasHiddenChildren,
               },
             });
             return;
@@ -4343,7 +4416,17 @@ program
               ...t,
               status: toCliStatus(t.status),
             }));
-            console.log(chalk.dim(formatStatusSummary(allForCount)));
+            // Never hide existence silently: name the flag that reveals the
+            // children, the same disclosure the local listing prints.
+            const saasChildSuffix =
+              saasHiddenChildren > 0
+                ? chalk.dim(
+                    ` · ${saasHiddenChildren} child task${saasHiddenChildren === 1 ? "" : "s"} hidden (use --children)`,
+                  )
+                : "";
+            console.log(
+              chalk.dim(formatStatusSummary(allForCount)) + saasChildSuffix,
+            );
           }
           return;
         }

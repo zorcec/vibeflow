@@ -281,6 +281,33 @@ describe("updateSaasTask", () => {
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect("verified" in body).toBe(false);
   });
+
+  it("sends links in the PATCH body (v0 replaces the whole set)", async () => {
+    mockFetch(SAMPLE_TASK);
+    await updateSaasTask("task-1", {
+      links: [
+        { taskId: "rel-1", type: "relates" },
+        { taskId: "parent-2", type: "parent" },
+      ],
+    });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body.links).toEqual([
+      { taskId: "rel-1", type: "relates" },
+      { taskId: "parent-2", type: "parent" },
+    ]);
+  });
+
+  it("carries the server refusal code through as serverCode", async () => {
+    mockFetch({ error: "parent link would create a cycle", code: "INVALID_LINKS" }, false);
+    const result = await updateSaasTask("task-1", {
+      links: [{ taskId: "task-1", type: "parent" }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.serverCode).toBe("INVALID_LINKS");
+    }
+  });
 });
 
 describe("fetchSaasTasks — v0 envelope", () => {
@@ -672,5 +699,36 @@ describe("createSaasTask", () => {
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks");
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
+  });
+
+  it("sends links in the POST body (the online spelling of --parent)", async () => {
+    mockFetch(SAMPLE_TASK);
+    await createSaasTask({
+      title: "Child",
+      links: [{ taskId: "parent-1", type: "parent" }],
+    });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body.links).toEqual([{ taskId: "parent-1", type: "parent" }]);
+  });
+
+  it("carries the server refusal code through as serverCode", async () => {
+    mockFetch({ error: "Parent target task ghost not found", code: "INVALID_LINKS" }, false);
+    const result = await createSaasTask({
+      title: "Child",
+      links: [{ taskId: "ghost", type: "parent" }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.serverCode).toBe("INVALID_LINKS");
+      expect(result.error.message).toBe("Parent target task ghost not found");
+    }
+  });
+
+  it("leaves serverCode absent on transport failures", async () => {
+    mockFetch(null, false);
+    const result = await createSaasTask({ title: "New Task" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.serverCode).toBeUndefined();
   });
 });

@@ -9,7 +9,21 @@ import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 export type SaasResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: { code: string; message: string; status?: number } };
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+        status?: number;
+        /**
+         * The backend's own refusal code when the HTTP body carried one
+         * (v0 answers `{ error, code }`, e.g. INVALID_LINKS for a dangling
+         * parent). Transport/auth failures leave this absent and callers
+         * fall back to the mapped `code` (E_BACKEND_UNAVAILABLE, ...).
+         */
+        serverCode?: string;
+      };
+    };
 
 /** Map CLI status values to SaaS DB enum values. */
 const CLI_TO_SAAS_STATUS: Record<string, string> = {
@@ -92,6 +106,13 @@ export interface SaasTask {
   branchName?: string | null;
   /** Tri-state agent attestation: true/false = verdict, null/absent = not assessed. */
   verified?: boolean | null;
+  /**
+   * Parent/relates/blocks links as the v0 wire carries them
+   * (`links: [{ taskId, type }]`). Present on reads; the online board CAN
+   * express parent links, so the CLI-online list applies the same root-only
+   * default the hosted MCP surface does.
+   */
+  links?: Array<{ taskId: string; type: string }>;
   comments?: SaasComment[];
   files?: Array<{
     name: string;
@@ -345,6 +366,12 @@ export async function updateSaasTask(
     branchName?: string;
     /** Tri-state attestation: true/false = verdict, null = clear to absent. */
     verified?: boolean | null;
+    /**
+     * Whole link set (v0 PATCH `links` replaces). The caller computes the
+     * merge (set/replace/clear parent) from the task it read first — the
+     * server validates (exists, not self, no cycle) and refuses INVALID_LINKS.
+     */
+    links?: Array<{ taskId: string; type: string }>;
   },
 ): Promise<SaasResult<{ task: SaasTask; warning?: string }>> {
   const headers = await getBearerHeaders();
@@ -362,6 +389,7 @@ export async function updateSaasTask(
   if (patch.branchName !== undefined) body.branchName = patch.branchName;
   // Send `null` explicitly to clear — undefined means "no change".
   if (patch.verified !== undefined) body.verified = patch.verified;
+  if (patch.links !== undefined) body.links = patch.links;
 
   try {
     const res = await fetch(
@@ -378,10 +406,20 @@ export async function updateSaasTask(
         string,
         unknown
       >;
-      const msg = (errBody.error as string) ?? `HTTP ${res.status}`;
+      const msg =
+        typeof errBody.error === "string"
+          ? errBody.error
+          : `HTTP ${res.status}`;
       return {
         ok: false,
-        error: { code: "HTTP_ERROR", message: msg, status: res.status },
+        error: {
+          code: "HTTP_ERROR",
+          message: msg,
+          status: res.status,
+          ...(typeof errBody.code === "string" && errBody.code
+            ? { serverCode: errBody.code }
+            : {}),
+        },
       };
     }
     // v0 answers the bare task (contract Task) with an optional `warning`
@@ -504,6 +542,12 @@ export async function createSaasTask(params: {
   priority?: string;
   type?: string;
   boardId?: string;
+  /**
+   * Links to write with the new task (v0 POST `links`). A
+   * `{ taskId, type: "parent" }` entry is the online spelling of the
+   * local `--parent` flag — the server validates the target exists.
+   */
+  links?: Array<{ taskId: string; type: string }>;
 }): Promise<SaasResult<SaasTask>> {
   const headers = await getBearerHeaders();
   if (!headers)
@@ -524,10 +568,20 @@ export async function createSaasTask(params: {
         string,
         unknown
       >;
-      const msg = (errBody.error as string) ?? `HTTP ${res.status}`;
+      const msg =
+        typeof errBody.error === "string"
+          ? errBody.error
+          : `HTTP ${res.status}`;
       return {
         ok: false,
-        error: { code: "HTTP_ERROR", message: msg, status: res.status },
+        error: {
+          code: "HTTP_ERROR",
+          message: msg,
+          status: res.status,
+          ...(typeof errBody.code === "string" && errBody.code
+            ? { serverCode: errBody.code }
+            : {}),
+        },
       };
     }
     // v0 answers the bare created task (contract Task), status 201.

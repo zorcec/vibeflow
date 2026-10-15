@@ -645,7 +645,13 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     expect(envelope.error.message).toBe(`Failed to update task: ${id}`);
   });
 
-  it("E_USAGE — --add --parent is refused on the online board", async () => {
+  it("E_BACKEND_UNAVAILABLE — --add --parent reaches the wire on the online board (no E_USAGE gate)", async () => {
+    // The old E_USAGE refusal ("--parent is only supported for local
+    // tasks") is gone: the online board CAN express parent links, so the
+    // flag is honoured and sent to the backend. Against a dead host the
+    // request fails on transport — the old gate would have refused BEFORE
+    // any fetch, so E_BACKEND_UNAVAILABLE proves the gate is gone. The
+    // honoured happy path (links POST) is pinned in tasks-saas-parent.test.ts.
     const store = freshDir("json-refusal-saas-store-");
     const home = saasHome();
     const r = await spawnCli(
@@ -659,28 +665,23 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
         "abcd1234",
         "--json",
       ],
-      { cwd: store, home },
+      { cwd: store, home, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
     );
-    const envelope = expectRefusal(r, "E_USAGE");
-    expect(envelope.error.message).toBe(
-      "--parent is only supported for local tasks",
-    );
+    expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
 
-  it("E_USAGE — --set-parent is refused on the online board", async () => {
+  it("E_BACKEND_UNAVAILABLE — --set-parent reaches the wire on the online board (no E_USAGE gate)", async () => {
+    // Same as above for --edit --set-parent: the read-modify-write needs
+    // the board first, so a dead host fails on the read with
+    // E_BACKEND_UNAVAILABLE instead of the old E_USAGE refusal.
     const store = freshDir("json-refusal-saas-store-");
-    const localHome = freshDir("json-refusal-home-");
-    const id = await addTask(store, localHome, "Local copy");
     const online = saasHome();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", id, "--set-parent", "abcd1234", "--json"],
-      { cwd: store, home: online },
+      ["tasks", store, "--edit", "sometaskid", "--set-parent", "abcd1234", "--json"],
+      { cwd: store, home: online, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
     );
-    const envelope = expectRefusal(r, "E_USAGE");
-    expect(envelope.error.message).toBe(
-      "--set-parent / --no-parent is only supported for local tasks",
-    );
+    expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
 });
 
