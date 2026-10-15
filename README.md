@@ -225,40 +225,6 @@ You browse your app  →  click to annotate  →  task created with context
 
 ---
 
-## Writing Prototypes
-
-Each HTML file is one screen. Use Tailwind CSS, Lucide icons, and Google Fonts via CDN — the annotation contract tells your LLM to use exactly these libraries.
-
-**Rules:**
-
-- One file per screen — name after the route (`login.html`, `dashboard.html`)
-- Every meaningful element gets a `data-vibeflow-id` — kebab-case, globally unique
-- Navigate between pages with relative links: `<a href="./page.html">`
-- Repeat navigation on every page (no shared includes)
-
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>App — Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body { font-family: 'Inter', sans-serif; }</style>
-</head>
-<body class="bg-gray-50 text-gray-900 min-h-screen">
-  <main data-vibeflow-id="main-content" class="max-w-4xl mx-auto px-6 py-8">
-    <h1 data-vibeflow-id="page-title" class="text-2xl font-semibold">Dashboard</h1>
-  </main>
-  <script>lucide.createIcons();</script>
-</body>
-</html>
-```
-
----
-
 ## Agent Integration
 
 Vibeflow tasks are formatted for AI agents with full context:
