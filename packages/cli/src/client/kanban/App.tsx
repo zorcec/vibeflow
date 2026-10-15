@@ -550,6 +550,42 @@ export function App() {
   React.useEffect(() => {
     panelTaskIdRef.current = panelState.task?.id ?? null;
   }, [panelState.task?.id]);
+  // Coalesced panel refetch requests (ticket d4c533f9): a burst of WS
+  // frames within one tick (file op + its system trace, watcher echo)
+  // must produce ONE refetch round, not one per frame. Parts accumulate
+  // in the ref; the scheduled flush bumps each requested version once.
+  const pendingPanelPartsRef = React.useRef<{ comments: boolean; files: boolean }>({
+    comments: false,
+    files: false,
+  });
+  const panelFlushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const requestPanelRefresh = React.useCallback(
+    (parts: ReadonlyArray<string>) => {
+      let wanted = false;
+      for (const part of parts) {
+        if (part === "comments") {
+          pendingPanelPartsRef.current.comments = true;
+          wanted = true;
+        } else if (part === "files") {
+          pendingPanelPartsRef.current.files = true;
+          wanted = true;
+        }
+        // "task" (screenshot set/clear) needs no panel fetch: the board
+        // list reload below already carries the new task fields.
+      }
+      if (!wanted || panelFlushTimerRef.current) return;
+      panelFlushTimerRef.current = setTimeout(() => {
+        panelFlushTimerRef.current = null;
+        const pending = pendingPanelPartsRef.current;
+        pendingPanelPartsRef.current = { comments: false, files: false };
+        if (pending.comments) setCommentVersion((v) => v + 1);
+        if (pending.files) setFileVersion((v) => v + 1);
+      }, 0);
+    },
+    [],
+  );
 
   // Load initial data
   React.useEffect(() => {
@@ -950,16 +986,17 @@ export function App() {
         const msg = JSON.parse(ev.data as string);
         if (msg.type === "tasks-updated" || msg.type?.startsWith("task:")) {
           void loadTasks();
-          // The open panel's comments/files live behind their own fetches:
-          // when the update concerns the open task (file add/remove writes
-          // its trace through the same broadcast), refresh them without a
-          // reload. Version counters, not the payload — the panel refetches.
+          // The open panel's comments/files live behind their own fetches.
+          // Refetch ONLY the parts the frame names: the old bump-both
+          // fallback turned every frame of a burst into a full refetch
+          // round (ticket d4c533f9). Absence of `changed` means no panel
+          // refetch is needed — the board list reload above is enough.
           if (
             typeof msg.taskId === "string" &&
-            msg.taskId === panelTaskIdRef.current
+            msg.taskId === panelTaskIdRef.current &&
+            Array.isArray(msg.changed)
           ) {
-            setFileVersion((v) => v + 1);
-            setCommentVersion((v) => v + 1);
+            requestPanelRefresh(msg.changed as string[]);
           }
           return;
         }

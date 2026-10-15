@@ -37,10 +37,17 @@ function mockApi() {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/tasks")) {
-        return { ok: true, json: async () => ({ tasks: serverTasks }) };
+        // Response-shaped: the kanban api reads status/text(), not json().
+        const body = { tasks: serverTasks };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => body,
+          text: async () => JSON.stringify(body),
+        };
       }
       // meta, settings, github-url, changelog — optional to the board.
-      return { ok: true, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" };
     }),
   );
 }

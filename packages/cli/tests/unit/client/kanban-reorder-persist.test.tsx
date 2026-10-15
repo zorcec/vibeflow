@@ -87,7 +87,13 @@ function makeTask(id: string, updatedAt: string): Task {
 }
 
 function jsonResponse(body: unknown) {
-  return { ok: true, json: async () => body };
+  // Response-shaped: the kanban api reads status/text(), not json().
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  };
 }
 
 /** In-memory server truth. PATCHes the App issues are replayed onto it, so a

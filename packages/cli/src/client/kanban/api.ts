@@ -20,10 +20,29 @@ export interface KanbanReadStateApi {
 const BASE = window.location.origin;
 const API = `${BASE}/api/tasks`;
 
+// Last-known panel data per task (ticket d4c533f9): a 304/empty body
+// carries no payload, so the honest result is the unchanged data —
+// returning a bare empty list would wipe the pane on a normal
+// revalidation path.
+const commentsCache = new Map<string, Comment[]>();
+const filesCache = new Map<string, FileEntry[]>();
+
+/** Parse a JSON response honestly (ticket d4c533f9): a 304 or an empty
+ * body has no payload — return the fallback instead of throwing inside
+ * `r.json()`. Unexpected statuses surface as Errors; every caller already
+ * routes those to its error state, so nothing rejects unhandled. */
+async function readJson<T>(r: Response, fallback: T, what: string): Promise<T> {
+  if (r.status === 304) return fallback;
+  if (!r.ok) throw new Error(`${what} failed: HTTP ${r.status}`);
+  const text = await r.text();
+  if (!text.trim()) return fallback;
+  return JSON.parse(text) as T;
+}
+
 export const api: KanbanApi & KanbanReadStateApi = {
   async getTasks(): Promise<{ tasks: Task[] }> {
     const r = await fetch(`${API}?_=${Date.now()}`, { cache: "no-store" });
-    return r.json() as Promise<{ tasks: Task[] }>;
+    return readJson(r, { tasks: [] }, "GET /api/tasks");
   },
 
   async createTask(
@@ -34,7 +53,7 @@ export const api: KanbanApi & KanbanReadStateApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    return r.json() as Promise<{ success: boolean; task?: Task }>;
+    return readJson(r, { success: false }, "POST /api/tasks");
   },
 
   async updateTask(
@@ -46,7 +65,7 @@ export const api: KanbanApi & KanbanReadStateApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    return r.json() as Promise<{ success: boolean; task?: Task }>;
+    return readJson(r, { success: false }, `PATCH /api/tasks/${id}`);
   },
 
   async deleteTask(
@@ -89,7 +108,13 @@ export const api: KanbanApi & KanbanReadStateApi = {
 
   async getComments(taskId: string): Promise<{ comments: Comment[] }> {
     const r = await fetch(`${API}/${taskId}/comments`);
-    return r.json() as Promise<{ comments: Comment[] }>;
+    const data = await readJson<{ comments: Comment[] }>(
+      r,
+      { comments: commentsCache.get(taskId) ?? [] },
+      `GET /api/tasks/${taskId}/comments`,
+    );
+    commentsCache.set(taskId, data.comments ?? []);
+    return data;
   },
 
   async addComment(taskId: string, text: string): Promise<void> {
@@ -118,7 +143,13 @@ export const api: KanbanApi & KanbanReadStateApi = {
 
   async getFiles(taskId: string): Promise<{ files: FileEntry[] }> {
     const r = await fetch(`${API}/${taskId}/files`);
-    return r.json() as Promise<{ files: FileEntry[] }>;
+    const data = await readJson<{ files: FileEntry[] }>(
+      r,
+      { files: filesCache.get(taskId) ?? [] },
+      `GET /api/tasks/${taskId}/files`,
+    );
+    filesCache.set(taskId, data.files ?? []);
+    return data;
   },
 
   async uploadFile(taskId: string, file: File): Promise<void> {
@@ -142,16 +173,12 @@ export const api: KanbanApi & KanbanReadStateApi = {
     branch?: string | null;
   }> {
     const r = await fetch(`${BASE}/api/project`);
-    return r.json() as Promise<{
-      name?: string;
-      gitUserName?: string;
-      branch?: string | null;
-    }>;
+    return readJson(r, {}, "GET /api/project");
   },
 
   async getSettings(): Promise<Record<string, unknown>> {
     const r = await fetch(`${BASE}/api/settings`, { cache: "no-store" });
-    return r.json() as Promise<Record<string, unknown>>;
+    return readJson(r, {}, "GET /api/settings");
   },
 
   async saveSettings(settings: Record<string, unknown>): Promise<void> {
