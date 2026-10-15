@@ -257,6 +257,54 @@ body {
 .card-copy-id[data-copied="true"]:hover {
  background: var(--t-hover);
 }
+/* ── Card advance-to-next-lane button (ticket 302e9cab) ──
+   Minimal chevron at the card's right that moves the ticket one lane
+   forward (backlog > todo > in-progress > review; terminal lanes render
+   nothing). Same reveal contract as the copy-id pill: an in-flow 22px
+   box is ALWAYS reserved, so the card's rect cannot shift when the
+   control appears — only opacity changes. Placed BEFORE the copy pill
+   so copy stays flush right. Reveal is gated to hover-capable pointers
+   so touch taps never trigger it; keyboard users reach it by Tab and its
+   own focus ring reveals it. Suppressed mid-drag so it never fights the
+   drag handle. */
+.task-card-advance {
+ opacity: 0;
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ min-width: 22px;
+ min-height: 22px;
+ width: 22px;
+ height: 22px;
+ padding: 0;
+ border: none;
+ border-radius: 6px;
+ background: transparent;
+ /* Destination-lane tint (302e9cab polish): the board sets
+    --task-advance-color from COLUMNS so the chevron reads as forward
+    into the amber/blue/purple lane; muted glyph when unset. */
+ color: var(--task-advance-color, var(--t-text-muted));
+ cursor: pointer;
+ flex-shrink: 0;
+ transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+@media (hover: hover) and (pointer: fine) {
+ .task-card:hover .task-card-advance {
+  opacity: 1;
+ }
+}
+.task-card-advance:focus-visible {
+ opacity: 1;
+ outline: 2px solid color-mix(in srgb, var(--t-accent) 65%, transparent);
+ outline-offset: 1px;
+}
+.task-card-advance:hover {
+ background: var(--t-hover);
+ color: var(--t-text);
+}
+.task-card.dragging .task-card-advance {
+ opacity: 0;
+}
 /* 2e6b6b1f: in the details ID tile the pill must not outgrow the 11px
    value line. .card-copy-id's 22px min box made the ID value row 22px
    while Created stays text-height, pushing the ID underline ~6px below

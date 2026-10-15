@@ -83,6 +83,8 @@ export { DetailPanel } from "./components/DetailPanel";
 export {
   TaskCard as KanbanTaskCard,
   resolveTaskCardBorderColor,
+  nextLaneStatus,
+  nextLaneLabel,
 } from "./components/TaskCard";
 export { FilterBar } from "./components/FilterBar";
 export type { FilterState } from "./components/FilterBar";

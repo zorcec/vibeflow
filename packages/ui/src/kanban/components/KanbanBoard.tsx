@@ -1,7 +1,7 @@
 import React from "react";
 import { Plus } from "lucide-react";
 import type { Task, Column, TaskStatus, LiveActivity } from "../types";
-import { TaskCard } from "./TaskCard";
+import { TaskCard, nextLaneStatus } from "./TaskCard";
 import { laneReservesLeadingSlot } from "./TaskCardLeadingSlot";
 import {
   groupTasksByRoot,
@@ -950,7 +950,7 @@ function KanbanColumn({
   onDragOver,
   onDrop,
   onDragLeave,
-  onStatusChange: _onStatusChange, // unused — kept for API compatibility
+  onStatusChange,
   onAddTask,
   onOpenTask,
   onDragStart,
@@ -1230,6 +1230,15 @@ function KanbanColumn({
                     currentUserId={currentUserId}
                     onToggleExpanded={onToggleExpanded}
                     reserveLeadingSlot={reserveLeadingSlot}
+                    // Hover advance (302e9cab): the column's status-change
+                    // path IS the drop path (board maps it to onDrop), so the
+                    // control reuses the drag-and-drop write path verbatim.
+                    // The chevron tint comes from the DESTINATION lane's
+                    // color, resolved from the single COLUMNS source.
+                    onAdvanceTask={onStatusChange}
+                    advanceColor={
+                      COLUMNS.find((c) => c.id === nextLaneStatus(col.id))?.color
+                    }
                   />
                   {isReorderTarget && dropIntent!.position === "after" && (
                     <div

@@ -1,8 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom";
-import { MessageCircle, Paperclip, ChevronDown } from "lucide-react";
+import { MessageCircle, Paperclip, ChevronDown, ChevronRight } from "lucide-react";
 import { CopyIdButton } from "./CopyIdButton";
-import type { Task, Column, LiveActivity } from "../types";
+import type { Task, Column, LiveActivity, TaskStatus } from "../types";
 import { isNewComments } from "../utils";
 import { TypeBadge } from "../../TypeBadge";
 import { PriorityBadge } from "../../PriorityBadge";
@@ -56,6 +56,19 @@ interface Props {
        * caller that does not know its lane keeps the b0545910 alignment.
        */
       reserveLeadingSlot?: boolean;
+      /**
+       * Advance-to-next-lane action (ticket 302e9cab). The board wires its
+       * existing column-drop status path here, so the control reuses the
+       * drag-and-drop write path instead of inventing a second one. Absent
+       * (e.g. ListView, or a host that does not pass it) renders no control.
+       */
+      onAdvanceTask?: (taskId: string, nextStatus: TaskStatus) => void;
+      /**
+       * Destination lane's color for the advance chevron tint (302e9cab
+       * polish). The column resolves it from COLUMNS; absent keeps the
+       * muted glyph.
+       */
+      advanceColor?: string;
 }
 
 function isImageFileName(name: string): boolean {
@@ -85,6 +98,37 @@ export function resolveTaskCardBorderColor(
 
 export function resolveTaskCardBgColor(typeColor: string): string {
       return withHexAlpha(typeColor, 0.1) ?? "transparent";
+}
+
+/**
+ * Next-lane map for the hover advance control (ticket 302e9cab):
+ * backlog > todo > in-progress > review. Review and done are terminal —
+ * the control renders nothing there. Pure and unit-tested without layout.
+ */
+const NEXT_LANE: Record<TaskStatus, TaskStatus | null> = {
+      backlog: "todo",
+      todo: "in-progress",
+      "in-progress": "review",
+      review: null,
+      done: null,
+};
+
+export function nextLaneStatus(status: TaskStatus): TaskStatus | null {
+      return NEXT_LANE[status] ?? null;
+}
+
+/** Accessible lane names for the advance control's label. */
+const NEXT_LANE_LABEL: Record<Exclude<TaskStatus, "backlog" | "done">, string> = {
+      todo: "Todo",
+      "in-progress": "In Progress",
+      review: "Review",
+};
+
+export function nextLaneLabel(status: TaskStatus): string | null {
+      const next = nextLaneStatus(status);
+      return next && next in NEXT_LANE_LABEL
+            ? NEXT_LANE_LABEL[next as keyof typeof NEXT_LANE_LABEL]
+            : null;
 }
 
 // ── Static styles extracted to avoid per-render object allocation ──────────
@@ -185,6 +229,58 @@ const COMPACT_INDICATOR_STYLE: React.CSSProperties = {
 };
 const SPACER_STYLE: React.CSSProperties = { flex: 1 };
 
+/**
+ * Hover advance control (ticket 302e9cab): a minimal chevron at the
+ * card's right that moves the ticket to the NEXT lane. Same reveal
+ * contract as the copy-id pill — in-flow 22px box always reserved so
+ * the card's rect never shifts, opacity 0 until card hover or own
+ * keyboard focus (see .task-card-advance in kanban.css) — and placed
+ * BEFORE the copy button so the copy pill stays flush right. Real
+ * <button>: tab-reachable, aria-labelled with the destination lane.
+ * Drag-safe: not draggable, mousedown/click never reach the card's
+ * drag or open handlers.
+ */
+function AdvanceButton({
+      taskId,
+      nextStatus,
+      nextLabel,
+      accentColor,
+      onAdvance,
+}: {
+      taskId: string;
+      nextStatus: TaskStatus;
+      nextLabel: string;
+      /** Destination lane's color — tints the chevron so the control
+          reads as "forward into the amber/blue/purple lane". Falls back
+          to the muted glyph color when the board passes none. */
+      accentColor?: string;
+      onAdvance: (taskId: string, nextStatus: TaskStatus) => void;
+}) {
+      return (
+            <button
+                  className="task-card-advance"
+                  data-role="advance-task"
+                  data-next-status={nextStatus}
+                  draggable={false}
+                  type="button"
+                  aria-label={`Move to ${nextLabel}`}
+                  title={`Move to ${nextLabel}`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                        e.stopPropagation();
+                        onAdvance(taskId, nextStatus);
+                  }}
+                  style={
+                        accentColor
+                              ? ({ "--task-advance-color": accentColor } as React.CSSProperties)
+                              : undefined
+                  }
+            >
+                  <ChevronRight style={{ width: 13, height: 13 }} />
+            </button>
+      );
+}
+
 export const TaskCard = React.memo(function TaskCard({
       task,
       col,
@@ -205,6 +301,8 @@ export const TaskCard = React.memo(function TaskCard({
       currentUserId,
       onToggleExpanded,
       reserveLeadingSlot,
+      onAdvanceTask,
+      advanceColor,
 }: Props) {
       const isInProgress = col.id === "in-progress";
       const isDone = col.id === "done";
@@ -262,6 +360,21 @@ export const TaskCard = React.memo(function TaskCard({
       const thumbnailUrl = firstImage
             ? `/api/tasks/${task.id}/files/${encodeURIComponent(firstImage.name)}`
             : null;
+
+      // Hover advance control (302e9cab): destination lane resolved once;
+      // nothing renders on terminal lanes or when the board passes no path.
+      const advanceStatus = nextLaneStatus(col.id);
+      const advanceLabel = nextLaneLabel(col.id);
+      const advanceButton =
+            advanceStatus && advanceLabel && onAdvanceTask ? (
+                  <AdvanceButton
+                        taskId={task.id}
+                        nextStatus={advanceStatus}
+                        nextLabel={advanceLabel}
+                        accentColor={advanceColor}
+                        onAdvance={onAdvanceTask}
+                  />
+            ) : null;
 
       function handleDragStart(e: React.DragEvent) {
             // Capture the element before the dispatch returns — React nulls
@@ -378,6 +491,10 @@ export const TaskCard = React.memo(function TaskCard({
                                           {childCount}
                                     </button>
                               )}
+                              {/* Advance (302e9cab) sits before the copy pill so the
+                                  copy pill stays flush right. Compact rows carry no
+                                  copy pill; the advance control caps the row. */}
+                              {advanceButton}
                               {/* No CopyIdButton in compact view (owner call 0a2fa3d6):
                                   the pill keeps its 22px box while invisible. Done-lane
                                   cards in board view keep theirs. */}
@@ -450,11 +567,13 @@ export const TaskCard = React.memo(function TaskCard({
                         >
                               {task.title}
                         </span>
+                        {/* Advance (302e9cab) precedes the copy pill so copy
+                            stays flush right; same write path as a column drop. */}
+                        {advanceButton}
                         <CopyIdButton taskId={task.id} />
                   </div>
 
-                  {/* Description + screenshot thumbnail */}
-                  {(task.description || thumbnailUrl) && (
+                  {/* Description + screenshot thumbnail */}                  {(task.description || thumbnailUrl) && (
                         <div style={DESC_THUMB_ROW_STYLE}>
                               {task.description && (
                                     <div style={DESC_TEXT_STYLE}>
