@@ -10,7 +10,7 @@ describe("getOverlayScript", () => {
     expect(script).toContain("document.currentScript");
     expect(script).toContain("_vfScriptSrc");
     expect(script).toContain("_vfOrigin");
-    expect(script).toContain("window.location.host"); // fallback for inline injection
+    expect(script).toContain("window.location.hostname"); // inline fallback keeps the page hostname but uses the generated port (cba03995)
   });
 
   it("returns a non-empty string", () => {
