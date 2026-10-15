@@ -34,7 +34,10 @@ interface RelationsSectionProps {
     targetId?: string,
     position?: "before" | "after",
   ) => void;
-  /** Called when the user confirms unlink (removes parent link, never deletes). */
+  /** Called when the user confirms unlink (removes parent link, never deletes).
+   * When absent the CHILDREN tree renders no Unlink button: the parent link
+   * lives on the CHILD task, so only the host (which can patch the child)
+   * can unlink — a local edit of this task's links would be a silent no-op. */
   onDetach?: (taskId: string) => void;
 }
 
@@ -266,7 +269,10 @@ export default function RelationsSection({
               allTasks={safeTasks}
               variant="detail"
               onOpen={(child) => onOpenTask?.(child)}
-              onRemove={handleRemoveChildLink}
+              // Gated on onDetach (same contract as TaskCard): without a host
+              // detach the button would open a confirm that cannot remove
+              // anything (ticket 2fe91e15) — honest absence beats silent no-op.
+              onRemove={onDetach ? handleRemoveChildLink : undefined}
               dragIntent={treeIntent}
               onTreeIntent={handleTreeIntent}
               isDragging={panelDragActive}
@@ -447,16 +453,13 @@ export default function RelationsSection({
         onCancel={() => setConfirmRemove(null)}
         onConfirm={() => {
           if (!confirmRemove) return;
-          if (onDetach) {
-            onDetach(confirmRemove.childId);
-          } else {
-            // Fallback: direct link removal (no server detach)
-            const idx = links.findIndex(
-              (l) =>
-                l?.type === "parent" && l?.taskId === confirmRemove.childId,
-            );
-            if (idx >= 0) handleRemove(idx);
-          }
+          // No local fallback: the parent link lives on the CHILD task, so
+          // only the host's onDetach (which patches the child) can remove
+          // it. The old fallback searched THIS task's links for a parent
+          // link to the child — the wrong side — and silently no-op'd
+          // (ticket 2fe91e15). Unreachable without onDetach (no button),
+          // kept total so a future caller cannot reintroduce the trap.
+          onDetach?.(confirmRemove.childId);
           setConfirmRemove(null);
         }}
       />

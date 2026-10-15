@@ -443,4 +443,70 @@ describe("RelationsSection", () => {
       expect(screen.queryByText("Child of →")).toBeNull();
     });
   });
+
+  describe("children unlink (ticket 2fe91e15)", () => {
+    const parentWithChild = () => {
+      const task = makeTask("p1", "Parent");
+      const child = makeTask("c1", "Child 1", [
+        { taskId: "p1", type: "parent" },
+      ]);
+      return { task, child };
+    };
+
+    it("without onDetach the children tree renders no Unlink button (honest absence, never a silent no-op)", () => {
+      const { task, child } = parentWithChild();
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, child]}
+          onUpdateLinks={vi.fn()}
+        />,
+      );
+
+      const children = document.querySelector(
+        '[data-role="relation-group-children"]',
+      )!;
+      // The child row itself still renders …
+      expect(
+        children.querySelector('[data-task-id="c1"]'),
+      ).not.toBeNull();
+      // … but no unlink affordance: the parent link lives on the CHILD,
+      // so a host without onDetach cannot remove it. Rendering the button
+      // anyway used to open a confirm that silently did nothing.
+      expect(
+        children.querySelector("button.relation-remove"),
+      ).toBeNull();
+    });
+
+    it("with onDetach, confirming calls onDetach(childId) and never edits this task's links", () => {
+      const { task, child } = parentWithChild();
+      const onDetach = vi.fn();
+      const onUpdateLinks = vi.fn();
+      render(
+        <RelationsSection
+          task={task}
+          allTasks={[task, child]}
+          onUpdateLinks={onUpdateLinks}
+          onDetach={onDetach}
+        />,
+      );
+
+      const children = document.querySelector(
+        '[data-role="relation-group-children"]',
+      )!;
+      fireEvent.click(
+        within(children as HTMLElement).getByText("Unlink"),
+      );
+      expect(screen.getByText("Unlink child?")).toBeInTheDocument();
+
+      fireEvent.click(document.querySelector("#confirm-modal-confirm")!);
+
+      expect(onDetach).toHaveBeenCalledTimes(1);
+      expect(onDetach).toHaveBeenCalledWith("c1");
+      // The removal targets the CHILD's links via the host — this task's
+      // own links array must stay untouched.
+      expect(onUpdateLinks).not.toHaveBeenCalled();
+      expect(screen.queryByText("Unlink child?")).toBeNull();
+    });
+  });
 });
