@@ -177,6 +177,20 @@ const CARD_TITLE_ROW_STYLE: React.CSSProperties = {
       gap: 5,
       minWidth: 0,
 };
+/**
+ * Top-right actions cluster (ticket 37b82fba): the advance chevron and the
+ * copy pill sit in their own tight pair (2px) instead of inheriting the
+ * title row's 5px rhythm, so the pair reads as one compact cluster and
+ * takes less of the title's width. Both buttons keep their in-flow 22px
+ * boxes — the pair reserves the same space at rest and on hover, so the
+ * card rect still cannot shift (2aefa368 contract).
+ */
+const CARD_ACTIONS_STYLE: React.CSSProperties = {
+      display: "flex",
+      alignItems: "center",
+      gap: 2,
+      flexShrink: 0,
+};
 const CARD_TITLE_TEXT_STYLE: React.CSSProperties = {
       fontSize: 11.5,
       fontWeight: 600,
@@ -614,10 +628,13 @@ export const TaskCard = React.memo(function TaskCard({
                         >
                               {task.title}
                         </span>
-                        {/* Advance (302e9cab) precedes the copy pill so copy
-                            stays flush right; same write path as a column drop. */}
-                        {advanceButton}
-                        <CopyIdButton taskId={task.id} />
+                        {/* Actions cluster (37b82fba): advance precedes the
+                            copy pill so copy stays flush right; same write
+                            path as a column drop. */}
+                        <div style={CARD_ACTIONS_STYLE}>
+                              {advanceButton}
+                              <CopyIdButton taskId={task.id} />
+                        </div>
                   </div>
 
                   {/* Description + screenshot thumbnail */}                  {(task.description || thumbnailUrl) && (

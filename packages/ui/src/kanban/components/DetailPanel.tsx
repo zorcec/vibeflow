@@ -847,28 +847,64 @@ export function DetailPanel({
     ]);
   }
 
+  // Optimistic append (fa0d3d0e): the new row renders instantly with the
+  // feed's enter animation while the mutation is in flight — old entries
+  // stay visible at all times (CommentsList keeps saved rows during
+  // refetches) and the server list reconciles the provisional id below.
+  // A failed send drops the provisional row and reloads the saved list.
   async function handleSubmitComment() {
     if (!task || !commentInput.trim()) return;
+    const body = commentInput.trim();
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimistic: Comment = {
+      id: tempId,
+      author: gitUserName,
+      text: body,
+      createdAt: new Date().toISOString(),
+      isOwnComment: true,
+    };
+    setCommentInput("");
+    setComments((prev) => [...prev, optimistic]);
+    setCommentCount((n) => n + 1);
     setCommentSubmitting(true);
     try {
-      await api.addComment(task.id, commentInput.trim());
-      setCommentInput("");
+      await api.addComment(task.id, body);
       await loadComments(task.id);
+    } catch {
+      setComments((prev) => prev.filter((c) => c.id !== tempId));
+      await loadComments(task.id).catch(() => null);
     } finally {
       setCommentSubmitting(false);
     }
   }
 
+  // Optimistic edit: the saved text stays on screen with the new text
+  // applied in place — never a blank feed — and the refetch reconciles.
+  // A failed edit reloads the server text (the in-place draft in
+  // CommentsList editing state is untouched by the list swap).
   async function handleEditComment(comment: Comment, newText: string) {
     if (!task) return;
-    await api.updateComment(task.id, comment.id, newText);
-    await loadComments(task.id);
+    setComments((prev) =>
+      prev.map((c) => (c.id === comment.id ? { ...c, text: newText } : c)),
+    );
+    try {
+      await api.updateComment(task.id, comment.id, newText);
+    } finally {
+      await loadComments(task.id).catch(() => null);
+    }
   }
 
+  // Optimistic delete: the row leaves at once; a failed delete reloads the
+  // server list, which restores the row instead of dropping it silently.
   async function handleDeleteComment(comment: Comment) {
     if (!task) return;
-    await api.deleteComment(task.id, comment.id);
-    await loadComments(task.id);
+    setComments((prev) => prev.filter((c) => c.id !== comment.id));
+    setCommentCount((n) => Math.max(0, n - 1));
+    try {
+      await api.deleteComment(task.id, comment.id);
+    } finally {
+      await loadComments(task.id).catch(() => null);
+    }
   }
 
   /**

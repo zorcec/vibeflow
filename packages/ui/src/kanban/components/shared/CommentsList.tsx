@@ -387,12 +387,17 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
     }
   }, [visibleActivity]);
 
-  // Scroll to top when activity first loads (newest-first order)
+  // Scroll to top when activity FIRST loads (newest-first order). Background
+  // refreshes must not yank the scroll (fa0d3d0e): only the empty -> loaded
+  // transition scrolls; every later refetch keeps the user's position.
+  const prevCountRef = React.useRef(visibleActivity.length);
   React.useEffect(() => {
     const justFinishedLoading = prevLoadingRef.current && !loading;
     prevLoadingRef.current = loading;
+    const wasEmpty = prevCountRef.current === 0;
+    prevCountRef.current = visibleActivity.length;
     if (!listRef.current) return;
-    if (justFinishedLoading) {
+    if (justFinishedLoading && wasEmpty) {
       requestAnimationFrame(() => {
         if (listRef.current) listRef.current.scrollTop = 0;
       });
@@ -407,18 +412,31 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
     }
   }, [editingId]);
 
-  if (loading) {
+  // Stale-while-revalidate (fa0d3d0e): a refetch must never blank entries
+  // the customer already sees. The full Loading/Failed states render only
+  // when there is nothing to keep on screen; otherwise the saved list stays
+  // and a slim inline note carries the refresh state.
+  const hasActivity = activity.length > 0;
+  if (loading && !hasActivity) {
     return <p style={{ color: 'var(--t-text-body)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>Loading…</p>;
   }
-  if (error) {
+  if (error && !hasActivity) {
     return <p style={{ color: 'var(--t-danger-strong)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>Failed to load.</p>;
   }
-  if (activity.length === 0) {
+  if (!hasActivity) {
     return <p style={{ color: 'var(--t-text-body)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No activity yet.</p>;
   }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {(loading || (error && hasActivity)) && (
+        <p
+          id={loading ? 'dp-activity-updating' : 'dp-activity-stale'}
+          style={{ color: loading ? 'var(--t-text-faint)' : 'var(--t-danger-strong)', fontSize: 10, textAlign: 'center', padding: '2px 0', flexShrink: 0 }}
+        >
+          {loading ? 'Updating…' : 'Couldn\u2019t refresh — showing saved entries.'}
+        </p>
+      )}
       {/* Activity header — eye icon toggle for system updates, only shown when updates exist */}
       {updateCount > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0 4px', flexShrink: 0, borderBottom: '1px solid var(--t-border)', marginBottom: 4 }}>

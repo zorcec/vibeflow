@@ -109,7 +109,11 @@ export function FilesList({
       </div>
     ) : null;
 
-  if (loading) {
+  // Stale-while-revalidate (fa0d3d0e): a refetch must never blank rows the
+  // customer already sees (same contract as the activity feed). The full
+  // Loading/Failed states render only when there is nothing to keep.
+  const hasRows = files.length > 0 || pendingFiles.length > 0;
+  if (loading && !hasRows) {
     return (
       <>
         {pendingTiles}
@@ -126,7 +130,7 @@ export function FilesList({
       </>
     );
   }
-  if (error) {
+  if (error && !hasRows) {
     return (
       <>
         {pendingTiles}
@@ -186,6 +190,15 @@ export function FilesList({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {/* In-flight pastes/uploads — visible until the stored file renders. */}
       {pendingTiles}
+      {/* Refresh state stays inline: saved rows are never blanked (fa0d3d0e). */}
+      {(loading || (error && hasRows)) && (
+        <p
+          id={loading ? "dp-files-updating" : "dp-files-stale"}
+          style={{ color: loading ? "var(--t-text-faint)" : "var(--t-danger-strong)", fontSize: 10, textAlign: "center", padding: "2px 0" }}
+        >
+          {loading ? "Updating…" : "Couldn\u2019t refresh — showing saved files."}
+        </p>
+      )}
       {/* User attachments */}
       {userFiles.map(renderFile)}
 
