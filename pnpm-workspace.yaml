@@ -2,6 +2,7 @@ packages:
   - "packages/*"
 
 allowBuilds:
+  '@scarf/scarf': false
   esbuild: true
 
 onlyBuiltDependencies:
