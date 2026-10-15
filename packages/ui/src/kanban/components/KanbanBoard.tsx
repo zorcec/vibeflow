@@ -52,6 +52,49 @@ const COLUMNS: Column[] = [
 
 export { COLUMNS };
 
+/** Flex gap of `.column-scroll` (kanban.css) — every card AND the overflow
+ * chip is separated by one of these, so N cards + chip need N gaps. */
+export const DONE_FIT_COLUMN_GAP = 5;
+/** Bottom pad of `.column-scroll` (kanban.css) — part of clientHeight, so it
+ * must be reserved alongside the chip. */
+export const DONE_FIT_SCROLL_PAD_BOTTOM = 8;
+/** Natural height of the done lane's `+N more` overflow chip (8fbdb8c8).
+ *
+ * The chip is a plain block div with inline `padding: 11px 13px`,
+ * `font-size: 12px`, `line-height: 1.4` and a 2px border, rendering one
+ * line: 11 + 11 + 12.8 + 2 * 2 = 42.8px measured in Chromium against the
+ * real stylesheet (38.8 without theme vars, + 4 border with them). 44
+ * adds a 1px guard so sub-pixel rounding can never push the lane back
+ * into overflow. The unit test pins the inline literals this derives
+ * from, so a chip restyle goes red here instead of silently clipping
+ * the lane again. */
+export const DONE_FIT_CHIP_H = 44;
+/** Space the fit count must keep free below the last card: the chip, its
+ * flex gap, and the scroll container's bottom padding. */
+export const DONE_FIT_CHIP_RESERVE =
+  DONE_FIT_CHIP_H + DONE_FIT_COLUMN_GAP + DONE_FIT_SCROLL_PAD_BOTTOM;
+
+/** How many done cards fit above the `+N more` chip without overflowing
+ * the lane's hidden-overflow scroll container (8fbdb8c8).
+ *
+ * The done scroll container is `overflow-y: hidden` (it cannot scroll by
+ * design), so the count must satisfy
+ * `fit * (cardH + gap) + chipReserve <= colHeight` exactly. The previous
+ * revision reserved only 29px (`CHIP_H - gap` with `CHIP_H = 34`), ~27px
+ * short of the real 56px; at short viewport heights the excess passed
+ * flex-shrink's min-content floor and the chip was cut off. Tall
+ * viewports masked it: flex-shrink absorbed the few px per card. */
+export function doneLaneFitCount(colHeight: number, cardH: number): number {
+  if (!(cardH > 0) || !(colHeight > 0)) return 0;
+  return Math.max(
+    1,
+    Math.floor(
+      Math.max(0, colHeight - DONE_FIT_CHIP_RESERVE) /
+        (cardH + DONE_FIT_COLUMN_GAP),
+    ),
+  );
+}
+
 const SKELETON_COUNT = 3;
 
 function SkeletonCard() {
@@ -1030,17 +1073,10 @@ function KanbanColumn({
   // arrives. Once measured, the done lane fits to the real screen height.
   const DONE_LIMIT = 10;
   const isDone = col.id === "done";
-  const CHIP_H = 34;
-  const COLUMN_GAP = 5;
   const measured =
     isDone && cardH > 0 && colHeight > 0 && !isDragging && !isLoading;
   const fitCount = measured
-    ? Math.max(
-        1,
-        Math.floor(
-          Math.max(0, colHeight - CHIP_H + COLUMN_GAP) / (cardH + COLUMN_GAP),
-        ),
-      )
+    ? doneLaneFitCount(colHeight, cardH)
     : DONE_LIMIT;
   // Owner rule: only the done lane fits to screen; every other lane renders
   // all tasks with normal scrolling.
