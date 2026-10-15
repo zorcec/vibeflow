@@ -175,9 +175,24 @@ export interface ServeInstance {
 
 type BroadcastFn = (data: Record<string, unknown>) => void;
 
+/** Panel data parts a tasks-updated broadcast invalidates. The open detail
+ * panel refetches ONLY the listed parts (coalesced to one round) — absence
+ * of `changed` means no panel refetch is needed, just the board list reload.
+ * File add/remove also writes a system comment trace, so those broadcasts
+ * list both parts; screenshot set/clear only touches task fields (`task`). */
+type PanelChangedPart = "comments" | "files" | "task";
+
 /** Broadcast a tasks-updated event, optionally scoped to a specific task. */
-function broadcastTaskUpdated(broadcast: BroadcastFn, taskId?: string): void {
-  broadcast({ type: "tasks-updated", ...(taskId && { taskId }) });
+function broadcastTaskUpdated(
+  broadcast: BroadcastFn,
+  taskId?: string,
+  changed?: PanelChangedPart[],
+): void {
+  broadcast({
+    type: "tasks-updated",
+    ...(taskId && { taskId }),
+    ...(changed && { changed }),
+  });
 }
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
@@ -859,7 +874,7 @@ function registerTaskApi(
       undefined,
       validSource,
     );
-    broadcastTaskUpdated(broadcast, id);
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -875,7 +890,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(broadcast, id);
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -886,7 +901,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(broadcast, id);
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true });
   });
 
@@ -950,7 +965,9 @@ function registerTaskApi(
         "system",
         "web",
       );
-      broadcastTaskUpdated(broadcast, id);
+      // A file op also writes a system comment trace above, so both panel
+      // parts are stale (ticket d4c533f9).
+      broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
       res.json({ success: true, file: info });
     },
   );
@@ -977,7 +994,9 @@ function registerTaskApi(
       "system",
       "web",
     );
-    broadcastTaskUpdated(broadcast, id);
+    // The removal trace above is a comment write, so both panel parts
+    // are stale (ticket d4c533f9).
+    broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
     res.json({ success: true });
   });
 
@@ -1010,7 +1029,9 @@ function registerTaskApi(
         Buffer.from(screenshot, "base64"),
       );
       updateTask(projectDir, id, { screenshot: baseline } as Partial<Task>);
-      broadcastTaskUpdated(broadcast, id);
+      // Screenshot attaches only touch task fields — no comments/files
+      // refetch needed (ticket d4c533f9).
+      broadcastTaskUpdated(broadcast, id, ["task"]);
       res.json({ success: true, screenshot: baseline });
       return;
     }
@@ -1024,7 +1045,7 @@ function registerTaskApi(
       join(screenshotsDir, filename),
       Buffer.from(screenshot, "base64"),
     );
-    broadcastTaskUpdated(broadcast, id);
+    broadcastTaskUpdated(broadcast, id, ["task"]);
     res.json({ success: true, screenshot: filename, proof: true });
   });
 
@@ -1040,7 +1061,7 @@ function registerTaskApi(
       unlinkSync(filePath);
     }
     updateTask(projectDir, id, { screenshot: undefined } as Partial<Task>);
-    broadcastTaskUpdated(broadcast, id);
+    broadcastTaskUpdated(broadcast, id, ["task"]);
     res.json({ success: true });
   });
 
