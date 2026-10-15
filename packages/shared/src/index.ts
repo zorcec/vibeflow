@@ -16,6 +16,8 @@ export type {
   DocLeaveMessage,
   DocClientMessage,
 } from "./collab-types";
+// Value export (not `export type`): the ws server emits this subtype.
+export { BOARD_REVISION_EVENT_TYPE } from "./collab-types";
 
 // Schemas
 export {
