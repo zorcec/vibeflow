@@ -553,10 +553,10 @@ export function DetailPanel({
     }
 
     if (task) {
-      // Load badge counts eagerly
-      void loadBadgeCounts(task.id);
-      // Load files eagerly so the details tab screenshot preview is always up to date
-      void loadFiles(task.id);
+      // One round: badge counts + the files list the details tab
+      // previews (ticket d4c533f9) — the old badge+files double load
+      // issued the files fetch twice for the same end state.
+      void loadPanelData(task.id);
     }
 
     // Focus the title — but never by taking focus away from a control the user
@@ -638,26 +638,70 @@ export function DetailPanel({
     task?.branchName,
   ]);
 
-  // Refetch comments/badge counts when another user adds a comment (commentVersion bumps)
+  // Refresh panel data when the host bumps a version counter (ticket
+  // d4c533f9). Each changed part refetches exactly once: the visible list
+  // when its tab is open, otherwise just its count (the other part is
+  // unchanged, so its count is current) — a coalesced both-bump is one
+  // comments fetch + one files fetch, never two full badge rounds.
+  // The ref skips the first run: the open effect above already loaded.
+  const prevVersionsRef = React.useRef<{
+    comments?: number;
+    files?: number;
+  }>({});
   React.useEffect(() => {
-    if (!open || !task || commentVersion === undefined) return;
-    if (activeTab === "comments") {
-      loadComments(task.id);
-    } else {
-      void loadBadgeCounts(task.id);
+    const prev = prevVersionsRef.current;
+    prevVersionsRef.current = {
+      comments: commentVersion,
+      files: fileVersion,
+    };
+    if (!open || !task) return;
+    if (commentVersion === undefined || fileVersion === undefined) return;
+    if (prev.comments === undefined || prev.files === undefined) return;
+    if (commentVersion !== prev.comments) {
+      if (activeTab === "comments") void loadComments(task.id);
+      else void refreshCommentCount(task.id);
     }
-  }, [commentVersion]);
+    if (fileVersion !== prev.files) {
+      if (activeTab === "files") void loadFiles(task.id);
+      else void refreshFileCount(task.id);
+    }
+  }, [commentVersion, fileVersion, activeTab, open, task?.id]);
 
-  // Refetch files/badge counts when another user adds or removes a file
-  // (fileVersion bumps). Mirrors the commentVersion effect above.
-  React.useEffect(() => {
-    if (!open || !task || fileVersion === undefined) return;
-    if (activeTab === "files") {
-      loadFiles(task.id);
-    } else {
-      void loadBadgeCounts(task.id);
+  async function refreshCommentCount(taskId: string) {
+    try {
+      const data = await api.getComments(taskId);
+      setCommentCount(data.comments?.length ?? 0);
+    } catch {
+      /* network error — count stays stale */
     }
-  }, [fileVersion]);
+  }
+
+  async function refreshFileCount(taskId: string) {
+    try {
+      const data = await api.getFiles(taskId);
+      setFileCount(data.files?.length ?? 0);
+    } catch {
+      /* network error — count stays stale */
+    }
+  }
+
+  /** One comments fetch + one files fetch for a freshly opened panel:
+   * badge counts plus the files list — the same end state the old
+   * badge+files double load produced, minus the duplicate files request. */
+  async function loadPanelData(taskId: string) {
+    try {
+      const [cd, fd] = await Promise.all([
+        api.getComments(taskId),
+        api.getFiles(taskId),
+      ]);
+      setCommentCount(cd.comments?.length ?? 0);
+      const next = fd.files ?? [];
+      setFiles(next);
+      setFileCount(next.length);
+    } catch {
+      /* network error — counts stay at their reset zero, lists stay empty */
+    }
+  }
 
   async function loadBadgeCounts(taskId: string) {
     try {
