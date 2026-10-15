@@ -641,10 +641,14 @@ body {
 #detail-panel-container.resizing {
  box-shadow: -12px 0 32px rgba(2, 8, 23, 0.6);
 }
+/* Fullscreen fills the positioned board root (both surfaces render the
+   container inside a relative board wrapper), so the panel expands within
+   the content area and never covers the hosted left navigation (5f919c5e).
+   `fixed`+`100vw` escaped to the viewport and buried the sidebar. */
 #detail-panel-container.fullscreen {
- position: fixed;
+ position: absolute;
  inset: 0;
- width: 100vw;
+ width: 100%;
  max-width: none;
  min-width: 0;
  z-index: 40;

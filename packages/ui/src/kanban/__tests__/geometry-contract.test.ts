@@ -91,3 +91,17 @@ describe("detail ID tile aligns with the Created tile (2e6b6b1f)", () => {
     expect(decl(found[0], "padding")).toBe("0");
   });
 });
+
+describe("fullscreen panel stays inside the content area (5f919c5e)", () => {
+  it("the fullscreen container is board-absolute, never viewport-fixed", () => {
+    // `position: fixed; inset: 0; width: 100vw` escaped the relative
+    // board root and buried the hosted left navigation. Absolute keeps
+    // the panel inside the positioned board wrapper on both surfaces.
+    // Pre-fix this block reads `position: fixed` / `width: 100vw`.
+    const found = blocks("#detail-panel-container.fullscreen");
+    expect(found).toHaveLength(1);
+    expect(decl(found[0], "position")).toBe("absolute");
+    expect(decl(found[0], "inset")).toBe("0");
+    expect(decl(found[0], "width")).toBe("100%");
+  });
+});
