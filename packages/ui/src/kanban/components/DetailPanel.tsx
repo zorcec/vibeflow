@@ -760,7 +760,12 @@ export function DetailPanel({
       await handleSubmitComment();
     }
     if (isAdd) {
-      const newTaskId = await onCreate({
+      // Close first: the create round-trip must not hold the panel open.
+      // The board already paints the optimistic card synchronously inside
+      // onCreate, so awaiting here only left the panel sitting open with no
+      // progress state while the card hid behind it (ticket 7fd3280b).
+      const files = pendingPasteFiles;
+      const created = onCreate({
         title: title.trim(),
         description: description.trim() || title.trim(),
         status,
@@ -769,14 +774,19 @@ export function DetailPanel({
         selector: "/",
         tags: draftTags.length > 0 ? draftTags : undefined,
       });
-      // Upload any files pasted during task creation
-      if (newTaskId && pendingPasteFiles.length > 0) {
-        for (const file of pendingPasteFiles) {
-          await api.uploadFile(newTaskId, file).catch(() => null);
-        }
-        setPendingPasteFiles([]);
-      }
+      setPendingPasteFiles([]);
       onClose();
+      // Pasted files still need the real id — upload in the background
+      // once the create resolves. A refused create yields no id, so the
+      // files are dropped along with the retracted optimistic card.
+      void created
+        .then((newTaskId) => {
+          if (!newTaskId || files.length === 0) return;
+          for (const file of files) {
+            void api.uploadFile(newTaskId, file).catch(() => null);
+          }
+        })
+        .catch(() => null);
     } else {
       autoSave();
     }
