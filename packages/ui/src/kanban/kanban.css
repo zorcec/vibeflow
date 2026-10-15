@@ -1416,11 +1416,16 @@ body.proto-resizing-panel {
    this stylesheet rule applies. */
 .child-row-wrap--inline {
  padding-left: 10px;
- /* 957eda08: the actions strip (copy tab) sits flush at the row's
-  very right edge — the 8px used to park the tab off the edge and
-  read as a floating pill. Row content keeps its own 8px inset from
-  .child-link-row--inline, so only the strip moves. */
- padding-right: 0;
+ padding-right: 8px;
+}
+/* 957eda08: the actions strip (copy tab) sits flush at the row's very
+   right edge — the strip bleeds into the wrapper's 8px right pad via a
+   negative margin, so the wrapper's pinned content inset (9ec6fbbb
+   geometry contract) is untouched and only the strip moves. Row content
+   keeps its own 8px inset from .child-link-row--inline. No inline
+   margin-right exists on the strip, so no !important is needed. */
+.child-row-wrap--inline .child-row-actions {
+ margin-right: -8px;
 }
 /* 957eda08: the copy tab blends into the row's right edge — square on
    the right side instead of the inline edge style's rounded outer
