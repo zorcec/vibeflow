@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, Page, Request } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1049,42 +1049,24 @@ describe("Kanban board", () => {
   });
 
   it("shows file-removal activity and removes deleted comment content", async () => {
-    // TEMPORARY attribution probe for 17d42681 (reverted before submit):
-    // traps every img src assignment for the removed file with phase info.
-    await page.evaluate(() => {
-      const win = window as unknown as Record<string, unknown>;
-      win.__srcSets = [] as Array<Record<string, unknown>>;
-      const trap = (img: HTMLImageElement, value: string, how: string) => {
-        if (typeof value === "string" && value.includes("trace-test")) {
-          (win.__srcSets as Array<Record<string, unknown>>).push({
-            how,
-            role: img.getAttribute("data-role"),
-            inCard: !!img.closest("[data-task-id]"),
-            inScreenshotBox: !!img.closest("#dp-screenshot-preview"),
-            panelOpen: !!document.querySelector("#detail-panel.open"),
-          });
-        }
-      };
-      const proto = HTMLImageElement.prototype;
-      const desc = Object.getOwnPropertyDescriptor(proto, "src");
-      if (desc?.set) {
-        Object.defineProperty(proto, "src", {
-          configurable: true,
-          enumerable: desc.enumerable,
-          get: desc.get,
-          set(v: string) {
-            trap(this as HTMLImageElement, v, "setter");
-            desc.set!.call(this, v);
-          },
-        });
-      }
-      const origSetAttr = proto.setAttribute;
-      proto.setAttribute = function (name: string, value: string) {
-        if (name.toLowerCase() === "src")
-          trap(this as unknown as HTMLImageElement, value, "setAttribute");
-        return origSetAttr.call(this, name, value);
-      };
-    });
+    // Ticket 17d42681 regression net (stronger than tolerating a 404):
+    // once the file is gone, NO surface may request its asset at all.
+    // A request issued while the file is still live (a 200) is legitimate,
+    // so the list is cleared right after the deletes below are
+    // acknowledged — everything recorded after that point must be empty.
+    // (Attribution, now settled: the requester was the card thumbnail
+    // `img[data-role="task-thumb"]` rendering a board `task.files` entry
+    // from a list response served fresh but resolved after a later op had
+    // deleted the file; the details screenshot box was already clean via
+    // 21f1642. The card's THUMBNAIL_STABLE_MS gate keeps such a burst-
+    // lived entry from ever becoming an `<img>` — a removed file's name
+    // never survives the window, so no request is made for its asset.)
+    const removedAssetRequests: string[] = [];
+    const onRemovedAssetRequest = (req: Request) => {
+      if (req.url().includes("/files/trace-test.png"))
+        removedAssetRequests.push(req.url());
+    };
+    page.on("request", onRemovedAssetRequest);
     const taskRes = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1133,6 +1115,11 @@ describe("Kanban board", () => {
 
     // Delete the comment
     await fetch(`${API}/${taskId}/comments/${commentId}`, { method: "DELETE" });
+
+    // The file is gone server-side from here on: any request for its asset
+    // recorded after this point is the 17d42681 defect (a 200 issued while
+    // the file was still live, recorded above, is legitimate).
+    removedAssetRequests.length = 0;
 
     // Open the task in the Kanban and navigate to comments tab
     await waitForTaskOnBoard(page, "Removal trace task");
@@ -1198,11 +1185,20 @@ describe("Kanban board", () => {
           deletedComment.text === "[Comment deleted]",
       ).toBe(true);
     }
-    // TEMPORARY attribution probe dump for 17d42681 (reverted before submit).
-    const srcSets = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>).__srcSets,
-    );
-    console.log("SRC_SETS_REAL_SPEC:" + JSON.stringify(srcSets));
+    // Ticket 17d42681 — no request may be made for the removed file's asset
+    // (stronger than tolerating its 404): give any late stale render a full
+    // settle window, then assert nothing referenced the deleted file — no
+    // network request since the deletes, and no <img> anywhere in the
+    // document still pointing at it (pre-fix the card thumbnail held exactly
+    // such an <img>, mounted from the resurrected board `task.files` entry).
+    await page.waitForTimeout(1_000);
+    page.off("request", onRemovedAssetRequest);
+    expect(removedAssetRequests).toEqual([]);
+    const staleImgSrc = await page.evaluate(() => {
+      const img = document.querySelector('img[src*="trace-test.png"]');
+      return img?.getAttribute("src") ?? null;
+    });
+    expect(staleImgSrc).toBeNull();
   });
 
   it("does not render left-side priority bullet in task cards", async () => {

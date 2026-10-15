@@ -75,6 +75,20 @@ function isImageFileName(name: string): boolean {
       return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(name);
 }
 
+/**
+ * How long the same image name must be continuously present in the board's
+ * `task.files` before the card mounts its thumbnail `<img>` (ticket
+ * 17d42681). A board list response can be served fresh yet resolve after a
+ * later op in the same burst deleted its files (upload→delete within
+ * milliseconds); mounting `<img>` from it requests the deleted asset and
+ * the error guard goes red. A removed file's entry never survives this
+ * window, so no request is ever made for it; a legit upload's thumbnail
+ * pops in after the window. 500ms is ~7x the observed localhost burst
+ * spread (tens of ms) with margin for loaded CI, and only ever delays the
+ * decorative thumbnail — board state itself still converges immediately.
+ */
+const THUMBNAIL_STABLE_MS = 500;
+
 function withHexAlpha(hexColor: string, alpha: number): string | undefined {
       if (!/^#[0-9a-fA-F]{6}$/.test(hexColor)) return undefined;
       const normalized = Math.max(0, Math.min(1, alpha));
@@ -357,8 +371,36 @@ export const TaskCard = React.memo(function TaskCard({
       const typeColor = getTaskTypeColor(task.type);
       const cardBgColor = resolveTaskCardBgColor(typeColor);
       const firstImage = task.files?.find((f) => isImageFileName(f.name));
-      const thumbnailUrl = firstImage
-            ? `/api/tasks/${task.id}/files/${encodeURIComponent(firstImage.name)}`
+      // Stability gate for the thumbnail (17d42681 — see THUMBNAIL_STABLE_MS).
+      // Identity is the image NAME (a string, so array-identity churn never
+      // restarts the window); only continuous presence across renders counts.
+      const firstImageName = firstImage?.name ?? null;
+      const [stableImageName, setStableImageName] = React.useState<
+            string | null
+      >(null);
+      React.useEffect(() => {
+            if (firstImageName === null) {
+                  // Entry gone (deleted) — drop a doomed thumbnail promptly.
+                  setStableImageName(null);
+                  return;
+            }
+            if (firstImageName === stableImageName) return;
+            const timer = setTimeout(
+                  () => setStableImageName(firstImageName),
+                  THUMBNAIL_STABLE_MS,
+            );
+            return () => clearTimeout(timer);
+      }, [firstImageName, stableImageName]);
+      const stableFirstImage =
+            stableImageName !== null
+                  ? (task.files?.find(
+                          (f) =>
+                                f.name === stableImageName &&
+                                isImageFileName(f.name),
+                    ) ?? null)
+                  : null;
+      const thumbnailUrl = stableFirstImage
+            ? `/api/tasks/${task.id}/files/${encodeURIComponent(stableFirstImage.name)}`
             : null;
 
       // Hover advance control (302e9cab): destination lane resolved once;
