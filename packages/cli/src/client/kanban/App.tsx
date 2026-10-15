@@ -1830,11 +1830,7 @@ export function App() {
                 setNavHistory([]);
                 setPanelState((p) => ({ ...p, open: false }));
               }}
-              onCreate={async (draft) => {
-                const taskId = await createTask(draft);
-                setPanelState((p) => ({ ...p, open: false }));
-                return taskId;
-              }}
+              onCreate={(draft) => createTask(draft)}
               onDelete={async (id) => {
                 const task = tasksRef.current.find((t) => t.id === id);
                 const childCount = tasksRef.current.filter((t) =>
