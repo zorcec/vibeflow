@@ -13,14 +13,19 @@ import { OVERLAY_BROWSER_BUNDLE } from "../overlay-bundle.gen.js";
 //     This works correctly even when the overlay is clicked on a page with a
 //     completely different host (e.g. wsl.localhost, 192.168.x.x, example.com).
 //
-//  2. Inline injection (CLI serving its own HTML files):
-//     document.currentScript has no src → fall back to window.location.host.
-//     The page is served by the CLI server itself, so window.location.host
-//     correctly reflects the server address (localhost:port or LAN IP:port).
+//  2. Inline injection (CLI serving its own HTML files, or a pasted/eval'd
+//     snippet with no script src):
+//     document.currentScript has no src → the page's own host is the API
+//     only when the ports agree (the CLI serving its own HTML). Otherwise
+//     (a snippet evaluated on a foreign page — bookmarklet/console eval,
+//     API-only mode) the page host 404s, so keep the page's hostname but
+//     use the port this script was generated for. Same-server pages resolve
+//     to exactly the old value (localhost:port or LAN IP:port).
 export function getOverlayScript(port: number): string {
   const config = `
 var _vfScriptSrc = document.currentScript && document.currentScript.src;
-var _vfOrigin = _vfScriptSrc ? new URL(_vfScriptSrc).origin : ('http://' + window.location.host);
+var _vfPort = '${port}';
+var _vfOrigin = _vfScriptSrc ? new URL(_vfScriptSrc).origin : (window.location.port === _vfPort ? 'http://' + window.location.host : 'http://' + window.location.hostname + ':' + _vfPort);
 var PROTO_CONFIG = {
   port: ${port},
   wsUrl: _vfOrigin.replace(/^http/, 'ws'),
