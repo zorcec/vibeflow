@@ -1,0 +1,12 @@
+{
+  "title": "Welcome to your Vibeflow board",
+  "description": "Sample task baked into the Glama container image so `vibeflow mcp --project /project` starts on a valid project (the server refuses a directory with no .git and no .vibeflow/). Mount your own repo over /project to serve your real board.",
+  "status": "todo",
+  "selector": "/",
+  "priority": "Medium",
+  "sortKey": "0000000001000000",
+  "id": "9f8e7d6c5b4a40382716253445566788",
+  "created": "2026-10-15T00:00:00.000Z",
+  "comments": [],
+  "files": []
+}

@@ -39,6 +39,9 @@ packages/prototyping/.stryker-tmp/
 
 # Internal task management (not for public)
 .vibeflow/
+# Exception: the baked Glama MCP image sample is a build artifact, not the
+# repo's task store — the Dockerfile COPYs it to /project/.vibeflow.
+!docker/mcp-sample/.vibeflow/
 
 # Code intelligence index
 .gitnexus/

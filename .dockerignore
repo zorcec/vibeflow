@@ -1,0 +1,14 @@
+# Keep the MCP image build context to what the source build needs.
+# Root-anchored (leading /) so the baked sample at
+# docker/mcp-sample/.vibeflow STAYS in context while the repo's own task
+# store (/.vibeflow) and history (/.git) never ship.
+/node_modules
+/packages/*/node_modules
+/packages/*/dist
+/.vibeflow
+/.git
+/coverage
+/playwright-report
+/website
+*.log
+.DS_Store
