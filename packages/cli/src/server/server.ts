@@ -104,6 +104,11 @@ import { OPENAPI_JSON } from "./openapi.gen.js";
 import { registerV0ReadAlias } from "./v0.js";
 import { registerDocsViewer } from "./docs.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
+import {
+  installCliProcessErrorHandlers,
+  registerClientErrorRoute,
+  reportCliError,
+} from "./cli-error-report.js";
 import type { FSWatcher } from "chokidar";
 
 /** Validates task IDs to prevent path traversal attacks. Task IDs are hex strings:
@@ -1620,15 +1625,24 @@ function registerTrpcApi(
 /**
  * Generic error handler middleware. Must be registered AFTER all routes.
  * Returns a plain JSON error without stack traces to prevent information disclosure.
+ *
+ * Ticket 5087f5e3: also reports the throw ONCE through the CLI error path
+ * (gated by the existing telemetry flag, message scrubbed) so a thrown
+ * route handler is never silent. The response is unchanged.
  */
 function useErrorHandler(app: express.Application): void {
   app.use(
     (
       err: Error,
-      _req: express.Request,
+      req: express.Request,
       res: express.Response,
       _next: express.NextFunction,
     ) => {
+      reportCliError(err, {
+        source: "server",
+        route: req.path,
+        statusCode: 500,
+      });
       console.error("[Vibeflow] Unhandled error:", err.message);
       res.status(500).json({ error: "Internal server error" });
     },
@@ -1800,6 +1814,10 @@ async function serveApiOnly(
   // git/`.vibeflow` rule lives at the CLI boundary (core/project-root.ts).
   assertSafeProjectDir(projectDir);
 
+  // Ticket 5087f5e3: process-level error reporting (idempotent — safe if
+  // both serve entrypoints run in one process, e.g. under tests).
+  installCliProcessErrorHandlers();
+
   // Check auth before registering any routes — online mode must never expose local task API.
   const token =
     options._testToken === undefined
@@ -1890,6 +1908,9 @@ async function serveApiOnly(
 
   registerKanbanRoute(app, options.port);
   registerCodecRoute(app);
+  // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
+  // Registered for online AND offline — the board is served in both.
+  registerClientErrorRoute(app);
   const serveUrls = resolveServeUrls(options.host ?? "localhost", options.port);
   registerInjectPage(
     app,
@@ -2094,6 +2115,9 @@ export async function serve(
 
   const { app, httpServer, wss, broadcast } = createBaseServer();
 
+  // Ticket 5087f5e3: process-level error reporting (idempotent).
+  installCliProcessErrorHandlers();
+
   const overlayScript = options.noOverlay
     ? null
     : getOverlayScript(options.port);
@@ -2176,6 +2200,8 @@ li{margin:8px 0}</style></head>
   registerKanbanRoute(app, options.port);
   registerCodecRoute(app);
   registerInjectPage(app, serveUrls);
+  // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
+  registerClientErrorRoute(app);
 
   // ── File watcher ─────────────────────────────────────────────────────────
   let watcher: FSWatcher | null = null;
