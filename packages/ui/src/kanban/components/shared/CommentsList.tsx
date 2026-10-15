@@ -427,15 +427,42 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
     return <p style={{ color: 'var(--t-text-body)', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No activity yet.</p>;
   }
 
+  // Refresh-state overlays (5a6fad12): the old in-flow "Updating…" line grew
+  // the column on every refetch and pushed every row down, then popped them
+  // back up when the fetch landed. Both states now float OVER the feed in a
+  // corner (absolute positioning takes them out of flow) so no row ever
+  // moves: the spinner sits top-right and is click-transparent, the stale
+  // notice docks bottom-right like a toast where it cannot cover the
+  // updates toggle. Ids and the stale copy are unchanged on purpose so
+  // existing selectors and assertions keep resolving.
+  const STALE_COPY = 'Couldn\u2019t refresh — showing saved entries.';
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {(loading || (error && hasActivity)) && (
-        <p
-          id={loading ? 'dp-activity-updating' : 'dp-activity-stale'}
-          style={{ color: loading ? 'var(--t-text-faint)' : 'var(--t-danger-strong)', fontSize: 10, textAlign: 'center', padding: '2px 0', flexShrink: 0 }}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}>
+      {loading && hasActivity && (
+        <span
+          id="dp-activity-updating"
+          role="status"
+          aria-label="Refreshing activity"
+          title="Refreshing activity…"
+          style={{ position: 'absolute', top: 4, right: 8, zIndex: 2, display: 'inline-flex', pointerEvents: 'none' }}
         >
-          {loading ? 'Updating…' : 'Couldn\u2019t refresh — showing saved entries.'}
-        </p>
+          {reduceMotion ? (
+            <span aria-hidden="true" style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', border: '2px solid var(--t-status-progress)' }} />
+          ) : (
+            <span className="spinner" aria-hidden="true" />
+          )}
+        </span>
+      )}
+      {!loading && error && hasActivity && (
+        <span
+          id="dp-activity-stale"
+          role="status"
+          aria-label={STALE_COPY}
+          title={STALE_COPY}
+          style={{ position: 'absolute', bottom: 4, right: 8, zIndex: 2, maxWidth: 'calc(100% - 16px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--t-danger-strong)', background: 'var(--t-card)', border: '1px solid color-mix(in srgb, var(--t-danger) 40%, transparent)', borderRadius: 999, padding: '2px 10px' }}
+        >
+          {STALE_COPY}
+        </span>
       )}
       {/* Activity header — eye icon toggle for system updates, only shown when updates exist */}
       {updateCount > 0 && (

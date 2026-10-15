@@ -14,7 +14,6 @@
  * from the document), and the empty cases guard the loading contract for a
  * freshly opened panel.
  */
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
@@ -38,7 +37,7 @@ function renderFeed(comments: Comment[], loading: boolean, error: string | null)
 }
 
 describe("activity feed keeps saved rows during a refresh", () => {
-  it("loading with saved comments keeps the old text and notes the refresh inline", () => {
+  it("loading with saved comments keeps the old text and shows a corner loader, not an in-flow line", () => {
     const { container } = renderFeed(
       [comment("c-1", "Saved entry", "2026-10-15T10:00:00.000Z")],
       true,
@@ -46,7 +45,15 @@ describe("activity feed keeps saved rows during a refresh", () => {
     );
     expect(container.textContent).toContain("Saved entry");
     expect(container.textContent).not.toContain("Loading…");
-    expect(container.querySelector("#dp-activity-updating")).not.toBeNull();
+    // 5a6fad12: the in-flow "Updating…" text is gone — a compact overlay
+    // spinner carries the state without taking column space.
+    expect(container.textContent).not.toContain("Updating");
+    const note = container.querySelector("#dp-activity-updating");
+    expect(note).not.toBeNull();
+    expect(note?.getAttribute("role")).toBe("status");
+    expect(note?.getAttribute("aria-label")).toBe("Refreshing activity");
+    expect(note?.querySelector(".spinner")).not.toBeNull();
+    expect((note as HTMLElement)?.style.position).toBe("absolute");
   });
 
   it("loading with no comments still shows the full Loading state", () => {
@@ -54,7 +61,7 @@ describe("activity feed keeps saved rows during a refresh", () => {
     expect(container.textContent).toContain("Loading…");
   });
 
-  it("a failed refresh with saved comments keeps the old text with a stale note", () => {
+  it("a failed refresh with saved comments keeps the old text with an overlay stale notice", () => {
     const { container } = renderFeed(
       [comment("c-1", "Saved entry", "2026-10-15T10:00:00.000Z")],
       false,
@@ -62,11 +69,61 @@ describe("activity feed keeps saved rows during a refresh", () => {
     );
     expect(container.textContent).toContain("Saved entry");
     expect(container.textContent).not.toContain("Failed to load.");
-    expect(container.querySelector("#dp-activity-stale")).not.toBeNull();
+    // 5a6fad12: the honest stale copy stays word-for-word, but floats over
+    // the feed instead of pushing rows down.
+    const stale = container.querySelector("#dp-activity-stale");
+    expect(stale).not.toBeNull();
+    expect(stale?.textContent).toContain(
+      "Couldn\u2019t refresh — showing saved entries.",
+    );
+    expect(stale?.getAttribute("role")).toBe("status");
+    expect((stale as HTMLElement)?.style.position).toBe("absolute");
   });
 
   it("a failed first load with no comments still shows Failed to load", () => {
     const { container } = renderFeed([], false, "failed");
     expect(container.textContent).toContain("Failed to load.");
+  });
+});
+
+describe("refresh loader honors prefers-reduced-motion", () => {
+  function setReducedMotion(matches: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: () => ({
+        matches,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+  }
+
+  it("spins by default and renders a static ring under reduced motion", () => {
+    // No matchMedia mock: the hook falls back to animated.
+    const animated = renderFeed(
+      [comment("c-1", "Saved entry", "2026-10-15T10:00:00.000Z")],
+      true,
+      null,
+    );
+    expect(
+      animated.container.querySelector("#dp-activity-updating .spinner"),
+    ).not.toBeNull();
+    animated.unmount();
+
+    setReducedMotion(true);
+    const reduced = renderFeed(
+      [comment("c-1", "Saved entry", "2026-10-15T10:00:00.000Z")],
+      true,
+      null,
+    );
+    const note = reduced.container.querySelector("#dp-activity-updating");
+    // The state signal stays (role + label) but nothing animates.
+    expect(note).not.toBeNull();
+    expect(note?.getAttribute("aria-label")).toBe("Refreshing activity");
+    expect(note?.querySelector(".spinner")).toBeNull();
+    reduced.unmount();
+    setReducedMotion(false);
   });
 });
