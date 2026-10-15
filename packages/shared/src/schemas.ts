@@ -93,6 +93,9 @@ export const updateTaskSchema = z.object({
       .max(100)
       .nullish(),
     author: z.string().max(255).nullish(),
+    // Branch tile (#dp-branch): DetailPanel sends this on status/review
+    // writes — without it zod strips the key and the tile never renders.
+    branchName: z.string().max(255).nullish(),
     // Tri-state agent attestation: true = verified correct, false = verified
     // wrong, null = clear to absent. Absent (omitted) leaves it untouched.
     verified: z.boolean().nullish(),
