@@ -112,7 +112,13 @@ body {
  overflow-y: hidden;
 }
 
-/* ── Task card ── */
+/* ── Task card ──
+   2aefa368: hover MUST NOT move the card. An earlier revision lifted
+   the card with `transform: translateY(-1px)` on :hover — a 1px jump on
+   every hover. Hover affordance is border + background + shadow only;
+   transforms never change layout but they do move the card's own box,
+   which is exactly what the owner reported. :active keeps its press
+   scale (mouse-down only, never hover). */
 .task-card {
  background: var(--t-card);
  border: 1px solid var(--t-border);
@@ -133,7 +139,6 @@ body {
  border-color: var(--t-border-strong);
  background: var(--t-hover);
  box-shadow: var(--t-shadow-card);
- transform: translateY(-1px);
 }
 .task-card:active {
  cursor: grabbing;
