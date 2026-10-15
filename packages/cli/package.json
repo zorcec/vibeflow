@@ -2,7 +2,7 @@
   "name": "@vibeflow-tools/cli",
   "version": "0.20.0",
   "mcpName": "io.github.zorcec/vibeflow",
-  "description": "A CLI and MCP Kanban for agentic development: annotate any UI element to open a ticket with its selector, file and line.",
+  "description": "Task management for AI coding agents: board, CLI and MCP tools, with UI annotation and verification built in.",
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <contact@vibeflow.tools>",
   "homepage": "https://www.vibeflow.tools",

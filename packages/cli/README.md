@@ -1,8 +1,8 @@
 # Vibeflow
 
-> **Tell your AI agent exactly what to fix — by clicking on it.**
+> **Task management for AI coding agents — with annotation and verification built in.**
 
-Vibeflow eliminates the back-and-forth of describing UI bugs in words. Click any element on a page to create a task with its exact CSS selector, URL, and source location. Your agent gets precise, actionable context — no "the button in the top right" needed.
+Vibeflow gives your coding agent sequenced, claimable work: tasks with hierarchy, an atomic `--next` claim, and a review gate with verification verdicts — on a local-first kanban board that stays in your repo. Clicking a UI element to file a ticket with its exact selector, URL, and source location is built in, so visual feedback arrives as structured tasks instead of prose.
 
 🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
 

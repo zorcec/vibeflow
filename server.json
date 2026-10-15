@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.zorcec/vibeflow",
   "title": "Vibeflow",
-  "description": "Kanban for agentic development over MCP — annotate any UI element into a ticket with file and line.",
+  "description": "Task management for AI coding agents over MCP — board, CLI tools, plus UI annotation.",
   "version": "0.20.0",
   "websiteUrl": "https://www.vibeflow.tools",
   "repository": {
@@ -50,7 +50,7 @@
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
       "license": "Apache-2.0",
-      "longDescription": "CLI and MCP server for working with AI coding agents. Annotate any UI element to open a ticket carrying its selector, file and line; the Kanban board tracks work from planned through verified.",
+      "longDescription": "Task management for AI coding agents over MCP and CLI. Agents claim sequenced tasks, implement, and submit for review; humans get a local-first kanban board. UI annotation files tickets with selector, file and line; verification gates the review.",
       "transport": "stdio, one process per project. An HTTP transport also exists (vibeflow serve, MCP at /api/mcp) but it is a local loopback server, not a public endpoint, so this manifest declares no remotes.",
       "authentication": "None. Local-first: no login is required and no API key is needed.",
       "toolsAtPinnedVersion": 12,
