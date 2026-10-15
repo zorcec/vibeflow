@@ -1416,7 +1416,20 @@ body.proto-resizing-panel {
    this stylesheet rule applies. */
 .child-row-wrap--inline {
  padding-left: 10px;
- padding-right: 8px;
+ /* 957eda08: the actions strip (copy tab) sits flush at the row's
+  very right edge — the 8px used to park the tab off the edge and
+  read as a floating pill. Row content keeps its own 8px inset from
+  .child-link-row--inline, so only the strip moves. */
+ padding-right: 0;
+}
+/* 957eda08: the copy tab blends into the row's right edge — square on
+   the right side instead of the inline edge style's rounded outer
+   corner. The tab carries its box inline (which outranks any plain
+   stylesheet rule), so the radius override needs !important; the
+   inline wrapper's corners are square already, so flush + square reads
+   as one surface. Popover rows keep their 6px outer rounding. */
+.child-row-wrap--inline .card-copy-id--child {
+ border-radius: 0 !important;
 }
 /* Continuous spine: inline/detail rows carry NO vertical padding, so the
    stretched in-flow guide spans touch across row boundaries instead of
