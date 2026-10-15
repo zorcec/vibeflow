@@ -118,7 +118,7 @@ note "==> [5/5] negative control (empty dir must be refused) ..."
 NEG_OUT="$(mktemp)"
 trap 'rm -f "$HANDSHAKE_OUT" "$HANDSHAKE_ERR" "$NEG_OUT"' EXIT
 docker run --rm --entrypoint sh "${IMAGE_TAG}" -c \
-  'mkdir -p /tmp/empty-probe && printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"probe\",\"version\":\"0\"}}}" | timeout 60 node /app/dist/cli/index.js mcp --project /tmp/empty-probe' \
+  'mkdir -p /tmp/empty-probe && printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"probe\",\"version\":\"0\"}}}" | timeout 60 node /app/dist/index.js mcp --project /tmp/empty-probe' \
   >"$NEG_OUT" 2>&1 || true
 if grep -q '"id":1' "$NEG_OUT" && grep -q '"result"' "$NEG_OUT"; then
   fail "negative control answered initialize for an EMPTY dir — the project guard may be gone, this check is vacuous"

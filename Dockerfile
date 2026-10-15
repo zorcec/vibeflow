@@ -60,5 +60,5 @@ WORKDIR /project
 VOLUME /project
 # ENTRYPOINT carries the fixed subcommand; CMD carries the default project so
 # `docker run <img> --project /myrepo` (or -v $PWD:/project) overrides it.
-ENTRYPOINT ["node", "/app/dist/cli/index.js", "mcp"]
+ENTRYPOINT ["node", "/app/dist/index.js", "mcp"]
 CMD ["--project", "/project"]

@@ -19,7 +19,6 @@
     "node": ">=22"
   },
   "files": [
-    "dist/cli/",
     "dist/client/",
     "dist/index.js",
     "dist/index.d.ts",
@@ -27,15 +26,13 @@
     "dist/openapi.yaml",
     "dist/overlay.css",
     "dist/overlay-host.css",
-    "dist/chunk-*.js",
-    "dist/files-*.js",
-    "dist/workspace-*.js",
+    "dist/*.js",
     "README.md",
     "CHANGELOG.md"
   ],
   "bin": {
-    "vibeflow": "dist/cli/index.js",
-    "vf": "dist/cli/index.js"
+    "vibeflow": "dist/index.js",
+    "vf": "dist/index.js"
   },
   "exports": {
     ".": "./dist/index.js",
