@@ -18,9 +18,16 @@ const outFile = resolve(root, "dist/client/overlay-browser.js");
 const genTs = resolve(root, "src/client/overlay-bundle.gen.ts");
 const esbuild = resolve(monorepoRoot, "node_modules/.bin/esbuild");
 
-// Build the overlay IIFE with esbuild so it is ready before tsup's parallel builds
+// Build the overlay IIFE with esbuild so it is ready before tsup's parallel builds.
+// Minify flags must match the overlay-browser entry in tsup.config.ts
+// (minifyWhitespace + minifySyntax, identifiers intact): tests/unit/overlay.test.ts
+// asserts on the compact string shape, and whichever of the two pipelines runs
+// last wins — an unminified prebuild artifact left behind by an interrupted build
+// used to poison every later `test` run and commit (ticket 7b9b5242).
+// Do NOT use full --minify here: identifier mangling would rename functions
+// the tests and tsup output keep (e.g. setupClickToAnnotate, submitTask).
 execSync(
-  `"${esbuild}" "${entry}" --bundle --format=iife --platform=browser --target=chrome90 --define:import.meta.url='"file:///vibeflow-bundle/"' --outfile="${outFile}"`,
+  `"${esbuild}" "${entry}" --bundle --format=iife --platform=browser --target=chrome90 --minify-whitespace --minify-syntax --define:import.meta.url='"file:///vibeflow-bundle/"' --outfile="${outFile}"`,
   { cwd: root, stdio: "inherit" },
 );
 

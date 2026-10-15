@@ -2,6 +2,23 @@ import { describe, it, expect } from "vitest";
 import { getOverlayScript } from "../../src/client/overlay/index.js";
 import { clampTriggerPos } from "../../src/client/overlay-react/trigger-pos.js";
 
+// ── Minify-shape-agnostic assertions ─────────────────────────────────────────
+// The overlay bundle is emitted by two pipelines that legitimately format
+// identical behaviour differently: scripts/gen-overlay-bundle.mjs (prebuild)
+// and the tsup overlay-browser entry (build). One emits
+// `const target = e.target;`, the other `target=e.target;`. Compacting
+// whitespace before comparing pins the token sequence — the semantic fact —
+// without coupling to either producer's formatting (ticket 7b9b5242).
+// This is not vacuous: a handler that traversed ancestors (e.target.closest)
+// or read a different property still fails, and the paired `not.toContain`
+// guards are left untouched.
+function compactForCompare(s: string): string {
+  return s.replace(/\s+/g, "");
+}
+function expectCompact(script: string, needle: string): void {
+  expect(compactForCompare(script)).toContain(compactForCompare(needle));
+}
+
 describe("getOverlayScript", () => {
   it("detects server origin from document.currentScript for bookmarklet support", () => {
     const script = getOverlayScript(3700);
@@ -41,14 +58,14 @@ describe("getOverlayScript", () => {
 
   it("includes keyboard shortcut handlers", () => {
     const script = getOverlayScript(3700);
-    expect(script).toContain('e.altKey&&e.key==="a"');
-    expect(script).toContain('e.altKey&&e.key==="s"');
+    expectCompact(script, 'e.altKey&&e.key==="a"');
+    expectCompact(script, 'e.altKey&&e.key==="s"');
     expect(script).toContain("Escape");
   });
 
   it("is wrapped in an IIFE", () => {
     const script = getOverlayScript(3700);
-    expect(script).toContain("(()=>{");
+    expectCompact(script, "(()=>{");
     expect(script).toContain("})();");
   });
 
@@ -81,7 +98,7 @@ describe("getOverlayScript", () => {
 
   it("popover header title does not inherit popover-label spacing", () => {
     const script = getOverlayScript(3700);
-    expect(script).toContain('className:"popover-target-name"');
+    expectCompact(script, 'className:"popover-target-name"');
     expect(script).not.toContain('popover-target-name popover-label');
   });
 
@@ -184,13 +201,13 @@ describe("getOverlayScript", () => {
     const script = getOverlayScript(3700);
     // show-done preference affects indicator visibility for all-done groups
     expect(script).toContain("sidebarShowDone");
-    expect(script).toContain("allDone&&!state.sidebarShowDone");
+    expectCompact(script, "allDone&&!state.sidebarShowDone");
   });
 
   it("renderIndicators hides all-done group when sidebarShowDone is false", () => {
     const script = getOverlayScript(3700);
     // Guard: skip all-done indicator when sidebarShowDone is false
-    expect(script).toContain("allDone&&!state.sidebarShowDone");
+    expectCompact(script, "allDone&&!state.sidebarShowDone");
   });
 
   it("includes sticky tooltip on click (tooltipPinned)", () => {
@@ -213,7 +230,7 @@ describe("getOverlayScript", () => {
     // Indicators are scoped to the current page URL
     expect(script).toContain("location.pathname");
     expect(script).toContain("pageTasks");
-    expect(script).toContain("t.url===currentPath");
+    expectCompact(script, "t.url===currentPath");
   });
 
   it("includes click-outside handler to close pinned tooltip", () => {
@@ -317,16 +334,16 @@ describe("getOverlayScript", () => {
     // Viewport visibility check must be present in renderIndicators
     expect(script).toContain("vpW");
     expect(script).toContain("vpH");
-    expect(script).toContain("rect.bottom<0");
-    expect(script).toContain("rect.top>vpH");
-    expect(script).toContain("rect.right<0");
-    expect(script).toContain("rect.left>vpW");
+    expectCompact(script, "rect.bottom<0");
+    expectCompact(script, "rect.top>vpH");
+    expectCompact(script, "rect.right<0");
+    expectCompact(script, "rect.left>vpW");
   });
 
   it("single-task indicator click opens edit modal directly without tooltip", () => {
     const script = getOverlayScript(3700);
     // The click handler must branch on grp.length === 1
-    expect(script).toContain("grp.length===1");
+    expectCompact(script, "grp.length===1");
     // Single task: open edit modal directly
     expect(script).toContain("showEditModal(grp[0])");
   });
@@ -334,11 +351,14 @@ describe("getOverlayScript", () => {
   it("multi-task indicator click still pins tooltip for selection", () => {
     const script = getOverlayScript(3700);
     // Multi-task branch must still pin tooltip
-    const clickIdx = script.indexOf("grp.length===1");
+    const flat = compactForCompare(script);
+    const clickIdx = flat.indexOf(compactForCompare("grp.length===1"));
     expect(clickIdx).toBeGreaterThan(-1);
-    // After the single-task branch there must be a tooltipPinned = true
-    const afterClick = script.slice(clickIdx, clickIdx + 500);
-    expect(afterClick).toContain("tooltipPinned=!0");
+    // After the single-task branch the multi-task path must pin the tooltip.
+    // minify-syntax emits `=!0` where unminified output emits `=true` — same
+    // behaviour, so accept both literals (still pins the exact property write).
+    const afterClick = flat.slice(clickIdx, clickIdx + 500);
+    expect(afterClick).toMatch(/tooltipPinned=(!0|true)/);
   });
 
   // ── Regression: tasks.md fixes ────────────────────────────────────────────
@@ -347,7 +367,7 @@ describe("getOverlayScript", () => {
     const script = getOverlayScript(3700);
     expect(script).toContain("function buildCssSelector");
     // Used in showPopover to compute cssSelector
-    expect(script).toContain("cssSelector=buildCssSelector(element)");
+    expectCompact(script, "cssSelector=buildCssSelector(element)");
   });
 
   it("submitTask includes cssSelector in POST body", () => {
@@ -358,7 +378,7 @@ describe("getOverlayScript", () => {
     expect(script).toContain("cssSelector");
     expect(script).toContain("priority");
     // Function must accept cssSelector as second param
-    expect(script).toContain("function submitTask(selector,cssSelector,");
+    expectCompact(script, "function submitTask(selector,cssSelector,");
   });
 
   it("click-to-annotate uses e.target directly (not .closest ancestors)", () => {
@@ -366,20 +386,22 @@ describe("getOverlayScript", () => {
     // Anchor on the click-to-annotate setup function
     const clickAnnotateIdx = script.indexOf("function setupClickToAnnotate");
     expect(clickAnnotateIdx).toBeGreaterThan(-1);
-    const clickSection = script.slice(clickAnnotateIdx, clickAnnotateIdx + 400);
+    const clickSection = script.slice(clickAnnotateIdx, clickAnnotateIdx + 600);
     // Must use e.target directly
-    expect(clickSection).toContain("target=e.target;");
+    expectCompact(clickSection, "target=e.target;");
     // Must NOT traverse ancestry for data-testid in the click handler
-    expect(clickSection).not.toContain("e.target.closest('[data-testid]')");
+    // Quote-agnostic: bundlers normalize quotes, so match either form.
+    expect(clickSection).not.toMatch(/e\.target\.closest\(\s*['"]\[data-testid\]/);
   });
 
   it("contextmenu handler uses e.target directly (not .closest ancestors)", () => {
     const script = getOverlayScript(3700);
     const ctxIdx = script.indexOf("function setupContextMenuListener");
     expect(ctxIdx).toBeGreaterThan(-1);
-    const ctxSection = script.slice(ctxIdx, ctxIdx + 400);
-    expect(ctxSection).toContain("target=e.target;");
-    expect(ctxSection).not.toContain("e.target.closest('[data-testid]')");
+    const ctxSection = script.slice(ctxIdx, ctxIdx + 600);
+    expectCompact(ctxSection, "target=e.target;");
+    // Quote-agnostic: bundlers normalize quotes, so match either form.
+    expect(ctxSection).not.toMatch(/e\.target\.closest\(\s*['"]\[data-testid\]/);
   });
 
   it("sidebar shows ALL tasks — showAllPages toggle controls visibility", () => {
