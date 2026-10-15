@@ -8,8 +8,9 @@
  *  - Kanban board is visible
  *  - No 404 responses for page assets
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ describe("Dashboard smoke tests", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -38,6 +40,7 @@ describe("Dashboard smoke tests", () => {
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     page = await context.newPage();
 
+    guard = guardContext(context);
     // Capture console errors/warnings before navigating
     page.on("console", (msg) => {
       const type = msg.type();
@@ -66,6 +69,8 @@ describe("Dashboard smoke tests", () => {
     // Wait for any late-arriving async errors (network-idle is more reliable than a fixed pause)
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

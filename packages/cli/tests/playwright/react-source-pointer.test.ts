@@ -11,8 +11,9 @@
  * annotating via right-click → Annotate → Save, and asserting the saved task
  * markdown contains the expected source metadata.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -186,6 +187,7 @@ describe("React source pointer — line numbers persisted in task files", () => 
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let apiInstance: ServeInstance;
   let appServer: ReturnType<typeof createServer>;
@@ -217,6 +219,7 @@ describe("React source pointer — line numbers persisted in task files", () => 
     context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     page = await context.newPage();
 
+    guard = guardContext(context);
     await page.goto(APP_BASE);
     await waitForShadowRoot(page);
 
@@ -226,6 +229,8 @@ describe("React source pointer — line numbers persisted in task files", () => 
       return btn && Object.keys(btn).some(k => k.startsWith("__reactFiber"));
     }, { timeout: 5_000 });
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

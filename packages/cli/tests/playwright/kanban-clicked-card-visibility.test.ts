@@ -23,6 +23,7 @@
  * user can see the card and click it, not merely that it exists in the DOM.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -116,12 +117,13 @@ describe("clicked card stays visible (aa9cf784)", () => {
   async function openBoard(
     viewport: { width: number; height: number },
     panelWidth: number,
-  ): Promise<{ context: BrowserContext; page: Page }> {
+  ): Promise<{ context: BrowserContext; page: Page; guard: ErrorGuard }> {
     writeFileSync(
       join(tempDir, ".vibeflow", "settings.json"),
       JSON.stringify({ viewMode: "board", panelWidth }, null, 2),
     );
     const context = await browser.newContext({ viewport });
+    const guard = guardContext(context);
     const page = await context.newPage();
     await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#kanban-board", { timeout: 15000 });
@@ -131,7 +133,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
       { timeout: 15000 },
     );
     await page.waitForTimeout(400);
-    return { context, page };
+    return { context, page, guard };
   }
 
   beforeAll(async () => {
@@ -165,7 +167,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
   });
 
   it("keeps the clicked card visible next to the owner's 860px panel", async () => {
-    const { context, page } = await openBoard(
+    const { context, page, guard } = await openBoard(
       { width: 1440, height: 900 },
       WIDE_PANEL,
     );
@@ -207,11 +209,12 @@ describe("clicked card stays visible (aa9cf784)", () => {
     const closed = await probeCard(page, reviewTaskId);
     expect(closed.boardScrollLeft ?? 0).toBe(boardScrollBefore);
 
+    guard.assertNoErrors();
     await context.close();
   }, 60000);
 
   it("moves nothing when the panel does not cover the card (2560x1400)", async () => {
-    const { context, page } = await openBoard(
+    const { context, page, guard } = await openBoard(
       { width: 2560, height: 1400 },
       WIDE_PANEL,
     );
@@ -227,11 +230,12 @@ describe("clicked card stays visible (aa9cf784)", () => {
     // The wide case is a no-op by construction, not by luck.
     expect(after.boardScrollLeft ?? -1).toBe(boardScrollBefore);
 
+    guard.assertNoErrors();
     await context.close();
   }, 60000);
 
   it("tracks the panel width the user actually resized to (600px)", async () => {
-    const { context, page } = await openBoard(
+    const { context, page, guard } = await openBoard(
       { width: 1440, height: 900 },
       NARROW_PANEL,
     );
@@ -251,6 +255,7 @@ describe("clicked card stays visible (aa9cf784)", () => {
     expect(after.clearOfPanel).toBe(true);
     expect(after.insideBoard).toBe(true);
 
+    guard.assertNoErrors();
     await context.close();
   }, 60000);
 });

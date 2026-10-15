@@ -32,8 +32,9 @@
  * through `page.evaluate`. Both files are asserted on here, along with the
  * back-filled page baselines and what the page-wide query tools make of them.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync } from "node:fs";
@@ -84,6 +85,7 @@ let instance: ServeInstance;
 let browser: Browser;
 let context: BrowserContext;
 let page: Page;
+let guard: ErrorGuard;
 let taskId: string;
 let selector: string;
 
@@ -233,6 +235,7 @@ beforeAll(async () => {
     viewport: { width: 1440, height: 900 },
   });
   page = await context.newPage();
+  guard = guardContext(context);
   await page.goto(`${base}/kanban`);
   await page.waitForSelector(selector, { state: "visible", timeout: 15_000 });
 
@@ -329,6 +332,8 @@ beforeAll(async () => {
   });
   expect(patched.status, `PATCH task title → ${patched.status}`).toBe(200);
 }, 120_000);
+
+afterEach(() => guard.assertNoErrors());
 
 afterAll(async () => {
   await context?.close();

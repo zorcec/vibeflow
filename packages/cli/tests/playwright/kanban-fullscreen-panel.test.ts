@@ -8,6 +8,7 @@
  * spec measures the rule, not just the class.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { guardPage, type ErrorGuard } from "./error-guard";
 import { chromium } from "playwright";
 import type { Browser, Page } from "playwright";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, readdirSync } from "node:fs";
@@ -69,10 +70,10 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       join(tempDir, ".vibeflow", "settings.json"),
       JSON.stringify(settings, null, 2),
     );
-  }
-
-  async function openBoard(): Promise<Page> {
+}
+  async function openBoard(): Promise<{ page: Page; guard: ErrorGuard }> {
     const page = await browser.newPage();
+    const guard = guardPage(page);
     await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#kanban-board", { timeout: 15000 });
     await page.waitForFunction(
@@ -81,7 +82,7 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       { timeout: 15000 },
     );
     await page.waitForTimeout(400);
-    return page;
+    return { page, guard };
   }
 
   async function openPanel(page: Page): Promise<void> {
@@ -141,7 +142,7 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       panelWidth: PANEL_WIDTH,
       panelFullscreen: true,
     });
-    const page = await openBoard();
+    const { page, guard } = await openBoard();
     try {
       await openPanel(page);
 
@@ -205,7 +206,8 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       // 6. Escape still closes.
       await page.keyboard.press("Escape");
       await page.waitForSelector("#detail-panel", { state: "detached", timeout: 10000 });
-    } finally {
+} finally {
+      guard.assertNoErrors();
       await page.close();
     }
   });

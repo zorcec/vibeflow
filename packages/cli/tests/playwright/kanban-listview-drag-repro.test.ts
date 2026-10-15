@@ -15,8 +15,9 @@
  *
  * Scratch port 3757 (3710+; never 3700).
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -218,6 +219,7 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
   let targetId: string;
@@ -247,7 +249,10 @@ describe("KanbanListView real-pointer drag (1ec7068e probe)", () => {
       viewport: { width: 1310, height: 720 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
   }, 60000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

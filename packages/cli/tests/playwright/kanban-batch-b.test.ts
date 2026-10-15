@@ -2,8 +2,9 @@
  * Playwright e2e tests for Batch B UI features: compact kanban view (B2)
  * and fit-screen +N more indicator (B3).
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -41,6 +42,7 @@ describe("Batch B — view modes + fit-screen (compact view)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -56,7 +58,10 @@ describe("Batch B — view modes + fit-screen (compact view)", () => {
       viewport: { width: 1440, height: 900 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

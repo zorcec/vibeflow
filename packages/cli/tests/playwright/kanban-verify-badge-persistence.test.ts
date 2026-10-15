@@ -24,7 +24,8 @@
  * verified: true plus a child so panel relations render), serves it on its own
  * port, and kills the server afterwards. Never touches ports 3700/3793.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync, readFileSync, statSync, readdirSync } from "node:fs";
@@ -82,6 +83,7 @@ describe("verify badge persists through card open (staleness-guarded)", () => {
   let tempDir: string;
   let instance: ServeInstance;
   let rootTaskId: string;
+  let guard: ErrorGuard;
   const httpCulprits: PayloadCulprit[] = [];
   const wsCulprits: PayloadCulprit[] = [];
 
@@ -143,6 +145,7 @@ describe("verify badge persists through card open (staleness-guarded)", () => {
       colorScheme: "dark",
     });
     page = await context.newPage();
+    guard = guardContext(context);
 
     // A payload carrying the seeded task MUST include `verified: true` — it is
     // on disk. Any task payload omitting the key names its origin here.
@@ -204,6 +207,8 @@ describe("verify badge persists through card open (staleness-guarded)", () => {
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

@@ -11,8 +11,9 @@
  *  4. Assert: right-click on corner trigger shows context menu with "Prototyping"
  *  5. Assert: clicking "Prototyping" opens the variant panel via __vf_prototyping API
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -123,6 +124,7 @@ describe("Overlay + prototyping integration (bookmarklet scenario)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let apiInstance: ServeInstance;
   let appServer: ReturnType<typeof createServer>;
@@ -154,8 +156,20 @@ export const { createContext, useContext, useState, useCallback, useRef, useEffe
     appExpress.get("/shim/jsx-runtime.js", (_req, res) => {
       res.type("application/javascript").send(
         `const R = window.React;
-export const jsx = R.jsx || R.createElement;
-export const jsxs = R.jsxs || R.createElement;
+// The UMD build exposes createElement but not the jsx/jsxs entry points, so
+// map both through a wrapper that assigns implicit keys to static children
+// arrays. That reproduces the automatic-runtime contract (cba03995 guard
+// rollout): without it every multi-child element warns about missing keys
+// and the warning is a harness artifact, not a product defect — real
+// consumers resolve react/jsx-runtime from a proper bundler.
+function keyed(type, props) {
+  const out = Object.assign({}, props);
+  const kids = out.children;
+  if (Array.isArray(kids)) out.children = kids.map((k, i) => (R.isValidElement(k) && k.key == null ? R.cloneElement(k, { key: i }) : k));
+  return R.createElement(type, out);
+}
+export const jsx = R.jsx || keyed;
+export const jsxs = R.jsxs || keyed;
 export const Fragment = R.Fragment;
 `,
       );
@@ -181,6 +195,7 @@ export const Fragment = R.Fragment;
     context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     page = await context.newPage();
 
+    guard = guardContext(context);
     page.on("console", (msg) => {
       if (msg.type() === "error") {
         console.error(`[browser] ${msg.text()}`);
@@ -196,6 +211,8 @@ export const Fragment = R.Fragment;
       { timeout: 15_000 },
     );
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

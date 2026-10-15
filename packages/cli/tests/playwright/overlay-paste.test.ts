@@ -19,8 +19,9 @@
  * carrying a DataTransfer with a File, dispatched on the shadow-DOM textarea.
  * Hermetic scratch server on a free high port; no sleeps — explicit waits only.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -72,6 +73,7 @@ describe("Overlay popover — paste screenshot to attach", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
   let port: number;
@@ -93,6 +95,7 @@ describe("Overlay popover — paste screenshot to attach", () => {
       viewport: { width: 1280, height: 800 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
     await page.goto(base);
     await page.waitForFunction(
       () =>
@@ -101,6 +104,8 @@ describe("Overlay popover — paste screenshot to attach", () => {
       { timeout: 10_000 },
     );
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

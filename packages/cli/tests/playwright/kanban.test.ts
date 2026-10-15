@@ -8,7 +8,7 @@
  *  - Comment auto-scroll and auto-submit on Save
  *  - Modal interactions (FilePreviewModal, SettingsModal) do not close the task detail panel
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { serve } from "../../src/server/server.js";
 import type { ServeInstance } from "../../src/server/server.js";
 import { getFreePort } from "../ports.js";
+import { guardContext, guardPage, type ErrorGuard } from "./error-guard";
 
 /**
  * Ports are NOT hardcoded: `getFreePort()` probes and releases, so a fixed
@@ -122,6 +123,7 @@ describe("Kanban board", () => {
   let page: Page;
   let tempDir: string;
   let instance: ServeInstance;
+  let guard: ErrorGuard;
 
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-kanban-pw-"));
@@ -165,10 +167,13 @@ describe("Kanban board", () => {
       colorScheme: "dark",
     });
     page = await context.newPage();
+    guard = guardContext(context);
 
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();
@@ -1201,6 +1206,7 @@ describe("Kanban board", () => {
       colorScheme: "light",
     });
     const lightPage = await lightContext.newPage();
+    const lightGuard = guardPage(lightPage);
     await lightPage.goto(`${BASE}/kanban`);
     await lightPage.waitForSelector("#kanban-board");
     const bodyBg = await lightPage.evaluate(
@@ -1211,6 +1217,7 @@ describe("Kanban board", () => {
       document.documentElement.getAttribute("data-theme"),
     );
     expect(themeAttr).toBeNull();
+    lightGuard.assertNoErrors();
     await lightContext.close();
   });
 
@@ -1220,6 +1227,7 @@ describe("Kanban board", () => {
       colorScheme: "dark",
     });
     const themePage = await themeContext.newPage();
+    const themeGuard = guardPage(themePage);
     await themePage.goto(`${BASE}/kanban`);
     await themePage.waitForSelector("#kanban-board");
     await themePage.evaluate(() =>
@@ -1235,6 +1243,7 @@ describe("Kanban board", () => {
       document.documentElement.getAttribute("data-theme"),
     );
     expect(themeAttr).toBe("light");
+    themeGuard.assertNoErrors();
     await themeContext.close();
   });
 
@@ -1953,6 +1962,7 @@ describe("Kanban board", () => {
       viewport: { width: 1440, height: 900 },
     });
     const bannerPage = await bannerContext.newPage();
+    const bannerGuard = guardPage(bannerPage);
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
@@ -1966,6 +1976,7 @@ describe("Kanban board", () => {
     expect(bannerText ?? "").toContain(
       "Paste screenshots or files anywhere in this panel",
     );
+    bannerGuard.assertNoErrors();
     await bannerContext.close();
   });
 
@@ -1974,6 +1985,7 @@ describe("Kanban board", () => {
       viewport: { width: 1440, height: 900 },
     });
     const bannerPage = await bannerContext.newPage();
+    const bannerGuard = guardPage(bannerPage);
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
@@ -1989,6 +2001,7 @@ describe("Kanban board", () => {
       .locator("#detail-panel button[title='Dismiss']")
       .count();
     expect(bannerGone).toBe(0);
+    bannerGuard.assertNoErrors();
     await bannerContext.close();
   });
 
@@ -1997,6 +2010,7 @@ describe("Kanban board", () => {
       viewport: { width: 1440, height: 900 },
     });
     const bannerPage = await bannerContext.newPage();
+    const bannerGuard = guardPage(bannerPage);
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
@@ -2010,6 +2024,7 @@ describe("Kanban board", () => {
     expect(bannerText ?? "").toContain(
       "Paste screenshots or files anywhere in this panel",
     );
+    bannerGuard.assertNoErrors();
     await bannerContext.close();
   });
 
@@ -2018,6 +2033,7 @@ describe("Kanban board", () => {
       viewport: { width: 1440, height: 900 },
     });
     const bannerPage = await bannerContext.newPage();
+    const bannerGuard = guardPage(bannerPage);
     await bannerPage.goto(`${BASE}/kanban`);
     await bannerPage.waitForSelector("#kanban-board");
     await bannerPage.click("[data-task-id]", { timeout: 5_000 });
@@ -2042,6 +2058,7 @@ describe("Kanban board", () => {
       .locator("#detail-panel button[title='Dismiss']")
       .count();
     expect(bannerStillGone).toBe(0);
+    bannerGuard.assertNoErrors();
     await bannerContext.close();
   });
 
@@ -2937,6 +2954,7 @@ describe("Task reference navigation", () => {
   let page: Page;
   let tempDir: string;
   let instance: ServeInstance;
+  let guard: ErrorGuard;
   let refBase = "";
   let refApi = "";
   let taskAId: string;
@@ -2977,6 +2995,7 @@ describe("Task reference navigation", () => {
       colorScheme: "dark",
     });
     page = await context.newPage();
+    guard = guardContext(context);
 
     // Create two tasks: Task A references Task B in its description.
     const resA = await fetch(`${refApi}`, {
@@ -3016,6 +3035,8 @@ describe("Task reference navigation", () => {
     await page.goto(`${refBase}/kanban`);
     await page.waitForSelector("#kanban-board");
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

@@ -1,8 +1,9 @@
 /**
  * Test all DnD surfaces with direct event dispatch.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -154,6 +155,7 @@ describe("DnD all surfaces", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -169,7 +171,10 @@ describe("DnD all surfaces", () => {
       viewport: { width: 1440, height: 900 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
   }, 30000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

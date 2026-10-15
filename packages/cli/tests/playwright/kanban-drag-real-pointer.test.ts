@@ -22,8 +22,9 @@
  * The board is built to the geometry from the report: 1310x720 viewport, 15
  * review cards (the review column scrolls), board wider than the viewport.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -170,6 +171,7 @@ describe("kanban DnD with a real pointer (drag-abort regression)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -192,7 +194,10 @@ describe("kanban DnD with a real pointer (drag-abort regression)", () => {
       viewport: { width: 1310, height: 720 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
   }, 60000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();
@@ -384,6 +389,7 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
       viewport: { width: 1310, height: 720 },
     });
     const page = await context.newPage();
+    const guard = guardContext(context);
     const patches: string[] = [];
     page.on("request", (req) => {
       if (req.method() === "PATCH") patches.push(req.url());
@@ -456,6 +462,7 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
       `the card must land below the pre-scroll fold (dragged=${after.sortKey}, lastVisible=${lastVisibleAfter.sortKey})`,
     ).toBe(true);
 
+    guard.assertNoErrors();
     await context.close();
   }, 90000);
 
@@ -468,6 +475,7 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
         viewport: { width: viewport.width, height: viewport.height },
       });
       const page = await context.newPage();
+      const guard = guardContext(context);
       const patches: string[] = [];
       page.on("request", (req) => {
         if (req.method() === "PATCH") patches.push(req.url());
@@ -603,6 +611,7 @@ describe("kanban DnD edge auto-scroll with a real pointer (d4814bb7)", () => {
         "the drop must have moved the card into the done lane",
       ).toBe("done");
 
+      guard.assertNoErrors();
       await context.close();
     }, 90000);
   }

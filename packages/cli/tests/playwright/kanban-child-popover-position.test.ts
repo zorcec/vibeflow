@@ -8,8 +8,9 @@
  * adjacent (a few px gap, above or below) and fully inside the viewport,
  * including the near-right-edge case where horizontal clamping engages.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardPage, type ErrorGuard } from "./error-guard";
 import type { Browser, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ let tempDir: string;
 let instance: ServeInstance;
 let browser: Browser;
 let page: Page;
+let guard: ErrorGuard;
 let bigParentId = "";
 let smallParentId = "";
 
@@ -103,6 +105,7 @@ describe("kanban child-popover anchoring (CLI)", () => {
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
+    guard = guardPage(page);
     // Push the parents toward the column bottom so flip/clamp paths engage.
     for (let i = 0; i < 5; i++) {
       await createTask({ title: `Anchor filler ${i}`, selector: "/", status: "review" });
@@ -144,6 +147,8 @@ describe("kanban child-popover anchoring (CLI)", () => {
       if (strip) strip.scrollLeft = 999999;
     });
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await browser?.close();

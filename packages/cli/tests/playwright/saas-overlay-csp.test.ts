@@ -11,8 +11,9 @@
  *   3. The overlay script has empty wsUrl (no localhost WebSocket connection)
  *   4. Loading the overlay on a CSP-restricted page produces no CSP errors
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -55,6 +56,7 @@ describe("SaaS overlay — CSP-safe injection", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -73,7 +75,31 @@ describe("SaaS overlay — CSP-safe injection", () => {
     browser = await chromium.launch({ headless: true });
     context = await browser.newContext();
     page = await context.newPage();
+    guard = guardContext(context, {
+      allowedConsoleErrors: {
+        // The CSP test below serves its page via setContent, so the page
+        // origin is null and the SaaS probe fetch to freemium is blocked by
+        // the browser's CORS policy (production origins are allow-listed;
+        // null never is). The test asserts CSP behavior, not probe success.
+        "null-origin-saas-probe-cors": {
+          pattern: "blocked by CORS policy",
+          reason:
+            "the CSP test serves its page via setContent (null origin), so the SaaS probe fetch cannot pass CORS; unrelated to CSP behavior under test",
+        },
+        // Browser-generated echo of the same blocked probe fetch above
+        // (net::ERR_FAILED carries no URL, so it is scoped by the CORS
+        // entry beside it; the file's bespoke localhost-violation assertion
+        // remains the real protection against localhost regressions).
+        "null-origin-saas-probe-echo": {
+          pattern: "net::ERR_FAILED",
+          reason:
+            "browser echo of the CORS-blocked SaaS probe fetch from the null-origin setContent page (see null-origin-saas-probe-cors)",
+        },
+      },
+    });
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await page?.close();

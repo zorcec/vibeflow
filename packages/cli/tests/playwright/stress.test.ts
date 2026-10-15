@@ -7,8 +7,9 @@
  *  - WebSocket broadcast latency with many concurrent clients
  *  - UI render time for large datasets
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ describe("Stress: Kanban UI and WebSocket scalability", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -39,9 +41,12 @@ describe("Stress: Kanban UI and WebSocket scalability", () => {
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     page = await context.newPage();
 
+    guard = guardContext(context);
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
   }, 30_000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

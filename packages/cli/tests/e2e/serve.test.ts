@@ -63,8 +63,10 @@ describe("proto serve (e2e)", () => {
     const response = await fetch(`${instance.url}/`);
     const body = await response.text();
     expect(body).toContain("data-vibeflow-overlay");
-    // Overlay uses window.location.host for dynamic URL resolution (supports remote --host access)
-    expect(body).toContain("window.location.host");
+    // Overlay resolves its API origin at runtime: script-src origin first, else the page
+    // hostname with the generated port (same-server inline keeps the old host value; a
+    // snippet eval'd on a foreign page reaches the API server instead of 404ing — cba03995)
+    expect(body).toContain("window.location.hostname");
   });
 
   it("serves directory with multiple HTML files", async () => {

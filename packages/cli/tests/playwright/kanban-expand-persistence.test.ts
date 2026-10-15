@@ -8,7 +8,8 @@
  *  - The blue unread dot renders only for tasks the current user has not opened
  *    and clears once the card is opened.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { guardPage, type ErrorGuard } from "./error-guard";
 import { chromium } from "playwright";
 import type { Browser, Page } from "playwright";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -27,6 +28,7 @@ let tempDir: string;
 let instance: ServeInstance;
 let browser: Browser;
 let page: Page;
+let guard: ErrorGuard;
 
 interface TaskRef {
   id: string;
@@ -79,7 +81,10 @@ describe("kanban per-user expand state (CLI)", () => {
     });
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage();
+    guard = guardPage(page);
   }, 60_000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await browser?.close();

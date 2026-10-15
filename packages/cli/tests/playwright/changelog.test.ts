@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -55,8 +56,9 @@ afterAll(async () => {
 
 async function openBoard(
   seedStoredVersion: string | null,
-): Promise<{ context: BrowserContext; page: Page }> {
+): Promise<{ context: BrowserContext; page: Page; guard: ErrorGuard }> {
   const context = await browser.newContext();
+  const guard = guardContext(context);
   const page = await context.newPage();
   await page.goto(`${BASE}/kanban`);
   await page.waitForSelector("#kanban-board");
@@ -76,7 +78,7 @@ async function openBoard(
     await page.reload();
     await page.waitForSelector("#kanban-board");
   }
-  return { context, page };
+  return { context, page, guard };
 }
 
 async function storedVersion(page: Page): Promise<string | null> {
@@ -90,11 +92,12 @@ async function modalText(page: Page): Promise<string> {
 
 describe("What's New changelog modal", () => {
   it("baselines first visit without showing the modal", async () => {
-    const { context, page } = await openBoard(null);
+    const { context, page, guard } = await openBoard(null);
     // Give any (wrong) modal logic time to appear.
     await page.waitForTimeout(750);
     expect(await page.locator("#whats-new-modal").count()).toBe(0);
     expect(await storedVersion(page)).toBe(TOP_VERSION);
+    guard.assertNoErrors();
     await context.close();
   });
 
@@ -103,7 +106,7 @@ describe("What's New changelog modal", () => {
     // Seeding with a very old version like 0.0.1 makes every section appear,
     // because sectionsSince returns all sections newer than the stored version.
     const seedVersion = SECOND_VERSION || "0.0.1";
-    const { context, page } = await openBoard(seedVersion);
+    const { context, page, guard } = await openBoard(seedVersion);
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     const text = await modalText(page);
     expect(text).toContain("What's new in Vibeflow");
@@ -113,11 +116,12 @@ describe("What's New changelog modal", () => {
       // When seeded with the second version, only the top version should render.
       expect(text).not.toContain(SECOND_VERSION);
     }
+    guard.assertNoErrors();
     await context.close();
   });
 
   it("toggles to the full changelog and back", async () => {
-    const { context, page } = await openBoard("0.0.1");
+    const { context, page, guard } = await openBoard("0.0.1");
     await page.waitForSelector("#whats-new-modal");
     await page.click("#whats-new-toggle");
     const text = await modalText(page);
@@ -127,11 +131,12 @@ describe("What's New changelog modal", () => {
     }
     await page.click("#whats-new-toggle");
     expect(await modalText(page)).toContain("What's new in Vibeflow");
+    guard.assertNoErrors();
     await context.close();
   });
 
   it("closing marks the version seen — reload stays quiet", async () => {
-    const { context, page } = await openBoard("0.0.1");
+    const { context, page, guard } = await openBoard("0.0.1");
     await page.waitForSelector("#whats-new-modal");
     await page.click("#whats-new-close");
     await page.waitForSelector("#whats-new-modal", { state: "detached" });
@@ -140,11 +145,12 @@ describe("What's New changelog modal", () => {
     await page.waitForSelector("#kanban-board");
     await page.waitForTimeout(750);
     expect(await page.locator("#whats-new-modal").count()).toBe(0);
+    guard.assertNoErrors();
     await context.close();
   });
 
   it("header Changelog button opens the full changelog without an update", async () => {
-    const { context, page } = await openBoard(null);
+    const { context, page, guard } = await openBoard(null);
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     const text = await modalText(page);
@@ -152,18 +158,20 @@ describe("What's New changelog modal", () => {
     if (SECOND_VERSION) {
       expect(text).toContain(SECOND_VERSION);
     }
+    guard.assertNoErrors();
     await context.close();
   });
 
   it("shows the Highlights region when a changeset tags one", async () => {
     // The 0.15.0 changelog entry carries a ### Highlights subsection, so the
     // region renders. Tagged rendering is also covered by SSR unit tests.
-    const { context, page } = await openBoard(null);
+    const { context, page, guard } = await openBoard(null);
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     expect(await page.locator('[data-role="highlights-region"]').count()).toBe(
       1,
     );
+    guard.assertNoErrors();
     await context.close();
   });
 });

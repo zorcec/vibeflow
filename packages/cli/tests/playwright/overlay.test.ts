@@ -5,8 +5,9 @@
  * pages with `color: white` on `*`) and verify that the Shadow DOM overlay is
  * fully visually isolated — correct dark theme colours everywhere.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -120,6 +121,7 @@ describe("Overlay — Shadow DOM visual isolation on dark-theme host", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
 
@@ -132,12 +134,27 @@ describe("Overlay — Shadow DOM visual isolation on dark-theme host", () => {
     context  = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     page     = await context.newPage();
 
+    guard = guardContext(context, {
+      allowedConsoleErrors: {
+        // The Bug-report test below deliberately logs this marker so the
+        // error-recorder has something to capture — it IS the product under
+        // test there. The VibeflowBugTest_ prefix is unique to that test, so
+        // nothing else can hide behind this entry.
+        "deliberate-bug-report-marker": {
+          pattern: "VibeflowBugTest_",
+          reason:
+            'the "Bug type report includes captured console errors" test logs this marker on purpose for the error-recorder to capture',
+        },
+      },
+    });
     await page.goto(BASE);
     await page.waitForFunction(
       () => !!(document.querySelector("#vibeflow-studio-root") as HTMLElement)?.shadowRoot,
       { timeout: 10_000 },
     );
   });
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();

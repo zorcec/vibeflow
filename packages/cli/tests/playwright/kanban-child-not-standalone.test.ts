@@ -14,8 +14,9 @@
  *
  * Real pointer input only: reachability is judged by `document.elementFromPoint`.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { chromium } from "playwright";
+import { guardContext, type ErrorGuard } from "./error-guard";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -31,6 +32,7 @@ describe("a parented task is not a standalone card (parent/child view)", () => {
   let browser: Browser;
   let context: BrowserContext;
   let page: Page;
+  let guard: ErrorGuard;
   let tempDir: string;
   let instance: ServeInstance;
   let parentId: string;
@@ -106,6 +108,7 @@ describe("a parented task is not a standalone card (parent/child view)", () => {
       viewport: { width: 1440, height: 900 },
     });
     page = await context.newPage();
+    guard = guardContext(context);
     await page.goto(`${BASE}/kanban`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#kanban-board", { timeout: 15000 });
     // Let the task list land and the tree resolve.
@@ -114,6 +117,8 @@ describe("a parented task is not a standalone card (parent/child view)", () => {
       { timeout: 15000 },
     );
   }, 60000);
+
+  afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
     await context?.close();
