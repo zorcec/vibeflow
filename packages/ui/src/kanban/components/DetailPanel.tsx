@@ -1689,6 +1689,9 @@ export function DetailPanel({
               />
             </div>
             {!isAdd && task && (
+              // Ticket 796f13e5: no top divider here — the relations
+              // section below already draws the single section rule, so a
+              // second rule sandwiching the meta chip row read as noise.
               <div
                 style={{
                   display: "flex",
@@ -1697,7 +1700,6 @@ export function DetailPanel({
                   flexWrap: "wrap",
                   flexShrink: 0,
                   marginTop: 12,
-                  borderTop: "1px solid var(--t-border)",
                   paddingTop: 10,
                 }}
               >
