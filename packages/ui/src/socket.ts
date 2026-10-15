@@ -29,13 +29,26 @@ export interface CollabEvent {
 }
 
 /**
+ * Heartbeat/baseline subtype: the server's current per-board data revision
+ * with no payload. Mirrors `BOARD_REVISION_EVENT_TYPE` in
+ * `@vibeflow-tools/shared` — repeated literally here because this package
+ * never imports the wire contract (keeps the CLI bundle free of it), the
+ * same reason `PresenceArea` is mirrored in `kanban/types.ts`. Change both
+ * if the wire string ever changes.
+ */
+export const BOARD_REVISION_EVENT_TYPE = "board.revision";
+
+/**
  * A missed event detected WITHOUT any reconnect (ticket cb3d0506).
  *
  * The server numbers every durable board mutation with a 1-based per-board
- * `rev` (see `board.revision` in `@vibeflow-tools/shared`). When a seen `rev`
- * jumps by more than one since the previous sighting, at least one event was
- * lost while this socket stayed up — the reconnect resync can never fire for
- * it, so the consumer must re-fetch instead of trusting its event stream.
+ * `rev` (see `board.revision` in `@vibeflow-tools/shared`). A data event
+ * whose `rev` jumps by more than one since the previous sighting proves an
+ * intermediate event was lost while this socket stayed up; a heartbeat past
+ * the previous sighting proves the same for a loss with no later traffic
+ * (a single missed event shows as exactly one ahead — invisible to the
+ * jump rule). Either way the reconnect resync can never fire for it, so
+ * the consumer must re-fetch instead of trusting its event stream.
  */
 export interface RevisionGap {
   /** The revision just seen (data event or `board.revision` heartbeat). */
@@ -125,9 +138,11 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
   const reconnectHandlers = new Set<() => void>();
   const gapHandlers = new Set<(gap: RevisionGap) => void>();
   // Newest board `rev` seen on this socket, or null before the first one.
-  // Survives reconnects (same client): after a rejoin the server baselines
-  // the joiner with its current rev, so a genuinely missed event still
-  // shows as a gap instead of silently re-baselining.
+  // Reset on every (re)connect: the server re-baselines the joiner right
+  // after `join-workspace`, so tracking restarts clean instead of comparing
+  // a fresh counter (e.g. after a ws restart) against a stale sighting —
+  // which would deafen the detector forever. The `onReconnect` resync
+  // covers whatever was missed during the downtime itself.
   let lastRev: number | null = null;
   let connected = false;
   // True once the first connect completes. Distinguishes the initial
@@ -156,6 +171,7 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
     });
 
     socket.on("connect", () => {
+      lastRev = null;
       setConnected(true);
       // The server verifies board membership; a rejected join means the socket
       // never receives room events and is reported as disconnected.
@@ -178,7 +194,14 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
         lastRev = rev;
         return;
       }
-      if (rev > lastRev + 1) {
+      // Data events ARE the sighting: only a jump proves a loss. A heartbeat
+      // carries no data, so ANY advance past the previous sighting means an
+      // event in between never arrived (Socket.IO preserves server emit
+      // order per socket, so a heartbeat can never overtake its own data).
+      const isHeartbeat =
+        (event as { type?: unknown }).type === BOARD_REVISION_EVENT_TYPE;
+      const gapThreshold = isHeartbeat ? lastRev : lastRev + 1;
+      if (rev > gapThreshold) {
         const gap: RevisionGap = { rev, lastSeen: lastRev };
         // Advance BEFORE firing: repeats of this rev (heartbeats re-emit
         // the current value) must not retrigger, and the resync's refetch

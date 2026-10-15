@@ -209,11 +209,31 @@ describe("createSocket", () => {
       expect(gaps).toHaveLength(0);
     });
 
-    it("a jump of more than one fires exactly once with the gap bounds", () => {
+    it("a data jump of more than one fires exactly once with the gap bounds", () => {
       const { transport, gaps } = setup();
       transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
       transport.fire(SERVER_EVENT, { type: "task.patch", rev: 5 });
       expect(gaps).toEqual([{ rev: 5, lastSeen: 3 }]);
+    });
+
+    it("a heartbeat one ahead fires (the single missed event — invisible to the jump rule)", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      // The rev-4 data event was lost while connected; only the heartbeat
+      // exposes it. A data event at rev 4 here would NOT fire (in order).
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 4 });
+      expect(gaps).toEqual([{ rev: 4, lastSeen: 3 }]);
+      // Converged: the next data event advances silently.
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 5 });
+      expect(gaps).toHaveLength(1);
+    });
+
+    it("a heartbeat at or below the last sighting is silent", () => {
+      const { transport, gaps } = setup();
+      transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 3 });
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 2 });
+      expect(gaps).toHaveLength(0);
     });
 
     it("replays and duplicates never fire", () => {
@@ -257,14 +277,19 @@ describe("createSocket", () => {
       expect(gaps).toEqual([{ rev: 4, lastSeen: 2 }]);
     });
 
-    it("tracking survives a reconnect (missed-while-down still shows as a gap)", () => {
+    it("a reconnect resets tracking (the join baseline re-baselines; onReconnect covers the downtime)", () => {
       const { transport, gaps } = setup();
       transport.fire(SERVER_EVENT, { type: "task.patch", rev: 3 });
       transport.disconnect();
       transport.connect();
-      // Join baselines nothing new here; the next heartbeat exposes the loss.
+      // Post-rejoin baseline — however far ahead — never fires: a fresh
+      // counter (e.g. after a ws restart) must not deafen the detector, and
+      // whatever was missed while down belongs to the reconnect resync.
       transport.fire(SERVER_EVENT, { type: "board.revision", rev: 5 });
-      expect(gaps).toEqual([{ rev: 5, lastSeen: 3 }]);
+      expect(gaps).toHaveLength(0);
+      // Tracking restarts from the baseline: the next advance fires again.
+      transport.fire(SERVER_EVENT, { type: "board.revision", rev: 6 });
+      expect(gaps).toEqual([{ rev: 6, lastSeen: 5 }]);
     });
 
     it("unsubscribes cleanly", () => {

@@ -101,12 +101,20 @@ export type ClientEvent =
   | { type: "task.unsubscribe"; workspaceId: string };
 
 /**
+ * `server-event` subtype carrying the board's current data revision with no
+ * payload (join baseline + heartbeat). See the member on `ServerEvent`.
+ * Mirrored as a local literal in `@vibeflow-tools/ui/socket` (that package
+ * never imports the wire contract) — change both if this ever changes.
+ */
+export const BOARD_REVISION_EVENT_TYPE = "board.revision";
+
+/**
  * Per-board data revision (ticket cb3d0506, missed broadcast while connected).
  *
  * The ws service numbers every durable board mutation it emits (1-based,
- * monotonic per board). A client that sees `rev` jump by more than one has
- * missed an event WITHOUT any reconnect — the reconnect resync cannot fire —
- * so it must re-fetch instead of trusting its event stream. Ephemeral events
+ * monotonic per board). A client that sees a gap in the sequence has missed
+ * an event WITHOUT any reconnect — the reconnect resync cannot fire — so it
+ * must re-fetch instead of trusting its event stream. Ephemeral events
  * (presence/typing/cursor/health) never carry it; `board.revision` carries
  * the current value as a heartbeat so a gap is exposed even in total silence.
  * Absent on emits from older servers — clients baseline on first sight.
@@ -246,8 +254,10 @@ export type ServerEvent =
    * and (b) to every active room on a heartbeat so a client that missed an
    * event while CONNECTED still converges — no reconnect, no data poll.
    * Data events carry the same counter per emit; this one carries it alone.
+   * Mirrored as a local literal in `@vibeflow-tools/ui/socket` (that package
+   * never imports the wire contract) — change both if this ever changes.
    */
-  | { type: "board.revision"; rev: number }
+  | { type: typeof BOARD_REVISION_EVENT_TYPE; rev: number }
   | { type: "health.ping"; redisOk?: boolean }
   | { type: "error"; message: string }
   | { type: "agent-run-started"; taskId: string; model?: string; agent?: string; command?: string; actorId: UserId; rev?: number }
