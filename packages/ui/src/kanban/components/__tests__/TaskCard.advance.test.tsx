@@ -12,7 +12,8 @@ import type { Task, Column, TaskStatus } from "../../types";
  * Ticket 302e9cab — "On task hover next stage".
  *
  * A hover-revealed chevron at the card's right moves the ticket to the
- * NEXT lane (backlog > todo > in-progress > review). It reuses the
+ * NEXT lane (backlog > todo > in-progress > review > done; ticket
+ * 18fae126 made review advance into done). It reuses the
  * board's existing column-drop status path (wired as `onAdvanceTask` —
  * no second write path), keeps its 22px box reserved so the card rect
  * never shifts, and stays invisible to touch pointers.
@@ -45,11 +46,11 @@ function renderCard(task: Task, status: TaskStatus, extra: object = {}) {
 }
 
 describe("nextLaneStatus", () => {
-  it("walks backlog > todo > in-progress > review, then stops", () => {
+  it("walks backlog > todo > in-progress > review > done, then stops", () => {
     expect(nextLaneStatus("backlog")).toBe("todo");
     expect(nextLaneStatus("todo")).toBe("in-progress");
     expect(nextLaneStatus("in-progress")).toBe("review");
-    expect(nextLaneStatus("review")).toBeNull();
+    expect(nextLaneStatus("review")).toBe("done");
     expect(nextLaneStatus("done")).toBeNull();
   });
 
@@ -57,7 +58,7 @@ describe("nextLaneStatus", () => {
     expect(nextLaneLabel("todo")).toBe("In Progress");
     expect(nextLaneLabel("backlog")).toBe("Todo");
     expect(nextLaneLabel("in-progress")).toBe("Review");
-    expect(nextLaneLabel("review")).toBeNull();
+    expect(nextLaneLabel("review")).toBe("Done");
     expect(nextLaneLabel("done")).toBeNull();
   });
 });
@@ -89,23 +90,32 @@ describe("TaskCard advance control", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("renders nothing on terminal lanes (review, done)", () => {
-    const { container, rerender } = renderCard(makeTask(), "review", {
-      onAdvanceTask: vi.fn(),
-    });
-    expect(
-      container.querySelector('[data-role="advance-task"]'),
-    ).not.toBeInTheDocument();
-    rerender(
+  it("renders a Move-to-Done control on the review lane (ticket 18fae126)", () => {
+    const onAdvanceTask = vi.fn();
+    const onOpen = vi.fn();
+    render(
       <TaskCard
         task={makeTask()}
-        col={col("done")}
+        col={col("review")}
         allTasks={[makeTask()]}
-        onOpen={vi.fn()}
+        onOpen={onOpen}
         onDragStart={vi.fn()}
-        onAdvanceTask={vi.fn()}
+        onAdvanceTask={onAdvanceTask}
       />,
     );
+    const btn = screen.getByRole("button", { name: "Move to Done" });
+    expect(btn).toHaveAttribute("data-role", "advance-task");
+    expect(btn).toHaveAttribute("data-next-status", "done");
+    fireEvent.click(btn);
+    expect(onAdvanceTask).toHaveBeenCalledTimes(1);
+    expect(onAdvanceTask).toHaveBeenCalledWith("task-under-test", "done");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing on the terminal done lane", () => {
+    const { container } = renderCard(makeTask(), "done", {
+      onAdvanceTask: vi.fn(),
+    });
     expect(
       container.querySelector('[data-role="advance-task"]'),
     ).not.toBeInTheDocument();

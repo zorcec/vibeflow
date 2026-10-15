@@ -115,15 +115,18 @@ export function resolveTaskCardBgColor(typeColor: string): string {
 }
 
 /**
- * Next-lane map for the hover advance control (ticket 302e9cab):
- * backlog > todo > in-progress > review. Review and done are terminal —
- * the control renders nothing there. Pure and unit-tested without layout.
+ * Next-lane map for the hover advance control (tickets 302e9cab, 18fae126):
+ * backlog > todo > in-progress > review > done. Only done is terminal —
+ * the control renders nothing there. Review advances into done through the
+ * same column-drop status path as every other lane (the board wires
+ * onAdvanceTask to onDrop), so no lane-level drop guard is bypassed.
+ * Pure and unit-tested without layout.
  */
 const NEXT_LANE: Record<TaskStatus, TaskStatus | null> = {
       backlog: "todo",
       todo: "in-progress",
       "in-progress": "review",
-      review: null,
+      review: "done",
       done: null,
 };
 
@@ -131,11 +134,12 @@ export function nextLaneStatus(status: TaskStatus): TaskStatus | null {
       return NEXT_LANE[status] ?? null;
 }
 
-/** Accessible lane names for the advance control's label. */
-const NEXT_LANE_LABEL: Record<Exclude<TaskStatus, "backlog" | "done">, string> = {
+/** Accessible lane names for the advance control's label (keyed by destination). */
+const NEXT_LANE_LABEL: Record<Exclude<TaskStatus, "backlog">, string> = {
       todo: "Todo",
       "in-progress": "In Progress",
       review: "Review",
+      done: "Done",
 };
 
 export function nextLaneLabel(status: TaskStatus): string | null {
@@ -403,8 +407,9 @@ export const TaskCard = React.memo(function TaskCard({
             ? `/api/tasks/${task.id}/files/${encodeURIComponent(stableFirstImage.name)}`
             : null;
 
-      // Hover advance control (302e9cab): destination lane resolved once;
-      // nothing renders on terminal lanes or when the board passes no path.
+      // Hover advance control (302e9cab, 18fae126): destination lane
+      // resolved once; nothing renders on the terminal done lane or when
+      // the board passes no path.
       const advanceStatus = nextLaneStatus(col.id);
       const advanceLabel = nextLaneLabel(col.id);
       const advanceButton =
