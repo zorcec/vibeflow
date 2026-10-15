@@ -13,15 +13,14 @@
  *
  * 2e6b6b1f ("Not aligned with the left created"): the `#dp-id` value row
  * held a 22px `.card-copy-id` pill next to 11px text, growing the row to
- * 22px while `#dp-created` stayed 16px — the ID value centred ~2px low and
- * its underline sat ~6px below Created's. The fix caps the detail pill to
- * the 16px value line.
+ * 22px while `#dp-created` stayed text-height — the ID value centred ~2px
+ * low and its underline sat ~6px below Created's. The fix caps the detail
+ * pill to the 16px value line so both rows are text-driven and equal.
  *
  * Non-vacuity: every assertion below was run against the pre-fix
  * kanban.css and goes red there (zone padding `4px 8px 8px 10px`, no
- * `.child-row-wrap--inline` rule, drop-line margin-left `10px`).
- * (Ticket 2e6b6b1f's describe lives in the same file, added with its
- * fix — its pre-fix red run is recorded in the lane report.)
+ * `.child-row-wrap--inline` rule, drop-line margin-left `10px`, no
+ * `.card-copy-id--detail` rule).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -75,5 +74,20 @@ describe("child hover well spans the full card width (9ec6fbbb)", () => {
     const found = blocks(".tree-drop-line");
     expect(found).toHaveLength(1);
     expect(decl(found[0], "margin")).toBe("2px 0 2px 20px");
+  });
+});
+
+describe("detail ID tile aligns with the Created tile (2e6b6b1f)", () => {
+  it("the detail copy pill is capped to the 16px value line", () => {
+    // Uncapped, `.card-copy-id`'s 22px min box grows the ID value row
+    // past the Created row's text-driven height. Pre-fix this selector
+    // does not exist at all (red run recorded in the lane report).
+    const found = blocks(".card-copy-id--detail");
+    expect(found).toHaveLength(1);
+    expect(decl(found[0], "min-width")).toBe("16px");
+    expect(decl(found[0], "min-height")).toBe("16px");
+    expect(decl(found[0], "width")).toBe("16px");
+    expect(decl(found[0], "height")).toBe("16px");
+    expect(decl(found[0], "padding")).toBe("0");
   });
 });

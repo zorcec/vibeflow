@@ -252,6 +252,18 @@ body {
 .card-copy-id[data-copied="true"]:hover {
  background: var(--t-hover);
 }
+/* 2e6b6b1f: in the details ID tile the pill must not outgrow the 11px
+   value line. .card-copy-id's 22px min box made the ID value row 22px
+   while Created stays text-height, pushing the ID underline ~6px below
+   Created's and centring the id ~2px low. Capped to 16px both rows are
+   text-driven and equal; the 12px glyph still fits. */
+.card-copy-id--detail {
+ min-width: 16px;
+ min-height: 16px;
+ width: 16px;
+ height: 16px;
+ padding: 0;
+}
 /* ── Child-row copy-id tab (inline tree + popover) ──
    NO reveal rules here, on purpose. The tab (CopyIdButton edge mode) is a
    SIBLING of .child-link-row inside .child-row-wrap and carries its whole

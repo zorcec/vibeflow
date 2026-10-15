@@ -105,6 +105,13 @@ describe("TaskDetailsTab id tile", () => {
     // `.card-copy-id` --t-border-faint, so hover is strictly stronger. The
     // class that opts into those shared rules must be present.
     expect(btn).toHaveClass("card-copy-id");
+    // Ticket 2e6b6b1f: the 16px cap that keeps this pill from outgrowing
+    // the value line keys on this modifier class. If the class is renamed
+    // or dropped, the stylesheet rule silently detaches and the ID row
+    // grows back to 22px — so the hook itself is pinned here (the box
+    // values live in the geometry-contract CSS test, jsdom applies no
+    // stylesheet).
+    expect(btn).toHaveClass("card-copy-id--detail");
   });
 
   it("copies the task id and flips to the copied state on click", () => {
