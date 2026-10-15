@@ -62,6 +62,16 @@ export interface CollabSocket {
   send(event: CollabEvent): void;
   onEvent(handler: (event: CollabEvent) => void): () => void;
   onStatus(handler: (connected: boolean) => void): () => void;
+  /**
+   * Fires once per TRUE reconnect: a false → true transition after the
+   * client has connected at least once. Never fires on the initial
+   * connect (the first query fetch already covers that), and never on a
+   * timer — there is deliberately no polling in this module. Consumers
+   * (e.g. the kanban board) use it for ONE bounded resync per reconnect,
+   * so a broadcast lost while the socket was down cannot leave the
+   * session silently stale.
+   */
+  onReconnect(handler: () => void): () => void;
   disconnect(): void;
 }
 
@@ -87,12 +97,23 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
 
   const eventHandlers = new Set<(event: CollabEvent) => void>();
   const statusHandlers = new Set<(connected: boolean) => void>();
+  const reconnectHandlers = new Set<() => void>();
   let connected = false;
+  // True once the first connect completes. Distinguishes the initial
+  // connect (queries fetch on mount — no resync needed) from a reconnect
+  // (the stream may have dropped events — exactly one resync per return).
+  let everConnected = false;
   let socket: RealtimeSocket | null = null;
 
   const setConnected = (next: boolean): void => {
     if (connected === next) return;
     connected = next;
+    if (next) {
+      if (everConnected) {
+        for (const handler of reconnectHandlers) handler();
+      }
+      everConnected = true;
+    }
     for (const handler of statusHandlers) handler(next);
   };
 
@@ -137,6 +158,10 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
       handler(connected);
       return () => statusHandlers.delete(handler);
     },
+    onReconnect(handler) {
+      reconnectHandlers.add(handler);
+      return () => reconnectHandlers.delete(handler);
+    },
     disconnect() {
       socket?.emit("leave-workspace", workspaceId);
       socket?.disconnect();
@@ -152,6 +177,8 @@ export interface UseCollabResult {
   connected: boolean;
   sendEvent: (event: CollabEvent) => void;
   onEvent: (handler: (event: CollabEvent) => void) => () => void;
+  /** One bounded resync trigger per true reconnect — see `CollabSocket`. */
+  onReconnect: (handler: () => void) => () => void;
 }
 
 /**
@@ -163,6 +190,7 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
   const [connected, setConnected] = React.useState(false);
   const socketRef = React.useRef<CollabSocket | null>(null);
   const handlersRef = React.useRef(new Set<(event: CollabEvent) => void>());
+  const reconnectHandlersRef = React.useRef(new Set<() => void>());
   // `createTransport` / `auth` only matter at (re)connect time; keep the latest
   // render's options without making them effect dependencies.
   const optionsRef = React.useRef(options);
@@ -177,11 +205,15 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     const unsubscribers = [...handlersRef.current].map((handler) =>
       socket.onEvent(handler),
     );
+    const reconnectUnsubscribers = [...reconnectHandlersRef.current].map(
+      (handler) => socket.onReconnect(handler),
+    );
     const unsubscribeStatus = socket.onStatus(setConnected);
 
     return () => {
       unsubscribeStatus();
       for (const unsubscribe of unsubscribers) unsubscribe();
+      for (const unsubscribe of reconnectUnsubscribers) unsubscribe();
       socket.disconnect();
       socketRef.current = null;
       setConnected(false);
@@ -201,5 +233,14 @@ export function useCollab(options: UseCollabOptions): UseCollabResult {
     };
   }, []);
 
-  return { connected, sendEvent, onEvent };
+  const onReconnect = React.useCallback((handler: () => void) => {
+    reconnectHandlersRef.current.add(handler);
+    const unsubscribe = socketRef.current?.onReconnect(handler);
+    return () => {
+      reconnectHandlersRef.current.delete(handler);
+      unsubscribe?.();
+    };
+  }, []);
+
+  return { connected, sendEvent, onEvent, onReconnect };
 }

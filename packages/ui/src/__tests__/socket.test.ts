@@ -19,6 +19,7 @@ function createFakeTransport(joinAccepted = true): {
   emitted: Array<{ event: string; args: unknown[] }>;
   options: TransportOptions[];
   connect: () => void;
+  disconnect: () => void;
   fire: (event: string, ...args: unknown[]) => void;
   isDisconnected: () => boolean;
 } {
@@ -63,6 +64,10 @@ function createFakeTransport(joinAccepted = true): {
     connect: () => {
       connected = true;
       fire("connect");
+    },
+    disconnect: () => {
+      connected = false;
+      fire("disconnect");
     },
     fire,
     isDisconnected: () => disconnected,
@@ -121,6 +126,59 @@ describe("createSocket", () => {
     transport.connect();
 
     expect(client.connected).toBe(false);
+  });
+
+  describe("onReconnect (ticket cb3d0506: one bounded resync per reconnect)", () => {
+    function setup() {
+      const transport = createFakeTransport();
+      const client = createSocket({
+        workspaceId: "board-1",
+        url: "http://rt.test",
+        createTransport: () => transport.socket,
+      });
+      const reconnects: number[] = [];
+      let clock = 0;
+      client.onReconnect(() => reconnects.push(++clock));
+      return { transport, client, reconnects };
+    }
+
+    it("does NOT fire on the initial connect (first fetch already covers it)", () => {
+      const { transport, reconnects } = setup();
+      transport.connect();
+      expect(reconnects).toHaveLength(0);
+    });
+
+    it("fires exactly once per disconnect → connect cycle (bounded, no polling)", () => {
+      const { transport, reconnects } = setup();
+      transport.connect();
+      transport.disconnect();
+      transport.connect();
+      expect(reconnects).toHaveLength(1);
+      transport.disconnect();
+      transport.connect();
+      expect(reconnects).toHaveLength(2);
+    });
+
+    it("does not refire while staying connected (duplicate connect is a no-op)", () => {
+      const { transport, reconnects } = setup();
+      transport.connect();
+      transport.disconnect();
+      transport.connect();
+      transport.connect();
+      expect(reconnects).toHaveLength(1);
+    });
+
+    it("unsubscribes cleanly", () => {
+      const { transport, client, reconnects } = setup();
+      const extra: number[] = [];
+      const unsubscribe = client.onReconnect(() => extra.push(1));
+      transport.connect();
+      transport.disconnect();
+      unsubscribe();
+      transport.connect();
+      expect(reconnects).toHaveLength(1);
+      expect(extra).toHaveLength(0);
+    });
   });
 
   it("sends client events only while connected and leaves on disconnect", () => {
