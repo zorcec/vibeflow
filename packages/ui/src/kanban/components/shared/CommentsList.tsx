@@ -444,7 +444,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
           role="status"
           aria-label="Refreshing activity"
           title="Refreshing activity…"
-          style={{ position: 'absolute', top: 4, right: 8, zIndex: 2, display: 'inline-flex', pointerEvents: 'none' }}
+          style={{ position: 'absolute', top: 4, right: updateCount > 0 ? 36 : 8, zIndex: 2, display: 'inline-flex', pointerEvents: 'none' }}
         >
           {reduceMotion ? (
             <span aria-hidden="true" style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', border: '2px solid var(--t-status-progress)' }} />
