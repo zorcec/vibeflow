@@ -652,9 +652,10 @@ export function DetailPanel({
 
   // Refresh panel data when the host bumps a version counter (ticket
   // d4c533f9). Each changed part refetches exactly once: the visible list
-  // when its tab is open, otherwise just its count (the other part is
-  // unchanged, so its count is current) — a coalesced both-bump is one
-  // comments fetch + one files fetch, never two full badge rounds.
+  // when its tab is open, otherwise just its count — except files, whose
+  // list ALSO feeds the details tab screenshot preview (dd380f25), so a
+  // file bump always reloads the list, on any tab. A coalesced both-bump
+  // is one comments fetch + one files fetch, never two full badge rounds.
   // The ref skips the first run: the open effect above already loaded.
   const prevVersionsRef = React.useRef<{
     comments?: number;
@@ -674,8 +675,11 @@ export function DetailPanel({
       else void refreshCommentCount(task.id);
     }
     if (fileVersion !== prev.files) {
-      if (activeTab === "files") void loadFiles(task.id);
-      else void refreshFileCount(task.id);
+      // Always the full list, not just the count: the details tab renders
+      // its screenshot preview from `files`, so a count-only refresh would
+      // leave the preview stale until the user opens the files tab. Same
+      // request refreshFileCount used to make (getFiles), minus discarding.
+      void loadFiles(task.id);
     }
   }, [commentVersion, fileVersion, activeTab, open, task?.id]);
 
@@ -688,14 +692,6 @@ export function DetailPanel({
     }
   }
 
-  async function refreshFileCount(taskId: string) {
-    try {
-      const data = await api.getFiles(taskId);
-      setFileCount(data.files?.length ?? 0);
-    } catch {
-      /* network error — count stays stale */
-    }
-  }
 
   /** One comments fetch + one files fetch for a freshly opened panel:
    * badge counts plus the files list — the same end state the old
