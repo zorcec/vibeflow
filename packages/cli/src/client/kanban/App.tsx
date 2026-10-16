@@ -440,6 +440,9 @@ interface StatusEntry {
   field: string;
   from: string;
   to: string;
+  /** Tags only (59f91dc0): actual added/removed tags recorded at diff time. */
+  added?: string[];
+  removed?: string[];
   actor: string;
   timestamp: string;
   source?: "cli" | "web";
@@ -800,6 +803,7 @@ export function App() {
     to: string,
     actor: string,
     source?: "cli" | "web",
+    tagDiff?: { added: string[]; removed: string[] },
   ) {
     if (from === to) return;
     const timestamp = new Date().toISOString();
@@ -817,7 +821,19 @@ export function App() {
       if (duplicate) return prev;
       return [
         ...prev,
-        { taskId, field, from, to, actor, timestamp, source },
+        {
+          taskId,
+          field,
+          from,
+          to,
+          // 59f91dc0: tags carry the actual diff recorded at the source.
+          ...(tagDiff
+            ? { added: tagDiff.added, removed: tagDiff.removed }
+            : {}),
+          actor,
+          timestamp,
+          source,
+        },
       ].slice(-500);
     });
   }
@@ -869,6 +885,11 @@ export function App() {
             change.to,
             actor ?? "Someone",
             source,
+            // 59f91dc0: tags carry the actual added/removed arrays the
+            // shared differ recorded (comma-safe); other fields pass none.
+            change.field === "tags" && change.added && change.removed
+              ? { added: change.added, removed: change.removed }
+              : undefined,
           );
         }
       }
@@ -1715,16 +1736,31 @@ export function App() {
     if (!panelTaskId) return [];
     return statusChangeLog
       .filter((e) => e.taskId === panelTaskId)
-      .map(({ field, from, to, actor, timestamp, source, toStatus, verified }) => ({
-        field,
-        from,
-        to,
-        actor,
-        timestamp,
-        source,
-        toStatus,
-        verified,
-      }));
+      .map(
+        ({
+          field,
+          from,
+          to,
+          added,
+          removed,
+          actor,
+          timestamp,
+          source,
+          toStatus,
+          verified,
+        }) => ({
+          field,
+          from,
+          to,
+          added,
+          removed,
+          actor,
+          timestamp,
+          source,
+          toStatus,
+          verified,
+        }),
+      );
   }, [panelState.task?.id, statusChangeLog]);
 
   const filteredTasks = React.useMemo(() => {

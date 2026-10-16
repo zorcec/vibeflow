@@ -20,6 +20,15 @@ export interface FieldChange {
   field: string;
   from: string;
   to: string;
+  /**
+   * Tags only (ticket 59f91dc0): the actual tags added/removed, recorded
+   * at diff time from the REAL tag arrays — comma-safe, unlike parsing
+   * the comma-joined from/to keys (a tag may itself contain a comma:
+   * TagInput takes the whole input as one tag). Absent on pre-fix
+   * records; the renderer then derives the same diff from from/to.
+   */
+  added?: string[];
+  removed?: string[];
 }
 
 /**
@@ -41,13 +50,75 @@ export function verifyLabel(v: unknown): string {
 
 /** Canonical comparable string for a tag set (order-insensitive). */
 export function tagSetKey(tags: unknown): string {
-  if (!Array.isArray(tags)) return "";
+  return normalizeTagList(tags).join(",");
+}
+
+/** Trimmed non-empty tags, sorted (the list form behind tagSetKey). */
+export function normalizeTagList(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
   return tags
     .filter((t): t is string => typeof t === "string")
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
-    .sort()
-    .join(",");
+    .sort();
+}
+
+/**
+ * Set difference between two tag arrays (ticket 59f91dc0). Compares REAL
+ * tag strings, so a tag containing a comma diffs exactly — the
+ * comma-joined from/to keys cannot represent that unambiguously.
+ */
+export function diffTagLists(
+  prevTags: unknown,
+  nextTags: unknown,
+): { added: string[]; removed: string[] } {
+  const prev = new Set(normalizeTagList(prevTags));
+  const next = new Set(normalizeTagList(nextTags));
+  return {
+    added: [...next].filter((t) => !prev.has(t)),
+    removed: [...prev].filter((t) => !next.has(t)),
+  };
+}
+
+/** Split a tagSetKey back into tags (inverse for comma-free tags only). */
+export function parseTagKey(key: string): string[] {
+  return key
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * The added/removed tags a change row should name (ticket 59f91dc0).
+ * Prefers the arrays recorded at diff time (comma-safe); pre-fix records
+ * carry only the comma-joined from/to keys, so those derive the same
+ * diff by key parsing. Never invents names: both paths come from the
+ * stored record.
+ */
+export function resolveTagChange(
+  from: string,
+  to: string,
+  added?: string[],
+  removed?: string[],
+): { added: string[]; removed: string[] } {
+  if (Array.isArray(added) && Array.isArray(removed)) {
+    return { added, removed };
+  }
+  return diffTagLists(parseTagKey(from), parseTagKey(to));
+}
+
+/**
+ * One-line tag diff, e.g. "added: bug, ui · removed: p1" (ticket 59f91dc0).
+ * Added-only or removed-only changes name just their side.
+ */
+export function formatTagChange(
+  added: readonly string[],
+  removed: readonly string[],
+): string {
+  const parts: string[] = [];
+  if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+  if (removed.length > 0) parts.push(`removed: ${removed.join(", ")}`);
+  return parts.join(" · ");
 }
 
 /** Canonical comparable string for a link set (order-insensitive). */
@@ -115,7 +186,10 @@ export function diffTaskFields(
   const tagsPrev = tagSetKey(prev.tags);
   const tagsNext = tagSetKey(next.tags);
   if (tagsNext !== tagsPrev) {
-    out.push({ field: "tags", from: tagsPrev, to: tagsNext });
+    // 59f91dc0: record the actual diff at the source (comma-safe) — the
+    // renderer names these arrays instead of a generic "changed tags".
+    const { added, removed } = diffTagLists(prev.tags, next.tags);
+    out.push({ field: "tags", from: tagsPrev, to: tagsNext, added, removed });
   }
   const linksPrev = linkSetKey(prev.links);
   const linksNext = linkSetKey(next.links);

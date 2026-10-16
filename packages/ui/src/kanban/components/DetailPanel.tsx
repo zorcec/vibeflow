@@ -22,7 +22,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
-import { linkSetKey, tagSetKey } from "../fieldChanges";
+import { linkSetKey, tagSetKey, diffTagLists } from "../fieldChanges";
 import { getTaskTypeColor } from "../../task-types";
 import { transformImageForUpload } from "../imageTransform";
 import { presenceAreaLabel, presenceChipFill, presenceInitials } from "./shared/presence";
@@ -868,7 +868,12 @@ export function DetailPanel({
   // Keep autoSaveRef always current so outside-click handler uses latest state
   autoSaveRef.current = autoSave;
 
-  function recordChange(field: string, from: string, to: string) {
+  function recordChange(
+    field: string,
+    from: string,
+    to: string,
+    tagDiff?: { added: string[]; removed: string[] },
+  ) {
     if (from === to) return;
     setLocalChanges((prev) => [
       ...prev,
@@ -876,6 +881,9 @@ export function DetailPanel({
         field,
         from,
         to,
+        // 59f91dc0: tags name the actual added/removed tags — recorded
+        // here from the real arrays (comma-safe), not parsed in the UI.
+        ...(tagDiff ? { added: tagDiff.added, removed: tagDiff.removed } : {}),
         actor: gitUserName,
         timestamp: new Date().toISOString(),
       },
@@ -1720,14 +1728,21 @@ export function DetailPanel({
                 onTagsChange={
                   isAdd
                     ? setDraftTags
-                    : (newTags) => {
+                      : (newTags) => {
                         // 3647a471: tags earn a minimal entry like every
-                        // other details field (name-only row, no value dump).
+                        // other details field. 59f91dc0: the entry names the
+                        // actual added/removed tags, recorded here from the
+                        // real arrays (comma-safe).
                         if (!task) return;
                         const beforeKey = tagSetKey(task.tags);
                         const afterKey = tagSetKey(newTags);
                         if (afterKey !== beforeKey) {
-                          recordChange("tags", beforeKey, afterKey);
+                          recordChange(
+                            "tags",
+                            beforeKey,
+                            afterKey,
+                            diffTagLists(task.tags, newTags),
+                          );
                         }
                         onPatch(task.id, { tags: newTags });
                       }

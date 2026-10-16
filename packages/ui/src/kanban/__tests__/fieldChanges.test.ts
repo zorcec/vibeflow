@@ -15,6 +15,11 @@ import {
   MINIMAL_FIELDS,
   verifyLabel,
   tagSetKey,
+  normalizeTagList,
+  parseTagKey,
+  diffTagLists,
+  resolveTagChange,
+  formatTagChange,
   linkSetKey,
 } from "../fieldChanges";
 import type { Task } from "../types";
@@ -83,7 +88,26 @@ describe("diffTaskFields", () => {
     ).toEqual([]);
     expect(
       diffTaskFields(base({ tags: ["a"] }), base({ tags: ["a", "b"] })),
-    ).toEqual([{ field: "tags", from: "a", to: "a,b" }]);
+    ).toEqual([
+      { field: "tags", from: "a", to: "a,b", added: ["b"], removed: [] },
+    ]);
+  });
+
+  it("records the actual added/removed tags on the tags entry (59f91dc0)", () => {
+    expect(
+      diffTaskFields(
+        base({ tags: ["p1", "bug"] }),
+        base({ tags: ["bug", "ui", "ux"] }),
+      ),
+    ).toEqual([
+      {
+        field: "tags",
+        from: "bug,p1",
+        to: "bug,ui,ux",
+        added: ["ui", "ux"],
+        removed: ["p1"],
+      },
+    ]);
   });
 
   it("diffs relations as link sets", () => {
@@ -132,6 +156,70 @@ describe("verifyLabel", () => {
     expect(verifyLabel(false)).toBe("failed");
     expect(verifyLabel(null)).toBe("none");
     expect(verifyLabel(undefined)).toBe("none");
+  });
+});
+
+describe("diffTagLists (59f91dc0)", () => {
+  it("names added and removed tags", () => {
+    expect(diffTagLists(["p1", "bug"], ["bug", "ui", "ux"])).toEqual({
+      added: ["ui", "ux"],
+      removed: ["p1"],
+    });
+  });
+
+  it("is order-insensitive and trims", () => {
+    expect(diffTagLists(["b", "a"], ["a", "b"]))
+      .toEqual({ added: [], removed: [] });
+    expect(diffTagLists(["  a "], ["a", "b"])).toEqual({
+      added: ["b"],
+      removed: [],
+    });
+  });
+
+  it("diffs comma-containing tags exactly (keys cannot)", () => {
+    // TagInput takes the whole input as one tag, so "a,b" can be a
+    // SINGLE tag: key parsing would mis-split it, the array diff does not.
+    expect(diffTagLists(["x"], ["x", "a,b"])).toEqual({
+      added: ["a,b"],
+      removed: [],
+    });
+  });
+});
+
+describe("resolveTagChange (59f91dc0)", () => {
+  it("prefers arrays recorded at diff time", () => {
+    expect(resolveTagChange("a", "a,b", ["b"], [])).toEqual({
+      added: ["b"],
+      removed: [],
+    });
+  });
+
+  it("derives the diff from stored keys on pre-fix records", () => {
+    expect(resolveTagChange("bug,p1", "bug,ui,ux")).toEqual({
+      added: ["ui", "ux"],
+      removed: ["p1"],
+    });
+  });
+});
+
+describe("formatTagChange (59f91dc0)", () => {
+  it("names added and removed tags", () => {
+    expect(formatTagChange(["bug", "ui"], ["p1"])).toBe(
+      "added: bug, ui · removed: p1",
+    );
+  });
+
+  it("names just the changed side", () => {
+    expect(formatTagChange(["b"], [])).toBe("added: b");
+    expect(formatTagChange([], ["a"])).toBe("removed: a");
+  });
+});
+
+describe("normalizeTagList / parseTagKey", () => {
+  it("normalizes and round-trips comma-free tags", () => {
+    expect(normalizeTagList([" b ", "a", "", 1])).toEqual(["a", "b"]);
+    expect(parseTagKey("a,b")).toEqual(["a", "b"]);
+    expect(parseTagKey("")).toEqual([]);
   });
 });
 

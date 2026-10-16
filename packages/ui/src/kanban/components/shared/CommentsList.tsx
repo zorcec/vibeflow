@@ -8,7 +8,7 @@ import { formatDate } from '../../utils';
 import { FileItem } from './FileItem';
 import { Paperclip, Trash2 } from "lucide-react";
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
-import { MINIMAL_FIELDS } from '../../fieldChanges';
+import { MINIMAL_FIELDS, resolveTagChange, formatTagChange } from '../../fieldChanges';
 
 interface ChangeActivityItem {
   kind: 'change';
@@ -16,6 +16,9 @@ interface ChangeActivityItem {
   field: string;
   from: string;
   to: string;
+  /** Tags only (59f91dc0): actual added/removed tags recorded at diff time. */
+  added?: string[];
+  removed?: string[];
   actor: string;
   source?: 'cli' | 'web';
   /** Status key the transition landed in — the verdict lane gate reads it. */
@@ -152,6 +155,9 @@ export interface LocalChange {
   field: string;
   from: string;
   to: string;
+  /** Tags only (59f91dc0): actual added/removed tags recorded at diff time. */
+  added?: string[];
+  removed?: string[];
   actor: string;
   timestamp: string;
   source?: 'cli' | 'web';
@@ -343,7 +349,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
       return { kind: 'file' as const, sortKey: f.createdAt ?? '9999', file: f, url: fileUrl };
     });
     const changeItems: ActivityItem[] = localChanges.map(c => ({
-      kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, actor: c.actor, source: c.source,
+      kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, source: c.source,
       toStatus: c.toStatus, verified: c.verified,
     }));
     return [...items, ...commentItems, ...fileItems, ...changeItems].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
@@ -587,6 +593,39 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
   );
 }
 
+/**
+ * Tags change detail (ticket 59f91dc0): names the ACTUAL tags added and
+ * removed — e.g. "added: bug, ui · removed: p1" — instead of a generic
+ * "changed tags". Added names read green, removed red, in the feed's
+ * established pill tints; long lists trim with the full text in the title
+ * tooltip. The diff comes from the stored record (arrays recorded at diff
+ * time, or derived from the stored from/to keys on pre-fix rows) — never
+ * invented in the UI.
+ */
+function renderTagChangeDetail(item: ChangeActivityItem): React.ReactNode {
+  const { added, removed } = resolveTagChange(item.from, item.to, item.added, item.removed);
+  if (added.length === 0 && removed.length === 0) return null;
+  const full = formatTagChange(added, removed);
+  const trimLen = 40;
+  const addedText = added.length > 0 ? `added: ${added.join(", ")}` : "";
+  const removedText = removed.length > 0 ? `removed: ${removed.join(", ")}` : "";
+  const trim = (s: string) => (s.length > trimLen ? s.slice(0, trimLen) + "…" : s);
+  return (
+    <div
+      title={full}
+      style={{ marginTop: 2, fontSize: 11, color: 'var(--t-text-body)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}
+    >
+      {addedText && (
+        <span style={{ color: 'var(--t-success)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trim(addedText)}</span>
+      )}
+      {addedText && removedText && <span style={{ color: 'var(--t-text-body)' }}>·</span>}
+      {removedText && (
+        <span style={{ color: 'var(--t-danger)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trim(removedText)}</span>
+      )}
+    </div>
+  );
+}
+
 function renderActivityItem(
   item: ActivityItem,
   itemKey: string,
@@ -682,10 +721,13 @@ function renderActivityItem(
               <span style={{ fontSize: 10, color: 'var(--t-text-body)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
             )}
           </div>
-          {/* 3647a471: long/structural fields (description, tags, relations)
+          {/* 3647a471: long/structural fields (description, relations)
               render name-only — old/new values would be a diff dump, not a
-              minimal entry. Short fields keep the established from→to pills. */}
-          {!MINIMAL_FIELDS.has(item.field) && (
+              minimal entry. Short fields keep the established from→to pills.
+              Tags (59f91dc0) name the actual added/removed tags instead: the
+              record carries the diff (or it derives from the stored keys). */}
+          {item.field === 'tags' && renderTagChangeDetail(item)}
+          {item.field !== 'tags' && !MINIMAL_FIELDS.has(item.field) && (
             <div
               title={needsTooltip ? `${item.from} → ${item.to}` : undefined}
               style={{ marginTop: 2, fontSize: 11, color: 'var(--t-text-body)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}

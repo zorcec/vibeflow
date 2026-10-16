@@ -3,11 +3,14 @@
  * Minimal field entries in the activity feed (3647a4715eeebe2a2ce02571a58c91).
  *
  * One save reads as ONE small row naming the field. Long/structural values
- * (description text, tag sets, link sets) would be a diff dump, so those
- * rows render name-only; short fields keep the established from→to pills.
+ * (description text, link sets) would be a diff dump, so those rows render
+ * name-only; short fields keep the established from→to pills. Tags name the
+ * actual added/removed tags instead (59f91dc0ce2978a19c191afd06e640).
  *
  * Non-vacuity: the name-only cases fail on the old code, where every change
- * row rendered pills; the pill case fails if the convention regresses.
+ * row rendered pills; the tag-detail cases fail on the pre-59f91dc0 code,
+ * where tags rows rendered name-only; the pill case fails if the convention
+ * regresses.
  */
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
@@ -53,9 +56,8 @@ describe("minimal field entries", () => {
     expect(container.textContent).not.toContain("→");
   });
 
-  it("renders tags and relations edits as name-only rows", () => {
+  it("renders relations edits as name-only rows", () => {
     const { container } = renderFeed([
-      change({ field: "tags", from: "a", to: "a,b" }),
       change({
         field: "relations",
         from: "",
@@ -63,10 +65,50 @@ describe("minimal field entries", () => {
         timestamp: "2026-10-16T10:00:01.000Z",
       }),
     ]);
-    expect(container.textContent).toContain("tags");
     expect(container.textContent).toContain("relations");
     expect(container.textContent).not.toContain("parent:abc");
     expect(container.textContent).not.toContain("→");
+  });
+
+  it("names the single tag added (59f91dc0)", () => {
+    const { container } = renderFeed([
+      change({
+        field: "tags",
+        from: "a",
+        to: "a,b",
+        added: ["b"],
+        removed: [],
+      }),
+    ]);
+    expect(container.textContent).toContain("changed");
+    expect(container.textContent).toContain("tags");
+    expect(container.textContent).toContain("added: b");
+    expect(container.textContent).not.toContain("removed:");
+    expect(container.textContent).not.toContain("→");
+  });
+
+  it("names several added and removed tags at once (59f91dc0)", () => {
+    const { container } = renderFeed([
+      change({
+        field: "tags",
+        from: "bug,p1",
+        to: "bug,ui,ux",
+        added: ["ui", "ux"],
+        removed: ["p1"],
+      }),
+    ]);
+    expect(container.textContent).toContain("added: ui, ux");
+    expect(container.textContent).toContain("removed: p1");
+    expect(container.textContent).not.toContain("→");
+  });
+
+  it("derives the diff from stored keys on pre-fix tag rows (59f91dc0)", () => {
+    // Rows recorded before the write path carried added/removed still name
+    // the diff — derived from the stored from/to keys, never invented.
+    const { container } = renderFeed([
+      change({ field: "tags", from: "a", to: "a,b" }),
+    ]);
+    expect(container.textContent).toContain("added: b");
   });
 
   it("keeps the from→to pills for short fields (established convention)", () => {

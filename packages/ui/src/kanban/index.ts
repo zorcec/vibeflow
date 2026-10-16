@@ -30,6 +30,11 @@ export {
   MINIMAL_FIELDS,
   verifyLabel,
   tagSetKey,
+  normalizeTagList,
+  parseTagKey,
+  diffTagLists,
+  resolveTagChange,
+  formatTagChange,
   linkSetKey,
   diffTaskFields,
 } from "./fieldChanges";
