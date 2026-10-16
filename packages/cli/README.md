@@ -2,6 +2,8 @@
 
 > **Task management for AI coding agents — with annotation and verification built in.**
 
+[![Vibeflow MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/zorcec/vibeflow/badges/score.svg)](https://glama.ai/mcp/servers/zorcec/vibeflow)
+
 Vibeflow gives your coding agent sequenced, claimable work: tasks with hierarchy, an atomic `--next` claim, and a review gate with verification verdicts — on a local-first kanban board that stays in your repo. Clicking a UI element to file a ticket with its exact selector, URL, and source location is built in, so visual feedback arrives as structured tasks instead of prose.
 
 🌐 [Website](https://vibeflow.tools) · 📖 [Tutorial](https://vibeflow.tools/tutorial)
