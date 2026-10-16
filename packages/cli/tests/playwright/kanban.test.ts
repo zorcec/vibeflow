@@ -604,37 +604,47 @@ describe("Kanban board", () => {
     expect(pillCount).toBe(0);
   });
 
-  // ── Details-pane divider ownership (ticket 796f13e5) ──────────────────────
-  // The tiles→chip-row boundary is owned by the chip-row wrapper's top
-  // divider (rendered only when the chip row has content); the
-  // chip-row→relations boundary is owned by .relations-section's top
-  // divider (always rendered). Round 1 ("too much") was an empty wrapper
-  // sandwiching TWO rules around nothing; round 2 ("missing") was the
-  // wrapper's rule deleted outright, leaving ZERO rules at its boundary.
-  // Both directions must fail: a doubled rule AND a missing rule each fail.
+  // ── Details-pane divider ownership (tickets 796f13e5, 6aa28fd6) ───────────
+  // Geometry since 6aa28fd6: tiles → relations container → chip-row wrapper
+  // (very bottom). The tiles→relations boundary is owned by
+  // .relations-section's top divider (always rendered); the
+  // relations→chip-row boundary is owned by the chip-row wrapper's top
+  // divider (rendered only when the chip row has content — the wrapper
+  // carries its divider with it wherever it sits). 796f13e5 round 1
+  // ("too much") was an empty wrapper sandwiching TWO rules around
+  // nothing; round 2 ("missing") was the wrapper's rule deleted outright,
+  // leaving ZERO rules at its boundary. Both directions must fail: a
+  // doubled rule AND a missing rule each fail.
   async function paneBoundaryRules(p: Page): Promise<{
     chipItems: number;
     wrapperTopWidth: number;
     relationsTopWidth: number;
     zoneRules: number[];
+    wrapperIsLast: boolean;
+    wrapperTop: number;
+    relationsTop: number;
   }> {
     return p.evaluate(() => {
       const num = (v: string) => {
         const n = parseFloat(v);
         return Number.isFinite(n) ? n : 0;
       };
+      const none = {
+        chipItems: -1,
+        wrapperTopWidth: 0,
+        relationsTopWidth: 0,
+        zoneRules: [],
+        wrapperIsLast: false,
+        wrapperTop: NaN,
+        relationsTop: NaN,
+      };
       const pane = document.getElementById("dp-details-pane");
-      if (!pane)
-        return {
-          chipItems: -1,
-          wrapperTopWidth: 0,
-          relationsTopWidth: 0,
-          zoneRules: [],
-        };
+      if (!pane) return none;
       const metaRow = document.getElementById("dp-meta-row");
       const chipItems = metaRow ? metaRow.childElementCount : 0;
-      // The chip-row wrapper is the pane's 2nd child when it renders; the
-      // relations container follows it (or is 2nd child when it does not).
+      // The chip-row wrapper is the pane's LAST child when it renders (it
+      // sits at the very bottom); the relations container precedes it (or
+      // is the last child when the wrapper does not render).
       const kids = [...pane.children] as HTMLElement[];
       const wrapper =
         metaRow?.parentElement instanceof HTMLElement
@@ -649,36 +659,47 @@ describe("Kanban board", () => {
       const relationsTopWidth = relations
         ? num(getComputedStyle(relations).borderTopWidth)
         : 0;
-      // Boundary zone: below the meta-tiles block, down through the
-      // Relations header. Tile value underlines live above it; relation
-      // group rows and the + Add button live below it.
-      const tilesBottom =
-        kids[0]?.getBoundingClientRect().bottom ?? NaN;
-      const relHeader = pane.querySelector(
-        ".relations-area-header",
-      ) as HTMLElement | null;
-      const zoneBottom = relHeader?.getBoundingClientRect().bottom ?? NaN;
+      const wrapperRect = wrapper?.getBoundingClientRect();
+      const relationsRect = relations?.getBoundingClientRect();
+      const wrapperIsLast = wrapper
+        ? pane.lastElementChild === wrapper
+        : false;
+      const wrapperTop = wrapperRect?.top ?? NaN;
+      const relationsTop = relationsRect?.top ?? NaN;
+      // Boundary zone: below the meta-tiles block, down through the bottom
+      // of the chip-row wrapper when present (else the relations block).
+      // Tile value underlines live above it; nothing owned lives below it.
+      const tilesBottom = kids[0]?.getBoundingClientRect().bottom ?? NaN;
+      const zoneBottom = wrapperRect
+        ? wrapperRect.bottom
+        : (relationsRect?.bottom ?? NaN);
       const zoneRules: number[] = [];
-      if (relations) {
-        const r = relations.getBoundingClientRect();
+      if (relations && relationsRect) {
         if (
           relationsTopWidth >= 1 &&
-          r.top > tilesBottom + 0.5 &&
-          r.top <= zoneBottom
+          relationsRect.top > tilesBottom + 0.5 &&
+          relationsRect.top <= zoneBottom
         )
-          zoneRules.push(r.top);
+          zoneRules.push(relationsRect.top);
       }
-      if (wrapper) {
-        const r = wrapper.getBoundingClientRect();
+      if (wrapper && wrapperRect) {
         if (
           wrapperTopWidth >= 1 &&
-          r.top > tilesBottom + 0.5 &&
-          r.top <= zoneBottom
+          wrapperRect.top > tilesBottom + 0.5 &&
+          wrapperRect.top <= zoneBottom
         )
-          zoneRules.push(r.top);
+          zoneRules.push(wrapperRect.top);
       }
       zoneRules.sort((a, b) => a - b);
-      return { chipItems, wrapperTopWidth, relationsTopWidth, zoneRules };
+      return {
+        chipItems,
+        wrapperTopWidth,
+        relationsTopWidth,
+        zoneRules,
+        wrapperIsLast,
+        wrapperTop,
+        relationsTop,
+      };
     });
   }
 
@@ -692,7 +713,7 @@ describe("Kanban board", () => {
     );
   }
 
-  it("796f13e5: chip row with content draws exactly one rule per boundary", async () => {
+  it("796f13e5/6aa28fd6: chip row with content sits at the very bottom, exactly one rule per boundary", async () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -715,12 +736,19 @@ describe("Kanban board", () => {
     expect(rules.wrapperTopWidth).toBeGreaterThanOrEqual(1);
     // …and the relations section keeps its divider (missing fails here)…
     expect(rules.relationsTopWidth).toBeGreaterThanOrEqual(1);
-    // …with no second rule at either boundary (round-1 doubling fails here).
+    // …with no second rule at either boundary (round-1 doubling fails here)…
     expect(rules.zoneRules.length).toBe(2);
+    // …one rule at each owned boundary, in pane order…
+    expect(rules.zoneRules[0]).toBeCloseTo(rules.relationsTop, 1);
+    expect(rules.zoneRules[1]).toBeCloseTo(rules.wrapperTop, 1);
+    // …and the chip row is BELOW relations, last in the pane (the move
+    // itself — fails if the wrapper is ever stacked above relations again).
+    expect(rules.wrapperTop).toBeGreaterThan(rules.relationsTop);
+    expect(rules.wrapperIsLast).toBe(true);
     await closePanelIfOpen(page);
   });
 
-  it("796f13e5: empty chip row draws exactly one rule, never two or zero", async () => {
+  it("796f13e5/6aa28fd6: empty chip row draws exactly one rule, never two or zero", async () => {
     const res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1688,30 +1688,13 @@ export function DetailPanel({
                 taskLookup={taskLookup}
               />
             </div>
-            {!isAdd && task && buildDpMetaItems(task).length > 0 && (
-              // Ticket 796f13e5: this wrapper owns the tiles→chip-row
-              // boundary (its top divider). It renders only when the chip
-              // row has content — an empty wrapper drew a second rule
-              // around nothing (round 1: "too much"), and dropping the
-              // rule outright left zero rules at the boundary (round 2:
-              // "missing"). The relations section below keeps its own
-              // top divider, so each live boundary draws exactly one rule.
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  flexShrink: 0,
-                  marginTop: 12,
-                  borderTop: "1px solid var(--t-border)",
-                  paddingTop: 10,
-                }}
-              >
-                <DpMetaRow task={task} />
-              </div>
-            )}
             {!isAdd && task && (
+              // Ticket 6aa28fd6: the relations section now sits directly
+              // below the tiles and keeps its own top divider, so it owns
+              // the tiles→relations boundary. The meta chip row moved to
+              // the very bottom of the pane (below); its wrapper carries
+              // its top divider with it, so each live boundary still draws
+              // exactly one rule (see 796f13e5 ownership invariant).
               <div
                 style={{ marginTop: 8 }}
                 onFocusCapture={() =>
@@ -1767,6 +1750,31 @@ export function DetailPanel({
                     {linksError}
                   </div>
                 )}
+              </div>
+            )}
+            {!isAdd && task && buildDpMetaItems(task).length > 0 && (
+              // Ticket 6aa28fd6: meta chip row moved to the very bottom
+              // of the details pane. This wrapper keeps ownership of its
+              // top divider, which now draws the relations→chip-row
+              // boundary. It renders only when the chip row has content
+              // (796f13e5 invariant: an empty wrapper would sandwich two
+              // rules around nothing; dropping the rule would leave zero).
+              // The relations section above keeps its own top divider for
+              // the tiles→relations boundary — exactly one rule per live
+              // boundary, never two, never zero.
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  flexShrink: 0,
+                  marginTop: 12,
+                  borderTop: "1px solid var(--t-border)",
+                  paddingTop: 10,
+                }}
+              >
+                <DpMetaRow task={task} />
               </div>
             )}
           </div>
