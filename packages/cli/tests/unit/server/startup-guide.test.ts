@@ -80,16 +80,16 @@ describe("buildIntegrationGuide — the URL/snippet source of truth", () => {
   it("online mode points at the SaaS overlay and uses the CSP-safe snippet", () => {
     const g = buildIntegrationGuide(LOCAL, {
       online: true,
-      overlayBaseUrl: "https://freemium.vibeflow.tools",
+      overlayBaseUrl: "https://app.vibeflow.tools",
       boardId: "bid1",
     });
     expect(g.overlayScriptUrl).toBe(
-      "https://freemium.vibeflow.tools/api/overlay.js",
+      "https://app.vibeflow.tools/api/overlay.js",
     );
     expect(g.consoleSnippet).toBe(
-      "window.__VIBEFLOW_BOARD_ID='bid1';fetch('https://freemium.vibeflow.tools/api/overlay.js').then(r=>r.text()).then(code=>eval(code));",
+      "window.__VIBEFLOW_BOARD_ID='bid1';fetch('https://app.vibeflow.tools/api/overlay.js').then(r=>r.text()).then(code=>eval(code));",
     );
-    expect(g.bookmarkletCode).toContain("fetch('https://freemium.vibeflow.tools/api/overlay.js')");
+    expect(g.bookmarkletCode).toContain("fetch('https://app.vibeflow.tools/api/overlay.js')");
   });
 
   it("offline mode uses the script-tag snippet", () => {

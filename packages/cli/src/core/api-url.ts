@@ -3,8 +3,12 @@
  *
  * The CLI previously defaulted to a hostname that is served by nothing
  * (in five separate places) — login and push could not connect for
- * anyone. The production app lives at `https://freemium.vibeflow.tools`,
- * so that is the default here.
+ * anyone. The production app lives at `https://app.vibeflow.tools`.
+ *
+ * History (2026-10-16): the default used to be `freemium.vibeflow.tools`.
+ * That host was dropped (Caddy answers 404) when the app moved to
+ * `app.vibeflow.tools`, which broke login for every published CLI — the
+ * default must track the host that is actually served.
  *
  * `VIBEFLOW_API_URL` still overrides the default (local dev, stage, tests) —
  * it is the seam a future host picker will use. Values that are not
@@ -14,7 +18,7 @@
  */
 
 // Stryker disable once StringLiteral: default API URL is a configuration constant
-export const DEFAULT_API_URL = "https://freemium.vibeflow.tools";
+export const DEFAULT_API_URL = "https://app.vibeflow.tools";
 
 /**
  * Resolve the API base URL from the environment. Validates that the value

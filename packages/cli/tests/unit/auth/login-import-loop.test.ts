@@ -19,7 +19,7 @@ describe("createTasksOneByOne (v0 import loop)", () => {
       { id: "c", title: "C", status: "todo" },
     ];
     const result = await createTasksOneByOne(
-      "https://freemium.vibeflow.tools",
+      "https://app.vibeflow.tools",
       "tok",
       "board-1",
       tasks,
@@ -29,7 +29,7 @@ describe("createTasksOneByOne (v0 import loop)", () => {
     expect(result.skipped).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const call of fetchMock.mock.calls) {
-      expect(call[0]).toBe("https://freemium.vibeflow.tools/api/v0/tasks");
+      expect(call[0]).toBe("https://app.vibeflow.tools/api/v0/tasks");
       expect(call[1].method).toBe("POST");
       expect(call[1].headers.Authorization).toBe("Bearer tok");
       expect(JSON.parse(call[1].body).boardId).toBe("board-1");

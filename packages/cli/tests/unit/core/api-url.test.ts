@@ -12,8 +12,8 @@ afterEach(() => {
 describe("core/api-url", () => {
   it("defaults to the production host", () => {
     delete process.env.VIBEFLOW_API_URL;
-    expect(DEFAULT_API_URL).toBe("https://freemium.vibeflow.tools");
-    expect(getApiUrl()).toBe("https://freemium.vibeflow.tools");
+    expect(DEFAULT_API_URL).toBe("https://app.vibeflow.tools");
+    expect(getApiUrl()).toBe("https://app.vibeflow.tools");
   });
 
   it("honours the VIBEFLOW_API_URL override (local dev, stage, tests)", () => {

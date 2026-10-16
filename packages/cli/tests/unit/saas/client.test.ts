@@ -177,7 +177,7 @@ describe("fetchSaasTasks", () => {
     mockFetch({ tasks: [], boardId: "b-1" });
     await fetchSaasTasks();
     const fetchCall = vi.mocked(fetch).mock.calls[0];
-    expect((fetchCall[0] as string)).toContain("https://freemium.vibeflow.tools");
+    expect((fetchCall[0] as string)).toContain("https://app.vibeflow.tools");
   });
 });
 
@@ -415,7 +415,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         },
       ],
       fileText: {
-        "https://freemium.vibeflow.tools/api/v0/tasks/ext-1/files/f1":
+        "https://app.vibeflow.tools/api/v0/tasks/ext-1/files/f1":
           "field notes line one\n",
       },
     });
@@ -437,7 +437,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
     expect(task.files![0]).toMatchObject({
       name: "field-notes.md",
       size: 20,
-      url: "https://freemium.vibeflow.tools/api/v0/tasks/ext-1/files/f1",
+      url: "https://app.vibeflow.tools/api/v0/tasks/ext-1/files/f1",
       content: "field notes line one\n",
       system: false,
     });

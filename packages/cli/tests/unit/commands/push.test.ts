@@ -388,7 +388,7 @@ describe("push — import API interaction", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const url = fetchMock.mock.calls[0]?.[0] as string;
-    expect(url).toContain("https://freemium.vibeflow.tools");
+    expect(url).toContain("https://app.vibeflow.tools");
     expect(url).toContain("/api/v0/tasks");
 
     process.env.VIBEFLOW_API_URL = originalEnv;
@@ -524,7 +524,7 @@ describe("push — two-phase link preservation", () => {
     // parent's REMOTE id — never the local ids.
     const linkCalls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/links"));
     expect(linkCalls).toHaveLength(1);
-    expect(linkCalls[0]?.[0]).toBe("https://freemium.vibeflow.tools/api/v0/tasks/remote-c1/links");
+    expect(linkCalls[0]?.[0]).toBe("https://app.vibeflow.tools/api/v0/tasks/remote-c1/links");
     expect(JSON.parse(linkCalls[0]?.[1]?.body as string)).toEqual({
       taskId: "remote-p1",
       type: "parent",

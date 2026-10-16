@@ -149,9 +149,10 @@ function requireSameOrigin(
 /** Valid status values accepted when creating a task via POST /api/tasks. */
 const VALID_CREATE_STATUSES = TASK_STATUSES;
 
-// Production app origin. The previous default hostname was never served
-// by anything, so nothing genuine still uses it — it is not listed.
-const ALLOWED_WORKSPACE_ORIGINS = new Set(["https://freemium.vibeflow.tools"]);
+// Production app origin. `freemium.vibeflow.tools` used to be listed here; that
+// host was dropped on 2026-10-16 (Caddy answers 404), so only the host that is
+// actually served belongs in this allowlist.
+const ALLOWED_WORKSPACE_ORIGINS = new Set(["https://app.vibeflow.tools"]);
 
 /** Validates workspace URL against known production domains to prevent SSRF. */
 function sanitizeWorkspaceOrigin(url: string | undefined): string | null {
