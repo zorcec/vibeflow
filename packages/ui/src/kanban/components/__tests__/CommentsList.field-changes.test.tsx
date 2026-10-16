@@ -9,19 +9,23 @@
  * Non-vacuity: the name-only cases fail on the old code, where every change
  * row rendered pills; the pill case fails if the convention regresses.
  */
-import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { CommentsList, type LocalChange } from "../shared/CommentsList";
 
-function renderFeed(changes: LocalChange[] = []) {
+function renderFeed(
+  changes: LocalChange[] = [],
+  stamps: { createdAt?: string; updatedAt?: string } = {},
+) {
   return render(
     <CommentsList
       comments={[]}
       localChanges={changes}
       loading={false}
       error={null}
+      taskCreatedAt={stamps.createdAt}
+      taskUpdatedAt={stamps.updatedAt}
       onEdit={vi.fn().mockResolvedValue(undefined)}
       onDelete={vi.fn().mockResolvedValue(undefined)}
     />,
@@ -79,6 +83,23 @@ describe("minimal field entries", () => {
     expect(container.textContent).toContain("New");
     expect(container.textContent).toContain("Medium");
     expect(container.textContent).toContain("High");
+  });
+
+  it("reads one description save as exactly one entry (no double-count)", () => {
+    // b27cf2b2: counts are EVENTS. One save already yields the generic
+    // timestamp-derived "Task edited" row; the field entry must add
+    // exactly ONE more row — never two rows for the same field change.
+    const { container } = renderFeed(
+      [change({ field: "description" })],
+      {
+        createdAt: "2026-10-16T09:00:00.000Z",
+        updatedAt: "2026-10-16T10:00:00.000Z",
+      },
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Task edited");
+    expect(text.match(/changed description/g)).toHaveLength(1);
+    expect(text).not.toContain("new text");
   });
 
   it("still shows the actor on a minimal row", () => {
