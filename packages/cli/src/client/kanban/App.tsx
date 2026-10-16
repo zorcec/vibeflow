@@ -23,6 +23,7 @@ import {
   getDescendants,
   applyInitialTheme,
   mergeTaskFromPayload,
+  diffTaskFields,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -779,6 +780,48 @@ export function App() {
     });
   }
 
+  // Own-patch recency gate (3647a471): our REST PATCH echoes back through
+  // WS (direct broadcast + file watcher with source:"cli") within ~1s.
+  // DetailPanel already recorded these fields locally, so the echo must not
+  // append a second row. Peers never appear here — only our own patchTask.
+  const lastOwnPatchRef = React.useRef<{ taskId: string; at: number } | null>(
+    null,
+  );
+
+  // Remote field-change entries for the detail-pane feed (3647a471): the
+  // same minimal shape DetailPanel records locally (field/from/to via the
+  // shared diffTaskFields), so a peer or agent/MCP write reads exactly like
+  // a UI write. Dedupe is actor-agnostic on task+field+to within 3s — the
+  // same tradeoff the status path above already accepts.
+  function appendFieldChange(
+    taskId: string,
+    field: string,
+    from: string,
+    to: string,
+    actor: string,
+    source?: "cli" | "web",
+  ) {
+    if (from === to) return;
+    const timestamp = new Date().toISOString();
+    const recent = Date.now() - 3000;
+    const own = lastOwnPatchRef.current;
+    if (own && own.taskId === taskId && Date.now() - own.at < 3000) return;
+    setStatusChangeLog((prev) => {
+      const duplicate = prev.some(
+        (e) =>
+          e.taskId === taskId &&
+          e.field === field &&
+          e.to.toLowerCase() === to.toLowerCase() &&
+          new Date(e.timestamp).getTime() > recent,
+      );
+      if (duplicate) return prev;
+      return [
+        ...prev,
+        { taskId, field, from, to, actor, timestamp, source },
+      ].slice(-500);
+    });
+  }
+
   async function loadTasks() {
     try {
       const data = await api.getTasks();
@@ -811,6 +854,24 @@ export function App() {
 
       // Detect status change from remote WS event before updating state
       const prevTask = tasksRef.current.find((t) => t.id === id);
+      // 3647a471: non-status details fields diff the same way, through the
+      // shared differ so the wording matches the local entries exactly.
+      // (The differ never emits status — appendStatusChange above owns it
+      // with its verdict/toStatus styling — and folds branch into it.)
+      if (prevTask) {
+        const existing = tasksRef.current.find((t) => t.id === id);
+        const mapped = mergeTaskFromPayload(incoming, existing);
+        for (const change of diffTaskFields(prevTask, mapped)) {
+          appendFieldChange(
+            id,
+            change.field,
+            change.from,
+            change.to,
+            actor ?? "Someone",
+            source,
+          );
+        }
+      }
       if (newStatus && prevTask && prevTask.status !== newStatus) {
         appendStatusChange(
           id,
@@ -1059,6 +1120,16 @@ export function App() {
 
   async function patchTask(id: string, updates: Partial<Task>) {
     const previous = tasksRef.current.find((t) => t.id === id);
+    // 3647a471: mark our own write so its WS echo (REST broadcast + file
+    // watcher) cannot append a second field row next to DetailPanel's
+    // local entry. Only field-carrying patches arm the gate — drag
+    // reorders (sortKey) and expand toggles must not swallow peer edits.
+    if (
+      previous &&
+      diffTaskFields(previous, { ...previous, ...updates }).length > 0
+    ) {
+      lastOwnPatchRef.current = { taskId: id, at: Date.now() };
+    }
     setTasks((prev) => {
       const next = prev.map((t) => (t.id === id ? { ...t, ...updates } : t));
       tasksRef.current = next;

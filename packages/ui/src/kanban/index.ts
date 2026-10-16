@@ -27,6 +27,14 @@ export {
   mergeTaskFromPayload,
 } from "./task-merge";
 export {
+  MINIMAL_FIELDS,
+  verifyLabel,
+  tagSetKey,
+  linkSetKey,
+  diffTaskFields,
+} from "./fieldChanges";
+export type { FieldChange } from "./fieldChanges";
+export {
   renderMarkdown,
   isNewComments,
   markCommentsSeen,

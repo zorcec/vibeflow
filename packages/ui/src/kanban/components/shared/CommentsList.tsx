@@ -8,6 +8,7 @@ import { formatDate } from '../../utils';
 import { FileItem } from './FileItem';
 import { Paperclip, Trash2 } from "lucide-react";
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
+import { MINIMAL_FIELDS } from '../../fieldChanges';
 
 interface ChangeActivityItem {
   kind: 'change';
@@ -681,14 +682,19 @@ function renderActivityItem(
               <span style={{ fontSize: 10, color: 'var(--t-text-body)', marginLeft: 'auto', flexShrink: 0 }}>{formatDate(item.sortKey)}</span>
             )}
           </div>
-          <div
-            title={needsTooltip ? `${item.from} → ${item.to}` : undefined}
-            style={{ marginTop: 2, fontSize: 11, color: 'var(--t-text-body)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}
-          >
-            <span style={{ color: 'var(--t-danger)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fromTrimmed}</span>
-            <span style={{ color: 'var(--t-text-body)' }}>→</span>
-            <span style={{ color: 'var(--t-success)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTrimmed}</span>
-          </div>
+          {/* 3647a471: long/structural fields (description, tags, relations)
+              render name-only — old/new values would be a diff dump, not a
+              minimal entry. Short fields keep the established from→to pills. */}
+          {!MINIMAL_FIELDS.has(item.field) && (
+            <div
+              title={needsTooltip ? `${item.from} → ${item.to}` : undefined}
+              style={{ marginTop: 2, fontSize: 11, color: 'var(--t-text-body)', display: 'flex', alignItems: 'center', gap: 4, cursor: needsTooltip ? 'help' : 'default' }}
+            >
+              <span style={{ color: 'var(--t-danger)', background: 'rgba(239,68,68,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fromTrimmed}</span>
+              <span style={{ color: 'var(--t-text-body)' }}>→</span>
+              <span style={{ color: 'var(--t-success)', background: 'rgba(34,197,94,0.1)', borderRadius: 4, padding: '1px 5px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTrimmed}</span>
+            </div>
+          )}
         </div>
       </div>
     );

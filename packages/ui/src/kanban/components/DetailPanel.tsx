@@ -22,6 +22,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 
+import { linkSetKey, tagSetKey } from "../fieldChanges";
 import { getTaskTypeColor } from "../../task-types";
 import { transformImageForUpload } from "../imageTransform";
 import { presenceAreaLabel, presenceChipFill, presenceInitials } from "./shared/presence";
@@ -318,6 +319,11 @@ export function DetailPanel({
   const isResizingRef = React.useRef(false);
   const originalTitleRef = React.useRef("");
   const originalDescRef = React.useRef("");
+  // 3647a471: set when THIS session types into the live description doc.
+  // Peer edits arriving through the doc never set it, so the blur-save
+  // below can tell our own edit (one activity entry) from adopting
+  // remote text (no entry) apart.
+  const docDirtyRef = React.useRef(false);
 
   // Compute global tag pool from all tasks (stable reference)
   const allTags = React.useMemo(() => {
@@ -357,8 +363,10 @@ export function DetailPanel({
   const descValue = docLive ? (descriptionDoc?.text ?? "") : description;
   const handleDescChange = React.useCallback(
     (next: string) => {
-      if (descriptionDoc) descriptionDoc.onEdit(next);
-      else setDescription(next);
+      if (descriptionDoc) {
+        descriptionDoc.onEdit(next);
+        docDirtyRef.current = true;
+      } else setDescription(next);
     },
     [descriptionDoc],
   );
@@ -539,6 +547,7 @@ export function DetailPanel({
     setFileCount(0);
     setLocalChanges([]);
     setDraftTags([]);
+    docDirtyRef.current = false;
     setBranchName(task?.branchName ?? "");
     setShowBranchPrompt(false);
     pendingReviewPatchRef.current = null;
@@ -802,6 +811,16 @@ export function DetailPanel({
     }
   }
 
+  // While a doc is live, peer text adopted without a local edit resets the
+  // base silently: only our own keystrokes (docDirtyRef) earn an entry.
+  React.useEffect(() => {
+    if (!docLive || docDirtyRef.current || !task) return;
+    const liveText = (descriptionDoc?.text ?? "").trim();
+    if (liveText !== originalDescRef.current) {
+      originalDescRef.current = liveText;
+    }
+  }, [docLive, task?.id, descriptionDoc?.text]);
+
   function autoSave() {
     if (!task || isAdd) return;
     const trimmedTitle = title.trim();
@@ -812,13 +831,25 @@ export function DetailPanel({
     // While a doc is live it is the single writer of the description: the
     // whole-value description patch is retired (the doc flushes itself
     // through the shared write). Title and the other fields still save.
+    // 3647a471: our own doc edits still earn ONE activity entry per save
+    // cycle (blur/close/outside-click) — the doc has no discrete save of
+    // its own, so the save cycle is the entry boundary.
+    const liveDesc = docLive ? (descriptionDoc?.text ?? "").trim() : null;
+    const docDescChanged =
+      docLive &&
+      liveDesc !== null &&
+      docDirtyRef.current &&
+      liveDesc !== prevDesc;
     const descChanged = !docLive && description.trim() !== prevDesc;
-    if (!titleChanged && !descChanged) return;
+    if (!titleChanged && !descChanged && !docDescChanged) return;
     if (titleChanged) {
       recordChange("title", prevTitle, trimmedTitle);
     }
     if (descChanged) {
       recordChange("description", prevDesc, description.trim());
+    }
+    if (docDescChanged && liveDesc !== null) {
+      recordChange("description", prevDesc, liveDesc);
     }
     onPatch(task.id, {
       title: trimmedTitle,
@@ -827,7 +858,11 @@ export function DetailPanel({
       priority: priority || undefined,
     });
     originalTitleRef.current = trimmedTitle;
-    if (descChanged) originalDescRef.current = description.trim();
+    if (descChanged && liveDesc === null) originalDescRef.current = description.trim();
+    if (docDescChanged && liveDesc !== null) {
+      originalDescRef.current = liveDesc;
+      docDirtyRef.current = false;
+    }
   }
 
   // Keep autoSaveRef always current so outside-click handler uses latest state
@@ -1682,7 +1717,21 @@ export function DetailPanel({
                 liveFiles={filesLoaded || filesLoading ? files : undefined}
                 allTags={allTags}
                 overrideTags={isAdd ? draftTags : undefined}
-                onTagsChange={isAdd ? setDraftTags : undefined}
+                onTagsChange={
+                  isAdd
+                    ? setDraftTags
+                    : (newTags) => {
+                        // 3647a471: tags earn a minimal entry like every
+                        // other details field (name-only row, no value dump).
+                        if (!task) return;
+                        const beforeKey = tagSetKey(task.tags);
+                        const afterKey = tagSetKey(newTags);
+                        if (afterKey !== beforeKey) {
+                          recordChange("tags", beforeKey, afterKey);
+                        }
+                        onPatch(task.id, { tags: newTags });
+                      }
+                }
                 isAdd={isAdd}
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
@@ -1725,6 +1774,14 @@ export function DetailPanel({
                     if (!task) return;
                     setLinksSaving(true);
                     setLinksError(null);
+                    // 3647a471: relations earn a minimal entry like every
+                    // other details field (recorded before the patch so a
+                    // failed save still shows intent; the refetch reconciles).
+                    const beforeKey = linkSetKey(task.links);
+                    const afterKey = linkSetKey(links ?? []);
+                    if (afterKey !== beforeKey) {
+                      recordChange("relations", beforeKey, afterKey);
+                    }
                     try {
                       await onPatch(task.id, {
                         links: links ?? [],
