@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.1
+
+### Patch Changes
+
+- f915480: Fix `vibeflow login` (and push/settings) failing with `404 Not Found`: the CLI defaulted to the retired
+  `freemium.vibeflow.tools` host. The default API host is now `https://app.vibeflow.tools`, the local board's
+  workspace-origin allowlist accepts the new host, and the stale docs/security text was corrected.
+- 54f95a5: Add the Glama MCP-server score badge to the CLI README, so the published npm page links to the server's quality and maintenance score.
+
 ## 0.21.0
 
 ### Minor Changes
