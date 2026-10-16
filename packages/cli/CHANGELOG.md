@@ -1084,6 +1084,10 @@ suggestion?}}` envelope to **stderr** with stdout left clean, and `tests/e2e/tas
 
   - Parent-child task linking and many related improvements in the UI!
 
+  - Swagger in the CLI: `vibeflow openapi [--yaml]` prints the bundled OpenAPI spec, and the local board server serves it at `GET /api/openapi.json` for the checked-in API contract.
+
+  - The versioned API surface is now `/api/v0/**` (renamed from `/api/v1/**`, no backwards-compatibility alias — the old path is gone).
+
 - 9bd33ee: List and claim root tasks only, and return a root's children with it.
 
   `vibeflow tasks` now lists ROOT tasks only — a task with a parent is not shown as a peer, because it belongs to its parent, matching how the board renders it. A footer reports how many child tasks the query matched and names the flag that reveals them, so the count is never hidden silently. Pass `--children` to include them.

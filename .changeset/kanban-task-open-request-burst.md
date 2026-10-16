@@ -1,3 +1,4 @@
+---
 "@vibeflow-tools/cli": patch
 "@vibeflow-tools/ui": patch
 ---
