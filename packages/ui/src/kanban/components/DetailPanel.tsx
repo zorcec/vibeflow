@@ -1688,10 +1688,14 @@ export function DetailPanel({
                 taskLookup={taskLookup}
               />
             </div>
-            {!isAdd && task && (
-              // Ticket 796f13e5: no top divider here — the relations
-              // section below already draws the single section rule, so a
-              // second rule sandwiching the meta chip row read as noise.
+            {!isAdd && task && buildDpMetaItems(task).length > 0 && (
+              // Ticket 796f13e5: this wrapper owns the tiles→chip-row
+              // boundary (its top divider). It renders only when the chip
+              // row has content — an empty wrapper drew a second rule
+              // around nothing (round 1: "too much"), and dropping the
+              // rule outright left zero rules at the boundary (round 2:
+              // "missing"). The relations section below keeps its own
+              // top divider, so each live boundary draws exactly one rule.
               <div
                 style={{
                   display: "flex",
@@ -1700,6 +1704,7 @@ export function DetailPanel({
                   flexWrap: "wrap",
                   flexShrink: 0,
                   marginTop: 12,
+                  borderTop: "1px solid var(--t-border)",
                   paddingTop: 10,
                 }}
               >
@@ -2208,7 +2213,14 @@ export function DetailPanel({
   );
 }
 
-function DpMetaRow({ task }: { task: Task }) {
+/**
+ * Ticket 796f13e5: single source of truth for "does the meta chip row have
+ * visible content". The details-pane wrapper gates on `length > 0`, so the
+ * gate can never drift from what DpMetaRow actually renders — an
+ * always-rendered empty wrapper is what sandwiched two dividers around
+ * nothing (round 1) and left a floating gap with no divider (round 2).
+ */
+function buildDpMetaItems(task: Task): React.ReactNode[] {
   const items: React.ReactNode[] = [];
 
   if (task.component) {
@@ -2328,6 +2340,10 @@ function DpMetaRow({ task }: { task: Task }) {
     );
   }
 
+  return items;
+}
+
+function DpMetaRow({ task }: { task: Task }) {
   return (
     <div
       id="dp-meta-row"
@@ -2339,7 +2355,7 @@ function DpMetaRow({ task }: { task: Task }) {
         flex: 1,
       }}
     >
-      {items}
+      {buildDpMetaItems(task)}
     </div>
   );
 }
