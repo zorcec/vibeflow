@@ -604,6 +604,147 @@ describe("Kanban board", () => {
     expect(pillCount).toBe(0);
   });
 
+  // ── Details-pane divider ownership (ticket 796f13e5) ──────────────────────
+  // The tiles→chip-row boundary is owned by the chip-row wrapper's top
+  // divider (rendered only when the chip row has content); the
+  // chip-row→relations boundary is owned by .relations-section's top
+  // divider (always rendered). Round 1 ("too much") was an empty wrapper
+  // sandwiching TWO rules around nothing; round 2 ("missing") was the
+  // wrapper's rule deleted outright, leaving ZERO rules at its boundary.
+  // Both directions must fail: a doubled rule AND a missing rule each fail.
+  async function paneBoundaryRules(p: Page): Promise<{
+    chipItems: number;
+    wrapperTopWidth: number;
+    relationsTopWidth: number;
+    zoneRules: number[];
+  }> {
+    return p.evaluate(() => {
+      const num = (v: string) => {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const pane = document.getElementById("dp-details-pane");
+      if (!pane)
+        return {
+          chipItems: -1,
+          wrapperTopWidth: 0,
+          relationsTopWidth: 0,
+          zoneRules: [],
+        };
+      const metaRow = document.getElementById("dp-meta-row");
+      const chipItems = metaRow ? metaRow.childElementCount : 0;
+      // The chip-row wrapper is the pane's 2nd child when it renders; the
+      // relations container follows it (or is 2nd child when it does not).
+      const kids = [...pane.children] as HTMLElement[];
+      const wrapper =
+        metaRow?.parentElement instanceof HTMLElement
+          ? metaRow.parentElement
+          : null;
+      const wrapperTopWidth = wrapper
+        ? num(getComputedStyle(wrapper).borderTopWidth)
+        : 0;
+      const relations = pane.querySelector(
+        ".relations-section",
+      ) as HTMLElement | null;
+      const relationsTopWidth = relations
+        ? num(getComputedStyle(relations).borderTopWidth)
+        : 0;
+      // Boundary zone: below the meta-tiles block, down through the
+      // Relations header. Tile value underlines live above it; relation
+      // group rows and the + Add button live below it.
+      const tilesBottom =
+        kids[0]?.getBoundingClientRect().bottom ?? NaN;
+      const relHeader = pane.querySelector(
+        ".relations-area-header",
+      ) as HTMLElement | null;
+      const zoneBottom = relHeader?.getBoundingClientRect().bottom ?? NaN;
+      const zoneRules: number[] = [];
+      if (relations) {
+        const r = relations.getBoundingClientRect();
+        if (
+          relationsTopWidth >= 1 &&
+          r.top > tilesBottom + 0.5 &&
+          r.top <= zoneBottom
+        )
+          zoneRules.push(r.top);
+      }
+      if (wrapper) {
+        const r = wrapper.getBoundingClientRect();
+        if (
+          wrapperTopWidth >= 1 &&
+          r.top > tilesBottom + 0.5 &&
+          r.top <= zoneBottom
+        )
+          zoneRules.push(r.top);
+      }
+      zoneRules.sort((a, b) => a - b);
+      return { chipItems, wrapperTopWidth, relationsTopWidth, zoneRules };
+    });
+  }
+
+  async function openDetailsForTitle(title: string) {
+    await openTaskByTitle(page, title);
+    await page.click("#dp-tab-details");
+    await page.waitForSelector("#dp-details-pane:not([style*='none'])");
+    await page.waitForSelector(
+      "#dp-details-pane .relations-area-header",
+      { timeout: 5_000 },
+    );
+  }
+
+  it("796f13e5: chip row with content draws exactly one rule per boundary", async () => {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Delim chips task",
+        description: "has source pills, no relations",
+        selector: "#dp-details-pane > div:nth-child(2)",
+        cssSelector: "#dp-details-pane > div:nth-child(2)",
+        url: "/kanban",
+      }),
+    });
+    expect(((await res.json()) as { success: boolean }).success).toBe(true);
+    await waitForTaskOnBoard(page, "Delim chips task");
+    await openDetailsForTitle("Delim chips task");
+
+    const rules = await paneBoundaryRules(page);
+    // Chip row rendered with pills…
+    expect(rules.chipItems).toBeGreaterThan(0);
+    // …its own top divider present (round-2 "missing" fails here)…
+    expect(rules.wrapperTopWidth).toBeGreaterThanOrEqual(1);
+    // …and the relations section keeps its divider (missing fails here)…
+    expect(rules.relationsTopWidth).toBeGreaterThanOrEqual(1);
+    // …with no second rule at either boundary (round-1 doubling fails here).
+    expect(rules.zoneRules.length).toBe(2);
+    await closePanelIfOpen(page);
+  });
+
+  it("796f13e5: empty chip row draws exactly one rule, never two or zero", async () => {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Delim minimal task",
+        description: "no source, no relations",
+        selector: "/",
+      }),
+    });
+    expect(((await res.json()) as { success: boolean }).success).toBe(true);
+    await waitForTaskOnBoard(page, "Delim minimal task");
+    await openDetailsForTitle("Delim minimal task");
+
+    const rules = await paneBoundaryRules(page);
+    // No chip content: the wrapper must not render at all…
+    expect(rules.chipItems).toBe(0);
+    expect(rules.wrapperTopWidth).toBe(0);
+    // …and the single tiles→relations boundary draws exactly one rule:
+    // zero fails (missing), two fails (sandwich around nothing).
+    expect(rules.relationsTopWidth).toBeGreaterThanOrEqual(1);
+    expect(rules.zoneRules.length).toBe(1);
+    await closePanelIfOpen(page);
+  });
+
   it("keeps card icon controls right-aligned via flex spacer", async () => {
     const createRes = await fetch(API, {
       method: "POST",
