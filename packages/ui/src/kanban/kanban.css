@@ -418,6 +418,39 @@ body {
 .card-badge-tip-row {
  display: inline-flex;
 }
+/* ── Card title tooltip (0614a29e — "Title on hover") ──
+   A truncated card title reveals the FULL title on hover. Same popover
+   tokens as .card-badge-tip above (var(--t-card), var(--t-border), 8px
+   radius, var(--t-shadow-popover)) so the tip reads as kanban chrome, not
+   a new visual language. Anchored against the CARD (article.task-card is
+   position:relative; the component passes top/left inline from offsetTop
+   / offsetLeft): opens downward off the title row — upward would clip
+   under the column header — and scrolls with the card. max-width 240px
+   with normal wrapping keeps long titles multiline instead of one
+   enormous single line; 240px fits inside the 280px column with margin.
+   Absolutely positioned, so the card rect never shifts. Rendered only for
+   actually-truncated titles (the component checks scrollWidth), so short
+   titles never get a tip. */
+.card-title-tip {
+ position: absolute;
+ top: calc(100% + 6px);
+ left: 0;
+ z-index: 60;
+ max-width: 240px;
+ width: max-content;
+ padding: 6px 8px;
+ background: var(--t-card);
+ border: 1px solid var(--t-border);
+ border-radius: 8px;
+ box-shadow: var(--t-shadow-popover);
+ font-size: 11.5px;
+ font-weight: 600;
+ line-height: 1.45;
+ color: var(--t-text);
+ white-space: normal;
+ overflow-wrap: break-word;
+ text-align: left;
+}
 
 /* ── Status dot ── */
 .status-dot {

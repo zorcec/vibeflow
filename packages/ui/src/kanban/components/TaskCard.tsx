@@ -200,6 +200,105 @@ const CARD_TITLE_TEXT_STYLE: React.CSSProperties = {
       whiteSpace: "nowrap",
       flex: 1,
 };
+/**
+ * Width ceiling for the card-title tooltip (ticket 0614a29e). Mirrors
+ * the .card-title-tip max-width in kanban.css — the component clamps the
+ * tip's left offset against it so a right-edge title never pushes the
+ * tip past the card. Single source for the number on the TS side.
+ */
+export const CARD_TITLE_TIP_MAX_W = 240;
+/**
+ * Truncation predicate for the card-title tooltip (ticket 0614a29e,
+ * "Title on hover", owner request 2026-10-16). Pure so it is
+ * unit-testable without layout: jsdom reports 0 for every width, so the
+ * component test scripts the numbers instead. The 1px slack ignores
+ * subpixel rounding — a title that fits exactly must not get a tooltip.
+ */
+export function isTitleTruncated(
+      scrollWidth: number,
+      clientWidth: number,
+): boolean {
+      return scrollWidth > clientWidth + 1;
+}
+/**
+ * Card title with full-title-on-hover tooltip (ticket 0614a29e). Renders
+ * the exact truncating span the board has always used (ellipsis, nowrap,
+ * same 11.5px/600) as a DIRECT row child inside a fragment — so the row's
+ * rest markup is byte-identical to before (no wrapper: the leading-slot
+ * and compact-icon suites enumerate the row's direct children) — plus, on
+ * hover of a actually-truncated title only, a sibling tip span. The tip is
+ * absolutely positioned against the CARD (article.task-card is
+ * position:relative and the title rows are static, so offsetParent IS the
+ * card): it scrolls with the card, needs no scroll-hide wiring, and the
+ * card rect never shifts because the tip owns no in-flow box. Its look
+ * comes from .card-title-tip in kanban.css: the same popover tokens as
+ * .card-badge-tip (var(--t-card), var(--t-border), 8px radius,
+ * var(--t-shadow-popover)), opening downward off the title row, max-width
+ * 240px with normal wrapping so long titles go multiline instead of one
+ * enormous line. 240px (vs the badge tip's 220px) was chosen to fit
+ * inside the 280px column with margin; left is clamped into the card so
+ * a right-edge title never pushes the tip past the card. Owner decision
+ * (2026-10-16): width-limited, multiline, kanban-matched.
+ */
+export function CardTitle({
+      title,
+      muted,
+}: {
+      title: string;
+      muted?: boolean;
+}) {
+      const titleRef = React.useRef<HTMLSpanElement>(null);
+      const [tipPos, setTipPos] = React.useState<{
+            top: number;
+            left: number;
+      } | null>(null);
+      const maybeShow = React.useCallback(() => {
+            const el = titleRef.current;
+            if (
+                  !el ||
+                  !isTitleTruncated(el.scrollWidth, el.clientWidth)
+            ) {
+                  return;
+            }
+            const card = el.offsetParent as HTMLElement | null;
+            const cardWidth = card?.clientWidth ?? 280;
+            const left = Math.max(
+                  0,
+                  Math.min(
+                        el.offsetLeft,
+                        cardWidth - (CARD_TITLE_TIP_MAX_W + 8),
+                  ),
+            );
+            setTipPos({
+                  top: el.offsetTop + el.offsetHeight + 6,
+                  left,
+            });
+      }, []);
+      const hide = React.useCallback(() => setTipPos(null), []);
+      return (
+            <>
+                  <span
+                        ref={titleRef}
+                        data-role="card-title"
+                        style={muted ? DONE_TITLE_STYLE : CARD_TITLE_TEXT_STYLE}
+                        onMouseEnter={maybeShow}
+                        onMouseLeave={hide}
+                  >
+                        {title}
+                  </span>
+                  {tipPos && (
+                        <span
+                              data-role="card-title-tip"
+                              role="tooltip"
+                              className="card-title-tip"
+                              style={{ top: tipPos.top, left: tipPos.left }}
+                        >
+                              {title}
+                        </span>
+                  )}
+            </>
+      );
+}
 const DESC_THUMB_ROW_STYLE: React.CSSProperties = {
       display: "flex",
       alignItems: "flex-start",
@@ -495,17 +594,10 @@ export const TaskCard = React.memo(function TaskCard({
                                     isUnread={isUnread}
                                     reserve={reserveLeadingSlot}
                               />
-                              <span
-                                    data-role="card-title"
-                                    style={{
-                                          ...DONE_TITLE_STYLE,
-                                          ...(isDone
-                                                ? {}
-                                                : { color: "var(--t-text)" }),
-                                    }}
-                              >
-                                    {task.title}
-                              </span>
+                              <CardTitle
+                                    title={task.title}
+                                    muted={isDone}
+                              />
                               {showInlineIcons && commentCount > 0 && (
                                     <button
                                           data-role="compact-comment-count"
@@ -622,12 +714,7 @@ export const TaskCard = React.memo(function TaskCard({
                               isUnread={isUnread}
                               reserve={reserveLeadingSlot}
                         />
-                        <span
-                              data-role="card-title"
-                              style={CARD_TITLE_TEXT_STYLE}
-                        >
-                              {task.title}
-                        </span>
+                        <CardTitle title={task.title} />
                         {/* Actions cluster (37b82fba): advance precedes the
                             copy pill so copy stays flush right; same write
                             path as a column drop. */}
