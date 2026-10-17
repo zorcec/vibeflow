@@ -1328,8 +1328,16 @@ export function DetailPanel({
                 ←
               </button>
             )}
+            {/* Title field (c94cde70): the type picker is an inline
+                leading segment INSIDE the title input's bounds — one
+                shared border/background — so it reads as part of the
+                title field, not a detached widget. The title text stays
+                the primary element (flex: 1). #dp-type-picker keeps its
+                id and remains a labelled button opening the picker. */}
+            <div className="dp-title-field" data-role="title-field">
             <TypePicker
               id="dp-type-picker"
+              bare
               value={type}
               onChange={(newType) => {
                 if (!isAdd && task && newType !== type)
@@ -1355,22 +1363,20 @@ export function DetailPanel({
               }}
               style={{
                 flex: 1,
+                minWidth: 0,
                 fontSize: 14,
                 fontWeight: 600,
                 padding: "4px 8px",
-                borderColor: "transparent",
+                border: "none",
                 background: "transparent",
+                outline: "none",
+                boxShadow: "none",
               }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = "var(--t-accent)";
-                e.currentTarget.style.background = "var(--t-input)";
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = "transparent";
-                e.currentTarget.style.background = "transparent";
+              onBlur={() => {
                 if (!isAdd) autoSave();
               }}
             />
+            </div>
             {!isAdd &&
               title !== originalTitleRef.current &&
               title.trim() !== "" && (

@@ -866,6 +866,43 @@ body.proto-resizing-panel {
  outline-offset: 1px;
 }
 
+/* ── Detail panel title field (c94cde70) ──
+   The type picker is an inline leading segment INSIDE the title
+   input's bounds: one shared border/background/radius owned by this
+   wrapper, so picker + title read as a single field. The wrapper owns
+   the border (the input inside is borderless); :focus-within lights
+   the shared border whether the picker button or the title text has
+   focus. #dp-type-picker keeps its id and stays a real button. */
+.dp-title-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--t-border-strong);
+  border-radius: 8px;
+  background: var(--t-input);
+  color: var(--t-text);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.dp-title-field:focus-within {
+  border-color: var(--t-accent-contrast);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--t-accent-contrast) 10%, transparent);
+}
+.dp-title-field .dp-input {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.dp-title-field .dp-input:focus {
+  border: none;
+  box-shadow: none;
+}
+
 /* ── Detail panel inputs ── */
 .dp-input {
  width: 100%;

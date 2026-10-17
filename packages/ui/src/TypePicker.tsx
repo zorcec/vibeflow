@@ -7,14 +7,22 @@ interface Props {
   value: TaskType | string | null | undefined;
   onChange: (value: TaskType) => void;
   disabled?: boolean;
+  /**
+   * In-field variant (c94cde70): the trigger renders borderless with a
+   * trailing divider so it can sit INSIDE a wrapping field (the detail
+   * panel's title input) and read as part of that field rather than a
+   * detached widget. The default trigger styling is unchanged.
+   */
+  bare?: boolean;
 }
 
 // ── TypePicker ────────────────────────────────────────────────────────────────
 // Inline-styled dropdown for choosing task type. Works in both CLI (via CSS class
 // passthrough) and SaaS (inline styles). The current type is displayed as an icon
 // + label; clicking opens a compact option list.
-export function TypePicker({ id, value, onChange, disabled }: Props) {
+export function TypePicker({ id, value, onChange, disabled, bare }: Props) {
   const [open, setOpen] = React.useState(false);
+  const [hover, setHover] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const current = TASK_TYPES.find((t) => t.value === value) ?? TASK_TYPES[0];
 
@@ -27,12 +35,42 @@ export function TypePicker({ id, value, onChange, disabled }: Props) {
   }, []);
 
   return (
-    <div id={id} ref={rootRef} style={{ position: 'relative', display: 'inline-block' }}>
+    <div
+      id={id}
+      ref={rootRef}
+      style={
+        bare
+          ? { position: 'relative', display: 'flex', alignItems: 'stretch', flexShrink: 0, alignSelf: 'stretch' }
+          : { position: 'relative', display: 'inline-block' }
+      }
+    >
       <button
         type="button"
         title={current?.tooltip}
+        aria-label={`Task type: ${current?.label}. Activate to change the task type.`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={(e) => { e.preventDefault(); if (!disabled) setOpen((o) => !o); }}
-        style={{
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
+        style={bare ? {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '4px 10px 4px 8px',
+          border: 'none',
+          borderRight: '1px solid var(--t-border-faint)',
+          borderRadius: 0,
+          background: hover && !disabled ? 'var(--t-hover)' : 'transparent',
+          color: 'var(--t-text-muted)',
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: disabled ? 'default' : 'pointer',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        } : {
           display: 'inline-flex',
           alignItems: 'center',
           gap: 5,
