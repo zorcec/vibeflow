@@ -211,6 +211,7 @@ describe("tasks --edit command_run carries the status transition", () => {
     const events = commandRunProps();
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "edit",
       from_status: "todo",
@@ -225,6 +226,7 @@ describe("tasks --edit command_run carries the status transition", () => {
 
     expect(storedStatus(store, id)).toBe("done");
     expect(commandRunProps()[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "edit",
       from_status: "todo",
@@ -253,6 +255,7 @@ describe("tasks --edit command_run carries the status transition", () => {
 
     expect(storedStatus(store, id)).toBe("review");
     expect(commandRunProps()[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "edit",
       from_status: "todo",
@@ -270,6 +273,7 @@ describe("tasks --edit command_run carries the status transition", () => {
 
     // A content-only edit shows as a self-pair — present, queryable, no gap.
     expect(commandRunProps()[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "edit",
       from_status: "todo",
@@ -290,6 +294,7 @@ describe("tasks --edit command_run carries the status transition", () => {
     const events = commandRunProps();
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "edit",
     });
@@ -305,6 +310,7 @@ describe("tasks --edit command_run carries the status transition", () => {
     const events = commandRunProps();
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      surface: "cli",
       command: "tasks",
       subcommand: "get",
     });
@@ -320,6 +326,7 @@ describe("serve command_run carries a mode breakdown", () => {
     await runCli(["serve", "--project", store, "--no-open"], home);
 
     expect(commandRunProps()[0]).toEqual({
+      surface: "cli",
       command: "serve",
       subcommand: "api",
     });
@@ -333,6 +340,7 @@ describe("serve command_run carries a mode breakdown", () => {
     await runCli(["serve", "protos/index.html", "--no-open"], home);
 
     expect(commandRunProps()[0]).toEqual({
+      surface: "cli",
       command: "serve",
       subcommand: "prototype",
     });

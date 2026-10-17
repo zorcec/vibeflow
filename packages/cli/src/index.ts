@@ -896,6 +896,7 @@ program
       // was given). Only the mode is reported — the target path itself must
       // never reach analytics.
       capture("command_run", {
+        surface: "cli",
         command: "serve",
         subcommand: target === undefined ? "api" : "prototype",
       });
@@ -952,7 +953,7 @@ program
         project?: string;
       },
     ) => {
-      capture("command_run", { command: "kanban" });
+      capture("command_run", { surface: "cli", command: "kanban" });
       await flushTelemetry();
       // Explicit --project / positional wins; $VIBEFLOW_PROJECT_DIR fills
       // the default inside resolveProjectRoot (b5f90a1e scratch-store boot).
@@ -1230,6 +1231,7 @@ program
                   ? "reindex"
                   : "list";
         capture("command_run", {
+          surface: "cli",
           command: "tasks",
           subcommand: taskSubcommand,
           // Edit events carry the status pair so a real status funnel
@@ -4562,7 +4564,7 @@ program
     "Authenticate CLI against the Vibeflow SaaS backend (device flow)",
   )
   .action(async () => {
-    capture("command_run", { command: "login" });
+    capture("command_run", { surface: "cli", command: "login" });
     await flushTelemetry();
     await login();
   });
@@ -4571,7 +4573,7 @@ program
   .command("logout", { hidden: true })
   .description("Remove stored auth token and switch to local mode")
   .action(async () => {
-    capture("command_run", { command: "logout" });
+    capture("command_run", { surface: "cli", command: "logout" });
     await flushTelemetry();
     await logout();
   });
@@ -4766,7 +4768,7 @@ program
       dir: string,
       opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean },
     ) => {
-      capture("command_run", { command: "push" });
+      capture("command_run", { surface: "cli", command: "push" });
       await push(dir, opts);
       await flushTelemetry();
     },
@@ -4805,7 +4807,7 @@ program
         once?: boolean;
       },
     ) => {
-      capture("command_run", { command: "watch" });
+      capture("command_run", { surface: "cli", command: "watch" });
       await flushTelemetry();
       watch(dir, opts);
     },
@@ -4876,7 +4878,7 @@ program
   .option("--clear", "Delete all per-task encrypted auth state files")
   .option("--list", "List stored auth state files and their age")
   .action(async (opts: { clear?: boolean; list?: boolean }) => {
-    capture("command_run", { command: "auth" });
+    capture("command_run", { surface: "cli", command: "auth" });
     await flushTelemetry();
 
     const projectDir = resolve(".");
@@ -4951,7 +4953,7 @@ program
         timeout?: string;
       },
     ) => {
-      capture("command_run", { command: "verify" });
+      capture("command_run", { surface: "cli", command: "verify" });
       // Refused up front, before the task id is even looked at: a bad bound is
       // a usage error, not a verification failure.
       const timeoutMs = parseVerifyTimeout(opts.timeout, opts.json);
@@ -5013,7 +5015,7 @@ program
   .description("Show the changelog — latest version by default")
   .option("--all", "Show the full changelog for every version")
   .action(async (opts: { all?: boolean }) => {
-    capture("command_run", { command: "changelog" });
+    capture("command_run", { surface: "cli", command: "changelog" });
     await flushTelemetry();
     showChangelog({ all: opts.all === true });
   });
@@ -5023,7 +5025,7 @@ program
   .description("Print the bundled OpenAPI spec to stdout (no server needed)")
   .option("--yaml", "Emit the YAML form instead of JSON")
   .action(async (opts: { yaml?: boolean }) => {
-    capture("command_run", { command: "openapi" });
+    capture("command_run", { surface: "cli", command: "openapi" });
     await flushTelemetry();
     printOpenApi({ yaml: opts.yaml === true });
   });

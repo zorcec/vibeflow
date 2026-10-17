@@ -14,6 +14,7 @@ import { getCurrentBranch, getProjectName } from "../core/config.js";
 import { resolve } from "node:path";
 import { CLI_VERSION } from "../version.js";
 import { manifest } from "./manifest.js";
+import { capture } from "../telemetry.js";
 
 // ── Tool Registration ──────────────────────────────────────────────────────
 
@@ -50,6 +51,31 @@ export function createMcpServer(
       },
       async (input: unknown) => {
         const result = await tool.run(ctx, input);
+        // MCP usage telemetry (ticket 4e942bed, owner request): every tool
+        // call captures ONE `command_run` — the SAME event the CLI emits —
+        // with `surface: "mcp"` (CLI emitters carry `surface: "cli"`) so
+        // one PostHog filter separates the surfaces and the shared
+        // `command` dimension (from the manifest cliRef) compares them.
+        // The hook lives HERE, in the registration loop, so a tool added
+        // to the manifest later is covered automatically — never per-tool
+        // call sites, which get forgotten. Only closed-set, PII-free
+        // scalars leave the machine: tool name, CLI command, ok flag.
+        // No paths, ids, content, or error text (error codes are free-form
+        // operation strings, so even they stay out — `ok` is the outcome).
+        // The existing opt-out contract applies unchanged: capture() is a
+        // no-op when telemetry is disabled. capture() never writes to
+        // stdout (the PostHog path only ever logs to stderr), so the stdio
+        // protocol stream is safe. No flushTelemetry() here: the client is
+        // built with flushAt:1, so every capture dispatches its send in the
+        // same tick (verified in @posthog/core enqueue: queue.length >=
+        // flushAt triggers flushBackground) — and a long-lived server must
+        // not shutdown() its client per call.
+        capture("command_run", {
+          surface: "mcp",
+          tool: tool.name,
+          command: tool.cliRef.command,
+          ok: result.ok,
+        });
         return formatResult(result);
       },
     );
