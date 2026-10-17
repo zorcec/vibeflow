@@ -482,6 +482,11 @@ export function DetailPanel({
       if (isResizingRef.current) return;
       // Allow clicks on portaled autocomplete dropdowns (rendered outside the panel DOM).
       if ((e.target as Element)?.closest?.("[data-task-ref-suggest]")) return;
+      // Allow clicks on the portaled type-picker menu (c94cde70): it renders
+      // in document.body — outside the panel DOM — so it escapes the title
+      // field's overflow clip. Without this, picking a type mousedowns
+      // outside the panel and closes it mid-select.
+      if ((e.target as Element)?.closest?.('[data-role="type-picker-menu"]')) return;
       // Allow clicks inside any modal overlay (FilePreviewModal, SettingsModal, etc.)
       // They render outside the panel DOM but should not close the panel.
       if ((e.target as Element)?.closest?.(".modal-backdrop")) return;

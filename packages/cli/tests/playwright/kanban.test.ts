@@ -843,7 +843,9 @@ describe("Kanban board", () => {
     expect(typeTriggerText).toContain("Task");
 
     await page.click("#dp-type-picker > button");
-    await page.locator("#dp-type-picker button", { hasText: "Bug" }).click();
+    // The menu portals to document.body (c94cde70) so it escapes the title
+    // field's overflow clip — its options are no longer under #dp-type-picker.
+    await page.locator('[data-role="type-picker-menu"] button', { hasText: "Bug" }).click();
     await page.fill("#dp-title", "Compact type picker task");
     await focusDescriptionEditor(page);
     await page.fill("#dp-desc", "Type should be persisted as Bug");
@@ -866,6 +868,122 @@ describe("Kanban board", () => {
     }, API);
     expect(created).not.toBeNull();
     expect(created?.type).toBe("Bug");
+  });
+
+  it("type picker menu opens visibly outside the clipped title field (c94cde70)", async () => {
+    // REGRESSION (c94cde70): the menu mounted INSIDE .dp-title-field, which
+    // owns `overflow: hidden` for the approved single-field look — so it
+    // opened fully clipped and the user saw nothing happen. The previous
+    // test still passed because Playwright scrolled the hidden box and
+    // resolved the trigger without ever proving an option was VISIBLE.
+    // This test asserts real visibility/geometry: the option must be in
+    // the viewport, unclipped by any ancestor's overflow, and the actual
+    // hit target at its centre — mere attachment is not enough.
+    await page.keyboard.press("Escape");
+    await page
+      .waitForFunction(() => !document.querySelector("#detail-panel.open"), {
+        timeout: 2_000,
+      })
+      .catch(() => {});
+
+    await openAddTask(page, "todo");
+    await page.click("#dp-type-picker > button");
+
+    const menu = page.locator('[data-role="type-picker-menu"]');
+    await menu.waitFor({ state: "attached" });
+
+    const geometry = await page.evaluate(() => {
+      const option = [...document.querySelectorAll('[data-role="type-picker-menu"] button')].find(
+        (b) => (b.textContent ?? "").includes("Bug"),
+      ) as HTMLElement | undefined;
+      if (!option) return { found: false as const };
+      const rect = option.getBoundingClientRect();
+      // Walk every ancestor: an overflow corner that cuts the option rect
+      // is exactly the shipped bug (menu clipped by .dp-title-field).
+      const clips: string[] = [];
+      let el: HTMLElement | null = option;
+      while (el) {
+        const cs = getComputedStyle(el);
+        if (/(hidden|scroll|auto)/.test(cs.overflowX) || /(hidden|scroll|auto)/.test(cs.overflowY)) {
+          const r = el.getBoundingClientRect();
+          const inside =
+            rect.left >= r.left &&
+            rect.right <= r.right &&
+            rect.top >= r.top &&
+            rect.bottom <= r.bottom;
+          if (!inside) clips.push(`${el.tagName}.${el.className} overflow=${cs.overflow}`);
+        }
+        el = el.parentElement;
+      }
+      // Hit test: what would a real click land on at the option's centre?
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const hit = document.elementFromPoint(cx, cy);
+      return {
+        found: true as const,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        inViewport:
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= window.innerWidth &&
+          rect.bottom <= window.innerHeight,
+        portalledOutsideTitleField: option.closest(".dp-title-field") === null,
+        clips,
+        hitIsOption: !!hit && (hit === option || option.contains(hit)),
+      };
+    });
+    expect(geometry.found).toBe(true);
+    if (geometry.found) {
+      expect(geometry.inViewport).toBe(true);
+      expect(geometry.portalledOutsideTitleField).toBe(true);
+      expect(geometry.clips).toEqual([]);
+      expect(geometry.hitIsOption).toBe(true);
+    }
+
+    // Keyboard: Enter opens, Escape closes, and the trigger reflects state.
+    // (State is read via evaluate — plain DOM reads, no actionability waits.)
+    const ariaExpanded = () =>
+      page.evaluate(
+        () => document.querySelector("#dp-type-picker > button")?.getAttribute("aria-expanded"),
+      );
+    const triggerText = () =>
+      page.evaluate(() => document.querySelector("#dp-type-picker")?.textContent ?? "");
+    const panelOpen = () =>
+      page.evaluate(() => !!document.querySelector("#detail-panel.open"));
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "detached" });
+    expect(await ariaExpanded()).toBe("false");
+    expect(await panelOpen()).toBe(true);
+    await page.locator("#dp-type-picker > button").focus();
+    await page.keyboard.press("Enter");
+    await menu.waitFor({ state: "attached" });
+    expect(await ariaExpanded()).toBe("true");
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "detached" });
+    expect(await panelOpen()).toBe(true);
+
+    // Clicking outside the menu (but inside the panel, so the panel itself
+    // stays open) closes the menu without changing the type.
+    await page.click("#dp-type-picker > button");
+    await menu.waitFor({ state: "attached" });
+    await page.click("#dp-title");
+    await menu.waitFor({ state: "detached" });
+    expect(await panelOpen()).toBe(true);
+    expect(await triggerText()).toContain("Task");
+
+    // Selecting an option changes the type and closes the menu.
+    await page.click("#dp-type-picker > button");
+    await page.locator('[data-role="type-picker-menu"] button', { hasText: "Research" }).click();
+    await menu.waitFor({ state: "detached" });
+    expect(await triggerText()).toContain("Research");
+    expect(await panelOpen()).toBe(true);
+
+    // Title editing still works alongside the picker (autosave path untouched).
+    await page.fill("#dp-title", "Type picker visibility task");
+    expect(await page.inputValue("#dp-title")).toBe("Type picker visibility task");
+    await page.keyboard.press("Escape");
   });
 
   it("Bug task with console errors shows error section in detail panel", async () => {
