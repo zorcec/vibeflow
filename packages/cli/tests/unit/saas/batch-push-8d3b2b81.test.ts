@@ -202,7 +202,7 @@ describe("batch capability probe", () => {
     );
   });
 
-  it("500 → throws (unknown server state aborts loudly, never blind-pushes)", async () => {
+  it("500 → throws (sick server aborts loudly: fallback would 500 every per-item POST → 0 imported, N refused, no throw → push.ts would still delete ALL locals)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(wholeRefusal(500, {})),
@@ -212,7 +212,21 @@ describe("batch capability probe", () => {
     );
   });
 
-  it("200 with a non-preflight body → throws (never misreads the cap)", async () => {
+  it("200 with the legacy list shape → unsupported (old routers prefix-match /batch onto the list handler — this exact 200 {items,nextCursor} bricked push before the leniency fix)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [], nextCursor: null }),
+      }),
+    );
+    expect(await probeBatchCapability("https://x.test", "tok")).toEqual({
+      supported: false,
+    });
+  });
+
+  it("200 with a non-preflight body → unsupported (lenient: without the envelope there is no batch evidence, so fall back — never misread the cap)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -221,9 +235,23 @@ describe("batch capability probe", () => {
         json: () => Promise.resolve({ hello: "world" }),
       }),
     );
-    await expect(probeBatchCapability("https://x.test", "tok")).rejects.toThrow(
-      /unrecognized preflight/,
+    expect(await probeBatchCapability("https://x.test", "tok")).toEqual({
+      supported: false,
+    });
+  });
+
+  it("200 with wrong-typed preflight fields → unsupported (maxItems string / plan number is not a cap — fall back, never misread it)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ maxItems: "lots", plan: 42 }),
+      }),
     );
+    expect(await probeBatchCapability("https://x.test", "tok")).toEqual({
+      supported: false,
+    });
   });
 });
 

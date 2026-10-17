@@ -210,7 +210,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   const apiUrl = getApiUrl();
 
   // Batch-first push (ticket 8d3b2b81): the capability probe decides.
-  // A 404 on GET /api/v0/tasks/batch means an old server — fall back to
+  // A 404 on GET /api/v0/tasks/batch — or a 200 WITHOUT the preflight
+  // envelope (old routers prefix-match /batch onto the list handler and
+  // answer 200 `{ items, nextCursor }`) — means an old server: fall back to
   // the proven one POST per task loop below, byte-identical to before
   // (same shape as the login flow — cloud-only, so the mode inside is
   // always "cloud"). A per-task non-ok counts as skipped; only a

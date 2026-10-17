@@ -167,15 +167,24 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Capability probe (ticket 8d3b2b81): `GET /api/v0/tasks/batch`.
- * - 200 → `{ supported: true, preflight }` (body parsed strictly).
+ * - 200 WITH the preflight envelope → `{ supported: true, preflight }`.
+ * - 200 WITHOUT the preflight envelope → `{ supported: false }` (LENIENT —
+ *   an old server's router prefix-matches `/tasks/batch` onto the list
+ *   handler and answers 200 `{ items, nextCursor }`; see below).
  * - 404 → `{ supported: false }` — an old server; the caller falls back
  *   to the one-by-one loop. The 404 body is never parsed (old servers
  *   answer HTML here; parsing it would throw a confusing SyntaxError).
  * - 401/403 → THROW (bad token must abort BEFORE any destructive step —
  *   falling back would "push" 0 tasks and the post-push deletion would
  *   still wipe locals).
- * - any other non-ok → THROW (unknown server state — abort loudly rather
- *   than blind-attempt a bulk push; the message carries the status).
+ * - any other non-ok (incl. 5xx and non-legacy 400s) → THROW (unknown
+ *   server state — abort loudly rather than blind-attempt a bulk push;
+ *   the message carries the status). A 5xx proves nothing except outage:
+ *   routed to fallback, every per-item POST would 500 → 0 imported, N
+ *   refused, no throw → `push.ts` would still delete ALL locals. So a
+ *   sick server aborts loudly, while a 200-that-answered (any shape)
+ *   falls back — the fallback only ever runs when the server proved it
+ *   can route and answer.
  * - transport throw/timeout → propagates (callers report it as a failed
  *   push, same as the one-by-one loop's network-throw contract).
  */
@@ -209,10 +218,20 @@ export async function probeBatchCapability(
     );
   }
   const body = (await res.json()) as Partial<BatchPreflight> & Record<string, unknown>;
+  // Lenient 200 (ticket 8d3b2b81): a 200 WITHOUT the preflight envelope is
+  // "unsupported", never a throw. WHY lenient strictly dominates: real
+  // legacy routers prefix-match unknown sub-paths, so GET
+  // /api/v0/tasks/batch lands on the list handler and answers 200
+  // `{ items, nextCursor }` — plausible on actual old servers, not just
+  // mocks (this exact shape bricked push: the fail-closed probe threw and
+  // push exited non-zero). A throwing probe would brick push against such
+  // servers, defeating the fallback's purpose. And no scenario exists
+  // where throwing helps: if the server is new-but-drifted, the one-by-one
+  // fallback is still correct (just slower); if old, fallback is correct.
+  // (5xx/other-non-ok keep throwing — see the doc block above for why a
+  // 500 must abort loudly instead of falling back.)
   if (typeof body?.maxItems !== "number" || typeof body?.plan !== "string") {
-    throw new Error(
-      "batch capability probe failed: server answered 200 with an unrecognized preflight shape",
-    );
+    return { supported: false };
   }
   return {
     supported: true,
