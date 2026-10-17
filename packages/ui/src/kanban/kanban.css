@@ -334,7 +334,7 @@ body {
 }
 
 /* ── Card badge cluster (690858e0 — badges stay on ONE line; overflow
-   collapses behind a "..." chip whose tooltip stacks the rest) ── */
+   collapses behind a "+N" chip whose tooltip stacks the rest) ── */
 .card-badge-wrap {
  position: relative;
  display: inline-flex;
@@ -371,7 +371,8 @@ body {
  display: inline-flex;
  align-items: center;
  justify-content: center;
- min-width: 20px;
+ gap: 2px;
+ min-width: 24px;
  height: 16px;
  padding: 0 5px;
  border-radius: 8px;
@@ -394,11 +395,13 @@ body {
  outline: 2px solid var(--t-accent);
  outline-offset: 1px;
 }
-/* Overflow tooltip: the hidden badges one after another, opening
-   upward so it never covers the footer's action buttons. Left-anchored
-   to the cluster: the wrap sits at the footer's left, so right-anchoring
-   would push the tip past the card's left edge (and into the column's
-   scroll clipping); growing rightward stays over the card. */
+/* Overflow tooltip (785f3ba295b9): rendered in a portal with fixed
+   positioning from computePopoverPosition (same helper as the child
+   popover), so it anchors to the chip and stays inside the viewport
+   instead of clipping under the column's scroll container. The
+   stylesheet keeps the popover tokens (background/border/radius/shadow)
+   and a defensive absolute fallback; the inline fixed top/left/width
+   win when the portal is used. */
 .card-badge-tip {
  position: absolute;
  bottom: calc(100% + 6px);

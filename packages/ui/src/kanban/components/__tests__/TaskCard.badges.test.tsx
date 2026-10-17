@@ -121,12 +121,15 @@ describe("BadgeCluster overflow (690858e0)", () => {
     ).toHaveLength(TAGS.length);
   });
 
-  it("collapses behind '...' with an accessible name once badges overflow", () => {
+  it("collapses behind a '+N' chip with an accessible name once badges overflow", () => {
     renderCard();
     // type(44) + priority(52) + 6 tags ≈ 300px in a 150px row.
     mockLayout([44, 52, 30, 34, 28, 30, 40, 42], 150);
     const chip = screen.getByRole("button", { name: /more badge/ });
-    expect(chip).toHaveTextContent("…");
+    // Nicer visualisation than a bare "…" (785f3ba295b9): an explicit
+    // +N count with a chevron; the accessible name still lists every
+    // hidden badge.
+    expect(chip).toHaveTextContent(/\+\d+/);
     expect(chip).toHaveAttribute(
       "aria-label",
       expect.stringContaining("mcp"),

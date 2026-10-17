@@ -13,6 +13,7 @@ import {
       getChildren,
       getDescendants,
       getLeafDescendants,
+      computePopoverPosition,
 } from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
@@ -1111,7 +1112,10 @@ interface BadgeClusterProps {
  * overflow chip is a real button: hover, focus and click (touch) all open
  * the tooltip, Escape closes it, and the accessible name lists every
  * hidden badge (the visual tooltip is aria-hidden to avoid announcing
- * the roster twice).
+ * the roster twice). The tooltip renders in a portal positioned with
+ * computePopoverPosition (785f3ba295b9 — the same helper the child
+ * popover uses), so it anchors to the chip and stays inside the
+ * viewport instead of clipping under the column's scroll container.
  */
 export function BadgeCluster({
       type,
@@ -1199,6 +1203,21 @@ export function BadgeCluster({
       const [hoverTip, setHoverTip] = React.useState(false);
       const [focusTip, setFocusTip] = React.useState(false);
       const [pinned, setPinned] = React.useState(false);
+      // Viewport-anchored tooltip rect (785f3ba295b9): captured from the
+      // chip whenever the tip opens so the portal can anchor to it.
+      const tipAnchor = React.useRef<DOMRect | null>(null);
+      const [, setTipSeq] = React.useState(0);
+      const captureTipAnchor = React.useCallback(
+            (el: HTMLElement | null) => {
+                  if (!el) return;
+                  tipAnchor.current = el.getBoundingClientRect();
+                  // The ref feeds the portal position below; bump a
+                  // counter so a re-open from an already-true tip state
+                  // still re-renders with a fresh rect.
+                  setTipSeq((n) => n + 1);
+            },
+            [tipAnchor],
+      );
 
       const remeasure = React.useCallback(() => {
             const el = containerRef.current;
@@ -1268,15 +1287,81 @@ export function BadgeCluster({
             };
       }, [remeasure]);
 
+      const closeTip = React.useCallback(() => {
+            setPinned(false);
+            setHoverTip(false);
+            setFocusTip(false);
+      }, []);
+      // Viewport-anchored (785f3ba295b9): a scroll or resize while the
+      // tip is open closes it — same contract as ChildPopover — so the
+      // portal never floats detached from its chip.
+      const anyTipOpen = pinned || hoverTip || focusTip;
+      React.useEffect(() => {
+            if (!anyTipOpen) return;
+            window.addEventListener("scroll", closeTip, {
+                  capture: true,
+                  once: true,
+            });
+            window.addEventListener("resize", closeTip, { once: true });
+            return () => {
+                  window.removeEventListener("scroll", closeTip, {
+                        capture: true,
+                  });
+                  window.removeEventListener("resize", closeTip);
+            };
+      }, [anyTipOpen, closeTip]);
+
       if (badges.length === 0) return null;
       const hidden = badges.slice(hiddenFrom);
       const tipOpen = pinned || hoverTip || focusTip;
       const hiddenNames = hidden.map((b) => b.label).join(", ");
+      // Estimated tip height for computePopoverPosition: stacked pills
+      // (~22px each) plus padding, capped at half the viewport like the
+      // child popover so the helper flips above the chip when needed.
+      const tipAnchorRect = tipOpen ? tipAnchor.current : null;
+      const tipEstH =
+            typeof window === "undefined"
+                  ? 120
+                  : Math.min(
+                          12 + hidden.length * 22,
+                          window.innerHeight * 0.5,
+                    );
+      const tipPos =
+            tipOpen && tipAnchorRect && hidden.length > 0
+                  ? computePopoverPosition(
+                          tipAnchorRect,
+                          tipEstH,
+                          window.innerHeight,
+                          window.innerWidth,
+                    )
+                  : null;
+      const tipNode = (style: React.CSSProperties) => (
+            <span
+                  role="tooltip"
+                  aria-hidden="true"
+                  data-role="badge-overflow-tip"
+                  className="card-badge-tip"
+                  style={style}
+                  onClick={(e) => e.stopPropagation()}
+            >
+                  {hidden.map((b) => (
+                        <span
+                              key={b.key}
+                              className="card-badge-tip-row"
+                        >
+                              {b.node}
+                        </span>
+                  ))}
+            </span>
+      );
       return (
             <span
                   className="card-badge-wrap"
                   data-role="badge-cluster"
-                  onMouseEnter={() => setHoverTip(true)}
+                  onMouseEnter={() => {
+                        captureTipAnchor(chipRef.current);
+                        setHoverTip(true);
+                  }}
                   onMouseLeave={() => setHoverTip(false)}
             >
                   <div ref={containerRef} className="card-badge-cluster">
@@ -1300,16 +1385,27 @@ export function BadgeCluster({
                                           // (opens the panel) — a tooltip
                                           // toggle must not open the task.
                                           e.stopPropagation();
+                                          captureTipAnchor(e.currentTarget);
                                           setPinned((p) => !p);
                                     }}
-                                    onFocus={() => setFocusTip(true)}
+                                    onFocus={(e) => {
+                                          captureTipAnchor(e.currentTarget);
+                                          setFocusTip(true);
+                                    }}
                                     onBlur={() => setFocusTip(false)}
                                     onKeyDown={(e) => {
                                           if (e.key === "Escape")
                                                 setPinned(false);
                                     }}
                               >
-                                    …
+                                    <span>+{hidden.length}</span>
+                                    <ChevronDown
+                                          aria-hidden="true"
+                                          style={{
+                                                width: 10,
+                                                height: 10,
+                                          }}
+                                    />
                               </button>
                         )}
                         <span
@@ -1323,24 +1419,20 @@ export function BadgeCluster({
                               ))}
                         </span>
                   </div>
-                  {tipOpen && hidden.length > 0 && (
-                        <span
-                              role="tooltip"
-                              aria-hidden="true"
-                              data-role="badge-overflow-tip"
-                              className="card-badge-tip"
-                              onClick={(e) => e.stopPropagation()}
-                        >
-                              {hidden.map((b) => (
-                                    <span
-                                          key={b.key}
-                                          className="card-badge-tip-row"
-                                    >
-                                          {b.node}
-                                    </span>
-                              ))}
-                        </span>
-                  )}
+                  {tipOpen &&
+                        hidden.length > 0 &&
+                        (tipPos
+                              ? ReactDOM.createPortal(
+                                      tipNode({
+                                            position: "fixed",
+                                            top: tipPos.top,
+                                            left: tipPos.left,
+                                            width: tipPos.width,
+                                            bottom: "auto",
+                                      }),
+                                      document.body,
+                                )
+                              : tipNode({}))}
             </span>
       );
 }
