@@ -30,7 +30,11 @@ import {
   matchesIdOrPrefix,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
-import { queryTaskList } from "./core/task-listing.js";
+import {
+  queryTaskList,
+  resolveListLimit,
+} from "./core/task-listing.js";
+import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
 import { listFiles } from "./core/files.js";
 import { readConfig, getCurrentBranch } from "./core/config.js";
 import {
@@ -1135,7 +1139,10 @@ program
   )
   .option(
     "--limit <n>",
-    "Limit how many tasks are returned in list mode (default: 5; use 0 for unlimited)",
+    // The number lives in exactly one place: DEFAULT_LIST_LIMIT in api-core
+    // (ticket 9bb350a7) — the MCP `limit` schema defaults to the same
+    // constant, so the two surfaces cannot drift.
+    `Limit how many tasks are returned in list mode (default: ${DEFAULT_LIST_LIMIT}; use 0 for unlimited)`,
   )
   .option(
     "--dry-run",
@@ -4302,13 +4309,21 @@ program
           if (!opts.children)
             saasTasks = saasTasks.filter((t) => !saasIsChild(t));
 
-          const saasLimit =
-            opts.limit === undefined ? 5 : parseInt(opts.limit, 10);
+          const saasLimit = resolveListLimit(opts.limit);
           if (!isNaN(saasLimit) && saasLimit > 0)
             saasTasks = saasTasks.slice(0, saasLimit);
 
           if (opts.json) {
             // SAFETY: SaaS tasks have the same shape as CLI tasks for pickFields purposes
+            // REMOTE MODE (ticket 9bb350a7, cloud ticket e07c8212): the
+            // cloud listing does not send position metadata
+            // (offset/remaining/nextCursor/order) yet, so this envelope
+            // passes through EXACTLY what the cloud sent and invents
+            // nothing — do NOT compute those fields locally here. A locally
+            // invented cursor would fake a vocabulary the cloud has not
+            // defined, and the next local page would silently disagree with
+            // the next cloud page. When the cloud starts sending them, pass
+            // them through verbatim.
             outputEnvelope({
               ok: true,
               json: opts.json,
@@ -4440,8 +4455,9 @@ program
         // the ONE shared listing model (core/task-listing.ts) — the same one
         // the MCP list_tasks tool renders. Root-only is the default, but a
         // filtered query is an explicit search returning EVERY match.
-        const taskLimit =
-          opts.limit === undefined ? 5 : parseInt(opts.limit, 10);
+        // The absent-flag default is DEFAULT_LIST_LIMIT (ticket 9bb350a7),
+        // the same constant the MCP schema defaults to.
+        const taskLimit = resolveListLimit(opts.limit);
         // The --json envelope returns the whole answer (limit applies to the
         // human listing only), so it queries unlimited and reports the same
         // labelled counts the MCP tool does.
@@ -4460,7 +4476,9 @@ program
           // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
           // Counts share the MCP vocabulary: totalMatching (every match),
           // totalRoots (matching roots), returned (rows in `tasks`), limit
-          // (0 = unlimited), truncated + hiddenChildren.
+          // (0 = unlimited), truncated + hiddenChildren — plus the ticket-
+          // 9bb350a7 position fields (offset/remaining/nextCursor/order),
+          // read off the same shared listing result the MCP tool returns.
           outputEnvelope({
             ok: true,
             json: opts.json,
@@ -4477,6 +4495,10 @@ program
               limit: listed.limit,
               truncated: listed.truncated,
               hiddenChildren: hiddenChildCount,
+              offset: listed.offset,
+              remaining: listed.remaining,
+              nextCursor: listed.nextCursor,
+              order: listed.order,
             },
           });
           return;

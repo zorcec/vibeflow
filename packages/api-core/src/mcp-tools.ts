@@ -28,6 +28,35 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// ── DEFAULT_LIST_LIMIT: the ONE agent-facing default page size ────────────────
+// WHAT: every list surface with a silent default (the MCP `limit` schema
+//   default below, the CLI `--limit` default in packages/cli/src/index.ts
+//   via resolveListLimit in packages/cli/src/core/task-listing.ts) resolves
+//   to THIS constant. A future change to the number changes both surfaces by
+//   construction — the drift test in
+//   packages/cli/tests/unit/task-listing-limits.test.ts pins that.
+// WHY 20 (measured, not guessed — DB review payload: 1,812,492 bytes for
+//   500 tasks ≈ 3.6 KB ≈ ~900 tokens per task, ESTIMATED):
+//   - 5 is too small: it under-answers the common call ("list my todo
+//     tasks"), so the agent re-calls and spends MORE than the small default
+//     saved. The previous 5 had NO documented rationale at all — the schema
+//     description explained negative values but never the number. That is
+//     what this job fixes.
+//   - 20 ≈ 18k tokens covers a realistic filtered working set at roughly 9%
+//     of a 200k context: the sweet spot for an AGENT-facing default.
+//   - 50 ≈ 45k / 100 ≈ 90k / 500 ≈ 450k tokens are fine for a human CLI or
+//     for v0 REST (which pages, so the cost is opt-in), but wrong as a
+//     silent agent default.
+// WHY v0 REST STAYS AT 100 and is deliberately NOT unified: cursor paging
+//   makes a large page safe and cheap there (the caller pays per page,
+//   opt-in), while an MCP caller pays in context on EVERY call and must not
+//   be forced to walk pages to see a working set.
+// WHO + WHEN: listing-limits lane, 2026-10-17. TICKET: 9bb350a7.
+// IMPACT: every MCP list_tasks call without an explicit limit now returns
+//   up to 20 rows instead of 5; position fields (offset/remaining/nextCursor/
+//   order) ride on TaskListResult in core/task-listing.ts.
+export const DEFAULT_LIST_LIMIT = 20;
+
 // ── Input schemas (moved from CLI core/operations.ts, P4a) ────────────────
 // Re-exported from `core/operations.ts` for the same reason as above.
 export const ListTasksInput = z.object({
@@ -45,9 +74,9 @@ export const ListTasksInput = z.object({
   limit: z
     .number()
     .min(0)
-    .default(5)
+    .default(DEFAULT_LIST_LIMIT)
     .describe(
-      "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs.",
+      "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs. Cost of asking for everything: roughly ~900 tokens per task, so limit:0 on a 500-task board costs ~450k context tokens — prefer the default page and continue via offset/remaining/nextCursor.",
     ),
   fields: z
     .array(z.string())
@@ -441,7 +470,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all).",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all). Position: offset (0-based index of the first returned row), remaining (matching rows NOT in this response; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable).",
     cliRef: {
       command: "tasks",
       flags: [

@@ -19,6 +19,60 @@
 import type { Task } from "./types.js";
 import { isChildTask } from "./tasks.js";
 import { getPriorityRank } from "./types.js";
+import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
+
+/**
+ * Resolve a raw CLI `--limit` string to an effective limit. A missing flag
+ * resolves to DEFAULT_LIST_LIMIT — the SAME exported constant the MCP
+ * `limit` schema defaults to — so the two surfaces cannot drift apart: a
+ * future change to the number changes both by construction. Present (even
+ * unparsable) values keep the historical parseInt behaviour exactly
+ * (NaN/<=0 means unlimited downstream in queryTaskList).
+ */
+export function resolveListLimit(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_LIST_LIMIT;
+  return parseInt(raw, 10);
+}
+
+/**
+ * The effective sort applied to every listing, in the `key:direction` form
+ * the `order` response field carries. Read off sortTasksForListing below —
+ * if the comparator gains a key, add it here in the same position:
+ * kanban status rank ascending, priority rank ascending (Critical first),
+ * `updated` (falling back to `created` when absent) newest-first, id
+ * ascending as the final tiebreak.
+ */
+export const LIST_ORDER: readonly string[] = [
+  "status:asc",
+  "priority:asc",
+  "updated:desc",
+  "id:asc",
+];
+
+/**
+ * Opaque continuation cursor for a truncated listing: encodes the offset of
+ * the first row NOT in this response. Opaque by contract — callers test
+ * only null-ness — but decodable locally via decodeListCursor, so a future
+ * `cursor` input can resume exactly where this page stopped.
+ */
+export function encodeListCursor(nextOffset: number): string {
+  return Buffer.from(`vibeflow-list-cursor:${nextOffset}`, "utf8").toString(
+    "base64url",
+  );
+}
+
+/** Decode an encodeListCursor token back to its offset; null when foreign. */
+export function decodeListCursor(cursor: string): number | null {
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const m = /^vibeflow-list-cursor:(\d+)$/.exec(raw);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return Number.isSafeInteger(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Filter/scope input — the same fields on both surfaces. */
 export interface TaskListQuery {
@@ -50,6 +104,36 @@ export interface TaskListResult<T extends Task = Task> {
   truncated: boolean;
   /** Present only when truncated: how to see the rest. */
   hint?: string;
+  /**
+   * 0-based index of the FIRST returned row ("where the selector is").
+   * Always 0: no `cursor` input exists yet, so every listing starts at the
+   * head. Kept on the wire so a future cursor page can report its position.
+   */
+  offset: number;
+  /**
+   * Matching rows NOT in this response — rows cut by the limit AND rows
+   * hidden by root-only scope alike; 0 means exhausted. Truncated
+   * invariant: offset + returned + remaining === totalMatching. Corner, by
+   * construction: a scope-hiding-but-limit-exhausted page (unfiltered
+   * root-only with children present, limit not cutting) reports
+   * remaining === hiddenChildren with nextCursor === null — the hidden rows
+   * are disclosed via hiddenChildren and revealed with children:true, not
+   * via a cursor, because a cursor continues THIS query's ordering and the
+   * same query would return the same rows.
+   */
+  remaining: number;
+  /**
+   * Opaque continuation for the next page; null exactly when this query's
+   * ordering is exhausted. A caller must never see remaining === 0 together
+   * with a live cursor — and conversely a null cursor with remaining > 0
+   * means "more exists under a different scope flag" (see `remaining`).
+   */
+  nextCursor: string | null;
+  /**
+   * The effective sort actually applied (LIST_ORDER) — the caller knows a
+   * continuation is meaningful because the sequence is stable.
+   */
+  order: string[];
 }
 
 /** Kanban column order: in-progress → review → todo → backlog → done. */
@@ -145,6 +229,16 @@ export function queryTaskList<T extends Task>(
   const truncated = limit > 0 && sorted.length > limit;
   const tasks = truncated ? sorted.slice(0, limit) : sorted;
 
+  // Position metadata (ticket 9bb350a7): offset/remaining/nextCursor/order
+  // are computed from the SAME locals as the counts above — free, no extra
+  // query, no extra file read. No cursor input exists yet, so offset is
+  // always 0 and the cursor encodes where THIS page stopped.
+  const offset = 0;
+  const remaining = totalMatching - offset - tasks.length;
+  const nextCursor = truncated
+    ? encodeListCursor(offset + tasks.length)
+    : null;
+
   return {
     tasks,
     totalMatching,
@@ -158,5 +252,9 @@ export function queryTaskList<T extends Task>(
           hint: `showing ${limit} of ${sorted.length} matching — use limit 0 for all`,
         }
       : {}),
+    offset,
+    remaining,
+    nextCursor,
+    order: [...LIST_ORDER],
   };
 }
