@@ -1984,7 +1984,7 @@ async function serveApiOnly(
           ? [
               chalk.dim("  Mode:  ") +
                 chalk.green("● Online") +
-                chalk.dim(" — connected to Vibeflow SaaS"),
+                chalk.dim(" — connected to Vibeflow Online"),
               chalk.dim("  Board: ") +
                 chalk.white(workspace!.name ?? "your board"),
               chalk.dim("  Web:   ") + chalk.cyan(workspace!.url),
