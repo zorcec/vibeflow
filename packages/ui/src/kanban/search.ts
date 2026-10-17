@@ -32,7 +32,11 @@ export interface SearchableTask {
  * WHO+WHEN lane worker, 2026-10-17, ticket 46e05c7b.
  * IMPACT ~150ms after the last keystroke the board/header settle; existing
  * e2e waits (300-500ms) still pass. Product call if a different delay or
- * no delay is wanted.
+ * no delay is wanted. NOT the same as the web app's server-search
+ * `SEARCH_DEBOUNCE_MS` (= 1000, ticket e6066327): same export name,
+ * different mechanism — this one debounces a free in-memory re-render,
+ * that one a server round trip. Do not "sync" the numbers without
+ * re-measuring both; aligning them makes one surface laggy or chatty.
  */
 export const SEARCH_DEBOUNCE_MS = 150;
 
