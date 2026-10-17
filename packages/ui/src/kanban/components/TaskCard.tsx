@@ -1139,11 +1139,19 @@ export function BadgeCluster({
                   });
             }
             if (assigneeName) {
+                  // Initials only (297e71fb): the pill never renders a full
+                  // name as card text. `presenceInitials` is the same helper
+                  // the presence chips and the live-activity badge use — no
+                  // second implementation. The full name stays in `title`
+                  // and in the cluster `label` (overflow tooltip +
+                  // screen-reader name), mirroring the presence pattern where
+                  // the circles carry initials and the sentence stays readable.
                   list.push({
                         key: "assignee",
                         label: assigneeName,
                         node: (
                               <span
+                                    title={assigneeName}
                                     style={{
                                           fontSize: 10,
                                           fontWeight: 600,
@@ -1156,7 +1164,7 @@ export function BadgeCluster({
                                           flexShrink: 0,
                                     }}
                               >
-                                    {assigneeName}
+                                    {presenceInitials(assigneeName)}
                               </span>
                         ),
                   });

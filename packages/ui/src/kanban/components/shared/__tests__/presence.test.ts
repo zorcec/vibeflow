@@ -2,8 +2,34 @@ import { describe, it, expect } from "vitest";
 import {
   presenceChipFill,
   presenceColor,
+  presenceInitials,
   PRESENCE_CHIP_FILL_LIGHTNESS,
 } from "../presence";
+
+describe("presenceInitials (297e71fb)", () => {
+  it("renders first+last initials for a multi-word name", () => {
+    expect(presenceInitials("Tomislav Zorčec")).toBe("TZ");
+  });
+
+  it("renders the first two letters for a single-word name", () => {
+    expect(presenceInitials("Ana")).toBe("AN");
+  });
+
+  it("trims extra whitespace before taking initials", () => {
+    expect(presenceInitials("  ana   maria  ")).toBe("AM");
+  });
+
+  it("handles unicode names without splitting surrogate pairs", () => {
+    expect(presenceInitials("Zoë François")).toBe("ZF");
+    // Astral-plane first letter stays intact (Array.from, not [0]).
+    expect(presenceInitials("\uD835\uDD18lga Smith")).toBe("\uD835\uDD18S");
+  });
+
+  it("falls back to a placeholder for an empty or unknown name", () => {
+    expect(presenceInitials("")).toBe("?");
+    expect(presenceInitials("   ")).toBe("?");
+  });
+});
 
 /** Parse `hsl(h, s%, l%)` into [h, s, l] numbers. */
 function parseHsl(hsl: string): [number, number, number] {
