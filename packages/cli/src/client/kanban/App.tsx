@@ -24,6 +24,7 @@ import {
   applyInitialTheme,
   mergeTaskFromPayload,
   diffTaskFields,
+  verifyFoldedIntoStatusMove,
   filterTasksByQuery,
   useDebouncedValue,
 } from "@vibeflow-tools/ui/kanban";
@@ -879,7 +880,15 @@ export function App() {
       if (prevTask) {
         const existing = tasksRef.current.find((t) => t.id === id);
         const mapped = mergeTaskFromPayload(incoming, existing);
+        // be6d45fa: a save that moves into a verdict lane while setting
+        // the verdict reads as ONE event — the status entry below owns
+        // the Pass/Fail card, so the companion `verify` row is skipped.
+        // Every other shape keeps its row (the shared predicate pins the
+        // gate); in particular a standalone `--set-verify` with no move
+        // still records its `verify` row.
+        const foldVerify = verifyFoldedIntoStatusMove(prevTask, mapped);
         for (const change of diffTaskFields(prevTask, mapped)) {
+          if (change.field === "verify" && foldVerify) continue;
           appendFieldChange(
             id,
             change.field,

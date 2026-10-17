@@ -1,4 +1,5 @@
 import type { Task } from "./types";
+import { VERDICT_LANES } from "./components/VerifyIndicator";
 
 /**
  * Field-level activity entries for the detail-pane feed (`#dp-activity-pane`,
@@ -210,4 +211,39 @@ export function diffTaskFields(
     out.push({ field: "branch", from: branchPrev, to: branchNext });
   }
   return out;
+}
+
+/**
+ * Whether a `verify` field change is already told by the status entry of
+ * the SAME save (ticket be6d45fa) — the host must not record both.
+ *
+ * A save that moves a task into a verdict lane (`VERDICT_LANES`, the one
+ * gate shared with the card and the feed) while setting a boolean verdict
+ * earns ONE activity row: the host's verdict-carrying status entry, which
+ * the feed styles as the Pass/Fail card (badge plus the move's from→to
+ * pills). A companion `verify: none → verified` row would split that one
+ * event in two — the owner's reading ("Pass should be part of the move
+ * to in-verification activity": review IS the verification stage, there
+ * is no separate verification status).
+ *
+ * Deliberately narrow — every other shape keeps its own `verify` row,
+ * which is the ONLY record of the verdict there:
+ * - no status move (a standalone `--set-verify`): the row stays;
+ * - a move into a lane that draws no verdict (backlog/todo/in-progress):
+ *   the status row renders plain, so the row stays;
+ * - a verdict CLEAR (`cannot`/claim reset, boolean → absent): the status
+ *   row renders plain (no badge), so the row stays;
+ * - verdict unchanged by the save: the differ emits no `verify` row anyway.
+ */
+export function verifyFoldedIntoStatusMove(
+  prev: Partial<Task> | null | undefined,
+  next: Partial<Task> | null | undefined,
+): boolean {
+  if (!prev || !next) return false;
+  const fromStatus = text((prev as { status?: unknown }).status);
+  const toStatus = text((next as { status?: unknown }).status);
+  if (!toStatus || fromStatus === toStatus) return false;
+  if (!VERDICT_LANES.includes(toStatus)) return false;
+  if (typeof next.verified !== "boolean") return false;
+  return verifyLabel(prev.verified) !== verifyLabel(next.verified);
 }

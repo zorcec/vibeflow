@@ -36,6 +36,7 @@ export { useDebouncedValue } from "./useDebouncedValue";
 export {
   MINIMAL_FIELDS,
   verifyLabel,
+  verifyFoldedIntoStatusMove,
   tagSetKey,
   normalizeTagList,
   parseTagKey,

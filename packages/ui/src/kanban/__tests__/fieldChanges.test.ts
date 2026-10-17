@@ -14,6 +14,7 @@ import {
   diffTaskFields,
   MINIMAL_FIELDS,
   verifyLabel,
+  verifyFoldedIntoStatusMove,
   tagSetKey,
   normalizeTagList,
   parseTagKey,
@@ -147,6 +148,70 @@ describe("diffTaskFields", () => {
       base({ description: "N", tags: ["a", "z"] }),
     ).map((c) => c.field);
     expect(out).toEqual(["description", "tags"]);
+  });
+});
+
+describe("verifyFoldedIntoStatusMove (be6d45fa)", () => {
+  // One save that moves into a verdict lane while setting the verdict reads
+  // as ONE event: the host's verdict-carrying status entry owns the
+  // Pass/Fail card, so the companion `verify` row is folded away. The
+  // differ itself still emits it (pinned above) — the host skips it exactly
+  // when this predicate holds.
+  it("folds when a move to review sets a pass verdict", () => {
+    expect(
+      verifyFoldedIntoStatusMove(base(), base({ status: "review", verified: true })),
+    ).toBe(true);
+  });
+
+  it("folds when a move to done sets a fail verdict", () => {
+    expect(
+      verifyFoldedIntoStatusMove(
+        base({ status: "in-progress" }),
+        base({ status: "done", verified: false }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a standalone attestation with no status move", () => {
+    // No move: the `verify` row is the ONLY record of the verdict.
+    expect(verifyFoldedIntoStatusMove(base(), base({ verified: true }))).toBe(
+      false,
+    );
+  });
+
+  it("keeps the row on a move into a lane that draws no verdict", () => {
+    // The status row renders plain off the verdict lanes, so the `verify`
+    // row must stay — otherwise the verdict leaves no trace.
+    expect(
+      verifyFoldedIntoStatusMove(base(), base({ status: "in-progress", verified: true })),
+    ).toBe(false);
+  });
+
+  it("keeps the row when the save clears the verdict", () => {
+    // `cannot`/claim reset (boolean -> absent): the status row renders
+    // plain with no badge, so the `verify` row stays.
+    expect(
+      verifyFoldedIntoStatusMove(
+        base({ status: "todo", verified: true }),
+        base({ status: "review", verified: undefined }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps quiet when the verdict is unchanged by the move", () => {
+    // The differ emits no `verify` row here anyway; the predicate must not
+    // claim a fold for a row that does not exist.
+    expect(
+      verifyFoldedIntoStatusMove(
+        base({ status: "todo", verified: true }),
+        base({ status: "review", verified: true }),
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false for null snapshots", () => {
+    expect(verifyFoldedIntoStatusMove(null, base())).toBe(false);
+    expect(verifyFoldedIntoStatusMove(base(), undefined)).toBe(false);
   });
 });
 
