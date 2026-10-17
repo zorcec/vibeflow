@@ -12,10 +12,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { resolveDistDir } from "./lib/dist-dir.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const inputCss = resolve(root, "src/client/kanban/kanban.css");
-const outputCss = resolve(root, "dist/client/kanban.css");
+// Staged builds (VIBEFLOW_DIST_DIR, ticket 328b5420) write here instead of
+// the live dist/; the atomic-sync step carries the artifact across.
+const outputCss = resolve(resolveDistDir(root), "client/kanban.css");
 const outputTs = resolve(root, "src/server/kanban-css.gen.ts");
 
 // Build the Tailwind input as: themes.css (semantic tokens + data-theme

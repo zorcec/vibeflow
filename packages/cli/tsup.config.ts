@@ -7,6 +7,11 @@ import {
   writeFileSync,
 } from "node:fs";
 
+// Build-output dir honouring the atomic-build staging override (ticket
+// 328b5420): scripts/build-atomic.mjs sets VIBEFLOW_DIST_DIR=dist.next so
+// the bundles land in the staging tree; unset means the live dist/ as before.
+const DIST = process.env.VIBEFLOW_DIST_DIR || "dist";
+
 export default defineConfig([
   // Browser overlay bundle (built first — generates overlay-bundle.gen.ts for CLI)
   {
@@ -14,7 +19,7 @@ export default defineConfig([
     format: ["iife"],
     target: "chrome90",
     platform: "browser",
-    outDir: "dist/client",
+    outDir: `${DIST}/client`,
     clean: false,
     sourcemap: false,
     minifyWhitespace: true,
@@ -37,16 +42,16 @@ export default defineConfig([
       options.outExtension = { ".js": ".js" };
     },
     onSuccess: async () => {
-      const bundle = readFileSync("dist/client/overlay-browser.js", "utf-8");
+      const bundle = readFileSync(`${DIST}/client/overlay-browser.js`, "utf-8");
       const bundleExport = `// AUTO-GENERATED — run 'npm run build' to regenerate. Do not edit manually.\nexport const OVERLAY_BROWSER_BUNDLE = ${JSON.stringify(bundle)};\n`;
       writeFileSync("src/client/overlay-bundle.gen.ts", bundleExport);
       // Also write to packages/shared so the SaaS can import it at build time.
       writeFileSync("../../packages/shared/src/overlay-bundle.gen.ts", bundleExport);
       // Copy the single-source CSS files so external tools (showcase, devtools) can link them directly
-      cpSync("src/client/overlay.css", "dist/overlay.css");
-      cpSync("src/client/overlay-host.css", "dist/overlay-host.css");
-      // Remove stale CSS/global artifacts from the dist/client dir (clean: false is needed for multi-target)
-      for (const stale of ["dist/client/overlay-browser.css", "dist/client/overlay-browser.global.js"]) {
+      cpSync("src/client/overlay.css", `${DIST}/overlay.css`);
+      cpSync("src/client/overlay-host.css", `${DIST}/overlay-host.css`);
+      // Remove stale CSS/global artifacts from the output client dir (clean: false is needed for multi-target)
+      for (const stale of [`${DIST}/client/overlay-browser.css`, `${DIST}/client/overlay-browser.global.js`]) {
         if (existsSync(stale)) rmSync(stale);
       }
       console.log("[tsup] Generated src/client/overlay-bundle.gen.ts");
@@ -58,7 +63,7 @@ export default defineConfig([
     format: ["iife"],
     target: "chrome90",
     platform: "browser",
-    outDir: "dist/client",
+    outDir: `${DIST}/client`,
     clean: false,
     sourcemap: false,
     minify: true,
@@ -76,7 +81,7 @@ export default defineConfig([
       options.outExtension = { ".js": ".js" };
     },
     onSuccess: async () => {
-      const bundle = readFileSync("dist/client/kanban-browser.js", "utf-8");
+      const bundle = readFileSync(`${DIST}/client/kanban-browser.js`, "utf-8");
       writeFileSync(
         "src/server/kanban-bundle.gen.ts",
         `// AUTO-GENERATED — run 'npm run build' to regenerate. Do not edit manually.\n/** Production React+Tailwind kanban bundle. Inlined into the HTML shell at build time. */\nexport const KANBAN_BUNDLE = ${JSON.stringify(bundle)};\n`,

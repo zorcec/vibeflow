@@ -4,12 +4,17 @@ import { readFileSync } from "node:fs";
 /**
  * CLI ESM build — runs AFTER tsup.config.ts so that
  * overlay-bundle.gen.ts and kanban-bundle.gen.ts are already populated.
+ *
+ * DIST honours the atomic-build staging override (ticket 328b5420):
+ * scripts/build-atomic.mjs sets VIBEFLOW_DIST_DIR=dist.next so the bundle
+ * and the synced top-level copies land in the staging tree.
  */
+const DIST = process.env.VIBEFLOW_DIST_DIR || "dist";
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
   target: "node22",
-  outDir: "dist/cli",
+  outDir: `${DIST}/cli`,
   clean: false,
   sourcemap: false,
   minify: true,
@@ -40,14 +45,14 @@ export default defineConfig({
       readFileSync,
       readdirSync: rds,
     } = await import("node:fs");
-    copyFileSync("dist/cli/index.js", "dist/index.js");
+    copyFileSync(`${DIST}/cli/index.js`, `${DIST}/index.js`);
     try {
-      copyFileSync("dist/cli/index.d.ts", "dist/index.d.ts");
+      copyFileSync(`${DIST}/cli/index.d.ts`, `${DIST}/index.d.ts`);
     } catch {
       /* optional */
     }
-    // Copy EVERY emitted runtime module from dist/cli into dist — no
-    // hand-maintained allowlist.
+    // Copy EVERY emitted runtime module from the cli dir into the output
+    // root — no hand-maintained allowlist.
     //
     // This used to be a regex allowlist
     // (`/^(chunk|workspace|files|review-gate|git|verify-attestation)-/`).
@@ -56,26 +61,26 @@ export default defineConfig({
     // `verify-attestation` was emitted but never synced, so every
     // `vibeflow tasks --edit` crashed with ERR_MODULE_NOT_FOUND (ticket
     // afd745a3). A glob has no per-chunk list to forget.
-    for (const f of rds("dist/cli/").filter(
+    for (const f of rds(`${DIST}/cli/`).filter(
       (n: string) => n.endsWith(".js") && n !== "index.js",
     )) {
-      copyFileSync(`dist/cli/${f}`, `dist/${f}`);
+      copyFileSync(`${DIST}/cli/${f}`, `${DIST}/${f}`);
     }
     // Fail the build loudly if the packaged entry references a module that is
     // not on disk. tests/e2e/tsup-chunk-sync.test.ts asserts the same invariant
     // against the packaged output; this stops a broken dist being produced at all.
     const specifiers = [
-      ...readFileSync("dist/index.js", "utf-8").matchAll(
+      ...readFileSync(`${DIST}/index.js`, "utf-8").matchAll(
         /(?:import|from)\s*\(?\s*["'](\.\/[^"']+)["']/g,
       ),
     ].map((m) => m[1]);
-    const missing = specifiers.filter((s) => !existsSync(`dist/${s.slice(2)}`));
+    const missing = specifiers.filter((s) => !existsSync(`${DIST}/${s.slice(2)}`));
     if (missing.length > 0) {
       throw new Error(
-        `[tsup] dist/index.js references modules that were not synced: ${missing.join(", ")}`,
+        `[tsup] ${DIST}/index.js references modules that were not synced: ${missing.join(", ")}`,
       );
     }
-    for (const dir of ["dist", "dist/cli"]) {
+    for (const dir of [DIST, `${DIST}/cli`]) {
       try {
         for (const f of rds(dir).filter((n: string) => n.endsWith(".map"))) {
           const { rmSync } = await import("node:fs");
@@ -85,7 +90,7 @@ export default defineConfig({
         /* ignore */
       }
     }
-    chmodSync("dist/index.js", 0o755);
-    console.log("[tsup] Synced dist/index.js ← dist/cli/index.js");
+    chmodSync(`${DIST}/index.js`, 0o755);
+    console.log(`[tsup] Synced ${DIST}/index.js ← ${DIST}/cli/index.js`);
   },
 });

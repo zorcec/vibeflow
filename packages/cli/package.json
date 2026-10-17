@@ -40,8 +40,8 @@
     "./openapi.yaml": "./dist/openapi.yaml"
   },
   "scripts": {
-    "prebuild": "rm -rf dist && node scripts/gen-overlay-css.mjs && mkdir -p dist/client && node scripts/gen-overlay-bundle.mjs && node scripts/gen-kanban-css.mjs && node scripts/gen-codec-assets.mjs && node scripts/embed-swagger-ui.mjs && node ../api-core/scripts/gen-api-artifacts.mjs",
-    "build": "tsup && tsup --config tsup.cli.config.ts",
+    "prebuild": "node scripts/gen-overlay-css.mjs && node scripts/embed-swagger-ui.mjs",
+    "build": "node scripts/build-atomic.mjs",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",

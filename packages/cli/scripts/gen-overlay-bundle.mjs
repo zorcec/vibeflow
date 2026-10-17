@@ -10,11 +10,14 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveDistDir } from "./lib/dist-dir.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const monorepoRoot = resolve(root, "../..");
 const entry = resolve(root, "src/client/overlay-browser/index.ts");
-const outFile = resolve(root, "dist/client/overlay-browser.js");
+// Staged builds (VIBEFLOW_DIST_DIR, ticket 328b5420) write here instead of
+// the live dist/; the atomic-sync step carries the artifact across.
+const outFile = resolve(resolveDistDir(root), "client/overlay-browser.js");
 const genTs = resolve(root, "src/client/overlay-bundle.gen.ts");
 const esbuild = resolve(monorepoRoot, "node_modules/.bin/esbuild");
 

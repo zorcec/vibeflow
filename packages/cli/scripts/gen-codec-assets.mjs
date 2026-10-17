@@ -13,6 +13,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveDistDir } from "./lib/dist-dir.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(root, "package.json"));
@@ -23,7 +24,7 @@ const ASSETS = [
   "@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm",
 ];
 
-const outDir = resolve(root, "dist/client/codecs");
+const outDir = resolve(resolveDistDir(root), "client/codecs");
 mkdirSync(outDir, { recursive: true });
 
 for (const spec of ASSETS) {
