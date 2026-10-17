@@ -1219,10 +1219,37 @@ export function BadgeCluster({
             [tipAnchor],
       );
 
+      // Identity of the badge SET (not the array) — a dep for the measuring
+      // effect below, so identical content never re-triggers a measurement.
+      const badgeKey = React.useMemo(
+            () => badges.map((b) => b.key).join("|"),
+            [badges],
+      );
       const remeasure = React.useCallback(() => {
             const el = containerRef.current;
             if (!el) return;
-            const available = el.clientWidth;
+            // Available width must NOT depend on how many badges are currently
+            // rendered, or the fit becomes a FEEDBACK LOOP: hiding a badge
+            // shrinks the cluster, the smaller width hides another, and it
+            // never converges — React aborts with "Maximum update depth
+            // exceeded" (#185, ticket 42f77e1c). `.card-badge-wrap` is
+            // `inline-flex; flex: 0 1 auto`, so its CONTENT decides its width;
+            // measuring it is measuring our own output. Measure the footer row
+            // minus its non-cluster children (the action buttons) instead —
+            // those are stable however the badges fit.
+            const wrap = el.parentElement;
+            const row = wrap?.parentElement ?? null;
+            let available = el.clientWidth;
+            if (row) {
+                  let siblings = 0;
+                  for (const child of Array.from(row.children)) {
+                        if (child !== wrap) {
+                              siblings += (child as HTMLElement).offsetWidth;
+                        }
+                  }
+                  const fromRow = row.clientWidth - siblings;
+                  if (fromRow > 0) available = fromRow;
+            }
             // Not laid out (or zero-width) — keep showing everything
             // rather than collapsing to a lone "...".
             if (!(available > 0)) return;
@@ -1257,9 +1284,15 @@ export function BadgeCluster({
 
       // Layout-phase: correct before paint so no clipped mid-badge frame
       // ever shows. Guarded setState — steady state performs no update.
+      // THE DEPENDENCY ARRAY IS REQUIRED (ticket 42f77e1c): with none, this
+      // ran after EVERY render, so a measurement that did not settle could
+      // setState for ever and React would abort with #185. It now runs on
+      // mount and when the badge set changes; container resizes are already
+      // covered by the ResizeObserver below, and webfont-driven width swaps
+      // by the document.fonts.ready effect.
       React.useLayoutEffect(() => {
             remeasure();
-      });
+      }, [remeasure, badgeKey]);
       React.useEffect(() => {
             remeasure();
             if (typeof ResizeObserver !== "undefined") {
