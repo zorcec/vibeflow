@@ -2,6 +2,7 @@ import React from "react";
 import { MessageCircle, Paperclip, Flag } from "lucide-react";
 import type { Task, TaskStatus, LiveActivity } from "../types";
 import { groupTasksByRoot } from "../task-links";
+import { filterTasksByQuery } from "../search";
 import { LiveActivityBadge } from "./TaskCard";
 import { TASK_TYPE_ICONS } from "../../task-types";
 
@@ -135,15 +136,8 @@ export function KanbanListView({
       done: false,
     },
   );
-  const filtered = searchQuery
-    ? tasks.filter(
-        (t) =>
-          (t.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (t.description ?? "")
-            .toLowerCase()
-            .includes(searchQuery.toLowerCase()),
-      )
-    : tasks;
+  // 46e05c7b: single shared predicate — board, list, and header count agree.
+  const filtered = filterTasksByQuery(tasks, searchQuery);
 
   const grouped = React.useMemo(() => {
     // Match board columns: a child is rendered ONLY as a row inside its parent's

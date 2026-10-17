@@ -27,6 +27,13 @@ export {
   mergeTaskFromPayload,
 } from "./task-merge";
 export {
+  taskMatchesQuery,
+  filterTasksByQuery,
+  SEARCH_DEBOUNCE_MS,
+} from "./search";
+export type { SearchableTask } from "./search";
+export { useDebouncedValue } from "./useDebouncedValue";
+export {
   MINIMAL_FIELDS,
   verifyLabel,
   tagSetKey,

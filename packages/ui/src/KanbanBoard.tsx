@@ -4,6 +4,7 @@ import React from "react";
 import { Plus } from "lucide-react";
 import type { KanbanTask, KanbanColumn, KanbanHandlers } from "./types";
 import { KanbanCard } from "./KanbanCard";
+import { filterTasksByQuery } from "./kanban/search";
 
 interface Props {
   tasks: KanbanTask[];
@@ -19,13 +20,8 @@ export function KanbanBoard({ tasks, columns, handlers, searchQuery = "" }: Prop
   const [newTitle, setNewTitle] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const filtered = searchQuery
-    ? tasks.filter(
-        (t) =>
-          (t.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (t.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : tasks;
+  // 46e05c7b: single shared predicate — board, list, and header count agree.
+  const filtered = filterTasksByQuery(tasks, searchQuery);
 
   React.useEffect(() => {
     if (addingIn) inputRef.current?.focus();

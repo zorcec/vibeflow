@@ -13,6 +13,7 @@ import React, { act } from "react";
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import type { Task } from "@vibeflow-tools/ui/kanban";
+import { SEARCH_DEBOUNCE_MS } from "@vibeflow-tools/ui/kanban";
 import { App } from "../../../src/client/kanban/App.js";
 
 // React 18 warns about state updates outside act() unless this is set.
@@ -110,6 +111,13 @@ async function typeIntoSearch(value: string) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await flush();
+  // 46e05c7b: the board/summary filter on the DEBOUNCED query, so the
+  // header only settles SEARCH_DEBOUNCE_MS after the last keystroke.
+  await act(async () => {
+    await new Promise((resolve) =>
+      setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50),
+    );
+  });
 }
 
 function filterBar(): HTMLElement {

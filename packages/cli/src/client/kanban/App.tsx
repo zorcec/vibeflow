@@ -24,6 +24,8 @@ import {
   applyInitialTheme,
   mergeTaskFromPayload,
   diffTaskFields,
+  filterTasksByQuery,
+  useDebouncedValue,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -457,13 +459,9 @@ function buildTaskSummary(
   _visibleCols: TaskStatus[],
   search: string,
 ): string {
-  const filtered = search
-    ? tasks.filter(
-        (t) =>
-          t.title?.toLowerCase().includes(search) ||
-          t.description?.toLowerCase().includes(search),
-      )
-    : tasks;
+  // 46e05c7b: same shared predicate the board/list filter on, so the
+  // header "N of M tasks" count can never disagree with the board list.
+  const filtered = filterTasksByQuery(tasks, search);
   if (search) return `${filtered.length} of ${tasks.length} tasks`;
   const open = filtered.filter((t) => t.status !== "done").length;
   const wip = filtered.filter((t) => t.status === "in-progress").length;
@@ -503,7 +501,11 @@ export function App() {
   const [panelWidth, setPanelWidth] = React.useState(420);
   const [panelFullscreen, setPanelFullscreen] = React.useState(false);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
-  const [searchQuery, setSearchQuery] = React.useState("");
+  // 46e05c7b: the input echoes instantly (searchInput) while the board,
+  // list, and header count filter on the debounced value — one re-render
+  // per typing pause instead of one per keystroke (see SEARCH_DEBOUNCE_MS).
+  const [searchInput, setSearchInput] = React.useState("");
+  const searchQuery = useDebouncedValue(searchInput);
   const [visibleCols, setVisibleCols] = React.useState<TaskStatus[]>(
     COLUMNS.map((c) => c.id),
   );
@@ -1717,11 +1719,7 @@ export function App() {
     setFilePreview({ open: true, name, url });
   }
 
-  const taskSummary = buildTaskSummary(
-    tasks,
-    visibleCols,
-    searchQuery.toLowerCase(),
-  );
+  const taskSummary = buildTaskSummary(tasks, visibleCols, searchQuery);
   const baseUrl = window.location.origin;
 
   const allTags = React.useMemo(() => {
@@ -1797,7 +1795,7 @@ export function App() {
       <Header
         projectName={projectName}
         missingProjectIconStyle="vibeflow"
-        searchQuery={searchQuery}
+        searchQuery={searchInput}
         filterTags={filterState.tags}
         allTags={allTags}
         onToggleTag={(tag) => {
@@ -1809,7 +1807,7 @@ export function App() {
         }}
         isLoading={isLoading}
         taskSummary={taskSummary}
-        onSearchChange={setSearchQuery}
+        onSearchChange={setSearchInput}
         onSettings={() => setSettingsOpen(true)}
         extraActions={
           <HeaderActionButton

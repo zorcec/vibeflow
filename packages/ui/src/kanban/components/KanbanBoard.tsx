@@ -15,6 +15,7 @@ import {
 } from "../task-links";
 import type { DropIntent } from "../task-links";
 import { compareTaskOrder } from "../utils";
+import { filterTasksByQuery } from "../search";
 
 const COLUMNS: Column[] = [
   {
@@ -305,15 +306,8 @@ export function KanbanBoard({
     typeof setTimeout
   > | null>(null);
 
-  const filtered = searchQuery
-    ? tasks.filter(
-        (t) =>
-          (t.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (t.description ?? "")
-            .toLowerCase()
-            .includes(searchQuery.toLowerCase()),
-      )
-    : tasks;
+  // 46e05c7b: single shared predicate — board, list, and header count agree.
+  const filtered = filterTasksByQuery(tasks, searchQuery);
 
   const cols = COLUMNS.filter((c) => visibleCols.includes(c.id));
 
