@@ -114,6 +114,13 @@ export interface SaasTask {
    */
   links?: Array<{ taskId: string; type: string }>;
   comments?: SaasComment[];
+  /**
+   * Server-computed counts the v0 list answers alongside each item.
+   * Present on list reads; absent on older/legacy shapes — callers must
+   * fall back to the hydrated array lengths when these are missing.
+   */
+  commentCount?: number;
+  fileCount?: number;
   files?: Array<{
     name: string;
     size?: number;
@@ -133,6 +140,11 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
  * Fetch tasks from the SaaS for the given board (or the user's default board).
  * Returns null if not authenticated or the request fails.
  *
+ * Pass `{ hydrate: false }` for cheap polling (watch): the v0 list items
+ * already carry `commentCount`/`fileCount`, so per-task comment/file
+ * hydration (2 extra requests per task) is skipped and one poll costs only
+ * the paginated list reads.
+ *
  * v0 envelope: `GET /api/v0/tasks` answers `{ items, nextCursor }` (NOT the
  * legacy `{ tasks, boardId }` the deleted `/api/cli/tasks` surface spoke).
  * Pages are followed via `?cursor=` until `nextCursor` is null so a large
@@ -143,6 +155,7 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
  */
 export async function fetchSaasTasks(
   boardId?: string,
+  opts?: { hydrate?: boolean },
 ): Promise<SaasResult<{ tasks: SaasTask[]; boardId: string }>> {
   const headers = await getBearerHeaders();
   if (!headers)
@@ -190,9 +203,12 @@ export async function fetchSaasTasks(
           : null;
       if (!cursor) break;
     }
-    const tasks = await Promise.all(
-      items.map((t) => hydrateSaasTask(apiUrl, headers, t)),
-    );
+    const tasks =
+      opts?.hydrate === false
+        ? items
+        : await Promise.all(
+            items.map((t) => hydrateSaasTask(apiUrl, headers, t)),
+          );
     return { ok: true, data: { tasks, boardId: boardId ?? "" } };
   } catch (err) {
     return {

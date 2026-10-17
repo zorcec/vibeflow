@@ -4818,6 +4818,10 @@ program
     "Sign webhook deliveries (or set VIBEFLOW_WEBHOOK_SECRET)",
   )
   .option("--once", "One-shot poll: diff against state, emit events, exit")
+  .option(
+    "--interval <seconds>",
+    "Online mode poll period in seconds (default 15, min 5)",
+  )
   .action(
     async (
       dir: string,
@@ -4827,11 +4831,33 @@ program
         webhook?: string;
         webhookSecret?: string;
         once?: boolean;
+        interval?: string;
       },
     ) => {
       capture("command_run", { surface: "cli", command: "watch" });
       await flushTelemetry();
-      watch(dir, opts);
+      let intervalMs: number | undefined;
+      if (opts.interval !== undefined) {
+        const seconds = Number(opts.interval);
+        if (!Number.isFinite(seconds) || seconds <= 0) {
+          if (opts.json) {
+            outputEnvelope({
+              ok: false,
+              code: "USAGE",
+              message: "--interval must be a positive number of seconds.",
+              json: true,
+            });
+          } else {
+            console.error(
+              chalk.red(`  Error: --interval must be a positive number of seconds.`),
+            );
+          }
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+        intervalMs = seconds * 1000;
+      }
+      await watch(dir, { ...opts, intervalMs });
     },
   );
 
