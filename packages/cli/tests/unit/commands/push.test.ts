@@ -34,6 +34,7 @@ import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
 import { push, formatBytes, renderProgressBar } from "../../../src/commands/push.js";
+import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -50,25 +51,38 @@ function createTaskFile(projectDir: string, task: Record<string, unknown>): stri
   return filePath;
 }
 
+// Deliberate update (ticket 8d3b2b81): push() now probes GET
+// /api/v0/tasks/batch before creating anything. The tests in this file pin
+// the LEGACY one-by-one loop, so every stubbed fetch below answers the
+// probe with 404 (old server) via the shared withOldServerProbe router —
+// assertions on the inner mock (counts, bodies, order) stay EXACTLY as
+// they were, proving the fallback path is byte-identical. Batch-path
+// behavior is pinned in tests/unit/saas/batch-push-8d3b2b81.test.ts plus
+// the "push — batch path" block at the end of this file.
+
 function mockFetchSuccess(result: Record<string, unknown>) {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(result),
-    }),
+    withOldServerProbe(
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(result),
+      }),
+    ),
   );
 }
 
 function mockFetchFailure(status = 500, body: Record<string, unknown> = {}) {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: false,
-      status,
-      statusText: "Internal Server Error",
-      json: () => Promise.resolve(body),
-    }),
+    withOldServerProbe(
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        statusText: "Internal Server Error",
+        json: () => Promise.resolve(body),
+      }),
+    ),
   );
 }
 
@@ -207,7 +221,7 @@ describe("push — import API interaction", () => {
       ok: true,
       json: () => Promise.resolve({ id: "remote-1", externalId: "task-xyz" }),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -248,7 +262,7 @@ describe("push — import API interaction", () => {
       ok: true,
       json: () => Promise.resolve({ id: "remote-1" }),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
@@ -357,7 +371,7 @@ describe("push — import API interaction", () => {
       ok: true,
       json: () => Promise.resolve({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} }),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
@@ -384,7 +398,7 @@ describe("push — import API interaction", () => {
       ok: true,
       json: () => Promise.resolve({ imported: 1, skipped: 0, ids: [], workspaceId: "ws-1", boardId: "b-1", idMap: {} }),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
@@ -511,7 +525,7 @@ describe("push — two-phase link preservation", () => {
     });
 
     const fetchMock = mockCreateThenLinks();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
@@ -547,7 +561,7 @@ describe("push — two-phase link preservation", () => {
     });
 
     const fetchMock = mockCreateThenLinks();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const originalExitCode = process.exitCode;
     process.exitCode = undefined;
@@ -575,7 +589,7 @@ describe("push — two-phase link preservation", () => {
       links: [{ taskId: "ghost", type: "relates" }],
     });
 
-    vi.stubGlobal("fetch", mockCreateThenLinks());
+    vi.stubGlobal("fetch", withOldServerProbe(mockCreateThenLinks()));
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     const result = (await push(projectDir, {})) as { notices: Array<{ code: string; message: string }> };
@@ -615,7 +629,7 @@ describe("push — two-phase link preservation", () => {
         json: () => Promise.resolve({ id: `remote-${body.id}` }),
       });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
@@ -674,7 +688,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
         ok: true,
         json: () => Promise.resolve({}),
       });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -707,8 +721,11 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // Only one fetch call (the v0 create), no file upload, no batch import.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // One probe (404 → old-server fallback) + one v0 create; no file upload,
+    // no batch import. Deliberate count update (ticket 8d3b2b81): the spy
+    // observes the outer fetch including the probe, while the inner-mock
+    // assertions elsewhere are unchanged.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining("/api/v0/tasks"),
       expect.any(Object),
@@ -747,7 +764,7 @@ describe("push — file upload (uploadTaskFiles)", () => {
         status: 413,
         json: () => Promise.resolve({}),
       });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn" as const).mockImplementation(() => {});
@@ -830,7 +847,7 @@ describe("push — upload compression (single-encode wire format)", () => {
         json: () => Promise.resolve({ id: "remote-1", externalId: taskId }),
       })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     await push(projectDir, { keepLocalFiles: true });
@@ -935,12 +952,12 @@ describe("push — edge cases", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    vi.stubGlobal("fetch", withOldServerProbe(vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
       statusText: "Internal Server Error",
       json: () => Promise.resolve({}), // no error field
-    }));
+    })));
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const originalExitCode = process.exitCode;
@@ -1067,8 +1084,11 @@ describe("push — system-file flag round-trip", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     // The v0 create body is the task itself — file refs ride along verbatim.
+    // Deliberate filter update (ticket 8d3b2b81): the probe GET shares the
+    // /api/v0/tasks prefix, so match the POST create, not the first hit.
     const createCall = fetchSpy.mock.calls.find((c) =>
-      String(c[0]).includes("/api/v0/tasks"),
+      String(c[0]).includes("/api/v0/tasks") &&
+      (c[1] as { method?: string } | undefined)?.method === "POST",
     );
     expect(createCall).toBeDefined();
     const body = JSON.parse(createCall![1].body) as {
@@ -1106,7 +1126,7 @@ describe("push — system-file flag round-trip", () => {
         json: () => Promise.resolve({ id: "remote-1", externalId: "task-files" }),
       })
       .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withOldServerProbe(fetchMock));
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -1125,5 +1145,201 @@ describe("push — system-file flag round-trip", () => {
     )!;
     expect(sys[1].headers["x-file-system"]).toBe("1");
     expect("x-file-system" in user[1].headers).toBe(false);
+  });
+});
+
+describe("push — batch path (8d3b2b81)", () => {
+  beforeEach(() => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
+      id: "ws-1",
+      name: "My Board",
+      url: "http://localhost:3000",
+      icon: null,
+      email: null,
+    });
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function stubBatchServer(opts: {
+    openRemaining?: number;
+    totalRemaining?: number;
+  } = {}) {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const fetchMock = vi.fn(
+      (url: unknown, init?: { method?: string; body?: string }) => {
+        const method = init?.method ?? "GET";
+        calls.push({ url: String(url), method, body: init?.body });
+        if (String(url).endsWith("/api/v0/tasks/batch")) {
+          if (method === "GET") {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: () =>
+                Promise.resolve({
+                  maxItems: 100,
+                  plan: "free",
+                  openLimit: 500,
+                  openUsed: 0,
+                  openRemaining: opts.openRemaining ?? 500,
+                  totalLimit: 2000,
+                  totalUsed: 0,
+                  totalRemaining: opts.totalRemaining ?? 2000,
+                }),
+            });
+          }
+          const payload = JSON.parse(init?.body as string) as {
+            items: Array<{ id: string }>;
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                created: payload.items.length,
+                failed: 0,
+                results: payload.items.map((t) => ({
+                  id: `remote-${t.id}`,
+                })),
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return calls;
+  }
+
+  it("takes the batch path on probe 200: one chunk POST, same summary line", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-b1",
+      title: "Batch one",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+    createTaskFile(projectDir, {
+      id: "task-b2",
+      title: "Batch two",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const calls = stubBatchServer();
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    // Probe first, then exactly ONE chunk POST for both tasks.
+    expect(calls[0]?.url).toContain("/api/v0/tasks/batch");
+    expect(calls[0]?.method).toBe("GET");
+    const chunks = calls.filter((c) => c.method === "POST");
+    expect(chunks).toHaveLength(1);
+    const chunkBody = JSON.parse(chunks[0]?.body as string) as {
+      items: Array<Record<string, unknown>>;
+      boardId: string;
+    };
+    expect(chunkBody.items).toHaveLength(2);
+    expect(chunkBody.boardId).toBe("ws-1");
+    for (const item of chunkBody.items) {
+      expect(item).not.toHaveProperty("links");
+    }
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pushed 2 task"),
+    );
+    // Checkpoint cleared on success — no residue in the project.
+    expect(
+      existsSync(join(projectDir, ".vibeflow", "push-batch.checkpoint.json")),
+    ).toBe(false);
+    consoleSpy.mockRestore();
+  });
+
+  it("falls back to one-by-one on probe 404: probe first, then per-task creates", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-f1",
+      title: "Fallback",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const urls: string[] = [];
+    const inner = vi.fn((url: unknown, init?: { body?: string }) => {
+      urls.push(String(url));
+      const payload = JSON.parse(init?.body as string) as { id: string };
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ id: `remote-${payload.id}` }),
+      });
+    });
+    vi.stubGlobal("fetch", withOldServerProbe(inner));
+    // The order proof observes the OUTER fetch (probe included); `urls`
+    // only sees the inner one-by-one creates.
+    const outerSpy = vi.spyOn(global, "fetch");
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    const outerUrls = outerSpy.mock.calls.map((c) => String(c[0]));
+    const outerMethods = outerSpy.mock.calls.map(
+      (c) => (c[1] as { method?: string } | undefined)?.method ?? "GET",
+    );
+    expect(outerUrls[0]).toContain("/api/v0/tasks/batch");
+    expect(outerMethods[0]).toBe("GET");
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("/api/v0/tasks");
+    expect(urls.slice(1).every((u) => u.endsWith("/api/v0/tasks"))).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pushed 1 task"),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("preflight refusal aborts before chunk one with exact numbers", async () => {
+    const projectDir = makeTempProject();
+    const fileA = createTaskFile(projectDir, {
+      id: "task-q1",
+      title: "Quota one",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+    createTaskFile(projectDir, {
+      id: "task-q2",
+      title: "Quota two",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const calls = stubBatchServer({ openRemaining: 0 });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    await push(projectDir, { keepLocalFiles: true });
+
+    expect(process.exitCode).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Preflight refusal"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("2"));
+    // Only the probe ran — no chunk POST, no creates, locals untouched.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("GET");
+    expect(existsSync(fileA)).toBe(true);
+
+    errorSpy.mockRestore();
+    process.exitCode = originalExitCode;
   });
 });

@@ -6,6 +6,7 @@ import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, type PushLoopResult } from "../auth/login.js";
+import { probeBatchCapability, evaluateBatchPreflight, createTasksInBatches, readBatchCheckpoint, uploadBatchFiles, type BatchFileJob } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -208,11 +209,19 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
 
   const apiUrl = getApiUrl();
 
-  // No batch import exists in the v0 contract: one POST per task via the
-  // shared createTasksOneByOne() loop (same shape as the login flow —
-  // cloud-only, so the mode inside is always "cloud"). A per-task non-ok
-  // counts as skipped; only a network throw fails the push outright.
+  // Batch-first push (ticket 8d3b2b81): the capability probe decides.
+  // A 404 on GET /api/v0/tasks/batch means an old server — fall back to
+  // the proven one POST per task loop below, byte-identical to before
+  // (same shape as the login flow — cloud-only, so the mode inside is
+  // always "cloud"). A per-task non-ok counts as skipped; only a
+  // network throw fails the push outright. Any OTHER probe failure
+  // (401/403/5xx) aborts inside the same catch — falling back would
+  // "push" 0 tasks while the post-push deletion still wipes locals.
   let result: ImportResult;
+  // Branch flag (ticket 8d3b2b81): the files phase below must use the
+  // concurrent skip-if-present uploader on the batch path and the
+  // legacy sequential uploader on the fallback path.
+  let tookBatchPath = false;
   try {
     // Minimal push progress (ticket e4049164): one \r line on a TTY
     // (counter + bar + pct + ETA), sparse lines when piped, all on
@@ -221,14 +230,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
     // filePath string — each entry spreads as a plain record into the JSON
     // create body, so the record cast is representation-preserving.
-    const loop = await createTasksOneByOne(
-      apiUrl,
-      token,
-      workspaceId,
-      taskList as unknown as Array<Record<string, unknown>>,
-      onProgress,
-    );
-    result = {
+    const records = taskList as unknown as Array<Record<string, unknown>>;
+    const probe = await probeBatchCapability(apiUrl, token);
+    const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
       skipped: loop.skipped,
       ids: Object.values(loop.idMap),
@@ -240,7 +244,43 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       stoppedEarly: loop.stoppedEarly,
       stopMessage: loop.stopMessage,
       retryAfter: loop.retryAfter,
-    };
+    });
+    if (probe.supported === false) {
+      result = toImportResult(
+        await createTasksOneByOne(apiUrl, token, workspaceId, records, onProgress),
+      );
+    } else {
+      // Quota preflight (ticket 8d3b2b81): refuse-or-confirm BEFORE
+      // chunk one. Refuse-only (no prompt): the login-time push cannot
+      // prompt and scripts cannot answer — and a push that cannot fit
+      // must never start. The message carries exact numbers; resume via
+      // the checkpoint covers the retry-after-quota path.
+      const order = records.map((t) => (typeof t.id === "string" ? t.id : ""));
+      const existing = readBatchCheckpoint(projectDir);
+      const resumed =
+        existing !== null &&
+        existing.order.length === order.length &&
+        existing.order.every((id, i) => id === order[i])
+          ? existing.attempted
+          : 0;
+      const refusal = evaluateBatchPreflight(
+        taskList.length - resumed,
+        probe.preflight,
+      );
+      if (refusal !== null) {
+        console.error(chalk.red(`  ${refusal}`));
+        process.exitCode = ExitCode.GENERAL;
+        return;
+      }
+      result = toImportResult(
+        await createTasksInBatches(apiUrl, token, workspaceId, records, {
+          onProgress,
+          projectDir,
+          preflight: probe.preflight,
+        }),
+      );
+      tookBatchPath = true;
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Stryker disable once StringLiteral: display message for network error
@@ -295,7 +335,35 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     .filter((t) => t.id && idMap[t.id])
     .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
 
-  const { uploaded, failed, failedFiles } = await uploadTaskFiles(apiUrl, token, projectDir, taskMappings);
+  // Batch path (ticket 8d3b2b81): bounded-concurrency upload with
+  // skip-if-present (a killed-push re-run uploads only the missing tail).
+  // Legacy path: the sequential uploader, untouched.
+  let uploaded = 0;
+  let failed = 0;
+  let failedFiles: Array<{ name: string; reason: string }> = [];
+  if (tookBatchPath) {
+    const jobs: BatchFileJob[] = [];
+    for (const { localId, remoteId } of taskMappings) {
+      for (const f of listFiles(projectDir, localId)) {
+        const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
+        if (existsSync(absPath)) {
+          jobs.push({ remoteId, name: f.name, filePath: absPath, size: f.size, system: f.system === true });
+        }
+      }
+    }
+    if (jobs.length > 0) {
+      console.log(chalk.cyan(`\n  Uploading ${jobs.length} file(s) (batch: 4 concurrent, skipping remote-present)...`));
+    }
+    const outcome = await uploadBatchFiles(apiUrl, token, jobs);
+    uploaded = outcome.uploaded;
+    failed = outcome.failed;
+    failedFiles = outcome.failedFiles;
+    if (outcome.skippedPresent > 0) {
+      console.log(chalk.dim(`  Skipped ${outcome.skippedPresent} file(s) already present remotely.`));
+    }
+  } else {
+    ({ uploaded, failed, failedFiles } = await uploadTaskFiles(apiUrl, token, projectDir, taskMappings));
+  }
   if (uploaded > 0) console.log(chalk.green(`  ✓ Uploaded ${uploaded} file(s) to storage`));
   if (failed > 0) {
     // Stryker disable once StringLiteral: display message for upload failures

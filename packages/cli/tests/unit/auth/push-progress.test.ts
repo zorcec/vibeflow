@@ -44,6 +44,12 @@ import * as tokenModule from "../../../src/auth/token.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as filesModule from "../../../src/core/files.js";
 import { push } from "../../../src/commands/push.js";
+// Deliberate update (ticket 8d3b2b81): push() probes GET
+// /api/v0/tasks/batch first — the standalone-push tests below pin the
+// legacy one-by-one RENDERING, so the probe answers 404 (old server) and
+// every pinned byte below is unchanged. (Seeded-loop tests above call
+// createTasksOneByOne directly and need no routing.)
+import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 const realStdoutTTY = process.stdout.isTTY;
 
@@ -209,10 +215,12 @@ describe("progress goes to stderr, never stdout", () => {
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ id: "cloud-x" }),
-      }),
+      withOldServerProbe(
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: "cloud-x" }),
+        }),
+      ),
     );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 

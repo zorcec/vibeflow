@@ -52,6 +52,11 @@ import * as tokenModule from "../../../src/auth/token.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as filesModule from "../../../src/core/files.js";
 import { push } from "../../../src/commands/push.js";
+// Deliberate update (ticket 8d3b2b81): push() probes GET
+// /api/v0/tasks/batch first — this 402-refusal rendering test pins the
+// legacy one-by-one summary, so the probe answers 404 (old server) and
+// every pinned byte below is unchanged.
+import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 const realStdoutTTY = process.stdout.isTTY;
 
@@ -202,11 +207,13 @@ describe("condensed final summary keeps every TRUE number", () => {
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 402,
-        json: () => Promise.resolve({ code: "TASK_LIMIT" }),
-      }),
+      withOldServerProbe(
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 402,
+          json: () => Promise.resolve({ code: "TASK_LIMIT" }),
+        }),
+      ),
     );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
