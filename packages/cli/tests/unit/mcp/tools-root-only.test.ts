@@ -1,8 +1,14 @@
 /**
- * MCP parity with the CLI for the root/child contract (task 94fcac0f).
+ * MCP parity with the CLI for the root/child contract (task 94fcac0f,
+ * revised by 2471abb345fa).
  *
- * The CLI lists and claims ROOT tasks only; the MCP tools must behave the same
- * way, or an MCP client would keep claiming children the board conceals.
+ * Both surfaces follow the SAME revised rule as the CLI's --next (ticket
+ * 4c846d52): roots first — the root is the unit of work — with an explicit
+ * fallback to the highest-priority matching todo child when no todo root
+ * is claimable, so todo work parented under a non-todo parent is never
+ * invisible. Before 2471abb345fa the MCP path was roots-only while the CLI
+ * already had the fallback, so the two surfaces answered "what is next"
+ * differently on the same board; these tests pin the shared rule.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
@@ -118,7 +124,7 @@ describe("mcp list_tasks root/child contract", () => {
 });
 
 describe("mcp claim_next_task root/child contract", () => {
-  it("never claims a child, even when the child outranks every root", async () => {
+  it("prefers a root even when a child outranks it", async () => {
     write({ id: "root-medium", priority: "Medium" });
     write({
       id: "child-critical",
@@ -133,7 +139,11 @@ describe("mcp claim_next_task root/child contract", () => {
     expect(readStatus("child-critical")).toBe("todo");
   });
 
-  it("reports no task when every todo task is a child", async () => {
+  it("falls back to the child when every todo task is a child, and marks the child claim", async () => {
+    // Same revised rule as the CLI's --next (ticket 4c846d52): a todo
+    // child of a non-todo parent must never be invisible. Before
+    // 2471abb345fa this answered "nothing to claim" while the CLI claimed
+    // the child on the same board.
     write({ id: "parent", status: "in-progress" });
     write({
       id: "kid",
@@ -142,15 +152,19 @@ describe("mcp claim_next_task root/child contract", () => {
 
     const res = await claimNextTask(ctx, {} as never);
 
-    // No claimable root is "no work available", which is a SUCCESS with a
-    // null payload — not a failure. The child is untouched either way.
     expect(res.ok).toBe(true);
-    expect(res.data).toBeUndefined();
-    expect(res.error).toBeUndefined();
-    expect(readStatus("kid")).toBe("todo");
+    expect((res as { data: Task }).data.id).toBe("kid");
+    expect(readStatus("kid")).toBe("in-progress");
+    // Unambiguous: the claim carries a CHILD_CLAIM notice naming the
+    // parent, mirroring the CLI's CHILD CLAIM line.
+    const steps = (res as { steps?: Array<{ code: string; message: string }> })
+      .steps;
+    const childClaim = steps?.find((s) => s.code === "CHILD_CLAIM");
+    expect(childClaim).toBeDefined();
+    expect(childClaim!.message).toContain("parent");
   });
 
-  it("dry run also skips children", async () => {
+  it("dry run prefers roots", async () => {
     write({ id: "root-medium", priority: "Medium" });
     write({
       id: "child-critical",
@@ -163,5 +177,24 @@ describe("mcp claim_next_task root/child contract", () => {
 
     expect(res.ok).toBe(true);
     expect((res as { data: Task }).data.id).toBe("root-medium");
+  });
+
+  it("dry run falls back to a child when no todo root exists", async () => {
+    write({ id: "parent", status: "in-progress" });
+    write({
+      id: "kid",
+      links: [{ taskId: "parent", type: "parent" }],
+    });
+    const dryCtx: OperationContext = { ...ctx, dryRun: true };
+
+    const res = await claimNextTask(dryCtx, {} as never);
+
+    // The preview names the task the real call will claim — the child —
+    // and marks it as a child claim. Nothing is written in dry run.
+    expect(res.ok).toBe(true);
+    expect((res as { data: Task }).data.id).toBe("kid");
+    expect(readStatus("kid")).toBe("todo");
+    const steps = (res as { steps?: Array<{ code: string }> }).steps ?? [];
+    expect(steps.map((s) => s.code)).toEqual(["DRY_RUN", "CHILD_CLAIM"]);
   });
 });

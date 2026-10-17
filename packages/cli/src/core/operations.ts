@@ -971,13 +971,13 @@ export async function claimNextTask(
 ): Promise<OperationResult<Task>> {
   try {
     if (isDryRun(ctx, input)) {
-      const { listTasks: coreListTasks, isChildTask } = await import(
-        "../core/tasks.js"
-      );
+      const {
+        listTasks: coreListTasks,
+        isChildTask,
+        getParentId,
+      } = await import("../core/tasks.js");
       let tasks = coreListTasks(ctx.projectDir);
       tasks = tasks.filter((t) => t.status === "todo");
-      // Parity with the atomic path: never a child. The root is the unit of work.
-      tasks = tasks.filter((t) => !isChildTask(t));
       if (input.type) tasks = tasks.filter((t) => t.type === input.type);
       // `user` is a documented ClaimNextTaskInput field, so the dry run
       // applies it exactly as the atomic path does (author identity match).
@@ -987,36 +987,66 @@ export async function claimNextTask(
           (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
         );
       }
+      // Roots first, children only as an explicit fallback — the SAME
+      // revised rule the CLI's --next follows (ticket 4c846d52): the root
+      // is the unit of work, but a todo child of a non-todo parent must
+      // never be invisible. MCP/CLI parity, ticket 2471abb345fa.
+      let pool = tasks.filter((t) => !isChildTask(t));
+      let childClaim = false;
+      if (pool.length === 0) {
+        pool = tasks;
+        childClaim = pool.length > 0;
+      }
       // listTasks() returns files in readdir order, which is NOT the claim
       // order (filenames are random ids). Sort with the SAME comparator the
       // atomic path uses inside its lock, so the preview names the task the
       // real call will actually claim.
-      tasks.sort(compareTasksByPriorityThenCreated);
-      if (tasks.length === 0) {
+      pool.sort(compareTasksByPriorityThenCreated);
+      if (pool.length === 0) {
         // A valid filter that matched nothing is the SAME situation as an
         // empty board, and the dry run must not disagree with the real path:
         // both answer "nothing was claimed" as a success with a null payload.
         return { ok: true };
       }
+      const preview = pool[0];
+      const steps = [
+        { code: "DRY_RUN", message: "Task would be claimed" },
+      ];
+      if (childClaim) {
+        steps.push({
+          code: "CHILD_CLAIM",
+          message: `No todo root was available — this would claim a todo child of ${getParentId(preview) ?? "(unknown parent)"}.`,
+        });
+      }
       return {
         ok: true,
-        data: tasks[0],
-        steps: [{ code: "DRY_RUN", message: "Task would be claimed" }],
+        data: preview,
+        steps,
       };
     }
 
-    // Delegate to the atomic claim primitive for serialized, race-safe claiming.
-    const claimed = (await import("../core/tasks.js")).claimNextTaskAtomic(
-      ctx.projectDir,
-      {
-        type: input.type,
-        user: input.user,
-        tag: input.tag,
-        author: ctx.userId,
-        // OWNER DECISION: never claim a child. The root carries its children.
-        rootsOnly: true,
-      },
-    );
+    // Delegate to the atomic claim primitive for serialized, race-safe
+    // claiming. Roots first, then the explicit child fallback — the SAME
+    // revised rule the CLI's --next follows (ticket 4c846d52), applied here
+    // for MCP/CLI parity (ticket 2471abb345fa): before this change the MCP
+    // path was roots-only while the CLI claimed a fallback child, so the
+    // two surfaces answered "what is next" differently on the same board.
+    const core = await import("../core/tasks.js");
+    const claimOpts = {
+      type: input.type,
+      user: input.user,
+      tag: input.tag,
+      author: ctx.userId,
+    };
+    let claimed = core.claimNextTaskAtomic(ctx.projectDir, {
+      ...claimOpts,
+      rootsOnly: true,
+    });
+    let childClaim = false;
+    if (!claimed) {
+      claimed = core.claimNextTaskAtomic(ctx.projectDir, claimOpts);
+      childClaim = claimed !== null;
+    }
 
     if (!claimed) {
       // OWNER DECISION: "no work available" is not an error, and this is the
@@ -1029,7 +1059,20 @@ export async function claimNextTask(
       return { ok: true };
     }
 
-    return { ok: true, data: claimed };
+    if (!childClaim) return { ok: true, data: claimed };
+    // Unambiguous on the wire (as `notices`): this run claimed a CHILD,
+    // not a root — name the parent so the agent knows which unit it sliced
+    // off, mirroring the CLI's CHILD CLAIM line.
+    return {
+      ok: true,
+      data: claimed,
+      steps: [
+        {
+          code: "CHILD_CLAIM",
+          message: `No todo root was available — claimed a todo child of ${core.getParentId(claimed) ?? "(unknown parent)"}.`,
+        },
+      ],
+    };
   } catch (err) {
     return {
       ok: false,

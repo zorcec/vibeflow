@@ -343,7 +343,7 @@ export const manifest: ToolManifest[] = [
     name: "claim_next_task",
     title: "Claim next task",
     description:
-      "Claim the highest-priority ROOT task in todo and set it to in-progress. Never claims a child: a root is the unit of work, so work through its children after claiming it. Mirrors 'vibeflow tasks --next'. An empty board is a SUCCESS, not a failure: the result is then `null` (an object means a task was claimed, `null` means there was nothing to claim), the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. A valid filter that matches no task is the same situation and gives the same `null`.",
+      "Claim the highest-priority todo task and set it to in-progress. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Mirrors 'vibeflow tasks --next'. An empty board is a SUCCESS, not a failure: the result is then `null` (an object means a task was claimed, `null` means there was nothing to claim), the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. A valid filter that matches no task is the same situation and gives the same `null`.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],
