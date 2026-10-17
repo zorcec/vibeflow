@@ -172,6 +172,14 @@ export interface ServeOptions {
     icon?: string | null;
     email?: string | null;
   } | null;
+  /**
+   * Kanban dev mode (ticket 7e85c338): serve the on-disk kanban bundle as a
+   * separate no-store asset + live-reload on rebuild, instead of the
+   * production inlined megastring. EXPLICIT opt-in only (`--dev` CLI flag);
+   * `VIBEFLOW_DEV=1` also enables it. Never default — production stays a
+   * single inlined file that works from npx with no losable assets.
+   */
+  dev?: boolean;
   /** When true, suppress the "Press Ctrl+C to stop" hint from server startup output (caller will print it). */
   noCtrlCHint?: boolean;
   /**
