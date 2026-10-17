@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { applyPushLinks, createTasksOneByOne, login } from "../auth/login.js";
+import { applyPushLinks, createTasksOneByOne, login, reportTaskPushProgress } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -210,11 +210,15 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
     // filePath string — each entry spreads as a plain record into the JSON
     // create body, so the record cast is representation-preserving.
+    // Bulk-push progress (ticket 7db36f78): same shared reporter as the
+    // login-time push — counter always, bar on a TTY, all on stderr so
+    // piped output stays clean.
     const loop = await createTasksOneByOne(
       apiUrl,
       token,
       workspaceId,
       taskList as unknown as Array<Record<string, unknown>>,
+      reportTaskPushProgress,
     );
     result = {
       imported: loop.imported,

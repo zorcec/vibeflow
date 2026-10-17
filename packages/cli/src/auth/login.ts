@@ -242,11 +242,47 @@ export function toV0CreateBody(
   return body;
 }
 
+/**
+ * Bulk-push progress display (ticket 7db36f78).
+ * WHAT: a ~20-line renderer shared by BOTH bulk-push paths — the
+ * login-time push (`promptPushLocalTasks` below) and the standalone
+ * `push` command (`src/commands/push.ts`) — because both push through
+ * the same `createTasksOneByOne()` loop, so one `onProgress` hook covers
+ * both with no duplicated rendering code.
+ * WHY: pushing 1704 unsynced tasks ran with no indication of progress
+ * (the pre-push listing shows 10 titles + "… and N more", then silence
+ * until done). The counter (`Pushing done/total`) is always emitted so a
+ * greppable exact `pushed/total` pair exists in every mode; the visual
+ * bar only renders on a TTY where `\r` rewrites work, otherwise each
+ * update is its own counter-only line. Everything goes to STDERR — never
+ * stdout — so piped output and `--json` stay clean.
+ */
+export function formatTaskPushProgress(done: number, total: number): string {
+  const counter = `Pushing ${done}/${total}`;
+  if (process.stdout.isTTY !== true) return counter;
+  const width = 20;
+  const filled =
+    total <= 0 ? width : Math.round((Math.min(done, total) / total) * width);
+  const pct = total <= 0 ? 100 : Math.round((Math.min(done, total) / total) * 100);
+  return `${counter} [${"█".repeat(filled)}${"░".repeat(width - filled)}] ${pct}%`;
+}
+
+export function reportTaskPushProgress(done: number, total: number): void {
+  const line = formatTaskPushProgress(done, total);
+  if (process.stdout.isTTY === true) {
+    process.stderr.write(`\r  ${line}`);
+    if (done >= total) process.stderr.write("\n");
+  } else {
+    process.stderr.write(`  ${line}\n`);
+  }
+}
+
 export async function createTasksOneByOne(
   apiUrl: string,
   token: string,
   boardId: string | undefined,
   tasks: Array<Record<string, unknown>>,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{
   imported: number;
   skipped: number;
@@ -268,9 +304,13 @@ export async function createTasksOneByOne(
     });
     if (!res.ok) {
       skipped++;
+      // A skipped task is still a finished unit of the push: the counter
+      // tracks attempted/total so a mid-push failure still reads k/N.
+      onProgress?.(imported + skipped, tasks.length);
       continue;
     }
     imported++;
+    onProgress?.(imported + skipped, tasks.length);
     if (typeof localId === "string" && localId.length > 0) {
       // v0 answers the bare created task (contract Task).
       const body = (await res.json().catch(() => null)) as Record<
@@ -555,11 +595,15 @@ async function promptPushLocalTasks(
             // prompt parity only.)
             try {
               const records = unsynced as Array<Record<string, unknown>>;
+              // Bulk-push progress (ticket 7db36f78): counter always,
+              // visual bar on a TTY, everything on stderr — the pre-push
+              // listing and the prompts above stay byte-identical.
               const data = await createTasksOneByOne(
                 apiUrl,
                 token,
                 workspace.id,
                 records,
+                reportTaskPushProgress,
               );
               console.log(
                 chalk.green(
