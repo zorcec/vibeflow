@@ -21,7 +21,16 @@ import {
   getOverlayScript,
   getOverlaySaasScript,
 } from "../client/overlay/index.js";
-import { getKanbanHtml, type KanbanOptions } from "./kanban-template.js";
+import {
+  getKanbanHtml,
+  isKanbanDevMode,
+  readKanbanDevBundle,
+  resolveKanbanDevBundlePath,
+  KANBAN_DEV_BUNDLE_MISSING,
+  KANBAN_DEV_BUNDLE_ROUTE,
+  KANBAN_RELOAD_MESSAGE_TYPE,
+  type KanbanOptions,
+} from "./kanban-template.js";
 import {
   buildBoardsAndApisLines,
   buildBookmarkletLines,
@@ -1437,8 +1446,84 @@ function registerCodecRoute(app: express.Application): void {
   });
 }
 
+/**
+ * Dev-mode kanban bundle asset (ticket 7e85c338): serves the freshly built
+ * `kanban-browser.js` from disk with `Cache-Control: no-store`, so a dev
+ * board picks up `tsup --watch` rebuilds with NO server restart.
+ *
+ * Bundler note (locked decision): the rebuild mechanism stays `tsup
+ * --watch` (current 8.x) — this ticket changes SERVING architecture
+ * (inlined-at-build vs asset-in-dev + reload trigger), which is
+ * bundler-agnostic, and tsup already rebuilds correctly. A bundler switch
+ * would touch the atomic build, every gen script, and all four gates for
+ * zero functional gain toward live reload.
+ *
+ * Loud refusal: when no built bundle exists on disk the route answers 500
+ * with the fix (`tsup --watch`) instead of an empty/dated script — dev must
+ * never serve old code silently.
+ */
+function registerKanbanDevRoute(app: express.Application): void {
+  app.get(KANBAN_DEV_BUNDLE_ROUTE, (_req, res) => {
+    const found = readKanbanDevBundle();
+    if (!found) {
+      console.error(KANBAN_DEV_BUNDLE_MISSING);
+      res.status(500).type("text/plain").send(`${KANBAN_DEV_BUNDLE_MISSING}\n`);
+      return;
+    }
+    res.set("Cache-Control", "no-store");
+    res.type("application/javascript").send(found.bytes);
+  });
+}
+
+/**
+ * Broadcasts the dev-mode code-reload signal (ticket 7e85c338). The single
+ * choke point the bundle watcher calls after a rebuild lands — unit tests
+ * assert THIS signal shape, not just the watcher config.
+ */
+export function notifyKanbanBundleRebuilt(
+  broadcast: (data: Record<string, unknown>) => void,
+): void {
+  broadcast({ type: KANBAN_RELOAD_MESSAGE_TYPE });
+}
+
+/**
+ * Watches the on-disk dev bundle and broadcasts the reload signal whenever
+ * `tsup --watch` rewrites it (ticket 7e85c338). `null` bundle path means no
+ * built bundle yet: watch the parent dir for its creation instead, so a
+ * dev server booted BEFORE the first build still live-reloads into existence.
+ * The caller owns the returned watcher (closed with the server instance).
+ */
+export function watchKanbanBundleForReload(
+  broadcast: (data: Record<string, unknown>) => void,
+  bundlePath: string | null = resolveKanbanDevBundlePath(),
+): FSWatcher | null {
+  try {
+    const target = bundlePath ?? join(process.cwd(), "dist", "client");
+    const watcher = createFileWatcher(target, {
+      onChange: () => notifyKanbanBundleRebuilt(broadcast),
+      onAdd: () => notifyKanbanBundleRebuilt(broadcast),
+    });
+    return watcher;
+  } catch {
+    return null;
+  }
+}
+
 /** Registers /kanban — a live Kanban board that connects to the task API. */
-function registerKanbanRoute(app: express.Application, port: number): void {
+function registerKanbanRoute(
+  app: express.Application,
+  port: number,
+  opts: { broadcast?: BroadcastFn; dev?: boolean } = {},
+): FSWatcher | null {
+  const dev = isKanbanDevMode(opts.dev);
+  if (dev) registerKanbanDevRoute(app);
+  // The reload watcher lives as long as the server: the close() of each
+  // serve path below shuts it down (no orphaned chokidar handles).
+  const reloadWatcher =
+    dev && opts.broadcast
+      ? watchKanbanBundleForReload(opts.broadcast)
+      : null;
+  const devFlag = dev;
   const adminEmail = process.env.VIBEFLOW_ADMIN_EMAIL ?? "";
   const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
 
@@ -1448,7 +1533,9 @@ function registerKanbanRoute(app: express.Application, port: number): void {
     res.set("Cache-Control", "no-store");
     const token = await readToken().catch(() => null);
     if (!token) {
-      res.type("html").send(getKanbanHtml({ port, cliVersion: CLI_VERSION }));
+      res
+        .type("html")
+        .send(getKanbanHtml({ port, cliVersion: CLI_VERSION, dev: devFlag }));
       return;
     }
     const workspace = await readWorkspace().catch(() => null);
@@ -1471,16 +1558,18 @@ function registerKanbanRoute(app: express.Application, port: number): void {
       }
     }
 
-    const opts: KanbanOptions = {
+    const kanbanOpts: KanbanOptions = {
       port,
       cliVersion: CLI_VERSION,
       saasMode: true,
       boardUrl: workspace?.url ?? `${apiUrl}/kanban`,
       boardName: workspace?.name,
       isAdmin,
+      dev: devFlag,
     };
-    res.type("html").send(getKanbanHtml(opts));
+    res.type("html").send(getKanbanHtml(kanbanOpts));
   });
+  return reloadWatcher;
 }
 
 const INJECT_PAGE_CSS = `*{box-sizing:border-box;margin:0;padding:0}
@@ -1907,7 +1996,13 @@ async function serveApiOnly(
     mountMcp(app, projectDir, "local");
   }
 
-  registerKanbanRoute(app, options.port);
+  // Dev mode (ticket 7e85c338): explicit `--dev` / VIBEFLOW_DEV=1 only.
+  // Returns the bundle reload watcher (null in prod) — closed with the
+  // instance so no chokidar handle survives the server.
+  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
+    broadcast,
+    dev: options.dev,
+  });
   registerCodecRoute(app);
   // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
   // Registered for online AND offline — the board is served in both.
@@ -2022,6 +2117,7 @@ async function serveApiOnly(
         guide,
         close: async () => {
           if (taskWatcher) await taskWatcher.close();
+          if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
           disposeMcp();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
@@ -2041,6 +2137,11 @@ async function serveApiOnly(
       void (async () => {
         try {
           if (taskWatcher) await taskWatcher.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+        try {
+          if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
         } catch {
           /* best-effort — the bind error below is what matters */
         }
@@ -2198,7 +2299,11 @@ li{margin:8px 0}</style></head>
   registerTrpcApi(app, projectDir, broadcast);
   registerMetaApis(app, projectDir, broadcast);
   registerOpenApiRoute(app);
-  registerKanbanRoute(app, options.port);
+  // Dev mode (ticket 7e85c338) — same explicit opt-in as the API-only path.
+  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
+    broadcast,
+    dev: options.dev,
+  });
   registerCodecRoute(app);
   registerInjectPage(app, serveUrls);
   // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
@@ -2291,6 +2396,7 @@ li{margin:8px 0}</style></head>
           disposeMcp();
           if (watcher) await watcher.close();
           await taskWatcher.close();
+          if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -2309,6 +2415,11 @@ li{margin:8px 0}</style></head>
         }
         try {
           await taskWatcher.close();
+        } catch {
+          /* best-effort — the bind error below is what matters */
+        }
+        try {
+          if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
         } catch {
           /* best-effort — the bind error below is what matters */
         }
