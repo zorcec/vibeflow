@@ -30,6 +30,7 @@ import {
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
+import { OverviewPage } from "./OverviewPage.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
 import { ThemeSwitcher, themeSwitcherTab } from "./components/ThemeSwitcher.js";
@@ -470,7 +471,23 @@ function buildTaskSummary(
   return `${open} open · ${wip} in-progress · ${rev} in review`;
 }
 
+/**
+ * Route shell (ticket 717d6335): the CLI board serves ONE bundle for two
+ * pathnames — `/kanban` (the board) and `/overview` (the read-only
+ * aggregates page). The server returns the same inlined shell for both
+ * (single-file packaging: no second asset), and this switch picks the
+ * view by pathname. A full navigation (not in-app state) separates the
+ * pages so the board's WS/polling load never runs on the overview.
+ */
 export function App() {
+  const onOverview =
+    typeof window !== "undefined" &&
+    window.location.pathname.replace(/\/$/, "") === "/overview";
+  if (onOverview) return <OverviewPage />;
+  return <BoardApp />;
+}
+
+function BoardApp() {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [overlayDismissed, setOverlayDismissed] = React.useState(false);
@@ -1819,12 +1836,22 @@ export function App() {
         onSearchChange={setSearchInput}
         onSettings={() => setSettingsOpen(true)}
         extraActions={
-          <HeaderActionButton
-            id="changelog-btn"
+          <>
+            <HeaderActionButton
+              id="overview-btn"
+              title="Board overview"
+              onClick={() => {
+                window.location.href = "/overview";
+              }}
+              label="Overview"
+            />
+            <HeaderActionButton
+              id="changelog-btn"
             title="View changelog"
-            onClick={() => void openFullChangelog()}
-            label="Changelog"
-          />
+              onClick={() => void openFullChangelog()}
+              label="Changelog"
+            />
+          </>
         }
       />
 

@@ -1509,7 +1509,14 @@ export function watchKanbanBundleForReload(
   }
 }
 
-/** Registers /kanban — a live Kanban board that connects to the task API. */
+/**
+ * Registers /kanban (the board) and /overview (the read-only aggregates
+ * page, ticket 717d6335) — both serve the SAME inlined single-file shell
+ * (production packaging: no second asset), and the client routes by
+ * pathname. The overview aggregates client-side from GET /api/tasks, so
+ * no new API was added. Both responses carry `no-store`: the bundle is
+ * inlined at process start, and a cached copy would outlive a restart.
+ */
 function registerKanbanRoute(
   app: express.Application,
   port: number,
@@ -1527,7 +1534,7 @@ function registerKanbanRoute(
   const adminEmail = process.env.VIBEFLOW_ADMIN_EMAIL ?? "";
   const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
 
-  app.get("/kanban", async (_req, res) => {
+  app.get(["/kanban", "/overview"], async (_req, res) => {
     // The client bundle is inlined into this HTML at process start — a cached
     // copy would outlive a board restart and keep serving the old JavaScript.
     res.set("Cache-Control", "no-store");
