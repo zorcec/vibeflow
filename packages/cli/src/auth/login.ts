@@ -257,14 +257,104 @@ export function toV0CreateBody(
  * update is its own counter-only line. Everything goes to STDERR — never
  * stdout — so piped output and `--json` stay clean.
  */
-export function formatTaskPushProgress(done: number, total: number): string {
+/**
+ * Minimal push ETA (ticket e4049164).
+ * WHAT: `done`-over-elapsed rate from the push start time; the caller
+ * passes the reporter's start timestamp, never a global.
+ * WHY arithmetic-only (no new deps): a bulk push is one POST per task at
+ * a roughly steady rate, so remaining/rate is an honest estimate.
+ * `--:--` until measurable (zero/negative elapsed, nothing done yet, or a
+ * non-positive total) and `0s` at completion — never NaN/negative/garbage
+ * on tiny pushes where elapsed rounds to 0ms.
+ */
+export function formatPushEta(
+  startMs: number,
+  done: number,
+  total: number,
+  nowMs: number = Date.now(),
+): string {
+  const elapsedMs = nowMs - startMs;
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0 || done <= 0 || total <= 0)
+    return "--:--";
+  if (done >= total) return "0s";
+  const rate = done / (elapsedMs / 1000);
+  if (!Number.isFinite(rate) || rate <= 0) return "--:--";
+  const etaSec = Math.ceil((total - done) / rate);
+  if (!Number.isFinite(etaSec) || etaSec < 0) return "--:--";
+  if (etaSec < 60) return `${etaSec}s`;
+  return `${Math.floor(etaSec / 60)}m${String(etaSec % 60).padStart(2, "0")}s`;
+}
+
+export function formatTaskPushProgress(
+  done: number,
+  total: number,
+  startMs?: number,
+  nowMs?: number,
+): string {
   const counter = `Pushing ${done}/${total}`;
   if (process.stdout.isTTY !== true) return counter;
   const width = 20;
   const filled =
     total <= 0 ? width : Math.round((Math.min(done, total) / total) * width);
   const pct = total <= 0 ? 100 : Math.round((Math.min(done, total) / total) * 100);
-  return `${counter} [${"█".repeat(filled)}${"░".repeat(width - filled)}] ${pct}%`;
+  // ETA (ticket e4049164): appended to the single TTY line; without a
+  // start timestamp elapsed is 0 by construction, so it reads `--:--`.
+  const now = nowMs ?? Date.now();
+  const eta = formatPushEta(startMs ?? now, done, total, now);
+  return `${counter} [${"█".repeat(filled)}${"░".repeat(width - filled)}] ${pct}% ETA ${eta}`;
+}
+
+/**
+ * Minimal push reporter (ticket e4049164).
+ * WHAT: a per-push factory — the caller builds one reporter per push run
+ * and passes it as the `createTasksOneByOne()` `onProgress` hook — so a
+ * TTY stays ONE `\r`-rewritten line (counter + bar + pct + ETA) and piped
+ * output stays sparse.
+ * SPARSE RULE (piped/non-TTY only, recorded here): emit at most one line
+ * per 10% of total (the `floor(done/total*10)` bucket must advance past
+ * the last emitted one), or one line per 10s on slow pushes, plus ALWAYS
+ * the final `done >= total` line so scripts can grep the exact `N/N`.
+ * WHY a factory and not globals: two pushes in one process (tests, login
+ * then push) must not share start-time/bucket state.
+ * WHY throttling still applies under --verbose: per-task progress is not
+ * diagnostic detail — the FULL refusal/link detail already lives behind
+ * --verbose/--json (dec52322), and the --json envelope carries
+ * attempted/total; progress stays minimal in every mode.
+ */
+const PUSH_PROGRESS_BUCKETS = 10;
+const PUSH_PROGRESS_MIN_INTERVAL_MS = 10_000;
+
+export function createTaskPushProgressReporter(
+  total: number,
+  opts?: { startMs?: number; now?: () => number },
+): (done: number, total: number) => void {
+  const startMs = opts?.startMs ?? Date.now();
+  const now = opts?.now ?? Date.now;
+  let lastBucket = -1;
+  let lastEmitMs = Number.NEGATIVE_INFINITY;
+  void total;
+  return (done: number, runTotal: number) => {
+    const at = now();
+    const line = formatTaskPushProgress(done, runTotal, startMs, at);
+    if (process.stdout.isTTY === true) {
+      process.stderr.write(`\r  ${line}`);
+      if (done >= runTotal) process.stderr.write("\n");
+      return;
+    }
+    const denom = runTotal <= 0 ? 1 : runTotal;
+    const bucket = Math.floor(
+      (Math.min(done, runTotal) / denom) * PUSH_PROGRESS_BUCKETS,
+    );
+    if (
+      done >= runTotal ||
+      bucket > lastBucket ||
+      at - lastEmitMs >= PUSH_PROGRESS_MIN_INTERVAL_MS
+    ) {
+      lastBucket = Math.max(lastBucket, bucket);
+      lastEmitMs = at;
+      process.stderr.write(`  ${line}\n`);
+    }
+  };
 }
 
 export function reportTaskPushProgress(done: number, total: number): void {
@@ -788,36 +878,37 @@ async function promptPushLocalTasks(
             // prompt parity only.)
             try {
               const records = unsynced as Array<Record<string, unknown>>;
-              // Bulk-push progress (ticket 7db36f78): counter always,
-              // visual bar on a TTY, everything on stderr — the pre-push
-              // listing and the prompts above stay byte-identical.
+              // Minimal push progress (ticket e4049164): one \r line on a
+              // TTY (counter + bar + pct + ETA), sparse lines when piped,
+              // everything on stderr — the pre-push listing and the prompts
+              // above stay byte-identical.
+              const onProgress = createTaskPushProgressReporter(records.length);
               const data = await createTasksOneByOne(
                 apiUrl,
                 token,
                 workspace.id,
                 records,
-                reportTaskPushProgress,
+                onProgress,
               );
+              // Condensed summary (ticket e4049164): one line carries the
+              // TRUE numbers (created/refused groups via
+              // formatPushRefusalSummary — never "already existed"), the
+              // stop line and the not-attempted count share one red line.
+              const refused =
+                data.skipped > 0 ? ` — ${formatPushRefusalSummary(data)}` : "";
               console.log(
                 chalk.green(
-                  `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}`,
+                  `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}${refused}`,
                 ),
               );
-              // TRUE refusal counts (ticket dec52322): grouped by status +
-              // server error code — never "already existed" (the v0 create
-              // op has no duplicate detection).
-              if (data.skipped > 0)
-                console.log(chalk.dim(`    (${formatPushRefusalSummary(data)})`));
               const stopLine = formatPushStopLine(data);
               if (stopLine !== null) {
-                console.log(chalk.red(`  ${stopLine}`));
                 const remaining = records.length - data.attempted;
-                if (remaining > 0)
-                  console.log(
-                    chalk.red(
-                      `  ${remaining} task${remaining !== 1 ? "s" : ""} not attempted.`,
-                    ),
-                  );
+                const unattempted =
+                  remaining > 0
+                    ? ` (${remaining} task${remaining !== 1 ? "s" : ""} not attempted.)`
+                    : "";
+                console.log(chalk.red(`  ${stopLine}${unattempted}`));
               }
               const links = await applyPushLinks(apiUrl, token, records, data.idMap);
               if (links.applied > 0)

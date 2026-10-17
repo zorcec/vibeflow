@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, reportTaskPushProgress, type PushLoopResult } from "../auth/login.js";
+import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, type PushLoopResult } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -214,18 +214,19 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // counts as skipped; only a network throw fails the push outright.
   let result: ImportResult;
   try {
+    // Minimal push progress (ticket e4049164): one \r line on a TTY
+    // (counter + bar + pct + ETA), sparse lines when piped, all on
+    // stderr so piped output and --json stay clean.
+    const onProgress = createTaskPushProgressReporter(taskList.length);
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
     // filePath string — each entry spreads as a plain record into the JSON
     // create body, so the record cast is representation-preserving.
-    // Bulk-push progress (ticket 7db36f78): same shared reporter as the
-    // login-time push — counter always, bar on a TTY, all on stderr so
-    // piped output stays clean.
     const loop = await createTasksOneByOne(
       apiUrl,
       token,
       workspaceId,
       taskList as unknown as Array<Record<string, unknown>>,
-      reportTaskPushProgress,
+      onProgress,
     );
     result = {
       imported: loop.imported,
@@ -249,23 +250,20 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
 
   // Stryker disable once StringLiteral: display message for push success
-  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online`));
-  // TRUE refusal counts (ticket dec52322): grouped by status + server
-  // error code — never "already imported" (the v0 create op has no
-  // duplicate detection, so that claim was always false).
-  if (result.skipped && result.skipped > 0) {
-    // Stryker disable once StringLiteral: display message for refused tasks
-    console.log(chalk.dim(`  ${formatPushRefusalSummary(result)}.`));
-  }
+  // Condensed summary (ticket e4049164): the pushed line carries the TRUE
+  // refusal groups when any (dec52322 formatter, unchanged — never
+  // "already imported"), and the stop line shares one red line with the
+  // not-attempted count. Every number from dec52322 survives, tighter.
+  const refused =
+    result.skipped > 0 ? ` — ${formatPushRefusalSummary(result)}` : "";
+  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online${refused}`));
   const stopLine = formatPushStopLine(result);
   if (stopLine !== null) {
     // Stryker disable once StringLiteral: display message for early stop
-    console.log(chalk.red(`  ${stopLine}`));
     const remaining = taskList.length - result.attempted;
-    if (remaining > 0) {
-      // Stryker disable once StringLiteral: display message for unattempted tasks
-      console.log(chalk.red(`  ${remaining} task(s) not attempted.`));
-    }
+    const unattempted =
+      remaining > 0 ? ` (${remaining} task(s) not attempted.)` : "";
+    console.log(chalk.red(`  ${stopLine}${unattempted}`));
   }
 
   // Phase 2 of the two-phase push: replay stored links with targets
