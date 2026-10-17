@@ -537,7 +537,7 @@ async function watchOnlineOnce(
       chalk.red(`  \u2717 Online watch: poll failed: ${outcome.message ?? "unknown error"}`),
     );
     console.error(
-      chalk.dim("  Check your connection or run 'vibeflow login' if your session expired."),
+      chalk.dim("  Check your connection or run 'vibeflow auth login' if your session expired."),
     );
     process.exitCode = ExitCode.GENERAL;
     sink.close?.();

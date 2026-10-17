@@ -284,20 +284,22 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
         ok: true,
         json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
       })
-      // Mock workspaces fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ workspaces: [workspace] }),
-      })
-      // Mock profile fetch
+      // Mock profile fetch (profile is read before the boards list)
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ email: "user@example.com" }),
       })
-      // Mock settings fetch
+      // Mock settings fetch — issued concurrently with the boards fetch
+      // (Promise.all), so it answers the 4th call, before boards pages.
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ settings: { autoCommit: true } }),
+      })
+      // Mock boards fetch — the v0 envelope: { items, nextCursor }
+      // (ticket 3ac40717: the old { workspaces } parse saw no boards here)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ items: [workspace], nextCursor: null }),
       })
       // Mock tasks-listing fetch (promptPushLocalTasks)
       .mockResolvedValueOnce({
@@ -308,7 +310,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(workspace);
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
@@ -318,6 +320,152 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ id: "ws-1", email: "user@example.com" }),
     );
+    // A board WAS found, so the empty-account guidance must not print.
+    expect(logSpy.mock.calls.map((c) => c.join(" ")).join("\n")).not.toContain(
+      "No boards found",
+    );
+  });
+
+  it("keeps the legacy { workspaces } boards envelope working", async () => {
+    const workspace = { id: "ws-9", name: "Legacy Board", url: "http://localhost:3000", icon: null, email: null };
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ email: "legacy@example.com" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ settings: {} }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ workspaces: [workspace], nextCursor: null }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login();
+
+    expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ws-9", email: "legacy@example.com" }),
+    );
+  });
+
+  it("follows boards pagination cursors until nextCursor is null", async () => {
+    const boardA = { id: "b-a", name: "Board A" };
+    const boardB = { id: "b-b", name: "Board B" };
+    selectMock.mockResolvedValueOnce({ id: "b-b", name: "Board B", icon: null, url: "http://localhost:3000", email: null });
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ email: "paged@example.com" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ settings: {} }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ items: [boardA], nextCursor: "cursor-1" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ items: [boardB], nextCursor: null }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login();
+
+    const boardCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("/api/v0/boards"),
+    );
+    expect(boardCalls).toHaveLength(2);
+    expect(String(boardCalls[1]?.[0])).toContain("cursor=cursor-1");
+    expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "b-b", email: "paged@example.com" }),
+    );
+  });
+
+  it("prints next-step guidance (not just the empty message) when the account has no boards", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ email: "empty@example.com" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ settings: {} }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ items: [], nextCursor: null }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login();
+
+    expect(workspaceModule.writeWorkspace).not.toHaveBeenCalled();
+    const printed = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(printed).toContain("No boards found on this account yet.");
+    expect(printed).toContain("vibeflow auth login");
   });
 
   it("hits the v0 device-auth paths (no bearer on auth infrastructure)", async () => {

@@ -557,7 +557,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
       retryable: false,
     });
-    expect(envelope.error.suggestion).toContain("vibeflow login");
+    expect(envelope.error.suggestion).toContain("vibeflow auth login");
   });
 
   it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 403", async () => {
@@ -571,7 +571,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
       retryable: false,
     });
-    expect(envelope.error.suggestion).toContain("vibeflow login");
+    expect(envelope.error.suggestion).toContain("vibeflow auth login");
   });
 
   it("E_NOT_AUTHENTICATED — --edit against a host that answers 401", async () => {

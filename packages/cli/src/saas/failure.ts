@@ -32,7 +32,7 @@ export function saasFailure(error: SaasError): SaasFailure {
     return {
       code: "E_NOT_AUTHENTICATED",
       retryable: false,
-      suggestion: "Run 'vibeflow login' and retry.",
+      suggestion: "Run 'vibeflow auth login' and retry.",
     };
   return {
     code: "E_BACKEND_UNAVAILABLE",

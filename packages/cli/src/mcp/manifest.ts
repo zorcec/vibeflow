@@ -68,12 +68,12 @@ export interface CliSurfaceClassification {
 
 export const intentionallyNotExposed: CliSurfaceClassification = {
   commands: {
-    auth: "manages encrypted per-task Playwright auth-state files; a local security utility, not a task operation",
+    auth: "canonical online-auth group (login/logout/status) plus the encrypted per-task Playwright auth-state file utilities; credential management, not a task operation",
     changelog: "prints the packed changelog; no task state",
     kanban: "only the board SERVER is exposed, as start_kanban/get_integration_guide; the browser-opening and changelog side of the command are not reachable over MCP",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
-    push: "hidden SaaS-sync command; stays available as hidden CLI push, but is not reachable over MCP",
+    push: "hidden online-sync command; stays available as hidden CLI push, but is not reachable over MCP",
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
     openapi: "prints the bundled OpenAPI spec to stdout; no task state",
     serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",

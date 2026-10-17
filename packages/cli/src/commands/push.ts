@@ -190,14 +190,14 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     token = await readToken();
     if (!token) {
       // Stryker disable once StringLiteral: display message for login failure
-      console.error(chalk.red("  Login failed. Please run `vibeflow login` and try again."));
+      console.error(chalk.red("  Login failed. Please run `vibeflow auth login` and try again."));
       process.exitCode = ExitCode.AUTH;
       return;
     }
   }
 
   // Stryker disable once StringLiteral: display message for task count
-  console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing to SaaS...`));
+  console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing online...`));
 
   const apiUrl = getApiUrl();
 
@@ -233,7 +233,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
 
   // Stryker disable once StringLiteral: display message for push success
-  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) to SaaS`));
+  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online`));
   if (result.skipped && result.skipped > 0) {
     // Stryker disable once StringLiteral: display message for skipped tasks
     console.log(chalk.dim(`  Skipped ${result.skipped} already-imported task(s).`));

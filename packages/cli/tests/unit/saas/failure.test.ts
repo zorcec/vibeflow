@@ -19,7 +19,7 @@ describe("saasFailure", () => {
     expect(saasFailure({ code: "HTTP_ERROR", status: 401 })).toEqual({
       code: "E_NOT_AUTHENTICATED",
       retryable: false,
-      suggestion: "Run 'vibeflow login' and retry.",
+      suggestion: "Run 'vibeflow auth login' and retry.",
     });
   });
 
@@ -27,7 +27,7 @@ describe("saasFailure", () => {
     expect(saasFailure({ code: "HTTP_ERROR", status: 403 })).toEqual({
       code: "E_NOT_AUTHENTICATED",
       retryable: false,
-      suggestion: "Run 'vibeflow login' and retry.",
+      suggestion: "Run 'vibeflow auth login' and retry.",
     });
   });
 

@@ -101,22 +101,38 @@ describe("MCP drift test", () => {
     expect(destructive.map((t) => t.name)).toEqual([]);
   });
 
-  it("push and auth stay functional but hidden (undocumented, not removed)", () => {
+  it("push and the deprecated aliases stay hidden; auth is the visible canonical spelling", () => {
     // push_tasks is gone from the MCP surface and push is classified as
-    // deliberately unexposed — the SaaS sync stays available via hidden CLI
+    // deliberately unexposed — the online sync stays available via hidden CLI
     // push, exactly as the intentionallyNotExposed reason states.
+    // Ticket b3b1ee24: `vibeflow auth {login,logout,status}` is the canonical
+    // user-facing spelling (visible in help); bare login/logout/status stay
+    // as hidden deprecated aliases that print a redirect notice.
     expect(manifest.some((m) => m.name === "push_tasks")).toBe(false);
     expect(manifest.some((m) => m.cliRef.command === "push")).toBe(false);
     expect(intentionallyNotExposed.commands.push).toBeTruthy();
     const program = createProgram();
-    // All five auth/sync commands still exist in the commander tree ...
-    for (const name of ["auth", "login", "logout", "status", "push"]) {
+    // The deprecated aliases still exist in the commander tree ...
+    for (const name of ["login", "logout", "status", "push"]) {
       const cmd = program.commands.find((c) => c.name() === name);
       expect(cmd, `hidden CLI command "${name}" went missing`).toBeDefined();
       // ... but render nothing in top-level help (commander v12: _hidden).
       expect(
         (cmd as unknown as { _hidden?: boolean })._hidden,
         `"${name}" is no longer hidden`,
+      ).toBe(true);
+    }
+    // ... while `auth` itself is visible with its login/logout/status group.
+    const auth = program.commands.find((c) => c.name() === "auth");
+    expect(auth, 'CLI command "auth" went missing').toBeDefined();
+    expect(
+      (auth as unknown as { _hidden?: boolean })._hidden ?? false,
+      '"auth" should be visible (canonical online-auth spelling)',
+    ).toBe(false);
+    for (const sub of ["login", "logout", "status"]) {
+      expect(
+        auth!.commands.some((c) => c.name() === sub),
+        `"vibeflow auth ${sub}" went missing`,
       ).toBe(true);
     }
   });

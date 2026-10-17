@@ -227,7 +227,7 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
             <strong
               style={{ color: "rgba(255,255,255,0.55)", fontWeight: 500 }}
             >
-              {BOARD_NAME || "Vibeflow SaaS"}
+              {BOARD_NAME || "Vibeflow Online"}
             </strong>
           </p>
         </div>

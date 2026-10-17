@@ -83,26 +83,93 @@ export async function maybeRefreshSettings(): Promise<void> {
   }
 }
 
+/**
+ * Parse one boards-list page into workspace picks.
+ *
+ * Decision record (ticket 3ac40717, worker 2026-10-17):
+ * - WHAT: accept the v0 envelope `{ items: [{ id, name, ... }], nextCursor }`
+ *   (the documented `list-boards` shape) with a legacy `{ workspaces }`
+ *   fallback, instead of reading only `{ workspaces }`.
+ * - WHY: `surfacePath("cloud", "/api/cli/workspaces")` maps to
+ *   `/api/v0/boards`, which answers `{ items }` — never `{ workspaces }` —
+ *   so the old parse always saw "no boards" even when the account HAS
+ *   boards, and every fresh device login dead-ended at "No boards found".
+ * - IMPACT: the row carries no `url`/`icon` (v0 boards answer
+ *   `id/name/slug/role`), so `url` falls back to the app base the token
+ *   belongs to and `icon` to null; legacy rows keep their own fields.
+ */
+function toWorkspacePick(
+  row: Record<string, unknown>,
+  apiUrl: string,
+): WorkspaceInfo | null {
+  if (typeof row.id !== "string" || row.id.length === 0) return null;
+  return {
+    id: row.id,
+    name: typeof row.name === "string" && row.name.length > 0 ? row.name : "Untitled board",
+    icon: typeof row.icon === "string" ? row.icon : null,
+    url: typeof row.url === "string" && row.url.length > 0 ? row.url : apiUrl,
+  };
+}
+
+function parseBoardsPage(
+  data: unknown,
+  apiUrl: string,
+): { picks: WorkspaceInfo[]; nextCursor: string | null } {
+  const body = (data ?? {}) as {
+    items?: unknown;
+    workspaces?: unknown;
+    nextCursor?: unknown;
+  };
+  const rows = Array.isArray(body.items)
+    ? body.items
+    : Array.isArray(body.workspaces)
+      ? body.workspaces
+      : [];
+  const picks: WorkspaceInfo[] = [];
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const pick = toWorkspacePick(row as Record<string, unknown>, apiUrl);
+    if (pick) picks.push(pick);
+  }
+  return {
+    picks,
+    nextCursor:
+      typeof body.nextCursor === "string" && body.nextCursor.length > 0
+        ? body.nextCursor
+        : null,
+  };
+}
+
 async function fetchAndSelectWorkspace(
   apiUrl: string,
   token: string,
 ): Promise<void> {
   try {
-    const [wsRes, profileRes] = await Promise.all([
-      // Cloud-only paths: apiUrl is the getApiUrl() SaaS base → always "cloud".
-      fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/workspaces")}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-      fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-    ]);
-    if (!wsRes.ok) return;
-
-    const data = (await wsRes.json()) as { workspaces: WorkspaceInfo[] };
-    if (!data.workspaces?.length) {
+    const headers = { Authorization: `Bearer ${token}` };
+    // Cloud-only paths: apiUrl is the getApiUrl() SaaS base → always "cloud".
+    const profileRes = await fetch(
+      `${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`,
+      { headers },
+    );
+    const boardsPath = surfacePath("cloud", "/api/cli/workspaces");
+    const picks: WorkspaceInfo[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 50; page++) {
+      const url = new URL(`${apiUrl}${boardsPath}`);
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const wsRes = await fetch(url.toString(), { headers });
+      if (!wsRes.ok) return;
+      const page_ = parseBoardsPage(await wsRes.json(), apiUrl);
+      picks.push(...page_.picks);
+      cursor = page_.nextCursor;
+      if (!cursor) break;
+    }
+    if (picks.length === 0) {
+      console.log(chalk.yellow("  No boards found on this account yet."));
       console.log(
-        chalk.yellow("  No boards found. Create a board in the web app first."),
+        chalk.dim(
+          `  Create one in the web app (${apiUrl}), then run \`vibeflow auth login\` again to pick it.`,
+        ),
       );
       return;
     }
@@ -110,7 +177,7 @@ async function fetchAndSelectWorkspace(
     const profile = profileRes.ok
       ? ((await profileRes.json()) as { email?: string })
       : null;
-    const selected = await promptWorkspaceSelection(data.workspaces);
+    const selected = await promptWorkspaceSelection(picks);
     await writeWorkspace({ ...selected, email: profile?.email ?? null });
     console.log(
       chalk.green(`  Board set: ${selected.icon ?? ""} ${selected.name}`),
@@ -638,7 +705,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
       await writeToken(pat);
       console.log();
       console.log(
-        chalk.green("  Logged in successfully. Now operating in SaaS mode."),
+        chalk.green("  Logged in successfully. Now operating in online mode."),
       );
       await Promise.all([
         fetchAndSelectWorkspace(apiUrl, pat),

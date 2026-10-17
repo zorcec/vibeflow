@@ -372,7 +372,7 @@ does not by itself mean anything went wrong. On a success payload it is an optio
 | `ALREADY_IN_PROGRESS` | the task was already in-progress; nothing changed |
 
 The array is always an array (never a bare object, never a plural `notices`/`warnings` split). The
-local `--edit` path emits all of them; the SaaS `--edit` path can only reach `SET_STATUS_DONE` (the
+local `--edit` path emits all of them; the online `--edit` path can only reach `SET_STATUS_DONE` (the
 rest are decided against the LOCAL task file, which an online board has no equivalent of) — so read
 `notices` as "an array that may or may not be there", never as a fixed set of codes. The MCP surface
 also uses the name, for the same concept plus two of its own: `DRY_RUN` and `GIT_COMMITTED`, which the
@@ -381,7 +381,7 @@ CLI never emits (the CLI says nothing when a commit succeeds). See [MCP results]
 `warning` is a **different** field, and it is per-surface — a bare string everywhere, with a different
 meaning on each of the two surfaces that have one:
 
-- the **online board's** server-passthrough string on the SaaS `--edit` payload, and
+- the **online board's** server-passthrough string on the online `--edit` payload, and
 - the **verify surface's** capture-truncation note on a page-wide `vibeflow verify <id> <tool>
   --json` result (`truncated:true` results carry a `warning` explaining the partial view).
 

@@ -1305,7 +1305,7 @@ function registerMetaApis(
       );
       res
         .status(502)
-        .json({ error: `Network error contacting SaaS API: ${msg}` });
+        .json({ error: `Network error contacting online API: ${msg}` });
     }
   });
 
@@ -1360,7 +1360,7 @@ function registerMetaApis(
       console.error(`[Vibeflow] POST /api/push network error: ${msg}`);
       res
         .status(502)
-        .json({ error: `Network error contacting SaaS API: ${msg}` });
+        .json({ error: `Network error contacting online API: ${msg}` });
     }
   });
 
@@ -1545,7 +1545,7 @@ function registerInjectPage(
     app.get("/inject", (_req, res) => {
       res.type("html").send(
         buildInjectPageHtml(
-          `Add the Vibeflow overlay to any page to annotate and create tasks.${safeBoardId ? `<br><span style="font-size:12px;color:#64748b">Connected to board <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${safeBoardId}</code> via SaaS.</span>` : ""}`,
+          `Add the Vibeflow overlay to any page to annotate and create tasks.${safeBoardId ? `<br><span style="font-size:12px;color:#64748b">Connected to board <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${safeBoardId}</code> (online).</span>` : ""}`,
           [
             `<h2>Option 1 — Bookmarklet <span class="badge green">CSP-safe</span> <span class="badge">recommended</span></h2>
   <div class="card"><p>Drag this link to your bookmarks bar, then click it on any page to activate the overlay:</p>
@@ -1847,7 +1847,7 @@ async function serveApiOnly(
     app.use(["/api/tasks", "/api/push", "/trpc"], (_req, res) => {
       res.status(503).json({
         error:
-          "Online mode active — local task API is disabled. All task operations go through the SaaS backend.",
+          "Online mode active — local task API is disabled. All task operations go through the online backend.",
       });
     });
 

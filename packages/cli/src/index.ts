@@ -4626,33 +4626,58 @@ program
     },
   );
 
-// ── Auth commands (SaaS mode) ──────────────────────────────────────
+// ── Auth commands (online mode) ─────────────────────────────────────
+// Decision (ticket b3b1ee24, 2026-10-17): `vibeflow auth {login,logout,status}`
+// is the canonical spelling; bare `login`/`logout` stay as deprecated aliases
+// that print a redirect notice and then run the same flow (never a silent
+// break, never a silent removal). Internal identifiers (`getMode() === "saas"`,
+// token storage, env vars) are untouched — only user-facing strings changed.
+function printLoginDeprecationNotice(): void {
+  console.log(
+    chalk.yellow(
+      "  Note: `vibeflow login` is deprecated — use `vibeflow auth login`.",
+    ),
+  );
+}
+
+function printLogoutDeprecationNotice(): void {
+  console.log(
+    chalk.yellow(
+      "  Note: `vibeflow logout` is deprecated — use `vibeflow auth logout`.",
+    ),
+  );
+}
+
 program
   .command("login", { hidden: true })
   .description(
-    "Authenticate CLI against the Vibeflow SaaS backend (device flow)",
+    "Deprecated alias of `vibeflow auth login` (device flow)",
   )
   .action(async () => {
     capture("command_run", { surface: "cli", command: "login" });
     await flushTelemetry();
+    printLoginDeprecationNotice();
     await login();
   });
 
 program
   .command("logout", { hidden: true })
-  .description("Remove stored auth token and switch to local mode")
+  .description("Deprecated alias of `vibeflow auth logout`")
   .action(async () => {
     capture("command_run", { surface: "cli", command: "logout" });
     await flushTelemetry();
+    printLogoutDeprecationNotice();
     await logout();
   });
 
-program
-  .command("status", { hidden: true })
-  .description("Show login status, connection info, and task statistics")
-  .option("--json", "Emit machine-readable JSON instead of the human summary")
-  .action(async (opts: { json?: boolean }) => {
-    // `--json` exists because `status` grew non-zero exits (see the SaaS branch
+/**
+ * Shared `auth status` implementation: mode + logged-in account, never
+ * secret values (only the board name, email and URL — the token is never
+ * printed). Used by `vibeflow auth`, `vibeflow auth status` and the hidden
+ * bare `vibeflow status` alias alike.
+ */
+async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
+    // `--json` exists because `status` grew non-zero exits (see the online branch
     // below). The json-refusal guard requires every non-zero exit to speak the
     // envelope, and the honest way to satisfy that is to give the command a
     // json surface rather than to allowlist the exits away.
@@ -4664,7 +4689,7 @@ program
       );
       console.log(
         chalk.dim("  Run ") +
-          chalk.cyan("vibeflow login") +
+          chalk.cyan("vibeflow auth login") +
           chalk.dim(" to connect to the Vibeflow cloud."),
       );
       console.log();
@@ -4696,9 +4721,9 @@ program
       return;
     }
 
-    // SaaS mode
+    // Online mode
     const workspace = await readWorkspace();
-    console.log(chalk.green("●  Online") + chalk.dim("  (SaaS mode)"));
+    console.log(chalk.green("●  Online") + chalk.dim("  (online mode)"));
     if (workspace) {
       console.log(
         chalk.dim(
@@ -4719,7 +4744,7 @@ program
     const saasData = await fetchSaasTasks(workspace?.id);
     if (!saasData.ok) {
       // Three genuinely different situations, previously all reported as
-      // "Could not reach SaaS backend. Check your connection." — which is
+      // "Could not reach online backend. Check your connection." — which is
       // wrong for two of them and sent users debugging the wrong layer:
       //
       //   NOT_AUTHENTICATED  the stored token is gone/revoked  → re-login
@@ -4731,13 +4756,13 @@ program
             ok: false,
             code: "AUTH",
             message: "Not logged in.",
-            suggestion: "vibeflow login",
+            suggestion: "vibeflow auth login",
             json: true,
           });
         } else {
           console.log(
             chalk.yellow("  ⚠  Not logged in. Run ") +
-              chalk.cyan("vibeflow login") +
+              chalk.cyan("vibeflow auth login") +
               chalk.yellow(" again."),
           );
         }
@@ -4750,7 +4775,7 @@ program
           outputEnvelope({
             ok: false,
             code: "NETWORK",
-            message: "Could not reach SaaS backend.",
+            message: "Could not reach online backend.",
             retryable: true,
             suggestion: "Check your connection, then retry.",
             json: true,
@@ -4758,7 +4783,7 @@ program
         } else {
           console.log(
             chalk.yellow(
-              "  ⚠  Could not reach SaaS backend. Check your connection.",
+              "  ⚠  Could not reach online backend. Check your connection.",
             ),
           );
         }
@@ -4785,7 +4810,7 @@ program
         });
       } else {
         console.log(
-          chalk.yellow(`  ⚠  SaaS request failed: ${saasData.error.message}`),
+          chalk.yellow(`  ⚠  Online request failed: ${saasData.error.message}`),
         );
       }
       process.exitCode = ExitCode.GENERAL;
@@ -4812,12 +4837,22 @@ program
       console.log(`    ${colorFn(status.padEnd(12))} ${count}`);
     }
     console.log(chalk.dim(`    ${"total".padEnd(12)} ${all.length}`));
+  }
+
+program
+  .command("status", { hidden: true })
+  .description("Deprecated alias of `vibeflow auth status`")
+  .option("--json", "Emit machine-readable JSON instead of the human summary")
+  .action(async (opts: { json?: boolean }) => {
+    capture("command_run", { surface: "cli", command: "status" });
+    await flushTelemetry();
+    await showAuthStatus(opts);
   });
 
 program
   .command("push", { hidden: true })
   .description(
-    "Push all local tasks to the Vibeflow SaaS app and delete them locally",
+    "Push all local tasks to your online board and delete them locally",
   )
   .argument("[dir]", "Project root directory", ".")
   .option(
@@ -4965,18 +5000,20 @@ program
     },
   );
 
-program
-  .command("auth", { hidden: true })
+const auth = program
+  .command("auth")
   .description(
-    "Manage stored auth state (encrypted cookies for Playwright verification)",
+    "Manage online authentication: log in, out, and check status",
   )
   .option("--clear", "Delete all per-task encrypted auth state files")
   .option("--list", "List stored auth state files and their age")
-  .action(async (opts: { clear?: boolean; list?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "auth" });
-    await flushTelemetry();
+  .option("--json", "With no subcommand: emit status as JSON")
+  .action(
+    async (opts: { clear?: boolean; list?: boolean; json?: boolean }) => {
+      capture("command_run", { surface: "cli", command: "auth" });
+      await flushTelemetry();
 
-    const projectDir = resolve(".");
+      const projectDir = resolve(".");
 
     if (opts.clear) {
       const deleted = clearAuthState(projectDir);
@@ -5005,18 +5042,39 @@ program
       return;
     }
 
-    // Default: show help
-    console.log(chalk.bold("Auth management:"));
-    console.log(
-      chalk.dim(
-        "  vibeflow auth --clear    Delete all per-task encrypted auth state files",
-      ),
-    );
-    console.log(
-      chalk.dim(
-        "  vibeflow auth --list     List stored auth state files and their age",
-      ),
-    );
+    // Default: bare `vibeflow auth` shows the login status (same as
+    // `vibeflow auth status`). The legacy --clear/--list cookie flags above
+    // keep working unchanged.
+    await showAuthStatus({ json: opts.json });
+    },
+  );
+
+auth
+  .command("login")
+  .description("Log in with your online account (device flow)")
+  .action(async () => {
+    capture("command_run", { surface: "cli", command: "auth login" });
+    await flushTelemetry();
+    await login();
+  });
+
+auth
+  .command("logout")
+  .description("Log out: remove the stored token and return to local mode")
+  .action(async () => {
+    capture("command_run", { surface: "cli", command: "auth logout" });
+    await flushTelemetry();
+    await logout();
+  });
+
+auth
+  .command("status")
+  .description("Show online status and the logged-in account (never secrets)")
+  .option("--json", "Emit machine-readable JSON instead of the human summary")
+  .action(async (opts: { json?: boolean }) => {
+    capture("command_run", { surface: "cli", command: "auth status" });
+    await flushTelemetry();
+    await showAuthStatus(opts);
   });
 
 program
