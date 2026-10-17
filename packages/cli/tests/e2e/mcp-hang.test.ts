@@ -107,6 +107,13 @@ describe("MCP CLI hang regression", () => {
     expect(r.code).toBe(0);
     expect(r.elapsedMs).toBeLessThan(HANG_BUDGET_MS);
     const parsed = JSON.parse(r.stdout);
+    // Position metadata added by ticket 9bb350a7: the envelope reports where
+    // the page starts (offset), how much is left (remaining), whether a
+    // continuation exists (nextCursor — null exactly when exhausted, so an
+    // empty listing must not hand out a live cursor) and the effective sort
+    // (order). Literal values, deliberately: this assertion is the shape
+    // guard for the whole envelope, so a silent change to any of them should
+    // go red here rather than slip through.
     expect(parsed).toEqual({
       ok: true,
       tasks: [],
@@ -116,6 +123,10 @@ describe("MCP CLI hang regression", () => {
       limit: 0,
       truncated: false,
       hiddenChildren: 0,
+      offset: 0,
+      remaining: 0,
+      nextCursor: null,
+      order: ["status:asc", "priority:asc", "updated:desc", "id:asc"],
     });
   });
 });
