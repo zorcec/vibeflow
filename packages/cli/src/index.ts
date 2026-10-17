@@ -4880,10 +4880,18 @@ program
     "--dry-run",
     "Preview what would be pushed without making any changes",
   )
+  .option(
+    "--verbose",
+    "Show the full skipped-link list instead of the grouped summary",
+  )
+  .option(
+    "--json",
+    "Emit the full push result (grouped refusals, all skipped links) as JSON on stdout",
+  )
   .action(
     async (
       dir: string,
-      opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean },
+      opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
       await push(dir, opts);

@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { applyPushLinks, createTasksOneByOne, login, reportTaskPushProgress } from "../auth/login.js";
+import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, reportTaskPushProgress, type PushLoopResult } from "../auth/login.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -14,12 +14,19 @@ import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 type ImportResult = {
   imported: number;
-  skipped?: number;
+  skipped: number;
   ids: string[];
   workspaceId: string;
   boardId: string;
   /** Map of cliTaskId → saasTaskId returned by the server */
   idMap?: Record<string, string>;
+  /** POSTs actually attempted (differs from task count after early stop) */
+  attempted: number;
+  /** Refusals grouped by status + server code, in first-seen order */
+  failures: PushLoopResult["failures"];
+  stoppedEarly: PushLoopResult["stoppedEarly"];
+  stopMessage: PushLoopResult["stopMessage"];
+  retryAfter: PushLoopResult["retryAfter"];
 };
 
 export function formatBytes(bytes: number): string {
@@ -137,7 +144,7 @@ export interface PushResult {
   notices: OperationNotice[];
 }
 
-export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean }): Promise<PushResult | void> {
+export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = listTasksWithPaths(projectDir);
@@ -227,6 +234,11 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       workspaceId: workspaceId ?? "",
       boardId: workspaceId ?? "",
       idMap: loop.idMap,
+      attempted: loop.attempted,
+      failures: loop.failures,
+      stoppedEarly: loop.stoppedEarly,
+      stopMessage: loop.stopMessage,
+      retryAfter: loop.retryAfter,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -238,9 +250,22 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
 
   // Stryker disable once StringLiteral: display message for push success
   console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online`));
+  // TRUE refusal counts (ticket dec52322): grouped by status + server
+  // error code — never "already imported" (the v0 create op has no
+  // duplicate detection, so that claim was always false).
   if (result.skipped && result.skipped > 0) {
-    // Stryker disable once StringLiteral: display message for skipped tasks
-    console.log(chalk.dim(`  Skipped ${result.skipped} already-imported task(s).`));
+    // Stryker disable once StringLiteral: display message for refused tasks
+    console.log(chalk.dim(`  ${formatPushRefusalSummary(result)}.`));
+  }
+  const stopLine = formatPushStopLine(result);
+  if (stopLine !== null) {
+    // Stryker disable once StringLiteral: display message for early stop
+    console.log(chalk.red(`  ${stopLine}`));
+    const remaining = taskList.length - result.attempted;
+    if (remaining > 0) {
+      // Stryker disable once StringLiteral: display message for unattempted tasks
+      console.log(chalk.red(`  ${remaining} task(s) not attempted.`));
+    }
   }
 
   // Phase 2 of the two-phase push: replay stored links with targets
@@ -256,13 +281,11 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   if (linkResult.applied > 0) {
     console.log(chalk.green(`  ✓ Applied ${linkResult.applied} link(s)`));
   }
-  const skippedLinkSummary = linkResult.skipped
-    .map((l) => `${l.from}→${l.to} (${l.type})`)
-    .join(", ");
+  const skippedLinkSummary = formatSkippedLinks(linkResult.skipped, opts.verbose === true);
   if (linkResult.skipped.length > 0) {
     console.log(
       chalk.yellow(
-        `  ⚠ Skipped ${linkResult.skipped.length} link(s) with unknown targets: ${skippedLinkSummary}`,
+        `  ⚠ ${skippedLinkSummary}`,
       ),
     );
   }
@@ -336,6 +359,30 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
   if (linkResult.skipped.length > 0) {
     notices.push({ code: "LINKS_SKIPPED", message: `Skipped ${linkResult.skipped.length} link(s) with unknown targets: ${skippedLinkSummary}` });
+  }
+  if (result.stoppedEarly !== null) {
+    notices.push({
+      code: result.stoppedEarly === "plan-limit" ? "PUSH_PLAN_LIMIT" : "PUSH_RATE_LIMITED",
+      message: formatPushStopLine(result) ?? "Push stopped early",
+    });
+  }
+  // --json (ticket dec52322): the FULL refusal/link detail travels here —
+  // stdout stays a machine-readable envelope while the human lines above
+  // stay truncated. Printed even without refusals so scripts can rely on it.
+  if (opts.json === true) {
+    console.log(JSON.stringify({
+      imported: result.imported,
+      skipped: result.skipped,
+      attempted: result.attempted,
+      total: taskList.length,
+      unattempted: taskList.length - result.attempted,
+      failures: result.failures,
+      stoppedEarly: result.stoppedEarly,
+      stopMessage: result.stopMessage,
+      retryAfter: result.retryAfter,
+      linksApplied: linkResult.applied,
+      linksSkipped: linkResult.skipped,
+    }));
   }
   return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices };
 }

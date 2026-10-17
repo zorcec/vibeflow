@@ -63,6 +63,11 @@ describe("createTasksOneByOne (v0 import loop)", () => {
       imported: 2,
       skipped: 0,
       idMap: { a: "saas-1", b: "saas-2" },
+      attempted: 2,
+      failures: [],
+      stoppedEarly: null,
+      stopMessage: null,
+      retryAfter: null,
     });
   });
 
@@ -147,6 +152,11 @@ describe("createTasksOneByOne (v0 import loop)", () => {
         "sync-child": "cloud-x",
         "sync-done": "cloud-x",
       },
+      attempted: 3,
+      failures: [],
+      stoppedEarly: null,
+      stopMessage: null,
+      retryAfter: null,
     });
     for (const call of fetchMock.mock.calls) {
       const body = JSON.parse(call[1].body as string);

@@ -1361,6 +1361,9 @@ function registerMetaApis(
       res.json({
         imported: result.imported,
         skipped: result.skipped,
+        attempted: result.attempted,
+        failures: result.failures,
+        stoppedEarly: result.stoppedEarly,
         workspaceId,
         boardId: workspaceId,
       });

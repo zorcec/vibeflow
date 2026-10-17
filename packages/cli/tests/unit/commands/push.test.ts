@@ -287,7 +287,7 @@ describe("push — import API interaction", () => {
 
     expect(process.exitCode).toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Skipped 1 already-imported"),
+      expect.stringContaining("0 created, 1 refused: 422 Board not found ×1"),
     );
 
     consoleSpy.mockRestore();
@@ -328,7 +328,9 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    // A non-ok create (e.g. already-imported 409) counts as skipped.
+    // A non-ok create counts as refused with its TRUE status + server code
+    // (ticket dec52322) — the v0 create op has no duplicate detection, so
+    // "already imported" must never appear in the summary.
     mockFetchFailure(409, { error: "Already imported" });
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -336,7 +338,7 @@ describe("push — import API interaction", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Skipped 1 already-imported"),
+      expect.stringContaining("0 created, 1 refused: 409 Already imported \u00d71"),
     );
     consoleSpy.mockRestore();
   });
@@ -555,7 +557,7 @@ describe("push — two-phase link preservation", () => {
     // No link POST for the ghost; the push itself is not fatal.
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/links"))).toHaveLength(0);
     expect(process.exitCode).toBeUndefined();
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Skipped 1 link(s) with unknown targets"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Skipped 1 link (relates ×1)"));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("lonely→ghost"));
 
     logSpy.mockRestore();
@@ -948,7 +950,7 @@ describe("push — edge cases", () => {
 
     expect(process.exitCode).toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Skipped 1 already-imported"),
+      expect.stringContaining("0 created, 1 refused: 500 HTTP 500 ×1"),
     );
 
     consoleSpy.mockRestore();

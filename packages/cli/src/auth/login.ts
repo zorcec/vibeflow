@@ -277,23 +277,149 @@ export function reportTaskPushProgress(done: number, total: number): void {
   }
 }
 
+/**
+ * Push honesty (ticket dec52322).
+ * WHAT: the per-task refusal record for the shared `createTasksOneByOne()`
+ * loop, plus the loop's grouped result and the summary/link formatters.
+ * WHY: POST /api/v0/tasks has NO duplicate detection — "already existed"
+ * NEVER happens — yet every non-ok used to count as a generic `skipped`
+ * with res.status swallowed, so a 1704-task push that the server refused
+ * (402 TASK_LIMIT / 429 token-bucket) reported "1644 already existed".
+ * The loop now records status + server error code per refusal, groups
+ * identical refusals for a TRUE summary line (e.g. "60 created, 1319
+ * refused: 402 plan-limit ×1319"), and stops early on 402/429 where
+ * further POSTs are futile. Network throws still propagate (callers
+ * report them as a failed push) — only HTTP non-ok counts as refused.
+ */
+export interface PushRefusalGroup {
+  /** HTTP status the server answered (e.g. 400, 402, 429). */
+  status: number;
+  /** Server error code/message (`code` ?? `error` ?? `message`, else `HTTP <status>`). */
+  code: string;
+  /** How many tasks were refused with exactly this status + code. */
+  count: number;
+}
+
+export interface PushLoopResult {
+  imported: number;
+  skipped: number;
+  idMap: Record<string, string>;
+  /** POSTs actually attempted (differs from tasks.length after early stop). */
+  attempted: number;
+  /** Refusals grouped by status + server code, in first-seen order. */
+  failures: PushRefusalGroup[];
+  /** Non-null when the loop stopped before attempting every task. */
+  stoppedEarly: "plan-limit" | "rate-limited" | null;
+  /** The server's message on the refusal that stopped the loop. */
+  stopMessage: string | null;
+  /** `retry-after` response header on the 429 that stopped the loop. */
+  retryAfter: string | null;
+}
+
+/** Extract the grouping code from a refusal body: `code` ?? `error` ??
+ * `message` (trimmed, capped), else `HTTP <status>` so a bodyless refusal
+ * still groups by status instead of vanishing. */
+export function pushRefusalCode(status: number, body: unknown): string {
+  const record =
+    typeof body === "object" && body !== null
+      ? (body as Record<string, unknown>)
+      : {};
+  for (const key of ["code", "error", "message"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim().slice(0, 120);
+    }
+  }
+  return `HTTP ${status}`;
+}
+
+/** TRUE push summary line from grouped refusals — e.g. "60 created, 5
+ * refused: 402 plan limit ×3, 400 validation ×2". Never claims
+ * duplicates: the v0 create op has no duplicate detection. */
+export function formatPushRefusalSummary(result: {
+  imported: number;
+  skipped: number;
+  failures: PushRefusalGroup[];
+}): string {
+  const created = `${result.imported} created`;
+  if (result.skipped === 0) return `${created}, 0 refused`;
+  const groups = result.failures.map(
+    (g) => `${g.status} ${g.code} ×${g.count}`,
+  );
+  const detail = groups.length > 0 ? groups.join(", ") : `${result.skipped} refused`;
+  return `${created}, ${result.skipped} refused: ${detail}`;
+}
+
+/** Loud early-stop line for 402/429: the server's message plus what it
+ * means (further POSTs futile) and, for 429, the retry-after. Printed
+ * by both push surfaces on stderr-adjacent console output. */
+export function formatPushStopLine(result: {
+  stoppedEarly: PushLoopResult["stoppedEarly"];
+  stopMessage: string | null;
+  retryAfter: string | null;
+}): string | null {
+  if (result.stoppedEarly === "plan-limit") {
+    return (
+      `Server refused with 402 (plan/task limit): ${result.stopMessage ?? "no message"}. ` +
+      `Stopping — further POSTs would also fail.`
+    );
+  }
+  if (result.stoppedEarly === "rate-limited") {
+    const when =
+      result.retryAfter !== null && result.retryAfter.length > 0
+        ? result.retryAfter
+        : "unknown";
+    return (
+      `Rate limited (429; retry after ${when}): ${result.stopMessage ?? "no message"}. ` +
+      `Stopping — further POSTs would also fail.`
+    );
+  }
+  return null;
+}
+
+/** Skipped-link summary grouped by link type with the first few examples;
+ * the FULL from→to list only travels when `verbose` (the `--verbose` /
+ * `--json` gate: a 1704-task push can skip hundreds of links and the
+ * default line must stay readable). */
+export function formatSkippedLinks(
+  skipped: SkippedPushLink[],
+  verbose: boolean,
+): string {
+  const byType = new Map<string, number>();
+  for (const link of skipped) {
+    byType.set(link.type, (byType.get(link.type) ?? 0) + 1);
+  }
+  const groups = [...byType.entries()].map(([type, n]) => `${type} ×${n}`);
+  const shown = verbose ? skipped : skipped.slice(0, 5);
+  const examples = shown.map((l) => `${l.from}→${l.to} (${l.type})`).join(", ");
+  const hidden =
+    !verbose && skipped.length > shown.length
+      ? ` … and ${skipped.length - shown.length} more (re-run with --verbose for the full list)`
+      : "";
+  return `Skipped ${skipped.length} link${skipped.length !== 1 ? "s" : ""} (${groups.join(", ")}): ${examples}${hidden}`;
+}
+
 export async function createTasksOneByOne(
   apiUrl: string,
   token: string,
   boardId: string | undefined,
   tasks: Array<Record<string, unknown>>,
   onProgress?: (done: number, total: number) => void,
-): Promise<{
-  imported: number;
-  skipped: number;
-  idMap: Record<string, string>;
-}> {
+): Promise<PushLoopResult> {
   let imported = 0;
   let skipped = 0;
+  let attempted = 0;
   const idMap: Record<string, string> = {};
+  const groupOrder: string[] = [];
+  const groups = new Map<string, PushRefusalGroup>();
+  let stoppedEarly: PushLoopResult["stoppedEarly"] = null;
+  let stopMessage: string | null = null;
+  let retryAfter: string | null = null;
   const createPath = surfacePath("cloud", "/api/cli/tasks");
   for (const task of tasks) {
     const localId = task.id;
+    // A network throw still fails the push outright (callers report it as
+    // a failed push); only HTTP non-ok responses count as per-task skips.
     const res = await fetch(`${apiUrl}${createPath}`, {
       method: "POST",
       headers: {
@@ -301,12 +427,52 @@ export async function createTasksOneByOne(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(toV0CreateBody(task, boardId)),
+      // Bound fetch (ticket dec52322): a hung create must not stall a
+      // 1704-task push forever — 30s then throw like a network error.
+      signal: AbortSignal.timeout(30_000),
     });
+    attempted++;
     if (!res.ok) {
+      const status = res.status;
+      let errorBody: unknown = null;
+      try {
+        errorBody = await res.json();
+      } catch {
+        errorBody = null;
+      }
+      const code = pushRefusalCode(status, errorBody);
+      const key = `${status} ${code}`;
+      const existing = groups.get(key);
+      if (existing) existing.count++;
+      else {
+        groups.set(key, { status, code, count: 1 });
+        groupOrder.push(key);
+      }
       skipped++;
-      // A skipped task is still a finished unit of the push: the counter
-      // tracks attempted/total so a mid-push failure still reads k/N.
+      // A refused task is still a finished unit of the push: the counter
+      // tracks attempted/total so a mid-push refusal still reads k/N.
       onProgress?.(imported + skipped, tasks.length);
+      // Early stop (ticket dec52322): after a 402 every further POST is
+      // futile (plan/task limit — creating more cannot succeed), and
+      // after a 429 every further POST is futile (token-bucket quota —
+      // hammering on only extends the ban). Record the server's message
+      // and stop; callers print it loudly.
+      if (status === 402) {
+        stoppedEarly = "plan-limit";
+        stopMessage = code;
+        break;
+      }
+      if (status === 429) {
+        stoppedEarly = "rate-limited";
+        stopMessage = code;
+        try {
+          retryAfter =
+            res.headers?.get?.("retry-after") ?? null;
+        } catch {
+          retryAfter = null;
+        }
+        break;
+      }
       continue;
     }
     imported++;
@@ -325,7 +491,16 @@ export async function createTasksOneByOne(
       idMap[localId] = remoteId;
     }
   }
-  return { imported, skipped, idMap };
+  return {
+    imported,
+    skipped,
+    idMap,
+    attempted,
+    failures: groupOrder.map((k) => groups.get(k)!),
+    stoppedEarly,
+    stopMessage,
+    retryAfter,
+  };
 }
 
 /** Link types the v0 link surface accepts. */
@@ -507,8 +682,14 @@ async function promptPushLocalTasks(
     }
   });
 
-  // Fetch online task IDs to find which ones are not yet synced
+  // Fetch online task IDs to find which local tasks are not on the board.
+  // Honesty (ticket dec52322): this listing is only the CLIENT-side diff —
+  // the server may still refuse creates on push (402 plan limit, 429
+  // quota, 400 validation), so the heading below must not promise they
+  // WILL sync, and `listedOk` records whether the board even answered
+  // (on failure every local task is attempted, said out loud).
   let onlineIds = new Set<string>();
+  let listedOk = false;
   try {
     // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
     const res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}?boardId=${workspace.id}`, {
@@ -535,20 +716,32 @@ async function promptPushLocalTasks(
         }
       }
       onlineIds = new Set(ids);
+      listedOk = true;
     }
   } catch {
-    /* non-critical — treat all as unsynced */
+    /* non-critical — treat all as unsynced, labelled below */
   }
 
   const unsynced = localTasks.filter((t) => !onlineIds.has(t.id));
   if (unsynced.length === 0) return;
 
   console.log();
-  console.log(
-    chalk.bold(
-      `  ${unsynced.length} local task${unsynced.length !== 1 ? "s are" : " is"} not yet synced to the board:`,
-    ),
-  );
+  if (listedOk) {
+    console.log(
+      chalk.bold(
+        `  ${unsynced.length} local task${unsynced.length !== 1 ? "s are" : " is"} not on the board:`,
+      ),
+    );
+  } else {
+    // The board listing failed: the diff above is unknown, so say so —
+    // every local task will be attempted, and the push summary (true
+    // grouped refusal counts) is the source of truth, not this list.
+    console.log(
+      chalk.bold(
+        `  Could not read the board — attempting push of all ${localTasks.length} local task${localTasks.length !== 1 ? "s" : ""}:`,
+      ),
+    );
+  }
   const preview = unsynced.slice(0, 10);
   for (const t of preview) {
     const status = t.status ? chalk.dim(` [${t.status}]`) : "";
@@ -610,12 +803,22 @@ async function promptPushLocalTasks(
                   `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}`,
                 ),
               );
+              // TRUE refusal counts (ticket dec52322): grouped by status +
+              // server error code — never "already existed" (the v0 create
+              // op has no duplicate detection).
               if (data.skipped > 0)
-                console.log(
-                  chalk.dim(
-                    `    (${data.skipped} already existed and were skipped)`,
-                  ),
-                );
+                console.log(chalk.dim(`    (${formatPushRefusalSummary(data)})`));
+              const stopLine = formatPushStopLine(data);
+              if (stopLine !== null) {
+                console.log(chalk.red(`  ${stopLine}`));
+                const remaining = records.length - data.attempted;
+                if (remaining > 0)
+                  console.log(
+                    chalk.red(
+                      `  ${remaining} task${remaining !== 1 ? "s" : ""} not attempted.`,
+                    ),
+                  );
+              }
               const links = await applyPushLinks(apiUrl, token, records, data.idMap);
               if (links.applied > 0)
                 console.log(
@@ -625,9 +828,7 @@ async function promptPushLocalTasks(
                 );
               if (links.skipped.length > 0)
                 console.log(
-                  chalk.dim(
-                    `    (Skipped ${links.skipped.length} link${links.skipped.length !== 1 ? "s" : ""} with unknown targets: ${links.skipped.map((l) => `${l.from}→${l.to} (${l.type})`).join(", ")})`,
-                  ),
+                  chalk.dim(`    (${formatSkippedLinks(links.skipped, false)})`),
                 );
             } catch (err) {
               console.log(
