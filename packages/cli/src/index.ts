@@ -888,13 +888,17 @@ program
   )
   .option("--no-open", "Do not open browser automatically")
   .option(
+    "--dev",
+    "Kanban dev mode: serve the on-disk bundle as a no-store asset + live-reload on rebuild (requires the tsup watch build running alongside; production default is the inlined bundle)",
+  )
+  .option(
     "--project <dir>",
     "Project root for the task store and MCP server (ignored when an HTML target is given)",
   )
   .action(
     async (
       target: string | undefined,
-      opts: { port: string; open: boolean; host?: string; project?: string },
+      opts: { port: string; open: boolean; host?: string; project?: string; dev?: boolean },
     ) => {
       // Coarse mode breakdown: API-only task server (no target — what MCP /
       // script-tag-injection workflows run) vs prototype viewer (an HTML target
@@ -923,6 +927,8 @@ program
         host: opts.host,
         open: opts.open,
         projectDir,
+        // Ticket 7e85c338: explicit opt-in only — never default.
+        dev: opts.dev === true,
       });
     },
   );
@@ -942,8 +948,12 @@ program
     "Bind hostname (default: localhost; use 0.0.0.0 for LAN sharing)",
   )
   .option("--no-open", "Do not open browser automatically")
-  .option("--no-changelog", "Do not show the changelog with the update notice")
-  .option(
+    .option("--no-changelog", "Do not show the changelog with the update notice")
+    .option(
+      "--dev",
+      "Kanban dev mode: serve the on-disk bundle as a no-store asset + live-reload on rebuild (requires the tsup watch build running alongside; production default is the inlined bundle)",
+    )
+    .option(
     "--project <dir>",
     "Project root directory (overrides the [dir] positional argument)",
   )
@@ -956,6 +966,7 @@ program
         open: boolean;
         changelog: boolean;
         project?: string;
+        dev?: boolean;
       },
     ) => {
       capture("command_run", { surface: "cli", command: "kanban" });
@@ -975,6 +986,8 @@ program
         open: false,
         projectDir: root.projectDir,
         noCtrlCHint: true,
+        // Ticket 7e85c338: explicit opt-in only — never default.
+        dev: opts.dev === true,
       });
       const kanbanUrl = instance.url + "/kanban";
       // The ready block + agent prompt come from the ONE guide builder
