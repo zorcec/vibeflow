@@ -76,13 +76,13 @@ export const ListTasksInput = z.object({
     .min(0)
     .default(DEFAULT_LIST_LIMIT)
     .describe(
-      "How many tasks to return. 0 (or less) means no limit. A negative value is refused by input validation before the tool runs. Cost of asking for everything: roughly ~900 tokens per task, so limit:0 on a 500-task board costs ~450k context tokens — prefer the default page and continue via offset/remaining/nextCursor.",
+      "How many tasks to return (default 20). 0 is NOT supported and is resolved to the default LOUDLY — the response echoes the resolved limit and names the fallback in `limitNotice` — so never pass 0 meaning \"all\": there is no unbounded mode. A negative value is refused by input validation before the tool runs. Cost of asking for everything: roughly ~900 tokens per task, so a 500-task board costs ~450k context tokens — keep the default page and continue via offset/remaining/nextCursor (CLI: --all pages for you).",
     ),
   fields: z
     .array(z.string())
     .optional()
     .describe(
-      "Return only these task fields per row (e.g. [\"id\",\"title\",\"status\"]) to save context. Omit for the full task objects.",
+      "Return only these task fields per row (e.g. [\"id\",\"title\",\"status\"]) to save context. Omit for the full task objects. Projected rows ALWAYS carry commentCount/fileCount even when the comments/files arrays are omitted, so a projection never silently hides that discussion or attachments exist.",
     ),
   /**
    * Include child tasks in the UNFILTERED listing. Default false: only ROOT
@@ -470,7 +470,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all). Position: offset (0-based index of the first returned row), remaining (matching rows NOT in this response; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable).",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -479,6 +479,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
         "--user",
         "--tag",
         "--limit",
+        "--all",
         "--fields",
         "--children",
       ],

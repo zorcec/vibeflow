@@ -114,13 +114,18 @@ describe("MCP CLI hang regression", () => {
     // (order). Literal values, deliberately: this assertion is the shape
     // guard for the whole envelope, so a silent change to any of them should
     // go red here rather than slip through.
+    // Ticket b2e56212 REVISION (deliberate, not drift): `limit` echoes the
+    // RESOLVED default (20) — the old `limit: 0` "unlimited" echo is gone
+    // with the `0 = all` mode itself. An omitted --limit carries no
+    // `limitNotice` (only an EXPLICIT 0 earns one), so the empty-board
+    // envelope gains no new key.
     expect(parsed).toEqual({
       ok: true,
       tasks: [],
       totalMatching: 0,
       totalRoots: 0,
       returned: 0,
-      limit: 0,
+      limit: 20,
       truncated: false,
       hiddenChildren: 0,
       offset: 0,

@@ -358,8 +358,17 @@ describe("listing parity — CLI vs MCP on the same workspace", () => {
       expect(parsed.hiddenChildren, name).toBe(2);
       expect(parsed.returned, name).toBe(3);
       expect(parsed.truncated, name).toBe(false);
+      // Ticket b2e56212: scope-aware remaining — the default (root-only)
+      // call counts down from totalRoots, so remaining is 0 here, not 2.
+      expect(parsed.remaining, name).toBe(0);
+      expect(parsed.nextCursor, name).toBeNull();
     }
-    expect(mcp.limit).toBe(0);
+    // Ticket b2e56212: no unbounded mode — limit echoes RESOLVED (20),
+    // and the EXPLICIT 0 is named loudly on the surface that passed it.
+    expect(mcp.limit).toBe(20);
+    expect(cli.limit).toBe(20);
+    expect(mcp.limitNotice).toContain("limit 0 is not supported");
+    expect(cli.limitNotice).toBeUndefined();
     expect(mcp.tasks.map((t: any) => t.id)).toEqual(
       cli.tasks.map((t: any) => t.id),
     );
@@ -391,14 +400,21 @@ describe("listing parity — CLI vs MCP on the same workspace", () => {
     expect(mcp.returned).toBe(2);
     expect(mcp.totalMatching).toBe(4);
     expect(mcp.truncated).toBe(true);
-    expect(mcp.hint).toMatch(/showing 2 of 4 matching.*limit 0/);
+    // Ticket b2e56212: neither surface teaches `0 = all` anymore — both
+    // name the cursor path (the CLI footer echoes the shared hint).
+    expect(mcp.hint).toMatch(/showing 2 of 4 matching.*nextCursor/);
+    expect(mcp.hint).not.toContain("limit 0");
+    // Agreement: the filtered search includes children, so hint and
+    // remaining count down from the same scope size.
+    expect(mcp.remaining).toBe(2);
 
     const cli = await runCli(["tasks", "--status", "todo", "--limit", "2"], {
       cwd: env.projectDir,
       home,
     });
     expect(cli.code).toBe(0);
-    expect(cli.stdout).toMatch(/showing 2 of 4 matching.+--limit 0/);
+    expect(cli.stdout).toMatch(/showing 2 of 4 matching.+--all/);
+    expect(cli.stdout).not.toContain("--limit 0");
   });
 
   it("children:true matches CLI --children on the unfiltered listing", async () => {

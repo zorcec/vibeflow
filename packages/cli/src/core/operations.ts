@@ -248,6 +248,46 @@ function pickTaskFields(task: Task, fields: string[] | undefined): Task {
   return picked as unknown as Task;
 }
 
+/**
+ * WHAT/WHY (ticket b2e56212, change 3): a `fields` projection used to omit
+ * `comments` (and `files`) with NO signal they exist — an owner ticket was
+ * read without comments, the owner's own bug report on it went unseen, and
+ * a live functional regression was mis-diagnosed as visual taste. So every
+ * projected row carries the cheap counts of what it omitted:
+ * `commentCount` / `fileCount`, read from the SAME sidecar readers the
+ * human listing renders (listComments excludes deleted, like the display).
+ * Attached ALWAYS on a projected response — even when `fields` names the
+ * arrays (counts are cheap and unambiguous) — and never on a full response
+ * (the arrays themselves are the signal there). A sidecar read that throws
+ * falls back to the embedded array length, never to a failed listing.
+ * SCOPE: the read surfaces (list_tasks/get_task + CLI --json). The write
+ * surfaces (create/update `fields`) return the just-written object and are
+ * deliberately untouched — their own ticket if that ever misleads.
+ */
+async function attachOmissionCounts(
+  projectDir: string,
+  row: Record<string, unknown>,
+  taskId: string,
+): Promise<Record<string, unknown>> {
+  let commentCount: number;
+  let fileCount: number;
+  try {
+    const { listComments } = await import("../core/comments.js");
+    commentCount = listComments(projectDir, taskId).length;
+  } catch {
+    const embedded = (row as { comments?: unknown }).comments;
+    commentCount = Array.isArray(embedded) ? embedded.length : 0;
+  }
+  try {
+    const { listFiles } = await import("../core/files.js");
+    fileCount = listFiles(projectDir, taskId).length;
+  } catch {
+    const embedded = (row as { files?: unknown }).files;
+    fileCount = Array.isArray(embedded) ? embedded.length : 0;
+  }
+  return { ...row, commentCount, fileCount };
+}
+
 /** True for a Node listen() EADDRINUSE failure, on the error or its `cause`. */
 function isAddrInUse(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
@@ -279,10 +319,13 @@ export async function listTasks(
       limit: input.limit,
     });
 
-    // Apply field selection
+    // Apply field selection (ticket b2e56212: projected rows ALWAYS carry
+    // commentCount/fileCount — see attachOmissionCounts — so a projection
+    // never silently hides that discussion or attachments exist).
     if (input.fields && input.fields.length > 0) {
       const fieldSet = new Set(input.fields);
-      result.tasks = result.tasks.map((t) => {
+      const projected: Task[] = [];
+      for (const t of result.tasks) {
         const filtered: Record<string, unknown> = {};
         for (const key of Object.keys(t)) {
           if (fieldSet.has(key)) {
@@ -291,8 +334,15 @@ export async function listTasks(
           }
         }
         // SAFETY: filtered contains a subset of Task's keys; partial Task is still structurally valid for JSON serialization
-        return filtered as unknown as Task;
-      });
+        projected.push(
+          (await attachOmissionCounts(
+            ctx.projectDir,
+            filtered,
+            t.id,
+          )) as unknown as Task,
+        );
+      }
+      result.tasks = projected;
     }
 
     return { ok: true, data: result };
@@ -328,7 +378,9 @@ export async function getTask(
     const relations = taskRelations(allTasks, task.id);
     const data: Record<string, unknown> = { ...task, ...relations };
 
-    // Apply field selection
+    // Apply field selection (ticket b2e56212: a projection ALWAYS carries
+    // commentCount/fileCount — see attachOmissionCounts — so reading one
+    // field never silently hides that discussion or attachments exist).
     if (input.fields && input.fields.length > 0) {
       const fieldSet = new Set(input.fields);
       const filtered: Record<string, unknown> = {};
@@ -338,7 +390,13 @@ export async function getTask(
         }
       }
       // SAFETY: filtered contains a subset of keys; partial Task is still structurally valid for JSON serialization
-      return { ok: true, data: filtered as unknown as Task };
+      const withCounts = await attachOmissionCounts(
+        ctx.projectDir,
+        filtered,
+        task.id,
+      );
+      // SAFETY: withCounts is the projected subset plus numeric count keys; structurally valid for JSON serialization as a partial Task
+      return { ok: true, data: withCounts as unknown as Task };
     }
 
     // SAFETY: data is a Task with added derived relation fields; structurally compatible for JSON serialization

@@ -32,6 +32,7 @@ import {
 import { listComments, addComment } from "./core/comments.js";
 import {
   queryTaskList,
+  queryAllTasks,
   resolveListLimit,
 } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
@@ -1141,8 +1142,14 @@ program
     "--limit <n>",
     // The number lives in exactly one place: DEFAULT_LIST_LIMIT in api-core
     // (ticket 9bb350a7) — the MCP `limit` schema defaults to the same
-    // constant, so the two surfaces cannot drift.
-    `Limit how many tasks are returned in list mode (default: ${DEFAULT_LIST_LIMIT}; use 0 for unlimited)`,
+    // constant, so the two surfaces cannot drift. Ticket b2e56212: 0 is NOT
+    // an unbounded mode — it resolves to the default LOUDLY (named in the
+    // --json envelope as `limitNotice`); use --all for everything.
+    `Limit how many tasks are returned in list mode (default: ${DEFAULT_LIST_LIMIT}; 0 is not supported and resolves to the default — use --all for everything)`,
+  )
+  .option(
+    "--all",
+    "Fetch every matching task in the current scope in list mode (combine with --children for the unfiltered whole board), paging internally with bounded requests (unbounded overall, bounded per request — no single unbounded read). The --json envelope reports the assembled set with truncated:false, remaining:0 and nextCursor:null.",
   )
   .option(
     "--dry-run",
@@ -1202,6 +1209,9 @@ program
         reportFile?: string;
         branch?: string;
         limit?: string;
+        // --all is list-only: fetch the whole matching set through the
+        // explicit paged helper (ticket b2e56212), never a magic limit.
+        all?: boolean;
         tag?: string[];
         // Repeatable link flags. All four default to [] via the commander
         // parser, so the edit path can read .length without a guard — but the
@@ -4457,43 +4467,81 @@ program
         // filtered query is an explicit search returning EVERY match.
         // The absent-flag default is DEFAULT_LIST_LIMIT (ticket 9bb350a7),
         // the same constant the MCP schema defaults to.
+        // Ticket b2e56212: there is NO unbounded mode on any surface. The
+        // raw flag value goes straight into queryTaskList, which resolves
+        // an explicit 0/<=0/NaN to the default LOUDLY (`limitNotice`) —
+        // resolveListLimit below is only the human-path page-size default,
+        // not a second rule. --all fetches the whole set through the
+        // EXPLICIT paged helper (bounded per request), never a magic limit.
         const taskLimit = resolveListLimit(opts.limit);
-        // The --json envelope returns the whole answer (limit applies to the
-        // human listing only), so it queries unlimited and reports the same
-        // labelled counts the MCP tool does.
-        const listed = queryTaskList(all, {
+        const rawLimit =
+          opts.limit === undefined ? undefined : parseInt(opts.limit, 10);
+        const listQuery = {
           status: opts.status,
           type: opts.type,
           user: opts.user,
           tag: opts.tag,
           children: opts.children,
-          limit: opts.json ? 0 : taskLimit,
-        });
+        };
+        const listed = opts.all
+          ? queryAllTasks(all, { ...listQuery, pageSize: taskLimit })
+          : queryTaskList(all, { ...listQuery, limit: rawLimit });
         const hiddenChildCount = listed.hiddenChildren;
-        let filtered = listed.tasks;
+        const filtered = listed.tasks;
 
         if (opts.json) {
           // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
           // Counts share the MCP vocabulary: totalMatching (every match),
           // totalRoots (matching roots), returned (rows in `tasks`), limit
-          // (0 = unlimited), truncated + hiddenChildren — plus the ticket-
-          // 9bb350a7 position fields (offset/remaining/nextCursor/order),
-          // read off the same shared listing result the MCP tool returns.
+          // (echoed RESOLVED, ticket b2e56212 — never 0), truncated +
+          // hiddenChildren — plus the ticket-9bb350a7 position fields
+          // (offset/remaining/nextCursor/order), read off the same shared
+          // listing result the MCP tool returns. `limitNotice` rides along
+          // only when an explicit bad limit fell back to the default.
+          // A --fields projection ALWAYS carries commentCount/fileCount
+          // (ticket b2e56212, change 3) from the same readers the human
+          // listing renders, so a projection never silently hides them.
+          const jsonProjectDir = resolve(dir);
+          const projectedTasks: Record<string, unknown>[] = [];
+          for (const t of filtered) {
+            // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
+            const picked = pickFields(
+              t as unknown as Record<string, unknown>,
+              parsedFields,
+            );
+            if (parsedFields.length === 0) {
+              projectedTasks.push(picked);
+              continue;
+            }
+            let commentCount = 0;
+            let fileCount = 0;
+            try {
+              commentCount = listComments(jsonProjectDir, t.id).length;
+              fileCount = listFiles(jsonProjectDir, t.id).length;
+            } catch {
+              // SAFETY: same JSON-superset read as above, only for the fallback count derivation.
+              const rec = t as unknown as Record<string, unknown>;
+              commentCount = Array.isArray(rec.comments)
+                ? rec.comments.length
+                : 0;
+              fileCount = Array.isArray(rec.files) ? rec.files.length : 0;
+            }
+            projectedTasks.push({ ...picked, commentCount, fileCount });
+          }
           outputEnvelope({
             ok: true,
             json: opts.json,
             payload: {
-              tasks: filtered.map((t) =>
-                pickFields(
-                  t as unknown as Record<string, unknown>,
-                  parsedFields,
-                ),
-              ),
+              tasks: projectedTasks,
               totalMatching: listed.totalMatching,
               totalRoots: listed.totalRoots,
               returned: listed.returned,
               limit: listed.limit,
+              ...(listed.limitNotice
+                ? { limitNotice: listed.limitNotice }
+                : {}),
               truncated: listed.truncated,
+              ...(listed.hint ? { hint: listed.hint } : {}),
               hiddenChildren: hiddenChildCount,
               offset: listed.offset,
               remaining: listed.remaining,
@@ -4503,11 +4551,6 @@ program
           });
           return;
         }
-
-        // Scoped pre-slice size for the footer: the roots when root-only,
-        // every match when children are included.
-        const totalFiltered =
-          hiddenChildCount > 0 ? listed.totalRoots : listed.totalMatching;
 
         if (filtered.length === 0) {
           console.log(chalk.dim("No tasks found."));
@@ -4551,12 +4594,16 @@ program
           printTaskDetails(task, agent, idx, config.port, projectDir, all);
         }
 
-        const limitSuffix =
-          !isNaN(taskLimit) && taskLimit > 0 && totalFiltered > taskLimit
-            ? chalk.yellow(
-                ` (showing ${taskLimit} of ${totalFiltered} matching — use --limit 0 for all)`,
-              )
-            : "";
+        // Ticket b2e56212: the footer echoes the shared hint (single
+        // spelling, no second wording) — and an explicit --limit 0 is
+        // resolved to the default LOUDLY, exactly like the --json
+        // envelope's `limitNotice`.
+        const limitSuffix = listed.truncated
+          ? chalk.yellow(` (${listed.hint})`)
+          : "";
+        if (listed.limitNotice) {
+          console.log(chalk.yellow(`  Note: ${listed.limitNotice}`));
+        }
         // Never hide existence silently: name the flag that reveals the children.
         const childSuffix =
           hiddenChildCount > 0

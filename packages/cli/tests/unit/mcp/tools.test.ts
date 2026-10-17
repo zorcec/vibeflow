@@ -131,7 +131,29 @@ describe("list_tasks", () => {
     expect(result.data?.returned).toBe(2);
     expect(result.data?.limit).toBe(2);
     expect(result.data?.truncated).toBe(true);
-    expect(result.data?.hint).toContain("limit 0");
+    // Ticket b2e56212: the hint no longer teaches `0 = all`.
+    expect(result.data?.hint).toContain("showing 2 of 3 matching");
+    expect(result.data?.hint).toContain("nextCursor");
+    expect(result.data?.hint).not.toContain("limit 0");
+    // Scope-aware remaining: root-only, so it counts down from totalRoots.
+    expect(result.data?.remaining).toBe(1);
+  });
+
+  it("limit:0 resolves to the default LOUDLY and is not unbounded (b2e56212)", async () => {
+    createTestTask({ id: "task-1" });
+    createTestTask({ id: "task-2" });
+    createTestTask({ id: "task-3" });
+
+    const result = await listTasks(ctx, { limit: 0 });
+    expect(result.ok).toBe(true);
+    // Below-default board: every row comes back — but the resolved limit
+    // is echoed and the fallback is NAMED (assert the text, not the count).
+    expect(result.data?.tasks).toHaveLength(3);
+    expect(result.data?.limit).toBe(20);
+    expect(result.data?.limitNotice).toBe(
+      "limit 0 is not supported — applied the default of 20; page with nextCursor",
+    );
+    expect(result.data?.truncated).toBe(false);
   });
 
   it("returns specific fields", async () => {
@@ -142,6 +164,21 @@ describe("list_tasks", () => {
     expect(result.data?.tasks[0]).toHaveProperty("id");
     expect(result.data?.tasks[0]).toHaveProperty("title");
     expect(result.data?.tasks[0]).not.toHaveProperty("description");
+  });
+
+  it("a fields projection still reports the counts of what it omitted (b2e56212)", async () => {
+    // Ticket b2e56212, change 3: comments/files omitted by `fields` must
+    // still be signalled — commentCount/fileCount ride every projected row.
+    createTestTask({ id: "task-1", title: "Task 1" });
+    await addComment(ctx, { id: "task-1", comment: "owner bug report" });
+
+    const result = await listTasks(ctx, { fields: ["id", "title"], limit: 10 });
+    expect(result.ok).toBe(true);
+    const row = result.data?.tasks[0] as unknown as Record<string, unknown>;
+    expect(row).not.toHaveProperty("comments");
+    expect(row).not.toHaveProperty("files");
+    expect(row.commentCount).toBe(1);
+    expect(row.fileCount).toBe(0);
   });
 });
 

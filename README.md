@@ -86,7 +86,9 @@ vibeflow tasks --next --type Bug                  # next bug ROOT task only
 # List tasks
 vibeflow tasks                                    # ROOT tasks only (default: 20 most recent)
 vibeflow tasks --children                         # include child tasks
-vibeflow tasks --limit 0                          # show all tasks (no limit)
+vibeflow tasks --all                            # show all tasks (explicit paging, bounded per request)
+# NOTE (ticket b2e56212): --limit 0 is NOT an unbounded mode — it resolves
+# to the default (20) loudly. Use --all for everything.
 vibeflow tasks --json                             # machine-readable JSON output
 
 # Filter

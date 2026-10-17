@@ -205,8 +205,11 @@ export const manifest: ToolManifest[] = [
   {
     name: "list_tasks",
     title: "List tasks",
+    // Description mirrors MCP_TOOL_DECLARATIONS list_tasks in
+    // @vibeflow-tools/api-core (ticket b2e56212) — same vocabulary, same
+    // spelling; update both together.
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed, 0 = unlimited), truncated + hint (present only when the limit cut rows — pass limit:0 for all). Position: offset (0-based index of the first returned row), remaining (matching rows NOT in this response; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable).",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -215,6 +218,7 @@ export const manifest: ToolManifest[] = [
         "--user",
         "--tag",
         "--limit",
+        "--all",
         "--fields",
         "--children",
       ],

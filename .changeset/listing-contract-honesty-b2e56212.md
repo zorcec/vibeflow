@@ -1,0 +1,5 @@
+---
+"@vibeflow-tools/cli": patch
+---
+
+`limit: 0` is no longer an unbounded mode on `vibeflow tasks` / `list_tasks`: an explicit 0 (or any non-positive value) now resolves to the default page size (`DEFAULT_LIST_LIMIT = 20`) exactly like omitting the parameter, and the fallback is named loudly — the `--json` envelope and the `list_tasks` result echo the resolved `limit` and carry a `limitNotice` ("limit 0 is not supported — applied the default of 20; page with nextCursor"), and the human listing prints the same note. Getting everything is now explicit paging: new `tasks --all` flag (bounded per request via the shared `queryAllTasks` helper, unbounded overall), with cursor paging (`nextCursor`) remaining the documented MCP path. `remaining` is now scope-aware (`offset + returned + remaining` always equals the in-scope size — `totalRoots` for a root-only listing, `totalMatching` otherwise), so it agrees with `hint` instead of overstating the work by `hiddenChildren`. Projected rows (`--fields` / `fields`) always carry `commentCount`/`fileCount` even when the arrays are omitted, so a projection never silently hides discussion or attachments.
