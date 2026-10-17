@@ -297,7 +297,6 @@ vibeflow mcp --project /path/to/project
 | `claim_next_task` | Claim the highest-priority root task in `todo` as `in-progress` |
 | `add_comment` | Comment on a task |
 | `attach_file` | Attach a file (base64); a `.md` satisfies the research-report gate |
-| `export_prompt` | Export one or more tasks as a formatted LLM prompt |
 | `verify_task` | Run visual verification for an annotated task |
 | `start_kanban` | Start the local Kanban board server and return its URLs |
 | `get_integration_guide` | The overlay/bookmarklet integration instructions |

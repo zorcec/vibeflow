@@ -305,7 +305,7 @@ export const V0_OPERATIONS: V0Operation[] = [
     scope: "tasks:read",
     planRow: 22,
     summary: "Export the structured agent prompt",
-    notes: "No local HTTP handler — MCP export_prompt. New endpoint. Runner marks NOT-RUNNABLE locally.",
+    notes: "MCP export_prompt REMOVED (ticket 53b622fc, BREAKING) — no MCP tool and no local handler remain. Endpoint unbuilt; runner marks NOT-RUNNABLE locally. Future v0 work must define its own shape.",
   },
   {
     id: "list-tokens",

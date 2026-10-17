@@ -2,8 +2,13 @@ import { describe, it, expect } from "vitest";
 import { manifest } from "../../src/mcp/manifest.js";
 
 describe("MCP manifest single source", () => {
-  it("has exactly 12 tools", () => {
-    expect(manifest.length).toBe(12);
+  it("has exactly 11 tools", () => {
+    // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
+    expect(manifest.length).toBe(11);
+  });
+
+  it("export_prompt is absent (removed, ticket 53b622fc)", () => {
+    expect(manifest.some((t) => t.name === "export_prompt")).toBe(false);
   });
 
   it("push_tasks is absent (hidden CLI push, intentionally unexposed)", () => {

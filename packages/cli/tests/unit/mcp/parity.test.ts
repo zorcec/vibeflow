@@ -586,7 +586,6 @@ describe("success payload carries notices", () => {
         tool: "attach_file",
         input: { id: "task-1", filename: "probe.png", contentB64: b64, dryRun: true },
       },
-      { tool: "export_prompt", input: { id: "task-1" } },
     ];
 
     const offenders: string[] = [];

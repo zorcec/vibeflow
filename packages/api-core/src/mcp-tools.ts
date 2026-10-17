@@ -61,12 +61,21 @@ export const DEFAULT_LIST_LIMIT = 20;
 // Re-exported from `core/operations.ts` for the same reason as above.
 export const ListTasksInput = z.object({
   // SAFETY: TASK_STATUSES is canonical; z.enum needs mutable tuple
-  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
+  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional().describe(
+    "Exact status match (backlog, todo, in-progress, review, done). Combines with the other filters: every given filter must match.",
+  ),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .optional(),
-  user: z.string().optional(),
-  tag: z.array(z.string()).optional(),
+    .optional()
+    .describe(
+      "Task type, matched case-insensitively (a task with no type counts as Task). Combines with the other filters.",
+    ),
+  user: z.string().optional().describe(
+    "Assignee match, trimmed and case-insensitive. Combines with the other filters.",
+  ),
+  tag: z.array(z.string()).optional().describe(
+    "Every listed tag must be present on the task (AND, not OR). Combines with the other filters.",
+  ),
   // DESCRIBED, not just typed: `tools/list` is the ONLY place a client can
   // read this before the SDK's input validation refuses the call with
   // `MCP error -32602: … at limit`, which is raised before any handler runs and
@@ -92,7 +101,9 @@ export const ListTasksInput = z.object({
    * includes matching children — exactly like `vibeflow tasks --status todo`
    * — so no match is ever hidden because its parent did not match.
    */
-  children: z.boolean().default(false),
+  children: z.boolean().default(false).describe(
+    "Include child tasks in an UNFILTERED listing (default false: roots only, matching the board). A filtered query always includes matching children, so this flag only matters when no status/type/user/tag filter is given.",
+  ),
 });
 export type ListTasksInputType = z.infer<typeof ListTasksInput>;
 
@@ -106,7 +117,9 @@ export const GetTaskInput = z.object({
     .describe(
       "Task id — a full id, or any unique prefix of one. Get a real id from list_tasks; an id that matches nothing is refused with TASK_NOT_FOUND.",
     ),
-  fields: z.array(z.string()).optional(),
+  fields: z.array(z.string()).optional().describe(
+    "Return only these task fields (e.g. [\"id\",\"title\",\"status\"]) instead of the full task with comments and files. Omit for full details.",
+  ),
 });
 export type GetTaskInputType = z.infer<typeof GetTaskInput>;
 
@@ -116,25 +129,45 @@ export const GetProjectInput = z.object({});
 export type GetProjectInputType = z.infer<typeof GetProjectInput>;
 
 export const CreateTaskInput = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
+  title: z.string().min(1).describe("Task title — the only required field."),
+  description: z.string().optional().describe(
+    "Longer task body (what to do, acceptance criteria). Optional; omit when the title says it all.",
+  ),
   // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
   status: z
     .enum(TASK_STATUSES as unknown as [string, ...string[]])
-    .default("todo"),
+    .default("todo")
+    .describe("Initial status. Defaults to todo; pass another status only to create the task already in motion."),
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .default("Task"),
-  priority: z.enum(["Critical", "High", "Medium", "Low"]).default("Medium"),
-  tags: z.array(z.string()).optional(),
-  url: z.string().optional(),
-  selector: z.string().default("/"),
-  cssSelector: z.string().optional(),
+    .default("Task")
+    .describe(
+      'Task type. Defaults to Task; use Research for an investigation (it reaches review on its attached .md report, with no verification verdict).',
+    ),
+  priority: z.enum(["Critical", "High", "Medium", "Low"]).default("Medium").describe(
+    "Priority tier, driving claim order (Critical first). Defaults to Medium.",
+  ),
+  tags: z.array(z.string()).optional().describe(
+    "Tags for filtering (list_tasks --tag matches every listed tag). Omit for untagged.",
+  ),
+  url: z.string().optional().describe(
+    "URL the annotation targets. Together with selector this makes the task annotated (overlay-verifiable); omit both for a plain task.",
+  ),
+  selector: z.string().default("/").describe(
+    "CSS selector of the annotated element (default \"/\", meaning the whole page). Only meaningful with url.",
+  ),
+  cssSelector: z.string().optional().describe(
+    "Alias of selector for clients that prefer the explicit name; both write the same field.",
+  ),
   // Optional explicit ordering key; core auto-assigns one when omitted.
-  sortKey: z.string().optional(),
+  sortKey: z.string().optional().describe(
+    "Explicit board ordering key. Omit it — core auto-assigns one — unless you must place the task exactly.",
+  ),
   // Optional parent task id (full id or unique prefix); links the new task
   // under it as a child.
-  parent: z.string().min(1).optional(),
+  parent: z.string().min(1).optional().describe(
+    "Parent task id (full id or unique prefix) to create this task as a child. Omit for a root task; merges with links as one union when both are given.",
+  ),
   // MERGE semantics, identical to `update_task`'s `links` and to the CLI's
   // `--relates` / `--blocks`: every listed pair is ADDED to the new task,
   // and `parent` (when given) is folded into the same set, so sending both
@@ -162,7 +195,9 @@ export const CreateTaskInput = z.object({
     ),
   // Preview only — never writes a task file. Present so the manifest's claim
   // that every mutating tool exposes `dryRun` is true for create_task too.
-  dryRun: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: validate the input and report what WOULD be created without writing a task file.",
+  ),
   fields: z
     .array(z.string())
     .optional()
@@ -180,10 +215,14 @@ export const UpdateTaskInput = z.object({
       "Task id — a full id, or any unique prefix of one, of the task to update. An id that matches nothing is refused with TASK_NOT_FOUND and changes nothing.",
     ),
   // SAFETY: TASK_STATUSES is a readonly tuple; z.enum requires a mutable tuple type.
-  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional(),
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  branch: z.string().optional(),
+  status: z.enum(TASK_STATUSES as unknown as [string, ...string[]]).optional().describe(
+    "New status. Moving to review triggers the review gate (comment, and for annotated tasks a verdict, may be required).",
+  ),
+  title: z.string().min(1).optional().describe("Replacement title. Omit to keep the current one."),
+  description: z.string().optional().describe("Replacement task body. Omit to keep the current one."),
+  branch: z.string().optional().describe(
+    "Branch for this task's work. REQUIRED on the review transition when the project sets createBranch (refused BRANCH_REQUIRED); stored as branchName.",
+  ),
   comment: z
     .string()
     .optional()
@@ -233,7 +272,9 @@ export const UpdateTaskInput = z.object({
     .describe(
       "Why the task cannot be verified. REQUIRED with setVerify:\"cannot\", and refused as E_USAGE on its own — a reason belongs to a \"cannot\" verdict.",
     ),
-  dryRun: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: validate the edit and report what WOULD change without writing the task file.",
+  ),
   // MERGE semantics, identical to the CLI's `--relates` / `--blocks` and to
   // `addLinks` below: every listed pair is ADDED, a pair already present is a
   // no-op (idempotent), and a link you leave out stays exactly where it is.
@@ -313,10 +354,17 @@ export type UpdateTaskInputType = z.infer<typeof UpdateTaskInput>;
 export const ClaimNextTaskInput = z.object({
   type: z
     .enum(["Task", "Bug", "Feature", "Enhancement", "Research"])
-    .optional(),
-  user: z.string().optional(),
-  tag: z.array(z.string()).optional(),
-  dryRun: z.boolean().default(false),
+    .optional()
+    .describe("Only claim a task of this type. Omit to claim across all types."),
+  user: z.string().optional().describe(
+    "Only claim a task assigned to this user (matched against the task author). Omit to claim anyone's work.",
+  ),
+  tag: z.array(z.string()).optional().describe(
+    "Only claim a task carrying every listed tag (AND). Omit for no tag filter.",
+  ),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: name the task that WOULD be claimed without moving it to in-progress.",
+  ),
 });
 export type ClaimNextTaskInputType = z.infer<typeof ClaimNextTaskInput>;
 
@@ -335,8 +383,12 @@ export const AddCommentInput = z.object({
     .describe(
       "The comment body — what changed, what you verified, what a reviewer should know. Required and non-empty: an empty body is refused by input validation before the tool runs.",
     ),
-  author: z.enum(["agent", "user"]).default("agent"),
-  dryRun: z.boolean().default(false),
+  author: z.enum(["agent", "user"]).default("agent").describe(
+    "Comment author. Defaults to agent; the CLI always derives it from git config, so only MCP can override it.",
+  ),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: validate the comment without writing it to the task.",
+  ),
 });
 export type AddCommentInputType = z.infer<typeof AddCommentInput>;
 
@@ -359,30 +411,11 @@ export const AttachFileInput = z.object({
     .describe(
       "The file content, base64-encoded (not raw bytes, and not a path to read). Required: omitting it is refused by input validation before the tool runs.",
     ),
-  dryRun: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: validate the filename and payload without writing a file.",
+  ),
 });
 export type AttachFileInputType = z.infer<typeof AttachFileInput>;
-
-export const ExportPromptInput = z.object({
-  id: z
-    .string()
-    .optional()
-    .describe(
-      "A FULL task id to export — this tool matches ids EXACTLY, so a prefix is NOT resolved and is refused with TASK_NOT_FOUND. Omit it (or pass `ids`) to export the whole board.",
-    ),
-  // Real behaviour, stated because it differs from the other id-bearing tools:
-  // no prefix resolution, and an id that matches nothing is SKIPPED rather than
-  // refused (a list is best-effort), so the answer can name fewer tasks than
-  // were asked for.
-  ids: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "FULL task ids to export, matched exactly. An id that matches no task is skipped rather than refused, so check that the rendered output names every id you asked for.",
-    ),
-  format: z.enum(["markdown", "json"]).default("markdown"),
-});
-export type ExportPromptInputType = z.infer<typeof ExportPromptInput>;
 
 export const VerifyTaskInput = z.object({
   id: z
@@ -391,13 +424,19 @@ export const VerifyTaskInput = z.object({
     .describe(
       "Task id — a full id, or any unique prefix of one, resolved by the same shared rule every other task tool uses. An id that matches nothing is refused with E_NOT_FOUND (this tool runs the CLI verify engine, which has its own code), and every refusal it returns carries a `suggestion`.",
     ),
-  url: z.string().url().optional(),
-  timeoutMs: z.number().min(1000).max(300000).default(60000),
+  url: z.string().url().optional().describe(
+    "App URL to verify against. Overrides the task's stored url for this run only; omit to use the task's own url.",
+  ),
+  timeoutMs: z.number().min(1000).max(300000).default(60000).describe(
+    "Per-run timeout in milliseconds (1000-300000, default 60000). Exceeding it refuses with VERIFY_TIMEOUT — raise it for slow apps.",
+  ),
   // Preview only — never writes a task file and never launches a browser.
   // verify_task mutates (it adds a system comment and records a verdict), so
   // without this input the manifest's claim that every mutating tool exposes
   // a `dryRun` was false for this one tool.
-  dryRun: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: resolve the id and report that verification WOULD run, without launching a browser or writing anything.",
+  ),
 });
 export type VerifyTaskInputType = z.infer<typeof VerifyTaskInput>;
 
@@ -470,7 +509,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted.",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted. Use it to browse or search the board; use get_task when you already hold an id, and claim_next_task when you want the next unit of work claimed rather than just listed.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -497,7 +536,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "get_task",
     title: "Get task",
     description:
-      "Get a single task by ID with full details including comments and files.",
+      "Get a single task by ID with full details including comments and files. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact projection instead of the full record. Read-only; changes nothing. Use it when list_tasks gave you an id or you already hold one; use list_tasks to search the board, and claim_next_task to pull the next unit of work.",
     cliRef: {
       command: "tasks",
       flags: ["--get"],
@@ -515,7 +554,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "get_project",
     title: "Get project",
     description:
-      "Return the resolved project this server is attached to: name, absolute root, git branch and mode. Read-only; takes no input.",
+      "Return the resolved project this server is attached to: name, absolute root, git branch and mode. Read-only; takes no input and changes nothing. Call it when you need board location or branch context before operating on tasks.",
     cliRef: { command: "status", flags: [] },
     category: "admin",
     annotations: {
@@ -530,7 +569,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "create_task",
     title: "Create task",
     description:
-      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
+      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object; pass dryRun to validate without writing anything. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links. Use it for a new unit of work; use update_task to change an existing task, and add_comment to discuss one without editing it.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -559,7 +598,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass `fields` (e.g. [\"id\",\"status\"]) for a compact answer instead of the full task object; pass dryRun to preview the edit without writing anything, and `branch` to record the work branch (required on the review transition when the project sets createBranch). REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity. Use it to change a task you already hold; use add_comment to discuss without changing fields, and verify_task to actually RUN visual verification (a verdict here records an assessment, it runs nothing).\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -593,7 +632,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "claim_next_task",
     title: "Claim next task",
     description:
-      "Claim the highest-priority todo task and set it to in-progress. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Mirrors 'vibeflow tasks --next'. An empty board is a SUCCESS, not a failure: the result is then `null` (an object means a task was claimed, `null` means there was nothing to claim), the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. A valid filter that matches no task is the same situation and gives the same `null`.",
+      "Claim the highest-priority todo task and set it to in-progress: the returned object IS the claimed task. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Optional type/user/tag filters narrow the pool (tags every-match); pass dryRun to preview the claim without moving the task. An empty board — or a valid filter matching nothing — is a SUCCESS with a `null` result, the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. Use it to pull the next unit of work; use list_tasks to browse without claiming, and get_task to inspect a task you already hold.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],
@@ -610,7 +649,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
   {
     name: "add_comment",
     title: "Add comment",
-    description: "Add a comment to a task. The body is `comment` — the same name as the CLI's --comment flag and update_task's field.",
+    description: "Add a comment to a task without changing any of its fields. The body is `comment` — the same name as the CLI's --comment flag and update_task's field. `author` defaults to agent; pass dryRun to validate without writing. Use it to discuss or record progress; use update_task's `comment` when the note accompanies a status or field change (review REQUIRES the note on the same call).",
     cliRef: {
       command: "tasks",
       // The only form that writes a comment is `tasks --edit <id> --comment`;
@@ -634,7 +673,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     // client reads: it is the only place a refused agent learns that
     // attach_file is the recovery path for RESEARCH_REPORT_REQUIRED.
     description:
-      "Attach a file to a task (content as base64). A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal.",
+      "Attach a file to a task (content as base64) without changing any of its fields. Re-attaching an existing filename overwrites its bytes in place — the file list gains no duplicate. Pass dryRun to validate without writing. A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal. Use it for reports, screenshots and evidence; use add_comment for discussion text.",
     cliRef: {
       command: "tasks",
       // The CLI form is `tasks --edit <id> --set-status review --report-file <path>`.
@@ -653,27 +692,10 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     input: AttachFileInput.shape,
   },
   {
-    name: "export_prompt",
-    title: "Export prompt",
-    description: "Export task(s) as formatted prompt for LLM consumption.",
-    cliRef: {
-      command: "tasks",
-      flags: ["--get", "--json"],
-    },
-    category: "task-read",
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    input: ExportPromptInput.shape,
-  },
-  {
     name: "verify_task",
     title: "Verify task",
     description:
-      "Run visual verification on a task. Captures baseline and compares.",
+      "Run visual verification on a task with the Playwright engine: it loads the task's annotated page (url + selector) and compares the live element against the baseline captured at annotation time. MUTATES: every run appends a system comment with the outcome — pass dryRun to resolve the id and preview without launching a browser or writing anything. Pass `url` to check a different app URL for this run only, and `timeoutMs` (default 60000, refused VERIFY_TIMEOUT past it) for slow apps. A task with no baseline refuses with E_NO_BASELINE (re-annotate in `vibeflow kanban` to capture one); an unknown id with E_NOT_FOUND. Use it to check an annotated task before review; use update_task's setVerify to record the human verdict (this tool never sets it).",
     cliRef: {
       command: "verify",
       flags: ["--json", "--url", "--timeout"],
@@ -691,7 +713,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "start_kanban",
     title: "Start kanban server",
     description:
-      "Start the local kanban board server and return the instruction block the CLI prints: the kanban URL, the localhost URL when bound to 0.0.0.0, the agent prompt, and the overlay integration guide. IDEMPOTENT — one server per process; a second call returns the running instance (alreadyRunning:true) instead of fighting for the port. Call it once before get_integration_guide so the guide carries real URLs.",
+      "Start the local kanban board server and return the instruction block the CLI prints: the kanban URL, the localhost URL when bound to 0.0.0.0, the agent prompt, and the overlay integration guide. IDEMPOTENT — one server per process; a second call returns the running instance (alreadyRunning:true) instead of fighting for the port. Pass dryRun to report the URLs without binding anything. Call it once before get_integration_guide so the guide carries real URLs; skip it entirely for remote or Docker setups where a localhost server is unreachable.",
     cliRef: {
       command: "kanban",
       flags: ["--port", "--host"],

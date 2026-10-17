@@ -1,5 +1,5 @@
 /**
- * MCP e2e — all 12 tools happy path over HTTP (spec §2.2).
+ * MCP e2e — all 11 tools happy path over HTTP (spec §2.2).
  *
  * Common contract per call: HTTP 200, JSON-RPC 2.0, content[0].text is
  * a string that JSON.parse succeeds. On-disk effects verified via
@@ -14,7 +14,6 @@
  *   claimNextTask  → Task object (with author when git user seeded)
  *   addComment     → TaskComment object (id, author, text, createdAt)
  *   attachFile     → FileInfo object (name, size, url)
- *   exportPrompt   → string
  *   verifyTaskOp   → unknown (error envelope: {error, message})
  */
 
@@ -344,40 +343,10 @@ describe("MCP tools happy paths", () => {
     expect(disk.files[0].name).toBe("report.md");
   });
 
-  // ── 11. export_prompt single ────────────────────────────────────────────
-
-  it("11: export_prompt single — renders agent prompt", async () => {
-    const r = await callTool(client, "create_task", { title: "Prompt task" });
-    const p = await assertJsonTextContent(r);
-
-    const res = await callTool(client, "export_prompt", {
-      id: p.id,
-      format: "markdown",
-    });
-    const parsed = await assertJsonTextContent(res);
-    // exportPrompt returns a string directly
-    const text = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
-    expect(text).toContain("Prompt task");
-    expect(text).toContain("id:");
-    expect(text).toContain("selector:");
-  });
-
-  // ── 12. export_prompt multi ─────────────────────────────────────────────
-
-  it("12: export_prompt with multiple ids", async () => {
-    const r1 = await callTool(client, "create_task", { title: "Multi A" });
-    const p1 = await assertJsonTextContent(r1);
-    const r2 = await callTool(client, "create_task", { title: "Multi B" });
-    const p2 = await assertJsonTextContent(r2);
-
-    const res = await callTool(client, "export_prompt", {
-      ids: [p1.id, p2.id],
-    });
-    const parsed = await assertJsonTextContent(res);
-    const text = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
-    expect(text).toContain("Multi A");
-    expect(text).toContain("Multi B");
-  });
+  // ── 11-12. REMOVED (ticket 53b622fc, BREAKING): export_prompt single/multi.
+  // The tool is gone; its single-task read is covered by get_task (test 4)
+  // and the render by `vibeflow tasks --get`. Numbers 11-12 stay vacant so
+  // the nested 11a-e / 12a-b suites below keep their numbering.
 
   // ── 13. verify_task error envelope (no browser) ─────────────────────────
 

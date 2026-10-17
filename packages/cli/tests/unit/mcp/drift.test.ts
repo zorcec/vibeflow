@@ -62,13 +62,14 @@ describe("MCP drift test", () => {
     expect(unique.size).toBe(names.length);
   });
 
-  it("all 12 MCP tools are registered", () => {
+  it("all 11 MCP tools are registered", () => {
+    // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
+    // get_task covers the single-task read, `vibeflow tasks --get` the render.
     const expectedTools = [
       "add_comment",
       "attach_file",
       "claim_next_task",
       "create_task",
-      "export_prompt",
       "get_integration_guide",
       "get_project",
       "get_task",
@@ -85,7 +86,6 @@ describe("MCP drift test", () => {
     const readOnlyTools = [
       "list_tasks",
       "get_task",
-      "export_prompt",
       "get_project",
       "get_integration_guide",
     ];

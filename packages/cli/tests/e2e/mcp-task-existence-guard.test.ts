@@ -134,13 +134,7 @@ const REACHABLE_REFUSALS: Array<
     }),
     code: "TASK_NOT_FOUND",
   },
-  {
-    group: "existence",
-    label: "export_prompt",
-    tool: "export_prompt",
-    input: () => ({ id: IMPOSSIBLE_ID }),
-    code: "TASK_NOT_FOUND",
-  },
+  // export_prompt row REMOVED (ticket 53b622fc, BREAKING): the tool is gone.
   {
     // `verify_task` resolves through the CLI verify engine, which has its own
     // E_NOT_FOUND code. It is in the sweep because it mutates (it adds a
@@ -373,7 +367,9 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     // fails here, and a row for a tool that no longer exists fails here too.
     expect(fromTable).toEqual(fromManifest);
     // Shape guard: a filter that matched nothing would make the sweep vacuous.
-    expect(fromManifest.length).toBeGreaterThanOrEqual(6);
+    // Ticket 53b622fc: export_prompt's removal dropped the id-bearing count
+    // from 6 to 5 — the floor moves with the toolset, deliberately.
+    expect(fromManifest.length).toBeGreaterThanOrEqual(5);
   });
 
   /**
@@ -456,7 +452,7 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     // per-row check can see it. This compares every (code → suggestion) pair
     // the sweep reached, across tools.
     const byCode = new Map<string, Map<string, Set<string>>>();
-    for (const { label, tool, isError, envelope } of await sweepOnce()) {
+    for (const { label, isError, envelope } of await sweepOnce()) {
       if (isError || envelope.ok !== false) continue;
       const code = envelope.error?.code;
       const suggestion = envelope.error?.suggestion ?? "";

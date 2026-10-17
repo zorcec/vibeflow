@@ -300,13 +300,8 @@ describe("MCP error paths", () => {
     await assertServerUsable(client);
   });
 
-  it("10: export_prompt nonexistent single id → TASK_NOT_FOUND", async () => {
-    const parsed = await parseEnvelope(
-      await callTool(client, "export_prompt", { id: NONEXISTENT_ID }),
-    );
-    expect(parsed.error.code).toBe("TASK_NOT_FOUND");
-    await assertServerUsable(client);
-  });
+  // Test 10 REMOVED (ticket 53b622fc, BREAKING): export_prompt is gone —
+  // the number stays vacant. Unknown-tool calls are still covered by test 1.
 
   it("11: claim_next_task empty board → null payload, a SUCCESS", async () => {
     // OWNER DECISION: "no work available" is not an error. The tool answers
@@ -407,7 +402,6 @@ describe("MCP error paths", () => {
       contentB64: "aGVsbG8=",
     });
     await callTool(client, "add_comment", { id: NONEXISTENT_ID, comment: "x" });
-    await callTool(client, "export_prompt", { id: NONEXISTENT_ID });
     await callTool(client, "claim_next_task", { dryRun: false });
     await callTool(client, "verify_task", {
       id: NONEXISTENT_ID,

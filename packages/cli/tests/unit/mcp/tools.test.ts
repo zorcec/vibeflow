@@ -17,7 +17,6 @@ import {
   claimNextTask,
   addComment,
   attachFile,
-  exportPrompt,
   verifyTaskOp,
   VERIFY_ERROR_SUGGESTION,
   type OperationContext,
@@ -680,31 +679,30 @@ describe("attach_file", () => {
   });
 });
 
-// ── export_prompt ──────────────────────────────────────────────────────────
+// ── export_prompt is intentionally GONE (ticket 53b622fc, BREAKING) ──────
 
-describe("export_prompt", () => {
-  it("exports a single task", async () => {
-    createTestTask({ id: "task-1", title: "Export Me" });
-
-    const result = await exportPrompt(ctx, { id: "task-1" });
-    expect(result.ok).toBe(true);
-    expect(result.data).toContain("Export Me");
+describe("export_prompt absence", () => {
+  it("exportPrompt is no longer exported from core/operations", async () => {
+    // The op was deleted with its tool: a leftover export would mean the
+    // removal was reverted while the manifest entry stayed gone (or the
+    // reverse). get_task covers the single-task read.
+    const ops = await import("../../../src/core/operations.js");
+    expect("exportPrompt" in ops).toBe(false);
   });
 
-  it("exports all tasks when no ID specified", async () => {
-    createTestTask({ id: "task-1", title: "Task 1" });
-    createTestTask({ id: "task-2", title: "Task 2" });
-
-    const result = await exportPrompt(ctx, {});
-    expect(result.ok).toBe(true);
-    expect(result.data).toContain("Task 1");
-    expect(result.data).toContain("Task 2");
-  });
-
-  it("returns error for non-existent task", async () => {
-    const result = await exportPrompt(ctx, { id: "non-existent" });
-    expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe("TASK_NOT_FOUND");
+  it("createMcpServer registers no export_prompt tool", async () => {
+    // Registration-level pin, mirroring the push_tasks absence test below:
+    // the manifest has no export_prompt entry, so the server loop must not
+    // expose one either.
+    const { createMcpServer } = await import("../../../src/mcp/server.js");
+    const server = createMcpServer(testDir, "local");
+    const registered = (server as unknown as {
+      _registeredTools: Record<
+        string,
+        { handler: (input: unknown) => Promise<unknown> }
+      >;
+    })._registeredTools;
+    expect("export_prompt" in registered).toBe(false);
   });
 });
 

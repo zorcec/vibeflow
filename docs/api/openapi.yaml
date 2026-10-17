@@ -2007,7 +2007,7 @@ paths:
     post:
       operationId: export-prompt
       summary: Export the structured agent prompt
-      description: "No local HTTP handler — MCP export_prompt. New endpoint. Runner marks NOT-RUNNABLE locally."
+      description: "MCP export_prompt REMOVED (ticket 53b622fc, BREAKING) — no MCP tool and no local handler remain. Endpoint unbuilt; runner marks NOT-RUNNABLE locally. Future v0 work must define its own shape."
       tags:
         - Agent
       x-vibeflow-scope: "tasks:read"

@@ -184,8 +184,6 @@ import {
   type ClaimNextTaskInputType,
   CreateTaskInput,
   type CreateTaskInputType,
-  ExportPromptInput,
-  type ExportPromptInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
   GetProjectInput,
@@ -210,8 +208,6 @@ export {
   type ClaimNextTaskInputType,
   CreateTaskInput,
   type CreateTaskInputType,
-  ExportPromptInput,
-  type ExportPromptInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
   GetProjectInput,
@@ -1246,114 +1242,12 @@ export async function attachFile(
   }
 }
 
-export async function exportPrompt(
-  ctx: OperationContext,
-  input: ExportPromptInputType,
-): Promise<OperationResult<string>> {
-  try {
-    const {
-      listTasks: coreListTasks,
-      renderTaskForAgent,
-      findTaskFilePath,
-      readTaskFile,
-    } = await import("../core/tasks.js");
-    const { listComments } = await import("../core/comments.js");
-    const { listFiles } = await import("../core/files.js");
-
-    if (input.id) {
-      const filePath = findTaskFilePath(ctx.projectDir, input.id);
-      if (!filePath) {
-        return {
-          ok: false,
-          error: {
-            code: "TASK_NOT_FOUND",
-            message: `Task not found: ${input.id}`,
-            suggestion: TASK_NOT_FOUND_SUGGESTION,
-          },
-        };
-      }
-      const task = readTaskFile(filePath);
-      if (!task) {
-        return {
-          ok: false,
-          error: {
-            code: "TASK_READ_ERROR",
-            message: `Failed to read task: ${input.id}`,
-            suggestion:
-              "The task file exists but did not parse — check it is valid JSON, or re-create the task",
-          },
-        };
-      }
-      const comments = listComments(ctx.projectDir, input.id);
-      const files = listFiles(ctx.projectDir, input.id);
-      const allTasks = coreListTasks(ctx.projectDir);
-      const rendered = renderTaskForAgent(
-        task,
-        filePath,
-        comments,
-        files,
-        ctx.projectDir,
-        allTasks,
-      );
-      return { ok: true, data: rendered };
-    }
-
-    if (input.ids && input.ids.length > 0) {
-      const results: string[] = [];
-      for (const id of input.ids) {
-        const filePath = findTaskFilePath(ctx.projectDir, id);
-        if (!filePath) continue;
-        const task = readTaskFile(filePath);
-        if (!task) continue;
-        const comments = listComments(ctx.projectDir, id);
-        const files = listFiles(ctx.projectDir, id);
-        const allTasks = coreListTasks(ctx.projectDir);
-        results.push(
-          renderTaskForAgent(
-            task,
-            filePath,
-            comments,
-            files,
-            ctx.projectDir,
-            allTasks,
-          ),
-        );
-      }
-      return { ok: true, data: results.join("\n\n") };
-    }
-
-    // Export all tasks
-    const allTasks = coreListTasks(ctx.projectDir);
-    const results: string[] = [];
-    for (const task of allTasks) {
-      const filePath = findTaskFilePath(ctx.projectDir, task.id);
-      if (!filePath) continue;
-      const comments = listComments(ctx.projectDir, task.id);
-      const files = listFiles(ctx.projectDir, task.id);
-      results.push(
-        renderTaskForAgent(
-          task,
-          filePath,
-          comments,
-          files,
-          ctx.projectDir,
-          allTasks,
-        ),
-      );
-    }
-    return { ok: true, data: results.join("\n\n") };
-  } catch (err) {
-    return {
-      ok: false,
-      error: {
-        code: "EXPORT_PROMPT_ERROR",
-        message: err instanceof Error ? err.message : "Failed to export prompt",
-        suggestion:
-          "Call get_task for the id to check it exists and that its file parses, then retry export_prompt",
-      },
-    };
-  }
-}
+// REMOVED (ticket 53b622fc, BREAKING): exportPrompt — the whole-board
+// prompt exporter — was deleted with its export_prompt tool. Its single-task
+// read is covered by get_task and its human render by `vibeflow tasks --get`
+// (both via renderTaskForAgent in core/tasks.ts, which stays: the CLI
+// display paths and watch.ts still use it). Callers needing the old
+// multi-task dump: loop get_task over the ids from list_tasks.
 
 // Verify task uses the CLI verify command
 // Semaphore ensures only one verify runs at a time (spec §5.9)

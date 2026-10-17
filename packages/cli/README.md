@@ -182,7 +182,7 @@ field when the real mistake was the tool's name.
 
 Because `tools/list` is the only place a client can read the contract *before* it fails, the input
 shapes publish a `description` for every field an agent commonly gets wrong — `id` on each task tool
-(most take a full id or a unique prefix; `export_prompt` matches ids exactly, and says so), the
+(most take a full id or a unique prefix), the
 `setVerify`/`verifyReason` pair, `limit`, `contentB64`, the comment
 body, and `filename` (its extension decides acceptance). Read them there; there is no second chance.
 
@@ -195,7 +195,7 @@ Three rules for the JSON case, all of them the CLI's own conventions:
   fired; the suggestion tells you the input that satisfies it. `error.suggestion` is a non-empty string
   on every tool-level refusal — including the generic `catch` wrappers (`LIST_TASKS_ERROR`,
   `GET_TASK_ERROR`, `CREATE_TASK_ERROR`, `UPDATE_TASK_ERROR`, `ADD_COMMENT_ERROR`, `ATTACH_FILE_ERROR`,
-  `EXPORT_PROMPT_ERROR`, `VERIFY_TASK_ERROR`, `PUSH_TASKS_ERROR`, `CLAIM_TASK_ERROR`) — and it names
+  `VERIFY_TASK_ERROR`, `PUSH_TASKS_ERROR`, `CLAIM_TASK_ERROR`) — and it names
   **both** surfaces where the same gate is reachable: the MCP input or tool *and* the CLI flag. A
   shared gate's suggestion is read by the CLI and by MCP `update_task` alike, so a CLI-only
   suggestion is an answer an MCP client cannot act on. (`verify_task` is the one tool that returns

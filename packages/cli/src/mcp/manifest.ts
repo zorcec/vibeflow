@@ -17,7 +17,6 @@ import {
   ClaimNextTaskInput,
   AddCommentInput,
   AttachFileInput,
-  ExportPromptInput,
   VerifyTaskInput,
   StartKanbanInput,
   GetIntegrationGuideInput,
@@ -29,7 +28,6 @@ import {
   claimNextTask,
   addComment,
   attachFile,
-  exportPrompt,
   verifyTaskOp,
   startKanban,
   getIntegrationGuide,
@@ -83,6 +81,11 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     watch: "long-running task-store event daemon / JSONL stream; not an operation",
   },
   flags: {
+    // Machine-output formatting for human CLI rendering. The MCP wire payload
+    // is already JSON on every tool, so there is no operation to map it to.
+    // Previously owned by export_prompt's cliRef (ticket 53b622fc removed it).
+    "tasks --json":
+      "output-format flag for `tasks` human rendering; every MCP tool already answers in JSON, so no tool owns it",
     "tasks --commit":
       "commits staged paths and links the SHA to a task — a local git workflow; update_task covers the review auto-commit path",
     "tasks --task": "task selector for --commit only; not an operation on its own",
@@ -191,10 +194,6 @@ export const mcpOnlyFields: Record<string, string> = {
     "target filename. The CLI takes a path on disk via --report-file and reads the file itself; MCP takes the bytes and the name, because a client may not share a filesystem.",
   "attach_file.contentB64":
     "base64 file content — the same reason as attach_file.filename: an MCP client is frequently not on this machine, so the CLI's read-the-path-from-disk model does not apply.",
-  "export_prompt.ids":
-    "multi-task export. The CLI's --get resolves a single task, so exporting several at once is MCP-only.",
-  "export_prompt.format":
-    "output format selector. The CLI has a single fixed prompt format, so the choice is MCP-only.",
   "verify_task.timeoutMs":
     "per-call verification timeout, and the CLI equivalent DOES exist: `vibeflow verify <task-id> --timeout <ms>` bounds one run with the same unit (milliseconds), the same 1000-300000 range and the same 60000 default, through the same AbortSignal the engine already honours. The field is MCP-only in NAME and SHAPE (a camelCase input field with a default vs a `--timeout` flag that also defaults), not in capability. Kept because the dashed form G5 looks for is `--timeout-ms`, which is not a flag anyone types.",
 };
@@ -209,7 +208,7 @@ export const manifest: ToolManifest[] = [
     // @vibeflow-tools/api-core (ticket b2e56212) — same vocabulary, same
     // spelling; update both together.
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted.",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted. Use it to browse or search the board; use get_task when you already hold an id, and claim_next_task when you want the next unit of work claimed rather than just listed.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -239,7 +238,7 @@ export const manifest: ToolManifest[] = [
     name: "get_task",
     title: "Get task",
     description:
-      "Get a single task by ID with full details including comments and files.",
+      "Get a single task by ID with full details including comments and files. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact projection instead of the full record. Read-only; changes nothing. Use it when list_tasks gave you an id or you already hold one; use list_tasks to search the board, and claim_next_task to pull the next unit of work.",
     cliRef: {
       command: "tasks",
       flags: ["--get"],
@@ -259,7 +258,7 @@ export const manifest: ToolManifest[] = [
     name: "get_project",
     title: "Get project",
     description:
-      "Return the resolved project this server is attached to: name, absolute root, git branch and mode. Read-only; takes no input.",
+      "Return the resolved project this server is attached to: name, absolute root, git branch and mode. Read-only; takes no input and changes nothing. Call it when you need board location or branch context before operating on tasks.",
     cliRef: { command: "status", flags: [] },
     category: "admin",
     annotations: {
@@ -276,7 +275,7 @@ export const manifest: ToolManifest[] = [
     name: "create_task",
     title: "Create task",
     description:
-      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links.",
+      "Create a new task with title, description, and metadata. Pass `fields` (e.g. [\"id\",\"title\",\"status\"]) for a compact answer instead of the full task object; pass dryRun to validate without writing anything. LINKS merge: `links` ADDS every listed taskId+type pair to the new task and `parent` (when given) is folded into the same union, so sending both merges once and a pair named twice is a no-op — the same MERGE semantic update_task has, where a link you do not name is simply absent (a new task has nothing to preserve). `links: []` is REFUSED — omit the field for no links. Use it for a new unit of work; use update_task to change an existing task, and add_comment to discuss one without editing it.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -309,7 +308,7 @@ export const manifest: ToolManifest[] = [
     name: "update_task",
     title: "Update task",
     description:
-      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass `fields` (e.g. [\"id\",\"status\"]) for a compact answer instead of the full task object. REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity.\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
+      "Update an existing task. Supports status changes, title/description updates, adding comments, and changing the task's links (parent/relates/blocks). Pass `fields` (e.g. [\"id\",\"status\"]) for a compact answer instead of the full task object; pass dryRun to preview the edit without writing anything, and `branch` to record the work branch (required on the review transition when the project sets createBranch). REVIEW GATE (same rules as `vibeflow tasks --edit`, same codes): status \"review\" REQUIRES `comment` (refused REVIEW_COMMENT_REQUIRED); an ANNOTATED task (url + selector) additionally REQUIRES a verdict (`setVerify` pass/fail/cannot — refused VERIFY_REQUIRED); `commitMessage` is REQUIRED when auto-commit is ON (refused COMMIT_MESSAGE_REQUIRED); a Research task must NOT carry a verdict (refused RESEARCH_VERIFY_NOT_ALLOWED — submit Research with its .md report, no verdict). Pass setVerify to record your verification verdict: \"pass\" attests the task IS implemented correctly (verified=true, green badge — required for annotated tasks at the review transition, which `vibeflow verify` never sets itself), \"fail\" records that it is NOT implemented correctly (verified=false, amber badge, the review gate rejects it), and \"cannot\" clears the verdict back to absent (no badge) for a task that cannot be assessed here — \"cannot\" REQUIRES verifyReason, which is recorded in the task's activity. Use it to change a task you already hold; use add_comment to discuss without changing fields, and verify_task to actually RUN visual verification (a verdict here records an assessment, it runs nothing).\n\nLINKS — everything merges, and `clearLinks` is the only destructive path. `links` and `addLinks` both MERGE: a link you do not name is PRESERVED, and re-sending a link that is already there is a no-op, so neither of them can destroy a link by being incomplete. `removeLinks` removes exactly the taskId+type pairs you name and leaves every other link alone. `clearLinks: true` is the ONLY way to remove links wholesale — to drop a single link, name that taskId+type in `removeLinks` rather than editing `links`. Omitting all four fields leaves links untouched. The CLI's `--set-parent`/`--relates`/`--blocks`/`--unrelates`/`--unblocks` behave the same way (each is surgical and preserves every link it does not name), so the CLI and MCP surfaces now agree on link semantics.",
     cliRef: {
       command: "tasks",
       flags: [
@@ -347,7 +346,7 @@ export const manifest: ToolManifest[] = [
     name: "claim_next_task",
     title: "Claim next task",
     description:
-      "Claim the highest-priority todo task and set it to in-progress. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Mirrors 'vibeflow tasks --next'. An empty board is a SUCCESS, not a failure: the result is then `null` (an object means a task was claimed, `null` means there was nothing to claim), the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. A valid filter that matches no task is the same situation and gives the same `null`.",
+      "Claim the highest-priority todo task and set it to in-progress: the returned object IS the claimed task. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Optional type/user/tag filters narrow the pool (tags every-match); pass dryRun to preview the claim without moving the task. An empty board — or a valid filter matching nothing — is a SUCCESS with a `null` result, the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. Use it to pull the next unit of work; use list_tasks to browse without claiming, and get_task to inspect a task you already hold.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],
@@ -367,7 +366,7 @@ export const manifest: ToolManifest[] = [
   {
     name: "add_comment",
     title: "Add comment",
-    description: "Add a comment to a task. The body is `comment` — the same name as the CLI's --comment flag and update_task's field.",
+    description: "Add a comment to a task without changing any of its fields. The body is `comment` — the same name as the CLI's --comment flag and update_task's field. `author` defaults to agent; pass dryRun to validate without writing. Use it to discuss or record progress; use update_task's `comment` when the note accompanies a status or field change (review REQUIRES the note on the same call).",
     cliRef: {
       command: "tasks",
       // The only form that writes a comment is `tasks --edit <id> --comment`;
@@ -394,7 +393,7 @@ export const manifest: ToolManifest[] = [
     // client reads: it is the only place a refused agent learns that
     // attach_file is the recovery path for RESEARCH_REPORT_REQUIRED.
     description:
-      "Attach a file to a task (content as base64). A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal.",
+      "Attach a file to a task (content as base64) without changing any of its fields. Re-attaching an existing filename overwrites its bytes in place — the file list gains no duplicate. Pass dryRun to validate without writing. A filename ending in `.md` is what satisfies the research-report gate: a `type:\"Research\"` task is refused review with RESEARCH_REPORT_REQUIRED until a `.md` is attached, so attaching the report is how to recover from that refusal. Use it for reports, screenshots and evidence; use add_comment for discussion text.",
     cliRef: {
       command: "tasks",
       // The CLI form is `tasks --edit <id> --set-status review --report-file <path>`.
@@ -415,31 +414,15 @@ export const manifest: ToolManifest[] = [
     run: (ctx, input) =>
       attachFile(ctx, input as z.infer<typeof AttachFileInput>),
   },
-  {
-    name: "export_prompt",
-    title: "Export prompt",
-    description: "Export task(s) as formatted prompt for LLM consumption.",
-    cliRef: {
-      command: "tasks",
-      flags: ["--get", "--json"],
-    },
-    category: "task-read",
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    input: ExportPromptInput.shape,
-    schema: ExportPromptInput.strict(),
-    run: (ctx, input) =>
-      exportPrompt(ctx, input as z.infer<typeof ExportPromptInput>),
-  },
+  // REMOVED (ticket 53b622fc): export_prompt was deleted here — the
+  // whole-board prompt exporter. Its single-task read is covered by
+  // get_task and its board render by `vibeflow tasks --get`; no
+  // mcpOnlyFields entries remain for it (G5 fails on stale entries).
   {
     name: "verify_task",
     title: "Verify task",
     description:
-      "Run visual verification on a task. Captures baseline and compares.",
+      "Run visual verification on a task with the Playwright engine: it loads the task's annotated page (url + selector) and compares the live element against the baseline captured at annotation time. MUTATES: every run appends a system comment with the outcome — pass dryRun to resolve the id and preview without launching a browser or writing anything. Pass `url` to check a different app URL for this run only, and `timeoutMs` (default 60000, refused VERIFY_TIMEOUT past it) for slow apps. A task with no baseline refuses with E_NO_BASELINE (re-annotate in `vibeflow kanban` to capture one); an unknown id with E_NOT_FOUND. Use it to check an annotated task before review; use update_task's setVerify to record the human verdict (this tool never sets it).",
     cliRef: {
       command: "verify",
       flags: ["--json", "--url", "--timeout"],
@@ -460,7 +443,7 @@ export const manifest: ToolManifest[] = [
     name: "start_kanban",
     title: "Start kanban server",
     description:
-      "Start the local kanban board server and return the instruction block the CLI prints: the kanban URL, the localhost URL when bound to 0.0.0.0, the agent prompt, and the overlay integration guide. IDEMPOTENT — one server per process; a second call returns the running instance (alreadyRunning:true) instead of fighting for the port. Call it once before get_integration_guide so the guide carries real URLs.",
+      "Start the local kanban board server and return the instruction block the CLI prints: the kanban URL, the localhost URL when bound to 0.0.0.0, the agent prompt, and the overlay integration guide. IDEMPOTENT — one server per process; a second call returns the running instance (alreadyRunning:true) instead of fighting for the port. Pass dryRun to report the URLs without binding anything. Call it once before get_integration_guide so the guide carries real URLs; skip it entirely for remote or Docker setups where a localhost server is unreachable.",
     cliRef: {
       command: "kanban",
       flags: ["--port", "--host"],

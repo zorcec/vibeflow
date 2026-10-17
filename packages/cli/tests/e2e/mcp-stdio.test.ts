@@ -178,12 +178,13 @@ describe("stdio transport (W4)", () => {
     expect(init!.result.serverInfo.name).toBe("vibeflow");
   });
 
-  it("stdio: tools/list returns 12 tools", async () => {
+  it("stdio: tools/list returns 11 tools", async () => {
     const run = await standardSession();
     const list = parseFrames(run.stdout).find((f) => f.id === 2);
     expect(list, "no tools/list response").toBeTruthy();
     const names = list!.result.tools.map((t: { name: string }) => t.name);
-    expect(names.length).toBe(12);
+    // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
+    expect(names.length).toBe(11);
     expect(names).toContain("get_project");
   });
 
