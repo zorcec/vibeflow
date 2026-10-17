@@ -39,6 +39,14 @@
       { "name": "minimal-no-selector", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v0 minimal" } }, "expect": { "status": 200, "shape": "task", "conformance": "v0: selector OPTIONAL (annotation is local-only); local handler requires it today — convergence item" }, "expectCloud": { "status": 201 } },
       { "name": "full", "request": { "method": "POST", "path": "/api/tasks", "body": { "title": "v0 full", "selector": "#app", "priority": "High" } }, "expect": { "status": 200, "shape": "task", "conformance": "created task echoes the write vocabulary" }, "expectCloud": { "status": 201 } }
     ] },
+    { "id": "batch-create-tasks", "v0": { "method": "POST", "path": "/api/v0/tasks/batch" }, "local": null, "runnable": "no-local-handler", "phase": 3, "surfaces": ["cloud"], "cases": [
+      { "name": "mixed-valid-invalid", "request": { "method": "POST", "path": "/api/v0/tasks/batch", "body": { "items": [{ "title": "v0 batch one" }, { "description": "no title" }, { "title": "v0 batch two", "status": "done" }] } }, "expect": { "status": 200, "conformance": "batch honesty (ticket b4c525fa): envelope 200, per-item [{ id } | { error }] in request order — 2 created + 1 INVALID_TITLE; exact per-item pinning lives in the private v0-batch unit suite (quota-hit, cap boundary)" } },
+      { "name": "empty", "request": { "method": "POST", "path": "/api/v0/tasks/batch", "body": { "items": [] } }, "expect": { "status": 200, "conformance": "empty chunk is a no-op success (idempotent-friendly), not a 400" } },
+      { "name": "items-not-array", "request": { "method": "POST", "path": "/api/v0/tasks/batch", "body": { "items": { "title": "not an array" } } }, "expect": { "status": 400, "conformance": "non-array items is a caller bug: whole-request 400 INVALID_ITEMS, not per-item errors" } }
+    ] },
+    { "id": "batch-preflight", "v0": { "method": "GET", "path": "/api/v0/tasks/batch" }, "local": null, "runnable": "no-local-handler", "phase": 3, "surfaces": ["cloud"], "cases": [
+      { "name": "green", "request": { "method": "GET", "path": "/api/v0/tasks/batch" }, "expect": { "status": 200, "conformance": "preflight (ticket b4c525fa): { maxItems: 100, plan, open/total limit+used+remaining } before chunk one; exact capacity math pinned in the private v0-batch unit suite" } }
+    ] },
     { "id": "patch-task", "v0": { "method": "PATCH", "path": "/api/v0/tasks/{id}" }, "local": { "method": "PATCH", "path": "/api/tasks/{taskId}" }, "runnable": "write", "phase": 3, "surfaces": ["local", "cloud"], "shape": "task", "seed": { "taskId": "<fixture todo task>" }, "cases": [
       { "name": "status-transition", "request": { "method": "PATCH", "path": "/api/tasks/{taskId}", "body": { "status": "in-progress" } }, "expect": { "status": 200, "shape": "task", "conformance": "hyphenated status accepted on write (D6)" } }
     ] },

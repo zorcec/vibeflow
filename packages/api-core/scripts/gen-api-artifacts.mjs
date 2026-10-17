@@ -249,6 +249,8 @@ function responseFor(op) {
     "list-tasks": { $ref: "#/components/schemas/TaskList" },
     "get-task": { $ref: "#/components/schemas/Task" },
     "create-task": { $ref: "#/components/schemas/Task" },
+    "batch-create-tasks": { $ref: "#/components/schemas/TaskBatchResult" },
+    "batch-preflight": { $ref: "#/components/schemas/BatchPreflight" },
     "patch-task": { $ref: "#/components/schemas/Task" },
     "delete-task": { $ref: "#/components/schemas/Task" },
     "mark-opened": { $ref: "#/components/schemas/Task" },
@@ -304,6 +306,10 @@ function requestBodyFor(op) {
   const bodies = {
     "create-task": {
       schema: { $ref: "#/components/schemas/TaskCreate" },
+      required: true,
+    },
+    "batch-create-tasks": {
+      schema: { $ref: "#/components/schemas/TaskBatchCreate" },
       required: true,
     },
     "patch-task": { schema: { $ref: "#/components/schemas/TaskPatch" } },
@@ -542,6 +548,79 @@ function buildSchemas(contract) {
         nextCursor: { type: "string", nullable: true },
       },
       required: ["items"],
+    },
+    TaskBatchCreate: {
+      type: "object",
+      description:
+        "Body of POST /api/v0/tasks/batch (ticket b4c525fa): one chunk of single-create bodies (max 100/req — the server answers 400 BATCH_TOO_LARGE over the cap). Each item accepts the TaskCreate field set.",
+      properties: {
+        items: {
+          type: "array",
+          maxItems: 100,
+          items: { $ref: "#/components/schemas/TaskCreate" },
+        },
+        boardId: { type: "string" },
+      },
+      required: ["items"],
+    },
+    TaskBatchResult: {
+      type: "object",
+      description:
+        "Envelope of POST /api/v0/tasks/batch (ticket b4c525fa): ALWAYS 200 past request-level validation — per-item failures are data, never transport errors. `results` aligns to request order (the links-phase idMap); `quota` carries post-batch remaining capacity for the CLI chunk loop.",
+      properties: {
+        created: { type: "integer" },
+        failed: { type: "integer" },
+        results: {
+          type: "array",
+          items: {
+            oneOf: [
+              {
+                type: "object",
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+              {
+                type: "object",
+                properties: {
+                  error: {
+                    type: "object",
+                    properties: {
+                      code: { type: "string" },
+                      message: { type: "string" },
+                    },
+                    required: ["code", "message"],
+                  },
+                },
+                required: ["error"],
+              },
+            ],
+          },
+        },
+        quota: {
+          type: "object",
+          properties: {
+            openRemaining: { type: "integer", nullable: true },
+            totalRemaining: { type: "integer", nullable: true },
+          },
+        },
+      },
+      required: ["created", "failed", "results"],
+    },
+    BatchPreflight: {
+      type: "object",
+      description:
+        "Envelope of GET /api/v0/tasks/batch (ticket b4c525fa): remaining task capacity BEFORE the first batch POST. Limits (and remainings) are null when the plan caps nothing on that dimension.",
+      properties: {
+        maxItems: { type: "integer" },
+        plan: { type: "string" },
+        openLimit: { type: "integer", nullable: true },
+        openUsed: { type: "integer" },
+        openRemaining: { type: "integer", nullable: true },
+        totalLimit: { type: "integer", nullable: true },
+        totalUsed: { type: "integer" },
+        totalRemaining: { type: "integer", nullable: true },
+      },
+      required: ["maxItems", "plan"],
     },
     TaskCreate: {
       type: "object",

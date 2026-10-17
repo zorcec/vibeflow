@@ -60,6 +60,38 @@
         }
       }
     },
+    "batch-create-tasks": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v0/tasks/batch",
+        "body": { "items": [{ "title": "Migrate checkout step 1" }, { "title": "Migrate checkout step 2", "status": "todo" }] }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "created": 2,
+          "failed": 0,
+          "results": [{ "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90" }, { "id": "b2c3d4e5f60718293a4b5c6d7e8f90a1" }],
+          "quota": { "openRemaining": 498, "totalRemaining": 1998 }
+        }
+      }
+    },
+    "batch-preflight": {
+      "request": { "method": "GET", "path": "/api/v0/tasks/batch" },
+      "response": {
+        "status": 200,
+        "body": {
+          "maxItems": 100,
+          "plan": "free",
+          "openLimit": 500,
+          "openUsed": 2,
+          "openRemaining": 498,
+          "totalLimit": 2000,
+          "totalUsed": 2,
+          "totalRemaining": 1998
+        }
+      }
+    },
     "patch-task": {
       "request": {
         "method": "PATCH",

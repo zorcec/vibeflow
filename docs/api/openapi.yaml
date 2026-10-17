@@ -365,6 +365,138 @@ paths:
       x-vibeflow-example-request:
         method: DELETE
         path: "/api/v0/tasks/a1b2c3d4e5f60718293a4b5c6d7e8f90"
+  "/api/v0/tasks/batch":
+    post:
+      operationId: batch-create-tasks
+      summary: Create up to 100 tasks in one chunk
+      description: "Ticket b4c525fa: { items: [...] } (max 100/req, named constant V0_BATCH_MAX_ITEMS) runs the single-create validation + quota + plan checks PER ITEM and returns per-item results [{ id } | { error: { code, message } }] in request order — one bad item never sinks the batch and the ordered array is the idMap the links phase needs. One multi-row insert per chunk; quota consumes per created item; quota-hit items fail per-item with 402 TASK_LIMIT. Runner marks NOT-RUNNABLE locally."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:write"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 3
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Create up to 100 tasks in one chunk — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TaskBatchResult"
+              examples:
+                documented:
+                  value:
+                    created: 2
+                    failed: 0
+                    results:
+                      - id: a1b2c3d4e5f60718293a4b5c6d7e8f90
+                      - id: b2c3d4e5f60718293a4b5c6d7e8f90a1
+                    quota:
+                      openRemaining: 498
+                      totalRemaining: 1998
+        "400":
+          description: Malformed request (includes invalid task/comment id form)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: Unknown id
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TaskBatchCreate"
+            examples:
+              documented:
+                value:
+                  items:
+                    - title: Migrate checkout step 1
+                    - title: Migrate checkout step 2
+                      status: todo
+      security:
+        - bearerAuth:
+            []
+      x-vibeflow-example-request:
+        method: POST
+        path: "/api/v0/tasks/batch"
+    get:
+      operationId: batch-preflight
+      summary: "Preflight: remaining task capacity before the first batch POST"
+      description: "Ticket b4c525fa: reports { maxItems, plan, open/total limit+used+remaining } so the CLI refuses-or-confirms before chunk one instead of discovering the cap mid-push. Scope is reads (probing must not require write); a 404 on old servers doubles as the CLI capability probe. Runner marks NOT-RUNNABLE locally."
+      tags:
+        - Tasks
+      x-vibeflow-scope: "tasks:read"
+      x-vibeflow-local: no local HTTP handler
+      x-plan-row: 3
+      parameters:
+        []
+      responses:
+        "200":
+          description: "Preflight: remaining task capacity before the first batch POST — success"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/BatchPreflight"
+              examples:
+                documented:
+                  value:
+                    maxItems: 100
+                    plan: free
+                    openLimit: 500
+                    openUsed: 2
+                    openRemaining: 498
+                    totalLimit: 2000
+                    totalUsed: 2
+                    totalRemaining: 1998
+        "401":
+          description: Missing or invalid principal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: Lacking scope or membership
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: "Rate limited — cloud per-token quota exceeded (reads 300/min, writes 60/min, token creation 10/hour); counters are per-replica, so the effective limit is the configured value × replicas. The response carries Retry-After."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      security:
+        - bearerAuth:
+            []
+      x-vibeflow-example-request:
+        method: GET
+        path: "/api/v0/tasks/batch"
   "/api/v0/tasks/{id}/opened":
     post:
       operationId: mark-opened
@@ -2789,6 +2921,91 @@ components:
           nullable: true
       required:
         - items
+    TaskBatchCreate:
+      type: object
+      description: "Body of POST /api/v0/tasks/batch (ticket b4c525fa): one chunk of single-create bodies (max 100/req — the server answers 400 BATCH_TOO_LARGE over the cap). Each item accepts the TaskCreate field set."
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            "$ref": "#/components/schemas/TaskCreate"
+        boardId:
+          type: string
+      required:
+        - items
+    TaskBatchResult:
+      type: object
+      description: "Envelope of POST /api/v0/tasks/batch (ticket b4c525fa): ALWAYS 200 past request-level validation — per-item failures are data, never transport errors. `results` aligns to request order (the links-phase idMap); `quota` carries post-batch remaining capacity for the CLI chunk loop."
+      properties:
+        created:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            oneOf:
+              - type: object
+                properties:
+                  id:
+                    type: string
+                required:
+                  - id
+              - type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        quota:
+          type: object
+          properties:
+            openRemaining:
+              type: integer
+              nullable: true
+            totalRemaining:
+              type: integer
+              nullable: true
+      required:
+        - created
+        - failed
+        - results
+    BatchPreflight:
+      type: object
+      description: "Envelope of GET /api/v0/tasks/batch (ticket b4c525fa): remaining task capacity BEFORE the first batch POST. Limits (and remainings) are null when the plan caps nothing on that dimension."
+      properties:
+        maxItems:
+          type: integer
+        plan:
+          type: string
+        openLimit:
+          type: integer
+          nullable: true
+        openUsed:
+          type: integer
+        openRemaining:
+          type: integer
+          nullable: true
+        totalLimit:
+          type: integer
+          nullable: true
+        totalUsed:
+          type: integer
+        totalRemaining:
+          type: integer
+          nullable: true
+      required:
+        - maxItems
+        - plan
     TaskCreate:
       type: object
       properties:
