@@ -1,14 +1,12 @@
 /**
  * MCP parity with the CLI for the root/child contract (task 94fcac0f,
- * revised by 2471abb345fa).
+ * revised by 2471abb345fa, restricted by 4ab7104a).
  *
- * Both surfaces follow the SAME revised rule as the CLI's --next (ticket
- * 4c846d52): roots first — the root is the unit of work — with an explicit
- * fallback to the highest-priority matching todo child when no todo root
- * is claimable, so todo work parented under a non-todo parent is never
- * invisible. Before 2471abb345fa the MCP path was roots-only while the CLI
- * already had the fallback, so the two surfaces answered "what is next"
- * differently on the same board; these tests pin the shared rule.
+ * Both surfaces follow the SAME rule as the CLI's --next: roots first —
+ * the root is the unit of work — with an explicit fallback to the
+ * highest-priority matching todo child OF LIVE WORK (parent chain
+ * todo/in-progress/review) when no todo root is claimable. Children of
+ * backlog/done parents are refused, never sliced off.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";

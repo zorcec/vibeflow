@@ -931,6 +931,52 @@ export function isBlockedByUnfinishedWork(
 }
 
 /**
+ * Statuses in which a parent keeps its children claimable.
+ *
+ * Owner rule (ticket 4ab7104a): `--next`'s child fallback may only hand out
+ * a todo child that belongs to live work. A child of a backlog/done parent
+ * is a fragment of a parked or finished unit — claiming it slices work off
+ * a unit nobody opened. `review` counts as active: the unit is under
+ * verification, its remaining children are still live work.
+ */
+export const ACTIVE_CLAIM_PARENT_STATUSES = [
+  "todo",
+  "in-progress",
+  "review",
+] as const;
+
+/**
+ * True when every ancestor of `task` exists and holds an active status
+ * (todo/in-progress/review). A root has no ancestors, so it is always
+ * active. A dangling parent link (target missing from the store) is
+ * INACTIVE: the chain cannot be verified, so the child is not claimable
+ * through the fallback — it stays reachable via `--get`, never invisible.
+ */
+export function isParentChainActive(
+  allTasks: Task[],
+  task: Task,
+): boolean {
+  const byId = new Map(allTasks.map((t) => [t.id, t] as const));
+  const seen = new Set<string>([task.id]);
+  let current: Task | undefined = task;
+  for (;;) {
+    const parentId = current ? getParentId(current) : undefined;
+    if (!parentId) return true;
+    if (seen.has(parentId)) return false; // cycle — never claimable
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) return false; // dangling link — chain unverifiable
+    if (
+      !(ACTIVE_CLAIM_PARENT_STATUSES as readonly string[]).includes(
+        parent.status,
+      )
+    )
+      return false;
+    current = parent;
+  }
+}
+
+/**
  * Export signature for the claim primitive.
  */
 export function claimNextTaskAtomic(
@@ -946,6 +992,13 @@ export function claimNextTaskAtomic(
      * root carries its children, rather than being handed a fragment of one.
      */
     rootsOnly?: boolean;
+    /**
+     * Allow claiming a todo child whose parent chain is NOT fully active
+     * (backlog/done parent, or a dangling link). Default false (owner rule,
+     * ticket 4ab7104a): the fallback only hands out children of live work.
+     * Opt in only when the caller reports the slice explicitly.
+     */
+    allowInactiveParentChain?: boolean;
   } = {},
 ): Task | null {
   const lock = taskLockPath(projectDir, "claim");
@@ -996,6 +1049,14 @@ export function claimNextTaskAtomic(
       // A parented task is not a candidate. The caller gets the root instead,
       // with the child reported alongside it.
       filtered = filtered.filter((t) => !isChildTask(t));
+    } else if (!opts.allowInactiveParentChain) {
+      // Owner rule (ticket 4ab7104a): the fallback only hands out children
+      // of live work. A todo child of a backlog/done parent — or of a
+      // dangling link — is skipped here and reported loudly by the caller,
+      // never claimed silently and never left invisible.
+      filtered = filtered.filter(
+        (t) => !isChildTask(t) || isParentChainActive(candidates, t),
+      );
     }
     // 3. Sort by priority then created ascending.
     filtered.sort(compareTasksByPriorityThenCreated);
@@ -1336,7 +1397,7 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "  Auto-claim: vibeflow tasks --next  (picks the highest-priority todo task — a ROOT first; when no todo root is claimable it claims the highest-priority matching todo child and says so explicitly. It lists the claimed root's children with their statuses.)",
+    "  Auto-claim: vibeflow tasks --next  (picks the highest-priority todo task — a ROOT first; when no todo root is claimable it claims the highest-priority matching todo child of live work (parent chain todo/in-progress/review) and says so explicitly, refusing children of backlog/done parents loudly instead of slicing them off. It lists the claimed root's children with their statuses.)",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(

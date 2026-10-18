@@ -1028,9 +1028,14 @@ export async function claimNextTask(
       const {
         listTasks: coreListTasks,
         isChildTask,
+        isParentChainActive,
         getParentId,
       } = await import("../core/tasks.js");
       let tasks = coreListTasks(ctx.projectDir);
+      // Chain liveness needs the FULL board: an in-progress/review parent
+      // is filtered out of the todo pool below, but it still makes its
+      // children claimable. Check chains against the snapshot, not the pool.
+      const chainScope = tasks;
       tasks = tasks.filter((t) => t.status === "todo");
       if (input.type) tasks = tasks.filter((t) => t.type === input.type);
       // `user` is a documented ClaimNextTaskInput field, so the dry run
@@ -1041,14 +1046,17 @@ export async function claimNextTask(
           (t) => t.tags && input.tag!.every((tag) => t.tags!.includes(tag)),
         );
       }
-      // Roots first, children only as an explicit fallback — the SAME
-      // revised rule the CLI's --next follows (ticket 4c846d52): the root
-      // is the unit of work, but a todo child of a non-todo parent must
-      // never be invisible. MCP/CLI parity, ticket 2471abb345fa.
+      // Roots first, children of live work only as an explicit fallback —
+      // the SAME revised rule the CLI's --next follows (ticket 4ab7104a):
+      // the root is the unit of work, and a todo child of a backlog/done
+      // parent (or dangling link) is refused, never invisible. MCP/CLI
+      // parity, ticket 2471abb345fa.
+      const claimableChild = (t: (typeof tasks)[number]) =>
+        !isChildTask(t) || isParentChainActive(chainScope, t);
       let pool = tasks.filter((t) => !isChildTask(t));
       let childClaim = false;
       if (pool.length === 0) {
-        pool = tasks;
+        pool = tasks.filter(claimableChild);
         childClaim = pool.length > 0;
       }
       // listTasks() returns files in readdir order, which is NOT the claim
@@ -1081,10 +1089,10 @@ export async function claimNextTask(
 
     // Delegate to the atomic claim primitive for serialized, race-safe
     // claiming. Roots first, then the explicit child fallback — the SAME
-    // revised rule the CLI's --next follows (ticket 4c846d52), applied here
-    // for MCP/CLI parity (ticket 2471abb345fa): before this change the MCP
-    // path was roots-only while the CLI claimed a fallback child, so the
-    // two surfaces answered "what is next" differently on the same board.
+    // revised rule the CLI's --next follows (ticket 4ab7104a), applied here
+    // for MCP/CLI parity (ticket 2471abb345fa): only children of live work
+    // are fallback-claimable; the old rule that also took children of
+    // non-todo parents sliced fragments off parked units.
     const core = await import("../core/tasks.js");
     const claimOpts = {
       type: input.type,

@@ -6,6 +6,7 @@ import {
   claimNextTaskAtomic,
   getParentId,
   isChildTask,
+  isParentChainActive,
   getChildTasks,
   summariseChildren,
 } from "../../src/core/tasks.js";
@@ -13,18 +14,19 @@ import type { Task } from "../../src/core/types.js";
 
 /**
  * Root/child contract for the list and `--next` (task 94fcac0f, revised by
- * 4c846d52e2086cfe2f374fa9d6f312).
+ * 4c846d52e2086cfe2f374fa9d6f312, then restricted by 4ab7104a).
  *
- * REVISED RULE (4c846d52): the root stays the unit of work — `--next` claims a
- * todo root first — but a todo child of a non-todo parent is never invisible:
- * filtered listings include every matching child with parent context, and
- * `--next` falls back to the highest-priority matching child (saying so
- * explicitly) when no todo root is claimable. The old rule this replaces:
- * "`--next` never returns a child" with no fallback and no mention.
+ * CURRENT RULE (4ab7104a): the root stays the unit of work — `--next` claims a
+ * todo root first — and the child fallback only hands out a todo child of
+ * LIVE work (every ancestor todo/in-progress/review). A todo child of a
+ * backlog/done parent, or of a dangling link, is refused by the fallback and
+ * reported loudly instead of sliced off. Filtered listings still include every
+ * matching child with parent context, and `--get <id>` shows any root's
+ * children — so refused children stay discoverable without being claimable.
  *
- * `claimNextTaskAtomic` itself is unchanged: `rootsOnly: true` still skips
- * parented tasks (the CLI layer implements the fallback as a second call),
- * so the MCP surface and every test below keep their meaning.
+ * `claimNextTaskAtomic` with `rootsOnly: true` still skips parented tasks
+ * (the CLI layer implements the fallback as a second call), so the MCP
+ * surface and every test below keep their meaning.
  */
 
 const PROTO = ".vibeflow";
@@ -153,6 +155,51 @@ describe("getChildTasks / summariseChildren", () => {
   });
 });
 
+describe("isParentChainActive", () => {
+  const t = (id: string, status: string, parent?: string) =>
+    ({
+      id,
+      status,
+      links: parent ? [{ taskId: parent, type: "parent" }] : [],
+    }) as unknown as Task;
+
+  it("a root is always active", () => {
+    const all = [t("r", "backlog")];
+    expect(isParentChainActive(all, all[0])).toBe(true);
+  });
+
+  it("a child of a todo/in-progress/review parent is active", () => {
+    for (const s of ["todo", "in-progress", "review"]) {
+      const all = [t("p", s), t("c", "todo", "p")];
+      expect(isParentChainActive(all, all[1])).toBe(true);
+    }
+  });
+
+  it("a child of a backlog/done parent is inactive", () => {
+    for (const s of ["backlog", "done"]) {
+      const all = [t("p", s), t("c", "todo", "p")];
+      expect(isParentChainActive(all, all[1])).toBe(false);
+    }
+  });
+
+  it("a dangling parent link is inactive", () => {
+    const all = [t("c", "todo", "gone")];
+    expect(isParentChainActive(all, all[0])).toBe(false);
+  });
+
+  it("a cycle is inactive", () => {
+    const all = [t("a", "todo", "b"), t("b", "todo", "a")];
+    expect(isParentChainActive(all, all[0])).toBe(false);
+  });
+
+  it("walks the whole chain — an inactive grandparent vetoes", () => {
+    const all = [t("gp", "backlog"), t("mid", "todo", "gp"), t("leaf", "todo", "mid")];
+    expect(isParentChainActive(all, all[2])).toBe(false);
+    const live = [t("gp", "review"), t("mid", "in-progress", "gp"), t("leaf", "todo", "mid")];
+    expect(isParentChainActive(live, live[2])).toBe(true);
+  });
+});
+
 describe("claimNextTaskAtomic with rootsOnly", () => {
   let tmpDir: string;
 
@@ -235,7 +282,7 @@ describe("claimNextTaskAtomic with rootsOnly", () => {
     expect(claimNextTaskAtomic(tmpDir, { rootsOnly: true })).toBeNull();
   });
 
-  it("rootsOnly:false claims the highest-priority todo child of a backlog parent — the ordering the CLI --next fallback relies on", () => {
+  it("rootsOnly:false refuses the todo child of a backlog parent — the fallback only serves live work", () => {
     writeTask(tmpDir, makeTask({ id: "parent", status: "backlog" }));
     writeTask(
       tmpDir,
@@ -256,10 +303,89 @@ describe("claimNextTaskAtomic with rootsOnly", () => {
       }),
     );
 
-    const claimed = claimNextTaskAtomic(tmpDir, {});
+    // Owner rule (ticket 4ab7104a): slicing a fragment off a parked unit is
+    // worse than leaving it — the caller reports these loudly instead.
+    expect(claimNextTaskAtomic(tmpDir, {})).toBeNull();
+    expect(readStatus(tmpDir, "kidCritical")).toBe("todo");
+  });
 
-    expect(claimed?.id).toBe("kidCritical");
+  it("rootsOnly:false still claims the child when the parent chain is live", () => {
+    writeTask(tmpDir, makeTask({ id: "parent", status: "in-progress" }));
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "kid",
+        status: "todo",
+        links: [{ taskId: "parent", type: "parent" }],
+      }),
+    );
+
+    const claimed = claimNextTaskAtomic(tmpDir, {});
+    expect(claimed?.id).toBe("kid");
     expect(claimed?.status).toBe("in-progress");
-    expect(readStatus(tmpDir, "kidLow")).toBe("todo");
+  });
+
+  it("rootsOnly:false refuses children of done parents and dangling links", () => {
+    writeTask(tmpDir, makeTask({ id: "doneParent", status: "done" }));
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "doneKid",
+        status: "todo",
+        links: [{ taskId: "doneParent", type: "parent" }],
+      }),
+    );
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "orphanKid",
+        status: "todo",
+        links: [{ taskId: "gone", type: "parent" }],
+      }),
+    );
+
+    expect(claimNextTaskAtomic(tmpDir, {})).toBeNull();
+    expect(readStatus(tmpDir, "doneKid")).toBe("todo");
+    expect(readStatus(tmpDir, "orphanKid")).toBe("todo");
+  });
+
+  it("rootsOnly:false refuses a todo child under a backlog grandparent", () => {
+    writeTask(tmpDir, makeTask({ id: "grandparent", status: "backlog" }));
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "mid",
+        status: "todo",
+        links: [{ taskId: "grandparent", type: "parent" }],
+      }),
+    );
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "leaf",
+        status: "todo",
+        links: [{ taskId: "mid", type: "parent" }],
+      }),
+    );
+
+    expect(claimNextTaskAtomic(tmpDir, {})).toBeNull();
+    expect(readStatus(tmpDir, "leaf")).toBe("todo");
+  });
+
+  it("allowInactiveParentChain:true restores the old fallback for explicit callers", () => {
+    writeTask(tmpDir, makeTask({ id: "parent", status: "backlog" }));
+    writeTask(
+      tmpDir,
+      makeTask({
+        id: "kid",
+        status: "todo",
+        links: [{ taskId: "parent", type: "parent" }],
+      }),
+    );
+
+    const claimed = claimNextTaskAtomic(tmpDir, {
+      allowInactiveParentChain: true,
+    });
+    expect(claimed?.id).toBe("kid");
   });
 });

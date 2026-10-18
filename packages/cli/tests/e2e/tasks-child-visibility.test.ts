@@ -1,17 +1,22 @@
 /**
- * CLI e2e — a todo child of a non-todo parent must never be invisible.
+ * CLI e2e — a todo child of a non-todo parent must never be invisible,
+ * and must never be auto-claimed off a parked unit.
  *
  * Regression scenario from the owner: parent in backlog, child in todo.
- * Before the fix, `--status todo` hid the child (root-only listing dropped
- * every matching child whose parent did not match), and `--next` reported
- * "No todo tasks found" even though a todo task existed.
+ * Originally `--status todo` hid the child and `--next` reported "No todo
+ * tasks found". The listing half was fixed first (filtered listings return
+ * every match with parent context); the claim half was then restricted
+ * (ticket 4ab7104a): --next refuses children of backlog/done parents and
+ * reports them as stranded instead of slicing a fragment off a parked unit.
  *
  * Contract pinned here:
  *  - a filtered listing (--status/--type/--tag/--user) returns EVERY matching
  *    task, children included, each with parent context;
  *  - the unfiltered listing keeps the root-only default (board parity);
- *  - --next falls back to the highest-priority matching child when no todo
- *    root is claimable, and says explicitly that it claimed a child.
+ *  - --next refuses a todo child of a backlog parent (task:null) and names
+ *    it as stranded, in both --json and human output;
+ *  - --next still falls back to a todo child of LIVE work, saying explicitly
+ *    that it claimed a child.
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { rmSync, mkdtempSync } from "node:fs";
@@ -114,10 +119,10 @@ describe("todo child of a backlog parent is visible", () => {
     expect(parsed.hiddenChildren).toBe(1);
   });
 
-  it("--next --json claims the todo child and marks it as a child claim", async () => {
+  it("--next --json refuses the todo child of a backlog parent and reports it as stranded", async () => {
     const store = freshDir("child-vis-store-");
     const home = freshDir("child-vis-home-");
-    const { child } = await seedBacklogParentTodoChild(store, home);
+    const { child, parent } = await seedBacklogParentTodoChild(store, home);
 
     const r = await spawnCli(["tasks", store, "--next", "--json"], {
       cwd: store,
@@ -126,14 +131,15 @@ describe("todo child of a backlog parent is visible", () => {
     expect(r.code).toBe(0);
     const parsed = JSON.parse(r.stdout) as Envelope;
     expect(parsed.ok).toBe(true);
-    expect((parsed.task as TaskJson).id).toBe(child.id);
-    expect((parsed.task as TaskJson).status).toBe("in-progress");
-    // Unambiguous: the payload says this claim is a child, with its parent.
-    expect(parsed.childClaim).toBe(true);
-    expect(parsed.parent as unknown).toBeDefined();
+    // Refused, not sliced off the parked unit — and named, not invisible.
+    expect(parsed.task as unknown).toBeNull();
+    const stranded = parsed.stranded as Array<{ id: string; parentStatus: string | null }>;
+    expect(stranded.map((s) => s.id)).toContain(child.id);
+    expect(stranded.find((s) => s.id === child.id)?.parentStatus).toBe("backlog");
+    expect(parent.id).toBeDefined();
   });
 
-  it("--next human output says explicitly it claimed a child of a backlog parent", async () => {
+  it("--next human output names the stranded child instead of claiming it", async () => {
     const store = freshDir("child-vis-store-");
     const home = freshDir("child-vis-home-");
     const { parent } = await seedBacklogParentTodoChild(store, home);
@@ -141,9 +147,36 @@ describe("todo child of a backlog parent is visible", () => {
     const r = await spawnCli(["tasks", store, "--next"], { cwd: store, home });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Todo child");
-    expect(r.stdout.toLowerCase()).toContain("child");
+    expect(r.stdout.toLowerCase()).toContain("stranded");
     expect(r.stdout).toContain(parent.id.slice(0, 8));
     expect(r.stdout).toContain("[backlog]");
+  });
+
+  it("--next --json still falls back to a todo child of live work", async () => {
+    const store = freshDir("child-vis-store-");
+    const home = freshDir("child-vis-home-");
+    const parent = await addTask(store, home, "Live parent");
+    await setStatus(store, home, parent.id, "in-progress");
+    const r1 = await spawnCli(
+      ["tasks", store, "--add", "--title", "Live child", "--parent", parent.id, "--json"],
+      { cwd: store, home },
+    );
+    expect(r1.code).toBe(0);
+    const child = (JSON.parse(r1.stdout) as Envelope).task as TaskJson;
+
+    const r = await spawnCli(["tasks", store, "--next", "--json"], {
+      cwd: store,
+      home,
+    });
+    expect(r.code).toBe(0);
+    const parsed = JSON.parse(r.stdout) as Envelope;
+    expect(parsed.ok).toBe(true);
+    // No todo root is claimable (parent is in-progress), so the fallback
+    // takes the child of live work — and says so explicitly.
+    expect((parsed.task as TaskJson).id).toBe(child.id);
+    expect((parsed.task as TaskJson).status).toBe("in-progress");
+    expect(parsed.childClaim).toBe(true);
+    expect(parsed.parent as unknown).toBeDefined();
   });
 
   it("--next still prefers a todo root over a higher-priority todo child", async () => {

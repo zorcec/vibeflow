@@ -24,6 +24,8 @@ import {
   claimNextTaskAtomic,
   summariseChildren,
   getParentId,
+  isChildTask,
+  isParentChainActive,
   getUnfinishedBlockers,
   writeSortKeyMinimal,
   isResearchType,
@@ -1125,7 +1127,7 @@ program
   )
   .option(
     "--children",
-    "Include child tasks in the unfiltered listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Filtered listings (--status/--type/--tag/--user) always include every matching child with parent context. Has no effect with --next, which prefers roots and falls back to a child claim only when no todo root is claimable. Takes no ID — to inspect one task's children, use --get <id>.",
+    "Include child tasks in the unfiltered listing. By default only ROOT tasks are listed — a child belongs to its parent, matching the board. Filtered listings (--status/--type/--tag/--user) always include every matching child with parent context. Has no effect with --next, which prefers roots and falls back to a todo child of live work (parent chain todo/in-progress/review) only when no todo root is claimable — children of backlog/done parents are refused and reported, never claimed. Takes no ID — to inspect one task's children, use --get <id>.",
   )
   .option(
     "--tag <tag>",
@@ -2011,6 +2013,40 @@ program
             `${b.task.id.slice(0, 8)} ${b.task.title} — blocked by ${b.blockers
               .map((bl) => `${bl.id.slice(0, 8)} ${bl.title} [${bl.status}]`)
               .join(", ")}`;
+          // Stranded candidates the claim above refused: filter-matching
+          // todo children whose parent chain is not live work (backlog/done
+          // parent, or a dangling link). Owner rule (ticket 4ab7104a): these
+          // are never claimed by the fallback, and they are named here so
+          // the refusal is visible — silence would make them unreachable
+          // (root-only listing hides children, --next will not take them).
+          // A backlog parent still shows its children locally (`tasks --get
+          // <id>` ends with "children (n):"), so the unit stays actionable
+          // by hand: move the parent to todo, or claim the child by id.
+          const nextStranded = nextBoard
+            .filter(
+              (t) =>
+                t.status === "todo" &&
+                isChildTask(t) &&
+                !isParentChainActive(nextBoard, t) &&
+                (!nextClaimOpts.type || t.type === nextClaimOpts.type) &&
+                (!nextClaimOpts.user || t.author === nextClaimOpts.user) &&
+                (!nextClaimOpts.tag?.length ||
+                  (t.tags &&
+                    nextClaimOpts.tag.every((tag) => t.tags!.includes(tag)))),
+            )
+            .map((t) => {
+              const pid = getParentId(t);
+              const p = pid
+                ? nextBoard.find((x) => x.id === pid)
+                : undefined;
+              return {
+                id: t.id,
+                title: t.title,
+                parentId: pid ?? null,
+                parentTitle: p?.title ?? "(not found)",
+                parentStatus: p?.status ?? null,
+              };
+            });
           const nextBlockedPayload = nextBlocked.map((b) => ({
             id: b.task.id,
             title: b.task.title,
@@ -2022,9 +2058,11 @@ program
           }));
 
           if (!nextUpdated) {
-            if (nextBlocked.length > 0) {
-              // Every remaining candidate is blocked: claim nothing and say
-              // so explicitly — "all work is blocked" must read differently
+            const nextHasStranded = nextStranded.length > 0;
+            if (nextBlocked.length > 0 || nextHasStranded) {
+              // Every remaining candidate is blocked or stranded: claim
+              // nothing and say so explicitly — "all work is blocked" and
+              // "only stranded children remain" must each read differently
               // from "no work".
               if (opts.json) {
                 outputEnvelope({
@@ -2033,19 +2071,44 @@ program
                   payload: {
                     task: null,
                     next_actions: [],
-                    blocked: nextBlockedPayload,
-                    allBlocked: true,
+                    ...(nextBlocked.length > 0
+                      ? {
+                          blocked: nextBlockedPayload,
+                          allBlocked: nextBlocked.length > 0 && !nextHasStranded,
+                        }
+                      : {}),
+                    ...(nextHasStranded ? { stranded: nextStranded } : {}),
                   },
                 });
                 return;
               }
-              console.log(
-                chalk.yellow(
-                  `All remaining todo tasks are blocked (${nextBlocked.length}) — nothing claimed:`,
-                ),
-              );
-              for (const b of nextBlocked)
-                console.log(chalk.dim(`  • ${formatBlockedLine(b)}`));
+              if (nextBlocked.length > 0) {
+                console.log(
+                  chalk.yellow(
+                    `All remaining todo tasks are blocked (${nextBlocked.length}) — nothing claimed:`,
+                  ),
+                );
+                for (const b of nextBlocked)
+                  console.log(chalk.dim(`    • ${formatBlockedLine(b)}`));
+              }
+              if (nextHasStranded) {
+                console.log(
+                  chalk.yellow(
+                    `  ⊘ skipped ${nextStranded.length} stranded todo child${nextStranded.length === 1 ? "" : "ren"} (parent not live work, not claimed):`,
+                  ),
+                );
+                for (const s of nextStranded)
+                  console.log(
+                    chalk.dim(
+                      `    • ${s.id.slice(0, 8)} ${s.title} — parent ${s.parentId?.slice(0, 8) ?? "?"} ${s.parentTitle} [${s.parentStatus ?? "missing"}]`,
+                    ),
+                  );
+                console.log(
+                  chalk.dim(
+                    `    Move the parent to todo, or claim the child by id.`,
+                  ),
+                );
+              }
               return;
             }
             // A filter that matched nothing lands HERE too — same success,
@@ -2102,6 +2165,9 @@ program
             };
             if (nextBlockedPayload.length > 0) {
               nextLocalPayload.blocked = nextBlockedPayload;
+            }
+            if (nextStranded.length > 0) {
+              nextLocalPayload.stranded = nextStranded;
             }
             if (nextLocalChildren.length > 0) {
               nextLocalPayload.children = nextLocalChildren;
@@ -2172,6 +2238,28 @@ program
             );
             for (const b of nextBlocked)
               console.log(chalk.dim(`    • ${formatBlockedLine(b)}`));
+            console.log();
+          }
+          if (nextStranded.length > 0) {
+            // Name the children the fallback refused: a stranded todo is
+            // not claimable until its parent returns to live work — say so
+            // with the remedy, so the refusal never reads as invisibility.
+            console.log(
+              chalk.yellow(
+                `  ⊘ skipped ${nextStranded.length} stranded todo child${nextStranded.length === 1 ? "" : "ren"} (parent not live work, not claimed):`,
+              ),
+            );
+            for (const s of nextStranded)
+              console.log(
+                chalk.dim(
+                  `    • ${s.id.slice(0, 8)} ${s.title} — parent ${s.parentId?.slice(0, 8) ?? "?"} ${s.parentTitle} [${s.parentStatus ?? "missing"}]`,
+                ),
+              );
+            console.log(
+              chalk.dim(
+                `    Move the parent to todo, or claim the child by id.`,
+              ),
+            );
             console.log();
           }
           if (nextIsChildClaim && nextClaimedParent) {
