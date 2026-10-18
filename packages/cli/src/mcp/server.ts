@@ -37,7 +37,7 @@ export function createMcpServer(
 
   for (const tool of manifest) {
     // registerTool (not the deprecated tool() shape overload): tool.schema
-    // is strict, so an unrecognized field is refused with -32602 instead of
+    // is strict, so an unrecognized field is REFUSED with -32602 instead of
     // silently stripped — the same accept-nothing-unknown rule as the CLI's
     // `unknown option` refusal (ticket 48c89cc8). tool.input (the shape)
     // stays the introspection surface for drift/parity tests.
@@ -49,39 +49,39 @@ export function createMcpServer(
         inputSchema: tool.schema,
         annotations: tool.annotations,
       },
-      async (input: unknown) => {
-        const result = await tool.run(ctx, input);
-        // MCP usage telemetry (ticket 4e942bed, owner request): every tool
-        // call captures ONE `command_run` — the SAME event the CLI emits —
-        // with `surface: "mcp"` (CLI emitters carry `surface: "cli"`) so
-        // one PostHog filter separates the surfaces and the shared
-        // `command` dimension (from the manifest cliRef) compares them.
-        // The hook lives HERE, in the registration loop, so a tool added
-        // to the manifest later is covered automatically — never per-tool
-        // call sites, which get forgotten. Only closed-set, PII-free
-        // scalars leave the machine: tool name, CLI command, ok flag.
-        // No paths, ids, content, or error text (error codes are free-form
-        // operation strings, so even they stay out — `ok` is the outcome).
-        // The existing opt-out contract applies unchanged: capture() is a
-        // no-op when telemetry is disabled. capture() never writes to
-        // stdout (the PostHog path only ever logs to stderr), so the stdio
-        // protocol stream is safe. No flushTelemetry() here: the client is
-        // built with flushAt:1, so every capture dispatches its send in the
-        // same tick (verified in @posthog/core enqueue: queue.length >=
-        // flushAt triggers flushBackground) — and a long-lived server must
-        // not shutdown() its client per call.
-        capture("command_run", {
-          surface: "mcp",
-          tool: tool.name,
-          command: tool.cliRef.command,
-          ok: result.ok,
-        });
-        return formatResult(result);
-      },
+      async (input: unknown) => invokeManifestTool(tool, ctx, input),
     );
   }
 
   return server;
+}
+
+/**
+ * Run one manifest tool with the shared telemetry + result envelope
+ * (ticket 4e942bed telemetry, ticket 0847833f reuse). Extracted from
+ * the registration loop above with zero behavior change so the
+ * chat-MCP server (agent chat, per-session approval gate) invokes
+ * tools byte-identically to the stdio/HTTP servers — never a second
+ * call site to drift.
+ */
+export async function invokeManifestTool(
+  tool: (typeof manifest)[number],
+  ctx: OperationContext,
+  input: unknown,
+) {
+  const result = await tool.run(ctx, input);
+  // MCP usage telemetry (ticket 4e942bed, owner request): every tool call
+  // captures ONE `command_run` — the SAME event the CLI emits — with
+  // `surface: "mcp"` (CLI emitters carry `surface: "cli"`). Moved here
+  // verbatim with the registration loop so chat-MCP invocations report
+  // identically; only closed-set, PII-free scalars leave the machine.
+  capture("command_run", {
+    surface: "mcp",
+    tool: tool.name,
+    command: tool.cliRef.command,
+    ok: result.ok,
+  });
+  return formatResult(result);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
