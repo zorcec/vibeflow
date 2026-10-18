@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import {
   V0_BATCH_MAX_ITEMS,
   BATCH_CHUNK_MAX_ATTEMPTS,
+  BATCH_CHUNK_PACING_DELAY_MS,
   BATCH_FILE_CONCURRENCY,
   probeBatchCapability,
   evaluateBatchPreflight,
@@ -308,7 +309,12 @@ describe("chunking + batch loop", () => {
       "tok",
       "board-1",
       tasks(250),
-      { onProgress: (d, t) => seen.push([d, t]), preflight: PREFLIGHT },
+      {
+        onProgress: (d, t) => seen.push([d, t]),
+        preflight: PREFLIGHT,
+        // Not under test here — keep the suite fast and hermetic.
+        pacingSleepMs: async () => {},
+      },
     );
     expect(posts).toHaveLength(3);
     expect(posts.map((p) => (p.body.items as unknown[]).length)).toEqual([
@@ -363,7 +369,12 @@ describe("chunking + batch loop", () => {
       "tok",
       "b",
       tasks(12),
-      { onProgress: (d, t) => seen.push([d, t]), preflight: small },
+      {
+        onProgress: (d, t) => seen.push([d, t]),
+        preflight: small,
+        // Not under test here — keep the suite fast and hermetic.
+        pacingSleepMs: async () => {},
+      },
     );
     // TASK_LIMIT at chunk-2 index 3 stops the push: the chunk's tail
     // (index 4) still counts refused (one POST = attempted), chunk 3
@@ -415,6 +426,9 @@ describe("chunking + batch loop", () => {
             return Promise.resolve();
           },
         },
+        // Pacing has its own hook — the pinned 429 sleep assertions
+        // above must stay exact; pacing is covered by its own describe.
+        pacingSleepMs: async () => {},
       },
     );
     // The 429 recorded nothing — the same chunk re-POSTed after the wait.
@@ -430,6 +444,105 @@ describe("chunking + batch loop", () => {
     expect(result.stoppedEarly).toBeNull();
     expect(result.retryAfter).toBeNull();
     expect(formatPushStopLine(result)).toBeNull();
+  });
+});
+
+describe("inter-chunk pacing", () => {
+  function threeChunks() {
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: unknown, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+        posts.push(String(_url));
+        const items = body.items as Array<Record<string, unknown>>;
+        return Promise.resolve(okChunk(items.map((_, i) => `p-${posts.length}-${i}`)));
+      }),
+    );
+    return posts;
+  }
+
+  it("paces between chunks with the default 2s breather (recorded, not real)", async () => {
+    threeChunks();
+    const paces: number[] = [];
+    const result = await createTasksInBatches(
+      "https://x.test",
+      "tok",
+      "board-1",
+      tasks(250),
+      {
+        preflight: PREFLIGHT,
+        pacingSleepMs: (ms) => {
+          paces.push(ms);
+          return Promise.resolve();
+        },
+      },
+    );
+    expect(result.imported).toBe(250);
+    expect(result.stoppedEarly).toBeNull();
+    // 3 chunks → 2 breathers (none before the first POST).
+    expect(paces).toEqual([BATCH_CHUNK_PACING_DELAY_MS, BATCH_CHUNK_PACING_DELAY_MS]);
+    expect(BATCH_CHUNK_PACING_DELAY_MS).toBe(5_000);
+  });
+
+  it("pacingDelayMs: 0 disables the breather", async () => {
+    threeChunks();
+    const paces: number[] = [];
+    const result = await createTasksInBatches(
+      "https://x.test",
+      "tok",
+      "board-1",
+      tasks(250),
+      {
+        preflight: PREFLIGHT,
+        pacingDelayMs: 0,
+        pacingSleepMs: (ms) => {
+          paces.push(ms);
+          return Promise.resolve();
+        },
+      },
+    );
+    expect(result.imported).toBe(250);
+    expect(paces).toEqual([]);
+  });
+
+  it("429-resume re-POST does not pay pacing twice (it already waited)", async () => {
+    // 2 chunks: chunk 1 ok, chunk 2 whole-429 → resume re-POSTs the SAME
+    // chunk. Exactly one pacing sleep (between the two chunk indexes).
+    const small = { ...PREFLIGHT, maxItems: 5 };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okChunk(["a", "b", "c", "d", "e"]))
+      .mockResolvedValueOnce(
+        wholeRefusal(429, { error: "Token bucket exhausted" }, { "retry-after": "1" }),
+      )
+      .mockResolvedValueOnce(okChunk(["f", "g"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const paces: number[] = [];
+    const retries: number[] = [];
+    const result = await createTasksInBatches(
+      "https://x.test",
+      "tok",
+      undefined,
+      tasks(7),
+      {
+        preflight: small,
+        retry429: {
+          sleepMs: (ms) => {
+            retries.push(ms);
+            return Promise.resolve();
+          },
+        },
+        pacingSleepMs: (ms) => {
+          paces.push(ms);
+          return Promise.resolve();
+        },
+      },
+    );
+    expect(result.imported).toBe(7);
+    expect(result.stoppedEarly).toBeNull();
+    expect(retries).toEqual([1_000]);
+    expect(paces).toEqual([BATCH_CHUNK_PACING_DELAY_MS]);
   });
 });
 

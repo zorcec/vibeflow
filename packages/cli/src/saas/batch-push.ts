@@ -74,6 +74,16 @@ export const BATCH_CHUNK_RETRY_DELAY_MS = 500;
  * 30s, because the probe gates the whole push and must fail fast. */
 export const BATCH_PROBE_TIMEOUT_MS = 15_000;
 
+/** Inter-chunk pacing breather (ticket 7fa3ef3b): delay between chunk
+ * POSTs so back-to-back 100-task inserts + broadcasts don't saturate the
+ * small box and disturb other users.
+ * WHY 5000: one chunk per 5s is far below any plan's write budget now that
+ * a batch costs 1 unit per call, yet keeps a 1694-task push to ~2 minutes
+ * while giving the small box room to breathe between bulk inserts.
+ * 0 disables. Skipped before the first POSTed chunk and on 429-resume
+ * re-POSTs (which already waited out a Retry-After). */
+export const BATCH_CHUNK_PACING_DELAY_MS = 5_000;
+
 /** Bounded R2/file-upload concurrency (ticket 8d3b2b81).
  * WHAT: at most 4 in-flight file POSTs (and 4 in-flight presence GETs).
  * WHY 4: the legacy uploader was strictly sequential (1×) — 4× is a
@@ -492,6 +502,13 @@ export interface BatchPushOptions {
    * for the defaults (3 resumes, real sleep, silent waits); callers pass
    * `onWait` to narrate the stall. */
   retry429?: Push429ResumeOptions;
+  /** Inter-chunk pacing delay override (ticket 7fa3ef3b): defaults to
+   * BATCH_CHUNK_PACING_DELAY_MS; 0 disables. */
+  pacingDelayMs?: number;
+  /** Pacing sleeper override (ticket 7fa3ef3b): defaults to real sleep;
+   * unit tests inject a recorder. Kept separate from the retry429 sleep
+   * hook so the pinned 429-resume sleep assertions stay exact. */
+  pacingSleepMs?: (ms: number) => Promise<void>;
 }
 
 /** Read + validate the checkpoint (ticket 8d3b2b81): corrupt/foreign
@@ -647,6 +664,9 @@ export async function createTasksInBatches(
   if (base > 0) opts.onProgress?.(base, tasks.length);
 
   const chunks = chunkTaskRecords(tasks, chunkSize);
+  const pacingDelayMs = opts.pacingDelayMs ?? BATCH_CHUNK_PACING_DELAY_MS;
+  const pacingSleep = opts.pacingSleepMs ?? sleep;
+  let lastPostedChunk = -1;
   let processed = base;
   try {
     // Chunks are fixed slices of the push order; on resume the leading
@@ -663,7 +683,16 @@ export async function createTasksInBatches(
       if (chunkStart + chunk.length <= base) continue;
       if (processed >= tasks.length) break;
       const items = chunkStart < base ? chunk.slice(base - chunkStart) : chunk;
+      // Inter-chunk pacing (ticket 7fa3ef3b): breather before advancing
+      // to a NEW chunk so back-to-back bulk inserts + broadcasts don't
+      // saturate the small box. Skipped for the first POSTed chunk and
+      // on 429-resume re-POSTs (same chunk index — that path already
+      // waited out a Retry-After).
+      if (pacingDelayMs > 0 && lastPostedChunk !== -1 && c !== lastPostedChunk) {
+        await pacingSleep(pacingDelayMs);
+      }
       const outcome = await postTaskChunk(apiUrl, token, boardId, items);
+      lastPostedChunk = c;
       if (outcome.wholeChunkRefusal !== null) {
         // 429 with budget left (ticket 99cf6943): wait, then re-POST the
         // same chunk — the checkpoint still holds the pre-chunk position,
@@ -798,15 +827,21 @@ export async function runWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(items.length) as R[];
   let next = 0;
-  const workers = Array.from(
-    { length: Math.max(1, Math.min(limit, items.length)) },
-    async () => {
-      while (next < items.length) {
-        const index = next++;
-        results[index] = await fn(items[index]!, index);
-      }
-    },
-  );
+  // NOTE: deliberately a for-loop pushing IIFEs, not Array.from with an
+  // async callback — the callback form trips the array-callback-return
+  // lint (workers communicate through the shared `results`/`next`, never
+  // through return values). Behavior is identical either way.
+  const workers: Array<Promise<void>> = [];
+  for (let w = 0; w < Math.max(1, Math.min(limit, items.length)); w++) {
+    workers.push(
+      (async () => {
+        while (next < items.length) {
+          const index = next++;
+          results[index] = await fn(items[index]!, index);
+        }
+      })(),
+    );
+  }
   await Promise.all(workers);
   return results;
 }
