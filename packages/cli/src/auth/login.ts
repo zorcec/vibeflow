@@ -489,12 +489,72 @@ export function formatSkippedLinks(
   return `Skipped ${skipped.length} link${skipped.length !== 1 ? "s" : ""} (${groups.join(", ")}): ${examples}${hidden}`;
 }
 
+/**
+ * Bounded 429 wait-resume (ticket 99cf6943).
+ * WHAT: both push loops (the one-by-one loop below, and the batch loop
+ * in `saas/batch-push.ts`) sleep `min(Retry-After, 120s)` on a 429 then
+ * CONTINUE from the same position instead of stopping; at most 3 waits
+ * per push, then stop loudly as before. Preflight refusal stays
+ * refuse-only (no prompt, no wait).
+ * WHY these numbers: throttled plans allow ~12 writes/min, so a bulk push
+ * always trips the token bucket and stopping on the first 429 abandoned
+ * ~1670 tasks. 3 resumes x up to 120s bounds the worst stall at 6 min;
+ * the 120s cap bounds a single wait against a bogus header (Retry-After:
+ * 3600 would otherwise park the push for an hour), and the 60s default
+ * covers a missing/unparseable header (about one bucket window).
+ * Owner-approved scope (ticket 99cf6943) — do not raise without re-check.
+ */
+export const PUSH_429_MAX_WAIT_MS = 120_000;
+export const PUSH_429_DEFAULT_WAIT_MS = 60_000;
+export const PUSH_429_MAX_RESUMES = 3;
+
+/** Parse a Retry-After header to a bounded wait (ticket 99cf6943): numeric
+ * seconds or an HTTP-date delta; missing/unparseable/negative hold the
+ * 60s default; everything caps at PUSH_429_MAX_WAIT_MS. Pure. */
+export function resolve429WaitMs(
+  retryAfter: string | null,
+  nowMs: number = Date.now(),
+): number {
+  if (retryAfter !== null) {
+    const raw = retryAfter.trim();
+    // Integer seconds (the normal server form). Negative or fractional
+    // numerics are meaningless here — default, never a 0ms hot loop.
+    // (A bare "-5" must NOT reach Date.parse: V8 reads it as a date
+    // near now and the wait collapses to ~0.)
+    if (raw !== "") {
+      const secs = Number(raw);
+      if (Number.isInteger(secs)) {
+        return secs >= 0
+          ? Math.min(secs * 1000, PUSH_429_MAX_WAIT_MS)
+          : PUSH_429_DEFAULT_WAIT_MS;
+      }
+    }
+    const at = Date.parse(raw);
+    if (!Number.isNaN(at)) {
+      return Math.min(Math.max(at - nowMs, 0), PUSH_429_MAX_WAIT_MS);
+    }
+  }
+  return PUSH_429_DEFAULT_WAIT_MS;
+}
+
+/** 429 wait-resume knobs shared by both push loops (ticket 99cf6943). */
+export interface Push429ResumeOptions {
+  /** Max wait-resumes per push (default PUSH_429_MAX_RESUMES); 0 restores
+   * the pre-99cf6943 stop-on-first-429 behavior (tests pin it). */
+  maxResumes?: number;
+  /** Sleep impl (default real sleep); tests inject a spy. */
+  sleepMs?: (ms: number) => Promise<void>;
+  /** Called BEFORE each wait with (waitMs, resumeNumber 1-based). */
+  onWait?: (waitMs: number, resume: number) => void;
+}
+
 export async function createTasksOneByOne(
   apiUrl: string,
   token: string,
   boardId: string | undefined,
   tasks: Array<Record<string, unknown>>,
   onProgress?: (done: number, total: number) => void,
+  retry429?: Push429ResumeOptions,
 ): Promise<PushLoopResult> {
   let imported = 0;
   let skipped = 0;
@@ -505,8 +565,26 @@ export async function createTasksOneByOne(
   let stoppedEarly: PushLoopResult["stoppedEarly"] = null;
   let stopMessage: string | null = null;
   let retryAfter: string | null = null;
+  // 429 wait-resume budget (ticket 99cf6943): every 429 wait in this push
+  // — same-task retries here, chunk re-POSTs and mid-chunk pauses in the
+  // batch loop — spends from one per-push allowance of 3.
+  const maxResumes = retry429?.maxResumes ?? PUSH_429_MAX_RESUMES;
+  const sleep429 = retry429?.sleepMs ?? sleep;
+  let resumes = 0;
+  const recordRefusal = (status: number, code: string): void => {
+    const key = `${status} ${code}`;
+    const existing = groups.get(key);
+    if (existing) existing.count++;
+    else {
+      groups.set(key, { status, code, count: 1 });
+      groupOrder.push(key);
+    }
+    skipped++;
+  };
   const createPath = surfacePath("cloud", "/api/cli/tasks");
-  for (const task of tasks) {
+  let index = 0;
+  while (index < tasks.length) {
+    const task = tasks[index]!;
     const localId = task.id;
     // A network throw still fails the push outright (callers report it as
     // a failed push); only HTTP non-ok responses count as per-task skips.
@@ -531,38 +609,49 @@ export async function createTasksOneByOne(
         errorBody = null;
       }
       const code = pushRefusalCode(status, errorBody);
-      const key = `${status} ${code}`;
-      const existing = groups.get(key);
-      if (existing) existing.count++;
-      else {
-        groups.set(key, { status, code, count: 1 });
-        groupOrder.push(key);
-      }
-      skipped++;
-      // A refused task is still a finished unit of the push: the counter
-      // tracks attempted/total so a mid-push refusal still reads k/N.
-      onProgress?.(imported + skipped, tasks.length);
       // Early stop (ticket dec52322): after a 402 every further POST is
-      // futile (plan/task limit — creating more cannot succeed), and
-      // after a 429 every further POST is futile (token-bucket quota —
-      // hammering on only extends the ban). Record the server's message
-      // and stop; callers print it loudly.
+      // futile (plan/task limit — creating more cannot succeed). After a
+      // 429 the loop now waits and retries instead (ticket 99cf6943):
+      // the 429 refused THIS task, so with budget left nothing is
+      // recorded — sleep min(Retry-After, 120s), then re-POST the same
+      // task. Budget exhausted → record and stop loudly, as before.
       if (status === 402) {
+        recordRefusal(status, code);
+        // A refused task is still a finished unit of the push: the
+        // counter tracks attempted/total so a refusal still reads k/N.
+        onProgress?.(imported + skipped, tasks.length);
         stoppedEarly = "plan-limit";
         stopMessage = code;
         break;
       }
       if (status === 429) {
+        let header: string | null = null;
+        try {
+          header = res.headers?.get?.("retry-after") ?? null;
+        } catch {
+          header = null;
+        }
+        if (resumes < maxResumes) {
+          resumes++;
+          const waitMs = resolve429WaitMs(header);
+          retry429?.onWait?.(waitMs, resumes);
+          await sleep429(waitMs);
+          continue;
+        }
+        recordRefusal(status, code);
         stoppedEarly = "rate-limited";
         stopMessage = code;
-        try {
-          retryAfter =
-            res.headers?.get?.("retry-after") ?? null;
-        } catch {
-          retryAfter = null;
-        }
+        retryAfter = header;
+        // The stopping refusal is attempted work too — report k/N like
+        // every other refusal above.
+        onProgress?.(imported + skipped, tasks.length);
         break;
       }
+      recordRefusal(status, code);
+      // A refused task is still a finished unit of the push: the counter
+      // tracks attempted/total so a mid-push refusal still reads k/N.
+      onProgress?.(imported + skipped, tasks.length);
+      index++;
       continue;
     }
     imported++;
@@ -580,6 +669,7 @@ export async function createTasksOneByOne(
           : localId;
       idMap[localId] = remoteId;
     }
+    index++;
   }
   return {
     imported,
@@ -870,12 +960,12 @@ async function promptPushLocalTasks(
             const keepLocal = answer2.trim().toLowerCase() !== "y";
             void keepLocal;
 
-            // No batch import exists in the v0 contract: one POST per task
-            // (phase 1), then links replayed with resolved cloud ids
-            // (phase 2). (keepLocalFiles previously rode along to
-            // /api/cli/import; the v0 create op has no such field and this
-            // flow never deleted client-side, so the answer is kept for
-            // prompt parity only.)
+            // Phase 1 is task creates (batched when the server offers
+            // it, one POST per task otherwise), then links replayed with
+            // resolved cloud ids (phase 2). (keepLocalFiles previously rode
+            // along to /api/cli/import; the v0 create op has no such field
+            // and this flow never deleted client-side, so the answer is
+            // kept for prompt parity only.)
             try {
               const records = unsynced as Array<Record<string, unknown>>;
               // Minimal push progress (ticket e4049164): one \r line on a
@@ -883,13 +973,71 @@ async function promptPushLocalTasks(
               // everything on stderr — the pre-push listing and the prompts
               // above stay byte-identical.
               const onProgress = createTaskPushProgressReporter(records.length);
-              const data = await createTasksOneByOne(
-                apiUrl,
-                token,
-                workspace.id,
-                records,
-                onProgress,
-              );
+              // 429 waits are user-visible stalls (ticket 99cf6943): say
+              // how long and which resume — a silent 120s pause reads as
+              // hung.
+              const onWait = (waitMs: number, resume: number): void => {
+                console.log(
+                  chalk.yellow(
+                    `  Rate limited — waiting ${Math.ceil(waitMs / 1000)}s before resuming (resume ${resume}/${PUSH_429_MAX_RESUMES})…`,
+                  ),
+                );
+              };
+              // Batch-first (ticket 99cf6943): the same probe → preflight
+              // → chunked path as the standalone push. Old servers fall
+              // back to the one-by-one loop below, byte-identical to
+              // before (same args, same reporters — plus the 429 wait both
+              // paths share). Preflight refusal stays refuse-only: print
+              // and stop here, no prompt, no wait. A probe throw aborts
+              // loudly via the catch below (same rule as the standalone
+              // push — a server that cannot answer the probe gets no
+              // blind bulk). Lazy import: the batch client imports this
+              // module, so a static import would cycle.
+              const batch = await import("../saas/batch-push.js");
+              let data: PushLoopResult;
+              const probe = await batch.probeBatchCapability(apiUrl, token);
+              if (probe.supported === false) {
+                data = await createTasksOneByOne(
+                  apiUrl,
+                  token,
+                  workspace.id,
+                  records,
+                  onProgress,
+                  { onWait },
+                );
+              } else {
+                const order = records.map((t) =>
+                  typeof t.id === "string" ? t.id : "",
+                );
+                const existing = batch.readBatchCheckpoint(projectDir);
+                const resumed =
+                  existing !== null &&
+                  existing.order.length === order.length &&
+                  existing.order.every((id, i) => id === order[i])
+                    ? existing.attempted
+                    : 0;
+                const refusal = batch.evaluateBatchPreflight(
+                  records.length - resumed,
+                  probe.preflight,
+                );
+                if (refusal !== null) {
+                  console.error(chalk.red(`  ${refusal}`));
+                  resolve();
+                  return;
+                }
+                data = await batch.createTasksInBatches(
+                  apiUrl,
+                  token,
+                  workspace.id,
+                  records,
+                  {
+                    onProgress,
+                    projectDir,
+                    preflight: probe.preflight,
+                    retry429: { onWait },
+                  },
+                );
+              }
               // Condensed summary (ticket e4049164): one line carries the
               // TRUE numbers (created/refused groups via
               // formatPushRefusalSummary — never "already existed"), the

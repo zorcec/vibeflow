@@ -385,9 +385,10 @@ describe("chunking + batch loop", () => {
     expect(seen[seen.length - 1]).toEqual([10, 12]);
   });
 
-  it("whole-chunk 429 stops with retry-after; whole-chunk 400 degrades to refusals and continues", async () => {
+  it("whole-chunk 429 waits then re-POSTs; whole-chunk 400 degrades to refusals and continues", async () => {
     // Small chunks (maxItems 5, 12 tasks → 5/5/2): chunk 1 refused whole
-    // (400, push continues), chunk 2 all-ok, chunk 3 rate-limited → stop.
+    // (400, push continues), chunk 2 all-ok, chunk 3 rate-limited → wait
+    // 45s, re-POST chunk 3, all land.
     const small = { ...PREFLIGHT, maxItems: 5 };
     const fetchMock = vi
       .fn()
@@ -398,26 +399,37 @@ describe("chunking + batch loop", () => {
       .mockResolvedValueOnce(
         wholeRefusal(429, { error: "Token bucket exhausted" }, { "retry-after": "45" }),
       )
-      .mockResolvedValue(okChunk(["never"]));
+      .mockResolvedValueOnce(okChunk(["c11", "c12"]));
     vi.stubGlobal("fetch", fetchMock);
+    const sleeps: number[] = [];
     const result = await createTasksInBatches(
       "https://x.test",
       "tok",
       undefined,
       tasks(12),
-      { preflight: small },
+      {
+        preflight: small,
+        retry429: {
+          sleepMs: (ms) => {
+            sleeps.push(ms);
+            return Promise.resolve();
+          },
+        },
+      },
     );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(result.imported).toBe(5);
-    expect(result.skipped).toBe(5 + 2);
+    // The 429 recorded nothing — the same chunk re-POSTed after the wait.
+    // (Red without the fix: 3 calls, 5 + 2 refused, stopped rate-limited.)
+    expect(sleeps).toEqual([45_000]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(result.imported).toBe(7);
+    expect(result.skipped).toBe(5);
     expect(result.attempted).toBe(12);
     expect(result.failures).toEqual([
       { status: 400, code: "BATCH_TOO_LARGE", count: 5 },
-      { status: 429, code: "Token bucket exhausted", count: 2 },
     ]);
-    expect(result.stoppedEarly).toBe("rate-limited");
-    expect(result.retryAfter).toBe("45");
-    expect(formatPushStopLine(result)).toContain("45");
+    expect(result.stoppedEarly).toBeNull();
+    expect(result.retryAfter).toBeNull();
+    expect(formatPushStopLine(result)).toBeNull();
   });
 });
 

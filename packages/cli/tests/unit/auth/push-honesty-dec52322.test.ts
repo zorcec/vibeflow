@@ -95,35 +95,47 @@ describe("createTasksOneByOne records true refusal reasons", () => {
     expect(formatPushStopLine(result)).toContain("TASK_LIMIT");
   });
 
-  it("stops at the first 429 and records the retry-after header", async () => {
+  it("429 waits (capped at 120s) then resumes the same task", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(ok("c1"))
       .mockResolvedValueOnce(
         refused(429, { error: "Token bucket exhausted" }, { "retry-after": "120" }),
       )
-      .mockResolvedValue(ok("never"));
+      .mockResolvedValueOnce(ok("c2"))
+      .mockResolvedValueOnce(ok("c3"))
+      .mockResolvedValueOnce(ok("c4"));
     vi.stubGlobal("fetch", fetchMock);
-
+    const sleeps: number[] = [];
+    const waits: Array<[number, number]> = [];
     const result = await createTasksOneByOne(
       "https://x.test",
       "tok",
       "b",
       tasks(4),
+      undefined,
+      {
+        sleepMs: (ms) => {
+          sleeps.push(ms);
+          return Promise.resolve();
+        },
+        onWait: (ms, n) => waits.push([ms, n]),
+      },
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.imported).toBe(1);
-    expect(result.skipped).toBe(1);
-    expect(result.attempted).toBe(2);
-    expect(result.failures).toEqual([
-      { status: 429, code: "Token bucket exhausted", count: 1 },
-    ]);
-    expect(result.stoppedEarly).toBe("rate-limited");
-    expect(result.retryAfter).toBe("120");
-    const line = formatPushStopLine(result);
-    expect(line).toContain("429");
-    expect(line).toContain("120");
+    // The 429 refused t2 — nothing recorded, the same task re-POSTed after
+    // the capped wait; the push completes instead of abandoning t2–t4.
+    // (Red without the fix: 2 calls, 1 created / 1 refused, stopped.)
+    expect(sleeps).toEqual([120_000]);
+    expect(waits).toEqual([[120_000, 1]]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(result.imported).toBe(4);
+    expect(result.skipped).toBe(0);
+    expect(result.attempted).toBe(5);
+    expect(result.failures).toEqual([]);
+    expect(result.stoppedEarly).toBeNull();
+    expect(result.retryAfter).toBeNull();
+    expect(formatPushStopLine(result)).toBeNull();
   });
 
   it("groups mixed 400/402 refusals with exact counts and keeps going past 400s", async () => {

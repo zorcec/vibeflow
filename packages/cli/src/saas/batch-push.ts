@@ -32,7 +32,7 @@ import {
 import { join } from "node:path";
 import { surfacePath } from "../core/api-url.js";
 import { PROTO_DIR } from "../core/types.js";
-import { toV0CreateBody, pushRefusalCode } from "../auth/login.js";
+import { toV0CreateBody, pushRefusalCode, resolve429WaitMs, PUSH_429_MAX_RESUMES, type Push429ResumeOptions } from "../auth/login.js";
 import type { PushLoopResult, PushRefusalGroup } from "../auth/login.js";
 import { maybeCompressForUpload } from "./compression.js";
 
@@ -487,6 +487,11 @@ export interface BatchPushOptions {
   /** Preflight (chunk sizing + nothing else — the refuse gate lives in
    * `evaluateBatchPreflight`, called by push.ts BEFORE this runs). */
   preflight?: BatchPreflight;
+  /** 429 wait-resume knobs (ticket 99cf6943): same shape and defaults as
+   * the one-by-one loop — one shared per-push budget of 3 waits. Omit
+   * for the defaults (3 resumes, real sleep, silent waits); callers pass
+   * `onWait` to narrate the stall. */
+  retry429?: Push429ResumeOptions;
 }
 
 /** Read + validate the checkpoint (ticket 8d3b2b81): corrupt/foreign
@@ -610,6 +615,12 @@ export async function createTasksInBatches(
   let stoppedEarly: PushLoopResult["stoppedEarly"] = null;
   let stopMessage: string | null = null;
   let retryAfter: string | null = null;
+  // 429 wait-resume budget (ticket 99cf6943): whole-chunk re-POSTs and
+  // mid-chunk pauses below each spend one of 3 waits per push (shared
+  // allowance with the one-by-one loop), then the push stops loudly.
+  const maxResumes = opts.retry429?.maxResumes ?? PUSH_429_MAX_RESUMES;
+  const sleep429 = opts.retry429?.sleepMs ?? sleep;
+  let resumes = 0;
 
   const recordRefusal = (status: number, code: string): void => {
     const key = `${status} ${code}`;
@@ -654,6 +665,21 @@ export async function createTasksInBatches(
       const items = chunkStart < base ? chunk.slice(base - chunkStart) : chunk;
       const outcome = await postTaskChunk(apiUrl, token, boardId, items);
       if (outcome.wholeChunkRefusal !== null) {
+        // 429 with budget left (ticket 99cf6943): wait, then re-POST the
+        // same chunk — the checkpoint still holds the pre-chunk position,
+        // so nothing is recorded and nothing is lost (`c--`: a bare
+        // `continue` would advance to the NEXT chunk and drop this one).
+        // Any other whole-chunk refusal (or an exhausted budget) takes
+        // the loud path below: record every item, persist, and stop on
+        // 402/429.
+        if (outcome.stoppedEarly === "rate-limited" && resumes < maxResumes) {
+          resumes++;
+          const waitMs = resolve429WaitMs(outcome.retryAfter);
+          opts.retry429?.onWait?.(waitMs, resumes);
+          await sleep429(waitMs);
+          c--;
+          continue;
+        }
         for (let i = 0; i < items.length; i++) {
           recordRefusal(
             outcome.wholeChunkRefusal.status,
@@ -688,6 +714,18 @@ export async function createTasksInBatches(
           processed++;
           opts.onProgress?.(processed, tasks.length);
           if (status === 402 || status === 429) {
+            // Per-item 429 with budget left (ticket 99cf6943): this item
+            // WAS refused (counted above), then wait and continue with
+            // the chunk's remaining items using their ACTUAL results — no
+            // fan-out, no stop. The 200 envelope carries no Retry-After,
+            // so the wait holds the 60s default.
+            if (status === 429 && resumes < maxResumes) {
+              resumes++;
+              const waitMs = resolve429WaitMs(null);
+              opts.retry429?.onWait?.(waitMs, resumes);
+              await sleep429(waitMs);
+              continue;
+            }
             // Per-item quota/rate hit stops the PUSH but the chunk's
             // remaining items were still attempted (one POST) — count
             // them refused under the same group so attempted stays exact.

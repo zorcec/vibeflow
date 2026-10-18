@@ -5,7 +5,7 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
-import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, type PushLoopResult } from "../auth/login.js";
+import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
 import { probeBatchCapability, evaluateBatchPreflight, createTasksInBatches, readBatchCheckpoint, uploadBatchFiles, type BatchFileJob } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
@@ -229,6 +229,15 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // (counter + bar + pct + ETA), sparse lines when piped, all on
     // stderr so piped output and --json stay clean.
     const onProgress = createTaskPushProgressReporter(taskList.length);
+    // 429 waits are user-visible stalls (ticket 99cf6943): say how long
+    // and which resume — a silent 120s pause reads as hung.
+    const onWait = (waitMs: number, resume: number): void => {
+      console.log(
+        chalk.yellow(
+          `  Rate limited — waiting ${Math.ceil(waitMs / 1000)}s before resuming (resume ${resume}/${PUSH_429_MAX_RESUMES})…`,
+        ),
+      );
+    };
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
     // filePath string — each entry spreads as a plain record into the JSON
     // create body, so the record cast is representation-preserving.
@@ -249,7 +258,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     });
     if (probe.supported === false) {
       result = toImportResult(
-        await createTasksOneByOne(apiUrl, token, workspaceId, records, onProgress),
+        await createTasksOneByOne(apiUrl, token, workspaceId, records, onProgress, { onWait }),
       );
     } else {
       // Quota preflight (ticket 8d3b2b81): refuse-or-confirm BEFORE
@@ -279,6 +288,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
           onProgress,
           projectDir,
           preflight: probe.preflight,
+          retry429: { onWait },
         }),
       );
       tookBatchPath = true;
