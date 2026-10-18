@@ -48,6 +48,16 @@ export {
   slugify,
 } from "./utils";
 
+// Compression policy (single source of truth for CLI uploads + server
+// at-rest storage — both sides implement their thin wrappers on top).
+export {
+  BROTLI_ENCODING,
+  BROTLI_QUALITY,
+  COMPRESSIBLE_EXTENSIONS,
+  isCompressibleTextArtifact,
+  shouldStoreCompressed,
+} from "./compression";
+
 // Signed webhooks (scheme documented in ./webhooks)
 export {
   WEBHOOK_SIGNATURE_HEADER,

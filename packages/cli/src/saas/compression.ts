@@ -1,48 +1,38 @@
 /**
  * Upload-side compression for text artifacts pushed to the remote service.
  *
- * Eligible text files (md, html, non-baseline json, txt, csv — never
- * `baseline-*.json`, never images) are brotli-compressed (quality 5,
- * `node:zlib`, zero dependencies) BEFORE upload, so the bytes on the wire
- * are already the at-rest form the server stores. The server recognizes the
- * upload via the `x-content-encoding: br` header sent alongside `x-filename`
- * and stores the received bytes verbatim — one encode total, zero server CPU.
+ * Thin wrapper over `@vibeflow-tools/shared` compression policy — the
+ * eligibility set, quality, and shrink rule live there, so this file
+ * carries no independent rules to drift. (It previously excluded
+ * `baseline-*.json`; that exclusion was dropped to match the server,
+ * which has compressed baselines since ticket 7a2df818.)
  *
- * Local files stay plain (git-diffable); this module only shapes the upload
- * payload. Eligibility mirrors the server's storage rules exactly, so a file
- * the server would store plain is never sent with the header.
+ * Eligible text files are brotli-compressed (quality 5, `node:zlib`, zero
+ * dependencies) BEFORE upload, so the bytes on the wire are already the
+ * at-rest form the server stores. The server recognizes the upload via
+ * the `x-content-encoding: br` header sent alongside `x-filename` and
+ * stores the received bytes verbatim — one encode total, zero server CPU.
+ *
+ * Local files stay plain (git-diffable); this module only shapes the
+ * upload payload.
  */
 import { brotliCompressSync, constants } from "node:zlib";
+import {
+  BROTLI_ENCODING,
+  BROTLI_QUALITY,
+  isCompressibleTextArtifact as isEligible,
+  shouldStoreCompressed,
+} from "@vibeflow-tools/shared";
 
 /** Marker the server records for brotli-compressed rows. */
-export const UPLOAD_ENCODING_BROTLI = "br" as const;
+export const UPLOAD_ENCODING_BROTLI = BROTLI_ENCODING;
 
 /** Brotli quality for upload compression (matches the at-rest quality). */
-export const BROTLI_UPLOAD_QUALITY = 5;
+export const BROTLI_UPLOAD_QUALITY: number = BROTLI_QUALITY;
 
-const COMPRESSIBLE_EXTENSIONS = new Set([
-  "md",
-  "markdown",
-  "html",
-  "htm",
-  "txt",
-  "csv",
-  "json",
-]);
-
-/** Owned by the baselines flow — never compressed here. */
-const BASELINE_JSON_RE = /^baseline-.*\.json$/i;
-
-/**
- * Whether a filename is eligible for brotli compression on upload.
- * Extension-based; images and `baseline-*.json` are excluded.
- */
+/** Whether a filename is eligible for brotli compression on upload. */
 export function isCompressibleTextArtifact(filename: string): boolean {
-  const base = filename.split("/").pop() ?? filename;
-  if (BASELINE_JSON_RE.test(base)) return false;
-  const dot = base.lastIndexOf(".");
-  if (dot < 0) return false;
-  return COMPRESSIBLE_EXTENSIONS.has(base.slice(dot + 1).toLowerCase());
+  return isEligible(filename);
 }
 
 /**
@@ -55,15 +45,15 @@ export function maybeCompressForUpload(
   filename: string,
   input: Buffer,
 ): { bytes: Buffer; contentEncoding: "br" | null } {
-  if (!isCompressibleTextArtifact(filename)) {
+  if (!isEligible(filename)) {
     return { bytes: input, contentEncoding: null };
   }
   const compressed = brotliCompressSync(input, {
     params: {
-      [constants.BROTLI_PARAM_QUALITY]: BROTLI_UPLOAD_QUALITY,
+      [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
     },
   });
-  if (compressed.length >= input.length) {
+  if (!shouldStoreCompressed(input.length, compressed.length)) {
     return { bytes: input, contentEncoding: null };
   }
   return { bytes: compressed, contentEncoding: UPLOAD_ENCODING_BROTLI };

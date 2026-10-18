@@ -9,6 +9,11 @@ import {
   isCompressibleTextArtifact,
   maybeCompressForUpload,
 } from "../../../src/saas/compression.js";
+import {
+  BROTLI_ENCODING,
+  BROTLI_QUALITY,
+  isCompressibleTextArtifact as sharedEligible,
+} from "@vibeflow-tools/shared";
 
 // Highly compressible markdown (~7 KB) so the "shrinks" assertions have
 // real headroom over brotli framing overhead.
@@ -23,16 +28,23 @@ describe("isCompressibleTextArtifact", () => {
     },
   );
 
-  it.each(["photo.png", "photo.jpg", "anim.gif", "pic.webp", "shot.svg", "doc.pdf", "archive.zip", "noext", "baseline-x.json", "BASELINE-a.JSON", "dir/baseline-b.json"])(
+  it.each(["photo.png", "photo.jpg", "anim.gif", "pic.webp", "shot.svg", "doc.pdf", "archive.zip", "noext"])(
     "treats %s as ineligible",
     (name) => {
       expect(isCompressibleTextArtifact(name)).toBe(false);
     },
   );
 
-  it("excludes baseline-*.json even though plain .json is eligible", () => {
+  it.each(["baseline-x.json", "BASELINE-a.JSON", "dir/baseline-b.json"])(
+    "treats %s as eligible (baselines compress like any json)",
+    (name) => {
+      expect(isCompressibleTextArtifact(name)).toBe(true);
+    },
+  );
+
+  it("includes baseline-*.json exactly like plain .json (server parity, ticket 7a2df818)", () => {
     expect(isCompressibleTextArtifact("report.json")).toBe(true);
-    expect(isCompressibleTextArtifact("baseline-report.json")).toBe(false);
+    expect(isCompressibleTextArtifact("baseline-report.json")).toBe(true);
   });
 });
 
@@ -48,12 +60,38 @@ describe("maybeCompressForUpload", () => {
   });
 
   it("uses quality 5 (matches the at-rest quality)", () => {
+    expect(BROTLI_UPLOAD_QUALITY).toBe(BROTLI_QUALITY);
     expect(BROTLI_UPLOAD_QUALITY).toBe(5);
     const { bytes } = maybeCompressForUpload("notes.md", MARKDOWN_BYTES);
     const reference = brotliCompressSync(MARKDOWN_BYTES, {
       params: { [constants.BROTLI_PARAM_QUALITY]: 5 },
     });
     expect(bytes.equals(reference)).toBe(true);
+  });
+
+  it("tracks the shared source of truth (no drift between CLI and server rules)", () => {
+    // The wrapper must not grow its own eligibility: every sample agrees
+    // with @vibeflow-tools/shared, including baselines (server rule).
+    const names = [
+      "notes.md",
+      "N.DOC.MD",
+      "page.html",
+      "page.htm",
+      "data.txt",
+      "rows.csv",
+      "report.json",
+      "doc.markdown",
+      "baseline-x.json",
+      "BASELINE-a.JSON",
+      "dir/baseline-b.json",
+      "photo.png",
+      "archive.zip",
+      "noext",
+    ];
+    for (const name of names) {
+      expect(isCompressibleTextArtifact(name)).toBe(sharedEligible(name));
+    }
+    expect(BROTLI_ENCODING).toBe("br");
   });
 
   it("leaves images byte-identical with no encoding", () => {
@@ -63,13 +101,14 @@ describe("maybeCompressForUpload", () => {
     expect(bytes.equals(png)).toBe(true);
   });
 
-  it("leaves baseline-*.json untouched", () => {
+  it("compresses baseline-*.json like any other eligible json", () => {
     const { bytes, contentEncoding } = maybeCompressForUpload(
       "baseline-abc.json",
       MARKDOWN_BYTES,
     );
-    expect(contentEncoding).toBeNull();
-    expect(bytes.equals(MARKDOWN_BYTES)).toBe(true);
+    expect(contentEncoding).toBe("br");
+    expect(bytes.length).toBeLessThan(MARKDOWN_BYTES.length);
+    expect(brotliDecompressSync(bytes).equals(MARKDOWN_BYTES)).toBe(true);
   });
 
   it("leaves tiny text that does not shrink as plain", () => {

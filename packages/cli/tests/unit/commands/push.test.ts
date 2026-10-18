@@ -891,7 +891,7 @@ describe("push — upload compression (single-encode wire format)", () => {
     expect(Buffer.from(upload.body).equals(png)).toBe(true);
   });
 
-  it("sends baseline-*.json raw with no content-encoding header", async () => {
+  it("sends baseline-*.json brotli-compressed like any eligible json (server parity, ticket 7a2df818)", async () => {
     const original = Buffer.from(
       `# Notes\n\n${"Lorem ipsum dolor sit amet. ".repeat(200)}`,
       "utf8",
@@ -902,8 +902,10 @@ describe("push — upload compression (single-encode wire format)", () => {
       "baseline-abc.json",
       original,
     );
-    expect(upload.headers["x-content-encoding"]).toBeUndefined();
-    expect(Buffer.from(upload.body).equals(original)).toBe(true);
+    expect(upload.headers["x-content-encoding"]).toBe("br");
+    const wire = Buffer.from(upload.body);
+    expect(wire.length).toBeLessThan(original.length);
+    expect(brotliDecompressSync(wire).equals(original)).toBe(true);
   });
 });
 
