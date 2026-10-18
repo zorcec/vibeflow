@@ -22,6 +22,10 @@ import { OVERLAY_BROWSER_BUNDLE } from "../overlay-bundle.gen.js";
 //     use the port this script was generated for. Same-server pages resolve
 //     to exactly the old value (localhost:port or LAN IP:port).
 export function getOverlayScript(port: number): string {
+  // Ticket 0847833f: the chat panel renders only when the serving CLI
+  // runs with VIBEFLOW_AGENT_CHAT=1 (a local WS channel always exists
+  // in local serve, so the flag alone gates).
+  const agentChat = process.env.VIBEFLOW_AGENT_CHAT === "1";
   const config = `
 var _vfScriptSrc = document.currentScript && document.currentScript.src;
 var _vfPort = '${port}';
@@ -31,7 +35,8 @@ var PROTO_CONFIG = {
   wsUrl: _vfOrigin.replace(/^http/, 'ws'),
   apiUrl: _vfOrigin + '/api/tasks',
   pagesUrl: _vfOrigin + '/api/pages',
-  screenshotsUrl: _vfOrigin + '/screenshots/'
+  screenshotsUrl: _vfOrigin + '/screenshots/',
+  agentChat: ${agentChat ? "true" : "false"}
 };
 `;
   return config + OVERLAY_BROWSER_BUNDLE;
@@ -48,6 +53,9 @@ export function getOverlaySaasScript(baseUrl: string): string {
     apiUrl: `${baseUrl}/api/overlay/tasks`,
     pagesUrl: "",
     screenshotsUrl: "",
+    // Ticket 0847833f: SaaS bundles never get chat — the agent runs
+    // server-side in local `serve`, never in the cloud.
+    agentChat: false,
   })};\n`;
   return config + OVERLAY_BROWSER_BUNDLE;
 }

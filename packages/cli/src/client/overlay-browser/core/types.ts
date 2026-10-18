@@ -38,6 +38,13 @@ export interface ProtoConfig {
   pagesUrl: string;
   boardId?: string;
   overlayApiKey?: string;
+  /**
+   * Agent chat availability (ticket 0847833f): true only when the
+   * serving CLI runs with VIBEFLOW_AGENT_CHAT=1 AND a local WS channel
+   * exists (local `serve`). SaaS bundles always get false — the agent
+   * runs server-side in `serve`, never in the cloud.
+   */
+  agentChat?: boolean;
 }
 
 /** Page-wide DOM snapshot for baseline capture. */

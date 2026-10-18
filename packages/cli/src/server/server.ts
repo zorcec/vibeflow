@@ -15,6 +15,11 @@ import { WebSocketServer, WebSocket } from "ws";
 import chalk from "chalk";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { mountMcp, disposeMcp } from "../mcp/http.js";
+import {
+  ChatSessionManager,
+  isAgentChatEnabled,
+} from "./agent-chat/sessions.js";
+import { registerChatRoutes } from "./agent-chat/routes.js";
 import { injectScript } from "../core/html-parser.js";
 import { createFileWatcher, createTaskWatcher } from "./watcher.js";
 import {
@@ -189,6 +194,31 @@ export interface ServeInstance {
 }
 
 type BroadcastFn = (data: Record<string, unknown>) => void;
+
+/**
+ * Agent chat registration (ticket 0847833f): creates the per-serve chat
+ * session manager and mounts the chat REST + MCP endpoints — but ONLY
+ * when VIBEFLOW_AGENT_CHAT=1 (default OFF). Returns the manager for
+ * shutdown cleanup, or null when the flag is off (zero new surface).
+ * The pi child always dials localhost: the agent runs on the same
+ * machine as `serve`, never across the network.
+ */
+function maybeRegisterChat(
+  app: import("express").Express,
+  opts: { projectDir: string; port: number; broadcast: BroadcastFn },
+): ChatSessionManager | null {
+  if (!isAgentChatEnabled()) return null;
+  const manager = new ChatSessionManager({
+    projectDir: opts.projectDir,
+    serverOrigin: `http://localhost:${opts.port}`,
+  });
+  registerChatRoutes(app, {
+    manager,
+    broadcast: opts.broadcast,
+    projectDir: opts.projectDir,
+  });
+  return manager;
+}
 
 /** Panel data parts a tasks-updated broadcast invalidates. The open detail
  * panel refetches ONLY the listed parts (coalesced to one round) — absence
@@ -2004,9 +2034,15 @@ async function serveApiOnly(
 
     // Mount MCP server (StreamableHTTP transport)
     mountMcp(app, projectDir, "local");
-  }
 
-  // Dev mode (ticket 7e85c338): explicit `--dev` / VIBEFLOW_DEV=1 only.
+    // Ticket 0847833f: agent chat (flag-gated, default OFF). Null when
+    // the flag is off — zero new surface, zero new processes.
+    var chatManager: ChatSessionManager | null = maybeRegisterChat(app, {
+      projectDir,
+      port: options.port,
+      broadcast,
+    });
+  }
   // Returns the bundle reload watcher (null in prod) — closed with the
   // instance so no chokidar handle survives the server.
   const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
@@ -2129,6 +2165,10 @@ async function serveApiOnly(
           if (taskWatcher) await taskWatcher.close();
           if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
           disposeMcp();
+          // Ticket 0847833f: stop pi children before the sockets go away.
+          if (typeof chatManager !== "undefined" && chatManager) {
+            await chatManager.closeAll();
+          }
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -2309,6 +2349,13 @@ li{margin:8px 0}</style></head>
   registerTrpcApi(app, projectDir, broadcast);
   registerMetaApis(app, projectDir, broadcast);
   registerOpenApiRoute(app);
+  // Ticket 0847833f: agent chat (flag-gated, default OFF). Null when the
+  // flag is off — zero new surface, zero new processes.
+  const chatManager = maybeRegisterChat(app, {
+    projectDir,
+    port: options.port,
+    broadcast,
+  });
   // Dev mode (ticket 7e85c338) — same explicit opt-in as the API-only path.
   const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
     broadcast,
@@ -2407,6 +2454,8 @@ li{margin:8px 0}</style></head>
           if (watcher) await watcher.close();
           await taskWatcher.close();
           if (kanbanReloadWatcher) await kanbanReloadWatcher.close();
+          // Ticket 0847833f: stop pi children before the sockets go away.
+          if (chatManager) await chatManager.closeAll();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },

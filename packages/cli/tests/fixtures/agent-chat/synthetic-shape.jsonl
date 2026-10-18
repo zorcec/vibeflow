@@ -1,0 +1,7 @@
+{"type": "response", "id": "rec-1", "command": "prompt", "success": true, "data": {"disposition": "started"}}
+{"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "I'll check that button."}}
+{"type": "tool_execution_start", "toolCallId": "call_s1", "toolName": "read_page_dom", "args": {"selector": "#pay"}}
+{"type": "tool_execution_end", "toolCallId": "call_s1", "toolName": "read_page_dom", "result": "Pay now", "isError": false}
+{"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": " Found it."}}
+{"type": "agent_end", "messages": [], "willRetry": false}
+{"type": "agent_settled", "aborted": false}

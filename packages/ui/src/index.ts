@@ -15,6 +15,17 @@ export { StatusBadge } from "./StatusBadge";
 export { TypeBadge } from "./TypeBadge";
 export { PriorityBadge } from "./PriorityBadge";
 
+// Agent chat panel (ticket 0847833f) — reusable across overlay, kanban, web app.
+export { ChatPanel } from "./ChatPanel";
+export type {
+  ChatMessage,
+  ChatToolCall,
+  ChatApproval,
+  ChatPanelProps,
+  ChatPanelStatus,
+  PastedImage,
+} from "./ChatPanel";
+
 // Task type data (TypePicker is re-exported via export * from "./kanban" to avoid duplicate __source)
 export {
   TASK_TYPES,

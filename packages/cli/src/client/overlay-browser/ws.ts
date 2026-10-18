@@ -48,6 +48,20 @@ export function connectWS(): void {
     if (msg.type === "tasks-updated") state.onTasksUpdatedMessage?.();
     if (msg.type === "task-changed" || msg.type === "task-deleted")
       state.onTasksUpdatedMessage?.();
+    // Ticket 0847833f: agent chat frames (token/tool/approval/tool-request)
+    // route to the chat container; other panels ignore them.
+    if (
+      typeof msg.type === "string" &&
+      (msg.type === "agent:token" ||
+        msg.type === "agent:tool-call" ||
+        msg.type === "agent:tool-result" ||
+        msg.type === "agent:done" ||
+        msg.type === "agent:error" ||
+        msg.type === "agent:approval-request" ||
+        msg.type === "agent:tool-request")
+    ) {
+      state.onChatEvent?.(msg as Record<string, unknown>);
+    }
   };
 
   state.ws.onclose = () => {

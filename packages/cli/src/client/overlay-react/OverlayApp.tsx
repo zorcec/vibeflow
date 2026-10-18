@@ -21,6 +21,8 @@ import {
   sendBaselineToServer,
 } from "../overlay-browser/core/capture.js";
 import { captureDomSnapshot } from "../overlay-browser/core/baseline.js";
+import { isChatAvailable } from "../overlay-browser/chat.js";
+import { ChatContainer, registerChatOpener } from "./ChatContainer.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,10 +45,16 @@ let _externalFlashTrigger: (() => void) | null = null;
 let _externalSetTriggerVisible: (() => void) | null = null;
 let _externalHideTrigger: (() => void) | null = null;
 let _externalDisableOverlay: (() => void) | null = null;
+let _externalOpenChat: (() => void) | null = null;
 
 /** Opens the React add-task modal from vanilla-TS code */
 export function showOverlayAddModal(opts: AddModalOpts = {}): void {
   _externalShowAddModal?.(opts);
+}
+
+/** Opens the agent chat panel from vanilla-TS code (ticket 0847833f). */
+export function showOverlayChat(): void {
+  _externalOpenChat?.();
 }
 
 /** Shows the corner trigger after it was hidden — called from the page context menu */
@@ -1330,6 +1338,11 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
   const [addModalOpts, setAddModalOpts] = React.useState<AddModalOpts | null>(
     null,
   );
+  const [chatOpen, setChatOpen] = React.useState(false);
+  // Chat is a build-time + runtime gate: bundle flag from serve plus
+  // local-WS presence (SaaS bundles never get it — ticket 0847833f).
+  // Computed once per mount: the flag cannot flip without a reload.
+  const [chatEnabled] = React.useState(() => isChatAvailable());
   const [triggerFlashing, setTriggerFlashing] = React.useState(false);
   const [isHidden, setIsHidden] = React.useState(() => {
     try {
@@ -1369,12 +1382,16 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
         state.host = null;
       }
     };
+    _externalOpenChat = () => setChatOpen(true);
+    registerChatOpener(() => setChatOpen(true));
     return () => {
       _externalShowAddModal = null;
       _externalFlashTrigger = null;
       _externalSetTriggerVisible = null;
       _externalHideTrigger = null;
       _externalDisableOverlay = null;
+      _externalOpenChat = null;
+      registerChatOpener(() => {});
     };
   }, []);
 
@@ -1386,6 +1403,34 @@ export function OverlayApp({ onOpenKanban, onSubmitTask }: OverlayAppProps) {
 
   return (
     <>
+      {chatEnabled && !isKanbanPage && !isHidden && !chatOpen && (
+        <button
+          type="button"
+          className="vibeflow-chat-trigger"
+          onClick={() => setChatOpen(true)}
+          aria-label="Open agent chat"
+          data-testid="chat-trigger"
+          title="Ask the agent"
+        >
+          {/* Speech-bubble glyph: distinct silhouette from the kanban trigger. */}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M3 4.5A2.5 2.5 0 0 1 5.5 2h9A2.5 2.5 0 0 1 17 4.5v7a2.5 2.5 0 0 1-2.5 2.5H9l-4.2 3.1a.6.6 0 0 1-.95-.48V14H5.5A2.5 2.5 0 0 1 3 11.5v-7Z"
+              fill="currentColor"
+              opacity="0.9"
+            />
+          </svg>
+        </button>
+      )}
+      {chatEnabled && chatOpen && (
+        <ChatContainer onClose={() => setChatOpen(false)} />
+      )}
       {!isKanbanPage && !isHidden && (
         <CornerTrigger
           onClick={onOpenKanban}

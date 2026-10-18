@@ -43,6 +43,10 @@ export const state = {
   // Callbacks registered by index.ts (avoids circular module deps)
   onTasksFetched: null as ((tasks: Task[]) => void) | null,
   onTasksUpdatedMessage: null as (() => void) | null,
+  // Ticket 0847833f: agent chat frames (agent:token/tool-call/tool-result/
+  // done/error, approval-request, tool-request) routed by ws.ts. The chat
+  // container in OverlayApp owns the subscription.
+  onChatEvent: null as ((msg: Record<string, unknown>) => void) | null,
 };
 
 export const PREFS_KEY = "vibeflow-studio-prefs";
