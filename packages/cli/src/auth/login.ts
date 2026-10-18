@@ -737,6 +737,39 @@ export interface ApplyPushLinksResult {
  * HTTP/network failures degrade to skipped entries for the same reason.
  * Mode is always `"cloud"`: callers address the `getApiUrl()` SaaS base.
  */
+/**
+ * Ticket 57aff0df: resolve a local id against the board when the current
+ * run's idMap has no entry. The task may exist remotely from an EARLIER
+ * push (locals since deleted, or a later task linking back) — the
+ * single-task GET resolves by cliId OR id, so one read heals the link.
+ * Non-OK (404 unknown, 409 ambiguous, network throw) means truly
+ * unresolvable → undefined, and the caller keeps its clean skip. Only
+ * fires for idMap misses, so the common path costs nothing extra.
+ * Resolved ids are written back into the caller's idMap (same object
+ * the file phase reads), so healed tasks upload their files too.
+ */
+async function resolveRemoteTaskId(
+  apiUrl: string,
+  token: string,
+  localId: string,
+): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `${apiUrl}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(localId)}`)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return undefined;
+    const body = (await res.json().catch(() => null)) as {
+      id?: unknown;
+    } | null;
+    return typeof body?.id === "string" && body.id.length > 0
+      ? body.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function applyPushLinks(
   apiUrl: string,
   token: string,
@@ -745,10 +778,25 @@ export async function applyPushLinks(
 ): Promise<ApplyPushLinksResult> {
   let applied = 0;
   const skipped: SkippedPushLink[] = [];
+  // Ticket 57aff0df: miss cache — a target (or source) resolved once via
+  // the fallback lookup is reused for the rest of this run, so N links
+  // to the same earlier-pushed task cost one GET, not N.
+  const healed = new Map<string, string>();
+  const healedRemoteId = async (localId: string): Promise<string | undefined> => {
+    const cached = healed.get(localId);
+    if (cached !== undefined) return cached;
+    const resolved = await resolveRemoteTaskId(apiUrl, token, localId);
+    if (resolved !== undefined) {
+      healed.set(localId, resolved);
+      // Write-back: the file phase reads this same idMap object after
+      // links, so healed tasks upload their attachments too.
+      idMap[localId] = resolved;
+    }
+    return resolved;
+  };
   for (const task of tasks) {
     const localId = task.id;
     if (typeof localId !== "string" || localId.length === 0) continue;
-    const remoteSource = idMap[localId];
     const links = task.links;
     if (!Array.isArray(links) || links.length === 0) continue;
     for (const link of links) {
@@ -774,6 +822,11 @@ export async function applyPushLinks(
         });
         continue;
       }
+      // Ticket 57aff0df: the source may exist remotely from an earlier
+      // push (deduped re-push, or locals deleted between runs) — resolve
+      // it by cliId before giving up.
+      const remoteSource =
+        idMap[localId] ?? (await healedRemoteId(localId));
       if (remoteSource === undefined) {
         skipped.push({
           from: localId,
@@ -783,7 +836,11 @@ export async function applyPushLinks(
         });
         continue;
       }
-      const remoteTarget = idMap[target];
+      // Ticket 57aff0df: same healing for the target side — a link to a
+      // task pushed in an earlier run resolves via cliId lookup instead
+      // of skipping forever.
+      const remoteTarget =
+        idMap[target] ?? (await healedRemoteId(target));
       if (remoteTarget === undefined) {
         skipped.push({
           from: localId,

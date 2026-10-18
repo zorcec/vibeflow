@@ -259,7 +259,9 @@ describe("createTasksOneByOne (v0 import loop)", () => {
           reason: "link target is not part of this push",
         },
       ]);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // Ticket 57aff0df: the ghost costs one cliId-lookup GET (which finds
+      // nothing — the mock body carries no id) before the clean skip.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it("skips malformed link entries and links from uncreated sources", async () => {
@@ -274,7 +276,84 @@ describe("createTasksOneByOne (v0 import loop)", () => {
 
       expect(result.applied).toBe(0);
       expect(result.skipped).toHaveLength(3);
-      expect(fetchMock).not.toHaveBeenCalled();
+      // Ticket 57aff0df: the only fetch is the source cliId-lookup GET
+      // for "a" (finds nothing — same skips as before, plus one read).
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("heals a target pushed in an earlier run via cliId lookup (ticket 57aff0df)", async () => {
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockImplementation((_url: unknown, init?: { method?: string }) => {
+        // Lookup GETs resolve by cliId; link POSTs succeed.
+        if ((init?.method ?? "GET") === "GET") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ id: "cloud-monday" }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const idMap: Record<string, string> = { "local-tue": "cloud-tue" };
+      const result = await applyPushLinks(
+        "https://x.test",
+        "tok",
+        [
+          {
+            id: "local-tue",
+            title: "Tuesday task",
+            links: [{ taskId: "local-mon", type: "relates" }],
+          },
+        ],
+        idMap,
+      );
+      // The Monday task was never in this run's idMap, yet the link
+      // applies — and the healed id is written back so the file phase
+      // (which reads this same object) uploads Monday's attachments.
+      expect(result).toEqual({ applied: 1, skipped: [] });
+      expect(idMap["local-mon"]).toBe("cloud-monday");
+      const post = fetchMock.mock.calls.find((c) => c[1]?.method === "POST");
+      expect(JSON.parse(post?.[1].body as string)).toEqual({
+        taskId: "cloud-monday",
+        type: "relates",
+      });
+      // Break: skip on idMap miss without the lookup — cross-run links
+      // (locals deleted between pushes) never heal and stay skipped.
+    });
+
+    it("heals a source pushed in an earlier run via cliId lookup (ticket 57aff0df)", async () => {
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockImplementation((_url: unknown, init?: { method?: string }) => {
+        if ((init?.method ?? "GET") === "GET") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ id: "cloud-old" }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await applyPushLinks(
+        "https://x.test",
+        "tok",
+        [
+          {
+            id: "local-old",
+            title: "Old task",
+            links: [{ taskId: "local-new", type: "blocks" }],
+          },
+          { id: "local-new", title: "New task" },
+        ],
+        { "local-new": "cloud-new" },
+      );
+      // The source resolved remotely; the link POSTs from its cloud id.
+      expect(result).toEqual({ applied: 1, skipped: [] });
+      const post = fetchMock.mock.calls.find((c) => c[1]?.method === "POST");
+      expect(String(post?.[0])).toBe("https://x.test/api/v0/tasks/cloud-old/links");
+      // Break: give up on source miss without the lookup — a source that
+      // exists remotely (refused this run, pushed before) loses its links.
     });
 
     it("is two-phase: no link POST is sent before its target's create", async () => {
