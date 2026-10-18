@@ -33,7 +33,7 @@ import * as tokenModule from "../../../src/auth/token.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
-import { push, formatBytes, renderProgressBar } from "../../../src/commands/push.js";
+import { push, formatBytes, renderProgressBar, uploadPushedFiles } from "../../../src/commands/push.js";
 import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -1343,5 +1343,97 @@ describe("push — batch path (8d3b2b81)", () => {
 
     errorSpy.mockRestore();
     process.exitCode = originalExitCode;
+  });
+});
+
+describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
+  beforeEach(() => {
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function filesFetchMock() {
+    return vi.fn((url: unknown, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      if ((init?.method ?? "GET") === "GET") {
+        // Presence probe: nothing on the server yet.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ files: [] }),
+        });
+      }
+      expect(u).toContain("/api/v0/tasks/");
+      expect(u).toContain("/files");
+      return Promise.resolve({ ok: true, status: 200 });
+    });
+  }
+
+  function seedLocalFile(projectDir: string, localId: string, name: string) {
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files", localId);
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, name), "stage-smoke-content");
+    vi.mocked(filesModule.listFiles).mockReturnValue([
+      { name, size: 19, linkedPath: null },
+    ]);
+    vi.mocked(filesModule.getFilesDir).mockReturnValue(filesDir);
+  }
+
+  it("batch path uploads the jobs and reports counts (login-time parity)", async () => {
+    const projectDir = makeTempProject();
+    seedLocalFile(projectDir, "t1", "notes.md");
+    const fetchMock = filesFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const out = await uploadPushedFiles(
+      "https://x.test",
+      "tok",
+      projectDir,
+      [{ localId: "t1", remoteId: "remote-1" }],
+      true,
+    );
+    expect(out.uploaded).toBe(1);
+    expect(out.failed).toBe(0);
+    expect(out.skippedPresent).toBe(0);
+    // Presence probe + one file POST.
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(posts).toHaveLength(1);
+    // Break: re-inline the uploader in login.ts instead of calling this
+    // helper — the two paths drift and login-time pushes drop files again.
+  });
+
+  it("sequential path uploads without a presence probe (old-server parity)", async () => {
+    const projectDir = makeTempProject();
+    seedLocalFile(projectDir, "t1", "notes.md");
+    const fetchMock = filesFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const out = await uploadPushedFiles(
+      "https://x.test",
+      "tok",
+      projectDir,
+      [{ localId: "t1", remoteId: "remote-1" }],
+      false,
+    );
+    expect(out.uploaded).toBe(1);
+    expect(out.failed).toBe(0);
+    // Sequential uploader POSTs directly — no presence GET.
+    const gets = fetchMock.mock.calls.filter((c) => (c[1]?.method ?? "GET") === "GET");
+    expect(gets).toHaveLength(0);
+  });
+
+  it("empty mappings upload nothing and never touch the network", async () => {
+    const fetchMock = filesFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await uploadPushedFiles("https://x.test", "tok", makeTempProject(), [], true);
+    expect(out).toEqual({ uploaded: 0, failed: 0, failedFiles: [], skippedPresent: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

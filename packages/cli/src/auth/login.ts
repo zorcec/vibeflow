@@ -1082,6 +1082,35 @@ async function promptPushLocalTasks(
                 console.log(
                   chalk.dim(`    (${formatSkippedLinks(links.skipped, false)})`),
                 );
+              // Phase 3 (ticket 0aac5938): upload local file attachments.
+              // The standalone push always did tasks → links → files, but
+              // this path stopped after links — every login-time push
+              // silently dropped attachments. Same shared helper (same
+              // wire format, same skip-if-present), same uploader
+              // selection as the task phase above (batch when probed,
+              // sequential on old servers). Login never deletes local
+              // files (keepLocal is prompt-parity only), so failures
+              // only warn here — auth already succeeded and a later
+              // `vibeflow push` retries the files. Lazy import: push.ts
+              // imports this module, so a static import would cycle.
+              const taskMappings = records
+                .filter(
+                  (t) =>
+                    typeof t.id === "string" &&
+                    (data.idMap[t.id] as string | undefined) !== undefined,
+                )
+                .map((t) => ({
+                  localId: t.id as string,
+                  remoteId: data.idMap[t.id as string] as string,
+                }));
+              const { uploadPushedFiles } = await import("../commands/push.js");
+              await uploadPushedFiles(
+                apiUrl,
+                token,
+                projectDir,
+                taskMappings,
+                probe.supported !== false,
+              );
             } catch (err) {
               console.log(
                 chalk.red(

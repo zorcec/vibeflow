@@ -44,11 +44,17 @@ export function renderProgressBar(done: number, total: number, width = 24): stri
   return `[${bar}]`;
 }
 
-async function uploadTaskFiles(
+/** Local → remote id pairs for the file phase (built from the push idMap). */
+export interface PushedFileMapping {
+  localId: string;
+  remoteId: string;
+}
+
+export async function uploadTaskFiles(
   apiUrl: string,
   token: string,
   projectDir: string,
-  taskMappings: Array<{ localId: string; remoteId: string }>,
+  taskMappings: PushedFileMapping[],
 ): Promise<{ uploaded: number; failed: number; failedFiles: Array<{ name: string; reason: string }> }> {
   const allJobs: Array<{ remoteId: string; name: string; filePath: string; size: number; system: boolean }> = [];
 
@@ -130,6 +136,91 @@ async function uploadTaskFiles(
   const bar = renderProgressBar(totalFiles, totalFiles);
   process.stdout.write(`\r  ${bar} 100%  Done${" ".repeat(40)}\n`);
   return { uploaded, failed, failedFiles };
+}
+
+/**
+ * Phase 3 shared by BOTH pushes (ticket 0aac5938): upload local file
+ * attachments for already-pushed tasks. Standalone `push` and the
+ * login-time push call this — never inline uploader loops — so the
+ * wire format (single-encode brotli + `x-content-encoding`) and the
+ * skip-if-present rule cannot drift between the two paths.
+ *
+ * Prints the Uploading/Uploaded/failed lines itself. Returns the
+ * counts; the caller decides what a failure means (standalone push
+ * fails loudly with exit code; login-time push only warns — auth
+ * already succeeded and the files stay local for a later `push`).
+ */
+export async function uploadPushedFiles(
+  apiUrl: string,
+  token: string,
+  projectDir: string,
+  taskMappings: PushedFileMapping[],
+  useBatch: boolean,
+): Promise<{
+  uploaded: number;
+  failed: number;
+  failedFiles: Array<{ name: string; reason: string }>;
+  skippedPresent: number;
+}> {
+  const jobs: BatchFileJob[] = [];
+  for (const { localId, remoteId } of taskMappings) {
+    for (const f of listFiles(projectDir, localId)) {
+      const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
+      if (existsSync(absPath)) {
+        jobs.push({
+          remoteId,
+          name: f.name,
+          filePath: absPath,
+          size: f.size,
+          system: f.system === true,
+        });
+      }
+    }
+  }
+  if (jobs.length === 0) {
+    return { uploaded: 0, failed: 0, failedFiles: [], skippedPresent: 0 };
+  }
+  let uploaded = 0;
+  let failed = 0;
+  let failedFiles: Array<{ name: string; reason: string }> = [];
+  let skippedPresent = 0;
+  if (useBatch) {
+    // Batch path (ticket 8d3b2b81): bounded-concurrency upload with
+    // skip-if-present (a killed-push re-run uploads only the missing tail).
+    console.log(
+      chalk.cyan(
+        `\n  Uploading ${jobs.length} file(s) (batch: 4 concurrent, skipping remote-present)...`,
+      ),
+    );
+    const outcome = await uploadBatchFiles(apiUrl, token, jobs);
+    uploaded = outcome.uploaded;
+    failed = outcome.failed;
+    failedFiles = outcome.failedFiles;
+    skippedPresent = outcome.skippedPresent;
+    if (skippedPresent > 0) {
+      console.log(
+        chalk.dim(`  Skipped ${skippedPresent} file(s) already present remotely.`),
+      );
+    }
+  } else {
+    ({ uploaded, failed, failedFiles } = await uploadTaskFiles(
+      apiUrl,
+      token,
+      projectDir,
+      taskMappings,
+    ));
+  }
+  if (uploaded > 0)
+    console.log(chalk.green(`  ✓ Uploaded ${uploaded} file(s) to storage`));
+  if (failed > 0) {
+    // Stryker disable once StringLiteral: display message for upload failures
+    console.log(chalk.yellow(`  ⚠ ${failed} file(s) failed to upload`));
+    for (const f of failedFiles) {
+      // Stryker disable once StringLiteral: display message for failed file
+      console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
+    }
+  }
+  return { uploaded, failed, failedFiles, skippedPresent };
 }
 
 export interface PushResult {
@@ -352,43 +443,16 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     .filter((t) => t.id && idMap[t.id])
     .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
 
-  // Batch path (ticket 8d3b2b81): bounded-concurrency upload with
-  // skip-if-present (a killed-push re-run uploads only the missing tail).
-  // Legacy path: the sequential uploader, untouched.
-  let uploaded = 0;
-  let failed = 0;
-  let failedFiles: Array<{ name: string; reason: string }> = [];
-  if (tookBatchPath) {
-    const jobs: BatchFileJob[] = [];
-    for (const { localId, remoteId } of taskMappings) {
-      for (const f of listFiles(projectDir, localId)) {
-        const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
-        if (existsSync(absPath)) {
-          jobs.push({ remoteId, name: f.name, filePath: absPath, size: f.size, system: f.system === true });
-        }
-      }
-    }
-    if (jobs.length > 0) {
-      console.log(chalk.cyan(`\n  Uploading ${jobs.length} file(s) (batch: 4 concurrent, skipping remote-present)...`));
-    }
-    const outcome = await uploadBatchFiles(apiUrl, token, jobs);
-    uploaded = outcome.uploaded;
-    failed = outcome.failed;
-    failedFiles = outcome.failedFiles;
-    if (outcome.skippedPresent > 0) {
-      console.log(chalk.dim(`  Skipped ${outcome.skippedPresent} file(s) already present remotely.`));
-    }
-  } else {
-    ({ uploaded, failed, failedFiles } = await uploadTaskFiles(apiUrl, token, projectDir, taskMappings));
-  }
-  if (uploaded > 0) console.log(chalk.green(`  ✓ Uploaded ${uploaded} file(s) to storage`));
+  // Shared phase 3 (ticket 0aac5938): same helper the login-time push
+  // uses — wire format and skip-if-present cannot drift between paths.
+  const { failed } = await uploadPushedFiles(
+    apiUrl,
+    token,
+    projectDir,
+    taskMappings,
+    tookBatchPath,
+  );
   if (failed > 0) {
-    // Stryker disable once StringLiteral: display message for upload failures
-    console.log(chalk.yellow(`  ⚠ ${failed} file(s) failed to upload`));
-    for (const f of failedFiles) {
-      // Stryker disable once StringLiteral: display message for failed file
-      console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
-    }
     // Fail LOUDLY, not silently: the local files are deleted below while the
     // remote task is missing these attachments, so exiting 0 would let
     // `push && ...` chains (and humans) believe everything synced. The names
