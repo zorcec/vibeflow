@@ -202,6 +202,8 @@ describe("createTasksOneByOne records true refusal reasons", () => {
 
     expect(result).toEqual({
       imported: 3,
+      // One-by-one single-creates never dedup: existing stays 0.
+      existing: 0,
       skipped: 0,
       idMap: { t1: "cloud-x", t2: "cloud-x", t3: "cloud-x" },
       attempted: 3,

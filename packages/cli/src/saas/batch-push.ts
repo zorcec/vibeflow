@@ -333,7 +333,11 @@ export function batchItemHttpStatus(code: string): number {
 }
 
 export type BatchItemResult =
-  | { id: string }
+  // Ticket 9309ea70: `existing` marks a re-push match — the row id of a
+  // task already on the board (matched by stored cliId), not a new row.
+  // Callers must still fill the idMap (links heal) but must not count it
+  // as imported.
+  | { id: string; existing?: true }
   | { error: { code: string; message: string } };
 
 export interface ChunkPostOutcome {
@@ -398,10 +402,15 @@ export async function postTaskChunk(
       const raw = Array.isArray(envelope?.results) ? envelope!.results! : [];
       const results: BatchItemResult[] = items.map((_, i) => {
         const entry = raw[i] as
-          | { id?: unknown; error?: unknown }
+          | { id?: unknown; error?: unknown; existing?: unknown }
           | undefined;
         if (entry && typeof entry.id === "string" && entry.id.length > 0) {
-          return { id: entry.id };
+          // Ticket 9309ea70: preserve the server's existing-match flag —
+          // the id still fills the idMap (links heal), the loop counts
+          // it separately so the summary never claims it as created.
+          return entry.existing === true
+            ? { id: entry.id, existing: true as const }
+            : { id: entry.id };
         }
         if (entry && typeof entry.error === "object" && entry.error !== null) {
           const e = entry.error as Record<string, unknown>;
@@ -626,6 +635,9 @@ export async function createTasksInBatches(
   }
 
   let imported = 0;
+  // Ticket 9309ea70: re-push matches fill the idMap (links heal) but
+  // count separately — the summary must never print them as created.
+  let existingCount = 0;
   let skipped = 0;
   const groupOrder: string[] = [];
   const groups = new Map<string, PushRefusalGroup>();
@@ -731,7 +743,8 @@ export async function createTasksInBatches(
         const localId = typeof item.id === "string" ? item.id : "";
         const result = outcome.results[i]!;
         if ("id" in result) {
-          imported++;
+          if (result.existing === true) existingCount++;
+          else imported++;
           if (localId.length > 0) idMap[localId] = result.id;
         } else {
           const status = batchItemHttpStatus(result.error.code);
@@ -788,6 +801,7 @@ export async function createTasksInBatches(
   }
   return {
     imported,
+    existing: existingCount,
     skipped,
     idMap,
     attempted,

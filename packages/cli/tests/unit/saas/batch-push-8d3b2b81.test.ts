@@ -343,6 +343,52 @@ describe("chunking + batch loop", () => {
     expect(chunks.map((c) => c.length)).toEqual([50, 50, 20]);
   });
 
+  it("server existing matches fill the idMap but count separately, never as created (ticket 9309ea70)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+        const items = body.items as Array<Record<string, unknown>>;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              created: 0,
+              failed: 0,
+              existing: items.length,
+              results: items.map((t) => ({
+                id: `remote-for-${t.id}`,
+                existing: true,
+              })),
+            }),
+        });
+      }),
+    );
+    const result = await createTasksInBatches(
+      "https://x.test",
+      "tok",
+      "board-1",
+      tasks(3),
+      { preflight: PREFLIGHT, pacingSleepMs: async () => {} },
+    );
+    // Re-push: nothing new, but every local id still resolves — the
+    // applyPushLinks phase heals from this map.
+    expect(result.imported).toBe(0);
+    expect(result.existing).toBe(3);
+    expect(result.skipped).toBe(0);
+    expect(result.idMap).toEqual({
+      t1: "remote-for-t1",
+      t2: "remote-for-t2",
+      t3: "remote-for-t3",
+    });
+    expect(formatPushRefusalSummary(result)).toBe(
+      "0 created, 3 already existed, 0 refused",
+    );
+    // Break: count existing matches as imported — a pure re-push prints
+    // "Pushed 3 task(s)" for zero new rows and the idMap honesty rots.
+  });
+
   it("per-item mixed results group through the dec52322 summary; TASK_LIMIT stops the push", async () => {
     // Small chunks (maxItems 5): chunk 1 all-ok, chunk 2 mixed with a
     // quota hit at index 3, chunk 3 never attempted.

@@ -392,6 +392,10 @@ export interface PushRefusalGroup {
 
 export interface PushLoopResult {
   imported: number;
+  /** Re-push matches (ticket 9309ea70): items the server resolved to
+   * already-existing rows. They fill the idMap (links heal) but are
+   * never counted as imported and never print as created. */
+  existing: number;
   skipped: number;
   idMap: Record<string, string>;
   /** POSTs actually attempted (differs from tasks.length after early stop). */
@@ -424,14 +428,20 @@ export function pushRefusalCode(status: number, body: unknown): string {
 }
 
 /** TRUE push summary line from grouped refusals — e.g. "60 created, 5
- * refused: 402 plan limit ×3, 400 validation ×2". Never claims
- * duplicates: the v0 create op has no duplicate detection. */
+ * refused: 402 plan limit ×3, 400 validation ×2". Re-push matches
+ * (ticket 9309ea70) print as "already existed", never as created:
+ * the batch endpoint dedups by stored cliId. */
 export function formatPushRefusalSummary(result: {
   imported: number;
   skipped: number;
   failures: PushRefusalGroup[];
+  existing?: number;
 }): string {
-  const created = `${result.imported} created`;
+  const already = result.existing ?? 0;
+  const created =
+    already > 0
+      ? `${result.imported} created, ${already} already existed`
+      : `${result.imported} created`;
   if (result.skipped === 0) return `${created}, 0 refused`;
   const groups = result.failures.map(
     (g) => `${g.status} ${g.code} ×${g.count}`,
@@ -673,6 +683,9 @@ export async function createTasksOneByOne(
   }
   return {
     imported,
+    // One-by-one single-creates never dedup (no cliId matching on that
+    // path) — existing stays 0, honest by construction.
+    existing: 0,
     skipped,
     idMap,
     attempted,

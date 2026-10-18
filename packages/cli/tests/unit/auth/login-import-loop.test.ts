@@ -61,6 +61,7 @@ describe("createTasksOneByOne (v0 import loop)", () => {
 
     expect(result).toEqual({
       imported: 2,
+      existing: 0,
       skipped: 0,
       idMap: { a: "saas-1", b: "saas-2" },
       attempted: 2,
@@ -146,6 +147,7 @@ describe("createTasksOneByOne (v0 import loop)", () => {
 
     expect(result).toEqual({
       imported: 3,
+      existing: 0,
       skipped: 0,
       idMap: {
         "sync-parent": "cloud-x",

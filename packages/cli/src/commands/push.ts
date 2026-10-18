@@ -15,6 +15,8 @@ import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 type ImportResult = {
   imported: number;
+  /** Re-push matches (ticket 9309ea70): resolved to existing rows. */
+  existing: number;
   skipped: number;
   ids: string[];
   workspaceId: string;
@@ -245,6 +247,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     const probe = await probeBatchCapability(apiUrl, token);
     const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
+      existing: loop.existing,
       skipped: loop.skipped,
       ids: Object.values(loop.idMap),
       workspaceId: workspaceId ?? "",
@@ -308,7 +311,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // not-attempted count. Every number from dec52322 survives, tighter.
   const refused =
     result.skipped > 0 ? ` — ${formatPushRefusalSummary(result)}` : "";
-  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online${refused}`));
+  const already =
+    result.existing > 0 ? ` (${result.existing} already existed)` : "";
+  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online${already}${refused}`));
   const stopLine = formatPushStopLine(result);
   if (stopLine !== null) {
     // Stryker disable once StringLiteral: display message for early stop
