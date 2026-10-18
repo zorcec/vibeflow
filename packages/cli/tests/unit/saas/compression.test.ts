@@ -13,7 +13,7 @@ import {
   BROTLI_ENCODING,
   BROTLI_QUALITY,
   isCompressibleTextArtifact as sharedEligible,
-} from "@vibeflow-tools/shared";
+} from "@vibeflow-tools/shared/compression";
 
 // Highly compressible markdown (~7 KB) so the "shrinks" assertions have
 // real headroom over brotli framing overhead.

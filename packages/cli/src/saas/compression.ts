@@ -22,7 +22,7 @@ import {
   BROTLI_QUALITY,
   isCompressibleTextArtifact as isEligible,
   shouldStoreCompressed,
-} from "@vibeflow-tools/shared";
+} from "@vibeflow-tools/shared/compression";
 
 /** Marker the server records for brotli-compressed rows. */
 export const UPLOAD_ENCODING_BROTLI = BROTLI_ENCODING;
