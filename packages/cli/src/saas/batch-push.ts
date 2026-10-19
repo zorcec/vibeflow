@@ -130,6 +130,10 @@ export interface ImportPreflight {
   maxTasks: number;
   maxFiles: number;
   maxBytes: number;
+  /** Per-file byte cap from the plan (`maxFileBytes` entitlement) — null
+   * when the plan caps nothing per file. Absent on old-server envelopes
+   * (treated as null = uncapped) so the probe stays backward-compatible. */
+  maxFileBytes: number | null;
   plan: string;
   openLimit?: number | null;
   openUsed?: number;
@@ -247,6 +251,10 @@ export async function probeImportCapability(
       maxTasks: body.maxTasks,
       maxFiles: typeof body.maxFiles === "number" ? body.maxFiles : IMPORT_MAX_FILES,
       maxBytes: typeof body.maxBytes === "number" ? body.maxBytes : IMPORT_MAX_BYTES,
+      maxFileBytes:
+        typeof body.maxFileBytes === "number"
+          ? body.maxFileBytes
+          : null,
       plan: body.plan,
       openLimit: typeof body.openLimit === "number" ? body.openLimit : null,
       openUsed: typeof body.openUsed === "number" ? body.openUsed : 0,
@@ -258,6 +266,69 @@ export async function probeImportCapability(
         typeof body.totalRemaining === "number" ? body.totalRemaining : null,
     },
   };
+}
+
+/**
+ * Paginated online-id fetch (diff-based push).
+ * WHAT: the ONE shared helper for "which task ids are already on the
+ * board" — `GET /api/v0/tasks?boardId=…&limit=100`, following
+ * `nextCursor` to exhaustion (bounded at 200 pages so a server echoing
+ * one cursor forever cannot hang the caller), collecting every id-like
+ * key (`id`, `externalId`, `cloudId`, `cliId`) into a Set. A local task
+ * matching ANY of them counts as already synced.
+ * WHY one helper: the login-time prompt (`auth/login.ts`) and the
+ * standalone `push` command both need exactly this diff — an inline
+ * copy in each would drift (the 1746-task board re-push incident was a
+ * first-page-only read) — so both call this, and only this.
+ * Transport/auth failures propagate: the caller decides (push treats a
+ * failed listing as "attempt everything, said out loud"; login labels
+ * its prompt the same way). Never falls back silently here.
+ */
+export const ONLINE_IDS_PAGE_LIMIT = 100;
+export const ONLINE_IDS_MAX_PAGES = 200;
+
+export async function fetchOnlineTaskIds(
+  apiUrl: string,
+  token: string,
+  boardId: string,
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const headers = { Authorization: `Bearer ${token}` };
+  const listPath = surfacePath("cloud", "/api/cli/tasks");
+  let cursor: string | null = null;
+  for (let page = 0; page < ONLINE_IDS_MAX_PAGES; page++) {
+    const qs = new URLSearchParams({ boardId, limit: String(ONLINE_IDS_PAGE_LIMIT) });
+    if (cursor !== null) qs.set("cursor", cursor);
+    const res = await fetch(`${requireHttpBase(apiUrl)}${listPath}?${qs.toString()}`, {
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`board listing failed: HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      items?: Array<Record<string, unknown>>;
+      tasks?: Array<Record<string, unknown>>;
+      nextCursor?: unknown;
+    };
+    const rows = Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data.tasks)
+        ? data.tasks
+        : [];
+    for (const t of rows) {
+      for (const key of ["id", "externalId", "cloudId", "cliId"]) {
+        const v = (t as Record<string, unknown>)[key];
+        if (typeof v === "string" && v.length > 0) ids.add(v);
+      }
+    }
+    const next =
+      typeof data.nextCursor === "string" && data.nextCursor.length > 0
+        ? data.nextCursor
+        : null;
+    if (next === null || next === cursor || rows.length === 0) break;
+    cursor = next;
+  }
+  return ids;
 }
 
 /**
@@ -527,6 +598,113 @@ export function topoOrderImportTasks<
  * (the regression test pins the math); a pathological 60-file task must
  * not 400 every chunk it touches.
  */
+/** One task the import path refused to attempt (per-task atomicity). */
+export interface SkippedImportTask {
+  /** Local task id — never recorded as done, so the next run retries it. */
+  localId: string;
+  /** Exact reason: file name + size vs the cap it hit. */
+  reason: string;
+}
+
+export interface ImportChunkCaps {
+  maxTasks: number;
+  maxFiles: number;
+  maxBytes: number;
+  /** Per-file byte cap (null = uncapped plan) — from the preflight. */
+  maxFileBytes?: number | null;
+}
+
+/** Disk-size of one file entry (negative/NaN sizes read as 0). */
+export function importFileSize(f: ImportFileInput): number {
+  return Number.isFinite(f.size) && f.size >= 0 ? f.size : 0;
+}
+
+/** Disk-size sum of a task's files (safe UPPER bound for the wire —
+ * eligible text rides brotli-compressed, so the server-measured total
+ * never exceeds this sum). */
+export function importTaskBytes(t: ImportTaskInput): number {
+  return t.files.reduce((a, f) => a + importFileSize(f), 0);
+}
+
+/**
+ * Per-task atomicity gate: split import inputs into pushable tasks and
+ * tasks that cannot fully fit and must be SKIPPED WHOLE — never created
+ * partially. A task is skipped when ANY holds:
+ * - one of its files exceeds the server's per-file cap (`maxFileBytes`),
+ * - its files' total exceeds the per-request byte cap (`maxBytes`),
+ * - its file count exceeds the per-request file cap (`maxFiles`) — i.e.
+ *   it cannot fit the chunk budget even when the chunk is empty.
+ * Fileless tasks always pass (one task always fits an empty chunk).
+ * Skipped tasks carry the exact reason (file name + size vs cap) and
+ * are retryable: callers must NOT record them as done (no checkpoint,
+ * no idMap, no local deletion) so the next run re-attempts them.
+ * Pure. Caps fall back to the IMPORT_MAX_* constants; a null/absent
+ * `maxFileBytes` means the plan caps nothing per file (no file ever
+ * skips on that rule).
+ */
+export function partitionImportInputs(
+  inputs: ImportTaskInput[],
+  caps: ImportChunkCaps,
+): { pushable: ImportTaskInput[]; skipped: SkippedImportTask[] } {
+  const mf =
+    Math.floor(caps.maxFiles) >= 1 ? Math.floor(caps.maxFiles) : IMPORT_MAX_FILES;
+  const mb =
+    Math.floor(caps.maxBytes) >= 1 ? Math.floor(caps.maxBytes) : IMPORT_MAX_BYTES;
+  const mfb =
+    typeof caps.maxFileBytes === "number" &&
+    Number.isFinite(caps.maxFileBytes) &&
+    caps.maxFileBytes >= 0
+      ? caps.maxFileBytes
+      : null;
+  const pushable: ImportTaskInput[] = [];
+  const skipped: SkippedImportTask[] = [];
+  for (const t of inputs) {
+    const oversize = mfb !== null ? t.files.find((f) => importFileSize(f) > mfb) : undefined;
+    if (oversize !== undefined) {
+      skipped.push({
+        localId: t.localId,
+        reason:
+          `file "${oversize.name}" (${importFileSize(oversize)} bytes) ` +
+          `exceeds the per-file cap of ${mfb} bytes — task skipped whole, retryable`,
+      });
+      continue;
+    }
+    const bytes = importTaskBytes(t);
+    if (bytes > mb) {
+      skipped.push({
+        localId: t.localId,
+        reason:
+          `task files total ${bytes} bytes exceeds the per-request cap of ` +
+          `${mb} bytes — task skipped whole, retryable`,
+      });
+      continue;
+    }
+    if (t.files.length > mf) {
+      skipped.push({
+        localId: t.localId,
+        reason:
+          `task has ${t.files.length} file(s), exceeding the per-request cap of ` +
+          `${mf} — task skipped whole, retryable`,
+      });
+      continue;
+    }
+    pushable.push(t);
+  }
+  return { pushable, skipped };
+}
+
+/**
+ * Slice import tasks into manifest chunks. Pure and TASK-ATOMIC: greedy
+ * fill in (topo) order — a task joins the current chunk while
+ * tasks/files/bytes all fit, else the chunk flushes and the task starts
+ * the next one. A task's file list is NEVER split across chunks: a task
+ * that cannot fully fit is skipped whole by `partitionImportInputs`
+ * BEFORE chunking (the server would otherwise create the task with only
+ * some of its files — a partial task that reads as synced). A task that
+ * still does not fit an EMPTY chunk (caller skipped the partition —
+ * defensive only) travels alone so the chunker always makes progress
+ * and the server refuses it loudly as one whole-chunk verdict.
+ */
 export function chunkImportTasks(
   inputs: ImportTaskInput[],
   maxTasks: number,
@@ -536,11 +714,6 @@ export function chunkImportTasks(
   const mt = Math.floor(maxTasks) >= 1 ? Math.floor(maxTasks) : IMPORT_MAX_TASKS;
   const mf = Math.floor(maxFiles) >= 1 ? Math.floor(maxFiles) : IMPORT_MAX_FILES;
   const mb = Math.floor(maxBytes) >= 1 ? Math.floor(maxBytes) : IMPORT_MAX_BYTES;
-  const taskBytes = (t: ImportTaskInput): number =>
-    t.files.reduce(
-      (a, f) => a + (Number.isFinite(f.size) && f.size >= 0 ? f.size : 0),
-      0,
-    );
   const chunks: ImportChunk[] = [];
   let cur: ImportTaskInput[] = [];
   let curFiles = 0;
@@ -553,62 +726,23 @@ export function chunkImportTasks(
       curBytes = 0;
     }
   };
-  const appendPartial = (t: ImportTaskInput, files: ImportFileInput[]): void => {
-    const last = cur[cur.length - 1];
-    if (last !== undefined && last.localId === t.localId) {
-      last.files.push(...files);
-    } else {
-      cur.push({ localId: t.localId, record: t.record, files: [...files] });
-    }
-    curFiles += files.length;
-    curBytes += files.reduce(
-      (a, f) => a + (Number.isFinite(f.size) && f.size >= 0 ? f.size : 0),
-      0,
-    );
-  };
-  const queue = inputs.map((t) => ({ ...t, files: [...t.files] }));
-  while (queue.length > 0) {
-    const t = queue[0]!;
+  for (const t of inputs) {
+    const tb = importTaskBytes(t);
     const wholeFits =
       cur.length + 1 <= mt &&
       curFiles + t.files.length <= mf &&
-      curBytes + taskBytes(t) <= mb;
+      curBytes + tb <= mb;
     if (wholeFits) {
       cur.push(t);
       curFiles += t.files.length;
-      curBytes += taskBytes(t);
-      queue.shift();
-      continue;
-    }
-    if (cur.length === 0) {
-      // Fresh chunk and the task still does not fit whole → split its
-      // file list (≥1 file always advances, so this always terminates;
-      // an over-cap single file still travels alone and takes the
-      // server's per-file verdict).
-      const take: ImportFileInput[] = [];
-      let takeBytes = 0;
-      for (const f of t.files) {
-        const size = Number.isFinite(f.size) && f.size >= 0 ? f.size : 0;
-        if (take.length > 0 && (take.length + 1 > mf || takeBytes + size > mb)) break;
-        take.push(f);
-        takeBytes += size;
-      }
-      if (take.length === 0 && t.files.length > 0) take.push(t.files[0]!);
-      if (take.length === 0) {
-        // Fileless task that "does not fit" means the task cap hit on
-        // an empty chunk — impossible (mt ≥ 1); guard anyway, no spin.
-        cur.push(t);
-        queue.shift();
-        continue;
-      }
-      appendPartial(t, take);
-      const rest = t.files.slice(take.length);
-      if (rest.length === 0) queue.shift();
-      else queue[0] = { ...t, files: rest };
-      if (curFiles >= mf || curBytes >= mb) flush();
+      curBytes += tb;
       continue;
     }
     flush();
+    cur.push(t);
+    curFiles = t.files.length;
+    curBytes = tb;
+    if (curFiles >= mf || curBytes >= mb) flush();
   }
   flush();
   return chunks;
@@ -622,8 +756,13 @@ export interface ImportBatchOptions {
    * no project dir (then resume is unavailable but the push still runs). */
   projectDir?: string;
   /** Preflight (chunk sizing + nothing else — the refuse gate lives in
-   * `evaluateBatchPreflight`, called by push.ts BEFORE this runs). */
+   * `evaluateBatchPreflight`, called by push.ts BEFORE this runs).
+   * `preflight.maxFileBytes` (null = uncapped) feeds the per-task
+   * atomicity partition; `maxFileBytes` below overrides it (tests). */
   preflight?: ImportPreflight;
+  /** Per-file byte cap override for the atomicity partition (tests pin
+   * skips without a live preflight; callers prefer the preflight). */
+  maxFileBytes?: number | null;
   /** 429 wait-resume knobs (ticket bulk-429): same shape and defaults as
    * the task loops — one shared per-push budget of 3 waits. */
   retry429?: Push429ResumeOptions;
@@ -643,6 +782,12 @@ export interface ImportLoopResult extends PushLoopResult {
   filesFailed: number;
   filesSkippedPresent: number;
   failedFiles: Array<{ clientId: string; name: string; reason: string }>;
+  /** Tasks skipped WHOLE by the atomicity partition (never attempted,
+   * never in the checkpoint/idMap — the next run re-attempts them).
+   * A file that fails SERVER-side is NOT here: it lands in `failedFiles`
+   * (partially-failed task, reported loudly) while its task still counts
+   * as created — the skip list is only for tasks refused BEFORE chunk one. */
+  skippedTasks: SkippedImportTask[];
 }
 
 export type ImportTaskOutcome =
@@ -891,7 +1036,6 @@ export async function importBatchTree(
   opts: ImportBatchOptions = {},
 ): Promise<ImportLoopResult> {
   const ordered = topoOrderImportTasks(inputs);
-  const order = ordered.map((t) => t.localId);
   const chunkSize = Math.min(
     IMPORT_MAX_TASKS,
     typeof opts.preflight?.maxTasks === "number" &&
@@ -912,6 +1056,20 @@ export async function importBatchTree(
     opts.preflight.maxBytes >= 1
       ? opts.preflight.maxBytes
       : IMPORT_MAX_BYTES;
+  const maxFileBytes =
+    opts.maxFileBytes !== undefined
+      ? opts.maxFileBytes
+      : (opts.preflight?.maxFileBytes ?? null);
+  // Per-task atomicity: tasks that cannot fully fit are skipped WHOLE
+  // before chunk one — they never enter the order, the checkpoint, or
+  // the idMap, so the next run re-attempts them.
+  const { pushable, skipped: skippedTasks } = partitionImportInputs(ordered, {
+    maxTasks: chunkSize,
+    maxFiles,
+    maxBytes,
+    maxFileBytes,
+  });
+  const order = pushable.map((t) => t.localId);
 
   let base = 0;
   const idMap: Record<string, string> = {};
@@ -970,13 +1128,13 @@ export async function importBatchTree(
     });
   };
 
-  if (base > 0) opts.onProgress?.(base, ordered.length);
+  if (base > 0) opts.onProgress?.(base, order.length);
 
   // Chunk first, then drop the leading `base` tasks (resume): chunks are
   // fixed slices of the topo order, so a resume base lands on a chunk
   // boundary or slices one chunk (done prefix stays done, tail re-POSTs
   // smaller — per-task results still align 1:1 with the POSTed tasks).
-  const allChunks = chunkImportTasks(ordered, chunkSize, maxFiles, maxBytes);
+  const allChunks = chunkImportTasks(pushable, chunkSize, maxFiles, maxBytes);
   const chunks: ImportChunk[] = [];
   {
     let done = 0;
@@ -1040,7 +1198,7 @@ export async function importBatchTree(
               });
             }
             processed++;
-            opts.onProgress?.(processed, ordered.length);
+            opts.onProgress?.(processed, order.length);
           }
         }
         persist(processed);
@@ -1061,7 +1219,7 @@ export async function importBatchTree(
             });
           }
           processed++;
-          opts.onProgress?.(processed, ordered.length);
+          opts.onProgress?.(processed, order.length);
         }
         persist(processed);
         continue;
@@ -1082,12 +1240,12 @@ export async function importBatchTree(
           });
           recordRefusal(status, code);
           processed++;
-          opts.onProgress?.(processed, ordered.length);
+          opts.onProgress?.(processed, order.length);
           if (status === 402 || status === 429) {
             for (let j = i + 1; j < chunk.tasks.length; j++) {
               recordRefusal(status, code);
               processed++;
-              opts.onProgress?.(processed, ordered.length);
+              opts.onProgress?.(processed, order.length);
             }
             persist(processed);
             stoppedEarly = status === 402 ? "plan-limit" : "rate-limited";
@@ -1099,7 +1257,7 @@ export async function importBatchTree(
         } else {
           recordRefusal(400, "BATCH_MISSING_RESULT");
           processed++;
-          opts.onProgress?.(processed, ordered.length);
+          opts.onProgress?.(processed, order.length);
           continue;
         }
         // Per-file + per-link tallies (informational — never stop the push).
@@ -1133,7 +1291,7 @@ export async function importBatchTree(
           }
         }
         processed++;
-        opts.onProgress?.(processed, ordered.length);
+        opts.onProgress?.(processed, order.length);
       }
       persist(processed);
       if (stoppedEarly !== null) break;
@@ -1152,6 +1310,7 @@ export async function importBatchTree(
     (a, b) => a.clientId.localeCompare(b.clientId) || a.name.localeCompare(b.name),
   );
   failedLinks.sort((a, b) => a.clientId.localeCompare(b.clientId));
+  skippedTasks.sort((a, b) => a.localId.localeCompare(b.localId));
   return {
     imported,
     existing: existingCount,
@@ -1169,5 +1328,6 @@ export async function importBatchTree(
     filesFailed,
     filesSkippedPresent,
     failedFiles,
+    skippedTasks,
   };
 }

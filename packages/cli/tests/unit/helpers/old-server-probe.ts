@@ -23,6 +23,7 @@ export function oldServerProbe404() {
 
 export function withOldServerProbe(
   inner: (...args: never[]) => unknown,
+  opts?: { listItems?: Array<Record<string, unknown>> },
 ) {
   const callInner = inner as unknown as (
     url: unknown,
@@ -34,6 +35,22 @@ export function withOldServerProbe(
       (init?.method ?? "GET") === "GET"
     ) {
       return Promise.resolve(oldServerProbe404());
+    }
+    // Diff-based push: push() fetches online ids FIRST (GET
+    // /api/v0/tasks?boardId=…&limit=100). Old-server tests answer with an
+    // empty board by default (every local task unsynced — legacy count
+    // assertions shift by exactly this one call); pass `listItems` to pin
+    // a non-empty board (already-synced tasks are never POSTed).
+    if (
+      String(url).includes("/api/v0/tasks?") &&
+      (init?.method ?? "GET") === "GET"
+    ) {
+      const items = opts?.listItems ?? [];
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items, nextCursor: null }),
+      });
     }
     return callInner(url, init);
   });

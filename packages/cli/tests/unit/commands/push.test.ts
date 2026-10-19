@@ -721,11 +721,11 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // One probe (404 → old-server fallback) + one v0 create; no file upload,
-    // no batch import. Deliberate count update (ticket 8d3b2b81): the spy
-    // observes the outer fetch including the probe, while the inner-mock
-    // assertions elsewhere are unchanged.
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    // Diff list + one probe (404 → old-server fallback) + one v0 create;
+    // no file upload, no batch import. Deliberate count update (diff-based
+    // push): the spy observes the outer fetch including the diff listing
+    // and the probe, while the inner-mock assertions elsewhere are unchanged.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining("/api/v0/tasks"),
       expect.any(Object),
@@ -1294,8 +1294,8 @@ describe("push — tree-import path (bulk-429)", () => {
       });
     });
     vi.stubGlobal("fetch", withOldServerProbe(inner));
-    // The order proof observes the OUTER fetch (probe included); `urls`
-    // only sees the inner one-by-one creates.
+    // The order proof observes the OUTER fetch (diff list, then probe
+    // included); `urls` only sees the inner one-by-one creates.
     const outerSpy = vi.spyOn(global, "fetch");
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -1305,8 +1305,11 @@ describe("push — tree-import path (bulk-429)", () => {
     const outerMethods = outerSpy.mock.calls.map(
       (c) => (c[1] as { method?: string } | undefined)?.method ?? "GET",
     );
-    expect(outerUrls[0]).toContain("/api/v0/tasks/import");
+    // Diff-based push: the board listing goes FIRST, then the probe.
+    expect(outerUrls[0]).toContain("/api/v0/tasks?");
     expect(outerMethods[0]).toBe("GET");
+    expect(outerUrls[1]).toContain("/api/v0/tasks/import");
+    expect(outerMethods[1]).toBe("GET");
     expect(urls).toHaveLength(1);
     expect(urls[0]).toContain("/api/v0/tasks");
     expect(urls.slice(1).every((u) => u.endsWith("/api/v0/tasks"))).toBe(true);

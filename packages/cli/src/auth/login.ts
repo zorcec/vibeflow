@@ -938,54 +938,17 @@ async function promptPushLocalTasks(
   // quota, 400 validation), so the heading below must not promise they
   // WILL sync, and `listedOk` records whether the board even answered
   // (on failure every local task is attempted, said out loud).
+  // Shared diff (diff-based push): the paginated online-id fetch lives in
+  // `saas/batch-push.ts` (`fetchOnlineTaskIds`) — the standalone `push`
+  // command calls the same helper, so the diff cannot drift between the
+  // two paths. Lazy import: the import client imports this module, so a
+  // static import would cycle.
   let onlineIds = new Set<string>();
   let listedOk = false;
   try {
-    // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
-    //
-    // PAGINATED (ticket 2f1c6993 follow-up): the v0 list serves at most
-    // `limit` rows per call and advertises the rest through `nextCursor`.
-    // Reading only the FIRST page made every task past row 100 look "not on
-    // the board" — measured on a 1746-task board the prompt claimed all
-    // 1746 were unsynced when the true diff was 0, which reads as a re-push
-    // of the entire board. Follow the cursor to exhaustion, bounded so a
-    // server echoing one cursor forever cannot hang login.
-    const MAX_PAGES = 200;
-    const ids: string[] = [];
-    let cursor: string | null = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const qs = new URLSearchParams({ boardId: workspace.id, limit: "100" });
-      if (cursor !== null) qs.set("cursor", cursor);
-      const res = await fetch(
-        `${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}?${qs.toString()}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      ).catch(() => null);
-      if (!res?.ok) break;
-      const data = (await res.json()) as {
-        items?: Array<Record<string, unknown>>;
-        // Legacy fallback: the deleted `/api/cli/tasks` surface answered
-        // `{ tasks }`; its rows carried `id` + `cliId`.
-        tasks?: Array<{ id: string; cliId?: string | null }>;
-        nextCursor?: string | null;
-      };
-      // v0 canonical shape carries BOTH `id` (external) and `externalId`
-      // (§3.1: `cliId ?? cloudId`); collect every id-like key so a local
-      // task matching ANY of them counts as already synced.
-      const rows = Array.isArray(data.items)
-        ? data.items
-        : (Array.isArray(data.tasks) ? data.tasks : []);
-      for (const t of rows) {
-        for (const key of ["id", "externalId", "cloudId", "cliId"]) {
-          const v = (t as Record<string, unknown>)[key];
-          if (typeof v === "string" && v.length > 0) ids.push(v);
-        }
-      }
-      listedOk = true;
-      const next = typeof data.nextCursor === "string" ? data.nextCursor : null;
-      if (next === null || next === cursor || rows.length === 0) break;
-      cursor = next;
-    }
-    onlineIds = new Set(ids);
+    const batch = await import("../saas/batch-push.js");
+    onlineIds = await batch.fetchOnlineTaskIds(apiUrl, token, workspace.id);
+    listedOk = true;
   } catch {
     /* non-critical — treat all as unsynced, labelled below */
   }
@@ -1166,6 +1129,11 @@ async function promptPushLocalTasks(
                   );
                 for (const f of loop.failedFiles) {
                   console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
+                }
+                // Per-task atomicity: skipped-whole tasks are retryable —
+                // never silent, never marked pushed (a later `push` retries).
+                for (const s of loop.skippedTasks) {
+                  console.log(chalk.dim(`    task ${s.localId} skipped whole (retryable): ${s.reason}`));
                 }
               }
               // Condensed summary (ticket e4049164): one line carries the

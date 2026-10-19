@@ -114,6 +114,7 @@ describe("import capability probe (ticket bulk-429)", () => {
         maxTasks: 100,
         maxFiles: 50,
         maxBytes: 25 * 1024 * 1024,
+        maxFileBytes: null,
         plan: "free",
         openLimit: 500,
         openUsed: 0,
@@ -270,7 +271,11 @@ describe("chunkImportTasks (ticket bulk-429)", () => {
     expect(chunks.map((c) => c.tasks.length)).toEqual([2, 1]);
   });
 
-  it("a single file-heavy task splits across chunks (no 400-everywhere task)", () => {
+  it("chunking is task-atomic: a task's file list is never split across chunks", () => {
+    // Per-task atomicity: a 60-file task cannot share a 50-file chunk —
+    // it travels WHOLE in its own chunk (the partition in importBatchTree
+    // skips such tasks before chunk one; the chunker itself never splits
+    // a file list, so a task is never created with only some of its files).
     const withFiles: ImportTaskInput[] = [
       {
         localId: "big",
@@ -285,8 +290,11 @@ describe("chunkImportTasks (ticket bulk-429)", () => {
       { localId: "small", record: { title: "Small" }, files: [] },
     ];
     const chunks = chunkImportTasks(withFiles, 100);
-    expect(chunks.map((c) => c.tasks.reduce((a, t) => a + t.files.length, 0))).toEqual([50, 10]);
-    expect(chunks[1]!.tasks.map((t) => t.localId)).toEqual(["big", "small"]);
+    expect(chunks.map((c) => c.tasks.reduce((a, t) => a + t.files.length, 0))).toEqual([60, 0]);
+    expect(chunks[0]!.tasks.map((t) => t.localId)).toEqual(["big"]);
+    expect(chunks[1]!.tasks.map((t) => t.localId)).toEqual(["small"]);
+    // Break: reintroduce file-list splitting — the first chunk reads 50
+    // files and the task's files span two calls (partial creation).
   });
 });
 
@@ -729,9 +737,15 @@ describe("782-file regression (ticket bulk-429)", () => {
     // burst 44 then 429'd every call past the bucket. Chunked at 50
     // files + 1 write unit per call, the same 782 files cost 16 units —
     // under any 30/min bucket, so a bucket-enforcing mock must never 429.
+    // Per-task atomicity: every task fits an empty chunk whole (no task
+    // holds more than 50 files) — over-cap tasks skip whole via the
+    // partition (pinned separately), they never ride here.
     const dir = mkdtempSync(join(tmpdir(), "import-f782-"));
     try {
-      const perTask = [98, 98, 98, 98, 98, 98, 97, 97];
+      const perTask = [
+        25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
+        24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
+      ];
       const all: ImportTaskInput[] = [];
       perTask.forEach((n, t) => {
         const files = Array.from({ length: n }, (_, i) => {
@@ -761,7 +775,8 @@ describe("782-file regression (ticket bulk-429)", () => {
             tasks: Array<{ clientId: string; files: Array<{ name: string }> }>;
           };
           const names = manifest.tasks.flatMap((t) => t.files.map((f) => f.name));
-          // Split-task replays come back existing:true (no double count).
+          // Chunking is task-atomic (no split replays); the seen-set stays
+          // as a guard — any replayed task comes back existing:true.
           const results = manifest.tasks.map((t) => {
             const existing = seen.has(t.clientId);
             seen.add(t.clientId);
@@ -796,8 +811,9 @@ describe("782-file regression (ticket bulk-429)", () => {
       });
       expect(result.filesUploaded).toBe(782);
       expect(result.filesFailed).toBe(0);
-      expect(result.imported).toBe(8);
-      expect(result.existing).toBe(8);
+      expect(result.imported).toBe(32);
+      expect(result.existing).toBe(0);
+      expect(result.skippedTasks).toEqual([]);
       expect(posts).toBe(16);
       expect(saw429).toBe(0);
     } finally {

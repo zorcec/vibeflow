@@ -6,7 +6,7 @@ import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
-import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, type ImportTaskInput } from "../saas/batch-push.js";
+import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIds, type ImportTaskInput } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -30,6 +30,10 @@ type ImportResult = {
   stoppedEarly: PushLoopResult["stoppedEarly"];
   stopMessage: PushLoopResult["stopMessage"];
   retryAfter: PushLoopResult["retryAfter"];
+  /** Tasks skipped WHOLE by the per-task atomicity partition (present
+   * only on the import path): never attempted, never marked pushed —
+   * the next run re-attempts them. */
+  skippedTasks?: Array<{ localId: string; reason: string }>;
   /** Tree-import tallies (present only on the import path). */
   linksApplied?: number;
   linksFailed?: number;
@@ -253,13 +257,6 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     };
   }
 
-  // Count files that would be uploaded
-  let fileCount = 0;
-  for (const task of taskList) {
-    const files = listFiles(projectDir, task.id!);
-    fileCount += files.length;
-  }
-
   let workspaceId = opts.workspace;
   if (!workspaceId) {
     const saved = await readWorkspace().catch(() => null);
@@ -267,10 +264,90 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
   const boardLabel = workspaceId ? ((await readWorkspace().catch(() => null))?.name ?? workspaceId) : "(no board selected)";
 
-  // ── Dry-run: preview only, no network calls, no deletions ─────────────
+  const apiUrl = getApiUrl();
+
+  // ── Diff-based push: fetch online ids FIRST, push ONLY the unsynced ──
+  // A re-push with nothing new is a no-op (no probe, no creates, no
+  // deletions) — safe to run any time. `onlineIds === null` means the
+  // diff is unknown (no token/board, or the listing failed): every local
+  // task is attempted and the summary is the source of truth, said out loud.
+  const earlyToken = await readToken();
+  let onlineIds: Set<string> | null = null;
+  let boardListed = false;
+  let boardListFailed = false;
+  if (earlyToken && workspaceId) {
+    try {
+      onlineIds = await fetchOnlineTaskIds(apiUrl, earlyToken, workspaceId);
+      boardListed = true;
+    } catch {
+      boardListFailed = true;
+    }
+  }
+  const listedIds: Set<string> | null = onlineIds;
+  const pushTasks =
+    listedIds !== null ? taskList.filter((t) => !listedIds.has(t.id!)) : taskList;
+  const alreadyOnBoard = taskList.length - pushTasks.length;
+
+  // File-gap honesty: push syncs files ONLY with their task's creation —
+  // files of already-synced tasks are never re-checked. Count them locally
+  // so the empty-diff lines below cannot read as "all files verified".
+  const countLocalFiles = (tasks: typeof taskList): number => {
+    let n = 0;
+    for (const t of tasks) {
+      try {
+        n += listFiles(projectDir, t.id!).length;
+      } catch {
+        /* best-effort preview count */
+      }
+    }
+    return n;
+  };
+  const reportUnverifiedFiles = (tasks: typeof taskList): void => {
+    const n = countLocalFiles(tasks);
+    if (n > 0) {
+      console.log(chalk.dim(`  (${n} local file(s) on already-pushed tasks were not re-checked — files sync with their task's creation.)`));
+    }
+  };
+
+  // Count files that would be uploaded (push set only — already-synced
+  // tasks and their files are never touched by this run).
+  let fileCount = 0;
+  for (const task of pushTasks) {
+    const files = listFiles(projectDir, task.id!);
+    fileCount += files.length;
+  }
+
+  // ── Dry-run: preview only, no writes, no deletions ───────────────────
+  // Reports the SAME diff as a live push (online-ids GET; best-effort
+  // preflight GET for the atomic-skip preview) — read-only calls only.
   if (opts.dryRun) {
+    if (onlineIds !== null) {
+      if (pushTasks.length === 0) {
+        console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board).`));
+        reportUnverifiedFiles(taskList);
+        return {
+          dryRun: true,
+          tasks: 0,
+          files: 0,
+          board: boardLabel,
+          notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
+        };
+      }
+      // Stryker disable once StringLiteral: display message for dry-run
+      console.log(chalk.cyan(`  Dry run: ${pushTasks.length} task(s) to push (${alreadyOnBoard} already on the board), ${fileCount} file(s), board: ${boardLabel}`));
+      return {
+        dryRun: true,
+        tasks: pushTasks.length,
+        files: fileCount,
+        board: boardLabel,
+        notices: [{ code: "DRY_RUN", message: "No changes were made" }],
+      };
+    }
     // Stryker disable once StringLiteral: display message for dry-run
     console.log(chalk.cyan(`  Dry run: ${taskList.length} task(s), ${fileCount} file(s), board: ${boardLabel}`));
+    if (boardListFailed) {
+      console.log(chalk.yellow("  Could not read the board — showing all local tasks (the push summary is the source of truth)."));
+    }
     return {
       dryRun: true,
       tasks: taskList.length,
@@ -281,7 +358,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
 
   // Auth check: only required for live (non-dry-run) push
-  let token = await readToken();
+  let token = earlyToken;
   if (!token) {
     // Stryker disable once StringLiteral: display message for login flow
     console.log(chalk.yellow("  Not logged in. Starting login flow..."));
@@ -295,10 +372,50 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     }
   }
 
-  // Stryker disable once StringLiteral: display message for task count
-  console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing online...`));
-
-  const apiUrl = getApiUrl();
+  // The board may have changed between the dry-run-style early diff and
+  // now (login flow just ran): re-fetch when we have a board. Cheap,
+  // read-only, and keeps the no-op honest.
+  if (token && workspaceId && !boardListed) {
+    try {
+      onlineIds = await fetchOnlineTaskIds(apiUrl, token, workspaceId);
+      boardListed = true;
+      boardListFailed = false;
+    } catch {
+      boardListFailed = true;
+    }
+  }
+  const liveListedIds: Set<string> | null = onlineIds;
+  const livePushTasks =
+    liveListedIds !== null ? taskList.filter((t) => !liveListedIds.has(t.id!)) : taskList;
+  const liveAlreadyOnBoard = taskList.length - livePushTasks.length;
+  let liveFileCount = fileCount;
+  if (livePushTasks.length !== pushTasks.length) {
+    liveFileCount = 0;
+    for (const task of livePushTasks) {
+      liveFileCount += listFiles(projectDir, task.id!).length;
+    }
+  }
+  if (onlineIds !== null && livePushTasks.length === 0) {
+    console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board).`));
+    reportUnverifiedFiles(taskList);
+    return {
+      dryRun: false,
+      tasks: 0,
+      files: 0,
+      board: boardLabel,
+      notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
+    };
+  }
+  if (onlineIds !== null) {
+    // Stryker disable once StringLiteral: display message for task count
+    console.log(chalk.cyan(`  ${livePushTasks.length} task(s) to push (${liveAlreadyOnBoard} already on the board). Pushing online...`));
+  } else {
+    // Stryker disable once StringLiteral: display message for task count
+    console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing online...`));
+    if (boardListFailed) {
+      console.log(chalk.yellow("  Could not read the board — attempting push of all local tasks."));
+    }
+  }
 
   // Tree-import push (ticket bulk-429): the capability probe decides.
   // A 404 on GET /api/v0/tasks/import — or a 200 WITHOUT the preflight
@@ -319,7 +436,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // Minimal push progress (ticket e4049164): one \r line on a TTY
     // (counter + bar + pct + ETA), sparse lines when piped, all on
     // stderr so piped output and --json stay clean.
-    const onProgress = createTaskPushProgressReporter(taskList.length);
+    const onProgress = createTaskPushProgressReporter(livePushTasks.length);
     // 429 waits are user-visible stalls (ticket 99cf6943): say how long
     // and which resume — a silent 120s pause reads as hung.
     const onWait = (waitMs: number, resume: number): void => {
@@ -332,7 +449,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
     // filePath string — each entry spreads as a plain record into the
     // import manifest, so the record cast is representation-preserving.
-    const records = taskList as unknown as Array<Record<string, unknown>>;
+    const records = livePushTasks as unknown as Array<Record<string, unknown>>;
     const probe = await probeImportCapability(apiUrl, token);
     const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
@@ -364,7 +481,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       const inputs = topoOrderImportTasks(
         collectImportInputs(
           projectDir,
-          taskList as unknown as Array<{ id?: string } & Record<string, unknown>>,
+          livePushTasks as unknown as Array<{ id?: string } & Record<string, unknown>>,
         ),
       );
       const order = inputs.map((t) => t.localId);
@@ -392,6 +509,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       });
       result = {
         ...toImportResult(loop),
+        skippedTasks: loop.skippedTasks,
         linksApplied: loop.linksApplied,
         linksFailed: loop.linksFailed,
         failedLinks: loop.failedLinks,
@@ -422,7 +540,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   const stopLine = formatPushStopLine(result);
   if (stopLine !== null) {
     // Stryker disable once StringLiteral: display message for early stop
-    const remaining = taskList.length - result.attempted;
+    const remaining = livePushTasks.length - result.attempted;
     const unattempted =
       remaining > 0 ? ` (${remaining} task(s) not attempted.)` : "";
     console.log(chalk.red(`  ${stopLine}${unattempted}`));
@@ -442,7 +560,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   let legacyLinksSkipped: Array<{ from: string; to: string; type: string; reason: string }> = [];
   let legacySkippedSummary = "";
   if (legacyPath) {
-    const linkRecords = taskList as unknown as Array<Record<string, unknown>>;
+    const linkRecords = livePushTasks as unknown as Array<Record<string, unknown>>;
     const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
     legacyLinksApplied = linkResult.applied;
     legacyLinksSkipped = linkResult.skipped;
@@ -464,7 +582,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     // carries files in every call (server-side skip), so this phase is
     // skipped there.
     const idMap = result.idMap ?? {};
-    const taskMappings = taskList
+    const taskMappings = livePushTasks
       .filter((t) => t.id && idMap[t.id])
       .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
 
@@ -511,6 +629,24 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     }
     console.log(chalk.dim(`  Board: ${boardLabel}`));
   }
+  // Per-task atomicity report (import path only): tasks skipped WHOLE
+  // before chunk one — never attempted, never marked pushed. Retryable:
+  // the next run re-attempts them (also carried in --json below).
+  const skippedTasks = result.skippedTasks ?? [];
+  if (skippedTasks.length > 0) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ ${skippedTasks.length} task(s) skipped whole (too big for one import call — retryable, will be re-attempted next run):`,
+      ),
+    );
+    const shown = opts.verbose === true ? skippedTasks : skippedTasks.slice(0, 5);
+    for (const s of shown) {
+      console.log(chalk.dim(`    - ${s.localId}: ${s.reason}`));
+    }
+    if (!opts.verbose && skippedTasks.length > shown.length) {
+      console.log(chalk.dim(`    … and ${skippedTasks.length - shown.length} more (re-run with --verbose for the full list)`));
+    }
+  }
   if (filesFailed > 0) {
     // Fail LOUDLY, not silently: the local files are deleted below while the
     // remote task is missing these attachments, so exiting 0 would let
@@ -525,9 +661,16 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     return;
   }
 
+  // Delete ONLY tasks this run actually pushed (created or server-matched
+  // existing, per the idMap). Already-synced tasks were never touched by
+  // this run; refused and atomicity-skipped tasks stay local so the next
+  // run retries them — deleting them would mark an unsynced task pushed.
+  const pushedIds = new Set(Object.keys(result.idMap ?? {}));
+  const deletable =
+    pushedIds.size > 0 ? livePushTasks.filter((t) => t.id && pushedIds.has(t.id)) : [];
   let deleted = 0;
   let orphanDirsRemoved = 0;
-  for (const task of taskList) {
+  for (const task of deletable) {
     try {
       unlinkSync(task.filePath);
       deleted++;
@@ -576,6 +719,12 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       message: formatPushStopLine(result) ?? "Push stopped early",
     });
   }
+  if (skippedTasks.length > 0) {
+    notices.push({
+      code: "TASKS_SKIPPED_ATOMIC",
+      message: `Skipped ${skippedTasks.length} task(s) whole (retryable): ${skippedTasks.map((s) => `${s.localId}: ${s.reason}`).join("; ")}`,
+    });
+  }
   // --json (ticket dec52322): the FULL refusal/link detail travels here —
   // stdout stays a machine-readable envelope while the human lines above
   // stay truncated. Printed even without refusals so scripts can rely on it.
@@ -585,16 +734,18 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       existing: result.existing,
       skipped: result.skipped,
       attempted: result.attempted,
-      total: taskList.length,
-      unattempted: taskList.length - result.attempted,
+      total: livePushTasks.length,
+      unattempted: livePushTasks.length - result.attempted,
+      alreadyOnBoard: liveAlreadyOnBoard,
       failures: result.failures,
       stoppedEarly: result.stoppedEarly,
       stopMessage: result.stopMessage,
       retryAfter: result.retryAfter,
       linksApplied,
       linksSkipped: legacyPath ? legacyLinksSkipped : (result.failedLinks ?? []),
+      skippedTasks,
     }));
   }
-  return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices };
+  return { dryRun: false, tasks: deleted, files: liveFileCount, board: boardLabel, notices };
 }
 
