@@ -948,12 +948,18 @@ async function postImportChunk(
         });
       }
     }
+    // ONE sanitized wire record, used for BOTH representations. Sending the
+    // raw `t.record` as `fields` (as this did at first) leaked the captured
+    // `authStateEnc` credential and the absolute local `filePath` to the
+    // server even though `record` was clean — sanitizing one field while the
+    // other carried the original is not sanitizing.
+    const wireRecord = recordForWire(t.record);
     manifestTasks.push({
       clientId: t.localId,
       // `fields` stays for old servers; `record` is the lossless payload a
       // server that advertises `lossless: true` mirrors verbatim.
-      record: recordForWire(t.record),
-      fields: t.record,
+      record: wireRecord,
+      fields: wireRecord,
       // Every in-push parent travels (in-chunk or not — the server
       // resolves manifest siblings first, then the board remotely, so
       // cross-chunk and cross-run parents heal with no follow-up phase).
