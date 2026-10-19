@@ -454,6 +454,51 @@ describe("push — diff-based (only unsynced travel)", () => {
     // Break: use "!= " instead of ">" and this test goes red forever.
   });
 
+  it("refuses before the first write when the saved board is gone (403)", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, taskRecord("local-1"));
+    const inner = legacyCreateMock();
+    const outer = withOldServerProbe(inner, { listStatus: 403 });
+    vi.stubGlobal("fetch", outer);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    const result = (await push(projectDir, {})) as unknown as { tasks: number };
+
+    // Board chosen by the user earlier no longer exists, so every create
+    // would 403. Measured failure mode: the old code pushed ALL 1746 local
+    // tasks anyway ("Could not read the board — attempting push of all"),
+    // producing a progress bar that counted attempts while nothing landed.
+    expect(inner).not.toHaveBeenCalled();
+    expect(outer).toHaveBeenCalledTimes(1);
+    expect(result.tasks).toBe(0);
+    expect(process.exitCode).not.toBeUndefined();
+    expect(
+      errSpy.mock.calls.map((c) => String(c[0])).join("\n"),
+    ).toContain("is not accessible (HTTP 403)");
+    errSpy.mockRestore();
+    process.exitCode = originalExitCode;
+    // Break: fall back to "push all" on any listing error -> inner is called.
+  });
+
+  it("refuses on 401 (expired token) instead of attempting every create", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, taskRecord("local-1"));
+    const inner = legacyCreateMock();
+    vi.stubGlobal("fetch", withOldServerProbe(inner, { listStatus: 401 }));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    await push(projectDir, {});
+
+    expect(inner).not.toHaveBeenCalled();
+    expect(process.exitCode).not.toBeUndefined();
+    errSpy.mockRestore();
+    process.exitCode = originalExitCode;
+  });
+
   it("dry-run reports the same diff (to-push count + already-on-board)", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, taskRecord("synced-1"));

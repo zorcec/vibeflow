@@ -271,6 +271,39 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // deletions) — safe to run any time. `onlineIds === null` means the
   // diff is unknown (no token/board, or the listing failed): every local
   // task is attempted and the summary is the source of truth, said out loud.
+  /**
+   * A board-scope rejection (401/403/404) is NOT a transient listing failure.
+   * Falling back to "push all local tasks" then fired 1746 creates at a board
+   * that no longer exists, each refused with 403 — a progress bar that counts
+   * attempts while nothing lands anywhere. Measured: after the owner deleted
+   * a board the saved pointer still named it, and push churned through the
+   * whole store before anyone noticed. Stop before the first write instead.
+   */
+  const boardScopeFailure = (err: unknown): number | null => {
+    const m = err instanceof Error ? err.message.match(/board listing failed: HTTP (\d{3})/) : null;
+    if (m === null) return null;
+    const status = Number(m[1]);
+    return status === 401 || status === 403 || status === 404 ? status : null;
+  };
+  const refuseUnreachableBoard = (status: number): PushResult => {
+    console.error(
+      chalk.red(
+        `  Board ${workspaceId ?? "(none)"} is not accessible (HTTP ${status}) — it may have been deleted, or this token belongs to another account.`,
+      ),
+    );
+    console.error(
+      chalk.dim("  Nothing was pushed. Run `vibeflow auth login` to pick a live board, then push again."),
+    );
+    process.exitCode = ExitCode.GENERAL;
+    return {
+      dryRun: opts.dryRun === true,
+      tasks: 0,
+      files: 0,
+      board: boardLabel,
+      notices: [{ code: "BOARD_UNAVAILABLE", message: `Board not accessible (HTTP ${status})` }],
+    };
+  };
+
   const earlyToken = await readToken();
   let onlineIndex: Map<string, number | null> | null = null;
   let boardListed = false;
@@ -279,7 +312,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     try {
       onlineIndex = await fetchOnlineTaskIndex(apiUrl, earlyToken, workspaceId);
       boardListed = true;
-    } catch {
+    } catch (err) {
+      const scopeStatus = boardScopeFailure(err);
+      if (scopeStatus !== null) return refuseUnreachableBoard(scopeStatus);
       boardListFailed = true;
     }
   }
@@ -399,7 +434,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       onlineIndex = await fetchOnlineTaskIndex(apiUrl, token, workspaceId);
       boardListed = true;
       boardListFailed = false;
-    } catch {
+    } catch (err) {
+      const scopeStatus = boardScopeFailure(err);
+      if (scopeStatus !== null) return refuseUnreachableBoard(scopeStatus);
       boardListFailed = true;
     }
   }

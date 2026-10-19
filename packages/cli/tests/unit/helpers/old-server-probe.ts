@@ -23,7 +23,7 @@ export function oldServerProbe404() {
 
 export function withOldServerProbe(
   inner: (...args: never[]) => unknown,
-  opts?: { listItems?: Array<Record<string, unknown>> },
+  opts?: { listItems?: Array<Record<string, unknown>>; listStatus?: number },
 ) {
   const callInner = inner as unknown as (
     url: unknown,
@@ -46,6 +46,17 @@ export function withOldServerProbe(
       (init?.method ?? "GET") === "GET"
     ) {
       const items = opts?.listItems ?? [];
+      const status = opts?.listStatus ?? 200;
+      if (status !== 200) {
+        // Board-scope rejection (deleted board / wrong account): the push
+        // must refuse before the first write, never fall back to "push all".
+        return Promise.resolve({
+          ok: false,
+          status,
+          statusText: status === 403 ? "Forbidden" : "Unauthorized",
+          json: () => Promise.resolve({ error: "Board not found or access denied", code: "FORBIDDEN" }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
