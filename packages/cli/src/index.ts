@@ -4953,7 +4953,7 @@ program
 program
   .command("push", { hidden: true })
   .description(
-    "Push all local tasks to your online board and delete them locally",
+    "Push local tasks to your online board (never touches the local store)",
   )
   .argument("[dir]", "Project root directory", ".")
   .option(
@@ -4961,8 +4961,12 @@ program
     "Target workspace ID (defaults to your first workspace)",
   )
   .option(
+    "--prune-local",
+    "Delete local task files for tasks that pushed cleanly (opt-in; verified per task)",
+  )
+  .option(
     "--keep-local-files",
-    "Keep local task files after pushing (do not delete them)",
+    "[deprecated, now the default] Local files are always kept",
   )
   .option(
     "--dry-run",
@@ -4979,7 +4983,7 @@ program
   .action(
     async (
       dir: string,
-      opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
+      opts: { workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
       await push(dir, opts);

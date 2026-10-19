@@ -410,7 +410,7 @@ describe("push — import API interaction", () => {
     process.env.VIBEFLOW_API_URL = originalEnv;
   });
 
-  it("deletes local task files when keepLocalFiles is false", async () => {
+  it("deletes local task files ONLY with an explicit prune (opt-in)", async () => {
     const projectDir = makeTempProject();
     const filePath = createTaskFile(projectDir, {
       id: "task-del",
@@ -424,11 +424,37 @@ describe("push — import API interaction", () => {
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await push(projectDir, { keepLocalFiles: false });
+    await push(projectDir, { pruneLocal: true });
 
-    // File should be deleted
+    // File should be deleted — but only because the caller asked for it.
     const { existsSync } = await import("node:fs");
     expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("never deletes local files by default (the old default consumed the store)", async () => {
+    const projectDir = makeTempProject();
+    const filePath = createTaskFile(projectDir, {
+      id: "task-default-keep",
+      title: "Default keeps me",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    mockFetchSuccess({ id: "remote-1", externalId: "task-default-keep" });
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // No option at all: this used to delete. Push is one-way, so a delete here
+    // is unrecoverable by push — measured in production it wiped 2416 files
+    // including six attachments whose upload had just failed.
+    await push(projectDir, {});
+
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(filePath)).toBe(true);
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "push never deletes",
+    );
   });
 
   it("keeps local task files when keepLocalFiles is true", async () => {

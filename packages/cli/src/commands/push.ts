@@ -240,7 +240,7 @@ export interface PushResult {
   notices: OperationNotice[];
 }
 
-export async function push(dir: string, opts: { workspace?: string; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
+export async function push(dir: string, opts: { workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = listTasksWithPaths(projectDir);
@@ -715,51 +715,71 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     process.exitCode = ExitCode.GENERAL;
   }
 
-  if (opts.keepLocalFiles) {
-    // Stryker disable once StringLiteral: display message for keep local files
-    console.log(chalk.dim("  Local task files kept (--keep-local-files)."));
-    return;
+  // ── Local cleanup is OPT-IN ────────────────────────────────────────────
+  // Push used to delete every pushed task's JSON, its files dir and its
+  // screenshots by default, so the local store was consumed by a routine
+  // command. Push is one-way, therefore that delete is unrecoverable by
+  // push — and measured in production it deleted 2416 files, including six
+  // attachments whose upload had just failed (the reference died with the
+  // blob). The local store is git-tracked and is the system of record; the
+  // cloud is a shared view of it. Keeping local files is now the default and
+  // deletion needs an explicit `--prune-local`.
+  // Pruning after a partial failure is exactly how local-only data dies: the
+  // task row and its asset dir are removed while the board is missing the
+  // attachments. Refuse the whole prune rather than delete per-task and hope
+  // the bookkeeping is right.
+  const pruneLocal = opts.pruneLocal === true && filesFailed === 0;
+  if (opts.pruneLocal !== true) {
+    // Stryker disable once StringLiteral: display message for default keep
+    console.log(chalk.dim("  Local tasks kept (push never deletes; --prune-local to opt in)."));
+  } else if (filesFailed > 0) {
+    console.log(
+      chalk.red(`  Refusing to prune: ${filesFailed} file(s) failed to upload. Nothing was deleted locally.`),
+    );
   }
-
-  // Delete ONLY tasks this run actually pushed (created or server-matched
-  // existing, per the idMap). Already-synced tasks were never touched by
-  // this run; refused and atomicity-skipped tasks stay local so the next
-  // run retries them — deleting them would mark an unsynced task pushed.
-  const pushedIds = new Set(Object.keys(result.idMap ?? {}));
-  const deletable =
-    pushedIds.size > 0 ? livePushTasks.filter((t) => t.id && pushedIds.has(t.id)) : [];
   let deleted = 0;
   let orphanDirsRemoved = 0;
-  for (const task of deletable) {
-    try {
-      unlinkSync(task.filePath);
-      deleted++;
-    } catch {
-      // ignore — file may have already been removed
-    }
-    // ── I5: Orphan cleanup — remove task asset dirs ────────────────────
-    try {
-      const filesDir = getFilesDir(projectDir, task.id!);
-      if (existsSync(filesDir)) {
-        const { rmSync } = await import("node:fs");
-        rmSync(filesDir, { recursive: true, force: true });
-        orphanDirsRemoved++;
-      }
-    } catch { /* best-effort */ }
-    try {
-      const screenshotsDir = join(projectDir, PROTO_DIR, SCREENSHOTS_DIR);
-      const screenshotPath = join(screenshotsDir, `${task.id}.png`);
-      if (existsSync(screenshotPath)) {
-        unlinkSync(screenshotPath);
-        orphanDirsRemoved++;
-      }
-    } catch { /* best-effort */ }
-  }
+  if (pruneLocal) {
 
-  // Stryker disable once StringLiteral: display message for deleted files
-  console.log(chalk.dim(`  Deleted ${deleted} local task file(s).`));
-  if (orphanDirsRemoved > 0) {
-    console.log(chalk.dim(`  Cleaned ${orphanDirsRemoved} orphaned asset dir(s).`));
+    // Delete ONLY tasks this run actually pushed (created or server-matched
+    // existing, per the idMap). Already-synced tasks were never touched by
+    // this run; refused and atomicity-skipped tasks stay local so the next
+    // run retries them — deleting them would mark an unsynced task pushed.
+    const pushedIds = new Set(Object.keys(result.idMap ?? {}));
+    const deletable =
+      pushedIds.size > 0 ? livePushTasks.filter((t) => t.id && pushedIds.has(t.id)) : [];
+    for (const task of deletable) {
+      try {
+        unlinkSync(task.filePath);
+        deleted++;
+      } catch {
+        // ignore — file may have already been removed
+      }
+      // ── I5: Orphan cleanup — remove task asset dirs ────────────────────
+      try {
+        const filesDir = getFilesDir(projectDir, task.id!);
+        if (existsSync(filesDir)) {
+          const { rmSync } = await import("node:fs");
+          rmSync(filesDir, { recursive: true, force: true });
+          orphanDirsRemoved++;
+        }
+      } catch { /* best-effort */ }
+      try {
+        const screenshotsDir = join(projectDir, PROTO_DIR, SCREENSHOTS_DIR);
+        const screenshotPath = join(screenshotsDir, `${task.id}.png`);
+        if (existsSync(screenshotPath)) {
+          unlinkSync(screenshotPath);
+          orphanDirsRemoved++;
+        }
+      } catch { /* best-effort */ }
+    }
+
+    // Stryker disable once StringLiteral: display message for deleted files
+    console.log(chalk.dim(`  Deleted ${deleted} local task file(s).`));
+    if (orphanDirsRemoved > 0) {
+      console.log(chalk.dim(`  Cleaned ${orphanDirsRemoved} orphaned asset dir(s).`));
+    }
+
   }
 
   const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
