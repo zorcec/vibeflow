@@ -1,7 +1,7 @@
 /**
  * Agent chat HTTP surface (ticket 0847833f): session lifecycle, message
  * intake, approvals, browser round-trips, and the per-session chat MCP
- * endpoint. Mounted by `serve` ONLY when VIBEFLOW_AGENT_CHAT=1.
+ * endpoint. Mounted by `serve` ONLY when VIBEFLOW_FEATURES includes CHAT.
  *
  * WHAT: thin glue between the overlay panel (REST + WS broadcast) and
  * the ChatSessionManager / chat MCP servers. All agent→UI events flow
@@ -21,7 +21,7 @@
  * Degraded paths (never a hang, never a throw past Express):
  * - unknown/closed session id → 404 (MCP + REST alike)
  * - approval undecided in 120 s → deny (fail-closed, agent is told)
- * - browser round-trip unanswered in 30 s → null (NO_TAB refusal)
+ * - browser round-trip unanswered in 5 s → null (TIMEOUT refusal)
  * - pi child emits garbage → parseError diagnostic, reader continues
  */
 import { randomUUID } from "node:crypto";
@@ -32,18 +32,22 @@ import {
   ChatSessionManager,
   isAgentChatEnabled,
   TOO_MANY_SESSIONS,
+  type ChatImage,
 } from "./sessions.js";
 import { mapPiRecord } from "./protocol.js";
 import {
   createChatMcpServer,
   CHAT_MCP_APPROVAL_TIMEOUT_MS,
-  CHAT_MCP_TOOL_TIMEOUT_MS,
+  CHAT_MCP_DOM_ROUNDTRIP_TIMEOUT_MS,
   type ChatMcpHooks,
 } from "./mcp.js";
 import { mcpAuth } from "../../mcp/auth.js";
 
 const APPROVAL_TIMEOUT_MS = CHAT_MCP_APPROVAL_TIMEOUT_MS;
-const DOM_ROUNDTRIP_TIMEOUT_MS = CHAT_MCP_TOOL_TIMEOUT_MS;
+// Ticket 658d0238: 5 s browser round-trip budget — the DOM read either
+// answers fast or the tab is gone; hanging the agent longer blocks the
+// model turn on a dead client for no benefit.
+const DOM_ROUNDTRIP_TIMEOUT_MS = CHAT_MCP_DOM_ROUNDTRIP_TIMEOUT_MS;
 const PI_PROBE_TTL_MS = 60_1000;
 const REAPER_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -57,7 +61,7 @@ interface PendingApproval {
 
 interface PendingDomRead {
   sessionId: string;
-  resolve: (text: string | null) => void;
+  resolve: (result: { text: string; found: boolean } | null) => void;
 }
 
 interface ChatMcpMount {
@@ -192,7 +196,11 @@ export function registerChatRoutes(app: Express, opts: ChatRoutesOptions): void 
       });
       return;
     }
-    const body = (req.body ?? {}) as { message?: unknown; page?: unknown };
+    const body = (req.body ?? {}) as {
+      message?: unknown;
+      page?: unknown;
+      images?: unknown;
+    };
     if (typeof body.message !== "string" || body.message.trim().length === 0) {
       res.status(400).json({
         error: { code: "EMPTY_MESSAGE", message: "message must be a non-empty string" },
@@ -200,8 +208,25 @@ export function registerChatRoutes(app: Express, opts: ChatRoutesOptions): void 
       return;
     }
     const page = body.page as ChatPageContext | undefined;
+    // Images ride top-level per the RPC contract (never inside metadata).
+    // Shape-checked here so a malformed client cannot smuggle arbitrary
+    // fields into the pi prompt command.
+    const images = Array.isArray(body.images)
+      ? body.images.filter(
+          (i): i is ChatImage =>
+            typeof i === "object" &&
+            i !== null &&
+            (i as Record<string, unknown>).type === "image" &&
+            typeof (i as Record<string, unknown>).data === "string" &&
+            typeof (i as Record<string, unknown>).mimeType === "string",
+        )
+      : undefined;
     try {
-      const out = await session.prompt(body.message, page ? { page } : undefined);
+      const out = await session.prompt(
+        body.message,
+        page ? { page } : undefined,
+        images,
+      );
       res.json({ accepted: true, commandId: out.commandId });
     } catch (err) {
       res.status(502).json({
@@ -211,6 +236,21 @@ export function registerChatRoutes(app: Express, opts: ChatRoutesOptions): void 
         },
       });
     }
+  });
+
+  // Best-effort interrupt of the active run (Stop button). Always 200
+  // for a live session — even an idle one (there may be nothing to
+  // stop, which is fine, not an error). 404 only when unknown/closed.
+  app.post("/api/chat/:sessionId/abort", async (req: Request, res: Response) => {
+    const session = manager.get(req.params.sessionId as string);
+    if (!session) {
+      res.status(404).json({
+        error: { code: "SESSION_NOT_FOUND", message: "unknown or closed chat session" },
+      });
+      return;
+    }
+    await session.abort();
+    res.json({ aborted: true });
   });
 
   app.delete("/api/chat/:sessionId", async (req: Request, res: Response) => {
@@ -250,8 +290,15 @@ export function registerChatRoutes(app: Express, opts: ChatRoutesOptions): void 
       return;
     }
     domReads.delete(body.requestId as string);
-    const payload = (body.payload ?? {}) as { text?: unknown };
-    pending.resolve(typeof payload.text === "string" ? payload.text : null);
+    const payload = (body.payload ?? {}) as { text?: unknown; found?: unknown };
+    // `found` defaults true: full-page reads always match; only an
+    // explicit false (selector miss reported by the overlay) counts as
+    // missing. A non-string text degrades to null (unreachable tab).
+    pending.resolve(
+      typeof payload.text === "string"
+        ? { text: payload.text, found: payload.found !== false }
+        : null,
+    );
     res.json({ received: true });
   });
 
@@ -292,15 +339,17 @@ export function requestApproval(
 }
 
 /**
- * Ask the session's browser tab to read the live DOM. Resolves the text,
- * or null when no tab answers in time (closed tab, offline overlay).
+ * Ask the session's browser tab to read the live DOM. Resolves the
+ * text plus whether the selector matched, or null when no tab answers
+ * in time (closed tab, offline overlay). The `found` flag lets the
+ * tool answer a selector miss with deterministic ELEMENT_NOT_FOUND.
  */
 export function requestBrowserDom(
   broadcast: (data: Record<string, unknown>) => void,
   sessionId: string,
   selector?: string,
-): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
+): Promise<{ text: string; found: boolean } | null> {
+  return new Promise<{ text: string; found: boolean } | null>((resolve) => {
     const requestId = randomUUID().replace(/-/g, "").slice(0, 12);
     domReads.set(requestId, { sessionId, resolve });
     broadcast({

@@ -8,6 +8,8 @@ import {
   applyChatEvent,
   resolveChatApproval,
   emptyChatView,
+  imagesToPayloads,
+  CHAT_IMAGE_MAX_BYTES,
 } from "../../../src/client/overlay-browser/chat.js";
 
 describe("applyChatEvent", () => {
@@ -105,5 +107,41 @@ describe("applyChatEvent", () => {
     expect(s.approvals).toHaveLength(0);
     // Unknown id is a no-op (same object back — cheap referential check).
     expect(resolveChatApproval(s, "nope")).toBe(s);
+  });
+});
+
+describe("imagesToPayloads size gate (ticket 658d0238/b8254ee3)", () => {
+  const big = (name: string, size: number) =>
+    new File([new Uint8Array(size)], name, { type: "image/png" });
+
+  it("skips files over 2 MiB without touching wasm/canvas", async () => {
+    const { payloads, skipped } = await imagesToPayloads([
+      big("huge.png", CHAT_IMAGE_MAX_BYTES + 1),
+    ]);
+    expect(payloads).toEqual([]);
+    expect(skipped).toEqual(["huge.png"]);
+    // Break: send everything — a pasted 50 MB PNG becomes ~70 MB of
+    // base64 in the agent context and OOMs the small box.
+  });
+
+  it("skips non-images silently (the picker only offers images)", async () => {
+    const { payloads, skipped } = await imagesToPayloads([
+      new File(["x"], "note.txt", { type: "text/plain" }),
+    ]);
+    expect(payloads).toEqual([]);
+    expect(skipped).toEqual([]);
+  });
+
+  it("caps at 3 images per message", async () => {
+    // All oversized so no wasm/canvas is ever touched — the cap is a
+    // pure pre-filter and must hold without decoding anything.
+    const files = [1, 2, 3, 4, 5].map((i) =>
+      big(`img${i}.png`, CHAT_IMAGE_MAX_BYTES + i),
+    );
+    const { payloads, skipped } = await imagesToPayloads(files);
+    expect(payloads).toEqual([]);
+    // All five are over the cap (each reported — the user sees exactly
+    // which attachments the agent never received).
+    expect(skipped).toHaveLength(5);
   });
 });

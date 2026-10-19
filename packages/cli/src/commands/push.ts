@@ -519,6 +519,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   if (opts.json === true) {
     console.log(JSON.stringify({
       imported: result.imported,
+      existing: result.existing,
       skipped: result.skipped,
       attempted: result.attempted,
       total: taskList.length,

@@ -134,7 +134,7 @@ describe("chat REST surface", () => {
       // client avoids by streaming WS events while POST is in flight).
       const msgPromise = post(h.base, `/api/chat/${sessionId}/message`, {
         message: "hi",
-        page: { url: "https://x.test/p", title: "P" },
+        page: { url: "https://docs.example.net/p", title: "P" },
       });
       await vi.waitFor(() => {
         expect(h.children[0]!.stdin.written.length).toBe(1);
@@ -151,6 +151,9 @@ describe("chat REST surface", () => {
       const msg = await msgPromise;
       expect(msg.status).toBe(200);
       expect((msg.body as { accepted: boolean }).accepted).toBe(true);
+      // Regression pin (review P1): images must travel top-level on the
+      // RPC prompt command — never nested, never dropped.
+      expect(sent).not.toHaveProperty("images");
       h.children[0]!.emitRecord({
         type: "message_update",
         assistantMessageEvent: { type: "text_delta", delta: "yo" },
@@ -164,6 +167,82 @@ describe("chat REST surface", () => {
       expect(del.status).toBe(200);
       const delAgain = await fetch(`${h.base}/api/chat/${sessionId}`, { method: "DELETE" });
       expect(delAgain.status).toBe(404);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("forwards images top-level on the pi prompt command (review P1)", async () => {
+    const h = await startHarness();
+    try {
+      const created = await post(h.base, "/api/chat/sessions", {});
+      const sessionId = (created.body as { sessionId: string }).sessionId;
+      const msgPromise = post(h.base, `/api/chat/${sessionId}/message`, {
+        message: "look",
+        images: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      });
+      await vi.waitFor(() => {
+        expect(h.children[0]!.stdin.written.length).toBe(1);
+      });
+      const sent = JSON.parse(h.children[0]!.stdin.written[0]!) as Record<string, unknown>;
+      // Top-level per the RPC contract — the agent actually receives them.
+      expect(sent.images).toEqual([{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }]);
+      expect(sent).not.toHaveProperty("metadata");
+      h.children[0]!.emitRecord({
+        type: "response",
+        id: sent.id,
+        command: "prompt",
+        success: true,
+        data: { disposition: "started" },
+      });
+      const msg = await msgPromise;
+      expect(msg.status).toBe(200);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("drops malformed image entries instead of forwarding them", async () => {
+    const h = await startHarness();
+    try {
+      const created = await post(h.base, "/api/chat/sessions", {});
+      const sessionId = (created.body as { sessionId: string }).sessionId;
+      const msgPromise = post(h.base, `/api/chat/${sessionId}/message`, {
+        message: "look",
+        images: [{ type: "image", data: 42 }, "junk", null],
+      });
+      await vi.waitFor(() => {
+        expect(h.children[0]!.stdin.written.length).toBe(1);
+      });
+      const sent = JSON.parse(h.children[0]!.stdin.written[0]!) as Record<string, unknown>;
+      expect(sent).not.toHaveProperty("images");
+      h.children[0]!.emitRecord({
+        type: "response",
+        id: (sent as { id: string }).id,
+        command: "prompt",
+        success: true,
+        data: { disposition: "started" },
+      });
+      const msg = await msgPromise;
+      expect(msg.status).toBe(200);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("abort interrupts the run and 404s unknown sessions", async () => {
+    const h = await startHarness();
+    try {
+      const missing = await post(h.base, "/api/chat/nope/abort", {});
+      expect(missing.status).toBe(404);
+      const created = await post(h.base, "/api/chat/sessions", {});
+      const sessionId = (created.body as { sessionId: string }).sessionId;
+      const res = await post(h.base, `/api/chat/${sessionId}/abort`, {});
+      expect(res.status).toBe(200);
+      expect((res.body as { aborted: boolean }).aborted).toBe(true);
+      // The abort command reached the pi child.
+      const sent = JSON.parse(h.children[0]!.stdin.written[0]!) as Record<string, unknown>;
+      expect(sent.type).toBe("abort");
     } finally {
       await h.close();
     }
@@ -244,10 +323,10 @@ describe("chat REST surface", () => {
       expect(ask.kind).toBe("read_dom");
       const res = await post(h.base, `/api/chat/${sessionId}/tool-result`, {
         requestId: ask.requestId,
-        payload: { text: "Pay now" },
+        payload: { text: "Pay now", found: true },
       });
       expect(res.status).toBe(200);
-      await expect(pending).resolves.toBe("Pay now");
+      await expect(pending).resolves.toEqual({ text: "Pay now", found: true });
 
       const missing = await post(h.base, `/api/chat/${sessionId}/tool-result`, {
         requestId: "nope",

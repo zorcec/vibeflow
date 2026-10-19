@@ -3,7 +3,7 @@
 ---
 
 Agent chat overlay surface (ticket 0847833f, behind
-`VIBEFLOW_AGENT_CHAT=1`, default OFF). New overlay chat dock: trigger
+`VIBEFLOW_FEATURES=CHAT`, default OFF). New overlay chat dock: trigger
 button, session lifecycle, WS-mapped streaming/tool cards, approval
 cards wired to the server gate, read_dom browser round-trips, trusted
 page metadata on send, and pasted-image downscale via the shared matrix.

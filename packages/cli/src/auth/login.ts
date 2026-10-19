@@ -1110,13 +1110,17 @@ async function promptPushLocalTasks(
               }
               // Condensed summary (ticket e4049164): one line carries the
               // TRUE numbers (created/refused groups via
-              // formatPushRefusalSummary — never "already existed"), the
-              // stop line and the not-attempted count share one red line.
+              // formatPushRefusalSummary), the stop line and the
+              // not-attempted count share one red line. Re-push matches
+              // (ticket 9309ea70) print as "already existed" so a
+              // 0-created re-push does not read as a failure.
+              const already =
+                data.existing > 0 ? ` (${data.existing} already existed)` : "";
               const refused =
                 data.skipped > 0 ? ` — ${formatPushRefusalSummary(data)}` : "";
               console.log(
                 chalk.green(
-                  `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}${refused}`,
+                  `  ✓ Pushed ${data.imported} task${data.imported !== 1 ? "s" : ""} to ${workspace.name}${already}${refused}`,
                 ),
               );
               const stopLine = formatPushStopLine(data);

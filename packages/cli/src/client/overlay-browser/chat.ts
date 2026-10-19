@@ -148,21 +148,36 @@ export function collectPageContext(activeSelector?: string | null): ChatPageCont
  * Extract readable text for a read_dom round-trip (the server wraps it
  * as <untrusted-webpage>). Scoped by selector when given, page text
  * otherwise. Bounded so a hostile page cannot stuff the agent context.
+ * Ticket 658d0238: shared maxChars budget (mirrors the server-side
+ * READ_PAGE_TEXT_MAX_CHARS in mcp.ts — one budget, two surfaces).
  */
-const READ_DOM_MAX_CHARS = 20_000;
+const READ_DOM_MAX_CHARS = 4000;
 
-export function readDomText(selector?: string | null): string {
+export interface DomReadResult {
+  /** Extracted text (capped at READ_DOM_MAX_CHARS). */
+  text: string;
+  /** False when a selector was given but matched nothing — the server
+   * turns this into a deterministic ELEMENT_NOT_FOUND (ticket 658d0238)
+   * instead of an indistinguishable empty string. */
+  found: boolean;
+}
+
+// NOTE: innerText (not textContent) is deliberate — it returns *rendered*
+// text (hidden elements excluded, <br> as newlines), i.e. what the user
+// actually sees. textContent would leak hidden/script content to the agent.
+// pi-lens-ignore: ast-grep prefer-dom-node-text-content
+export function readDomText(selector?: string | null): DomReadResult {
   try {
     if (selector) {
       const el = document.querySelector(selector);
       if (el instanceof HTMLElement) {
-        return (el.innerText ?? "").slice(0, READ_DOM_MAX_CHARS);
+        return { text: (el.innerText ?? "").slice(0, READ_DOM_MAX_CHARS), found: true };
       }
-      return "";
+      return { text: "", found: false };
     }
-    return (document.body?.innerText ?? "").slice(0, READ_DOM_MAX_CHARS);
+    return { text: (document.body?.innerText ?? "").slice(0, READ_DOM_MAX_CHARS), found: true };
   } catch {
-    return "";
+    return { text: "", found: false };
   }
 }
 
@@ -172,14 +187,38 @@ export function readDomText(selector?: string | null): string {
  * never drift from task-attachment encoding — then base64s the bytes
  * for the RPC prompt `images` field.
  */
-export async function imagesToPayloads(files: File[]): Promise<ChatImagePayload[]> {
-  const out: ChatImagePayload[] = [];
+/**
+ * Max bytes per pasted image (ticket b8254ee3: 2 MiB). Mirrors the
+ * server-side CHAT_IMAGE_MAX_BYTES in agent-chat/mcp.ts — kept as a
+ * local const (not an import) so the browser bundle never pulls in
+ * Node-only server modules. If the ticket value changes, change both.
+ */
+export const CHAT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+export interface ChatImageResult {
+  payloads: ChatImagePayload[];
+  /** Names dropped for exceeding the per-file byte cap (user-visible). */
+  skipped: string[];
+}
+
+export async function imagesToPayloads(files: File[]): Promise<ChatImageResult> {
+  const payloads: ChatImagePayload[] = [];
+  // Bounded: at most 3 images per message (base64 inflates context),
+  // at most CHAT_IMAGE_MAX_BYTES each (ticket 658d0238/b8254ee3).
+  // The size gate runs BEFORE the wasm import so an all-oversized batch
+  // never pays for codecs — and unit tests never need canvas.
+  const skipped: string[] = [];
+  const eligible: File[] = [];
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (f.size > CHAT_IMAGE_MAX_BYTES) skipped.push(f.name);
+    else if (eligible.length < 3) eligible.push(f);
+  }
+  if (eligible.length === 0) return { payloads, skipped };
   const { transformImageForUpload } = await import("@vibeflow-tools/ui/kanban");
-  // Bounded: at most 3 images per message (base64 inflates context).
   // Encoding is the shared matrix verbatim — chat never drifts from
   // task-attachment bytes (<=1920 kept byte-identical, wider → 1920 WebP).
-  for (const file of files.slice(0, 3)) {
-    if (!file.type.startsWith("image/")) continue;
+  for (const file of eligible) {
     try {
       const transformed = await transformImageForUpload(file, file.name);
       const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -191,12 +230,12 @@ export async function imagesToPayloads(files: File[]): Promise<ChatImagePayload[
       const match = /^data:(.*?);base64,(.*)$/s.exec(dataUrl);
       const b64 = match?.[2];
       if (!b64) continue;
-      out.push({ data: b64, mimeType: match?.[1] || "image/webp" });
+      payloads.push({ data: b64, mimeType: match?.[1] || "image/webp" });
     } catch {
       // One bad file never blocks the message — it is simply skipped.
     }
   }
-  return out;
+  return { payloads, skipped };
 }
 
 /** Whether this overlay bundle may show chat at all. */

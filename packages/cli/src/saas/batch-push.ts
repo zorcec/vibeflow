@@ -376,7 +376,6 @@ export async function postTaskChunk(
   };
   if (boardId !== undefined) body.boardId = boardId;
 
-  let lastThrow: unknown = null;
   for (let attempt = 1; attempt <= BATCH_CHUNK_MAX_ATTEMPTS; attempt++) {
     let res: Response;
     try {
@@ -387,11 +386,14 @@ export async function postTaskChunk(
         signal: AbortSignal.timeout(BATCH_CHUNK_TIMEOUT_MS),
       });
     } catch (err) {
-      lastThrow = err;
       if (attempt < BATCH_CHUNK_MAX_ATTEMPTS) {
         await sleep(BATCH_CHUNK_RETRY_DELAY_MS * attempt);
         continue;
       }
+      // Last attempt: the transport throw escapes (fails the push —
+      // the exact one-by-one network-throw contract). No fallthrough:
+      // every loop exit above returns, continues, or throws, so there
+      // is deliberately no trailing throw here (review P2 cleanup).
       throw err;
     }
 
@@ -493,7 +495,9 @@ export async function postTaskChunk(
       retryAfter: null,
     };
   }
-  throw lastThrow;
+  // Unreachable: every iteration above returns, continues (attempts
+  // remain), or throws (last attempt). No trailing throw by design.
+  throw new Error("unreachable: postTaskChunk retry loop fell through");
 }
 
 export interface BatchPushOptions {
@@ -683,8 +687,9 @@ export async function createTasksInBatches(
   try {
     // Chunks are fixed slices of the push order; on resume the leading
     // `base` items are already done — their chunks are skipped WITHOUT
-    // re-POSTing. Checkpoint writes are chunk-aligned, so `base` always
-    // lands on a chunk boundary.
+    // re-POSTing. Successful chunks persist at chunk boundaries, but an
+    // early stop (402/429) persists MID-chunk: resume slices the chunk
+    // (done prefix stays done, tail re-POSTs smaller) — see below.
     for (let c = 0; c < chunks.length; c++) {
       const chunk = chunks[c]!;
       const chunkStart = c * chunkSize;

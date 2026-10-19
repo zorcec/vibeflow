@@ -39,6 +39,16 @@ export const COMMAND_TIMEOUT = "COMMAND_TIMEOUT";
 /** Write after close / spawn failure. */
 export const SESSION_CLOSED = "SESSION_CLOSED";
 
+/**
+ * Image part of an RPC prompt (ticket 0847833f): base64 data + MIME,
+ * matching pi's `images: [{type: "image", data, mimeType}]` contract.
+ */
+export interface ChatImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
 /** Wire records the RPC child may emit (subset we act on). */
 export interface PiWireRecord {
   type: string;
@@ -98,8 +108,13 @@ export interface ChatSession {
    * Queue a user message (RPC `prompt` command). Resolves when pi
    * ACCEPTS the prompt (disposition), not when the run finishes — the
    * caller keeps consuming `record` events until `agent_settled`.
+   * Images ride top-level per the RPC contract (never inside metadata).
    */
-  prompt(message: string, metadata?: Record<string, unknown>): Promise<ChatPromptResult>;
+  prompt(
+    message: string,
+    metadata?: Record<string, unknown>,
+    images?: ChatImage[],
+  ): Promise<ChatPromptResult>;
   /** Interrupt the active run (RPC `abort`). Best-effort when idle. */
   abort(): Promise<void>;
   close(): Promise<void>;
@@ -257,9 +272,12 @@ export function ensureOverlayMcpEntry(
     doc.servers && typeof doc.servers === "object" && !Array.isArray(doc.servers)
       ? (doc.servers as Record<string, unknown>)
       : {};
+  // The session id travels in the URL path (the server mounts one MCP
+  // endpoint per chat session): no custom headers, so there is nothing
+  // for a non-chat client to spoof and no per-session state to inherit
+  // accidentally. Pure path-based routing.
   const entry = {
-    url: `${serverOrigin.replace(/\/+$/, "")}/api/chat-mcp`,
-    headers: { "x-chat-session": sessionId },
+    url: `${serverOrigin.replace(/\/+$/, "")}/api/chat-mcp/${sessionId}`,
   };
   const prev = servers[AGENT_CHAT_MCP_SERVER_NAME];
   const updated =
@@ -399,12 +417,16 @@ class ManagedChatSession implements ChatSession {
   async prompt(
     message: string,
     metadata?: Record<string, unknown>,
+    images?: ChatImage[],
   ): Promise<ChatPromptResult> {
     this.touch();
     const record = await this.sendCommand({
       type: "prompt",
       message,
       ...(metadata !== undefined ? { metadata } : {}),
+      // Top-level per the RPC contract — pi reads images[] alongside
+      // message, never nested. Omitted entirely when empty.
+      ...(images !== undefined && images.length > 0 ? { images } : {}),
     });
     if (record.success !== true) {
       const err = new Error(

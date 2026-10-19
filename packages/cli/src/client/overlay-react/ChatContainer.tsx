@@ -106,8 +106,13 @@ export function ChatContainer({ onClose }: { onClose: () => void }) {
         const requestId = typeof msg.requestId === "string" ? msg.requestId : null;
         if (requestId) {
           const selector = typeof msg.selector === "string" ? msg.selector : undefined;
+          // found travels alongside text so the server can answer a
+          // selector miss with deterministic ELEMENT_NOT_FOUND instead of
+          // an indistinguishable empty string (ticket 658d0238).
+          const dom = readDomText(selector ?? undefined);
           void answerToolRequest(sessionId, requestId, {
-            text: readDomText(selector ?? undefined),
+            text: dom.text,
+            found: dom.found,
           });
         }
         return;
@@ -139,9 +144,16 @@ export function ChatContainer({ onClose }: { onClose: () => void }) {
       }));
       setStatus("busy");
       try {
-        const payloads = await imagesToPayloads(images);
+        const { payloads, skipped } = await imagesToPayloads(images);
+        // Skipped files are named in the message itself so the user sees
+        // what the agent did NOT receive (2 MiB per-image cap) — the panel
+        // shows previews for everything, so silence here would mislead.
+        const text =
+          skipped.length > 0
+            ? `${message}\n[images skipped (over 2MB limit): ${skipped.join(", ")}]`
+            : message;
         const page = collectPageContext();
-        const out = await sendChatMessage(id, message, page, payloads);
+        const out = await sendChatMessage(id, text, page, payloads);
         if (!out.accepted) {
           setStatus("error");
           setStatusMessage("The agent did not accept the message — retry or reopen chat.");

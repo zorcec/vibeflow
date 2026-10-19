@@ -3,7 +3,7 @@
 ---
 
 Agent chat backend (ticket 0847833f, part 2, behind
-`VIBEFLOW_AGENT_CHAT=1`). Per-session MCP server (`createChatMcpServer`)
+`VIBEFLOW_FEATURES=CHAT`). Per-session MCP server (`createChatMcpServer`)
 with the shared manifest tools behind an approval gate (reads run free,
 mutating tools pause for explicit UI approval and fail closed on
 deny/timeout) plus chat-only website tools (`read_page_text` server

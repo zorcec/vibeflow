@@ -32,11 +32,26 @@ import { manifest, type ToolManifest } from "../../mcp/manifest.js";
 import { invokeManifestTool } from "../../mcp/server.js";
 import type { OperationContext } from "../../core/operations.js";
 import { getGitUser } from "../../core/git-user.js";
-import { extractPageText, wrapUntrusted } from "./website.js";
+import {
+  extractPageText,
+  wrapUntrusted,
+  isBlockedHostname,
+  isBlockedIp,
+} from "./website.js";
 
 export const CHAT_MCP_TOOL_TIMEOUT_MS = 30_000;
 export const CHAT_MCP_APPROVAL_TIMEOUT_MS = 120_000;
 export const APPROVAL_DENIED = "APPROVAL_DENIED";
+/**
+ * Ticket 658d0238: browser round-trip budget — the DOM read either
+ * answers fast or the tab is gone; hanging the agent longer helps no
+ * one and blocks the model turn on a dead client.
+ */
+export const CHAT_MCP_DOM_ROUNDTRIP_TIMEOUT_MS = 5_000;
+/** Max pasted image size (ticket 658d0238/b8254ee3): larger files are
+ * skipped with a note instead of being sent — the shared matrix already
+ * shrinks dimensions, this caps the pre-transform bytes. */
+export const CHAT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Wire shape registerTool accepts: text content, optional error flag.
  * The index signature satisfies the SDK's strict callback constraint
@@ -66,16 +81,24 @@ export interface ChatMcpHooks {
   ): Promise<boolean>;
   /**
    * Ask the session's browser tab to read the live DOM (chat page).
-   * Resolves the extracted text, or null when no tab answers in time.
+   * Resolves the extracted text plus whether the selector matched, or
+   * null when no tab answers in time. The `found` flag lets the tool
+   * answer a selector miss with deterministic ELEMENT_NOT_FOUND.
    */
-  requestBrowserDom(sessionId: string, selector?: string): Promise<string | null>;
+  requestBrowserDom(
+    sessionId: string,
+    selector?: string,
+  ): Promise<{ text: string; found: boolean } | null>;
   /** Project dir the session's agent works in (tool context). */
   projectDirFor(sessionId: string): string;
 }
 
 const READ_PAGE_TEXT_TIMEOUT_MS = 15_000;
 const READ_PAGE_TEXT_MAX_BYTES = 200_000;
-const READ_PAGE_TEXT_MAX_CHARS = 20_000;
+const READ_PAGE_TEXT_MAX_REDIRECTS = 3;
+// Ticket 658d0238: shared maxChars budget (single source; read_dom
+// mirrors it client-side in overlay-browser/chat.ts).
+const READ_PAGE_TEXT_MAX_CHARS = 4000;
 
 function summarizeArgs(input: unknown): string {
   if (input === null || input === undefined) return "{}";
@@ -175,20 +198,57 @@ export function createChatMcpServer(
 /**
  * Server-side page fetch for `read_page_text` (exported for unit tests).
  * Bounded (timeout + byte cap), text pages only, untrusted-wrapped.
+ * SSRF-guarded (ticket 0847833f review P1): every hop's hostname is
+ * checked against blocklists BEFORE resolving, every resolved IP is
+ * checked after lookup, and redirects are followed manually (max 3)
+ * so a `Location:` to 169.254.169.254 can never slip through undici's
+ * automatic redirect handling. `resolveHost` is injectable for tests.
  */
 export async function runReadPageText(
   input: unknown,
   fetchFn: typeof fetch = fetch,
+  resolveHost: (hostname: string) => Promise<string[]> = defaultResolveHost,
 ): Promise<ChatMcpTextResult> {
   const url = (input as { url?: unknown }).url;
   if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
     return refusal("INVALID_URL", "url must be an http(s) URL");
   }
   try {
-    const res = await fetchFn(url, {
-      signal: AbortSignal.timeout(READ_PAGE_TEXT_TIMEOUT_MS),
-      headers: { "user-agent": "vibeflow-overlay-agent/1 (+chat)" },
-    });
+    let current = url;
+    let res: Response | undefined;
+    for (let hop = 0; hop <= READ_PAGE_TEXT_MAX_REDIRECTS; hop++) {
+      const parsed = new URL(current);
+      const blocked = await isHostBlocked(parsed.hostname, resolveHost);
+      if (blocked) {
+        return refusal(
+          "BLOCKED_HOST",
+          `refusing to fetch ${parsed.hostname}: non-public or internal address`,
+        );
+      }
+      const attempt = await fetchFn(current, {
+        signal: AbortSignal.timeout(READ_PAGE_TEXT_TIMEOUT_MS),
+        headers: { "user-agent": "vibeflow-overlay-agent/1 (+chat)" },
+        redirect: "manual",
+      });
+      if (!isRedirect(attempt.status)) {
+        res = attempt as Response;
+        break;
+      }
+      if (hop === READ_PAGE_TEXT_MAX_REDIRECTS) {
+        return refusal("TOO_MANY_REDIRECTS", "redirect chain too long (max 3)");
+      }
+      const location = attempt.headers.get("location");
+      if (!location) {
+        return refusal("FETCH_FAILED", "redirect without Location header");
+      }
+      current = new URL(location, current).href;
+      if (!/^https?:\/\//i.test(current)) {
+        return refusal("INVALID_URL", "redirect target is not an http(s) URL");
+      }
+    }
+    if (!res) {
+      return refusal("FETCH_FAILED", "no response received");
+    }
     if (!res.ok) {
       return refusal("FETCH_FAILED", `page fetch failed: HTTP ${res.status}`);
     }
@@ -221,11 +281,44 @@ export async function runReadPageText(
   }
 }
 
+/** Default DNS resolver: all addresses for hostname (A + AAAA). */
+async function defaultResolveHost(hostname: string): Promise<string[]> {
+  const { lookup } = await import("node:dns/promises");
+  const records = await lookup(hostname, { all: true });
+  return records.map((r) => r.address);
+}
+
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+/**
+ * True when a hostname must not be fetched: blocked name, unresolvable
+ * name (fail closed — no DNS answer means no fetch), or any resolved IP
+ * that is non-routable. Every redirect hop goes through here.
+ */
+async function isHostBlocked(
+  hostname: string,
+  resolveHost: (hostname: string) => Promise<string[]>,
+): Promise<boolean> {
+  if (isBlockedHostname(hostname)) return true;
+  let addresses: string[];
+  try {
+    addresses = await resolveHost(hostname);
+  } catch {
+    return true;
+  }
+  if (addresses.length === 0) return true;
+  return addresses.some((ip) => isBlockedIp(ip));
+}
+
 /**
  * Live-DOM read for `read_page_dom` (exported for unit tests): asks the
- * chat's browser tab via the hosts's round-trip hook. A null answer
- * (tab closed, overlay offline, timeout) is a normal NO_TAB refusal the
- * agent can explain — never a throw.
+ * chat's browser tab via the hosts's round-trip hook. Deterministic
+ * outcomes per ticket 658d0238: TIMEOUT when no tab answers, ELEMENT_
+ * NOT_FOUND when the selector matched nothing (distinguished from an
+ * empty-but-present element), TRUNCATED flagged on capped content.
+ * A refusal is data the agent can act on — never a throw.
  */
 export async function runReadPageDom(
   sessionId: string,
@@ -234,17 +327,26 @@ export async function runReadPageDom(
 ): Promise<ChatMcpTextResult> {
   void sessionId;
   const selector = (input as { selector?: unknown }).selector;
-  const text = await requestBrowserDom(
+  const answer = await requestBrowserDom(
     sessionId,
     typeof selector === "string" ? selector : undefined,
   );
-  if (text === null) {
+  if (answer === null) {
     return refusal(
-      "NO_TAB",
-      "the chat page is not reachable (tab closed or overlay offline) — ask the user to paste the content instead",
+      "TIMEOUT",
+      "the chat page did not answer in time (tab closed or overlay offline) — ask the user to paste the content instead",
     );
   }
-  return ok({ text: wrapUntrusted(text, "live-dom") });
+  if (typeof selector === "string" && answer.found === false) {
+    return refusal(
+      "ELEMENT_NOT_FOUND",
+      `no element matches selector "${selector}" on the chat page — ask the user to re-annotate or paste the content instead`,
+    );
+  }
+  return ok({
+    text: wrapUntrusted(answer.text, "live-dom"),
+    truncated: answer.text.length >= READ_PAGE_TEXT_MAX_CHARS,
+  });
 }
 
 /**
@@ -260,8 +362,11 @@ export function makeGatedRunner(
   hooks: Pick<ChatMcpHooks, "approvalsEnabled" | "requestApproval">,
 ): (input: unknown) => Promise<ChatMcpTextResult> {
   return async (input: unknown) => {
+    // Fail-closed default (review P2): ONLY explicitly read-only tools run
+    // free. An unannotated tool is gated — the MCP spec default for
+    // readOnlyHint is "not read-only", so absence must not mean safe.
     if (
-      tool.annotations?.readOnlyHint !== false ||
+      tool.annotations?.readOnlyHint === true ||
       !hooks.approvalsEnabled(sessionId)
     ) {
       return invokeManifestTool(tool, ctx, input);

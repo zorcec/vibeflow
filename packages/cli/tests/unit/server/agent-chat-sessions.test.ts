@@ -262,13 +262,14 @@ describe("ensureOverlayMcpEntry", () => {
       ensureOverlayMcpEntry(dir, "http://localhost:3700", "s2");
       const merged = JSON.parse(
         readFileSync(`${dir}/.pi/mcp.json`, "utf8"),
-      ) as { servers: Record<string, { url: string; headers: unknown }> };
+      ) as { servers: Record<string, { url: string }> };
       expect(merged.servers.mine).toEqual({ url: "http://x" });
-      expect(merged.servers["vibeflow-overlay"]?.url).toBe(
-        "http://localhost:3700/api/chat-mcp",
-      );
-      expect(merged.servers["vibeflow-overlay"]?.headers).toEqual({
-        "x-chat-session": "s2",
+      // The session id travels in the URL PATH — this must match the
+      // server's mount (`app.all("/api/chat-mcp/:sessionId", …)` in
+      // routes.ts). A bare /api/chat-mcp matches no route and the agent
+      // silently loses all vibeflow tools, so this exact shape is pinned.
+      expect(merged.servers["vibeflow-overlay"]).toEqual({
+        url: "http://localhost:3700/api/chat-mcp/s2",
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
