@@ -51,14 +51,14 @@ function createTaskFile(projectDir: string, task: Record<string, unknown>): stri
   return filePath;
 }
 
-// Deliberate update (ticket 8d3b2b81): push() now probes GET
-// /api/v0/tasks/batch before creating anything. The tests in this file pin
+// Deliberate update (ticket bulk-429): push() now probes GET
+// /api/v0/tasks/import before creating anything. The tests in this file pin
 // the LEGACY one-by-one loop, so every stubbed fetch below answers the
 // probe with 404 (old server) via the shared withOldServerProbe router —
 // assertions on the inner mock (counts, bodies, order) stay EXACTLY as
-// they were, proving the fallback path is byte-identical. Batch-path
-// behavior is pinned in tests/unit/saas/batch-push-8d3b2b81.test.ts plus
-// the "push — batch path" block at the end of this file.
+// they were, proving the fallback path is byte-identical. Tree-import
+// behavior is pinned in tests/unit/saas/batch-import-bulk-429.test.ts plus
+// tests/e2e/batch-push.test.ts (mock contract server).
 
 function mockFetchSuccess(result: Record<string, unknown>) {
   vi.stubGlobal(
@@ -1150,7 +1150,7 @@ describe("push — system-file flag round-trip", () => {
   });
 });
 
-describe("push — batch path (8d3b2b81)", () => {
+describe("push — tree-import path (bulk-429)", () => {
   beforeEach(() => {
     vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
     vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
@@ -1168,23 +1168,25 @@ describe("push — batch path (8d3b2b81)", () => {
     vi.clearAllMocks();
   });
 
-  function stubBatchServer(opts: {
+  function stubImportServer(opts: {
     openRemaining?: number;
     totalRemaining?: number;
   } = {}) {
-    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const calls: Array<{ url: string; method: string; manifest?: unknown }> = [];
     const fetchMock = vi.fn(
-      (url: unknown, init?: { method?: string; body?: string }) => {
+      (url: unknown, init?: { method?: string; body?: unknown }) => {
         const method = init?.method ?? "GET";
-        calls.push({ url: String(url), method, body: init?.body });
-        if (String(url).endsWith("/api/v0/tasks/batch")) {
+        if (String(url).endsWith("/api/v0/tasks/import")) {
           if (method === "GET") {
+            calls.push({ url: String(url), method });
             return Promise.resolve({
               ok: true,
               status: 200,
               json: () =>
                 Promise.resolve({
-                  maxItems: 100,
+                  maxTasks: 100,
+                  maxFiles: 50,
+                  maxBytes: 25 * 1024 * 1024,
                   plan: "free",
                   openLimit: 500,
                   openUsed: 0,
@@ -1195,18 +1197,29 @@ describe("push — batch path (8d3b2b81)", () => {
                 }),
             });
           }
-          const payload = JSON.parse(init?.body as string) as {
-            items: Array<{ id: string }>;
+          const manifest = JSON.parse(
+            String((init?.body as FormData).get("manifest")),
+          ) as {
+            boardId?: string;
+            tasks: Array<{ clientId: string }>;
           };
+          calls.push({ url: String(url), method, manifest });
           return Promise.resolve({
             ok: true,
             status: 200,
             json: () =>
               Promise.resolve({
-                created: payload.items.length,
+                created: manifest.tasks.length,
+                existing: 0,
                 failed: 0,
-                results: payload.items.map((t) => ({
-                  id: `remote-${t.id}`,
+                linksApplied: 0,
+                linksFailed: 0,
+                filesUploaded: 0,
+                filesFailed: 0,
+                filesSkipped: 0,
+                results: manifest.tasks.map((t) => ({
+                  clientId: t.clientId,
+                  id: `remote-${t.clientId}`,
                 })),
               }),
           });
@@ -1218,7 +1231,7 @@ describe("push — batch path (8d3b2b81)", () => {
     return calls;
   }
 
-  it("takes the batch path on probe 200: one chunk POST, same summary line", async () => {
+  it("takes the import path on probe 200: one import POST, same summary line", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-b1",
@@ -1235,25 +1248,22 @@ describe("push — batch path (8d3b2b81)", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    const calls = stubBatchServer();
+    const calls = stubImportServer();
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { keepLocalFiles: true });
 
-    // Probe first, then exactly ONE chunk POST for both tasks.
-    expect(calls[0]?.url).toContain("/api/v0/tasks/batch");
+    // Probe first, then exactly ONE import POST for both tasks.
+    expect(calls[0]?.url).toContain("/api/v0/tasks/import");
     expect(calls[0]?.method).toBe("GET");
     const chunks = calls.filter((c) => c.method === "POST");
     expect(chunks).toHaveLength(1);
-    const chunkBody = JSON.parse(chunks[0]?.body as string) as {
-      items: Array<Record<string, unknown>>;
+    const manifest = chunks[0]?.manifest as {
       boardId: string;
+      tasks: Array<Record<string, unknown>>;
     };
-    expect(chunkBody.items).toHaveLength(2);
-    expect(chunkBody.boardId).toBe("ws-1");
-    for (const item of chunkBody.items) {
-      expect(item).not.toHaveProperty("links");
-    }
+    expect(manifest.tasks).toHaveLength(2);
+    expect(manifest.boardId).toBe("ws-1");
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining("Pushed 2 task"),
     );
@@ -1295,7 +1305,7 @@ describe("push — batch path (8d3b2b81)", () => {
     const outerMethods = outerSpy.mock.calls.map(
       (c) => (c[1] as { method?: string } | undefined)?.method ?? "GET",
     );
-    expect(outerUrls[0]).toContain("/api/v0/tasks/batch");
+    expect(outerUrls[0]).toContain("/api/v0/tasks/import");
     expect(outerMethods[0]).toBe("GET");
     expect(urls).toHaveLength(1);
     expect(urls[0]).toContain("/api/v0/tasks");
@@ -1323,7 +1333,7 @@ describe("push — batch path (8d3b2b81)", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    const calls = stubBatchServer({ openRemaining: 0 });
+    const calls = stubImportServer({ openRemaining: 0 });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     const originalExitCode = process.exitCode;
@@ -1383,7 +1393,7 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
     vi.mocked(filesModule.getFilesDir).mockReturnValue(filesDir);
   }
 
-  it("batch path uploads the jobs and reports counts (login-time parity)", async () => {
+  it("sequential path uploads the jobs and reports counts (login-time parity)", async () => {
     const projectDir = makeTempProject();
     seedLocalFile(projectDir, "t1", "notes.md");
     const fetchMock = filesFetchMock();
@@ -1395,12 +1405,11 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
       "tok",
       projectDir,
       [{ localId: "t1", remoteId: "remote-1" }],
-      true,
     );
     expect(out.uploaded).toBe(1);
     expect(out.failed).toBe(0);
     expect(out.skippedPresent).toBe(0);
-    // Presence probe + one file POST.
+    // One file POST, no presence probe.
     const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
     expect(posts).toHaveLength(1);
     // Break: re-inline the uploader in login.ts instead of calling this
@@ -1420,7 +1429,6 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
       "tok",
       projectDir,
       [{ localId: "t1", remoteId: "remote-1" }],
-      false,
     );
     expect(out.uploaded).toBe(1);
     expect(out.failed).toBe(0);
@@ -1432,7 +1440,7 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
   it("empty mappings upload nothing and never touch the network", async () => {
     const fetchMock = filesFetchMock();
     vi.stubGlobal("fetch", fetchMock);
-    const out = await uploadPushedFiles("https://x.test", "tok", makeTempProject(), [], true);
+    const out = await uploadPushedFiles("https://x.test", "tok", makeTempProject(), []);
     expect(out).toEqual({ uploaded: 0, failed: 0, failedFiles: [], skippedPresent: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });

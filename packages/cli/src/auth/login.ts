@@ -1030,9 +1030,10 @@ async function promptPushLocalTasks(
             const keepLocal = answer2.trim().toLowerCase() !== "y";
             void keepLocal;
 
-            // Phase 1 is task creates (batched when the server offers
+            // Phase 1 is task creates (tree-import when the server offers
             // it, one POST per task otherwise), then links replayed with
-            // resolved cloud ids (phase 2). (keepLocalFiles previously rode
+            // resolved cloud ids + files uploaded (legacy phases, import
+            // carries both). (keepLocalFiles previously rode
             // along to /api/cli/import; the v0 create op has no such field
             // and this flow never deleted client-side, so the answer is
             // kept for prompt parity only.)
@@ -1053,19 +1054,24 @@ async function promptPushLocalTasks(
                   ),
                 );
               };
-              // Batch-first (ticket 99cf6943): the same probe → preflight
+              // Import-first (ticket bulk-429): the same probe → preflight
               // → chunked path as the standalone push. Old servers fall
-              // back to the one-by-one loop below, byte-identical to
-              // before (same args, same reporters — plus the 429 wait both
-              // paths share). Preflight refusal stays refuse-only: print
-              // and stop here, no prompt, no wait. A probe throw aborts
-              // loudly via the catch below (same rule as the standalone
-              // push — a server that cannot answer the probe gets no
-              // blind bulk). Lazy import: the batch client imports this
-              // module, so a static import would cycle.
+              // back to the legacy phases below, byte-identical to before
+              // (same args, same reporters — plus the 429 wait both paths
+              // share). Preflight refusal stays refuse-only: print and stop
+              // here, no prompt, no wait. A probe throw aborts loudly via
+              // the catch below (same rule as the standalone push — a
+              // server that cannot answer the probe gets no blind bulk).
+              // Lazy import: the import client imports this module, so a
+              // static import would cycle.
               const batch = await import("../saas/batch-push.js");
+              const probe = await batch.probeImportCapability(apiUrl, token);
+              // Tree-import tallies (import path only — legacy prints its
+              // own phase lines below).
+              let importLinksApplied = 0;
+              let importLinksFailed = 0;
+              let importFilesFailed = 0;
               let data: PushLoopResult;
-              const probe = await batch.probeBatchCapability(apiUrl, token);
               if (probe.supported === false) {
                 data = await createTasksOneByOne(
                   apiUrl,
@@ -1076,9 +1082,14 @@ async function promptPushLocalTasks(
                   { onWait },
                 );
               } else {
-                const order = records.map((t) =>
-                  typeof t.id === "string" ? t.id : "",
+                const { collectImportInputs } = await import("../commands/push.js");
+                const inputs = batch.topoOrderImportTasks(
+                  collectImportInputs(
+                    projectDir,
+                    records as unknown as Array<{ id?: string } & Record<string, unknown>>,
+                  ),
                 );
+                const order = inputs.map((t) => t.localId);
                 const existing = batch.readBatchCheckpoint(projectDir);
                 const resumed =
                   existing !== null &&
@@ -1087,7 +1098,7 @@ async function promptPushLocalTasks(
                     ? existing.attempted
                     : 0;
                 const refusal = batch.evaluateBatchPreflight(
-                  records.length - resumed,
+                  inputs.length - resumed,
                   probe.preflight,
                 );
                 if (refusal !== null) {
@@ -1095,11 +1106,11 @@ async function promptPushLocalTasks(
                   resolve();
                   return;
                 }
-                data = await batch.createTasksInBatches(
+                const loop = await batch.importBatchTree(
                   apiUrl,
                   token,
                   workspace.id,
-                  records,
+                  inputs,
                   {
                     onProgress,
                     projectDir,
@@ -1107,6 +1118,32 @@ async function promptPushLocalTasks(
                     retry429: { onWait },
                   },
                 );
+                data = loop;
+                importLinksApplied = loop.linksApplied;
+                importLinksFailed = loop.linksFailed;
+                importFilesFailed = loop.filesFailed;
+                if (loop.linksApplied > 0)
+                  console.log(
+                    chalk.green(
+                      `  ✓ Applied ${loop.linksApplied} link${loop.linksApplied !== 1 ? "s" : ""}`,
+                    ),
+                  );
+                for (const l of loop.failedLinks) {
+                  console.log(chalk.dim(`    link ${l.clientId}: ${l.reason}`));
+                }
+                if (loop.filesUploaded > 0)
+                  console.log(
+                    chalk.green(
+                      `  ✓ Uploaded ${loop.filesUploaded} file(s) to storage`,
+                    ),
+                  );
+                if (loop.filesSkippedPresent > 0)
+                  console.log(
+                    chalk.dim(`  Skipped ${loop.filesSkippedPresent} file(s) already present remotely.`),
+                  );
+                for (const f of loop.failedFiles) {
+                  console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
+                }
               }
               // Condensed summary (ticket e4049164): one line carries the
               // TRUE numbers (created/refused groups via
@@ -1132,8 +1169,17 @@ async function promptPushLocalTasks(
                     : "";
                 console.log(chalk.red(`  ${stopLine}${unattempted}`));
               }
-              const links = await applyPushLinks(apiUrl, token, records, data.idMap);
-              if (links.applied > 0)
+              const links = probe.supported === false
+                ? await applyPushLinks(apiUrl, token, records, data.idMap)
+                : { applied: importLinksApplied, skipped: [] as Array<{ from: string; to: string; type: string; reason: string }> };
+              if (probe.supported !== false && importLinksFailed > 0) {
+                console.log(
+                  chalk.yellow(
+                    `  ⚠ ${importLinksFailed} link(s) failed to apply`,
+                  ),
+                );
+              }
+              if (links.applied > 0 && probe.supported === false)
                 console.log(
                   chalk.green(
                     `  ✓ Applied ${links.applied} link${links.applied !== 1 ? "s" : ""}`,
@@ -1143,35 +1189,38 @@ async function promptPushLocalTasks(
                 console.log(
                   chalk.dim(`    (${formatSkippedLinks(links.skipped, false)})`),
                 );
-              // Phase 3 (ticket 0aac5938): upload local file attachments.
-              // The standalone push always did tasks → links → files, but
-              // this path stopped after links — every login-time push
-              // silently dropped attachments. Same shared helper (same
-              // wire format, same skip-if-present), same uploader
-              // selection as the task phase above (batch when probed,
-              // sequential on old servers). Login never deletes local
-              // files (keepLocal is prompt-parity only), so failures
-              // only warn here — auth already succeeded and a later
-              // `vibeflow push` retries the files. Lazy import: push.ts
-              // imports this module, so a static import would cycle.
-              const taskMappings = records
-                .filter(
-                  (t) =>
-                    typeof t.id === "string" &&
-                    (data.idMap[t.id] as string | undefined) !== undefined,
-                )
-                .map((t) => ({
-                  localId: t.id as string,
-                  remoteId: data.idMap[t.id as string] as string,
-                }));
-              const { uploadPushedFiles } = await import("../commands/push.js");
-              await uploadPushedFiles(
-                apiUrl,
-                token,
-                projectDir,
-                taskMappings,
-                probe.supported !== false,
-              );
+              // Legacy files phase (probe.supported === false ONLY): the
+              // import path already carried every attachment (tally lines
+              // printed above). Login never deletes local files
+              // (keepLocal is prompt-parity only), so failures only warn
+              // here — auth already succeeded and a later `vibeflow push`
+              // retries the files. Lazy import: push.ts imports this
+              // module, so a static import would cycle.
+              if (probe.supported === false) {
+                const taskMappings = records
+                  .filter(
+                    (t) =>
+                      typeof t.id === "string" &&
+                      (data.idMap[t.id] as string | undefined) !== undefined,
+                  )
+                  .map((t) => ({
+                    localId: t.id as string,
+                    remoteId: data.idMap[t.id as string] as string,
+                  }));
+                const { uploadPushedFiles } = await import("../commands/push.js");
+                await uploadPushedFiles(
+                  apiUrl,
+                  token,
+                  projectDir,
+                  taskMappings,
+                );
+              } else if (importFilesFailed > 0) {
+                console.log(
+                  chalk.yellow(
+                    `  ⚠ ${importFilesFailed} file(s) failed to upload (they stay local for a later push)`,
+                  ),
+                );
+              }
             } catch (err) {
               console.log(
                 chalk.red(

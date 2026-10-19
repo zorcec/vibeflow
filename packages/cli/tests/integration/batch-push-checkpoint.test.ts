@@ -1,5 +1,5 @@
 /**
- * Batch-push checkpoint resume, integrated (ticket 8d3b2b81).
+ * Tree-import checkpoint resume, integrated (ticket bulk-429).
  *
  * Drives the real project-dir flow — checkpoint file on disk inside a
  * temp `.vibeflow/` project, task records shaped like `listTasksWithPaths`
@@ -13,9 +13,10 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  createTasksInBatches,
+  importBatchTree,
   readBatchCheckpoint,
   batchCheckpointPath,
+  type ImportTaskInput,
 } from "../../src/saas/batch-push.js";
 import { PROTO_DIR } from "../../src/core/types.js";
 
@@ -23,22 +24,52 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function projectTasks(n: number): Array<Record<string, unknown>> {
+function projectTasks(n: number): ImportTaskInput[] {
   // Shaped like listTasksWithPaths entries: parsed task JSON + filePath.
   return Array.from({ length: n }, (_, i) => ({
-    id: `task-${i + 1}`,
-    title: `Integrated task ${i + 1}`,
-    status: "todo",
-    filePath: join(
-      ".vibeflow",
-      "tasks",
-      "2026-10-17",
-      `task-${i + 1}.json`,
-    ),
+    localId: `task-${i + 1}`,
+    record: {
+      id: `task-${i + 1}`,
+      title: `Integrated task ${i + 1}`,
+      status: "todo",
+      filePath: join(
+        ".vibeflow",
+        "tasks",
+        "2026-10-17",
+        `task-${i + 1}.json`,
+      ),
+    },
+    files: [],
   }));
 }
 
-describe("batch checkpoint resume through a project dir", () => {
+function manifestIds(init?: { body?: unknown }): string[] {
+  const text = String((init?.body as FormData).get("manifest"));
+  return (JSON.parse(text) as { tasks: Array<{ clientId: string }> }).tasks.map(
+    (t) => t.clientId,
+  );
+}
+
+function okFor(ids: string[]) {
+  return {
+    ok: true,
+    status: 200,
+    json: () =>
+      Promise.resolve({
+        created: ids.length,
+        existing: 0,
+        failed: 0,
+        linksApplied: 0,
+        linksFailed: 0,
+        filesUploaded: 0,
+        filesFailed: 0,
+        filesSkipped: 0,
+        results: ids.map((id) => ({ clientId: id, id: `cloud-${id}` })),
+      }),
+  };
+}
+
+describe("import checkpoint resume through a project dir", () => {
   it("killed push persists chunk progress; rerun completes the tail and clears the checkpoint", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "batch-int-"));
     try {
@@ -47,39 +78,21 @@ describe("batch checkpoint resume through a project dir", () => {
       const postedSizes: number[] = [];
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockImplementation((url: unknown, init?: { body?: string }) => {
-          const body = JSON.parse(init?.body as string) as {
-            items: Array<{ id: string }>;
-          };
-          postedSizes.push(body.items.length);
-          if (body.items[0]?.id === "task-1") {
-            return Promise.resolve({
-              ok: true,
-              status: 200,
-              json: () =>
-                Promise.resolve({
-                  created: body.items.length,
-                  failed: 0,
-                  results: body.items.map((t) => ({ id: `cloud-${t.id}` })),
-                }),
-            });
+        vi.fn().mockImplementation((url: unknown, init?: { body?: unknown }) => {
+          const ids = manifestIds(init);
+          postedSizes.push(ids.length);
+          if (ids[0] === "task-1") {
+            return Promise.resolve(okFor(ids));
           }
           if (chunkTwoDead) return Promise.reject(new Error("ECONNRESET"));
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            json: () =>
-              Promise.resolve({
-                created: body.items.length,
-                failed: 0,
-                results: body.items.map((t) => ({ id: `cloud-${t.id}` })),
-              }),
-          });
+          return Promise.resolve(okFor(ids));
         }),
       );
 
       const preflight = {
-        maxItems: 100,
+        maxTasks: 100,
+        maxFiles: 50,
+        maxBytes: 25 * 1024 * 1024,
         plan: "free",
         openLimit: 500,
         openUsed: 0,
@@ -90,9 +103,10 @@ describe("batch checkpoint resume through a project dir", () => {
       };
       // Run one: chunk one (100) lands, chunk two (20) exhausts retries.
       await expect(
-        createTasksInBatches("https://x.test", "tok", "board-i", all, {
+        importBatchTree("https://x.test", "tok", "board-i", all, {
           projectDir,
           preflight,
+          pacingDelayMs: 0,
         }),
       ).rejects.toThrow("ECONNRESET");
       const ckpt = readBatchCheckpoint(projectDir);
@@ -105,7 +119,7 @@ describe("batch checkpoint resume through a project dir", () => {
       chunkTwoDead = false;
       postedSizes.length = 0;
       const seen: Array<[number, number]> = [];
-      const result = await createTasksInBatches(
+      const result = await importBatchTree(
         "https://x.test",
         "tok",
         "board-i",
@@ -113,6 +127,7 @@ describe("batch checkpoint resume through a project dir", () => {
         {
           projectDir,
           preflight,
+          pacingDelayMs: 0,
           onProgress: (d, t) => seen.push([d, t]),
         },
       );

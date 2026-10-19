@@ -6,7 +6,7 @@ import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
-import { probeBatchCapability, evaluateBatchPreflight, createTasksInBatches, readBatchCheckpoint, uploadBatchFiles, type BatchFileJob } from "../saas/batch-push.js";
+import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, type ImportTaskInput } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -30,6 +30,14 @@ type ImportResult = {
   stoppedEarly: PushLoopResult["stoppedEarly"];
   stopMessage: PushLoopResult["stopMessage"];
   retryAfter: PushLoopResult["retryAfter"];
+  /** Tree-import tallies (present only on the import path). */
+  linksApplied?: number;
+  linksFailed?: number;
+  failedLinks?: Array<{ clientId: string; reason: string }>;
+  filesUploaded?: number;
+  filesFailed?: number;
+  filesSkippedPresent?: number;
+  failedFiles?: Array<{ clientId: string; name: string; reason: string }>;
 };
 
 export function formatBytes(bytes: number): string {
@@ -139,11 +147,43 @@ export async function uploadTaskFiles(
 }
 
 /**
- * Phase 3 shared by BOTH pushes (ticket 0aac5938): upload local file
- * attachments for already-pushed tasks. Standalone `push` and the
- * login-time push call this — never inline uploader loops — so the
- * wire format (single-encode brotli + `x-content-encoding`) and the
- * skip-if-present rule cannot drift between the two paths.
+ * Collect import inputs for the tree-import push (ticket bulk-429): one
+ * entry per local task with its file attachments resolved to absolute
+ * paths (missing files are skipped here — the record still travels).
+ * Shared by the standalone push and the login-time push so file
+ * collection cannot drift between the two paths.
+ */
+export function collectImportInputs(
+  projectDir: string,
+  taskList: Array<{ id?: string } & Record<string, unknown>>,
+): ImportTaskInput[] {
+  return taskList
+    .filter((t): t is { id: string } & Record<string, unknown> => typeof t.id === "string" && t.id.length > 0)
+    .map((t) => ({
+      localId: t.id,
+      record: t as unknown as Record<string, unknown>,
+      files: listFiles(projectDir, t.id)
+        .filter((f) => {
+          const absPath = f.linkedPath ?? join(getFilesDir(projectDir, t.id), f.name);
+          return existsSync(absPath);
+        })
+        .map((f) => ({
+          name: f.name,
+          filePath: f.linkedPath ?? join(getFilesDir(projectDir, t.id), f.name),
+          size: f.size,
+          system: f.system === true,
+        })),
+    }));
+}
+
+/**
+ * Legacy file phase (pre-tree-import servers): sequential upload for
+ * already-pushed tasks. Standalone `push` and the login-time push call
+ * this — never inline uploader loops — so the wire format
+ * (single-encode brotli + `x-content-encoding`) cannot drift between
+ * the two paths. The tree-import path does NOT call this (files ride
+ * the import call; server-side skip replaces the old client presence
+ * check).
  *
  * Prints the Uploading/Uploaded/failed lines itself. Returns the
  * counts; the caller decides what a failure means (standalone push
@@ -155,61 +195,19 @@ export async function uploadPushedFiles(
   token: string,
   projectDir: string,
   taskMappings: PushedFileMapping[],
-  useBatch: boolean,
 ): Promise<{
   uploaded: number;
   failed: number;
   failedFiles: Array<{ name: string; reason: string }>;
   skippedPresent: number;
 }> {
-  const jobs: BatchFileJob[] = [];
-  for (const { localId, remoteId } of taskMappings) {
-    for (const f of listFiles(projectDir, localId)) {
-      const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
-      if (existsSync(absPath)) {
-        jobs.push({
-          remoteId,
-          name: f.name,
-          filePath: absPath,
-          size: f.size,
-          system: f.system === true,
-        });
-      }
-    }
-  }
-  if (jobs.length === 0) {
-    return { uploaded: 0, failed: 0, failedFiles: [], skippedPresent: 0 };
-  }
-  let uploaded = 0;
-  let failed = 0;
-  let failedFiles: Array<{ name: string; reason: string }> = [];
-  let skippedPresent = 0;
-  if (useBatch) {
-    // Batch path (ticket 8d3b2b81): bounded-concurrency upload with
-    // skip-if-present (a killed-push re-run uploads only the missing tail).
-    console.log(
-      chalk.cyan(
-        `\n  Uploading ${jobs.length} file(s) (batch: 4 concurrent, skipping remote-present)...`,
-      ),
-    );
-    const outcome = await uploadBatchFiles(apiUrl, token, jobs);
-    uploaded = outcome.uploaded;
-    failed = outcome.failed;
-    failedFiles = outcome.failedFiles;
-    skippedPresent = outcome.skippedPresent;
-    if (skippedPresent > 0) {
-      console.log(
-        chalk.dim(`  Skipped ${skippedPresent} file(s) already present remotely.`),
-      );
-    }
-  } else {
-    ({ uploaded, failed, failedFiles } = await uploadTaskFiles(
-      apiUrl,
-      token,
-      projectDir,
-      taskMappings,
-    ));
-  }
+  // Legacy sequential uploader (the tree-import path never calls this).
+  const { uploaded, failed, failedFiles } = await uploadTaskFiles(
+    apiUrl,
+    token,
+    projectDir,
+    taskMappings,
+  );
   if (uploaded > 0)
     console.log(chalk.green(`  ✓ Uploaded ${uploaded} file(s) to storage`));
   if (failed > 0) {
@@ -220,7 +218,7 @@ export async function uploadPushedFiles(
       console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
     }
   }
-  return { uploaded, failed, failedFiles, skippedPresent };
+  return { uploaded, failed, failedFiles, skippedPresent: 0 };
 }
 
 export interface PushResult {
@@ -302,21 +300,21 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
 
   const apiUrl = getApiUrl();
 
-  // Batch-first push (ticket 8d3b2b81): the capability probe decides.
-  // A 404 on GET /api/v0/tasks/batch — or a 200 WITHOUT the preflight
-  // envelope (old routers prefix-match /batch onto the list handler and
-  // answer 200 `{ items, nextCursor }`) — means an old server: fall back to
-  // the proven one POST per task loop below, byte-identical to before
-  // (same shape as the login flow — cloud-only, so the mode inside is
-  // always "cloud"). A per-task non-ok counts as skipped; only a
-  // network throw fails the push outright. Any OTHER probe failure
-  // (401/403/5xx) aborts inside the same catch — falling back would
-  // "push" 0 tasks while the post-push deletion still wipes locals.
+  // Tree-import push (ticket bulk-429): the capability probe decides.
+  // A 404 on GET /api/v0/tasks/import — or a 200 WITHOUT the preflight
+  // envelope (old routers prefix-match /import onto the list handler and
+  // answer 200 `{ items, nextCursor }`) — means an old server: fall back
+  // to the proven phases below (one POST per task, per link, per file),
+  // byte-identical to before. On a new server one multipart call carries
+  // a whole subtree (tasks + parent links + files, 1 write unit), so
+  // children can never be orphaned by a failed follow-up phase. Any
+  // OTHER probe failure (401/403/5xx) aborts inside the same catch —
+  // falling back would "push" 0 tasks while the post-push deletion
+  // still wipes locals.
   let result: ImportResult;
-  // Branch flag (ticket 8d3b2b81): the files phase below must use the
-  // concurrent skip-if-present uploader on the batch path and the
-  // legacy sequential uploader on the fallback path.
-  let tookBatchPath = false;
+  // Legacy fallback flag: the links + files phases below run ONLY on
+  // the fallback path — the import path carries both in every call.
+  let legacyPath = false;
   try {
     // Minimal push progress (ticket e4049164): one \r line on a TTY
     // (counter + bar + pct + ETA), sparse lines when piped, all on
@@ -332,10 +330,10 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       );
     };
     // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
-    // filePath string — each entry spreads as a plain record into the JSON
-    // create body, so the record cast is representation-preserving.
+    // filePath string — each entry spreads as a plain record into the
+    // import manifest, so the record cast is representation-preserving.
     const records = taskList as unknown as Array<Record<string, unknown>>;
-    const probe = await probeBatchCapability(apiUrl, token);
+    const probe = await probeImportCapability(apiUrl, token);
     const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
       existing: loop.existing,
@@ -354,13 +352,22 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       result = toImportResult(
         await createTasksOneByOne(apiUrl, token, workspaceId, records, onProgress, { onWait }),
       );
+      legacyPath = true;
     } else {
-      // Quota preflight (ticket 8d3b2b81): refuse-or-confirm BEFORE
-      // chunk one. Refuse-only (no prompt): the login-time push cannot
-      // prompt and scripts cannot answer — and a push that cannot fit
-      // must never start. The message carries exact numbers; resume via
-      // the checkpoint covers the retry-after-quota path.
-      const order = records.map((t) => (typeof t.id === "string" ? t.id : ""));
+      // Quota preflight: refuse-or-confirm BEFORE chunk one.
+      // Refuse-only (no prompt): the login-time push cannot prompt and
+      // scripts cannot answer — and a push that cannot fit must never
+      // start. The message carries exact numbers; resume via the
+      // checkpoint covers the retry-after-quota path. Order is the
+      // topo order the loop checkpoints against, so resume compares
+      // like-for-like.
+      const inputs = topoOrderImportTasks(
+        collectImportInputs(
+          projectDir,
+          taskList as unknown as Array<{ id?: string } & Record<string, unknown>>,
+        ),
+      );
+      const order = inputs.map((t) => t.localId);
       const existing = readBatchCheckpoint(projectDir);
       const resumed =
         existing !== null &&
@@ -369,7 +376,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
           ? existing.attempted
           : 0;
       const refusal = evaluateBatchPreflight(
-        taskList.length - resumed,
+        inputs.length - resumed,
         probe.preflight,
       );
       if (refusal !== null) {
@@ -377,15 +384,22 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
         process.exitCode = ExitCode.GENERAL;
         return;
       }
-      result = toImportResult(
-        await createTasksInBatches(apiUrl, token, workspaceId, records, {
-          onProgress,
-          projectDir,
-          preflight: probe.preflight,
-          retry429: { onWait },
-        }),
-      );
-      tookBatchPath = true;
+      const loop = await importBatchTree(apiUrl, token, workspaceId, inputs, {
+        onProgress,
+        projectDir,
+        preflight: probe.preflight,
+        retry429: { onWait },
+      });
+      result = {
+        ...toImportResult(loop),
+        linksApplied: loop.linksApplied,
+        linksFailed: loop.linksFailed,
+        failedLinks: loop.failedLinks,
+        filesUploaded: loop.filesUploaded,
+        filesFailed: loop.filesFailed,
+        filesSkippedPresent: loop.filesSkippedPresent,
+        failedFiles: loop.failedFiles,
+      };
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -414,45 +428,90 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
     console.log(chalk.red(`  ${stopLine}${unattempted}`));
   }
 
-  // Phase 2 of the two-phase push: replay stored links with targets
-  // translated from local ids to the created cloud ids from `idMap`, via
-  // POST /api/v0/tasks/{id}/links ({ taskId, type } — the v0 add-link op).
-  // Unknown targets are skipped and REPORTED, never fatal to the push —
-  // nothing is silently lost. Local mode is untouched (cloud push only).
+  // Legacy links phase (pre-tree-import servers ONLY): replay stored
+  // links with targets translated from local ids to the created cloud
+  // ids from `idMap`, via POST /api/v0/tasks/{id}/links ({ taskId, type }
+  // — the v0 add-link op). The import path carries every parent link in
+  // every call, so this phase is skipped there — nothing is silently
+  // lost either way. Local mode is untouched (cloud push only).
   // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
   // filePath string — each entry spreads as a plain record, so the cast is
   // representation-preserving (same invariant as the phase-1 loop above).
-  const linkRecords = taskList as unknown as Array<Record<string, unknown>>;
-  const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
-  if (linkResult.applied > 0) {
-    console.log(chalk.green(`  ✓ Applied ${linkResult.applied} link(s)`));
-  }
-  const skippedLinkSummary = formatSkippedLinks(linkResult.skipped, opts.verbose === true);
-  if (linkResult.skipped.length > 0) {
-    console.log(
-      chalk.yellow(
-        `  ⚠ ${skippedLinkSummary}`,
-      ),
-    );
-  }
-  console.log(chalk.dim(`  Board: ${boardLabel}`));
+  let filesFailed = 0;
+  let legacyLinksApplied = 0;
+  let legacyLinksSkipped: Array<{ from: string; to: string; type: string; reason: string }> = [];
+  let legacySkippedSummary = "";
+  if (legacyPath) {
+    const linkRecords = taskList as unknown as Array<Record<string, unknown>>;
+    const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
+    legacyLinksApplied = linkResult.applied;
+    legacyLinksSkipped = linkResult.skipped;
+    if (linkResult.applied > 0) {
+      console.log(chalk.green(`  ✓ Applied ${linkResult.applied} link(s)`));
+    }
+    legacySkippedSummary = formatSkippedLinks(linkResult.skipped, opts.verbose === true);
+    if (linkResult.skipped.length > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ ${legacySkippedSummary}`,
+        ),
+      );
+    }
+    console.log(chalk.dim(`  Board: ${boardLabel}`));
 
-  // Upload local files for each pushed task (idMap: cliId → saasId)
-  const idMap = result.idMap ?? {};
-  const taskMappings = taskList
-    .filter((t) => t.id && idMap[t.id])
-    .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
+    // Legacy files phase (pre-tree-import servers ONLY): sequential
+    // upload for pushed tasks (idMap: cliId → saasId). The import path
+    // carries files in every call (server-side skip), so this phase is
+    // skipped there.
+    const idMap = result.idMap ?? {};
+    const taskMappings = taskList
+      .filter((t) => t.id && idMap[t.id])
+      .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
 
-  // Shared phase 3 (ticket 0aac5938): same helper the login-time push
-  // uses — wire format and skip-if-present cannot drift between paths.
-  const { failed } = await uploadPushedFiles(
-    apiUrl,
-    token,
-    projectDir,
-    taskMappings,
-    tookBatchPath,
-  );
-  if (failed > 0) {
+    ({ failed: filesFailed } = await uploadPushedFiles(
+      apiUrl,
+      token,
+      projectDir,
+      taskMappings,
+    ));
+  } else {
+    // Tree-import tallies (ticket bulk-429): links + files rode every
+    // call — report them here, never in a follow-up phase.
+    if ((result.linksApplied ?? 0) > 0) {
+      console.log(chalk.green(`  ✓ Applied ${result.linksApplied} link(s)`));
+    }
+    if ((result.linksFailed ?? 0) > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ ${result.linksFailed} link(s) failed to apply`,
+        ),
+      );
+      for (const l of result.failedLinks ?? []) {
+        console.log(chalk.dim(`    - ${l.clientId}: ${l.reason}`));
+      }
+    }
+    if ((result.filesUploaded ?? 0) > 0) {
+      console.log(chalk.green(`  ✓ Uploaded ${result.filesUploaded} file(s) to storage`));
+    }
+    if ((result.filesSkippedPresent ?? 0) > 0) {
+      console.log(
+        chalk.dim(`  Skipped ${result.filesSkippedPresent} file(s) already present remotely.`),
+      );
+    }
+    if ((result.filesFailed ?? 0) > 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ ${result.filesFailed} file(s) failed to upload`,
+        ),
+      );
+      for (const f of result.failedFiles ?? []) {
+        console.log(chalk.dim(`    - ${f.name}: ${f.reason}`));
+      }
+      filesFailed = result.filesFailed ?? 0;
+    }
+    console.log(chalk.dim(`  Board: ${boardLabel}`));
+  }
+  if (filesFailed > 0) {
     // Fail LOUDLY, not silently: the local files are deleted below while the
     // remote task is missing these attachments, so exiting 0 would let
     // `push && ...` chains (and humans) believe everything synced. The names
@@ -501,11 +560,15 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   }
 
   const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
-  if (linkResult.applied > 0) {
-    notices.push({ code: "LINKS_APPLIED", message: `Applied ${linkResult.applied} link(s)` });
+  // Links accounting works on both paths: legacy fills these from the
+  // links phase, import from the loop tallies.
+  const linksApplied = legacyPath ? legacyLinksApplied : (result.linksApplied ?? 0);
+  const linksSkippedCount = legacyPath ? legacyLinksSkipped.length : (result.linksFailed ?? 0);
+  if (linksApplied > 0) {
+    notices.push({ code: "LINKS_APPLIED", message: `Applied ${linksApplied} link(s)` });
   }
-  if (linkResult.skipped.length > 0) {
-    notices.push({ code: "LINKS_SKIPPED", message: `Skipped ${linkResult.skipped.length} link(s) with unknown targets: ${skippedLinkSummary}` });
+  if (linksSkippedCount > 0) {
+    notices.push({ code: "LINKS_SKIPPED", message: legacyPath ? `Skipped ${linksSkippedCount} link(s) with unknown targets: ${legacySkippedSummary}` : `Failed to apply ${linksSkippedCount} link(s)` });
   }
   if (result.stoppedEarly !== null) {
     notices.push({
@@ -528,8 +591,8 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       stoppedEarly: result.stoppedEarly,
       stopMessage: result.stopMessage,
       retryAfter: result.retryAfter,
-      linksApplied: linkResult.applied,
-      linksSkipped: linkResult.skipped,
+      linksApplied,
+      linksSkipped: legacyPath ? legacyLinksSkipped : (result.failedLinks ?? []),
     }));
   }
   return { dryRun: false, tasks: deleted, files: fileCount, board: boardLabel, notices };
