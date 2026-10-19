@@ -643,6 +643,86 @@ describe("import checkpoint resume (ticket bulk-429)", () => {
   });
 });
 
+describe("276-link regression (ticket bulk-429)", () => {
+  it("276 parent links ride 3 import calls with zero 429s against a 30/min bucket", async () => {
+    // The prod incident verbatim: 276 single-link POSTs burst 44 then
+    // 429'd every call past the bucket, orphaning 232 children as
+    // roots. One parent + 275 children ride 3 import calls (100/100/76
+    // tasks) at 1 write unit each — under any 30/min bucket, so a
+    // bucket-enforcing mock must never 429 and no link may skip silently.
+    const dir = mkdtempSync(join(tmpdir(), "import-276-"));
+    try {
+      const all: ImportTaskInput[] = [
+        { localId: "parent", record: { id: "parent", title: "Parent" }, files: [] },
+      ];
+      for (let i = 0; i < 275; i++) {
+        all.push({
+          localId: `c${i}`,
+          record: {
+            id: `c${i}`,
+            title: `Child ${i}`,
+            links: [{ taskId: "parent", type: "parent" }],
+          },
+          files: [],
+        });
+      }
+      let posts = 0;
+      let saw429 = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation((url: unknown, init?: { body?: unknown }) => {
+          posts++;
+          // Token-bucket mock (30/min per route): past 30 calls, 429.
+          if (posts > 30) {
+            saw429++;
+            return Promise.resolve(whole429("60"));
+          }
+          const text = String((init?.body as FormData).get("manifest"));
+          const manifest = JSON.parse(text) as {
+            tasks: Array<{ clientId: string; parentClientIds?: string[] }>;
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                created: manifest.tasks.length,
+                existing: 0,
+                failed: 0,
+                linksApplied: manifest.tasks.filter((t) => (t.parentClientIds ?? []).length > 0).length,
+                linksFailed: 0,
+                filesUploaded: 0,
+                filesFailed: 0,
+                filesSkipped: 0,
+                results: manifest.tasks.map((t) => ({
+                  clientId: t.clientId,
+                  id: `cloud-${t.clientId}`,
+                  links: (t.parentClientIds ?? []).map((p) => ({ type: "parent", taskId: `cloud-${p}` })),
+                })),
+              }),
+          });
+        }),
+      );
+      const result = await importBatchTree("https://x.test", "tok", "b", all, {
+        retry429: { maxResumes: 0, sleepMs: () => Promise.resolve() },
+        pacingDelayMs: 0,
+      });
+      expect(result.imported).toBe(276);
+      expect(result.skipped).toBe(0);
+      expect(result.linksApplied).toBe(275);
+      expect(result.linksFailed).toBe(0);
+      expect(result.failedLinks).toEqual([]);
+      expect(posts).toBe(3);
+      expect(saw429).toBe(0);
+      // Every child id mapped — nothing unapplied, nothing silent.
+      expect(Object.keys(result.idMap)).toHaveLength(276);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // Break: post per-link (276 calls) — posts reads 276, saw429 > 0,
+    // linksApplied collapses: the exact prod incident, replayed in a test.
+  });
+});
 describe("782-file regression (ticket bulk-429)", () => {
   it("782 files ride ~16 import calls with zero 429s against a 30/min bucket", async () => {
     // The prod incident verbatim at small scale: 782 single-file POSTs
