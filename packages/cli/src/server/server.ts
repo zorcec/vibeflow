@@ -198,7 +198,7 @@ type BroadcastFn = (data: Record<string, unknown>) => void;
 /**
  * Agent chat registration (ticket 0847833f): creates the per-serve chat
  * session manager and mounts the chat REST + MCP endpoints — but ONLY
- * when VIBEFLOW_AGENT_CHAT=1 (default OFF). Returns the manager for
+ * when VIBEFLOW_FEATURES includes CHAT (default OFF). Returns the manager for
  * shutdown cleanup, or null when the flag is off (zero new surface).
  * The pi child always dials localhost: the agent runs on the same
  * machine as `serve`, never across the network.

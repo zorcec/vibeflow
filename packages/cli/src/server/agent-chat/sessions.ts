@@ -23,10 +23,10 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isFeatureEnabled, CHAT_FEATURE } from "../../core/feature-flags.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const AGENT_CHAT_ENV_FLAG = "VIBEFLOW_AGENT_CHAT";
 export const AGENT_CHAT_MCP_SERVER_NAME = "vibeflow-overlay";
 export const AGENT_CHAT_MCP_CONFIG_PATH = join(".pi", "mcp.json");
 
@@ -638,5 +638,5 @@ class ManagedChatSession implements ChatSession {
 export function isAgentChatEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return env[AGENT_CHAT_ENV_FLAG] === "1";
+  return isFeatureEnabled(CHAT_FEATURE, env);
 }

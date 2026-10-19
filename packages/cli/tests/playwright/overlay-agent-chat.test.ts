@@ -81,7 +81,8 @@ describe("Overlay agent chat panel", () => {
   let guard: ErrorGuard;
 
   beforeAll(async () => {
-    process.env.VIBEFLOW_AGENT_CHAT = "1";
+    // Multi-flag value proves the list grammar: CHAT plus a future flag.
+    process.env.VIBEFLOW_FEATURES = "CHAT, some-future-flag";
     tempDir = mkdtempSync(join(tmpdir(), "vf-chat-pw-"));
     writeFileSync(join(tempDir, "index.html"), PAGE_HTML);
     instance = await serve(tempDir, {
@@ -98,7 +99,7 @@ describe("Overlay agent chat panel", () => {
   afterEach(() => guard.assertNoErrors());
 
   afterAll(async () => {
-    delete process.env.VIBEFLOW_AGENT_CHAT;
+    delete process.env.VIBEFLOW_FEATURES;
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
     await instance?.close().catch(() => {});
@@ -137,7 +138,7 @@ describe("Overlay agent chat panel", () => {
   }, 120_000);
 
   it("flag off: no chat trigger is rendered", async () => {
-    delete process.env.VIBEFLOW_AGENT_CHAT;
+    delete process.env.VIBEFLOW_FEATURES;
     const dir2 = mkdtempSync(join(tmpdir(), "vf-chat-pw-off-"));
     writeFileSync(join(dir2, "index.html"), PAGE_HTML);
     const instance2 = (await serve(dir2, {
@@ -146,7 +147,7 @@ describe("Overlay agent chat panel", () => {
       quiet: true,
       projectDir: dir2,
     } as never)) as ServeInstance;
-    process.env.VIBEFLOW_AGENT_CHAT = "1";
+    process.env.VIBEFLOW_FEATURES = "CHAT";
     const page = await context.newPage();
     try {
       await page.goto(`http://localhost:${PORT + 1}/index.html`, {

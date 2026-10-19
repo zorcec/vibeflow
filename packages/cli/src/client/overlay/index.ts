@@ -1,4 +1,5 @@
 import { OVERLAY_BROWSER_BUNDLE } from "../overlay-bundle.gen.js";
+import { isFeatureEnabled, CHAT_FEATURE } from "../../core/feature-flags.js";
 
 // ── Overlay script entry point ───────────────────────────────────────────────
 // The browser-side code lives in src/client/overlay-browser/ and is compiled
@@ -23,9 +24,9 @@ import { OVERLAY_BROWSER_BUNDLE } from "../overlay-bundle.gen.js";
 //     to exactly the old value (localhost:port or LAN IP:port).
 export function getOverlayScript(port: number): string {
   // Ticket 0847833f: the chat panel renders only when the serving CLI
-  // runs with VIBEFLOW_AGENT_CHAT=1 (a local WS channel always exists
+  // runs with VIBEFLOW_FEATURES=CHAT (a local WS channel always exists
   // in local serve, so the flag alone gates).
-  const agentChat = process.env.VIBEFLOW_AGENT_CHAT === "1";
+  const agentChat = isFeatureEnabled(CHAT_FEATURE);
   const config = `
 var _vfScriptSrc = document.currentScript && document.currentScript.src;
 var _vfPort = '${port}';
