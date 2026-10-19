@@ -942,15 +942,31 @@ async function promptPushLocalTasks(
   let listedOk = false;
   try {
     // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
-    const res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}?boardId=${workspace.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
-    if (res?.ok) {
+    //
+    // PAGINATED (ticket 2f1c6993 follow-up): the v0 list serves at most
+    // `limit` rows per call and advertises the rest through `nextCursor`.
+    // Reading only the FIRST page made every task past row 100 look "not on
+    // the board" — measured on a 1746-task board the prompt claimed all
+    // 1746 were unsynced when the true diff was 0, which reads as a re-push
+    // of the entire board. Follow the cursor to exhaustion, bounded so a
+    // server echoing one cursor forever cannot hang login.
+    const MAX_PAGES = 200;
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const qs = new URLSearchParams({ boardId: workspace.id, limit: "100" });
+      if (cursor !== null) qs.set("cursor", cursor);
+      const res = await fetch(
+        `${apiUrl}${surfacePath("cloud", "/api/cli/tasks")}?${qs.toString()}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      ).catch(() => null);
+      if (!res?.ok) break;
       const data = (await res.json()) as {
         items?: Array<Record<string, unknown>>;
         // Legacy fallback: the deleted `/api/cli/tasks` surface answered
         // `{ tasks }`; its rows carried `id` + `cliId`.
         tasks?: Array<{ id: string; cliId?: string | null }>;
+        nextCursor?: string | null;
       };
       // v0 canonical shape carries BOTH `id` (external) and `externalId`
       // (§3.1: `cliId ?? cloudId`); collect every id-like key so a local
@@ -958,16 +974,18 @@ async function promptPushLocalTasks(
       const rows = Array.isArray(data.items)
         ? data.items
         : (Array.isArray(data.tasks) ? data.tasks : []);
-      const ids: string[] = [];
       for (const t of rows) {
         for (const key of ["id", "externalId", "cloudId", "cliId"]) {
           const v = (t as Record<string, unknown>)[key];
           if (typeof v === "string" && v.length > 0) ids.push(v);
         }
       }
-      onlineIds = new Set(ids);
       listedOk = true;
+      const next = typeof data.nextCursor === "string" ? data.nextCursor : null;
+      if (next === null || next === cursor || rows.length === 0) break;
+      cursor = next;
     }
+    onlineIds = new Set(ids);
   } catch {
     /* non-critical — treat all as unsynced, labelled below */
   }
@@ -1083,6 +1101,11 @@ async function promptPushLocalTasks(
                 );
               } else {
                 const { collectImportInputs } = await import("../commands/push.js");
+                // SAFETY: `records` are the parsed task JSON objects read from
+                // the store (listTasksWithPaths), so each entry is already a
+                // plain record plus an optional string `id`. The cast is
+                // representation-preserving — it only tells TypeScript the
+                // index signature the parser guarantees at runtime.
                 const inputs = batch.topoOrderImportTasks(
                   collectImportInputs(
                     projectDir,
