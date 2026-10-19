@@ -6,7 +6,7 @@ import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
-import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIds, type ImportTaskInput } from "../saas/batch-push.js";
+import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportTaskInput } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -272,41 +272,61 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // diff is unknown (no token/board, or the listing failed): every local
   // task is attempted and the summary is the source of truth, said out loud.
   const earlyToken = await readToken();
-  let onlineIds: Set<string> | null = null;
+  let onlineIndex: Map<string, number | null> | null = null;
   let boardListed = false;
   let boardListFailed = false;
   if (earlyToken && workspaceId) {
     try {
-      onlineIds = await fetchOnlineTaskIds(apiUrl, earlyToken, workspaceId);
+      onlineIndex = await fetchOnlineTaskIndex(apiUrl, earlyToken, workspaceId);
       boardListed = true;
     } catch {
       boardListFailed = true;
     }
   }
-  const listedIds: Set<string> | null = onlineIds;
+
+  /** Local file count for a task — what the remote `fileCount` is compared to. */
+  const localFileCount = (taskId: string): number => {
+    try {
+      return listFiles(projectDir, taskId).length;
+    } catch {
+      return 0;
+    }
+  };
+
+  // FILE-GAP RETRY (ticket push-diff-atomic follow-up): a task that exists
+  // remotely but whose FILES failed to upload must be pushed again. The task
+  // row comes back `existing` (no duplicate) and only the missing bytes
+  // travel, because the server skips files it already has. Without this, a
+  // file failure was permanent: measured on prod, 1746 tasks synced while
+  // only 601 of ~790 files were on the board and push said "everything is
+  // already pushed". Comparison is by COUNT (names would cost one GET per
+  // task); remote > local means files were deleted locally, not a gap.
+  const needsFileSync = (taskId: string): boolean => {
+    if (onlineIndex === null) return false;
+    const remoteCount = onlineIndex.get(taskId);
+    if (remoteCount === undefined) return false; // not on the board at all
+    if (remoteCount === null) return false; // no count reported — assume synced
+    return localFileCount(taskId) > remoteCount;
+  };
+
   const pushTasks =
-    listedIds !== null ? taskList.filter((t) => !listedIds.has(t.id!)) : taskList;
+    onlineIndex !== null
+      ? taskList.filter(
+          (t) => !onlineIndex!.has(t.id!) || needsFileSync(t.id!),
+        )
+      : taskList;
+  const fileSyncOnly = pushTasks.filter(
+    (t) => onlineIndex !== null && onlineIndex!.has(t.id!),
+  );
   const alreadyOnBoard = taskList.length - pushTasks.length;
 
-  // File-gap honesty: push syncs files ONLY with their task's creation —
-  // files of already-synced tasks are never re-checked. Count them locally
-  // so the empty-diff lines below cannot read as "all files verified".
-  const countLocalFiles = (tasks: typeof taskList): number => {
-    let n = 0;
-    for (const t of tasks) {
-      try {
-        n += listFiles(projectDir, t.id!).length;
-      } catch {
-        /* best-effort preview count */
-      }
-    }
-    return n;
-  };
-  const reportUnverifiedFiles = (tasks: typeof taskList): void => {
-    const n = countLocalFiles(tasks);
-    if (n > 0) {
-      console.log(chalk.dim(`  (${n} local file(s) on already-pushed tasks were not re-checked — files sync with their task's creation.)`));
-    }
+  // Files that would be uploaded this run (push set only). Tasks pulled in
+  // PURELY for a file gap are called out separately so the summary never
+  // reads as "everything is new".
+  const describeFileSync = (): string => {
+    if (fileSyncOnly.length === 0) return "";
+    const n = fileSyncOnly.length;
+    return ` (${n} already on the board and re-pushed only to sync missing files)`;
   };
 
   // Count files that would be uploaded (push set only — already-synced
@@ -321,10 +341,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // Reports the SAME diff as a live push (online-ids GET; best-effort
   // preflight GET for the atomic-skip preview) — read-only calls only.
   if (opts.dryRun) {
-    if (onlineIds !== null) {
+    if (onlineIndex !== null) {
       if (pushTasks.length === 0) {
-        console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board).`));
-        reportUnverifiedFiles(taskList);
+        console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board, all files synced).`));
         return {
           dryRun: true,
           tasks: 0,
@@ -334,7 +353,7 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
         };
       }
       // Stryker disable once StringLiteral: display message for dry-run
-      console.log(chalk.cyan(`  Dry run: ${pushTasks.length} task(s) to push (${alreadyOnBoard} already on the board), ${fileCount} file(s), board: ${boardLabel}`));
+      console.log(chalk.cyan(`  Dry run: ${pushTasks.length} task(s) to push (${alreadyOnBoard} already on the board)${describeFileSync()}, ${fileCount} file(s), board: ${boardLabel}`));
       return {
         dryRun: true,
         tasks: pushTasks.length,
@@ -377,16 +396,21 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
   // read-only, and keeps the no-op honest.
   if (token && workspaceId && !boardListed) {
     try {
-      onlineIds = await fetchOnlineTaskIds(apiUrl, token, workspaceId);
+      onlineIndex = await fetchOnlineTaskIndex(apiUrl, token, workspaceId);
       boardListed = true;
       boardListFailed = false;
     } catch {
       boardListFailed = true;
     }
   }
-  const liveListedIds: Set<string> | null = onlineIds;
+  // Recompute the diff on the freshest index (the login flow may have just
+  // run). `needsFileSync` is the same rule as the early pass: a task that is
+  // on the board but short of local files is re-pushed so its missing bytes
+  // finally upload.
   const livePushTasks =
-    liveListedIds !== null ? taskList.filter((t) => !liveListedIds.has(t.id!)) : taskList;
+    onlineIndex !== null
+      ? taskList.filter((t) => !onlineIndex!.has(t.id!) || needsFileSync(t.id!))
+      : taskList;
   const liveAlreadyOnBoard = taskList.length - livePushTasks.length;
   let liveFileCount = fileCount;
   if (livePushTasks.length !== pushTasks.length) {
@@ -395,9 +419,8 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       liveFileCount += listFiles(projectDir, task.id!).length;
     }
   }
-  if (onlineIds !== null && livePushTasks.length === 0) {
-    console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board).`));
-    reportUnverifiedFiles(taskList);
+  if (onlineIndex !== null && livePushTasks.length === 0) {
+    console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board, all files synced).`));
     return {
       dryRun: false,
       tasks: 0,
@@ -406,9 +429,9 @@ export async function push(dir: string, opts: { workspace?: string; keepLocalFil
       notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
     };
   }
-  if (onlineIds !== null) {
+  if (onlineIndex !== null) {
     // Stryker disable once StringLiteral: display message for task count
-    console.log(chalk.cyan(`  ${livePushTasks.length} task(s) to push (${liveAlreadyOnBoard} already on the board). Pushing online...`));
+    console.log(chalk.cyan(`  ${livePushTasks.length} task(s) to push (${liveAlreadyOnBoard} already on the board)${describeFileSync()}. Pushing online...`));
   } else {
     // Stryker disable once StringLiteral: display message for task count
     console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing online...`));

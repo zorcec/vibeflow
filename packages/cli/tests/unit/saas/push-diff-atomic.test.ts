@@ -367,7 +367,7 @@ describe("push — diff-based (only unsynced travel)", () => {
     };
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed (1 tasks on the board)."),
+      expect.stringContaining("Everything is already pushed (1 tasks on the board, all files synced)."),
     );
     expect(inner).not.toHaveBeenCalled();
     // Only the diff listing touched the network — no probe, no creates.
@@ -380,9 +380,12 @@ describe("push — diff-based (only unsynced travel)", () => {
     // Break: skip the diff and always probe — outer reads 2+ calls.
   });
 
-  it("empty diff names the unverified local files (file gap stays honest)", async () => {
+  it("a task on the board but short of local files is re-pushed (file gap is RETRIED)", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, taskRecord("synced-1"));
+    // 2 local files, remote reports 0 -> the task must be re-pushed so the
+    // missing bytes finally upload. Before this, such a task was excluded
+    // forever and the gap was permanent (prod: 601/790 files, "already pushed").
     vi.mocked(filesModule.listFiles).mockReturnValue([
       { name: "a.png", size: 10, linkedPath: null },
       { name: "b.png", size: 10, linkedPath: null },
@@ -390,23 +393,65 @@ describe("push — diff-based (only unsynced travel)", () => {
     vi.stubGlobal(
       "fetch",
       withOldServerProbe(legacyCreateMock(), {
-        listItems: [{ id: "synced-1", cliId: "synced-1" }],
+        listItems: [{ id: "synced-1", cliId: "synced-1", fileCount: 0 }],
       }),
     );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { dryRun: true });
 
-    // Tasks are all on the board — but the 2 local files are NOT claimed
-    // synced: the note says they were not re-checked.
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed (1 tasks on the board)."),
+      expect.stringContaining("1 task(s) to push"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("2 local file(s) on already-pushed tasks were not re-checked"),
+      expect.stringContaining("re-pushed only to sync missing files"),
     );
     logSpy.mockRestore();
-    // Break: drop the note — a 189-file gap reads as fully synced.
+    // Break: drop the fileCount comparison -> diff is empty and the line
+    // says "everything is already pushed", which is the old lie.
+  });
+
+  it("a task whose remote fileCount matches local is NOT re-pushed", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, taskRecord("synced-1"));
+    vi.mocked(filesModule.listFiles).mockReturnValue([
+      { name: "a.png", size: 10, linkedPath: null },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      withOldServerProbe(legacyCreateMock(), {
+        listItems: [{ id: "synced-1", cliId: "synced-1", fileCount: 1 }],
+      }),
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { dryRun: true });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Everything is already pushed"),
+    );
+    logSpy.mockRestore();
+  });
+
+  it("a locally deleted file (remote > local) is not a reason to re-push", async () => {
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, taskRecord("synced-1"));
+    vi.mocked(filesModule.listFiles).mockReturnValue([]);
+    vi.stubGlobal(
+      "fetch",
+      withOldServerProbe(legacyCreateMock(), {
+        listItems: [{ id: "synced-1", cliId: "synced-1", fileCount: 3 }],
+      }),
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { dryRun: true });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Everything is already pushed"),
+    );
+    logSpy.mockRestore();
+    // Break: use "!= " instead of ">" and this test goes red forever.
   });
 
   it("dry-run reports the same diff (to-push count + already-on-board)", async () => {
@@ -449,7 +494,7 @@ describe("push — diff-based (only unsynced travel)", () => {
     await push(projectDir, { dryRun: true });
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed (1 tasks on the board)."),
+      expect.stringContaining("Everything is already pushed (1 tasks on the board, all files synced)."),
     );
     logSpy.mockRestore();
   });

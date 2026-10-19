@@ -292,7 +292,33 @@ export async function fetchOnlineTaskIds(
   token: string,
   boardId: string,
 ): Promise<Set<string>> {
-  const ids = new Set<string>();
+  return new Set((await fetchOnlineTaskIndex(apiUrl, token, boardId)).keys());
+}
+
+/**
+ * Paginated board index: every id-like key a remote task answers to, mapped
+ * to that task's `fileCount` (null when the row carries no count).
+ *
+ * WHY the count matters (ticket push-diff-atomic follow-up): the diff used
+ * to be id-only, so a task that exists remotely but whose FILES failed to
+ * upload was permanently excluded from every later push — the "retry next
+ * time" promise held for tasks but not for their files. Measured on prod:
+ * 1746 tasks synced while only 601 of ~790 files were on the board, and the
+ * push reported "everything is already pushed".
+ *
+ * The comparison is deliberately by COUNT, not by name: names would need one
+ * extra GET per task (1746 requests). Count plus the server's skip-if-present
+ * upload is enough to converge — a task with fewer remote files than local
+ * ones is re-pushed, its task row comes back `existing`, and only the missing
+ * bytes travel. A locally deleted file leaves remoteCount > localCount, which
+ * is not a reason to re-push and is correctly ignored.
+ */
+export async function fetchOnlineTaskIndex(
+  apiUrl: string,
+  token: string,
+  boardId: string,
+): Promise<Map<string, number | null>> {
+  const index = new Map<string, number | null>();
   const headers = { Authorization: `Bearer ${token}` };
   const listPath = surfacePath("cloud", "/api/cli/tasks");
   let cursor: string | null = null;
@@ -316,9 +342,11 @@ export async function fetchOnlineTaskIds(
         ? data.tasks
         : [];
     for (const t of rows) {
+      const raw = (t as Record<string, unknown>).fileCount;
+      const count = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
       for (const key of ["id", "externalId", "cloudId", "cliId"]) {
         const v = (t as Record<string, unknown>)[key];
-        if (typeof v === "string" && v.length > 0) ids.add(v);
+        if (typeof v === "string" && v.length > 0) index.set(v, count);
       }
     }
     const next =
@@ -328,7 +356,7 @@ export async function fetchOnlineTaskIds(
     if (next === null || next === cursor || rows.length === 0) break;
     cursor = next;
   }
-  return ids;
+  return index;
 }
 
 /**
@@ -516,6 +544,9 @@ function parentLinkTargets(record: Record<string, unknown>): string[] {
       typeof (link as Record<string, unknown>).taskId === "string" &&
       ((link as Record<string, unknown>).taskId as string).length > 0
     ) {
+      // SAFETY: the guard above already narrowed `link` to a non-null object
+      // whose `taskId` is a non-empty string, so this assertion only restates
+      // a fact TypeScript cannot carry across the compound condition.
       out.push((link as unknown as { taskId: string }).taskId);
     }
   }
@@ -903,6 +934,9 @@ async function postImportChunk(
       }),
     );
     for (const p of fileParts) {
+      // SAFETY: Node's Buffer is a Uint8Array, which is a valid BlobPart at
+      // runtime; the DOM lib types BlobPart more narrowly than Node's Buffer,
+      // so the assertion bridges the two lib.d.ts views of the same bytes.
       form.append(p.ref, new File([p.payload as unknown as BlobPart], p.name));
     }
     let res: Response;
