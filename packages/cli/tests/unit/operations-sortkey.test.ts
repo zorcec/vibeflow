@@ -170,16 +170,20 @@ describe("writeSortKeyMinimal", () => {
     expect(after.unknownField).toBe("keep-me");
   });
 
-  it("documents the trap: updateTask drops the same legacy fields", () => {
+  it("updateTask PRESERVES legacy and unknown fields (the old trap is fixed)", () => {
     const file = seedLegacyTask();
 
     updateTask(projectDir, "legacytask", { sortKey: "0000000003000000" });
 
     const after = JSON.parse(readFileSync(file, "utf-8"));
     expect(after.sortKey).toBe("0000000003000000");
-    expect(after.commit).toBeUndefined();
-    expect(after.unknownField).toBeUndefined();
-    expect(after.reportBack).toBeUndefined();
+    // This used to assert the opposite: normalization reconstructed the record
+    // and silently dropped any key it did not know. That is exactly the class
+    // of loss lossless push exists to prevent (`tasks.raw` would have been a
+    // lie), so normalization now spreads the raw record first.
+    expect(after.commit).toBe("abc123def456");
+    expect(after.unknownField).toBe("keep-me");
+    expect(after.reportBack).toBe(false);
   });
 });
 

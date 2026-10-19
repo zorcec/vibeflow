@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { TaskComment } from "./types.js";
+import { isValidAuthorEmail } from "./types.js";
 import {
   readTaskFile,
   writeTaskJson,
@@ -9,6 +10,7 @@ import {
   getTaskFilePath,
   normalizeEscapeSequences,
 } from "./tasks.js";
+import { getGitUser } from "./git-user.js";
 import { withTaskLock, taskLockPath } from "./lock.js";
 
 /**
@@ -49,6 +51,47 @@ export function normalizeCommentText(text: string): string {
   return normalizeEscapeSequences(text);
 }
 
+/**
+ * Warn-once latch: a project without a usable `git config user.email` makes
+ * every human CLI comment unattributed. That is visible in the record
+ * (authorEmail simply absent), so ONE warning per process is enough — a
+ * comment storm must not spam stderr, and `--json` consumers keep stdout
+ * clean because this goes through console.warn (stderr).
+ */
+let warnedMissingCommentEmail = false;
+
+/**
+ * Attribution for a comment created through the CLI: the project repo's
+ * configured git email, captured at creation time alongside the actor text
+ * (`author` stays "user"/"agent"/… unchanged — display-only, never rewritten).
+ *
+ * - Agent-authored comments never get an email: their actor is the agent, not
+ *   a human git identity.
+ * - Web-originated comments (source "web") never get one either: their
+ *   identity is the browser session, not a git config. Only the CLI default
+ *   (source absent/"cli") captures.
+ * - Missing/invalid `user.email` leaves the field ABSENT (never "") and warns
+ *   once per process, so a misconfigured repo is visible without being noisy.
+ */
+function commentEmailAttribution(
+  projectDir: string,
+  author: TaskComment["author"],
+  source: TaskComment["source"],
+): { authorEmail?: string } {
+  if (author === "agent") return {};
+  if ((source ?? "cli") !== "cli") return {};
+  const email = getGitUser(projectDir).email;
+  if (isValidAuthorEmail(email)) return { authorEmail: email };
+  if (!warnedMissingCommentEmail) {
+    warnedMissingCommentEmail = true;
+    console.warn(
+      "⚠ git user.email is not configured (or unusable) for this project — " +
+        "the comment is saved without authorEmail. Set it with `git config user.email <you@example.com>`.",
+    );
+  }
+  return {};
+}
+
 export async function addComment(
   projectDir: string,
   taskId: string,
@@ -72,6 +115,7 @@ export async function addComment(
       ...(type && type !== "comment" ? { type } : {}),
       createdAt: new Date().toISOString(),
       source: source ?? "cli",
+      ...commentEmailAttribution(projectDir, author, source),
     };
     const updated = [...allComments, comment];
     if (task) {

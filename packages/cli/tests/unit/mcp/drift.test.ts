@@ -221,6 +221,10 @@ describe("MCP drift test", () => {
     const names = program.commands.map((c) => c.name()).sort();
     expect(names).toEqual([
       "auth",
+      // Local-only enrichment (git author emails). Deliberately NOT an MCP
+      // tool: it writes the git-tracked task store, which must stay a
+      // deliberate human action, never something an agent triggers remotely.
+      "authors",
       "changelog",
       "kanban",
       "login",

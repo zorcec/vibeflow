@@ -91,6 +91,16 @@ type Captured = {
  * assertion instead of hanging the suite.
  */
 async function settle(size: () => number): Promise<void> {
+  // Phase 1 — wait for the fire-and-forget command to START emitting. A fixed
+  // 30ms quiet-window treated "has not started yet" as "finished", so any
+  // change that slowed program setup made the assertions read a half-finished
+  // run (attempts 0, empty stdout). Waiting for the first signal is the
+  // correct condition; the cap keeps a genuinely output-free command bounded.
+  for (let tick = 0; tick < 50; tick++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (size() > 0) break;
+  }
+  // Phase 2 — wait for the channels to go quiet (3 x 10ms of no change).
   let last = -1;
   let quiet = 0;
   for (let tick = 0; tick < 250; tick++) {

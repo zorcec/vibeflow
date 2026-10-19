@@ -532,6 +532,42 @@ export interface ImportChunk {
   tasks: ImportTaskInput[];
 }
 
+/**
+ * Keys that exist only in memory and must never travel to the server.
+ *
+ * `filePath` is added by listTasksWithPaths for the file phase; persisting it
+ * would leak an absolute local path into the cloud record. `authStateEnc` is
+ * captured browser auth state (a credential) written by the overlay — the
+ * server strips it too, but it must not leave the machine at all.
+ */
+const RUNTIME_ONLY_RECORD_KEYS = new Set(["filePath", "authStateEnc"]);
+
+/**
+ * The record as it should be mirrored: the local task JSON minus runtime-only
+ * keys. Lossless push sends this whole object so the server can store it as
+ * `raw` and project every field, instead of the fixed subset that silently
+ * dropped comments/commits/openedBy/non-parent links (measured: 3147
+ * comments, 1436 commits and 20 links lost).
+ */
+export function recordForWire(record: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (RUNTIME_ONLY_RECORD_KEYS.has(key)) continue;
+    if (Array.isArray(value)) {
+      out[key] = value.map((item) =>
+        typeof item === "object" && item !== null && !Array.isArray(item)
+          ? recordForWire(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (typeof value === "object" && value !== null) {
+      out[key] = recordForWire(value as Record<string, unknown>);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function parentLinkTargets(record: Record<string, unknown>): string[] {
   const links = record.links;
   if (!Array.isArray(links)) return [];
@@ -914,6 +950,9 @@ async function postImportChunk(
     }
     manifestTasks.push({
       clientId: t.localId,
+      // `fields` stays for old servers; `record` is the lossless payload a
+      // server that advertises `lossless: true` mirrors verbatim.
+      record: recordForWire(t.record),
       fields: t.record,
       // Every in-push parent travels (in-chunk or not — the server
       // resolves manifest siblings first, then the board remotely, so

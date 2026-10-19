@@ -26,6 +26,12 @@ export interface TaskCommit {
   sha: string;
   message: string;
   timestamp: string;
+  /**
+   * Original git AUTHOR email of the commit (not committer, not mailmap).
+   * Optional and additive: written only by `vibeflow authors link`; absent
+   * means "not linked yet" — never written as null or "".
+   */
+  authorEmail?: string;
 }
 
 export interface TaskComment {
@@ -42,6 +48,13 @@ export interface TaskComment {
   deleted?: boolean;
   /** Origin of the comment: 'cli' for terminal, 'web' for browser UI. */
   source?: "cli" | "web";
+  /**
+   * Git user.email captured at comment-creation time for human-authored
+   * CLI comments. The `author` field stays the actor text (user/agent/…);
+   * this is the machine-checkable attribution alongside it. Absent means
+   * "unknown" — never written as null or "".
+   */
+  authorEmail?: string;
 }
 
 export interface TaskFileRef {
@@ -58,6 +71,27 @@ export interface TaskFileRef {
 /** Returns true if the value is a valid TaskStatus. */
 export function isTaskStatus(v: unknown): v is TaskStatus {
   return (TASK_STATUSES as readonly string[]).includes(v as string);
+}
+
+/**
+ * Email-ish validation for the optional `authorEmail` attribution field on
+ * task, commit, and comment records. Deliberately permissive — the field is
+ * attribution metadata, never an address we deliver to — but it must reject
+ * empty/whitespace strings and anything without a `local@domain.tld` shape,
+ * so a malformed capture can never be persisted in the place the lossless
+ * mirror treats as authoritative.
+ *
+ * Validated at the WRITE sites (`vibeflow authors link`, comment capture).
+ * On READ, any non-empty string passes through untouched: rewriting or
+ * dropping an existing value would violate the mirror rule (the local record
+ * is the source; only writers may refuse to set, never readers to keep).
+ */
+export function isValidAuthorEmail(v: unknown): v is string {
+  return (
+    typeof v === "string" &&
+    v.length <= 320 &&
+    /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v)
+  );
 }
 
 /** Priority rank for sorting: critical=0, high=1, medium/default=2, low=3. Case-insensitive. */
@@ -105,8 +139,15 @@ export interface Task {
   agent?: string;
   /** Preferred LLM model for this task. */
   model?: string;
-  /** Git username of the task author. */
+  /** Git username of the task author. Display-only; never rewritten. */
   author?: string;
+  /**
+   * Author email for the task as a whole. Optional and additive — NEVER
+   * inferred from commits[]; only set deliberately (e.g. a maintenance
+   * backfill). Absent means "not attributed"; writers must keep it missing
+   * rather than write null or "".
+   */
+  authorEmail?: string;
   /** All implementing commits linked to this task (newest last). */
   commits?: TaskCommit[];
   created: string;

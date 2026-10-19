@@ -4991,6 +4991,34 @@ program
     },
   );
 
+const authors = program
+  .command("authors")
+  .description("Inspect and enrich commit-author attribution in the local task store");
+
+authors
+  .command("link")
+  .description(
+    "Resolve each task commit sha to its original git AUTHOR email (not the committer, not mailmap) and store it as the optional commit-level authorEmail.\n" +
+      "  Fills only entries missing a value; a different existing value is reported as a conflict and NEVER overwritten. Never infers a task-level authorEmail and never touches the author text.\n" +
+      "  Unresolvable shas (missing object, rewritten history, shallow clone, invalid email) are reported and left unchanged — nothing is fetched automatically. A second run is a no-op.\n" +
+      "  Note: .vibeflow is git-tracked — run with --dry-run, review the diff, and commit the enrichment deliberately.",
+  )
+  .argument("[dir]", "Project root directory", ".")
+  .option("--dry-run", "Report what would change without writing anything")
+  .action(async (dir: string, opts: { dryRun?: boolean; json?: boolean }) => {
+    capture("command_run", { surface: "cli", command: "authors link" });
+    // Loaded on demand: a top-level import would run git/fs module init for
+    // every command, which measurably delays the CLI's first output (and broke
+    // a test that waits for the program to go quiet).
+    const { authorsLink, formatAuthorsLinkResult } = await import(
+      "./commands/authors.js"
+    );
+    const result = authorsLink(dir, opts);
+    if (opts.json === true) console.log(JSON.stringify(result));
+    else console.log(formatAuthorsLinkResult(result, opts.dryRun === true));
+    await flushTelemetry();
+  });
+
 program
   .command("watch")
   .description(

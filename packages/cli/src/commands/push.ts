@@ -165,6 +165,8 @@ export function collectImportInputs(
     .filter((t): t is { id: string } & Record<string, unknown> => typeof t.id === "string" && t.id.length > 0)
     .map((t) => ({
       localId: t.id,
+      /* SAFETY: entries are parsed task JSON objects (plus a filePath on the
+         caller side) — the record cast is representation-preserving. */
       record: t as unknown as Record<string, unknown>,
       files: listFiles(projectDir, t.id)
         .filter((f) => {
@@ -231,6 +233,12 @@ export interface PushResult {
   files: number;
   board?: string;
   /**
+   * Distinct local tasks with at least one commits[] entry missing
+   * `authorEmail`. REPORT ONLY — push never enriches and never writes local
+   * data; the count points at `vibeflow authors link`.
+   */
+  tasksMissingCommitAuthorEmail?: number;
+  /**
    * Named `notices`, not `steps`: this object was the push_tasks wire payload
    * (the MCP tool is now removed; the hidden CLI push still returns it), so
    * a `steps` key here would be the one place the push surface still used
@@ -240,10 +248,25 @@ export interface PushResult {
   notices: OperationNotice[];
 }
 
+/**
+ * Distinct tasks whose commits include at least one entry without a
+ * non-empty `authorEmail` — the enrichment gap `vibeflow authors link`
+ * fills. Read-only accounting for the push report; push itself never
+ * writes task data.
+ */
+export function countTasksMissingCommitAuthorEmail(
+  tasks: Array<{ commits?: Array<{ authorEmail?: string }> }>,
+): number {
+  return tasks.filter((t) =>
+    (t.commits ?? []).some((c) => !c.authorEmail || c.authorEmail.trim() === ""),
+  ).length;
+}
+
 export async function push(dir: string, opts: { workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = listTasksWithPaths(projectDir);
+  const tasksMissingCommitAuthorEmail = countTasksMissingCommitAuthorEmail(taskList);
   if (taskList.length === 0) {
     // Stryker disable once StringLiteral: display message for no tasks
     console.log(chalk.dim("  No local tasks found. Nothing to push."));
@@ -251,6 +274,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       dryRun: !!opts.dryRun,
       tasks: 0,
       files: 0,
+      tasksMissingCommitAuthorEmail: 0,
       notices: [
         { code: "NOTHING_TO_PUSH", message: "No local tasks found" },
       ],
@@ -300,6 +324,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       tasks: 0,
       files: 0,
       board: boardLabel,
+      tasksMissingCommitAuthorEmail,
       notices: [{ code: "BOARD_UNAVAILABLE", message: `Board not accessible (HTTP ${status})` }],
     };
   };
@@ -384,6 +409,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
           tasks: 0,
           files: 0,
           board: boardLabel,
+          tasksMissingCommitAuthorEmail,
           notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
         };
       }
@@ -394,6 +420,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
         tasks: pushTasks.length,
         files: fileCount,
         board: boardLabel,
+        tasksMissingCommitAuthorEmail,
         notices: [{ code: "DRY_RUN", message: "No changes were made" }],
       };
     }
@@ -407,6 +434,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       tasks: taskList.length,
       files: fileCount,
       board: boardLabel,
+      tasksMissingCommitAuthorEmail,
       notices: [{ code: "DRY_RUN", message: "No changes were made" }],
     };
   }
@@ -463,6 +491,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       tasks: 0,
       files: 0,
       board: boardLabel,
+      tasksMissingCommitAuthorEmail,
       notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
     };
   }
@@ -541,6 +570,9 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       const inputs = topoOrderImportTasks(
         collectImportInputs(
           projectDir,
+          // SAFETY: listTasksWithPaths returns parsed task JSON objects —
+          // each entry spreads as a plain record, so the cast is
+          // representation-preserving.
           livePushTasks as unknown as Array<{ id?: string } & Record<string, unknown>>,
         ),
       );
@@ -612,14 +644,14 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
   // — the v0 add-link op). The import path carries every parent link in
   // every call, so this phase is skipped there — nothing is silently
   // lost either way. Local mode is untouched (cloud push only).
-  // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
-  // filePath string — each entry spreads as a plain record, so the cast is
-  // representation-preserving (same invariant as the phase-1 loop above).
   let filesFailed = 0;
   let legacyLinksApplied = 0;
   let legacyLinksSkipped: Array<{ from: string; to: string; type: string; reason: string }> = [];
   let legacySkippedSummary = "";
   if (legacyPath) {
+    // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
+    // filePath string — each entry spreads as a plain record, so the cast is
+    // representation-preserving (same invariant as the phase-1 loop above).
     const linkRecords = livePushTasks as unknown as Array<Record<string, unknown>>;
     const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
     legacyLinksApplied = linkResult.applied;
@@ -783,6 +815,16 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
   }
 
   const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
+  // Enrichment gap, report-only (the local record is the mirror source;
+  // push never writes task data and never enriches — `vibeflow authors link`
+  // does that as a deliberate, reviewable edit).
+  if (tasksMissingCommitAuthorEmail > 0) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ ${tasksMissingCommitAuthorEmail} task(s) have commits missing authorEmail — run \`vibeflow authors link\` to fill them in (push never writes local data).`,
+      ),
+    );
+  }
   // Links accounting works on both paths: legacy fills these from the
   // links phase, import from the loop tallies.
   const linksApplied = legacyPath ? legacyLinksApplied : (result.linksApplied ?? 0);
@@ -824,8 +866,9 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       linksApplied,
       linksSkipped: legacyPath ? legacyLinksSkipped : (result.failedLinks ?? []),
       skippedTasks,
+      tasksMissingCommitAuthorEmail,
     }));
   }
-  return { dryRun: false, tasks: deleted, files: liveFileCount, board: boardLabel, notices };
+  return { dryRun: false, tasks: deleted, files: liveFileCount, board: boardLabel, tasksMissingCommitAuthorEmail, notices };
 }
 

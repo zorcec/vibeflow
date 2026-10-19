@@ -173,12 +173,22 @@ export function resolveTaskId(projectDir: string, idOrPrefix: string): string {
 
 function normalizeComment(c: Record<string, unknown>): TaskComment {
   // SAFETY: raw comment JSON objects conform to TaskComment shape after normalization.
+  // `...raw` first so UNKNOWN keys on the persisted comment survive the
+  // read → write round trip; only the known fields below are rewritten.
   const raw = c as unknown as TaskComment;
-  return {
+  const out: TaskComment = {
     ...raw,
     text:
       (c.text as string | undefined) ?? (c.content as string | undefined) ?? "",
   };
+  // Attribution email: keep any non-empty string byte-for-byte; otherwise the
+  // key must be ABSENT (never null, never ""). `delete` rather than assigning
+  // undefined: an own key holding undefined still makes `'authorEmail' in
+  // comment` true, which is not the same as "no email recorded".
+  if (typeof out.authorEmail !== "string" || out.authorEmail.trim().length === 0) {
+    delete out.authorEmail;
+  }
+  return out;
 }
 
 /** Filters a raw persisted user-id list, keeping only non-empty strings. */
@@ -197,7 +207,15 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     return t;
   })();
 
+  // Presentation normalization, NOT record reconstruction: the persisted
+  // record is the lossless mirror push uploads, so `...raw` comes FIRST and
+  // unknown/extra keys (legacy fields, fields from newer writers, keys this
+  // build does not know) survive read → write untouched. Only the known
+  // fields below are rewritten for display; explicit `undefined` overrides
+  // drop a known key that normalization decides must be absent (serializes
+  // as a removed key — never null, never "").
   return {
+    ...raw,
     id: String(raw.id ?? ""),
     title: String(raw.title ?? "Untitled"),
     description: String(raw.description ?? ""),
@@ -229,11 +247,26 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     agent: raw.agent ? String(raw.agent) : undefined,
     model: raw.model ? String(raw.model) : undefined,
     author: raw.author ? String(raw.author) : undefined,
+    // Task-level attribution email (optional, additive, never inferred from
+    // commits). Keep any non-empty string as-is; anything else becomes
+    // absent. Missing stays missing.
+    authorEmail:
+      typeof raw.authorEmail === "string" && raw.authorEmail.trim().length > 0
+        ? raw.authorEmail
+        : undefined,
     commits: Array.isArray(raw.commits)
       ? (raw.commits as Record<string, unknown>[]).map((c) => ({
+          // Spread preserves unknown keys (and `authorEmail`) on the commit
+          // entry; the three known fields keep their long-standing defaults.
+          ...c,
           sha: String(c.sha ?? ""),
           message: String(c.message ?? ""),
           timestamp: String(c.timestamp ?? new Date().toISOString()),
+          authorEmail:
+            typeof c.authorEmail === "string" &&
+            c.authorEmail.trim().length > 0
+              ? c.authorEmail
+              : undefined,
         }))
       : undefined,
     created: String(raw.created ?? new Date().toISOString()),
@@ -249,7 +282,9 @@ function normalizeTask(raw: Record<string, unknown>): Task {
             if (typeof f === "string") {
               return { name: f, addedAt: new Date().toISOString() };
             }
+            // Spread preserves unknown keys on the file entry too.
             return {
+              ...f,
               name: String(f.name ?? ""),
               addedAt: String(f.addedAt ?? new Date().toISOString()),
               linkedPath: f.linkedPath ? String(f.linkedPath) : undefined,
@@ -307,6 +342,8 @@ function normalizeTask(raw: Record<string, unknown>): Task {
           );
         })
         .map((l) => ({
+          // Spread preserves unknown keys on the link entry.
+          ...l,
           taskId: String(l.taskId),
           type: String(l.type) as import("./types.js").TaskLinkType,
         }));
