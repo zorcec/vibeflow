@@ -28,6 +28,9 @@ import { runCli } from "./mcp-helpers.js";
 
 const COMMANDS = [
   "auth",
+  // Local-only enrichment (writes the git-tracked task store); deliberately
+  // not an MCP tool, so it appears here but never in the tool surface.
+  "authors",
   "changelog",
   "kanban",
   "login",
@@ -88,8 +91,12 @@ describe("G2 — two independent views of the CLI surface", () => {
       expect(usage, `${name} --help has no "Usage: vibeflow <cmd>" line`).toBeTruthy();
       view2Names.add(usage![1]);
 
+      // Only the parent command's own sections: a command GROUP (`authors`)
+      // lists its subcommands' flags inside `--help`, and scanning those would
+      // demand that the parent declare every child flag.
+      const helpBody = res.stdout.split(/^Commands:$/m)[0] ?? res.stdout;
       const helpFlags = new Set(
-        [...res.stdout.matchAll(/--[a-z][a-z0-9-]*/g)]
+        [...helpBody.matchAll(/--[a-z][a-z0-9-]*/g)]
           .map((m) => m[0])
           .filter((f) => f !== "--help"),
       );
