@@ -14,7 +14,7 @@
 
 import { readFileSync } from "node:fs";
 
-import type { ImportTaskInput } from "./batch-push";
+import { recordForWire, type ImportTaskInput } from "./batch-push";
 import {
   buildDeltaPlan,
   chunkDeltaPlan,
@@ -133,7 +133,13 @@ function tasksWithNewFiles(local: LocalTask[], inventory: Inventory): Set<string
 function toLocalTasks(inputs: ImportTaskInput[]): LocalTask[] {
   return inputs.map((input) => ({
     id: input.localId,
-    raw: input.record,
+    // WHY the wire form: the local record carries runtime-only keys
+    // (`filePath`, `authStateEnc`) that `recordForWire` strips before the
+    // record leaves the machine. Hashing the RAW local object therefore
+    // never matched what the server stored, so every push reported all
+    // 1758 tasks as changed — measured against production. Hash exactly
+    // what will be sent.
+    raw: recordForWire(input.record),
     files: input.files.map((file) => {
       const data = readFileSync(file.filePath);
       return {
