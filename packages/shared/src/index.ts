@@ -58,6 +58,9 @@ export {
   shouldStoreCompressed,
 } from "./compression";
 
+// Push-delta hashing (canonical JSON + sha256) shared by CLI and server
+export { canonicalJson, sha256Hex, hashTaskRecord } from "./delta-hash";
+
 // Signed webhooks (scheme documented in ./webhooks)
 export {
   WEBHOOK_SIGNATURE_HEADER,
