@@ -6,7 +6,7 @@ import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
-import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportTaskInput } from "../saas/batch-push.js";
+import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportProbeResult, type ImportTaskInput } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -344,6 +344,25 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     }
   }
 
+  // ── Capability probe, hoisted ────────────────────────────────────────
+  // The probe decides whether tasks ALREADY on the board are re-sent for
+  // reconciliation, so it must happen BEFORE the diff is filtered. Before this
+  // was hoisted the branch below returned "Everything is already pushed" first,
+  // so on a healthy board the repair could never run: only creates travelled,
+  // and a task whose comments an older lossy import dropped was skipped for
+  // ever. Probe failures keep the old hard failure (401/403/5xx must abort —
+  // falling back would "push" nothing while the summary looked fine).
+  let probeResult: ImportProbeResult | null = null;
+  let probeError: unknown = null;
+  if (earlyToken) {
+    try {
+      probeResult = await probeImportCapability(apiUrl, earlyToken);
+    } catch (err) {
+      probeError = err;
+    }
+  }
+  const losslessServer = probeResult?.supported === true && probeResult.lossless;
+
   /** Local file count for a task — what the remote `fileCount` is compared to. */
   const localFileCount = (taskId: string): number => {
     try {
@@ -369,12 +388,24 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     return localFileCount(taskId) > remoteCount;
   };
 
+  /**
+   * The push set.
+   *
+   * A task is pushed when it is not on the board, when it is short of files,
+   * or when the server mirrors whole records — the last case is what turns a
+   * re-push into a REPAIR: an existing task is sent again so the server can
+   * reconcile comments, commits, links and `openedBy` that an older lossy
+   * import silently dropped. A server without `lossless` keeps the
+   * conservative behaviour (only fresh tasks and file gaps travel).
+   */
+  const needsPush = (taskId: string): boolean =>
+    onlineIndex === null ||
+    !onlineIndex.has(taskId) ||
+    needsFileSync(taskId) ||
+    losslessServer;
+
   const pushTasks =
-    onlineIndex !== null
-      ? taskList.filter(
-          (t) => !onlineIndex!.has(t.id!) || needsFileSync(t.id!),
-        )
-      : taskList;
+    onlineIndex !== null ? taskList.filter((t) => needsPush(t.id!)) : taskList;
   const fileSyncOnly = pushTasks.filter(
     (t) => onlineIndex !== null && onlineIndex!.has(t.id!),
   );
@@ -473,9 +504,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
   // on the board but short of local files is re-pushed so its missing bytes
   // finally upload.
   const livePushTasks =
-    onlineIndex !== null
-      ? taskList.filter((t) => !onlineIndex!.has(t.id!) || needsFileSync(t.id!))
-      : taskList;
+    onlineIndex !== null ? taskList.filter((t) => needsPush(t.id!)) : taskList;
   const liveAlreadyOnBoard = taskList.length - livePushTasks.length;
   let liveFileCount = fileCount;
   if (livePushTasks.length !== pushTasks.length) {
@@ -539,7 +568,10 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     // filePath string — each entry spreads as a plain record into the
     // import manifest, so the record cast is representation-preserving.
     const records = livePushTasks as unknown as Array<Record<string, unknown>>;
-    const probe = await probeImportCapability(apiUrl, token);
+    // Reuse the hoisted probe (it already ran against the same URL/token);
+    // a probe failure is still fatal here, exactly as before.
+    if (probeError !== null) throw probeError;
+    const probe = probeResult ?? (await probeImportCapability(apiUrl, token));
     const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
       existing: loop.existing,
@@ -584,8 +616,14 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
         existing.order.every((id, i) => id === order[i])
           ? existing.attempted
           : 0;
+      // Capacity is spent per CREATE, not per record: a reconciliation of a
+      // task that already exists on the board inserts no row. Counting the
+      // whole push set would refuse a repair that fits easily.
+      const newTasks = onlineIndex === null
+        ? inputs.length
+        : inputs.filter((t) => !onlineIndex!.has(t.localId)).length;
       const refusal = evaluateBatchPreflight(
-        inputs.length - resumed,
+        Math.max(0, newTasks - resumed),
         probe.preflight,
       );
       if (refusal !== null) {
@@ -760,7 +798,15 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
   // task row and its asset dir are removed while the board is missing the
   // attachments. Refuse the whole prune rather than delete per-task and hope
   // the bookkeeping is right.
-  const pruneLocal = opts.pruneLocal === true && filesFailed === 0;
+  const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
+
+  // --prune-local is DESTRUCTIVE: it deletes the local task JSON and files
+  // after the upload. It may only run when the server proved it mirrors the
+  // whole record — on an old server (or a lossy import) the local store is the
+  // only complete copy, so deleting it destroys comments, commits and links
+  // that never landed. Refuse, loudly, instead of trusting "it worked".
+  const pruneLocal =
+    opts.pruneLocal === true && filesFailed === 0 && losslessServer;
   if (opts.pruneLocal !== true) {
     // Stryker disable once StringLiteral: display message for default keep
     console.log(chalk.dim("  Local tasks kept (push never deletes; --prune-local to opt in)."));
@@ -768,6 +814,19 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     console.log(
       chalk.red(`  Refusing to prune: ${filesFailed} file(s) failed to upload. Nothing was deleted locally.`),
     );
+  } else if (!losslessServer) {
+    console.log(
+      chalk.red(
+        "  Refusing to prune: this server does not mirror the whole record (lossless import), so the local",
+      ),
+    );
+    console.log(
+      chalk.dim("  task files are the only complete copy. Nothing was deleted locally."),
+    );
+    notices.push({
+      code: "PRUNE_REFUSED_LOSSY_SERVER",
+      message: "Server does not support lossless import; local tasks kept",
+    });
   }
   let deleted = 0;
   let orphanDirsRemoved = 0;
@@ -814,7 +873,6 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
 
   }
 
-  const notices: OperationNotice[] = [{ code: "PUSH_COMPLETED", message: "Push completed" }];
   // Enrichment gap, report-only (the local record is the mirror source;
   // push never writes task data and never enriches — `vibeflow authors link`
   // does that as a deliberate, reviewable edit).
@@ -869,6 +927,9 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
       tasksMissingCommitAuthorEmail,
     }));
   }
-  return { dryRun: false, tasks: deleted, files: liveFileCount, board: boardLabel, tasksMissingCommitAuthorEmail, notices };
+  // `tasks` is the push count (ticket dec52322 reported `deleted` here, so a
+  // normal push — which now never deletes — always claimed 0).
+  const pushedCount = result.imported + result.existing;
+  return { dryRun: false, tasks: pushedCount, files: liveFileCount, board: boardLabel, tasksMissingCommitAuthorEmail, notices };
 }
 

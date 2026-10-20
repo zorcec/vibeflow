@@ -5016,6 +5016,9 @@ authors
     const result = authorsLink(dir, opts);
     if (opts.json === true) console.log(JSON.stringify(result));
     else console.log(formatAuthorsLinkResult(result, opts.dryRun === true));
+    // Enrichment that could not run is a FAILURE, not a success with a note:
+    // `authors link && git commit` must not sail through after doing nothing.
+    if (!result.gitAvailable) process.exitCode = ExitCode.GENERAL;
     await flushTelemetry();
   });
 

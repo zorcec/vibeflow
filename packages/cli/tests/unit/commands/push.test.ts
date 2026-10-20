@@ -86,6 +86,62 @@ function mockFetchFailure(status = 500, body: Record<string, unknown> = {}) {
   );
 }
 
+
+/** A server that advertises `lossless` import (earlier tasks are reconciled). */
+function stubLosslessImportServer() {
+  const fetchMock = vi.fn((url: unknown, init?: { method?: string; body?: unknown }) => {
+    const method = init?.method ?? "GET";
+    if (String(url).endsWith("/api/v0/tasks/import")) {
+      if (method === "GET") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              maxTasks: 100,
+              maxFiles: 50,
+              maxBytes: 25 * 1024 * 1024,
+              plan: "free",
+              openLimit: 500,
+              openUsed: 0,
+              openRemaining: 500,
+              totalLimit: 2000,
+              totalUsed: 0,
+              totalRemaining: 2000,
+              // The capability under test: records are mirrored whole.
+              lossless: true,
+            }),
+        });
+      }
+      const manifest = JSON.parse(String((init?.body as FormData).get("manifest"))) as {
+        tasks: Array<{ clientId: string }>;
+      };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            created: manifest.tasks.length,
+            existing: 0,
+            failed: 0,
+            linksApplied: 0,
+            linksFailed: 0,
+            filesUploaded: 0,
+            filesFailed: 0,
+            filesSkipped: 0,
+            results: manifest.tasks.map((t) => ({ clientId: t.clientId, id: `remote-${t.clientId}` })),
+          }),
+      });
+    }
+    if (String(url).includes("/api/v0/tasks?") && method === "GET") {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: [], nextCursor: null }) });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe("push — no local tasks", () => {
@@ -420,15 +476,39 @@ describe("push — import API interaction", () => {
       created: "2025-01-01T00:00:00.000Z",
     });
 
-    mockFetchSuccess({ id: "remote-1", externalId: "task-del" });
+    stubLosslessImportServer();
 
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await push(projectDir, { pruneLocal: true });
 
-    // File should be deleted — but only because the caller asked for it.
+    // File should be deleted — but only because the caller asked for it AND
+    // the server proved it mirrors whole records.
     const { existsSync } = await import("node:fs");
     expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("refuses --prune-local when the server cannot prove a lossless import", async () => {
+    const projectDir = makeTempProject();
+    const filePath = createTaskFile(projectDir, {
+      id: "task-lossy",
+      title: "Keep me",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    // Old server: probe 404 → the legacy per-task loop, which knows nothing
+    // about comments/commits/links. The local store is then the ONLY complete
+    // copy, so a prune would destroy data that never landed.
+    mockFetchSuccess({ id: "remote-1", externalId: "task-lossy" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, { pruneLocal: true });
+
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(filePath)).toBe(true);
+    expect(log.mock.calls.flat().join("\n")).toContain("Refusing to prune");
   });
 
   it("never deletes local files by default (the old default consumed the store)", async () => {

@@ -60,13 +60,23 @@ interface CommitLike {
  * would be 1434 processes. Escapes nothing itself — `execFileSync` passes argv
  * directly, so a sha cannot be interpreted as a flag or shell word.
  */
+/**
+ * A sha is hex only. Anything else (`--all`, `-n1`, a branch name) would be
+ * passed to `git log` as an OPTION: measured during review, `--all` "resolved"
+ * to a real author email and got written into a task file. Rejecting the shape
+ * before the subprocess is the cheap half of the defence; the resolver also
+ * passes `--` so a well-shaped value can never be read as a flag.
+ */
+const SHA_SHAPE = /^[0-9a-f]{4,40}$/i;
+
 export function gitAuthorEmailResolver(cwd: string): (sha: string) => string | null {
   const cache = new Map<string, string | null>();
   return (sha: string): string | null => {
+    if (!SHA_SHAPE.test(sha)) return null;
     if (cache.has(sha)) return cache.get(sha) ?? null;
     let email: string | null = null;
     try {
-      email = execFileSync("git", ["-C", cwd, "log", "-1", "--no-walk", "--format=%ae", sha], {
+      email = execFileSync("git", ["-C", cwd, "log", "-1", "--no-walk", "--format=%ae", sha, "--"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim() || null;
@@ -216,7 +226,9 @@ export function formatAuthorsLinkResult(result: AuthorsLinkResult, dryRun: boole
     lines.push(`  … and ${result.conflicts - 5} more conflict(s)`);
   }
   if (!result.gitAvailable) {
-    lines.push("  git is unavailable here (not a repository?) — nothing was written.");
+    lines.push(
+      "  git is unavailable here (not a repository?) — nothing was written. Exiting 1.",
+    );
   }
   if (dryRun) lines.push("  Dry run: no files written.");
   else if (result.filesChanged > 0) {

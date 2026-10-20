@@ -370,14 +370,94 @@ describe("push — diff-based (only unsynced travel)", () => {
       expect.stringContaining("Everything is already pushed (1 tasks on the board, all files synced)."),
     );
     expect(inner).not.toHaveBeenCalled();
-    // Only the diff listing touched the network — no probe, no creates.
-    expect(outer).toHaveBeenCalledTimes(1);
+    // Two read-only calls now: the diff listing AND the capability probe. The
+    // probe is hoisted so a LOSSLESS server can reconcile existing tasks; on
+    // this old server it answers 404, so the no-op stands and nothing is
+    // created.
+    expect(outer).toHaveBeenCalledTimes(2);
     expect(process.exitCode).toBeUndefined();
     expect(result.tasks).toBe(0);
     expect(existsSync(filePath)).toBe(true);
     logSpy.mockRestore();
     process.exitCode = originalExitCode;
     // Break: skip the diff and always probe — outer reads 2+ calls.
+  });
+
+  it("a LOSSLESS server re-sends tasks already on the board (reconciliation)", async () => {
+    const projectDir = makeTempProject();
+    const filePath = createTaskFile(projectDir, taskRecord("synced-1"));
+    const created: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown, init?: { method?: string; body?: unknown }) => {
+        const method = init?.method ?? "GET";
+        if (String(url).endsWith("/api/v0/tasks/import")) {
+          if (method === "GET") {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: () =>
+                Promise.resolve({
+                  maxTasks: 100,
+                  maxFiles: 50,
+                  maxBytes: 25 * 1024 * 1024,
+                  plan: "free",
+                  lossless: true,
+                  openLimit: 500,
+                  openUsed: 0,
+                  openRemaining: 500,
+                  totalLimit: 2000,
+                  totalUsed: 0,
+                  totalRemaining: 2000,
+                }),
+            });
+          }
+          const manifest = JSON.parse(String((init?.body as FormData).get("manifest"))) as {
+            tasks: Array<{ clientId: string }>;
+          };
+          created.push(...manifest.tasks.map((t) => t.clientId));
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                created: 0,
+                existing: manifest.tasks.length,
+                unchanged: manifest.tasks.length,
+                failed: 0,
+                linksApplied: 0,
+                linksFailed: 0,
+                filesUploaded: 0,
+                filesFailed: 0,
+                filesSkipped: 0,
+                results: manifest.tasks.map((t) => ({
+                  clientId: t.clientId,
+                  id: t.clientId,
+                  existing: true,
+                })),
+              }),
+          });
+        }
+        if (String(url).includes("/api/v0/tasks?") && method === "GET") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ items: [{ id: "synced-1" }], nextCursor: null }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+      }),
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await push(projectDir, {});
+
+    // The task is already on the board, but only a re-send can repair the
+    // comments/commits/links an older lossy import dropped.
+    expect(created).toEqual(["synced-1"]);
+    expect(logSpy.mock.calls.flat().join("\n")).not.toContain("Everything is already pushed");
+    expect(existsSync(filePath)).toBe(true);
+    logSpy.mockRestore();
   });
 
   it("a task on the board but short of local files is re-pushed (file gap is RETRIED)", async () => {

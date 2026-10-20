@@ -144,7 +144,19 @@ export interface ImportPreflight {
 }
 
 export type ImportProbeResult =
-  | { supported: true; preflight: ImportPreflight }
+  | {
+      supported: true;
+      preflight: ImportPreflight;
+      /**
+       * The server mirrors the WHOLE local record, not a fields subset.
+       *
+       * This is what makes a re-push a repair: an existing task has to be sent
+       * again so the server can reconcile comments, commits, links and
+       * `openedBy` that an older lossy import dropped. Without the flag the
+       * CLI keeps the old, conservative behaviour (only missing tasks travel).
+       */
+      lossless: boolean;
+    }
   | { supported: false };
 
 export interface BatchCheckpoint {
@@ -247,6 +259,7 @@ export async function probeImportCapability(
   }
   return {
     supported: true,
+    lossless: body.lossless === true,
     preflight: {
       maxTasks: body.maxTasks,
       maxFiles: typeof body.maxFiles === "number" ? body.maxFiles : IMPORT_MAX_FILES,

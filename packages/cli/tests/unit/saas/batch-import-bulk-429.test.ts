@@ -74,6 +74,7 @@ function probeOk(preflight: Partial<ImportPreflight> = {}) {
         maxFiles: 50,
         maxBytes: 25 * 1024 * 1024,
         plan: "free",
+        lossless: true,
         openLimit: 500,
         openUsed: 0,
         openRemaining: 500,
@@ -110,6 +111,9 @@ describe("import capability probe (ticket bulk-429)", () => {
     const probe = await probeImportCapability("https://x.test", "tok");
     expect(probe).toEqual({
       supported: true,
+      // The server mirrors whole records, so existing tasks are re-sent for
+      // reconciliation (that is what makes a re-push a repair).
+      lossless: true,
       preflight: {
         maxTasks: 100,
         maxFiles: 50,
