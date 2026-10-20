@@ -18,7 +18,6 @@ import type { ImportTaskInput } from "./batch-push";
 import {
   buildDeltaPlan,
   chunkDeltaPlan,
-  type DeltaPlan,
   type Inventory,
   type LocalTask,
 } from "./delta-archive";
@@ -137,7 +136,12 @@ function toLocalTasks(inputs: ImportTaskInput[]): LocalTask[] {
     raw: input.record,
     files: input.files.map((file) => {
       const data = readFileSync(file.filePath);
-      return { name: file.name, size: data.byteLength, data: new Uint8Array(data) };
+      return {
+        name: file.name,
+        size: data.byteLength,
+        data: new Uint8Array(data),
+        system: file.system,
+      };
     }),
   }));
 }

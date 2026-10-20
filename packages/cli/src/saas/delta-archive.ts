@@ -44,7 +44,8 @@ export interface Inventory {
 export interface LocalTask {
   id: string;
   raw: unknown;
-  files: { name: string; size: number; data: Uint8Array }[];
+  /** `system` travels with the manifest entry so the server keeps its flag. */
+  files: { name: string; size: number; data: Uint8Array; system?: boolean }[];
 }
 
 /**

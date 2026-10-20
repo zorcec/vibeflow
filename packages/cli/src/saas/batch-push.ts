@@ -609,7 +609,7 @@ export function recordForWire(record: Record<string, unknown>): Record<string, u
   return out;
 }
 
-function parentLinkTargets(record: Record<string, unknown>): string[] {
+export function parentLinkTargets(record: Record<string, unknown>): string[] {
   const links = record.links;
   if (!Array.isArray(links)) return [];
   const out: string[] = [];

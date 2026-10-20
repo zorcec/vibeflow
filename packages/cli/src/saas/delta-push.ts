@@ -25,6 +25,7 @@
  */
 import { gzipSync } from "node:zlib";
 import type { DeltaPlan } from "./delta-archive";
+import { parentLinkTargets, recordForWire } from "./batch-push";
 import { writeTar, type TarInput } from "./tar-write";
 
 /** Base URL path of the archive endpoint (the v0 wire spelling). */
@@ -100,9 +101,29 @@ export interface SendDeltaResult {
 function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
   const entries: TarInput[] = [];
   for (const task of chunk.tasks) {
+    // The archive route reads `tasks/<id>.json` as the SAME manifest entry the
+    // multipart route accepts — not a bare record. It validates that
+    // `clientId` equals the id in the path, so a bare record is refused with
+    // `declares clientId null` (measured against production).
+    const wire = recordForWire(task.raw as Record<string, unknown>);
     entries.push({
       path: `tasks/${task.id}.json`,
-      data: Buffer.from(JSON.stringify(task.raw), "utf8"),
+      data: Buffer.from(
+        JSON.stringify({
+          clientId: task.id,
+          record: wire,
+          fields: wire,
+          parentClientIds: parentLinkTargets(wire),
+          files: task.files
+            .filter((f) => f.data.length > 0)
+            .map((f) => ({
+              ref: f.name,
+              name: f.name,
+              ...(f.system === true ? { system: true } : {}),
+            })),
+        }),
+        "utf8",
+      ),
     });
     for (const file of task.files) {
       if (file.data.length === 0) continue;

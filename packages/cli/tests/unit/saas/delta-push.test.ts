@@ -178,9 +178,16 @@ describe("sendDeltaArchive", () => {
       "tasks/t1.json",
       "files/t1/note.md",
     ]);
-    expect(Buffer.from(entries[0]!.data).toString("utf8")).toBe(
-      JSON.stringify(raw),
-    );
+    // The archive route reads this file as the SAME manifest entry the
+    // multipart route accepts, not a bare record: it validates
+    // `clientId === <id from path>`. Sending the bare record was rejected by
+    // PRODUCTION with 400 INVALID_BODY "declares clientId null" — so the
+    // entry shape is the contract, and this test pins it.
+    const entry = JSON.parse(Buffer.from(entries[0]!.data).toString("utf8"));
+    expect(entry.clientId).toBe("t1");
+    expect(entry.record).toEqual(raw);
+    expect(entry.fields).toEqual(raw);
+    expect(entry.files).toEqual([{ ref: "note.md", name: "note.md" }]);
     expect(Buffer.from(entries[1]!.data).toString("utf8")).toBe("hello");
   });
 
