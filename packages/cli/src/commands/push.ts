@@ -12,6 +12,7 @@ import {
 } from "../auth/board-scope.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
 import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportProbeResult, type ImportTaskInput } from "../saas/batch-push.js";
+import { runDeltaPush } from "../saas/delta-run.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
@@ -671,23 +672,57 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
         process.exitCode = ExitCode.GENERAL;
         return;
       }
-      const loop = await importBatchTree(apiUrl, token, workspaceId, inputs, {
-        onProgress,
-        projectDir,
-        preflight: probe.preflight,
-        retry429: { onWait },
-      });
-      result = {
-        ...toImportResult(loop),
-        skippedTasks: loop.skippedTasks,
-        linksApplied: loop.linksApplied,
-        linksFailed: loop.linksFailed,
-        failedLinks: loop.failedLinks,
-        filesUploaded: loop.filesUploaded,
-        filesFailed: loop.filesFailed,
-        filesSkippedPresent: loop.filesSkippedPresent,
-        failedFiles: loop.failedFiles,
-      };
+      // Delta first (when the board advertises the inventory route): send only
+      // what the board does not already hold. `null` means an old server, and
+      // the multipart loop below then runs exactly as it did before.
+      const delta =
+        workspaceId === undefined
+          ? null
+          : await runDeltaPush(apiUrl, token, workspaceId, inputs, {
+              headers: await scopeHeadersFromSaved(),
+            });
+      if (delta !== null) {
+        result = {
+          imported: delta.imported,
+          existing: delta.unchanged,
+          skipped: 0,
+          ids: [],
+          workspaceId: workspaceId ?? "",
+          boardId: workspaceId ?? "",
+          idMap: {},
+          attempted: delta.imported + delta.unchanged,
+          failures: [],
+          stoppedEarly: null,
+          stopMessage: null,
+          retryAfter: null,
+          skippedTasks: [],
+          linksApplied: 0,
+          linksFailed: 0,
+          failedLinks: [],
+          filesUploaded: delta.filesSent,
+          filesFailed: 0,
+          filesSkippedPresent: delta.filesDropped,
+          failedFiles: [],
+        };
+      } else {
+        const loop = await importBatchTree(apiUrl, token, workspaceId, inputs, {
+          onProgress,
+          projectDir,
+          preflight: probe.preflight,
+          retry429: { onWait },
+        });
+        result = {
+          ...toImportResult(loop),
+          skippedTasks: loop.skippedTasks,
+          linksApplied: loop.linksApplied,
+          linksFailed: loop.linksFailed,
+          failedLinks: loop.failedLinks,
+          filesUploaded: loop.filesUploaded,
+          filesFailed: loop.filesFailed,
+          filesSkippedPresent: loop.filesSkippedPresent,
+          failedFiles: loop.failedFiles,
+        };
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
