@@ -1655,12 +1655,22 @@ function registerInjectPage(
   urls: GuideUrls,
   boardId?: string,
   saasUrl?: string,
+  needsBoard = false,
 ): void {
   // Strip all chars that are not alphanumeric, underscore, or hyphen to prevent
   // HTML attribute injection and JS string injection via a crafted workspace file.
   const safeBoardId = boardId
     ? boardId.replace(/[^a-zA-Z0-9_-]/g, "")
     : undefined;
+  if (needsBoard) {
+    app.get("/inject", (_req, res) => {
+      res.type("html").send(buildInjectPageHtml(
+        "No board selected — run vibeflow auth login to pick a board, then re-run.",
+        [],
+      ));
+    });
+    return;
+  }
   if (saasUrl) {
     const saasGuide = buildIntegrationGuide(urls, {
       boardId: safeBoardId,
@@ -2059,6 +2069,7 @@ async function serveApiOnly(
     serveUrls,
     isOnline ? workspace?.id : undefined,
     isOnline ? saasApiUrl : undefined,
+    !!token && !workspace,
   );
   // Board-server root: the bare `/` is otherwise Express's default 404, so
   // redirect EXACT `/` → `/kanban` (owner ruling on 34938eda). Express
@@ -2095,11 +2106,17 @@ async function serveApiOnly(
   return new Promise<ServeInstance>((resolvePromise, reject) => {
     const bindHost = options.host ?? "localhost";
     const { url, localUrl } = serveUrls;
-    // The startup banner is ALWAYS the local one: online mode still serves
-    // `/vibeflow-overlay.js` from this server (it proxies to SaaS), so the
-    // banner's script tag carries no `data-board-id` and no SaaS origin. Only
-    // the `/inject` page links the SaaS overlay directly.
-    const guide = buildIntegrationGuide({ url, localUrl });
+    // Owner-request, ticket pending (multi-board scope bug): a production page
+    // loaded localhost:3700 and hit ERR_CONNECTION_REFUSED. Online copy targets
+    // must use the cloud origin and board id, not the visitor's local machine.
+    // The local proxy still works while this CLI runs; retain it as a labelled
+    // alternative, and leave unauthenticated local development unchanged.
+    const localGuide = buildIntegrationGuide({ url, localUrl });
+    const guide = isOnline
+      ? buildIntegrationGuide({ url, localUrl }, {
+          online: true, boardId: workspace!.id, overlayBaseUrl: saasApiUrl,
+        })
+      : localGuide;
     httpServer.listen(options.port, bindHost, () => {
       const divider = guideDivider();
 
@@ -2132,13 +2149,16 @@ async function serveApiOnly(
               divider,
               chalk.dim("  Overlay script:  ") +
                 chalk.cyan(guide.overlayScriptUrl),
-              ...(localhostAltLine(localUrl, "/vibeflow-overlay.js", 19)
-                ? [localhostAltLine(localUrl, "/vibeflow-overlay.js", 19)!]
-                : []),
+              chalk.dim("  Local proxy (works only while this CLI is running): ") +
+                chalk.cyan(localGuide.overlayScriptUrl),
               "",
               ...buildOnlineAddToHtmlLines(guide),
             ]
-          : [
+          : token
+            ? [
+                chalk.yellow("  No board selected — run vibeflow auth login to pick a board, then re-run."),
+              ]
+            : [
               chalk.dim("  Mode:  ") +
                 chalk.yellow("◎ Local") +
                 chalk.dim(" — no account needed"),
