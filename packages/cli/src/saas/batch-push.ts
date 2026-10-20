@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { surfacePath } from "../core/api-url.js";
+import { scopeHeaderFor } from "../auth/board-scope.js";
 import { PROTO_DIR } from "../core/types.js";
 import { pushRefusalCode, resolve429WaitMs, PUSH_429_MAX_RESUMES, type Push429ResumeOptions } from "../auth/login.js";
 import { maybeCompressForUpload } from "./compression.js";
@@ -204,16 +205,11 @@ function importUrl(apiUrl: string): string {
 /**
  * Scope header for accounts with more than one board.
  *
- * An account with several boards cannot be auto-scoped — the server answers
- * 422 SCOPE_REQUIRED rather than guess, which used to abort every push with a
- * bare "HTTP 422" (measured on a 2-board account after `auth login` selected
- * nothing). `X-Vibeflow-Scope` is the documented way to name the board, and it
- * is a header rather than a query parameter so the request URL stays exactly
- * what every other v0 call and every recorded contract already uses.
+ * The one spelling is `scopeHeaderFor` in auth/board-scope.ts (ticket
+ * dabd2fb7) — the header contract dates from ticket 1181d2b, where the
+ * missing scope turned every multi-board push into a bare "HTTP 422".
  */
-function scopeHeaders(boardId: string | undefined): Record<string, string> {
-  return boardId ? { "X-Vibeflow-Scope": boardId } : {};
-}
+const scopeHeaders = scopeHeaderFor;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

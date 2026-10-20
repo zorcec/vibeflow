@@ -5,6 +5,7 @@
  * comments from the SaaS backend instead of local .proto/ files.
  */
 import { readToken } from "../auth/token.js";
+import { peekBoardScope, scopeHeaderFor } from "../auth/board-scope.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 
 export type SaasResult<T> =
@@ -133,7 +134,12 @@ export interface SaasTask {
 async function getBearerHeaders(): Promise<Record<string, string> | null> {
   const token = await readToken();
   if (!token) return null;
-  return { Authorization: `Bearer ${token}` };
+  // Every v0 request carries X-Vibeflow-Scope when a board is known
+  // (ticket dabd2fb7): the server answers 422 SCOPE_REQUIRED to an
+  // unscoped request on a multi-board account. The peek is fs-only — the
+  // command entries (tasks/push/watch) run resolveBoardScope first, so
+  // auto-selection and the 2+ board refusal happen before any request.
+  return { Authorization: `Bearer ${token}`, ...scopeHeaderFor(await peekBoardScope()) };
 }
 
 /**

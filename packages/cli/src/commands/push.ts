@@ -5,6 +5,11 @@ import { listTasksWithPaths } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
+import {
+  BoardScopeRequiredError,
+  printBoardScopeRequired,
+  resolveBoardScope,
+} from "../auth/board-scope.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
 import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportProbeResult, type ImportTaskInput } from "../saas/batch-push.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
@@ -262,7 +267,7 @@ export function countTasksMissingCommitAuthorEmail(
   ).length;
 }
 
-export async function push(dir: string, opts: { workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
+export async function push(dir: string, opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = listTasksWithPaths(projectDir);
@@ -281,10 +286,37 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     };
   }
 
-  let workspaceId = opts.workspace;
-  if (!workspaceId) {
-    const saved = await readWorkspace().catch(() => null);
-    if (saved) workspaceId = saved.id;
+  let workspaceId: string | undefined;
+  try {
+    // One shared rule (ticket dabd2fb7): --board > --workspace (legacy) >
+    // saved workspace > single-board auto-select. A 2+ board account with
+    // nothing selected refuses here — a wrong-board push moves the whole
+    // local store (1753 tasks) to the wrong board.
+    workspaceId =
+      (await resolveBoardScope(opts.board ?? opts.workspace ?? null)) ??
+      undefined;
+  } catch (err) {
+    if (!(err instanceof BoardScopeRequiredError)) throw err;
+    if (opts.json) {
+      console.log(
+        JSON.stringify({
+          ok: false,
+          code: err.code,
+          message: err.message,
+          boards: err.boards,
+        }),
+      );
+    }
+    printBoardScopeRequired(err);
+    process.exitCode = ExitCode.GENERAL;
+    return {
+      dryRun: opts.dryRun === true,
+      tasks: 0,
+      files: 0,
+      board: "(no board selected)",
+      tasksMissingCommitAuthorEmail,
+      notices: [{ code: "SCOPE_REQUIRED", message: err.message }],
+    };
   }
   const boardLabel = workspaceId ? ((await readWorkspace().catch(() => null))?.name ?? workspaceId) : "(no board selected)";
 
