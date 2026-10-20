@@ -33,11 +33,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { surfacePath } from "../core/api-url.js";
-import { scopeHeaderFor } from "../auth/board-scope.js";
 import { PROTO_DIR } from "../core/types.js";
 import { pushRefusalCode, resolve429WaitMs, PUSH_429_MAX_RESUMES, type Push429ResumeOptions } from "../auth/login.js";
 import { maybeCompressForUpload } from "./compression.js";
 import type { PushLoopResult, PushRefusalGroup } from "../auth/login.js";
+import { scopeHeaderFor, scopeHeadersFromSaved } from "../auth/board-scope.js";
 
 /**
  * Max tasks per `POST /api/v0/tasks/import` (ticket bulk-429).
@@ -360,7 +360,7 @@ export async function fetchOnlineTaskIndex(
   boardId: string,
 ): Promise<Map<string, number | null>> {
   const index = new Map<string, number | null>();
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = { Authorization: `Bearer ${token}`, ...scopeHeaders(boardId) };
   const listPath = surfacePath("cloud", "/api/cli/tasks");
   let cursor: string | null = null;
   for (let page = 0; page < ONLINE_IDS_MAX_PAGES; page++) {
@@ -1029,7 +1029,7 @@ async function postImportChunk(
     try {
       res = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...(await scopeHeadersFromSaved()) },
         body: form,
         signal: AbortSignal.timeout(IMPORT_CHUNK_TIMEOUT_MS),
       });

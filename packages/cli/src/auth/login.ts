@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import { scopeHeadersFromSaved } from "./board-scope.js";
 
 const SETTINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -623,6 +624,7 @@ export async function createTasksOneByOne(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        ...(await scopeHeadersFromSaved()),
       },
       body: JSON.stringify(toV0CreateBody(task, boardId)),
       // Bound fetch (ticket dec52322): a hung create must not stall a
@@ -776,7 +778,7 @@ async function resolveRemoteTaskId(
   try {
     const res = await fetch(
       `${apiUrl}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(localId)}`)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
+      { headers: { Authorization: `Bearer ${token}`, ...(await scopeHeadersFromSaved()) } },
     );
     if (!res.ok) return undefined;
     const body = (await res.json().catch(() => null)) as {
@@ -881,6 +883,7 @@ export async function applyPushLinks(
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              ...(await scopeHeadersFromSaved()),
             },
             body: JSON.stringify({ taskId: remoteTarget, type }),
           },

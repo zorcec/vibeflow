@@ -17,6 +17,7 @@ import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import { scopeHeadersFromSaved } from "../auth/board-scope.js";
 
 type ImportResult = {
   imported: number;
@@ -126,6 +127,7 @@ export async function uploadTaskFiles(
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
+            ...(await scopeHeadersFromSaved()),
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
             ...(job.system ? { "x-file-system": "1" } : {}),

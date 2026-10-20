@@ -177,3 +177,18 @@ export function printBoardScopeRequired(err: BoardScopeRequiredError): void {
   console.error(chalk.red(`✗ ${head}`));
   for (const line of rest) console.error(chalk.dim(`  ${line.trim()}`));
 }
+
+/**
+ * Scope headers for the CURRENTLY SAVED board, resolved per call.
+ *
+ * WHY per call and not once at startup: `auth login` writes the board and then
+ * pushes in the SAME process, so a value cached at import time would be null
+ * exactly when it is needed. The cost is one small file read per request.
+ *
+ * This is what makes task create, file upload and link apply work on a 2-board
+ * account: the server answers 422 SCOPE_REQUIRED for any of them without
+ * X-Vibeflow-Scope (measured: 1758/1758 tasks and 782 files refused).
+ */
+export async function scopeHeadersFromSaved(): Promise<Record<string, string>> {
+  return scopeHeaderFor(await peekBoardScope());
+}
