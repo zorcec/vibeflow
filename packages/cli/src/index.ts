@@ -4957,6 +4957,10 @@ program
   )
   .argument("[dir]", "Project root directory", ".")
   .option(
+    "--board <boardId>",
+    "Board to push to (wins over the saved board; required on a 2+ board account with no saved board — push refuses without a selection)",
+  )
+  .option(
     "--workspace <id>",
     "Target workspace ID (defaults to your first workspace)",
   )
@@ -4983,7 +4987,7 @@ program
   .action(
     async (
       dir: string,
-      opts: { workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
+      opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
       await push(dir, opts);

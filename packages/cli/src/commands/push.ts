@@ -286,6 +286,11 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
     };
   }
 
+  // ONE token read, up front: the scope resolver below reuses this probe
+  // through deps.hasToken instead of reading the token again — push keeps
+  // its original two-read login sequence (initial check → after login).
+  const earlyToken = await readToken();
+
   let workspaceId: string | undefined;
   try {
     // One shared rule (ticket dabd2fb7): --board > --workspace (legacy) >
@@ -293,7 +298,9 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
     // nothing selected refuses here — a wrong-board push moves the whole
     // local store (1753 tasks) to the wrong board.
     workspaceId =
-      (await resolveBoardScope(opts.board ?? opts.workspace ?? null)) ??
+      (await resolveBoardScope(opts.board ?? opts.workspace ?? null, {
+        hasToken: async () => Boolean(earlyToken),
+      })) ??
       undefined;
   } catch (err) {
     if (!(err instanceof BoardScopeRequiredError)) throw err;
@@ -361,7 +368,6 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
     };
   };
 
-  const earlyToken = await readToken();
   let onlineIndex: Map<string, number | null> | null = null;
   let boardListed = false;
   let boardListFailed = false;
