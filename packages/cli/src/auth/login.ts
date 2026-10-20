@@ -158,7 +158,17 @@ async function fetchAndSelectWorkspace(
       const url = new URL(`${apiUrl}${boardsPath}`);
       if (cursor) url.searchParams.set("cursor", cursor);
       const wsRes = await fetch(url.toString(), { headers });
-      if (!wsRes.ok) return;
+      if (!wsRes.ok) {
+        // NEVER swallow: returning quietly here left the account with no board
+        // selected while login still printed "Logged in successfully", and the
+        // next push died with a bare "HTTP 422". Measured on a 2-board account.
+        console.log(
+          chalk.yellow(
+            `  Could not list boards (HTTP ${wsRes.status}) — no board selected. Run \`vibeflow auth login\` again, or \`vibeflow push --workspace <boardId>\`.`,
+          ),
+        );
+        return;
+      }
       const page_ = parseBoardsPage(await wsRes.json(), apiUrl);
       picks.push(...page_.picks);
       cursor = page_.nextCursor;
@@ -183,8 +193,18 @@ async function fetchAndSelectWorkspace(
       chalk.green(`  Board set: ${selected.icon ?? ""} ${selected.name}`),
     );
     console.log(chalk.dim(`  Open at: ${selected.url}`));
-  } catch {
-    // Non-critical — user can still use push --workspace
+  } catch (err) {
+    // Non-critical — but silence is what made this a mystery: the user was
+    // never asked to pick a board and only saw a 422 much later. Name the
+    // failure and the way out (ticket: 2-board account, device login).
+    console.log(
+      chalk.yellow(
+        `  Board selection failed (${err instanceof Error ? err.message : String(err)}) — no board selected.`,
+      ),
+    );
+    console.log(
+      chalk.dim("  Run `vibeflow auth login` again in an interactive terminal, or use `vibeflow push --workspace <boardId>`."),
+    );
   }
 }
 

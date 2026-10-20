@@ -201,6 +201,20 @@ function importUrl(apiUrl: string): string {
   return `${requireHttpBase(apiUrl)}${surfacePath("cloud", IMPORT_LEGACY_PATH)}`;
 }
 
+/**
+ * Scope header for accounts with more than one board.
+ *
+ * An account with several boards cannot be auto-scoped — the server answers
+ * 422 SCOPE_REQUIRED rather than guess, which used to abort every push with a
+ * bare "HTTP 422" (measured on a 2-board account after `auth login` selected
+ * nothing). `X-Vibeflow-Scope` is the documented way to name the board, and it
+ * is a header rather than a query parameter so the request URL stays exactly
+ * what every other v0 call and every recorded contract already uses.
+ */
+function scopeHeaders(boardId: string | undefined): Record<string, string> {
+  return boardId ? { "X-Vibeflow-Scope": boardId } : {};
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -228,10 +242,11 @@ function sleep(ms: number): Promise<void> {
 export async function probeImportCapability(
   apiUrl: string,
   token: string,
+  boardId?: string,
 ): Promise<ImportProbeResult> {
   const res = await fetch(importUrl(apiUrl), {
     method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...scopeHeaders(boardId) },
     signal: AbortSignal.timeout(IMPORT_PROBE_TIMEOUT_MS),
   });
   if (res.status === 404) return { supported: false };
@@ -247,6 +262,23 @@ export async function probeImportCapability(
     } catch {
       /* unparseable 400 → fall through to the loud throw */
     }
+  }
+  if (res.status === 422) {
+    // The account has several boards and none is selected. This is NOT a
+    // transport failure: say what to do, because "HTTP 422" sent the owner
+    // hunting for a network problem.
+    let code = "";
+    try {
+      const body = (await res.json()) as { code?: unknown; error?: unknown };
+      code = typeof body.code === "string" ? body.code : "";
+    } catch {
+      /* unparseable body: fall through to the generic hint */
+    }
+    throw new Error(
+      code === "SCOPE_REQUIRED" || code === ""
+        ? "this account has more than one board and none is selected — run `vibeflow auth login` to pick one, or `vibeflow push --workspace <boardId>`"
+        : `tree-import capability probe rejected the request: HTTP 422${code ? ` (${code})` : ""}`,
+    );
   }
   if (!res.ok) {
     throw new Error(

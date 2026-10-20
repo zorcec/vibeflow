@@ -356,7 +356,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
   let probeError: unknown = null;
   if (earlyToken) {
     try {
-      probeResult = await probeImportCapability(apiUrl, earlyToken);
+      probeResult = await probeImportCapability(apiUrl, earlyToken, workspaceId ?? undefined);
     } catch (err) {
       probeError = err;
     }
@@ -571,7 +571,7 @@ export async function push(dir: string, opts: { workspace?: string; pruneLocal?:
     // Reuse the hoisted probe (it already ran against the same URL/token);
     // a probe failure is still fatal here, exactly as before.
     if (probeError !== null) throw probeError;
-    const probe = probeResult ?? (await probeImportCapability(apiUrl, token));
+    const probe = probeResult ?? (await probeImportCapability(apiUrl, token, workspaceId ?? undefined));
     const toImportResult = (loop: PushLoopResult): ImportResult => ({
       imported: loop.imported,
       existing: loop.existing,

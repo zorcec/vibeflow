@@ -30,8 +30,11 @@ export function withOldServerProbe(
     init?: { method?: string },
   ) => unknown;
   return vi.fn((url: unknown, init?: { method?: string }) => {
+    // Match the PATH, not the whole URL: the probe appends `?boardId=` when a
+    // board is selected (multi-board accounts), and a strict endsWith sent the
+    // probe to the inner mock instead of this router.
     if (
-      String(url).endsWith("/api/v0/tasks/import") &&
+      String(url).includes("/api/v0/tasks/import") &&
       (init?.method ?? "GET") === "GET"
     ) {
       return Promise.resolve(oldServerProbe404());
