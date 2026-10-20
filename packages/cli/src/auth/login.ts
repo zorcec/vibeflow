@@ -1066,7 +1066,16 @@ async function promptPushLocalTasks(
               // Lazy import: the import client imports this module, so a
               // static import would cycle.
               const batch = await import("../saas/batch-push.js");
-              const probe = await batch.probeImportCapability(apiUrl, token);
+              // The board MUST travel with the probe (ticket dabd2fb7): a
+              // 2-board account answers 422 SCOPE_REQUIRED without
+              // X-Vibeflow-Scope, and this is called right after the user
+              // picked a board above — so the id is known and omitting it made
+              // a successful login end in "Push failed: ... none is selected".
+              const probe = await batch.probeImportCapability(
+                apiUrl,
+                token,
+                workspace.id,
+              );
               // Tree-import tallies (import path only — legacy prints its
               // own phase lines below).
               let importLinksApplied = 0;

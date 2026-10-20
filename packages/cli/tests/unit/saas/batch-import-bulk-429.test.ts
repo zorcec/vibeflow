@@ -106,6 +106,25 @@ describe("import constants (ticket bulk-429)", () => {
 });
 
 describe("import capability probe (ticket bulk-429)", () => {
+  it("sends X-Vibeflow-Scope when a board is given (2-board accounts)", async () => {
+    // Ticket dabd2fb7: without the header a 2-board account answers 422
+    // SCOPE_REQUIRED, which is exactly how a successful `auth login` ended in
+    // "Push failed: ... none is selected" — the selected board never travelled.
+    const fetchMock = vi.fn().mockResolvedValue(probeOk());
+    vi.stubGlobal("fetch", fetchMock);
+    await probeImportCapability("https://x.test", "tok", "board-42");
+    const headers = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
+    expect(headers["X-Vibeflow-Scope"]).toBe("board-42");
+  });
+
+  it("omits the scope header when no board is given (single-board parity)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(probeOk());
+    vi.stubGlobal("fetch", fetchMock);
+    await probeImportCapability("https://x.test", "tok");
+    const headers = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
+    expect(headers["X-Vibeflow-Scope"]).toBeUndefined();
+  });
+
   it("200 with the envelope → supported", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(probeOk()));
     const probe = await probeImportCapability("https://x.test", "tok");
