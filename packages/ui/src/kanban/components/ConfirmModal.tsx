@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { ModalBase } from './ModalBase';
 
 interface Props {
@@ -40,8 +40,8 @@ export function ConfirmModal({ open, message, title = 'Confirm', confirmLabel = 
             id="confirm-modal-confirm"
             onClick={onConfirm}
             disabled={loading}
-            style={{ padding: '7px 16px', borderRadius: 8, background: 'var(--t-danger-strong)', border: 'none', color: 'var(--t-white)', fontSize: 13, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1, transition: 'background 0.15s' }}
-          >{loading ? 'Deleting…' : confirmLabel}</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: 'var(--t-danger-strong)', border: 'none', color: 'var(--t-white)', fontSize: 13, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1, transition: 'background 0.15s' }}
+          >{loading && <Loader2 aria-hidden="true" size={14} style={{ animation: 'spin 0.7s linear infinite' }} />}{loading ? 'Deleting…' : confirmLabel}</button>
         </>
       }
     >
