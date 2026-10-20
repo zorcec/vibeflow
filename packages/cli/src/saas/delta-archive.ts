@@ -13,7 +13,12 @@
  * in one place — never re-implemented here with a bare `JSON.stringify`.
  */
 
-import { hashTaskRecord, sha256Hex } from "@vibeflow-tools/shared";
+// WHY the subpath: importing the package root pulls every shared export into
+// the CLI bundle, including `@paralleldrive/cuid2`, which does an unprefixed
+// `require("crypto")` and crashes the ESM bundle at load time with
+// "Dynamic require of \"crypto\" is not supported". This import needs only the
+// two hash helpers, so it names them directly.
+import { hashTaskRecord, sha256Hex } from "@vibeflow-tools/shared/delta-hash";
 
 /** A task as the server knows it: its id and the hash of its record. */
 export interface InventoryTask {

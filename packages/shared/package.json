@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./compression": "./src/compression.ts",
     "./overlay-bundle": "./src/overlay-bundle.gen.ts",
-    "./webhooks": "./src/webhooks.ts"
+    "./webhooks": "./src/webhooks.ts",
+    "./delta-hash": "./src/delta-hash.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
