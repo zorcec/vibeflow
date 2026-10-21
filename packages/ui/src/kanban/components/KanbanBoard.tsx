@@ -254,6 +254,14 @@ interface Props {
   /** Persists a card's expand/collapse choice for the current user. */
   onToggleExpanded?: (taskId: string, expanded: boolean) => void;
   /**
+   * Optional per-column footer, rendered as the LAST child of the column's
+   * `.column-scroll` (after the last card / overflow chip). Receives the
+   * column status; return null for columns that need no footer. Absent by
+   * default — existing consumers (CLI kanban bundle, showcase, tests)
+   * render byte-identically without it.
+   */
+  columnFooter?: (status: TaskStatus) => React.ReactNode;
+  /**
    * Width, in px, reserved on the board's right edge while the detail panel is
    * open. The panel is an absolutely positioned overlay, so on a viewport
    * narrower than board + panel it covers whatever column sits under it —
@@ -280,6 +288,7 @@ export function KanbanBoard({
   onTreeReparent,
   currentUserId,
   onToggleExpanded,
+  columnFooter,
   rightInset,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
@@ -885,6 +894,7 @@ export function KanbanBoard({
               onTreeRowDragStart={handleTreeRowDragStart}
               currentUserId={currentUserId}
               onToggleExpanded={onToggleExpanded}
+              footer={columnFooter?.(col.id) ?? null}
             />
           );
         })}
@@ -974,6 +984,9 @@ interface ColumnProps {
   currentUserId?: string;
   /** Persists a card's expand/collapse choice for the current user. */
   onToggleExpanded?: (taskId: string, expanded: boolean) => void;
+  /** Optional footer rendered LAST inside `.column-scroll` (after the last
+      card / overflow chip). Null/undefined renders nothing. */
+  footer?: React.ReactNode;
 }
 
 function KanbanColumn({
@@ -1003,6 +1016,7 @@ function KanbanColumn({
   isDragging,
   currentUserId,
   onToggleExpanded,
+  footer,
 }: ColumnProps) {
   const [addHovered, setAddHovered] = React.useState(false);
   // B3: fit-screen — stable declarative overflow handling. The scroll
@@ -1337,6 +1351,10 @@ function KanbanColumn({
             )}
           </>
         )}
+        {/* Optional per-column footer (columnFooter prop): rendered LAST
+            inside the scroll area, after the last card / overflow chip —
+            never above the board. Null renders nothing. */}
+        {footer ?? null}
       </div>
     </section>
   );
