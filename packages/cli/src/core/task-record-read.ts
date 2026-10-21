@@ -45,8 +45,8 @@ export function taskRecordValidationView(raw: Record<string, unknown>): Record<s
 
 // Closed, optional scalar set. Unknown keys/values are NEVER deleted to make
 // strict parsing pass: those records remain quarantined for an explicit decision.
-// In particular, unknown comment authors may be deliberate attribution, and an
-// empty-SHA commit can still carry message/author/time: coercion or deletion loses data.
+// Open comment author labels and empty commit SHAs are valid data, not repairs;
+// the shared schema preserves them verbatim without coercion or deletion.
 const OPTIONAL_SCALARS = new Set([
   "description", "type", "priority", "selector", "cssSelector", "file", "url",
   "line", "col", "component", "author", "agent", "model", "branchName",

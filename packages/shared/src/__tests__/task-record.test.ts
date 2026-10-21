@@ -6,7 +6,10 @@ import {
   parseTaskRecord,
   toCanonicalBytes,
   validateRecordDomain,
+  type TaskRecord,
 } from "../task-record";
+
+import openLabels from "./fixtures/task-record-open-labels.json";
 
 const base = {
   schemaVersion: TASK_RECORD_SCHEMA_VERSION,
@@ -69,6 +72,60 @@ describe("parseTaskRecord", () => {
       ],
     });
     expect(comment.ok).toBe(true);
+  });
+
+  // Minimal derived fixtures retain the measured labels/SHA, not full live records.
+  for (const fixture of openLabels) {
+    it(`preserves every key and value through canonical bytes: ${fixture.name}`, () => {
+      const parsed = parseTaskRecord(fixture.record);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+      expect(parsed.record).toStrictEqual(fixture.record);
+      const bytes = toCanonicalBytes(parsed.record);
+      // Serializing the input directly is an independent witness that parsing
+      // introduced no defaults, trimmed no label and dropped no nested key.
+      expect(bytes).toBe(toCanonicalBytes(fixture.record as TaskRecord));
+      expect(JSON.parse(bytes)).toStrictEqual(fixture.record);
+      if (fixture.record.comments) {
+        const author = fixture.record.comments[0].author;
+        expect(bytes).toContain(`"author": ${JSON.stringify(author)}`);
+      } else {
+        expect(bytes).toContain('"sha": ""');
+      }
+      const reparsed = parseTaskRecord(JSON.parse(bytes));
+      expect(reparsed.ok).toBe(true);
+      if (reparsed.ok) expect(toCanonicalBytes(reparsed.record)).toBe(bytes);
+    });
+  }
+
+  it.each([
+    ["empty string", { author: "" }],
+    ["number", { author: 42 }],
+    ["boolean", { author: true }],
+    ["object", { author: {} }],
+    ["array", { author: [] }],
+    ["null", { author: null }],
+    ["missing", {}],
+  ])("rejects %s comment author", (_name, author) => {
+    const parsed = parseTaskRecord({
+      ...base,
+      comments: [{ schemaVersion: 1, id: "c1", text: "hi", createdAt: base.created, ...author }],
+    });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.issues.map((issue) => issue.path)).toContain("comments[0].author");
+  });
+
+  it.each([
+    ["non-string", { sha: 42 }],
+    ["missing", {}],
+    ["overlong", { sha: "a".repeat(256) }],
+  ])("still rejects %s commit SHA", (_name, sha) => {
+    const parsed = parseTaskRecord({
+      ...base,
+      commits: [{ message: "pending", timestamp: base.created, ...sha }],
+    });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.issues.map((issue) => issue.path)).toContain("commits[0].sha");
   });
 
   it("rejects unknown keys (strict)", () => {

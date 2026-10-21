@@ -51,7 +51,7 @@ export const TASK_RECORD_STATUSES = [
 
 export type TaskRecordStatus = (typeof TASK_RECORD_STATUSES)[number];
 
-/** Comment author vocabulary. */
+/** Common comment author labels (not a closed validation vocabulary). */
 export const TASK_RECORD_COMMENT_AUTHORS = ["user", "agent"] as const;
 
 /** Comment `type` vocabulary. */
@@ -104,7 +104,10 @@ export type TaskLinkRecord = z.infer<typeof TaskLinkRecordSchema>;
 
 export const TaskCommitRecordSchema = z
   .object({
-    sha: z.string().min(1).max(255),
+    // A commit may carry message/author/time before its SHA is known. Keep an
+    // empty SHA verbatim: deleting the entry loses data; UI needing a real SHA
+    // ignores it. Owner decision, ticket 5b82a9fbcded9e7669b3e6e351e556.
+    sha: z.string().max(255),
     message: z.string().max(2_000),
     timestamp: isoUtc("timestamp"),
     authorEmail: authorEmailField.optional(),
@@ -117,7 +120,11 @@ export const TaskCommentRecordSchema = z
   .object({
     schemaVersion: z.literal(TASK_RECORD_SCHEMA_VERSION),
     id: z.string().min(1).max(255),
-    author: z.enum(TASK_RECORD_COMMENT_AUTHORS),
+    // Open display label, stored verbatim, NEVER an authorization input:
+    // authorization derives from authorId / board permissions, not this label.
+    // Owner decision, ticket 5b82a9fbcded9e7669b3e6e351e556: real labels include
+    // "orchestrator" and "pi-agent"; a closed enum quarantined their records.
+    author: z.string().min(1),
     text: z.string().min(1).max(PERSISTED_COMMENT_TEXT_MAX),
     files: z.array(z.string().max(500)).max(50).optional(),
     createdAt: isoUtc("createdAt"),

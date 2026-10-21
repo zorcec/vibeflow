@@ -1,0 +1,58 @@
+[
+  {
+    "name": "orchestrator-author",
+    "record": {
+      "schemaVersion": 1,
+      "id": "27a72579-regression",
+      "title": "Task with orchestrator attribution",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-orchestrator",
+          "author": "orchestrator",
+          "text": "Implementation coordinated",
+          "createdAt": "2026-03-01T10:00:00Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "pi-agent-author",
+    "record": {
+      "schemaVersion": 1,
+      "id": "da56968d-regression",
+      "title": "Task with pi-agent attribution",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-pi-agent",
+          "author": "pi-agent",
+          "text": "Implementation checked",
+          "createdAt": "2026-03-01T10:00:00Z"
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown-commit-sha",
+    "record": {
+      "schemaVersion": 1,
+      "id": "d14f4fee-regression",
+      "title": "Task annotated before commit",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "commits": [
+        {
+          "sha": "",
+          "message": "Implementation pending commit",
+          "timestamp": "2026-03-01T10:00:00Z",
+          "authorEmail": "agent@example.com"
+        }
+      ]
+    }
+  }
+]

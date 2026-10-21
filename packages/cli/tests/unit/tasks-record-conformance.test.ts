@@ -27,6 +27,7 @@ import defects from "../fixtures/task-record/historical-defects.json";
 import realLocal from "../fixtures/task-record/real-board-local.json";
 import realServerRaw from "../fixtures/task-record/real-board-stored-raw.json";
 import realHash from "../fixtures/task-record/real-board-hash.json";
+import openLabels from "../../../shared/src/__tests__/fixtures/task-record-open-labels.json";
 
 function validated(input: unknown): TaskRecord {
   const result = parseTaskRecord(input);
@@ -106,6 +107,45 @@ describe("local TaskRecord conformance (M01/M02)", () => {
 });
 
 describe("read repair versus quarantine", () => {
+  for (const fixture of openLabels) {
+    for (const versioned of [true, false]) {
+      it(`lists ${fixture.name} without quarantine, notices or normalization (${versioned ? "version 1" : "legacy"})`, () => {
+        const raw: Record<string, unknown> = structuredClone(fixture.record);
+        if (!versioned) {
+          delete raw.schemaVersion;
+          if (Array.isArray(raw.comments)) {
+            for (const comment of raw.comments) delete comment.schemaVersion;
+          }
+        }
+        const path = write(raw, String(raw.id));
+        const before = readFileSync(path, "utf8");
+        const read = readTaskRecordFile(path);
+        expect(read.issues).toEqual([]);
+        expect(read.findings).toEqual([]);
+        expect(read.record).toStrictEqual(raw);
+        expect(read.canonical).toStrictEqual(fixture.record);
+        expect(toCanonicalBytes(read.canonical!)).toBe(toCanonicalBytes(validated(fixture.record)));
+        expect(JSON.parse(toCanonicalBytes(read.canonical!))).toStrictEqual(fixture.record);
+        const reads: TaskReadFinding[] = [];
+        // Listing is a display projection; the strict raw/key witness is above.
+        const listed = listTasks(dir, reads);
+        expect(listed.map((task) => task.id)).toEqual([raw.id]);
+        if (fixture.record.comments) expect(listed[0].comments).toStrictEqual(raw.comments);
+        else expect(listed[0].commits).toStrictEqual(raw.commits);
+        expect(reads).toEqual([]);
+        expect(taskReadNotices(reads)).toEqual([]);
+        const plan = planTaskStoreNormalize(dir);
+        expect(plan.changes).toEqual([]);
+        expect(plan.quarantined).toEqual([]);
+        expect(plan.unreadable).toEqual([]);
+        const applied = applyTaskStoreNormalize(dir);
+        expect(applied.applied).toEqual([]);
+        expect(applied.unwritten).toEqual([]);
+        expect(readFileSync(path, "utf8")).toBe(before);
+      });
+    }
+  }
+
   it("repairs aliases, missing child identity/timestamp, null scalars and partial links once", () => {
     const raw = { ...base, priority: null, links: [{ taskId: "parent", type: "parent" }, {}], comments: [{ role: "agent", content: "historical", at: base.created }, { author: "user", body: "second" }] };
     const path = write(raw);
@@ -130,7 +170,8 @@ describe("read repair versus quarantine", () => {
     ["missing commit fields", { commits: [{ sha: "a" }] }],
     ["null tags", { tags: null }],
     ["invalid status", { status: "deliberate-custom-state" }],
-    ["invalid author", { comments: [{ id: "c", author: "deliberate", text: "message", createdAt: base.created }] }],
+    ["empty author", { comments: [{ id: "c", author: "", text: "message", createdAt: base.created }] }],
+    ["non-string author", { comments: [{ id: "c", author: 42, text: "message", createdAt: base.created }] }],
     ["missing author", { comments: [{ id: "c", text: "message", createdAt: base.created }] }],
     ["empty title", { title: "" }],
     ["invalid source", { comments: [{ id: "c", author: "user", text: "message", createdAt: base.created, source: "saas" }] }],
@@ -158,7 +199,10 @@ describe("read repair versus quarantine", () => {
     write({ secret: "not-a-task" }, "task.auth");
     const reads: TaskReadFinding[] = [];
     expect(listTasks(dir, reads).map((task) => task.id)).toEqual(["repair"]);
-    expect(taskReadNotices(reads).map((n) => n.message)).toEqual([expect.stringContaining("repair"), expect.stringContaining("bad")]);
+    expect(taskReadNotices(reads)).toEqual([
+      { code: "TASK_RECORD_REPAIRED", message: "1 task record(s) repaired in memory (disk unchanged): repair. Run tasks --normalize for repair details." },
+      { code: "TASK_RECORD_QUARANTINED", message: "1 task record(s) quarantined (excluded from listing/merge/push): bad. Not auto-repairable: bad: <root>: Unrecognized key(s) in object: 'unknownKey'. Run tasks --normalize for repair details." },
+    ]);
     expect(planTaskStoreNormalize(dir).unreadable).toEqual([]);
     expect(planTaskStoreNormalize(dir).quarantined.map((r) => r.id)).toEqual(["bad"]);
   });
