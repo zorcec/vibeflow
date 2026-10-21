@@ -2,7 +2,7 @@ import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.
 import chalk from "chalk";
 import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { listTasksWithPaths } from "../core/tasks.js";
+import { prepareTaskRecordsForPush } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
@@ -255,8 +255,7 @@ export interface PushResult {
   board?: string;
   /**
    * Distinct local tasks with at least one commits[] entry missing
-   * `authorEmail`. REPORT ONLY — push never enriches and never writes local
-   * data; the count points at `vibeflow authors link`.
+   * `authorEmail`. REPORT ONLY — push never enriches commit attribution; the count points at `vibeflow authors link`.
    */
   tasksMissingCommitAuthorEmail?: number;
   /**
@@ -272,8 +271,7 @@ export interface PushResult {
 /**
  * Distinct tasks whose commits include at least one entry without a
  * non-empty `authorEmail` — the enrichment gap `vibeflow authors link`
- * fills. Read-only accounting for the push report; push itself never
- * writes task data.
+ * fills. Read-only accounting for the push report; comment-id preflight is separate.
  */
 export function countTasksMissingCommitAuthorEmail(
   tasks: Array<{ commits?: Array<{ authorEmail?: string }> }>,
@@ -286,7 +284,7 @@ export function countTasksMissingCommitAuthorEmail(
 async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
-  const taskList = listTasksWithPaths(projectDir, reads);
+  const taskList = prepareTaskRecordsForPush(projectDir, reads, opts.dryRun === true);
   const tasksMissingCommitAuthorEmail = countTasksMissingCommitAuthorEmail(taskList);
   if (taskList.length === 0) {
     // Stryker disable once StringLiteral: display message for no tasks
@@ -965,12 +963,12 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   }
 
   // Enrichment gap, report-only (the local record is the mirror source;
-  // push never writes task data and never enriches — `vibeflow authors link`
+  // push never enriches attribution — `vibeflow authors link`
   // does that as a deliberate, reviewable edit).
   if (tasksMissingCommitAuthorEmail > 0) {
     console.log(
       chalk.yellow(
-        `  ⚠ ${tasksMissingCommitAuthorEmail} task(s) have commits missing authorEmail — run \`vibeflow authors link\` to fill them in (push never writes local data).`,
+        `  ⚠ ${tasksMissingCommitAuthorEmail} task(s) have commits missing authorEmail — run \`vibeflow authors link\` to fill them in (push never enriches attribution).`,
       ),
     );
   }

@@ -261,17 +261,42 @@ describe("push — import API interaction", () => {
     expect(readFileSync(path, "utf8")).toBe(before);
   });
 
-  it("quarantined records cannot reach push, and report count/id/reason", async () => {
+  it("unrepairable records abort push with the task id and reason before any network call", async () => {
     const projectDir = makeTempProject();
     const path = createTaskFile(projectDir, { ...realBoardRecord, unknownData: "deliberate" });
     const before = readFileSync(path, "utf8");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const result = await push(projectDir, { json: true });
-    expect(result?.tasks).toBe(0);
+    await expect(push(projectDir, { json: true })).rejects.toThrow(
+      new RegExp(`Task ${realBoardRecord.id}: push preflight failed:.*unknownData`),
+    );
     expect(fetch).not.toHaveBeenCalled();
-    expect(result?.notices).toEqual(expect.arrayContaining([{ code: "TASK_RECORD_QUARANTINED", message: expect.stringContaining(realBoardRecord.id) }]));
     expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  it("persists missing comment ids before even the first network call builds a payload", async () => {
+    const projectDir = makeTempProject();
+    const path = createTaskFile(projectDir, {
+      id: "task-idless", title: "Historical comment", status: "todo", created: "2025-01-01T00:00:00Z",
+      comments: [{ author: "agent", text: "keep me", createdAt: "2025-01-01T00:00:00Z" }],
+    });
+    let checked = false;
+    vi.stubGlobal("fetch", withOldServerProbe(vi.fn(async (_url: unknown, init?: RequestInit) => {
+      // This assertion reads the actual file before the POST body is inspected.
+      const disk = JSON.parse(readFileSync(path, "utf8"));
+      expect(disk.comments[0].id).toMatch(/^c[0-9a-f]{24}$/);
+      // The property under test is that the id is already on disk when the FIRST
+      // network call happens — push travels as a multipart tree-import, so the
+      // JSON body branch below is only asserted when such a body is actually sent.
+      checked = true;
+      if (init?.method === "POST" && typeof init.body === "string" && String(init.body).startsWith("{")) {
+        expect(JSON.parse(String(init.body)).record.comments[0].id).toBe(disk.comments[0].id);
+        return { ok: true, json: async () => ({ id: "remote-1" }) };
+      }
+      return { ok: true, json: async () => ({ items: [], nextCursor: null }) };
+    })));
+    await push(projectDir, {});
+    expect(checked).toBe(true);
   });
 
   it("sends tasks to import API and reports success", async () => {

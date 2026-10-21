@@ -54,6 +54,18 @@ const OPTIONAL_SCALARS = new Set([
   "updated", "commit", "screenshot", "baselineElementFile", "baselineFile",
 ]);
 
+/**
+ * ae9e99fd: frozen identity tuple = UTF-8(taskId + NUL + zero-based array
+ * ordinal + NUL + author + NUL + text), SHA-256, first 24 hex chars, prefixed c.
+ * No timestamps, machine state or randomness; existing record ids always win.
+ * The server-minted c179dd7c… for b0fd680d is deliberately discarded in favour
+ * of the record's derived id: the local record is the one truth, not the row.
+ */
+export function deterministicCommentId(taskId: string, author: string, text: string, ordinal: number): string {
+  const digest = createHash("sha256").update(`${taskId}\u0000${ordinal}\u0000${author}\u0000${text}`).digest("hex");
+  return `c${digest.slice(0, 24)}`;
+}
+
 /** Read repair is pure, named and loss-limited; quarantine is not a TaskRecord. */
 export function inspectLocalTaskRecord(input: unknown): LocalTaskRecordRead {
   if (!isObject(input)) {
@@ -61,6 +73,7 @@ export function inspectLocalTaskRecord(input: unknown): LocalTaskRecordRead {
   }
   const record = structuredClone(input);
   const findings: TaskRecordFinding[] = [];
+  const repairIssues: RecordIssue[] = [];
   const change = (obj: Record<string, unknown>, key: string, field: string, rule: string, after: unknown): void => {
     findings.push({ rule, field, before: obj[key], after: after === undefined ? "absent" : after });
     if (after === undefined) delete obj[key];
@@ -99,15 +112,18 @@ export function inspectLocalTaskRecord(input: unknown): LocalTaskRecordRead {
           change(comment, "createdAt", `${prefix}.createdAt`, "missing-comment-timestamp", record.created);
         }
         if (!("id" in comment) && typeof record.id === "string" && typeof comment.author === "string" && typeof comment.text === "string") {
-          const digest = createHash("sha256").update(`${record.id}\u0000${index}\u0000${comment.author}\u0000${comment.text}`).digest("hex");
-          const id = `c${digest.slice(0, 24)}`;
-          if (!comments.some((other: unknown) => isObject(other) && other.id === id)) {
+          const id = deterministicCommentId(record.id, comment.author, comment.text, index);
+          if (comments.some((other: unknown) => isObject(other) && other.id === id)) {
+            // Never change the frozen tuple or overwrite another comment's id.
+            repairIssues.push({ path: `${prefix}.id`, code: "comment_id_collision", message: `Derived comment id ${id} conflicts with an existing comment id` });
+          } else {
             change(comment, "id", `${prefix}.id`, "mint-comment-id", id);
           }
         }
       });
     }
   }
+  if (repairIssues.length > 0) return { record: null, canonical: null, findings, issues: repairIssues };
   const parsed = parseTaskRecord(taskRecordValidationView(record));
   return parsed.ok
     ? { record, canonical: parsed.record, findings, issues: [] }

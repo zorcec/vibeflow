@@ -1042,7 +1042,14 @@ async function promptPushLocalTasks(
             // and this flow never deleted client-side, so the answer is
             // kept for prompt parity only.)
             try {
-              const records = unsynced as Array<Record<string, unknown>>;
+              const { prepareTaskRecordsForPush } = await import("../core/tasks.js");
+              // Re-read after the prompts: ids must be on disk before either
+              // legacy creates or tree-import builds its payload (ae9e99fd).
+              const wanted = new Set(unsynced.map((task) => task.id));
+              // SAFETY: preflight returns validated task JSON snapshots plus
+              // filePath; this cast adds an index signature without changing data.
+              const records = prepareTaskRecordsForPush(projectDir)
+                .filter((task) => wanted.has(task.id)) as unknown as Array<Record<string, unknown>>;
               // Minimal push progress (ticket e4049164): one \r line on a
               // TTY (counter + bar + pct + ETA), sparse lines when piped,
               // everything on stderr — the pre-push listing and the prompts

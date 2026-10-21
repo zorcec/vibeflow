@@ -495,6 +495,39 @@ export function applyTaskStoreNormalize(projectDir: string): {
 }
 
 /**
+ * Push preflight (ae9e99fd): return a snapshot only AFTER missing comment ids
+ * have been atomically persisted under the task lock. A failed repair/write
+ * aborts the push with its task id; listing's quarantine/skip policy is unsafe
+ * here. Dry-run validates the same snapshot but must not write anything.
+ */
+export function prepareTaskRecordsForPush(projectDir: string, reads: TaskReadFinding[] = [], dryRun = false): Array<Task & { filePath: string }> {
+  return listTaskRawFiles(projectDir).map(({ filePath }) => {
+    const id = taskFileId(filePath);
+    try {
+      return withFileLockSync(taskLockPath(projectDir, id), () => {
+        const text = readFileSync(filePath, "utf-8");
+        const raw: unknown = JSON.parse(text);
+        const read = inspectLocalTaskRecord(raw);
+        if (!read.record) {
+          throw new Error(read.issues.map((issue) => `${issue.path || "<root>"}: ${issue.message}`).join("; "));
+        }
+        const minted = read.findings.some((finding) => finding.rule === "mint-comment-id");
+        if (minted && !dryRun) {
+          const tmp = filePath + ".tmp";
+          writeFileSync(tmp, JSON.stringify(read.record, null, 2) + (text.endsWith("\n") ? "\n" : ""), "utf-8");
+          renameSync(tmp, filePath);
+        } else if (read.findings.length > 0) {
+          reads.push({ id: taskFileId(filePath, raw), quarantined: false, findings: read.findings, issues: [] });
+        }
+        return { ...normalizeTask(read.record), filePath };
+      });
+    } catch (err) {
+      throw new Error(`Task ${id}: push preflight failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+}
+
+/**
  * Write-side scrub for the Research invariant: drop `verified` before a Research
  * task is serialised, so the value never reaches disk.
  *
