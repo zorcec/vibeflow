@@ -13,17 +13,45 @@ const DIST = process.env.VIBEFLOW_DIST_DIR || "dist";
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
+  // Explicit node platform: without it a neutral/browser platform would let
+  // esbuild inline CJS shims whose bare `require("crypto")` becomes a
+  // runtime-throwing `__require` in ESM output ("Dynamic require of
+  // \"crypto\" is not supported" — every CLI invocation dead on arrival
+  // while the build itself stays green).
+  platform: "node",
   target: "node22",
   outDir: `${DIST}/cli`,
   clean: false,
   sourcemap: false,
   minify: true,
   dts: true,
-  banner: { js: "#!/usr/bin/env node" },
+  // The `createRequire` shim keeps any residual CJS `require("crypto")`
+  // (e.g. bundled CJS deps such as @noble/hashes pulled in via cuid2)
+  // working under ESM, where esbuild's `__require` fallback would throw.
+  // The shebang must stay the very first line.
+  banner: {
+    js: '#!/usr/bin/env node\nimport { createRequire as __vfCreateRequire } from "node:module"; const require = __vfCreateRequire(import.meta.url);',
+  },
   // Playwright is a runtime dependency that cannot be bundled by esbuild
   // (chromium-bidi has deep CJS requires). Mark it external so it's
   // resolved at runtime via node_modules.
-  external: ["playwright", "playwright-core"],
+  // Node builtins stay external too, so the ESM output keeps
+  // `import … from "node:crypto"` instead of emitting a CJS-interop
+  // `require("crypto")` that throws at runtime.
+  external: [
+    "playwright",
+    "playwright-core",
+    /^node:/,
+    "crypto",
+    "fs",
+    "path",
+    "os",
+    "util",
+    "events",
+    "stream",
+    "child_process",
+    "module",
+  ],
   esbuildOptions(options) {
     try {
       const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as {
