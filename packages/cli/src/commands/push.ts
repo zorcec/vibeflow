@@ -680,6 +680,9 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
           ? null
           : await runDeltaPush(apiUrl, token, workspaceId, inputs, {
               headers: await scopeHeadersFromSaved(),
+              // Resolve missing commit emails from the project's own git
+              // history — the repo the push is running in, not the CLI's cwd.
+              gitCwd: projectDir,
             });
       if (delta !== null) {
         result = {

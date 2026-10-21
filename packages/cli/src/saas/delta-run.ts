@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 
 import { recordForWire, type ImportTaskInput } from "./batch-push";
+import { applyEmails, resolveEmailsForRecords } from "./commit-emails";
 import {
   buildDeltaPlan,
   chunkDeltaPlan,
@@ -46,6 +47,10 @@ export interface DeltaRunOptions {
   headers: Record<string, string>;
   fetchImpl?: typeof fetch;
   onProgress?: (phase: string, done: number, total: number) => void;
+  /** Where to resolve missing `authorEmail`s from git at push time. */
+  gitCwd?: string;
+  /** Pre-resolved emails (tests, or a caller that already ran the lookup). */
+  emails?: Map<string, string>;
 }
 
 /** One inventory page as the server returns it. */
@@ -130,7 +135,10 @@ function tasksWithNewFiles(local: LocalTask[], inventory: Inventory): Set<string
 }
 
 /** Assemble the archive inputs from the on-disk files the push already listed. */
-function toLocalTasks(inputs: ImportTaskInput[]): LocalTask[] {
+function toLocalTasks(
+  inputs: ImportTaskInput[],
+  emails: Map<string, string>,
+): LocalTask[] {
   return inputs.map((input) => ({
     id: input.localId,
     // WHY the wire form: the local record carries runtime-only keys
@@ -138,8 +146,9 @@ function toLocalTasks(inputs: ImportTaskInput[]): LocalTask[] {
     // record leaves the machine. Hashing the RAW local object therefore
     // never matched what the server stored, so every push reported all
     // 1758 tasks as changed — measured against production. Hash exactly
-    // what will be sent.
-    raw: recordForWire(input.record),
+    // what will be sent — including any email filled in below, or the same
+    // mismatch returns for every task that has a commit.
+    raw: applyEmails(recordForWire(input.record), emails),
     files: input.files.map((file) => {
       const data = readFileSync(file.filePath);
       return {
@@ -174,7 +183,16 @@ export async function runDeltaPush(
   });
   if (!capability.supported) return null;
 
-  const local = toLocalTasks(inputs);
+  const local = toLocalTasks(
+    inputs,
+    opts.emails ??
+      // One git call for the whole push. Best effort: an unavailable history
+      // leaves the records untouched rather than failing the push.
+      resolveEmailsForRecords(
+        inputs.map((i) => recordForWire(i.record)),
+        opts.gitCwd ?? process.cwd(),
+      ),
+  );
   const inventory = await fetchInventory(apiUrl, token, boardId, opts.headers, fetchImpl);
 
   // Force any task that carries a file the board cannot prove it has, so the
