@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -511,5 +512,291 @@ describe("stagePullArchive — truncation", () => {
     await expect(stagePullArchive(projectDir, gzip(truncated))).rejects.toThrow(
       PullVerifyError,
     );
+  });
+});
+
+describe("pull atomicity — apply verifies before the first write", () => {
+  /** Snapshot every byte under .vibeflow: relative path → content hash. */
+  function snapshotStore(): Map<string, string> {
+    const root = join(projectDir, ".vibeflow");
+    const out = new Map<string, string>();
+    const walk = (dir: string): void => {
+      if (!existsSync(dir)) return;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const abs = join(dir, entry.name);
+        if (entry.isDirectory()) walk(abs);
+        else if (entry.isFile()) {
+          out.set(abs.slice(root.length + 1), sha256Hex(readFileSync(abs)));
+        }
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  function expectStoreUnchanged(before: Map<string, string>): void {
+    expect([...snapshotStore().entries()]).toEqual([...before.entries()]);
+  }
+
+  /** Task JSONs (not file blobs) whose bytes differ from the snapshot. */
+  function changedTaskJsons(before: Map<string, string>): string[] {
+    const after = snapshotStore();
+    const changed: string[] = [];
+    for (const [rel, hash] of after) {
+      if (rel.startsWith("tasks/files/") || !rel.endsWith(".json")) continue;
+      if (before.get(rel) !== hash) changed.push(rel);
+    }
+    for (const rel of before.keys()) {
+      if (rel.startsWith("tasks/files/") || !rel.endsWith(".json")) continue;
+      if (!after.has(rel)) changed.push(`${rel} (deleted)`);
+    }
+    return changed.sort();
+  }
+
+  function stagingWith(
+    tasks: Array<{ clientId: string; record: Record<string, unknown> }>,
+    files: PullStaging["files"],
+    manifestFiles: PullManifest["files"],
+    manifestTasks?: PullManifest["tasks"],
+  ): PullStaging {
+    return {
+      manifest: {
+        version: 1,
+        taskCount: tasks.length,
+        fileCount: files.length,
+        tasks:
+          manifestTasks ??
+          tasks.map((t) => ({ cliId: t.clientId, hash: hashTaskRecord(t.record) })),
+        files: manifestFiles,
+      },
+      tasks,
+      files,
+      missingBytes: [],
+    };
+  }
+
+  it("a file sha mismatch throws before any task is written", () => {
+    writeTask("e1", taskRecord("e1", { sortKey: "0001" }));
+    const before = snapshotStore();
+    // Two brand-new tasks a naive interleaved merge would write first; the
+    // file bytes below do NOT match the manifest sha (same length, so only
+    // the sha check fires).
+    const n1 = taskRecord("n1", { sortKey: "0010" });
+    const n2 = taskRecord("n2", { sortKey: "0011" });
+    const good = Buffer.from("good bytes!");
+    const bad = Buffer.from("xxxx bytes!");
+    expect(good.length).toBe(bad.length);
+    expect(sha256Hex(good)).not.toBe(sha256Hex(bad));
+    const staging = stagingWith(
+      [
+        { clientId: "n1", record: n1 },
+        { clientId: "n2", record: n2 },
+      ],
+      [{ clientId: "n1", name: "doc.txt", data: bad }],
+      [{ cliId: "n1", name: "doc.txt", size: good.length, sha256: sha256Hex(good) }],
+    );
+    expect(() => applyPullEntries(projectDir, staging, {})).toThrow(PullVerifyError);
+    // Zero writes: neither new task landed and the existing store is identical.
+    expectStoreUnchanged(before);
+    expect(
+      existsSync(join(projectDir, ".vibeflow", "tasks", "2026-01-01", "n1.json")),
+    ).toBe(false);
+  });
+
+  it("a task hash mismatch on the LAST task still writes nothing", () => {
+    writeTask("e1", taskRecord("e1", { sortKey: "0001" }));
+    const before = snapshotStore();
+    const n1 = taskRecord("n1", { sortKey: "0010" });
+    const n2 = taskRecord("n2", { sortKey: "0011" });
+    const staging = stagingWith(
+      [
+        { clientId: "n1", record: n1 },
+        { clientId: "n2", record: n2 },
+      ],
+      [],
+      [],
+      [
+        { cliId: "n1", hash: hashTaskRecord(n1) },
+        { cliId: "n2", hash: "f".repeat(64) },
+      ],
+    );
+    expect(() => applyPullEntries(projectDir, staging, {})).toThrow(PullVerifyError);
+    expectStoreUnchanged(before);
+  });
+
+  it("runPullFromBytes leaves a populated store byte-identical on verify failure", async () => {
+    writeTask("e1", taskRecord("e1", { sortKey: "0001" }));
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files", "e1");
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "keep.txt"), "keep me");
+    const before = snapshotStore();
+    const ok = taskRecord("n1", { sortKey: "0010" });
+    const tampered = taskRecord("n2", { sortKey: "0011" });
+    const bytes = makeArchive(
+      [
+        { clientId: "n1", record: ok },
+        { clientId: "n2", record: tampered },
+      ],
+      [],
+      {
+        tasks: [
+          { cliId: "n1", hash: hashTaskRecord(ok) },
+          { cliId: "n2", hash: "0".repeat(64) },
+        ],
+      },
+    );
+    await expect(runPullFromBytes(projectDir, bytes, {})).rejects.toThrow(
+      PullVerifyError,
+    );
+    expectStoreUnchanged(before);
+  });
+});
+
+describe("pull fidelity — the server record is reproduced, not reinvented", () => {
+  it("an unchanged pull writes nothing: no invented mimeType, updated untouched", () => {
+    const record = taskRecord("same-1", {
+      sortKey: "0001",
+      updated: "2026-03-03T00:00:00.000Z",
+      files: [{ name: "note.txt", addedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    writeTask("same-1", record);
+    const taskPath = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "same-1.json");
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files", "same-1");
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "note.txt"), "same-bytes");
+    const before = readFileSync(taskPath, "utf-8");
+    // The server record carries NO mimeType; the manifest file entry does
+    // (real exports do) — the pull must not invent it into the stored task.
+    const data = Buffer.from("same-bytes");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "same-1", hash: hashTaskRecord(record) }],
+        files: [
+          {
+            cliId: "same-1",
+            name: "note.txt",
+            size: data.length,
+            sha256: sha256Hex(data),
+            mimeType: "text/plain",
+          },
+        ],
+      },
+      tasks: [{ clientId: "same-1", record: { ...record } }],
+      files: [{ clientId: "same-1", name: "note.txt", data, mimeType: "text/plain" }],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, {});
+    expect(summary).toMatchObject({
+      added: 0,
+      merged: 0,
+      unchanged: 1,
+      filesWritten: 0,
+      filesIdentical: 1,
+      filesKept: 0,
+    });
+    // The task file is byte-identical: no invented key, no updated rewrite.
+    expect(readFileSync(taskPath, "utf-8")).toBe(before);
+    const stored = JSON.parse(before) as {
+      updated?: string;
+      files?: Array<{ mimeType?: string }>;
+    };
+    expect(stored.updated).toBe("2026-03-03T00:00:00.000Z");
+    expect(stored.files ?? []).toHaveLength(1);
+    expect("mimeType" in (stored.files?.[0] ?? {})).toBe(false);
+  });
+});
+
+describe("pull honesty — the summary counts what was written", () => {
+  it("added+merged equals the task files changed on disk", () => {
+    const u1 = taskRecord("u1", {
+      sortKey: "0001",
+      updated: "2026-03-03T00:00:00.000Z",
+      files: [{ name: "a.txt", addedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    writeTask("u1", u1);
+    const u1Path = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "u1.json");
+    const u1BytesBefore = readFileSync(u1Path, "utf-8");
+    const u1Dir = join(projectDir, ".vibeflow", "tasks", "files", "u1");
+    mkdirSync(u1Dir, { recursive: true });
+    writeFileSync(join(u1Dir, "a.txt"), "AAA");
+    const m1 = taskRecord("m1", {
+      sortKey: "0002",
+      files: [{ name: "c.txt", addedAt: "2026-01-01T00:00:00.000Z" }],
+    });
+    writeTask("m1", m1);
+    const m1Dir = join(projectDir, ".vibeflow", "tasks", "files", "m1");
+    mkdirSync(m1Dir, { recursive: true });
+    writeFileSync(join(m1Dir, "c.txt"), "local wins");
+    // Count hashes before touching anything.
+    const root = join(projectDir, ".vibeflow");
+    const before = new Map<string, string>();
+    const walk = (dir: string, into: Map<string, string>): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const abs = join(dir, entry.name);
+        if (entry.isDirectory()) walk(abs, into);
+        else if (entry.isFile()) {
+          into.set(abs.slice(root.length + 1), sha256Hex(readFileSync(abs)));
+        }
+      }
+    };
+    walk(root, before);
+
+    const m1Remote = { ...m1, remoteFlag: true };
+    const n1 = taskRecord("n1", { sortKey: "0003" });
+    const aData = Buffer.from("AAA");
+    const bData = Buffer.from("brand new");
+    const cData = Buffer.from("remote differs");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 3,
+        fileCount: 3,
+        tasks: [
+          { cliId: "m1", hash: hashTaskRecord(m1Remote) },
+          { cliId: "n1", hash: hashTaskRecord(n1) },
+          { cliId: "u1", hash: hashTaskRecord(u1) },
+        ],
+        files: [
+          { cliId: "u1", name: "a.txt", size: aData.length, sha256: sha256Hex(aData), mimeType: "text/plain" },
+          { cliId: "n1", name: "b.txt", size: bData.length, sha256: sha256Hex(bData), mimeType: "text/plain" },
+          { cliId: "m1", name: "c.txt", size: cData.length, sha256: sha256Hex(cData) },
+        ],
+      },
+      tasks: [
+        { clientId: "m1", record: m1Remote },
+        { clientId: "n1", record: n1 },
+        { clientId: "u1", record: { ...u1 } },
+      ],
+      files: [
+        { clientId: "u1", name: "a.txt", data: aData, mimeType: "text/plain" },
+        { clientId: "n1", name: "b.txt", data: bData, mimeType: "text/plain" },
+        { clientId: "m1", name: "c.txt", data: cData },
+      ],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, {});
+    expect(summary.added).toBe(1);
+    expect(summary.merged).toBe(1);
+    expect(summary.unchanged).toBe(1);
+    expect(summary.filesWritten).toBe(1);
+    expect(summary.filesIdentical).toBe(1);
+    expect(summary.filesKept).toBe(1);
+
+    // Independently recount: the task JSONs changed on disk are exactly added+merged.
+    const after = new Map<string, string>();
+    walk(root, after);
+    const changed: string[] = [];
+    for (const [rel, hash] of after) {
+      if (rel.startsWith("tasks/files/") || !rel.endsWith(".json")) continue;
+      if (before.get(rel) !== hash) changed.push(rel);
+    }
+    expect(changed).toHaveLength(summary.added + summary.merged);
+    // The unchanged task is byte-identical despite the manifest mimeType.
+    expect(readFileSync(u1Path, "utf-8")).toBe(u1BytesBefore);
+    // No stored record invented a mimeType the server record lacks.
+    expect(readFileSync(u1Path, "utf-8")).not.toContain("mimeType");
   });
 });

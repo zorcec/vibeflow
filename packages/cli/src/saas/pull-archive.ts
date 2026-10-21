@@ -19,13 +19,15 @@
  *
  * WHY stage-then-merge instead of unpacking straight into the store: a
  * truncated gzip or a hash mismatch must leave ZERO writes behind. The
- * archive is extracted into `<project>/.vibeflow/.pull-tmp-<stamp>/`, verified
- * there (manifest version, entry counts, per-task hashes, per-file sha256),
- * and only then merged task-by-task into `.vibeflow/`. Any verification
- * failure deletes the temp dir and writes nothing. (A single atomic rename
- * cannot work here: the merge is per-task additive against an existing
- * store, not a whole-directory replacement — the temp dir is what makes the
- * "verify before the first write" rule enforceable.)
+ * archive is extracted into `<project>/.vibeflow/.pull-tmp-<stamp>/`, read
+ * there, and only then merged task-by-task into `.vibeflow/`. Verification
+ * (manifest version, entry counts, per-task hashes, per-file sha256) is the
+ * first step of applyPullEntries — the single choke point for staged
+ * writes — so any failure throws before the first store write and the temp
+ * dir is deleted with nothing written. (A single atomic rename cannot work
+ * here: the merge is per-task additive against an existing store, not a
+ * whole-directory replacement — verify-before-the-first-write is what makes
+ * the rule enforceable.)
  */
 
 import {
@@ -54,9 +56,8 @@ import {
   writeTaskJsonAt,
   maxStoreSortKey,
   invalidateSortKeyCeiling,
-  updateTask,
 } from "../core/tasks.js";
-import { getFilesDir, saveFile } from "../core/files.js";
+import { getFilesDir } from "../core/files.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 import type { Task, TaskComment, TaskLink } from "../core/types.js";
 
@@ -568,31 +569,74 @@ export function verifyPullStaging(staging: PullStaging): void {
 
 // ── Merge the verified staging into the local store ────────────────────────
 
+/** One task's planned store write. `record` is the exact object to
+ * serialise — built (never mutated in place) from the staged archive entry
+ * — and `filePath` is null only for brand-new tasks, where writeTaskJson
+ * picks the date subdir. `unchanged` plans carry no record and write
+ * nothing: an unchanged task stays byte-identical on disk. */
+interface PullTaskPlan {
+  clientId: string;
+  kind: "new" | "rewrite" | "unchanged";
+  filePath: string | null;
+  record: Record<string, unknown> | null;
+  conflict: boolean;
+  ceilingTouched: boolean;
+}
+
+/** One staged file's planned fate. `needsRef` carries the files[] entry the
+ * stored task record must contain for bytes this pull writes; it is folded
+ * into the task plan BEFORE the first write so the task file is written at
+ * most once and the write is counted. */
+interface PullFilePlan {
+  file: PullFileEntry;
+  safeName: string;
+  action: "write" | "identical" | "keep";
+  needsRef: { clientId: string; serverRef: Record<string, unknown> | null } | null;
+}
+
 /**
- * Merge verified staging entries into `<projectDir>/.vibeflow/`. Additive
- * and never destructive: existing tasks merge field-by-field (local wins by
- * default), local-only data is never dropped, and files whose bytes differ
- * are kept locally unless `preferRemote` replaces them. `dryRun` computes
- * the same summary without writing a single byte.
+ * Merge staged entries into `<projectDir>/.vibeflow/`. Additive and never
+ * destructive: existing tasks merge field-by-field (local wins by default),
+ * local-only data is never dropped, and files whose bytes differ are kept
+ * locally unless `preferRemote` replaces them. `dryRun` computes the same
+ * summary without writing a single byte.
+ *
+ * ATOMICITY: verification runs FIRST, inside this function — not just in
+ * runPullFromBytes — because this is the only writer of staged data into
+ * the live store. Any manifest/task/file mismatch throws PullVerifyError
+ * before the first store write, so a corrupt archive leaves the store
+ * byte-identical no matter which entry point the caller used. Past that
+ * point the merge is planned whole (every task record, every file fate,
+ * every files[] ref the plan needs) and only then executed, so a task file
+ * is never written twice and every write is counted exactly once.
+ *
+ * FIDELITY: the pull reproduces the server record faithfully. Manifest-only
+ * metadata (notably the file-entry `mimeType`) is never invented into the
+ * stored task: when the server record carries no `mimeType`, none is
+ * added, and `updated` is bumped only for tasks the merge actually changed
+ * — an unchanged pull is a byte-no-op, which is what keeps the next push
+ * converged instead of re-uploading pulled tasks.
  */
 export function applyPullEntries(
   projectDir: string,
   staging: PullStaging,
   opts?: PullMergeOptions,
 ): PullMergeSummary {
+  verifyPullStaging(staging);
+
   const preferRemote = opts?.preferRemote === true;
   const dryRun = opts?.dryRun === true;
   const summary = emptyPullSummary();
-  let ceilingTouched = false;
 
+  // ── Phase 1: plan every task write (reads only, no writes) ──
+  const taskPlans: PullTaskPlan[] = [];
   for (const task of staging.tasks) {
     const clientId = task.clientId;
     const remoteRecord: Record<string, unknown> = { ...task.record, id: clientId };
     const existingPath = findTaskFilePath(projectDir, clientId);
     if (existingPath === null) {
-      // SAFETY: the archive record is a normalised local task object (it came from one); writeTaskJson normalises it again on the way to disk.
-      const record = remoteRecord as unknown as Task;
-      if (!record.sortKey) {
+      const record: Record<string, unknown> = { ...remoteRecord };
+      if (typeof record.sortKey !== "string" || record.sortKey.length === 0) {
         // A new task takes the remote key verbatim when it has one; when it
         // has none, mint above the store ceiling so it lands at the bottom
         // instead of colliding mid-store.
@@ -602,27 +646,37 @@ export function applyPullEntries(
             ? (remoteRecord.sortKey as string)
             : generateSortKeyBetween(ceiling, null);
       }
-      if (!record.created) record.created = new Date().toISOString();
-      if (!dryRun) writeTaskJson(projectDir, record);
-      summary.added++;
-      ceilingTouched = true;
+      if (typeof record.created !== "string" || record.created.length === 0) {
+        record.created = new Date().toISOString();
+      }
+      taskPlans.push({
+        clientId,
+        kind: "new",
+        filePath: null,
+        record,
+        conflict: false,
+        ceilingTouched: true,
+      });
       continue;
     }
     const local = readTaskFile(existingPath);
     if (!local) {
-      if (!dryRun) {
-        // SAFETY: the archive record is a normalised local task object (it came from one); writeTaskJsonAt serialises it back to the same file.
-        const remoteTask = remoteRecord as unknown as Task;
-        writeTaskJsonAt(existingPath, {
-          ...remoteTask,
-          created:
-            typeof remoteRecord.created === "string"
-              ? remoteRecord.created
-              : new Date().toISOString(),
-        });
-      }
-      summary.added++;
-      ceilingTouched = true;
+      // Slot on disk but unreadable: restore the server record into it.
+      const record: Record<string, unknown> = {
+        ...remoteRecord,
+        created:
+          typeof remoteRecord.created === "string"
+            ? remoteRecord.created
+            : new Date().toISOString(),
+      };
+      taskPlans.push({
+        clientId,
+        kind: "new",
+        filePath: existingPath,
+        record,
+        conflict: false,
+        ceilingTouched: true,
+      });
       continue;
     }
     const { merged, changed, conflict } = mergePullRecord(
@@ -632,60 +686,154 @@ export function applyPullEntries(
       preferRemote,
     );
     if (!changed) {
-      summary.unchanged++;
+      taskPlans.push({
+        clientId,
+        kind: "unchanged",
+        filePath: existingPath,
+        record: null,
+        conflict,
+        ceilingTouched: false,
+      });
       continue;
     }
-    if (conflict) summary.conflicts++;
-    summary.merged++;
-    if (
-      typeof (merged as { sortKey?: unknown }).sortKey === "string" &&
-      (merged as { sortKey: string }).sortKey !== local.sortKey
-    ) {
-      ceilingTouched = true;
+    taskPlans.push({
+      clientId,
+      kind: "rewrite",
+      filePath: existingPath,
+      // `updated` is stamped at execute time, once, for genuinely changed tasks only.
+      record: { ...merged },
+      conflict,
+      ceilingTouched:
+        typeof (merged as { sortKey?: unknown }).sortKey === "string" &&
+        (merged as { sortKey: string }).sortKey !== local.sortKey,
+    });
+  }
+  const planByClientId = new Map(taskPlans.map((p) => [p.clientId, p]));
+
+  // ── Phase 1b: plan every file fate (reads only, no writes) ──
+  // Files ride AFTER their task record: the record must already exist (new
+  // or merged above) before bytes land, so refs always describe reality.
+  const filePlans: PullFilePlan[] = [];
+  for (const file of staging.files) {
+    // saveFile parity: the on-disk name is the bare filename, so a staged
+    // nested name can never escape the task's files dir or throw mid-apply.
+    const safeName = basename(file.name);
+    const localPath = join(getFilesDir(projectDir, file.clientId), safeName);
+    let action: PullFilePlan["action"];
+    if (!existsSync(localPath)) {
+      action = "write";
+    } else if (readFileSync(localPath).equals(file.data)) {
+      action = "identical";
+    } else {
+      // Same name, different bytes: local wins by default (kept, reported);
+      // --prefer-remote replaces the bytes (written, reported).
+      action = preferRemote ? "write" : "keep";
     }
-    if (!dryRun) {
-      // SAFETY: merged starts as a spread of the local task object and only gains plain JSON fields; writeTaskJsonAt serialises it back to the same file.
-      const mergedTask = merged as unknown as Task;
-      writeTaskJsonAt(existingPath, {
-        ...mergedTask,
-        updated: new Date().toISOString(),
-      });
+    let needsRef: PullFilePlan["needsRef"] = null;
+    if (action === "write") {
+      const plan = planByClientId.get(file.clientId);
+      const refs = readPlannedFileRefs(plan);
+      if (
+        plan !== undefined &&
+        refs !== null &&
+        !refs.some((f) => typeof f.name === "string" && f.name === safeName)
+      ) {
+        // Bytes are about to land with no files[] entry describing them.
+        // Fold the ref into the task plan now — the task file is written at
+        // most once, and the write is counted. The server's own ref entry is
+        // reproduced verbatim when the record carries one; otherwise a
+        // minimal entry (never an invented mimeType).
+        const remoteFiles = stagedFilesFor(staging, file.clientId);
+        const serverEntry = remoteFiles.find((f) => f.name === safeName);
+        needsRef = {
+          clientId: file.clientId,
+          serverRef: serverEntry ?? null,
+        };
+      }
+    }
+    filePlans.push({ file, safeName, action, needsRef });
+  }
+
+  // Fold needed refs into task plans before the first write. An otherwise
+  // unchanged task that gains a ref IS a write, and is counted as merged.
+  for (const fp of filePlans) {
+    if (!fp.needsRef) continue;
+    const plan = planByClientId.get(fp.needsRef.clientId);
+    if (!plan) continue;
+    const ref: Record<string, unknown> = fp.needsRef.serverRef
+      ? { ...fp.needsRef.serverRef, name: fp.safeName }
+      : { name: fp.safeName, addedAt: new Date().toISOString() };
+    if (fp.needsRef.serverRef?.system === true) ref.system = true;
+    if (plan.kind === "unchanged") {
+      const local = plan.filePath ? readTaskFile(plan.filePath) : null;
+      // SAFETY: local was just read from the plan's own filePath; the spread preserves its parsed task JSON shape.
+      const base = (local as unknown as Record<string, unknown> | null) ?? {};
+      const files = Array.isArray(base.files)
+        ? [...(base.files as unknown[]), ref]
+        : [ref];
+      plan.kind = "rewrite";
+      plan.record = { ...base, files };
+      plan.ceilingTouched = false;
+    } else if (plan.record) {
+      const files = Array.isArray(plan.record.files)
+        ? [...(plan.record.files as unknown[]), ref]
+        : [ref];
+      plan.record = { ...plan.record, files };
     }
   }
 
-  // Files ride AFTER their task record: saveFile maintains the task's
-  // files[] refs, so the record must already exist (new or merged above).
-  for (const file of staging.files) {
-    const localPath = join(getFilesDir(projectDir, file.clientId), file.name);
-    if (!existsSync(localPath)) {
-      if (!dryRun) {
-        saveFile(projectDir, file.clientId, file.name, file.data, {
-          ...(file.system === true ? { system: true as const } : {}),
-        });
-        patchPullFileMimeType(projectDir, file.clientId, file.name, file.mimeType);
-      }
-      summary.filesWritten++;
+  // ── Phase 2: execute exactly the plan ──
+  let ceilingTouched = false;
+  for (const plan of taskPlans) {
+    if (plan.conflict) summary.conflicts++;
+    if (plan.kind === "unchanged") {
+      summary.unchanged++;
       continue;
     }
-    const localBytes = readFileSync(localPath);
-    if (localBytes.equals(file.data)) {
-      if (!dryRun) {
-        patchPullFileMimeType(projectDir, file.clientId, file.name, file.mimeType);
+    if (plan.kind === "new") {
+      if (!dryRun && plan.record) {
+        if (plan.filePath === null) {
+          // SAFETY: the planned record derives from the normalised archive record plus pull defaults; writeTaskJson persists it.
+          writeTaskJson(projectDir, plan.record as unknown as Task);
+        } else {
+          // SAFETY: same normalised-archive-record origin as above, restored into its existing slot.
+          writeTaskJsonAt(plan.filePath, plan.record as unknown as Task);
+        }
       }
+      summary.added++;
+    } else {
+      if (!dryRun && plan.record && plan.filePath) {
+        // SAFETY: record starts as a spread of the local task object and only gains plain JSON fields; writeTaskJsonAt serialises it back to the same file.
+        const mergedTask = plan.record as unknown as Task;
+        writeTaskJsonAt(plan.filePath, {
+          ...mergedTask,
+          updated: new Date().toISOString(),
+        });
+      }
+      summary.merged++;
+    }
+    if (plan.ceilingTouched) ceilingTouched = true;
+  }
+
+  for (const fp of filePlans) {
+    if (fp.action === "identical") {
+      // Identical bytes are not touched: no write, no ref patch, no
+      // `updated` bump. An unchanged pull stays byte-identical.
       summary.filesIdentical++;
       continue;
     }
-    // Same name, different bytes: local wins by default (kept, reported);
-    // --prefer-remote replaces the bytes (written, reported).
-    if (preferRemote) {
-      if (!dryRun) {
-        writeFileSync(localPath, file.data);
-        patchPullFileMimeType(projectDir, file.clientId, file.name, file.mimeType);
-      }
-      summary.filesWritten++;
-    } else {
+    if (fp.action === "keep") {
       summary.filesKept++;
+      continue;
     }
+    if (!dryRun) {
+      mkdirSync(getFilesDir(projectDir, fp.file.clientId), { recursive: true });
+      writeFileSync(
+        join(getFilesDir(projectDir, fp.file.clientId), fp.safeName),
+        fp.file.data,
+      );
+    }
+    summary.filesWritten++;
   }
   summary.missingBytes = staging.missingBytes.length;
 
@@ -693,30 +841,44 @@ export function applyPullEntries(
   return summary;
 }
 
-/** Patch the files[] ref's mimeType after a write, only when it differs. */
-function patchPullFileMimeType(
-  projectDir: string,
+/** files[] refs of a task plan's post-merge record (pure read, no writes).
+ * Returns null when no record exists to attach a ref to (staged file for an
+ * unknown task: bytes still land, orphaned, exactly as before). */
+function readPlannedFileRefs(
+  plan: PullTaskPlan | undefined,
+): Array<{ name?: unknown }> | null {
+  if (!plan) return null;
+  // SAFETY: readTaskFile returns parsed task JSON objects; the ref check below only reads the files[] array shape.
+  const stored = (plan.filePath ? readTaskFile(plan.filePath) : null) as unknown as Record<string, unknown> | null;
+  const record: Record<string, unknown> | null = plan.record ?? stored;
+  if (!record || !Array.isArray(record.files)) {
+    // No files[] array yet: a ref is needed only when the plan will write
+    // one... a missing array means the first ref must create it. Report the
+    // empty list so the caller adds it; a null record (unknown task) stays null.
+    return record ? [] : null;
+  }
+  return record.files as Array<{ name?: unknown }>;
+}
+
+/** The staged remote record's files[] entries for one task (faithful source
+ * for refs this pull writes bytes for — never invented, only reproduced). */
+function stagedFilesFor(
+  staging: PullStaging,
   clientId: string,
-  name: string,
-  mimeType: string | undefined,
-): void {
-  if (!mimeType) return;
-  const filePath = findTaskFilePath(projectDir, clientId);
-  const task = filePath ? readTaskFile(filePath) : null;
-  if (!task || !Array.isArray(task.files)) return;
-  const ref = task.files.find((f) => f.name === name);
-  if (!ref || ref.mimeType === mimeType) return;
-  updateTask(projectDir, clientId, {
-    files: task.files.map((f) => (f.name === name ? { ...f, mimeType } : f)),
-  });
+): Array<Record<string, unknown>> {
+  const entry = staging.tasks.find((t) => t.clientId === clientId);
+  const files = (entry?.record as Record<string, unknown> | undefined)?.files;
+  if (!Array.isArray(files)) return [];
+  return files.filter(isRecord).map((f) => f as Record<string, unknown>);
 }
 
 /**
- * Full pull from an in-memory gzipped archive: stage → verify → merge.
- * Verification failures delete the temp dir and throw PullVerifyError with
- * zero store writes; merge failures are per-task writer throws (the temp
- * dir is still cleaned up). `dryRun` verifies and reports the plan without
- * writing anything.
+ * Full pull from an in-memory gzipped archive: stage → read → verify-and-merge.
+ * Verification is the first step of applyPullEntries, so every mismatch
+ * throws PullVerifyError with zero store writes (the temp dir is still
+ * cleaned up); only I/O failures during the planned write phase can leave
+ * partial writes, and those surface as plain Errors, never as verify
+ * failures. `dryRun` verifies and reports the plan without writing anything.
  */
 export async function runPullFromBytes(
   projectDir: string,
@@ -726,7 +888,6 @@ export async function runPullFromBytes(
   const { tempDir, treeDir } = await stagePullArchive(projectDir, gzipBytes);
   try {
     const staging = readPullStaging(treeDir);
-    verifyPullStaging(staging);
     const summary = applyPullEntries(projectDir, staging, opts);
     return { summary, manifest: staging.manifest };
   } finally {

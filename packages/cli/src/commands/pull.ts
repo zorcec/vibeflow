@@ -40,6 +40,7 @@ import { fetchPullArchiveWithRetry } from "../saas/pull.js";
 import {
   runPullFromBytes,
   emptyPullSummary,
+  PullVerifyError,
   type PullMergeSummary,
 } from "../saas/pull-archive.js";
 
@@ -286,13 +287,23 @@ export async function pull(
     }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // A verification failure throws before the first store write, so the
+    // "nothing written" claim holds; any other throw (I/O mid-apply) may
+    // have left partial writes behind and must not make that claim.
+    const verified = err instanceof PullVerifyError;
+    const prefix = verified
+      ? "Pull archive failed verification"
+      : "Pull failed while applying the archive";
+    const aftermath = verified
+      ? "Nothing was written to the local store."
+      : "The pull stopped partway — some changes may already have been written.";
     if (opts.json) {
       console.log(
         JSON.stringify({ ok: false, code: "PULL_VERIFY_FAILED", message, retryable: false }),
       );
     } else if (opts.silent !== true) {
-      console.error(chalk.red(`  Pull archive failed verification: ${message}`));
-      console.error(chalk.dim("  Nothing was written to the local store."));
+      console.error(chalk.red(`  ${prefix}: ${message}`));
+      console.error(chalk.dim(`  ${aftermath}`));
     }
     process.exitCode = ExitCode.GENERAL;
     return {
