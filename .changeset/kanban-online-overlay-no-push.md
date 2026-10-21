@@ -2,7 +2,7 @@
 "@vibeflow-tools/cli": patch
 ---
 
-The kanban online-mode overlay no longer offers a "Push local tasks" button or a
+The kanban overlay no longer offers a "Push local tasks" button or a
 "Keep local files" toggle. Pushing is a standalone, explicit command
 (`vibeflow push`) with its own flags, so duplicating it behind a one-click button
 inside an informational banner was misleading: it silently reused the local
