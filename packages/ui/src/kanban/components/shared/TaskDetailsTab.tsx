@@ -496,10 +496,25 @@ function CommitTile({
           timestamp: task.createdAt ?? "",
         },
       ];
-  const last = allCommits[allCommits.length - 1];
-  const tooltipLines = allCommits
+  // WHY normalise: the declared type says `message`/`timestamp` are always
+  // strings, but records mirrored from the CLI carry only `sha` (and, after
+  // the push-time enrichment, `authorEmail`). Trusting the type crashed the
+  // details panel with "Cannot read properties of undefined (reading
+  // 'slice')" for every such commit, so the fields are read defensively and
+  // a missing one renders as empty instead of throwing.
+  const safeCommits = allCommits.map((c) => ({
+    sha: typeof c?.sha === "string" ? c.sha : "",
+    message: typeof c?.message === "string" ? c.message : "",
+    timestamp: typeof c?.timestamp === "string" ? c.timestamp : "",
+  }));
+  const last = safeCommits[safeCommits.length - 1] ?? {
+    sha: "",
+    message: "",
+    timestamp: "",
+  };
+  const tooltipLines = safeCommits
     .map(
-      (c: { sha: string; message: string; timestamp: string }) =>
+      (c) =>
         `${c.sha.slice(0, 8)}  ${c.timestamp ? new Date(c.timestamp).toLocaleString() : ""}  ${c.message.slice(0, 60)}`,
     )
     .join("\n");
