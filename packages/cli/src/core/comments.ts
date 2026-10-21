@@ -106,6 +106,11 @@ export async function addComment(
   return withTaskLock(lock, () => {
     const filePath = findTaskFilePath(projectDir, taskId);
     const task = filePath ? readTaskFile(filePath) : null;
+    // A present but quarantined file is data, not a missing-task stub.
+    // Never replace its entire body just to append a comment.
+    if (filePath && !task) {
+      throw new Error(`Task record is unreadable/quarantined: ${filePath}. Run tasks --normalize to report the reason.`);
+    }
     const allComments = task?.comments ?? [];
     const comment: TaskComment = {
       id: randomBytes(8).toString("hex"),

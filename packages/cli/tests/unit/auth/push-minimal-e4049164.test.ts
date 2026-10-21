@@ -223,7 +223,7 @@ describe("condensed final summary keeps every TRUE number", () => {
     for (const n of [1, 2]) {
       writeFileSync(
         join(taskDir, `t${n}.json`),
-        JSON.stringify({ id: `t${n}`, title: `T${n}`, status: "todo" }),
+        JSON.stringify({ id: `t${n}`, title: `T${n}`, status: "todo", created: "2026-01-01T00:00:00Z" }),
       );
     }
 

@@ -261,6 +261,19 @@ describe("applyPullEntries — the store merge", () => {
     };
   }
 
+  it("quarantines unknown local data: pull preserves exact bytes and reports a conflict", () => {
+    writeTask("t1", taskRecord("t1", { localOnly: "deliberate", type: "Chore" }));
+    const path = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "t1.json");
+    const before = readFileSync(path, "utf8");
+    const summary = applyPullEntries(projectDir,
+      stagingFor([{ clientId: "t1", record: taskRecord("t1", { title: "Remote" }) }]),
+      { preferRemote: true });
+    expect(summary.conflicts).toBe(1);
+    expect(summary.merged).toBe(0);
+    expect(summary.added).toBe(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
   it("writes new tasks into date subdirs with the remote sortKey verbatim", () => {
     const record = taskRecord("new-1", { sortKey: "0000000007000000" });
     const summary = applyPullEntries(
@@ -276,8 +289,8 @@ describe("applyPullEntries — the store merge", () => {
   });
 
   it("merges into an existing task: local-only field kept, remote-only added, reported merged", () => {
-    writeTask("t1", taskRecord("t1", { localNote: "mine", title: "Local title" }));
-    const record = taskRecord("t1", { title: "Local title", remoteFlag: true });
+    writeTask("t1", taskRecord("t1", { baselineFile: "mine.png", title: "Local title" }));
+    const record = taskRecord("t1", { title: "Local title", reportBack: true });
     const summary = applyPullEntries(
       projectDir,
       stagingFor([{ clientId: "t1", record: { ...record, title: "Remote title" } }]),
@@ -287,8 +300,8 @@ describe("applyPullEntries — the store merge", () => {
     expect(summary.added).toBe(0);
     expect(summary.conflicts).toBe(1);
     const stored = readStoredTask("t1");
-    expect(stored.localNote).toBe("mine");
-    expect(stored.remoteFlag).toBe(true);
+    expect(stored.baselineFile).toBe("mine.png");
+    expect(stored.reportBack).toBe(true);
     // Local wins: the title conflict kept the local value.
     expect(stored.title).toBe("Local title");
   });
@@ -744,7 +757,7 @@ describe("pull honesty — the summary counts what was written", () => {
     };
     walk(root, before);
 
-    const m1Remote = { ...m1, remoteFlag: true };
+    const m1Remote = { ...m1, reportBack: true };
     const n1 = taskRecord("n1", { sortKey: "0003" });
     const aData = Buffer.from("AAA");
     const bData = Buffer.from("brand new");

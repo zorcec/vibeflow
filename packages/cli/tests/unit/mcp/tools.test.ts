@@ -169,7 +169,7 @@ describe("list_tasks", () => {
     // Ticket b2e56212, change 3: comments/files omitted by `fields` must
     // still be signalled — commentCount/fileCount ride every projected row.
     createTestTask({ id: "task-1", title: "Task 1" });
-    await addComment(ctx, { id: "task-1", comment: "owner bug report" });
+    await addComment(ctx, { id: "task-1", author: "user", comment: "owner bug report" });
 
     const result = await listTasks(ctx, { fields: ["id", "title"], limit: 10 });
     expect(result.ok).toBe(true);

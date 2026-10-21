@@ -170,13 +170,15 @@ describe("writeSortKeyMinimal", () => {
     expect(after.unknownField).toBe("keep-me");
   });
 
-  it("updateTask PRESERVES legacy and unknown fields (the old trap is fixed)", () => {
+  it("updateTask quarantines unknown data without changing any bytes", () => {
     const file = seedLegacyTask();
 
-    updateTask(projectDir, "legacytask", { sortKey: "0000000003000000" });
+    const before = readFileSync(file, "utf-8");
+    expect(updateTask(projectDir, "legacytask", { sortKey: "0000000003000000" })).toBeNull();
+    expect(readFileSync(file, "utf-8")).toBe(before);
 
     const after = JSON.parse(readFileSync(file, "utf-8"));
-    expect(after.sortKey).toBe("0000000003000000");
+    expect(after.sortKey).toBeUndefined();
     // This used to assert the opposite: normalization reconstructed the record
     // and silently dropped any key it did not know. That is exactly the class
     // of loss lossless push exists to prevent (`tasks.raw` would have been a

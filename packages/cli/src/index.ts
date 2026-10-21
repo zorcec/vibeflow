@@ -1,3 +1,4 @@
+import { taskReadNotices, type TaskReadFinding } from "./core/task-record-read.js";
 import { Command, Option } from "commander";
 import { execSync, execFileSync } from "node:child_process";
 import { serve } from "./server/server.js";
@@ -1188,7 +1189,7 @@ program
   )
   .option(
     "--normalize",
-    "Store maintenance: drop schema-invalid `type` values and empty `links` arrays so local records converge with the server (dry-run by default; add --apply to write; idempotent; honors --json)",
+    "Store maintenance: repair record artifacts, comment aliases and null optional scalars; report unrepairable records without deleting deliberate data (dry-run by default; add --apply to write; idempotent; honors --json)",
   )
   .option(
     "--apply",
@@ -1585,14 +1586,8 @@ program
           return;
         }
 
-        // ── Normalize store (schema-boundary maintenance) ──────────────────
-        // Drop `type` values outside the documented vocabulary and `links`
-        // values that carry no links, so local records converge with the
-        // server instead of staying "kept local" on every pull. Dry-run by
-        // default; --apply writes. The writes are surgical raw-JSON edits of
-        // exactly those two keys, so every other field survives
-        // byte-for-byte — and the run is idempotent: a second run plans
-        // zero changes.
+        // Closed repairs share the read boundary; unknown/conflicting data
+        // remains quarantined. Dry-run by default, explicit --apply to heal.
         if (opts.normalize) {
           if (
             opts.add ||
@@ -1612,11 +1607,11 @@ program
             return;
           }
           const projectDir = resolve(dir);
-          const describeChange = (c: { field: string; before: unknown }): string =>
-            `${c.field}: ${JSON.stringify(c.before) ?? "unpresentable"} → absent`;
+          const describeChange = (c: { field: string; before: unknown; after: unknown }): string =>
+            `${c.field}: ${JSON.stringify(c.before) ?? "absent"} → ${JSON.stringify(c.after)}`;
           const changeJson = (p: {
             id: string;
-            changes: Array<{ field: string; before: unknown; after: string }>;
+            changes: Array<{ field: string; before: unknown; after: unknown }>;
           }): Record<string, unknown> => ({
             id: p.id,
             changes: p.changes.map((c) => ({
@@ -1636,6 +1631,8 @@ program
                   count: report.changes.length,
                   changes: report.changes.map(changeJson),
                   unreadable: report.unreadable,
+                  quarantined: report.quarantined,
+                  ...noticeFields(taskReadNotices(report.quarantined)),
                 },
               });
             } else if (report.changes.length === 0) {
@@ -1657,6 +1654,7 @@ program
               console.log(chalk.dim("  Re-run with --apply to write."));
             }
             if (!opts.json) {
+              for (const notice of taskReadNotices(report.quarantined)) console.error(notice.message);
               for (const f of report.unreadable) {
                 console.log(chalk.dim(`  skipped unreadable file: ${f}`));
               }
@@ -1697,6 +1695,8 @@ program
                   },
                 ]
               : [];
+          normalizeNotices.push(...taskReadNotices(result.quarantined));
+          if (!opts.json) for (const notice of normalizeNotices) console.error(notice.message);
           if (opts.json) {
             outputEnvelope({
               ok: true,
@@ -1707,6 +1707,7 @@ program
                 changes: result.applied.map(changeJson),
                 unwritten: result.unwritten,
                 unreadable: result.unreadable,
+                quarantined: result.quarantined,
                 ...noticeFields(normalizeNotices),
               },
             });
@@ -1717,7 +1718,7 @@ program
           } else {
             console.log(
               chalk.green(
-                `✓ Normalized ${result.applied.length} task(s): only schema-invalid \`type\` and empty \`links\` keys removed; everything else byte-identical.`,
+                `✓ Normalized ${result.applied.length} task(s): declared record repairs applied; other values preserved.`,
               ),
             );
             for (const p of result.applied) {
@@ -4733,7 +4734,10 @@ program
           return;
         }
 
-        const all = listTasksWithPaths(dir);
+        const taskReads: TaskReadFinding[] = [];
+        const all = listTasksWithPaths(dir, taskReads);
+        const readNotices = taskReadNotices(taskReads);
+        if (!opts.json) for (const notice of readNotices) console.error(notice.message);
         if (opts.user && !validateUserFilter(opts.user, all, opts.json)) return;
 
         // Parity contract 83159002: filter/scope/sort/limit/counts come from
@@ -4807,6 +4811,7 @@ program
             ok: true,
             json: opts.json,
             payload: {
+              ...noticeFields(readNotices),
               tasks: projectedTasks,
               totalMatching: listed.totalMatching,
               totalRoots: listed.totalRoots,

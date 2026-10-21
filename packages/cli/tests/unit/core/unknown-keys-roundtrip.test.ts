@@ -4,17 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   readTaskFile,
+  readTaskRecordFile,
   updateTask,
   listTasks,
 } from "../../../src/core/tasks.js";
 import { addComment } from "../../../src/core/comments.js";
 
-// The local store is the lossless MIRROR push uploads: unknown/extra record
-// keys must survive every read → write round trip byte-for-byte in place.
-// These tests pin the audit fix in core/tasks.ts: normalization is for
-// display, not record reconstruction — `...raw` comes first, and only known
-// fields are rewritten. Missing authorEmail stays missing (never null/"").
-
+// Strict readers cannot use unknown fields, but must NEVER delete them to
+// make validation pass. Quarantine preserves the complete original disk bytes.
 describe("unknown-key round trip through load/save", () => {
   let projectDir: string;
 
@@ -34,7 +31,7 @@ describe("unknown-key round trip through load/save", () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it("preserves unknown keys on the task, commits, comments, files, and links through updateTask", async () => {
+  it("quarantines unknown task/commit/comment/file/link keys and preserves all bytes", async () => {
     const filePath = writeRawTask({
       id: "task-1",
       title: "Original",
@@ -67,10 +64,15 @@ describe("unknown-key round trip through load/save", () => {
       files: [{ name: "a.txt", addedAt: "2025-01-01T00:00:00.000Z", extraFileKey: "f" }],
       links: [{ taskId: "task-2", type: "parent", extraLinkKey: 42 }],
     });
-    const before = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+    const beforeText = readFileSync(filePath, "utf-8");
+    const before = JSON.parse(beforeText) as Record<string, unknown>;
 
     const updated = updateTask(projectDir, "task-1", { title: "Changed" });
-    expect(updated?.title).toBe("Changed");
+    expect(updated).toBeNull();
+    expect(readFileSync(filePath, "utf-8")).toBe(beforeText);
+    const quarantine = readTaskRecordFile(filePath);
+    expect(quarantine.id).toBe("task-1");
+    expect(quarantine.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining(["", "commits[0]", "comments[0]", "files[0]", "links[0]"]));
 
     const after = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
     expect(after.legacyCommit).toBe("deadbeef");
@@ -136,7 +138,7 @@ describe("unknown-key round trip through load/save", () => {
     expect(updated?.commits?.[0].authorEmail).toBe("committer@example.com");
   });
 
-  it("drops an empty authorEmail instead of writing null or \"\"", () => {
+  it("quarantines invalid email metadata without deleting it", () => {
     writeRawTask({
       id: "task-4",
       title: "T",
@@ -147,12 +149,14 @@ describe("unknown-key round trip through load/save", () => {
       authorEmail: "",
       commits: [{ sha: "abc123", message: "m", timestamp: "2025-01-01T00:00:00.000Z", authorEmail: "" }],
     });
-    updateTask(projectDir, "task-4", { priority: "Low" });
-    const text = readFileSync(join(projectDir, ".vibeflow", "tasks", "2025-01-01", "task-4.json"), "utf-8");
-    expect(text).not.toContain("authorEmail");
+    const path = join(projectDir, ".vibeflow", "tasks", "2025-01-01", "task-4.json");
+    const before = readFileSync(path, "utf-8");
+    expect(updateTask(projectDir, "task-4", { priority: "Low" })).toBeNull();
+    expect(readTaskRecordFile(path).issues.length).toBeGreaterThan(0);
+    expect(readFileSync(path, "utf-8")).toBe(before);
   });
 
-  it("addComment preserves unknown keys (read-modify-write is lossless)", async () => {
+  it("addComment refuses a present quarantined record without changing bytes", async () => {
     writeRawTask({
       id: "task-5",
       title: "T",
@@ -162,11 +166,14 @@ describe("unknown-key round trip through load/save", () => {
       created: "2025-01-01T00:00:00.000Z",
       customTopLevel: "kept",
     });
-    await addComment(projectDir, "task-5", "agent", "a note");
+    const path = join(projectDir, ".vibeflow", "tasks", "2025-01-01", "task-5.json");
+    const before = readFileSync(path, "utf8");
+    await expect(addComment(projectDir, "task-5", "agent", "a note")).rejects.toThrow("unreadable/quarantined");
+    expect(readFileSync(path, "utf8")).toBe(before);
     const after = JSON.parse(
       readFileSync(join(projectDir, ".vibeflow", "tasks", "2025-01-01", "task-5.json"), "utf-8"),
     ) as Record<string, unknown>;
     expect(after.customTopLevel).toBe("kept");
-    expect((after.comments as Array<Record<string, unknown>>).length).toBe(1);
+    expect(after.comments).toBeUndefined();
   });
 });

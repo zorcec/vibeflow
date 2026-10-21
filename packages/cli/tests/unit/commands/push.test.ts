@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { brotliDecompressSync } from "node:zlib";
@@ -34,6 +34,7 @@ import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
 import { push, formatBytes, renderProgressBar, uploadPushedFiles, collectImportInputs } from "../../../src/commands/push.js";
+import realBoardRecord from "../../fixtures/task-record/real-board-local.json";
 import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -239,6 +240,38 @@ describe("push — import API interaction", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("a clean real-record no-op stays zero, preserves bytes, and only uses mock GETs", async () => {
+    const projectDir = makeTempProject();
+    const path = createTaskFile(projectDir, realBoardRecord);
+    const before = readFileSync(path, "utf8");
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: unknown, init?: RequestInit) => {
+      expect(init?.method ?? "GET").toBe("GET");
+      requests.push(String(url));
+      if (String(url).endsWith("/api/v0/tasks/import")) return { ok: false, status: 404 };
+      return { ok: true, json: async () => ({ items: [{ cliId: realBoardRecord.id, fileCount: 0 }] }) };
+    });
+    const result = await push(projectDir, { json: true });
+    expect(result?.tasks).toBe(0);
+    expect(result?.files).toBe(0);
+    expect(result?.notices.map((notice) => notice.code)).toEqual(["ALREADY_PUSHED"]);
+    expect(requests).toHaveLength(2);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  it("quarantined records cannot reach push, and report count/id/reason", async () => {
+    const projectDir = makeTempProject();
+    const path = createTaskFile(projectDir, { ...realBoardRecord, unknownData: "deliberate" });
+    const before = readFileSync(path, "utf8");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const result = await push(projectDir, { json: true });
+    expect(result?.tasks).toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result?.notices).toEqual(expect.arrayContaining([{ code: "TASK_RECORD_QUARANTINED", message: expect.stringContaining(realBoardRecord.id) }]));
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
   it("sends tasks to import API and reports success", async () => {

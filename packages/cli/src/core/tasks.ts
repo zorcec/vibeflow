@@ -22,6 +22,8 @@ import {
 } from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath, withFileLockSync } from "./lock.js";
+import { inspectLocalTaskRecord, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
+export { taskReadNotices } from "./task-record-read.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 
 export function generateTaskId(): string {
@@ -199,26 +201,7 @@ function normalizeUserIds(raw: unknown): string[] | undefined {
   );
 }
 
-/**
- * Schema-boundary normalizer for the persisted top-level `type` field.
- *
- * `type` is a free-form label, not a closed enum: any non-empty string is
- * returned verbatim (trimmed) so a value the user deliberately wrote (e.g.
- * `Chore`, which no picker names) survives read → push → pull round-trips
- * byte-identical — the canonical record is the truth and the reader must
- * not silently discard it. Only values that can never be deliberate read
- * as ABSENT (`undefined`): non-strings, empty/whitespace strings, and
- * stringified artifacts such as `[object Object]` — so a normalising write
- * drops the key and the garbage can never round-trip back out. `null` also
- * reads as absent here; the cloud stores `null` for typeless records, and
- * the maintenance planner (`planTaskStoreNormalize`) treats an on-disk
- * `null` as already clean so pull (remote `null`) and normalize (local
- * absent) cannot ping-pong a record back and forth.
- *
- * Single source for both the read path (`normalizeTask` below) and the
- * `--normalize` planner — the two must never disagree about what counts
- * as a valid type.
- */
+/** Free-form labels are data; only empties/non-strings/stringified artifacts are absent. */
 export function normalizeTaskTypeValue(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const t = raw.trim();
@@ -227,31 +210,12 @@ export function normalizeTaskTypeValue(raw: unknown): string | undefined {
   // writer deliberately stores `[object Object]` as a task type (the same
   // shape `shouldDropTypeValue` below refuses to keep).
   if (/^\[object .+\]$/.test(t)) return undefined;
-  return t;
+  return raw;
 }
 
-/**
- * Whether a raw persisted `type` value is safe for `--normalize` to delete.
- *
- * The reader boundary (`normalizeTaskTypeValue`) keeps every non-empty,
- * non-artifact string verbatim — including labels outside the documented
- * vocabulary — so the maintenance tool must not destroy data that may be
- * deliberate. A non-empty string that is NOT a stringified artifact
- * (e.g. `Chore`, a label the board knowingly carries though the documented
- * vocabulary does not name it) stays on disk: it round-trips through
- * normalising writes, and deleting it would risk diverging from a server
- * that stores the same label. Only values that can never be deliberate are
- * removed: non-strings, empty strings, and stringified artifacts such as
- * `[object Object]`. An on-disk `null` is the cloud's own absent and is
- * always left alone.
- */
+/** Artifact-only deletion rule; an unknown non-empty label is never junk. */
 export function shouldDropTypeValue(raw: unknown): boolean {
-  if (raw === null) return false;
-  if (normalizeTaskTypeValue(raw) !== undefined) return false;
-  if (typeof raw !== "string") return true;
-  const t = raw.trim();
-  if (!t) return true;
-  return /^\[object .+\]$/.test(t);
+  return normalizeTaskTypeValue(raw) === undefined;
 }
 
 /**
@@ -265,7 +229,7 @@ export function shouldDropTypeValue(raw: unknown): boolean {
  * planner only drops the key when the WHOLE value normalizes to absent and
  * never rewrites a partially-valid array it does not fully understand.
  *
- * Single source for both the read path and the `--normalize` planner.
+ * Display helper; canonical read repair is defined in task-record-read.ts.
  */
 export function normalizeTaskLinksValue(raw: unknown): Task["links"] {
   if (!Array.isArray(raw)) return undefined;
@@ -440,193 +404,94 @@ function normalizeTask(raw: Record<string, unknown>): Task {
 }
 
 // ── Store maintenance: `tasks --normalize` ─────────────────────────────────
-// Healing WITHOUT hand-editing JSON (which project rules forbid): the planner
-// below reads the RAW files, and `--apply` rewrites only the files whose raw
-// `type`/`links` normalize to absent, deleting exactly those two keys. Every
-// other field — including legacy keys the schema does not name (e.g. the
-// singleton `commit`) — is re-serialized untouched, so the tool never
-// destroys a value it does not understand.
+// The SAME closed repair rules feed read candidates and explicit disk repair.
+// Unknown fields, conflicting aliases, future versions and corrupt JSON remain
+// quarantined: normalisation is not permission to discard deliberate data.
+export type TaskNormalizeFieldChange = TaskRecordFinding;
 
-/** One top-level key the normalizer would drop from a persisted record. */
-export interface TaskNormalizeFieldChange {
-  /** The removed key. */
-  field: "type" | "links";
-  /** The raw persisted value, for the report. */
-  before: unknown;
-  /** Always `"absent"`: the key is deleted, never nulled. */
-  after: "absent";
-}
-
-/** One file the planner would rewrite (dry-run) or rewrote (`--apply`). */
 export interface TaskNormalizePlan {
   id: string;
   filePath: string;
   changes: TaskNormalizeFieldChange[];
 }
 
-/** Result of planning (dry-run) the store normalization. Writes nothing. */
 export interface TaskNormalizeReport {
   changes: TaskNormalizePlan[];
-  /** Task files that were listed but could not be parsed — never written. */
   unreadable: string[];
+  quarantined: TaskReadFinding[];
 }
 
-/** Raw task-file texts, mirroring `collectTaskFiles` traversal (date subdirs + flat legacy layout). */
-function listTaskRawFiles(
-  projectDir: string,
-): Array<{ filePath: string; text: string }> {
+function isTaskJsonFile(name: string): boolean {
+  return extname(name) === ".json" && !name.endsWith(".auth.json");
+}
+
+/** Raw traversal shared by enumeration and maintenance, excluding sidecars. */
+function listTaskRawFiles(projectDir: string): Array<{ filePath: string; text: string }> {
   const tasksDir = getTasksDir(projectDir);
   if (!existsSync(tasksDir)) return [];
-  const out: Array<{ filePath: string; text: string }> = [];
+  const paths: string[] = [];
   for (const entry of readdirSync(tasksDir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       const dateDir = join(tasksDir, entry.name);
       for (const file of readdirSync(dateDir)) {
-        if (extname(file) !== ".json") continue;
-        const filePath = join(dateDir, file);
-        try {
-          out.push({ filePath, text: readFileSync(filePath, "utf-8") });
-        } catch {
-          /* unreadable here surfaces as unreadable in the plan */
-          out.push({ filePath, text: "" });
-        }
+        if (isTaskJsonFile(file)) paths.push(join(dateDir, file));
       }
-    } else if (extname(entry.name) === ".json") {
-      const filePath = join(tasksDir, entry.name);
-      try {
-        out.push({ filePath, text: readFileSync(filePath, "utf-8") });
-      } catch {
-        out.push({ filePath, text: "" });
-      }
-    }
+    } else if (isTaskJsonFile(entry.name)) paths.push(join(tasksDir, entry.name));
   }
-  return out;
+  return paths.map((filePath) => {
+    try { return { filePath, text: readFileSync(filePath, "utf-8") }; }
+    catch { return { filePath, text: "" }; }
+  });
 }
 
-/**
- * Plan the store normalization WITHOUT writing: every task file whose raw
- * `type` is safe to drop (see `shouldDropTypeValue` — artifacts, empties
- * and non-strings; never a possibly-deliberate label, never an on-disk
- * `null`) or whose raw `links` normalizes to absent. Deterministic order
- * (by id). Idempotent by construction: applying the plan removes the
- * triggers, so a second plan is empty.
- */
-export function planTaskStoreNormalize(
-  projectDir: string,
-): TaskNormalizeReport {
+export function planTaskStoreNormalize(projectDir: string): TaskNormalizeReport {
   const changes: TaskNormalizePlan[] = [];
   const unreadable: string[] = [];
+  const quarantined: TaskReadFinding[] = [];
   for (const { filePath, text } of listTaskRawFiles(projectDir)) {
-    let parsed: unknown;
-    try {
-      if (!text) throw new Error("unreadable");
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      unreadable.push(filePath);
-      continue;
+    let raw: unknown;
+    try { raw = JSON.parse(text) as unknown; }
+    catch { unreadable.push(filePath); continue; }
+    const read = inspectLocalTaskRecord(raw);
+    const id = taskFileId(filePath, raw);
+    if (!read.record) {
+      quarantined.push({ id, quarantined: true, findings: read.findings, issues: read.issues });
+    } else if (read.findings.length > 0) {
+      changes.push({ id, filePath, changes: read.findings });
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      unreadable.push(filePath);
-      continue;
-    }
-    const rec = parsed as Record<string, unknown>;
-    const id =
-      typeof rec.id === "string" && rec.id.length > 0
-        ? rec.id
-        : filePath.slice(filePath.lastIndexOf("/") + 1, -5);
-    const fileChanges: TaskNormalizeFieldChange[] = [];
-    if ("type" in rec && shouldDropTypeValue(rec.type)) {
-      fileChanges.push({ field: "type", before: rec.type, after: "absent" });
-    }
-    if ("links" in rec && normalizeTaskLinksValue(rec.links) === undefined) {
-      fileChanges.push({
-        field: "links",
-        before: rec.links,
-        after: "absent",
-      });
-    }
-    if (fileChanges.length > 0) changes.push({ id, filePath, changes: fileChanges });
   }
-  changes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { changes, unreadable };
+  changes.sort((a, b) => a.id.localeCompare(b.id));
+  quarantined.sort((a, b) => a.id.localeCompare(b.id));
+  unreadable.sort();
+  return { changes, unreadable, quarantined };
 }
 
-/**
- * Apply the normalization plan: delete exactly the planned keys from the raw
- * JSON and rewrite the file (atomic tmp+rename, trailing-newline state
- * preserved, every other field re-serialized untouched — key order and
- * values identical). No `updated` bump: the rewrite itself is the change
- * the push delta detects; stamping `updated` would churn a volatile field
- * the wire strips anyway. Each file is re-validated before its write, so a
- * concurrent edit between plan and apply can only narrow the write, never
- * widen it. Returns what landed; a second apply reports zero.
- */
+/** Atomic, lock-protected repair; re-read under lock, never stamp `updated`. */
 export function applyTaskStoreNormalize(projectDir: string): {
   applied: TaskNormalizePlan[];
   unwritten: string[];
   unreadable: string[];
+  quarantined: TaskReadFinding[];
 } {
   const plan = planTaskStoreNormalize(projectDir);
   const applied: TaskNormalizePlan[] = [];
   const unwritten: string[] = [];
   for (const item of plan.changes) {
-    let text: string;
     try {
-      text = readFileSync(item.filePath, "utf-8");
-    } catch {
-      unwritten.push(item.id);
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text) as unknown;
-    } catch {
-      unwritten.push(item.id);
-      continue;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      unwritten.push(item.id);
-      continue;
-    }
-    const rec = parsed as Record<string, unknown>;
-    // Re-derive at write time: only delete a key that STILL normalizes to
-    // absent (a concurrent edit may have healed or replaced the value).
-    const fields = item.changes
-      .map((c) => c.field)
-      .filter(
-        (f) =>
-          f in rec &&
-          (f === "type"
-            ? shouldDropTypeValue(rec[f])
-            : normalizeTaskLinksValue(rec[f]) === undefined),
-      );
-    if (fields.length === 0) continue;
-    for (const f of fields) delete rec[f];
-    const next =
-      JSON.stringify(rec, null, 2) + (text.endsWith("\n") ? "\n" : "");
-    try {
-      const check = JSON.parse(next) as { id?: unknown };
-      if (typeof check.id !== "string") {
-        unwritten.push(item.id);
-        continue;
-      }
-    } catch {
-      unwritten.push(item.id);
-      continue;
-    }
-    try {
-      const tmp = item.filePath + ".tmp";
-      writeFileSync(tmp, next, "utf-8");
-      renameSync(tmp, item.filePath);
-      applied.push({
-        ...item,
-        changes: item.changes.filter((c) => fields.includes(c.field)),
+      withFileLockSync(taskLockPath(projectDir, item.id), () => {
+        const text = readFileSync(item.filePath, "utf-8");
+        const read = inspectLocalTaskRecord(JSON.parse(text) as unknown);
+        if (!read.record) { unwritten.push(item.id); return; }
+        if (read.findings.length === 0) return;
+        const next = JSON.stringify(read.record, null, 2) + (text.endsWith("\n") ? "\n" : "");
+        const tmp = item.filePath + ".tmp";
+        writeFileSync(tmp, next, "utf-8");
+        renameSync(tmp, item.filePath);
+        applied.push({ ...item, changes: read.findings });
       });
-    } catch {
-      unwritten.push(item.id);
-    }
+    } catch { unwritten.push(item.id); }
   }
-  return { applied, unwritten, unreadable: plan.unreadable };
+  return { applied, unwritten, unreadable: plan.unreadable, quarantined: plan.quarantined };
 }
 
 /**
@@ -918,58 +783,46 @@ function scanStoreMaxSortKey(projectDir: string): string | null {
   return max;
 }
 
-/** Reads and parses a task JSON file. */
-export function readTaskFile(filePath: string): Task | null {
+function taskFileId(filePath: string, raw?: unknown): string {
+  if (raw && typeof raw === "object" && "id" in raw && typeof raw.id === "string") return raw.id;
+  return filePath.slice(filePath.lastIndexOf("/") + 1, -5);
+}
+
+/** Never throws or writes. Quarantine has no record and cannot enter a merge. */
+export function readTaskRecordFile(filePath: string): LocalTaskRecordRead & { id: string } {
   try {
-    const content = readFileSync(filePath, "utf-8");
-    if (filePath.endsWith(".json")) {
-      const raw = JSON.parse(content) as unknown;
-      if (!raw || typeof raw !== "object" || !("id" in raw)) return null;
-      return normalizeTask(raw as Record<string, unknown>);
-    }
-    return null;
+    if (!isTaskJsonFile(filePath)) throw new Error("Not a task JSON file");
+    const raw = JSON.parse(readFileSync(filePath, "utf-8")) as unknown;
+    return { ...inspectLocalTaskRecord(raw), id: taskFileId(filePath, raw) };
   } catch {
-    return null;
+    return { id: taskFileId(filePath), record: null, canonical: null, findings: [], issues: [{ path: "", code: "unreadable_json", message: "Task file is unreadable or invalid JSON" }] };
   }
 }
 
-function collectTaskFiles(
-  projectDir: string,
-): Array<{ task: Task; filePath: string }> {
-  const tasksDir = getTasksDir(projectDir);
-  if (!existsSync(tasksDir)) return [];
+/** Compatibility display API; validation happens BEFORE display defaults. */
+export function readTaskFile(filePath: string): Task | null {
+  const read = readTaskRecordFile(filePath);
+  return read.record ? normalizeTask(read.record) : null;
+}
 
+function collectTaskFiles(projectDir: string, reads?: TaskReadFinding[]): Array<{ task: Task; filePath: string }> {
   const results: Array<{ task: Task; filePath: string }> = [];
-  for (const entry of readdirSync(tasksDir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      const dateDir = join(tasksDir, entry.name);
-      for (const file of readdirSync(dateDir)) {
-        if (extname(file) === ".json") {
-          const filePath = join(dateDir, file);
-          const task = readTaskFile(filePath);
-          if (task) results.push({ task, filePath });
-        }
-      }
-    } else if (extname(entry.name) === ".json") {
-      const filePath = join(tasksDir, entry.name);
-      const task = readTaskFile(filePath);
-      if (task) results.push({ task, filePath });
+  for (const { filePath } of listTaskRawFiles(projectDir)) {
+    const read = readTaskRecordFile(filePath);
+    if (!read.record || read.findings.length > 0) {
+      reads?.push({ id: read.id, quarantined: !read.record, findings: read.findings, issues: read.issues });
     }
+    if (read.record) results.push({ task: normalizeTask(read.record), filePath });
   }
   return results;
 }
 
-export function listTasks(projectDir: string): Task[] {
-  return collectTaskFiles(projectDir).map(({ task }) => task);
+export function listTasks(projectDir: string, reads?: TaskReadFinding[]): Task[] {
+  return collectTaskFiles(projectDir, reads).map(({ task }) => task);
 }
 
-export function listTasksWithPaths(
-  projectDir: string,
-): Array<Task & { filePath: string }> {
-  return collectTaskFiles(projectDir).map(({ task, filePath }) => ({
-    ...task,
-    filePath,
-  }));
+export function listTasksWithPaths(projectDir: string, reads?: TaskReadFinding[]): Array<Task & { filePath: string }> {
+  return collectTaskFiles(projectDir, reads).map(({ task, filePath }) => ({ ...task, filePath }));
 }
 
 export function updateTask(

@@ -52,7 +52,7 @@ function writeTask(projectDir: string, record: Record<string, unknown>): string 
 describe("linkRecord", () => {
   it("adds the resolved author email to a commit that has none", () => {
     const result = emptyResult();
-    const record = { commits: [{ sha: "aaa", message: "m", timestamp: "t" }] };
+    const record = { commits: [{ sha: "aaa", message: "m", timestamp: "2026-01-01T00:00:00.000Z" }] };
     const changed = linkRecord("t1", record, (sha) => (sha === "aaa" ? "a@b.co" : null), result);
     expect(changed).toBe(true);
     expect((record.commits[0] as { authorEmail?: string }).authorEmail).toBe("a@b.co");
@@ -154,7 +154,7 @@ describe("authorsLink", () => {
     const dir = makeProject();
     const path = writeTask(dir, {
       ...baseRecord,
-      commits: [{ sha: "aaa", message: "m", timestamp: "t" }],
+      commits: [{ sha: "aaa", message: "m", timestamp: "2026-01-01T00:00:00.000Z" }],
     });
     const before = readFileSync(path, "utf8");
     const result = await authorsLink(dir, { dryRun: true, resolveEmail: () => "a@b.co" });
@@ -164,7 +164,7 @@ describe("authorsLink", () => {
 
   it("reports the distinct sha count actually resolved", async () => {
     const dir = makeProject();
-    writeTask(dir, { ...baseRecord, id: "t1", commits: [{ sha: "a" }, { sha: "b" }, { sha: "a" }] });
+    writeTask(dir, { ...baseRecord, id: "t1", commits: ["a", "b", "a"].map((sha) => ({ sha, message: "m", timestamp: "2026-01-01T00:00:00.000Z" })) });
     const result = await authorsLink(dir, { dryRun: true, resolveEmail: (s) => `${s}@x.co` });
     expect(result.distinctShas).toBe(2);
     expect(result.linked).toBe(3);
@@ -174,7 +174,7 @@ describe("authorsLink", () => {
     const dir = makeProject();
     const path = writeTask(dir, {
       ...baseRecord,
-      commits: [{ sha: "aaa", message: "m", timestamp: "t" }],
+      commits: [{ sha: "aaa", message: "m", timestamp: "2026-01-01T00:00:00.000Z" }],
     });
     const before = readFileSync(path, "utf8");
     // No injected resolver → the command prechecks git itself. A half-written

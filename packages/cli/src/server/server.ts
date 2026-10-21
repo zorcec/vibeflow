@@ -1,3 +1,4 @@
+import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import {
   readFileSync,
   readdirSync,
@@ -326,7 +327,8 @@ function registerTaskApi(
   });
 
   app.get("/api/tasks", (req, res) => {
-    let tasks = listTasks(projectDir);
+    const reads: TaskReadFinding[] = [];
+    let tasks = listTasks(projectDir, reads);
     const remoteShas = getRemoteCommitShas(projectDir);
 
     // Support ?status=<status> query parameter for filtering
@@ -360,7 +362,8 @@ function registerTaskApi(
         commitPushed: isCommitPushed(lastSha, remoteShas),
       };
     });
-    res.json({ tasks: tasksWithMeta });
+    const notices = taskReadNotices(reads);
+    res.json({ tasks: tasksWithMeta, ...(notices.length > 0 ? { notices } : {}) });
   });
 
   // Reject invalid task IDs at the router level to prevent path traversal on all :id routes.

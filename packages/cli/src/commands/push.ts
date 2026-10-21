@@ -1,3 +1,4 @@
+import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import chalk from "chalk";
 import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
@@ -282,10 +283,10 @@ export function countTasksMissingCommitAuthorEmail(
   ).length;
 }
 
-export async function push(dir: string, opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
+async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
-  const taskList = listTasksWithPaths(projectDir);
+  const taskList = listTasksWithPaths(projectDir, reads);
   const tasksMissingCommitAuthorEmail = countTasksMissingCommitAuthorEmail(taskList);
   if (taskList.length === 0) {
     // Stryker disable once StringLiteral: display message for no tasks
@@ -1023,3 +1024,13 @@ export async function push(dir: string, opts: { board?: string; workspace?: stri
   return { dryRun: false, tasks: pushedCount, files: liveFileCount, board: boardLabel, tasksMissingCommitAuthorEmail, notices };
 }
 
+
+/** Keep record diagnostics on every success path, including a zero-task push. */
+export async function push(dir: string, opts: Parameters<typeof pushImpl>[2]): Promise<PushResult | void> {
+  const reads: TaskReadFinding[] = [];
+  const result = await pushImpl(dir, reads, opts);
+  const notices = taskReadNotices(reads);
+  if (!opts.json) for (const notice of notices) console.error(notice.message);
+  if (result) result.notices.push(...notices);
+  return result;
+}

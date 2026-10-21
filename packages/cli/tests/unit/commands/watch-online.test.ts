@@ -3,6 +3,9 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Isolate the saved board: the developer's HOME must not select this test's board.
+vi.mock("../../../src/auth/workspace.js", () => ({ readWorkspace: vi.fn(async () => null) }));
+
 vi.mock("../../../src/auth/mode.js", () => ({
   getMode: vi.fn(),
 }));

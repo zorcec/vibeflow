@@ -479,7 +479,7 @@ describe("verify maps validation failures to E_BASELINE_* VerifyErrors", () => {
       mkdirSync(join(dir, ".vibeflow", "tasks", "files", taskId), { recursive: true });
       writeFileSync(
         join(dir, ".vibeflow", "tasks", "2026-10-11", `${taskId}.json`),
-        JSON.stringify({ id: taskId, title: "t" }),
+        JSON.stringify({ id: taskId, title: "t", status: "todo", created: "2026-10-11T00:00:00Z" }),
       );
       writeFileSync(
         join(dir, ".vibeflow", "tasks", "files", taskId, "baseline-element.json"),
@@ -501,7 +501,7 @@ describe("verify maps validation failures to E_BASELINE_* VerifyErrors", () => {
       mkdirSync(join(dir, ".vibeflow", "tasks", "files", taskId), { recursive: true });
       writeFileSync(
         join(dir, ".vibeflow", "tasks", "2026-10-11", `${taskId}.json`),
-        JSON.stringify({ id: taskId, title: "t" }),
+        JSON.stringify({ id: taskId, title: "t", status: "todo", created: "2026-10-11T00:00:00Z" }),
       );
       writeFileSync(
         join(dir, ".vibeflow", "tasks", "files", taskId, "baseline-element.json"),

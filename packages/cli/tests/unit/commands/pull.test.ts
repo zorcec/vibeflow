@@ -224,10 +224,10 @@ describe("pull — live merge", () => {
     mkdirSync(taskDir, { recursive: true });
     writeFileSync(
       join(taskDir, "t1.json"),
-      JSON.stringify(taskRecord("t1", { localOnly: "keep me" })),
+      JSON.stringify(taskRecord("t1", { baselineFile: "keep-me.png" })),
     );
     const bytes = makeArchive([
-      { clientId: "t1", record: taskRecord("t1", { remoteOnly: true }) },
+      { clientId: "t1", record: taskRecord("t1", { reportBack: true }) },
     ]);
     vi.stubGlobal("fetch", stubArchiveFetch(bytes));
     silence();
@@ -240,8 +240,8 @@ describe("pull — live merge", () => {
       string,
       unknown
     >;
-    expect(stored.localOnly).toBe("keep me");
-    expect(stored.remoteOnly).toBe(true);
+    expect(stored.baselineFile).toBe("keep-me.png");
+    expect(stored.reportBack).toBe(true);
   });
 });
 

@@ -1,16 +1,26 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   listComments,
-  addComment,
+  addComment as coreAddComment,
   updateComment,
   deleteComment,
   normalizeCommentText,
 } from "../../src/core/comments.js";
 import type { TaskComment } from "../../src/core/types.js";
-// TaskComment is used for type assertions in tests below
+import { findTaskFilePath, readTaskRecordFile } from "../../src/core/tasks.js";
+// Success-path comment tests need a real canonical task, not an orphan shell.
+async function addComment(...args: Parameters<typeof coreAddComment>): ReturnType<typeof coreAddComment> {
+  const [dir, id] = args;
+  if (!findTaskFilePath(dir, id)) {
+    const root = join(dir, ".vibeflow", "tasks");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, `${id}.json`), JSON.stringify({ id, title: "Comment test task", status: "todo", created: "2026-01-01T00:00:00Z" }));
+  }
+  return coreAddComment(...args);
+}
 
 describe("listComments", () => {
   let tempDir: string;
@@ -112,16 +122,19 @@ describe("addComment", () => {
     // This exercises the fallback branch in addComment when updateTask returns null.
     // The task file doesn't exist (no task was created in tempDir).
     const fakeTaskId = "non-existent-task-abc";
-    const comment = await addComment(
+    const comment = await coreAddComment(
       tempDir,
       fakeTaskId,
       "user",
       "orphan comment",
     );
     expect(comment.text).toBe("orphan comment");
-    const retrieved = listComments(tempDir, fakeTaskId);
-    expect(retrieved).toHaveLength(1);
-    expect(retrieved[0].text).toBe("orphan comment");
+    const path = findTaskFilePath(tempDir, fakeTaskId)!;
+    const before = readFileSync(path, "utf8");
+    expect(JSON.parse(before).comments[0].text).toBe("orphan comment");
+    expect(readTaskRecordFile(path).record).toBeNull();
+    expect(listComments(tempDir, fakeTaskId)).toEqual([]);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
   it("generates unique ids", async () => {
@@ -457,7 +470,7 @@ describe("listComments: legacy comment normalization", () => {
     );
   };
 
-  it("normalizes legacy body field to text when text is empty", () => {
+  it("quarantines conflicting empty text/body without changing bytes", () => {
     writeTask("task-legacy-body", [
       {
         id: "c1",
@@ -466,12 +479,14 @@ describe("listComments: legacy comment normalization", () => {
         text: "",
       },
     ]);
-    const comments = listComments(tempDir, "task-legacy-body");
-    expect(comments).toHaveLength(1);
-    expect(comments[0].text).toBe("Content from body field");
+    const path = findTaskFilePath(tempDir, "task-legacy-body")!;
+    const before = readFileSync(path, "utf8");
+    expect(listComments(tempDir, "task-legacy-body")).toEqual([]);
+    expect(readTaskRecordFile(path).issues.length).toBeGreaterThan(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
-  it("prefers text over body when both are present", () => {
+  it("quarantines differing text/body without choosing one", () => {
     writeTask("task-prefer-text", [
       {
         id: "c1",
@@ -480,16 +495,22 @@ describe("listComments: legacy comment normalization", () => {
         createdAt: "2026-04-10T10:00:00.000Z",
       },
     ]);
-    const comments = listComments(tempDir, "task-prefer-text");
-    expect(comments[0].text).toBe("text value");
+    const path = findTaskFilePath(tempDir, "task-prefer-text")!;
+    const before = readFileSync(path, "utf8");
+    expect(listComments(tempDir, "task-prefer-text")).toEqual([]);
+    expect(readTaskRecordFile(path).issues.length).toBeGreaterThan(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
-  it("defaults author to agent when author field is missing", () => {
+  it("quarantines a missing author instead of inventing attribution", () => {
     writeTask("task-no-author", [
       { id: "c1", text: "some comment", createdAt: "2026-04-10T10:00:00.000Z" },
     ]);
-    const comments = listComments(tempDir, "task-no-author");
-    expect(comments[0].author).toBe("agent");
+    const path = findTaskFilePath(tempDir, "task-no-author")!;
+    const before = readFileSync(path, "utf8");
+    expect(listComments(tempDir, "task-no-author")).toEqual([]);
+    expect(readTaskRecordFile(path).issues.length).toBeGreaterThan(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
   it("preserves existing author when present", () => {
@@ -505,7 +526,7 @@ describe("listComments: legacy comment normalization", () => {
     expect(comments[0].author).toBe("user");
   });
 
-  it("handles comment with both missing author and body field", () => {
+  it("quarantines missing author plus conflicting text/body", () => {
     writeTask("task-both-missing", [
       {
         id: "c1",
@@ -514,8 +535,10 @@ describe("listComments: legacy comment normalization", () => {
         text: "",
       },
     ]);
-    const comments = listComments(tempDir, "task-both-missing");
-    expect(comments[0].text).toBe("legacy content");
-    expect(comments[0].author).toBe("agent");
+    const path = findTaskFilePath(tempDir, "task-both-missing")!;
+    const before = readFileSync(path, "utf8");
+    expect(listComments(tempDir, "task-both-missing")).toEqual([]);
+    expect(readTaskRecordFile(path).issues.length).toBeGreaterThan(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 });

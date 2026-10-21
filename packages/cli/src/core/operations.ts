@@ -1,3 +1,4 @@
+import { taskReadNotices, type TaskReadFinding } from "./task-record-read.js";
 /**
  * MCP Operations Layer
  *
@@ -310,7 +311,8 @@ export async function listTasks(
     // ONE shared listing model (core/task-listing.ts), the same one the CLI
     // `tasks` listing renders — including the filtered-query rule (a filter
     // is an explicit search, so children are included, exactly like the CLI).
-    const result = queryTaskList(coreListTasks(ctx.projectDir), {
+    const reads: TaskReadFinding[] = [];
+    const result = queryTaskList(coreListTasks(ctx.projectDir, reads), {
       status: input.status,
       type: input.type,
       user: input.user,
@@ -345,7 +347,8 @@ export async function listTasks(
       result.tasks = projected;
     }
 
-    return { ok: true, data: result };
+    const notices = taskReadNotices(reads);
+    return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
   } catch (err) {
     return {
       ok: false,

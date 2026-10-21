@@ -230,7 +230,7 @@ describe("progress goes to stderr, never stdout", () => {
     for (let i = 1; i <= 3; i++) {
       writeFileSync(
         join(taskDir, `t${i}.json`),
-        JSON.stringify({ id: `t${i}`, title: `T${i}`, status: "todo" }),
+        JSON.stringify({ id: `t${i}`, title: `T${i}`, status: "todo", created: "2026-01-01T00:00:00Z" }),
       );
     }
 

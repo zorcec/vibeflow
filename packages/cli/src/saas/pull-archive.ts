@@ -586,7 +586,7 @@ export function verifyPullStaging(staging: PullStaging): void {
  * nothing: an unchanged task stays byte-identical on disk. */
 interface PullTaskPlan {
   clientId: string;
-  kind: "new" | "rewrite" | "unchanged";
+  kind: "new" | "rewrite" | "unchanged" | "quarantined";
   filePath: string | null;
   record: Record<string, unknown> | null;
   conflict: boolean;
@@ -675,22 +675,10 @@ export function applyPullEntries(
     }
     const local = readTaskFile(existingPath);
     if (!local) {
-      // Slot on disk but unreadable: restore the server record into it.
-      const record: Record<string, unknown> = {
-        ...remoteRecord,
-        created:
-          typeof remoteRecord.created === "string"
-            ? remoteRecord.created
-            : new Date().toISOString(),
-      };
-      taskPlans.push({
-        clientId,
-        kind: "new",
-        filePath: existingPath,
-        record,
-        conflict: false,
-        ceilingTouched: true,
-      });
+      // A quarantined slot may contain deliberate data this reader cannot
+      // express. Pull copies; only explicit normalisation may repair it.
+      taskPlans.push({ clientId, kind: "quarantined", filePath: existingPath,
+        record: null, conflict: true, ceilingTouched: false });
       continue;
     }
     const { merged, changed, conflict } = mergePullRecord(
@@ -746,6 +734,10 @@ export function applyPullEntries(
     // saveFile parity: the on-disk name is the bare filename, so a staged
     // nested name can never escape the task's files dir or throw mid-apply.
     const safeName = basename(file.name);
+    if (planByClientId.get(file.clientId)?.kind === "quarantined") {
+      filePlans.push({ file, safeName, action: "skip", needsRef: null });
+      continue;
+    }
     const coverage = plannedFilesCoverage(planByClientId.get(file.clientId));
     if (coverage !== null && isUnmaterialisable(coverage, file.name)) {
       filePlans.push({ file, safeName, action: "skip", needsRef: null });
@@ -819,7 +811,7 @@ export function applyPullEntries(
   let ceilingTouched = false;
   for (const plan of taskPlans) {
     if (plan.conflict) summary.conflicts++;
-    if (plan.kind === "unchanged") {
+    if (plan.kind === "unchanged" || plan.kind === "quarantined") {
       summary.unchanged++;
       continue;
     }

@@ -81,7 +81,7 @@ describe("normalizeTaskTypeValue (store schema boundary)", () => {
     }
   });
 
-  it("keeps a user-written label verbatim (free-form type, trimmed)", () => {
+  it("keeps a user-written label verbatim (free-form type, including spacing)", () => {
     // The convergence contract: a label the user deliberately wrote must
     // survive read → push → pull byte-identical, even when no picker or
     // filter names it. Only stringification garbage reads as absent.
@@ -89,7 +89,7 @@ describe("normalizeTaskTypeValue (store schema boundary)", () => {
     expect(normalizeTaskTypeValue("Foo")).toBe("Foo");
     expect(normalizeTaskTypeValue("bug")).toBe("bug");
     expect(normalizeTaskTypeValue("TASK")).toBe("TASK");
-    expect(normalizeTaskTypeValue("  Chore  ")).toBe("Chore");
+    expect(normalizeTaskTypeValue("  Chore  ")).toBe("  Chore  ");
   });
 });
 
@@ -104,19 +104,19 @@ describe("shouldDropTypeValue (--normalize deletion rule)", () => {
       true,
       {},
       [],
+      null,
     ]) {
       expect(shouldDropTypeValue(v)).toBe(true);
     }
   });
 
-  it("keeps valid values, cloud-null, and possibly-deliberate labels", () => {
+  it("keeps valid values and possibly-deliberate labels", () => {
     for (const v of [
       "Task",
       "Bug",
       "Feature",
       "Enhancement",
       "Research",
-      null,
       "Chore",
       "Foo",
     ]) {
@@ -305,19 +305,20 @@ describe("planTaskStoreNormalize / applyTaskStoreNormalize", () => {
         "78b9957449275b9101f5a02b5fa9da",
         "89db6b9000000000000000000002",
         "9d84ac1c00000000000000000001",
+        "null-type-stays-000000000001",
       ].sort(),
     );
     for (const p of report.changes) {
       for (const c of p.changes) expect(c.after).toBe("absent");
     }
-    // Untouched: clean record, cloud-null type, valid parent link,
+    // Untouched: clean record, valid parent link,
     // possibly-deliberate label.
     expect(
       report.changes.some((c) => c.id === "untouched-clean-00000001"),
     ).toBe(false);
     expect(
       report.changes.some((c) => c.id === "null-type-stays-000000000001"),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       report.changes.some((c) => c.id === "valid-links-stay-00000000001"),
     ).toBe(false);
@@ -348,6 +349,7 @@ describe("planTaskStoreNormalize / applyTaskStoreNormalize", () => {
         "78b9957449275b9101f5a02b5fa9da",
         "89db6b9000000000000000000002",
         "9d84ac1c00000000000000000001",
+        "null-type-stays-000000000001",
       ].sort(),
     );
 
