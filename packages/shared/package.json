@@ -11,6 +11,7 @@
     "./overlay-bundle": "./src/overlay-bundle.gen.ts",
     "./webhooks": "./src/webhooks.ts",
     "./delta-hash": "./src/delta-hash.ts",
+    "./task-record": "./src/task-record.ts",
     "./tar": "./src/tar.ts"
   },
   "scripts": {

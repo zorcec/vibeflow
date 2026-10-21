@@ -1,0 +1,330 @@
+[
+  {
+    "name": "minimal",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-min",
+      "title": "Minimal task",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z"
+    },
+    "canonical": "{\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-min\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Minimal task\"}",
+    "hash": "75c4432fd1efcd52c3342587be29f0479fd7e550d72dc20f514e5b3f46c3c08f"
+  },
+  {
+    "name": "maximal",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-max",
+      "title": "Maximal task",
+      "description": "Every optional field set.",
+      "status": "in-progress",
+      "type": "Chore",
+      "priority": "high",
+      "selector": "#a",
+      "cssSelector": ".b",
+      "file": "src/x.ts",
+      "url": "https://example.com/t",
+      "line": 12,
+      "col": 3,
+      "component": "Card",
+      "author": "ada",
+      "agent": "cli",
+      "model": "m1",
+      "branchName": "feat/x",
+      "reportBack": true,
+      "verified": true,
+      "authorEmail": "ada@example.com",
+      "annotatedElementText": "Buy milk",
+      "sortKey": "a0",
+      "created": "2026-03-01T10:00:00Z",
+      "updated": "2026-03-05T12:34:56.123456789Z",
+      "tags": [
+        "a",
+        "b"
+      ],
+      "links": [
+        {
+          "taskId": "t2",
+          "type": "parent"
+        },
+        {
+          "taskId": "t3",
+          "type": "blocks"
+        }
+      ],
+      "commits": [
+        {
+          "sha": "abc123",
+          "message": "fix",
+          "timestamp": "2026-03-04T10:00:00Z",
+          "authorEmail": "dev@example.com"
+        }
+      ],
+      "commit": "abc123",
+      "openedBy": [
+        "u1"
+      ],
+      "expandedBy": [
+        "u2"
+      ],
+      "screenshot": "task-max.png",
+      "baselineElementFile": "b-el.json",
+      "baselineFile": "b-page.json",
+      "baseline": {
+        "computedStyles": {
+          "__proto__": "lost"
+        },
+        "position": {
+          "boundingBox": {
+            "x": 119.80000305175781,
+            "y": 1.25
+          }
+        }
+      },
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-a",
+          "author": "user",
+          "text": "First comment",
+          "createdAt": "2026-03-02T10:00:00Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-t",
+          "author": "user",
+          "text": "gone",
+          "createdAt": "2026-03-02T12:00:00Z",
+          "deleted": true
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-b",
+          "author": "agent",
+          "text": "Second comment",
+          "files": [
+            "a.png"
+          ],
+          "createdAt": "2026-03-03T10:00:00Z",
+          "type": "comment",
+          "source": "cli"
+        }
+      ],
+      "files": [
+        {
+          "schemaVersion": 1,
+          "name": "a.png",
+          "addedAt": "2026-03-02T10:00:00Z",
+          "mimeType": "image/png"
+        },
+        {
+          "schemaVersion": 1,
+          "name": "doc",
+          "addedAt": "2026-03-02T10:00:00Z",
+          "linkedPath": "/tmp/doc.pdf"
+        }
+      ],
+      "authStateEnc": "legacy-secret",
+      "filePath": ".vibeflow/tasks/2026-03-01/task-max.json"
+    },
+    "canonical": "{\"agent\":\"cli\",\"annotatedElementText\":\"Buy milk\",\"authStateEnc\":\"legacy-secret\",\"author\":\"ada\",\"authorEmail\":\"ada@example.com\",\"baseline\":{\"computedStyles\":{\"__proto__\":\"lost\"},\"position\":{\"boundingBox\":{\"x\":119.80000305175781,\"y\":1.25}}},\"baselineElementFile\":\"b-el.json\",\"baselineFile\":\"b-page.json\",\"branchName\":\"feat/x\",\"col\":3,\"comments\":[{\"author\":\"user\",\"createdAt\":\"2026-03-02T10:00:00Z\",\"id\":\"c-a\",\"schemaVersion\":1,\"text\":\"First comment\"},{\"author\":\"user\",\"createdAt\":\"2026-03-02T12:00:00Z\",\"deleted\":true,\"id\":\"c-t\",\"schemaVersion\":1,\"text\":\"gone\"},{\"author\":\"agent\",\"createdAt\":\"2026-03-03T10:00:00Z\",\"files\":[\"a.png\"],\"id\":\"c-b\",\"schemaVersion\":1,\"source\":\"cli\",\"text\":\"Second comment\",\"type\":\"comment\"}],\"commit\":\"abc123\",\"commits\":[{\"authorEmail\":\"dev@example.com\",\"message\":\"fix\",\"sha\":\"abc123\",\"timestamp\":\"2026-03-04T10:00:00Z\"}],\"component\":\"Card\",\"created\":\"2026-03-01T10:00:00Z\",\"cssSelector\":\".b\",\"description\":\"Every optional field set.\",\"expandedBy\":[\"u2\"],\"file\":\"src/x.ts\",\"filePath\":\".vibeflow/tasks/2026-03-01/task-max.json\",\"files\":[{\"addedAt\":\"2026-03-02T10:00:00Z\",\"mimeType\":\"image/png\",\"name\":\"a.png\",\"schemaVersion\":1},{\"addedAt\":\"2026-03-02T10:00:00Z\",\"linkedPath\":\"/tmp/doc.pdf\",\"name\":\"doc\",\"schemaVersion\":1}],\"id\":\"task-max\",\"line\":12,\"links\":[{\"taskId\":\"t2\",\"type\":\"parent\"},{\"taskId\":\"t3\",\"type\":\"blocks\"}],\"model\":\"m1\",\"openedBy\":[\"u1\"],\"priority\":\"high\",\"reportBack\":true,\"schemaVersion\":1,\"screenshot\":\"task-max.png\",\"selector\":\"#a\",\"sortKey\":\"a0\",\"status\":\"in-progress\",\"tags\":[\"a\",\"b\"],\"title\":\"Maximal task\",\"type\":\"Chore\",\"updated\":\"2026-03-05T12:34:56.123456789Z\",\"url\":\"https://example.com/t\",\"verified\":true}",
+    "hash": "9b30725f005f14f125c589d609e75b6bd6ebe2c3eb4d78e31449ef53b3eecf8b"
+  },
+  {
+    "name": "numeric-keys",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-numkeys",
+      "title": "Numeric keys",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "baseline": {
+        "1": "a",
+        "01": "b",
+        "1e5": "c"
+      }
+    },
+    "canonical": "{\"baseline\":{\"1\":\"a\",\"01\":\"b\",\"1e5\":\"c\"},\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-numkeys\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Numeric keys\"}",
+    "hash": "d038f78e529f8d800cb2b4707abac1b352557515633f9937d55be50a6e37e5cb"
+  },
+  {
+    "name": "fractional-geometry",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-frac",
+      "title": "Fractional geometry",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "baseline": {
+        "position": {
+          "boundingBox": {
+            "x": 119.80000305175781,
+            "y": 1.25
+          },
+          "scrollPosition": {
+            "x": 0,
+            "y": 10.5
+          },
+          "viewport": {
+            "w": 1280,
+            "h": 800
+          },
+          "dpr": 2
+        }
+      }
+    },
+    "canonical": "{\"baseline\":{\"position\":{\"boundingBox\":{\"x\":119.80000305175781,\"y\":1.25},\"dpr\":2,\"scrollPosition\":{\"x\":0,\"y\":10.5},\"viewport\":{\"h\":800,\"w\":1280}}},\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-frac\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Fractional geometry\"}",
+    "hash": "bddaa4e42907cadb292bbd1b1c5345946ab7c3fa0fdd2e77b4fa37d298e722ab"
+  },
+  {
+    "name": "unicode",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-uni",
+      "title": "Unicode",
+      "description": "héllo — 🌍 é (e + combining acute)",
+      "status": "review",
+      "created": "2026-03-01T10:00:00Z"
+    },
+    "canonical": "{\"created\":\"2026-03-01T10:00:00Z\",\"description\":\"héllo — 🌍 é (e + combining acute)\",\"id\":\"task-uni\",\"schemaVersion\":1,\"status\":\"review\",\"title\":\"Unicode\"}",
+    "hash": "5f43d8c352ce1e8ee3d5a19ecfdfbbf9db0c22493a93052eb027c3470b1b3980"
+  },
+  {
+    "name": "timestamp-9digit",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-ts9",
+      "title": "Nine-digit ts",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00.123456789Z",
+      "updated": "2026-03-05T12:34:56.987654321Z"
+    },
+    "canonical": "{\"created\":\"2026-03-01T10:00:00.123456789Z\",\"id\":\"task-ts9\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Nine-digit ts\",\"updated\":\"2026-03-05T12:34:56.987654321Z\"}",
+    "hash": "a7704ab0f23a0434a005d0457060848e5dd938de8c663ebaf591319b0e5d5064"
+  },
+  {
+    "name": "comments-order-a",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-order",
+      "title": "Order A",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-a",
+          "author": "user",
+          "text": "First comment",
+          "createdAt": "2026-03-02T10:00:00Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-b",
+          "author": "agent",
+          "text": "Second comment",
+          "files": [
+            "a.png"
+          ],
+          "createdAt": "2026-03-03T10:00:00Z",
+          "type": "comment",
+          "source": "cli"
+        }
+      ]
+    },
+    "canonical": "{\"comments\":[{\"author\":\"user\",\"createdAt\":\"2026-03-02T10:00:00Z\",\"id\":\"c-a\",\"schemaVersion\":1,\"text\":\"First comment\"},{\"author\":\"agent\",\"createdAt\":\"2026-03-03T10:00:00Z\",\"files\":[\"a.png\"],\"id\":\"c-b\",\"schemaVersion\":1,\"source\":\"cli\",\"text\":\"Second comment\",\"type\":\"comment\"}],\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-order\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Order A\"}",
+    "hash": "97b48af6f505e599e3e693ae609c0f8acbc4c6e2337e2f9572c2dc52913bb061"
+  },
+  {
+    "name": "comments-order-b",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-order",
+      "title": "Order A",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-b",
+          "author": "agent",
+          "text": "Second comment",
+          "files": [
+            "a.png"
+          ],
+          "createdAt": "2026-03-03T10:00:00Z",
+          "type": "comment",
+          "source": "cli"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-a",
+          "author": "user",
+          "text": "First comment",
+          "createdAt": "2026-03-02T10:00:00Z"
+        }
+      ]
+    },
+    "canonical": "{\"comments\":[{\"author\":\"agent\",\"createdAt\":\"2026-03-03T10:00:00Z\",\"files\":[\"a.png\"],\"id\":\"c-b\",\"schemaVersion\":1,\"source\":\"cli\",\"text\":\"Second comment\",\"type\":\"comment\"},{\"author\":\"user\",\"createdAt\":\"2026-03-02T10:00:00Z\",\"id\":\"c-a\",\"schemaVersion\":1,\"text\":\"First comment\"}],\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-order\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Order A\"}",
+    "hash": "978280b99fd9db1d4dbfd3b14e105d52da24e159e5b0dd9ce7c5b8fecf454e30"
+  },
+  {
+    "name": "tombstone-interleaved",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-tomb",
+      "title": "Tombstone",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "comments": [
+        {
+          "schemaVersion": 1,
+          "id": "c-a",
+          "author": "user",
+          "text": "First comment",
+          "createdAt": "2026-03-02T10:00:00Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-t",
+          "author": "user",
+          "text": "gone",
+          "createdAt": "2026-03-02T12:00:00Z",
+          "deleted": true
+        },
+        {
+          "schemaVersion": 1,
+          "id": "c-b",
+          "author": "agent",
+          "text": "Second comment",
+          "files": [
+            "a.png"
+          ],
+          "createdAt": "2026-03-03T10:00:00Z",
+          "type": "comment",
+          "source": "cli"
+        }
+      ]
+    },
+    "canonical": "{\"comments\":[{\"author\":\"user\",\"createdAt\":\"2026-03-02T10:00:00Z\",\"id\":\"c-a\",\"schemaVersion\":1,\"text\":\"First comment\"},{\"author\":\"user\",\"createdAt\":\"2026-03-02T12:00:00Z\",\"deleted\":true,\"id\":\"c-t\",\"schemaVersion\":1,\"text\":\"gone\"},{\"author\":\"agent\",\"createdAt\":\"2026-03-03T10:00:00Z\",\"files\":[\"a.png\"],\"id\":\"c-b\",\"schemaVersion\":1,\"source\":\"cli\",\"text\":\"Second comment\",\"type\":\"comment\"}],\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-tomb\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Tombstone\"}",
+    "hash": "f1afe73bc964989c148f0361e8fc30bcca666316a3cd6b11605407921f4c05ef"
+  },
+  {
+    "name": "proto-in-computed-styles",
+    "record": {
+      "schemaVersion": 1,
+      "id": "task-proto",
+      "title": "Proto",
+      "status": "todo",
+      "created": "2026-03-01T10:00:00Z",
+      "baseline": {
+        "computedStyles": {
+          "__proto__": "lost"
+        }
+      }
+    },
+    "canonical": "{\"baseline\":{\"computedStyles\":{\"__proto__\":\"lost\"}},\"created\":\"2026-03-01T10:00:00Z\",\"id\":\"task-proto\",\"schemaVersion\":1,\"status\":\"todo\",\"title\":\"Proto\"}",
+    "hash": "be9ba692fb2de9d7cae413a2127dc4198b7f1395463f57a2771bbc0dd32056cd"
+  }
+]

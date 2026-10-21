@@ -46,7 +46,11 @@ export function canonicalJson(value: unknown): string {
   const walk = (v: unknown): JsonValue => {
     if (Array.isArray(v)) return v.map(walk) as JsonValue[];
     if (isObject(v)) {
-      const out: Record<string, JsonValue> = {};
+      // Null prototype: assigning `out["__proto__"]` on `{}` would invoke
+      // the Object.prototype setter and LOSE the key (M02: a record containing
+      // `{"__proto__":"lost"}` hashed like one without it). Verified by
+      // `task-record-hash.test.ts` (`__proto__` vector) and `json-domain.test.ts`.
+      const out: Record<string, JsonValue> = Object.create(null);
       for (const key of Object.keys(v).sort()) out[key] = walk(v[key]);
       return out;
     }

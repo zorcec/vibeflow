@@ -66,6 +66,40 @@ export {
 // it in — including the CLI's browser-target overlay bundle, whose esbuild
 // pass fails outright with `Could not resolve "node:crypto"`. Import it as
 // `@vibeflow-tools/shared/delta-hash`.
+// The canonical TaskRecord schema below is node-free (zod only) and IS safe
+// to re-export from this barrel. Hashing still lives in `./delta-hash`; mix
+// the two only in Node runtimes:
+//   import { parseTaskRecord } from "@vibeflow-tools/shared";
+//   import { hashTaskRecord } from "@vibeflow-tools/shared/delta-hash";
+export {
+  TASK_RECORD_SCHEMA_VERSION,
+  TASK_RECORD_DESCRIPTION_MAX,
+  PERSISTED_COMMENT_TEXT_MAX,
+  TASK_RECORD_STATUSES,
+  TASK_RECORD_COMMENT_AUTHORS,
+  TASK_RECORD_COMMENT_TYPES,
+  TASK_RECORD_SOURCES,
+  TASK_RECORD_LINK_TYPES,
+  ISO_8601_UTC_RE,
+  isRecordAuthorEmail,
+  TaskLinkRecordSchema,
+  TaskCommitRecordSchema,
+  TaskCommentRecordSchema,
+  TaskFileRecordSchema,
+  TaskRecordSchema,
+  parseTaskRecord,
+  validateRecordDomain,
+  toCanonicalBytes,
+} from "./task-record";
+export type {
+  TaskRecordStatus,
+  TaskLinkRecord,
+  TaskCommitRecord,
+  TaskCommentRecord,
+  TaskFileRecord,
+  TaskRecord,
+  RecordIssue,
+} from "./task-record";
 
 // Signed webhooks (scheme documented in ./webhooks)
 export {
