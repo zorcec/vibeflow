@@ -24,9 +24,35 @@ export interface SaasFailure {
 }
 
 /** The shape of `SaasResult`'s `error` arm, minus the parts unused here. */
-type SaasError = { code: string; status?: number };
+type SaasError = {
+  code: string;
+  status?: number;
+  /**
+   * The backend's own refusal code when the HTTP body carried one
+   * (v0 answers `{ error, code }`, e.g. EXPORT_NOT_ALLOWED for a
+   * plan-gated export). Checked BEFORE the status, so a plan refusal
+   * is never mislabelled as an auth failure.
+   */
+  serverCode?: string;
+};
 
 export function saasFailure(error: SaasError): SaasFailure {
+  // Plan-gated export refusal: a retry can never fix it, and the fix is
+  // an upgrade, not a login — so it must not fall through to the 403
+  // auth mapping below.
+  if (error.serverCode === "EXPORT_NOT_ALLOWED")
+    return {
+      code: "E_PLAN_REQUIRED",
+      retryable: false,
+      suggestion: "Export requires a Pro plan. Upgrade to export this board.",
+    };
+  if (error.serverCode === "EXPORT_TOO_LARGE" || error.status === 413)
+    return {
+      code: "E_EXPORT_TOO_LARGE",
+      retryable: false,
+      suggestion:
+        "Export exceeds the maximum size. Ask the board owner to trim files and retry.",
+    };
   const rejected = error.status === 401 || error.status === 403;
   if (error.code === "NOT_AUTHENTICATED" || rejected)
     return {

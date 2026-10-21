@@ -65,6 +65,7 @@ import { login, maybeRefreshSettings } from "./auth/login.js";
 import { getApiUrl, surfacePath } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
+import { pull } from "./commands/pull.js";
 import { watch } from "./commands/watch.js";
 import { showChangelog } from "./commands/changelog.js";
 import { changelogText, readChangelogContent } from "./core/changelog.js";
@@ -4991,6 +4992,43 @@ program
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
       await push(dir, opts);
+      await flushTelemetry();
+    },
+  );
+
+program
+  .command("pull")
+  .description(
+    "Pull the online board into your local task store (additive merge, never deletes)",
+  )
+  .argument("[dir]", "Project root directory", ".")
+  .option(
+    "--board <boardId>",
+    "Board to pull from (wins over the saved board; required on a 2+ board account with no saved board — pull refuses without a selection)",
+  )
+  .option(
+    "--out <dir>",
+    "Project root to write into (default: the [dir] argument — the local store push reads)",
+  )
+  .option(
+    "--prefer-remote",
+    "On a conflicting field the REMOTE value wins (default: LOCAL wins, nothing is ever deleted)",
+  )
+  .option(
+    "--dry-run",
+    "Fetch and verify the archive, report the plan, write nothing",
+  )
+  .option(
+    "--json",
+    "Emit the pull result (added/merged/unchanged, files written) as JSON on stdout",
+  )
+  .action(
+    async (
+      dir: string,
+      opts: { board?: string; out?: string; preferRemote?: boolean; dryRun?: boolean; json?: boolean },
+    ) => {
+      capture("command_run", { surface: "cli", command: "pull" });
+      await pull(dir, opts);
       await flushTelemetry();
     },
   );

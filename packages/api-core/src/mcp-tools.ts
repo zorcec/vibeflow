@@ -447,6 +447,22 @@ export const PushTasksInput = z.object({
 });
 export type PushTasksInputType = z.infer<typeof PushTasksInput>;
 
+export const PullInput = z.object({
+  board: z.string().optional().describe(
+    "Board to pull from. Omit to use the saved board (same rule as the CLI's --board flag).",
+  ),
+  out: z.string().optional().describe(
+    "Project root to write into instead of the server's own project (same as the CLI's --out flag). Omit to pull into the current project.",
+  ),
+  preferRemote: z.boolean().default(false).describe(
+    "On a conflicting field the REMOTE value wins (same as the CLI's --prefer-remote flag). Default false: the local value wins and nothing is ever deleted.",
+  ),
+  dryRun: z.boolean().default(false).describe(
+    "Preview only: report what WOULD be pulled without writing anything (same as the CLI's --dry-run flag).",
+  ),
+});
+export type PullInputType = z.infer<typeof PullInput>;
+
 export const StartKanbanInput = z.object({
   port: z
     .number()
@@ -708,6 +724,28 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
       openWorldHint: false,
     },
     input: VerifyTaskInput.shape,
+  },
+  {
+    name: "pull",
+    title: "Pull board",
+    description:
+      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default; pass preferRemote to let the remote value win instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull (added/merged/unchanged counts) without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
+    cliRef: {
+      command: "pull",
+      flags: ["--board", "--out", "--prefer-remote", "--dry-run"],
+    },
+    category: "task-write",
+    annotations: {
+      // Writes the local task store (new task files, merged records, file
+      // bytes), so it is not a read — but it never deletes anything and a
+      // re-pull converges to a no-op, so a repeat call is safe.
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      // Fetches the board archive from the SaaS backend over the network.
+      openWorldHint: true,
+    },
+    input: PullInput.shape,
   },
   {
     name: "start_kanban",

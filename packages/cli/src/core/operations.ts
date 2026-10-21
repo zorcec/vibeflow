@@ -192,6 +192,8 @@ import {
   type GetTaskInputType,
   ListTasksInput,
   type ListTasksInputType,
+  PullInput,
+  type PullInputType,
   StartKanbanInput,
   type StartKanbanInputType,
   UpdateTaskInput,
@@ -216,6 +218,8 @@ export {
   type GetTaskInputType,
   ListTasksInput,
   type ListTasksInputType,
+  PullInput,
+  type PullInputType,
   StartKanbanInput,
   type StartKanbanInputType,
   UpdateTaskInput,
@@ -1382,6 +1386,63 @@ export const PushTasksInput = z.object({
   dryRun: z.boolean().default(false),
 });
 export type PushTasksInputType = z.infer<typeof PushTasksInput>;
+
+/**
+ * Pull the online board into the local task store (the MCP spelling of
+ * `vibeflow pull`). Additive and never destructive: the merge adds missing
+ * tasks, merges conflicting fields (local wins unless `preferRemote`), and
+ * deletes nothing. `out` redirects the write target to another project
+ * root; omit it to pull into the server's own project.
+ */
+export async function pullFromBoard(
+  ctx: OperationContext,
+  input: PullInputType,
+): Promise<OperationResult<unknown>> {
+  if (isDryRun(ctx, input)) {
+    // Preview WITHOUT touching the network or the store: the counts a real
+    // pull would report cannot be known without fetching the archive, so the
+    // preview names the board selection it would pull from instead of
+    // inventing numbers. Anything that would write answers this way.
+    return {
+      ok: true,
+      data: {
+        dryRun: true,
+        board: input.board ?? null,
+        out: input.out ?? null,
+        preferRemote: input.preferRemote === true,
+      },
+      steps: [{ code: "DRY_RUN", message: "Pull would run" }],
+    };
+  }
+  try {
+    const { pull } = await import("../commands/pull.js");
+    // silent: stdout is the JSON-RPC channel over MCP stdio — the human
+    // lines pull() prints would corrupt the protocol stream.
+    const result = await pull(ctx.projectDir, {
+      board: input.board,
+      out: input.out,
+      preferRemote: input.preferRemote,
+      dryRun: false,
+      json: true,
+      silent: true,
+    });
+    // pull() returns void on early exits (no login, no board selected).
+    // Normalise to an object so the success envelope is always
+    // serialisable — JSON.stringify(undefined) is undefined, which would
+    // violate the MCP TextContent contract (text: string).
+    return { ok: true, data: (result ?? {}) as Record<string, unknown> };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "PULL_ERROR",
+        message: err instanceof Error ? err.message : "Failed to pull the board",
+        suggestion:
+          "Check the backend is reachable and you are logged in (vibeflow login); nothing was written, so retry",
+      },
+    };
+  }
+}
 
 export async function pushTasks(
   ctx: OperationContext,

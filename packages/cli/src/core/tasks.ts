@@ -617,8 +617,16 @@ function writeSortKeyCeiling(projectDir: string, key: string): void {
   }
 }
 
-/** Drop the cache so the next `maxStoreSortKey` rescans the store. */
-function invalidateSortKeyCeiling(projectDir: string): void {
+/**
+ * Drop the cache so the next `maxStoreSortKey` rescans the store.
+ *
+ * Exported for the pull merge (commands/pull.ts): importing a task whose
+ * sortKey sits above the cached ceiling would otherwise let the next
+ * `createTask()` mint a colliding key. A missing ceiling only costs one
+ * rescan, never correctness — so the import invalidates whenever it added
+ * a task or changed a sort key, unconditionally.
+ */
+export function invalidateSortKeyCeiling(projectDir: string): void {
   try {
     unlinkSync(sortKeyCeilingPath(projectDir));
   } catch {

@@ -141,6 +141,10 @@ describe("dryRun parity", () => {
   /** A plausible, valid input per dryRun-advertising tool. */
   const dryRunInputs: Record<string, (t: Task) => unknown> = {
     create_task: () => ({ title: "Dry Run Task", dryRun: true }),
+    // pull dry-runs WITHOUT touching the network or the store: the preview
+    // names the selection it would pull from, so the byte-identical-store
+    // assertion below holds trivially — which is the point.
+    pull: () => ({ dryRun: true }),
     update_task: (t) => ({ id: t.id, status: "in-progress", dryRun: true }),
     claim_next_task: () => ({ dryRun: true }),
     add_comment: (t) => ({ id: t.id, comment: "dry run", dryRun: true }),

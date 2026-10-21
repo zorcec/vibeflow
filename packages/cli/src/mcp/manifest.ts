@@ -18,6 +18,7 @@ import {
   AddCommentInput,
   AttachFileInput,
   VerifyTaskInput,
+  PullInput,
   StartKanbanInput,
   GetIntegrationGuideInput,
   listTasks,
@@ -29,6 +30,7 @@ import {
   addComment,
   attachFile,
   verifyTaskOp,
+  pullFromBoard,
   startKanban,
   getIntegrationGuide,
 } from "../core/operations.js";
@@ -114,6 +116,11 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "commit message for --commit only; update_task uses commitMessage at review",
     "tasks --dry-run":
       "CLI preview flag; every mutating tool exposes a `dryRun` input instead",
+    // Machine-output switch for the pull report. The MCP wire payload is
+    // already JSON on every tool, so no pull input field spells it — same
+    // reason as the tasks --json entry above.
+    "pull --json":
+      "output-format flag for `pull` human rendering; the pull tool already answers in JSON, so no tool owns it",
     "tasks --reindex-sort-keys":
       "one-time board-ordering maintenance; idempotent re-key, no MCP equivalent",
     "tasks --all":
@@ -484,6 +491,31 @@ export const manifest: ToolManifest[] = [
   // whole-board prompt exporter. Its single-task read is covered by
   // get_task and its board render by `vibeflow tasks --get`; no
   // mcpOnlyFields entries remain for it (G5 fails on stale entries).
+  {
+    name: "pull",
+    title: "Pull board",
+    description:
+      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default; pass preferRemote to let the remote value win instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
+    cliRef: {
+      command: "pull",
+      flags: ["--board", "--out", "--prefer-remote", "--dry-run"],
+    },
+    category: "task-write",
+    annotations: {
+      // Writes the local task store (new task files, merged records, file
+      // bytes), so it is not a read — but it never deletes anything and a
+      // re-pull converges to a no-op, so a repeat call is safe.
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      // Fetches the board archive from the SaaS backend over the network.
+      openWorldHint: true,
+    },
+    input: PullInput.shape,
+    schema: PullInput.strict(),
+    run: (ctx, input) =>
+      pullFromBoard(ctx, input as z.infer<typeof PullInput>),
+  },
   {
     name: "verify_task",
     title: "Verify task",
