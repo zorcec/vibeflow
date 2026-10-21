@@ -123,6 +123,10 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "output-format flag for `pull` human rendering; the pull tool already answers in JSON, so no tool owns it",
     "tasks --reindex-sort-keys":
       "one-time board-ordering maintenance; idempotent re-key, no MCP equivalent",
+    "tasks --normalize":
+      "one-time store healing (drop schema-invalid type values and empty links arrays); idempotent local maintenance, no MCP equivalent",
+    "tasks --apply":
+      "write switch for the --normalize dry-run; a maintenance-mode flag, not an operation — same reason as tasks --normalize",
     "tasks --all":
       "unbounded listing is CLI-only: list_tasks deliberately has no unbounded mode — it pages with nextCursor and caps limit at the documented default, and its description sends clients to CLI --all for everything, so no input field spells it",
     // Mode selectors. Over MCP the tool IS the mode: the operation name

@@ -15,6 +15,27 @@ import {
 } from "@vibeflow-tools/api-core";
 export { TASK_LINK_TYPES, TASK_STATUSES, type TaskLinkType, type TaskStatus };
 
+/**
+ * Documented task-type vocabulary — the store's schema boundary for `type`.
+ *
+ * The same five values the `tasks --type` filter accepts (Task, Bug, Feature,
+ * Enhancement, Research). Anything else persisted as `type` — a stringified
+ * object, a retired value, any other string — is not a type the product
+ * models: readers treat it as ABSENT (see `normalizeTaskTypeValue` in
+ * `core/tasks.ts`) so it can never round-trip back out, and
+ * `tasks --normalize` drops the key from existing records.
+ */
+export const TASK_TYPE_VALUES = [
+  "Task",
+  "Bug",
+  "Feature",
+  "Enhancement",
+  "Research",
+] as const;
+
+/** One of the documented task-type values. */
+export type TaskTypeValue = (typeof TASK_TYPE_VALUES)[number];
+
 export interface TaskLink {
   /** ID of the linked task (target of the link from this task). */
   taskId: string;

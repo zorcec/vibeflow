@@ -30,6 +30,8 @@ import {
   writeSortKeyMinimal,
   isResearchType,
   matchesIdOrPrefix,
+  planTaskStoreNormalize,
+  applyTaskStoreNormalize,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
 import {
@@ -47,7 +49,11 @@ import {
 } from "./core/project-root.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
-import { TASK_STATUSES, getPriorityRank } from "./core/types.js";
+import {
+  TASK_STATUSES,
+  TASK_TYPE_VALUES,
+  getPriorityRank,
+} from "./core/types.js";
 import { PROTO_DIR } from "./core/types.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
@@ -210,7 +216,10 @@ const STATUS_COLORS: Record<string, (s: string) => string> = {
   done: chalk.green,
 };
 
-const VALID_TASK_TYPES = new Set(["Task", "Bug", "Research"]);
+// Display vocabulary for task types: the documented store values (the schema
+// boundary in core/tasks.ts `normalizeTaskTypeValue`). Anything else reads as
+// absent and is omitted from display — the same absent the store normalizes to.
+const VALID_TASK_TYPES = new Set<string>(TASK_TYPE_VALUES);
 
 /** All valid task status values — single source from core/types.ts. */
 const VALID_STATUSES = TASK_STATUSES;
@@ -1176,6 +1185,14 @@ program
     "One-time maintenance: re-key keyless and same-column duplicate tasks so the rendered order survives (idempotent; honors --dry-run/--json)",
   )
   .option(
+    "--normalize",
+    "Store maintenance: drop schema-invalid `type` values and empty `links` arrays so local records converge with the server (dry-run by default; add --apply to write; idempotent; honors --json)",
+  )
+  .option(
+    "--apply",
+    "Write the --normalize plan to the store (without it, --normalize only reports what it would change)",
+  )
+  .option(
     "--fields <fields>",
     "Comma-separated list of fields to include in output (list/get modes)",
   )
@@ -1248,6 +1265,10 @@ program
         selector?: string;
         sortKey?: string;
         reindexSortKeys?: boolean;
+        // Schema-boundary maintenance (see the --normalize handler):
+        // dry-run by default, --apply writes.
+        normalize?: boolean;
+        apply?: boolean;
       },
     ) => {
       async function runTasks() {
@@ -1262,7 +1283,9 @@ program
                 ? "get"
                 : opts.reindexSortKeys
                   ? "reindex"
-                  : "list";
+                  : opts.normalize
+                    ? "normalize"
+                    : "list";
         capture("command_run", {
           surface: "cli",
           command: "tasks",
@@ -1556,6 +1579,154 @@ program
               ),
             );
             for (const o of dupOffenders) console.log(chalk.dim(`    ${o}`));
+          }
+          return;
+        }
+
+        // ── Normalize store (schema-boundary maintenance) ──────────────────
+        // Drop `type` values outside the documented vocabulary and `links`
+        // values that carry no links, so local records converge with the
+        // server instead of staying "kept local" on every pull. Dry-run by
+        // default; --apply writes. The writes are surgical raw-JSON edits of
+        // exactly those two keys, so every other field survives
+        // byte-for-byte — and the run is idempotent: a second run plans
+        // zero changes.
+        if (opts.normalize) {
+          if (
+            opts.add ||
+            opts.edit !== undefined ||
+            opts.get ||
+            opts.next ||
+            opts.commit ||
+            opts.reindexSortKeys
+          ) {
+            outputEnvelope({ ok: false,
+              code: "E_USAGE",
+              message:
+                "--normalize cannot be combined with --add/--edit/--get/--next/--commit/--reindex-sort-keys",
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          const projectDir = resolve(dir);
+          const describeChange = (c: { field: string; before: unknown }): string =>
+            `${c.field}: ${JSON.stringify(c.before) ?? "unpresentable"} → absent`;
+          const changeJson = (p: {
+            id: string;
+            changes: Array<{ field: string; before: unknown; after: string }>;
+          }): Record<string, unknown> => ({
+            id: p.id,
+            changes: p.changes.map((c) => ({
+              field: c.field,
+              before: c.before === undefined ? null : c.before,
+              after: c.after,
+            })),
+          });
+          if (!opts.apply) {
+            const report = planTaskStoreNormalize(projectDir);
+            if (opts.json) {
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  count: report.changes.length,
+                  changes: report.changes.map(changeJson),
+                  unreadable: report.unreadable,
+                },
+              });
+            } else if (report.changes.length === 0) {
+              console.log(
+                chalk.green("✓ Store already normalized: 0 changes."),
+              );
+            } else {
+              console.log(
+                chalk.yellow(
+                  `  [dry-run] Would normalize ${report.changes.length} task(s):`,
+                ),
+              );
+              for (const p of report.changes) {
+                console.log(chalk.dim(`    ${p.id}`));
+                for (const c of p.changes) {
+                  console.log(chalk.dim(`      ${describeChange(c)}`));
+                }
+              }
+              console.log(chalk.dim("  Re-run with --apply to write."));
+            }
+            if (!opts.json) {
+              for (const f of report.unreadable) {
+                console.log(chalk.dim(`  skipped unreadable file: ${f}`));
+              }
+            }
+            return;
+          }
+          const result = applyTaskStoreNormalize(projectDir);
+          const planned = result.applied.length + result.unwritten.length;
+          // The plan named writes and NONE landed: the run touched nothing,
+          // so reporting ok:true would claim a healing that did not happen.
+          if (planned > 0 && result.applied.length === 0) {
+            const message = `Normalize wrote 0 of ${planned} planned change(s) — no task file was changed.`;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "NORMALIZE_WRITE_FAILED",
+                message,
+                suggestion: `Each write needs a readable task file carrying the planned key; unwritable: ${result.unwritten.join(", ")}`,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${message}`));
+              console.log(
+                chalk.dim(
+                  `  Each write needs a readable task file carrying the planned key; unwritable: ${result.unwritten.join(", ")}`,
+                ),
+              );
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          const normalizeNotices: PartialSuccessNotice[] =
+            result.unwritten.length > 0
+              ? [
+                  {
+                    code: "NORMALIZE_PARTIAL",
+                    message: `Normalize wrote ${result.applied.length} of ${planned} planned change(s); unwritten: ${result.unwritten.join(", ")}.`,
+                  },
+                ]
+              : [];
+          if (opts.json) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                dryRun: false,
+                written: result.applied.length,
+                changes: result.applied.map(changeJson),
+                unwritten: result.unwritten,
+                unreadable: result.unreadable,
+                ...noticeFields(normalizeNotices),
+              },
+            });
+          } else if (result.applied.length === 0) {
+            console.log(
+              chalk.green("✓ Store already normalized: 0 changes."),
+            );
+          } else {
+            console.log(
+              chalk.green(
+                `✓ Normalized ${result.applied.length} task(s): only schema-invalid \`type\` and empty \`links\` keys removed; everything else byte-identical.`,
+              ),
+            );
+            for (const p of result.applied) {
+              console.log(chalk.dim(`    ${p.id}`));
+              for (const c of p.changes) {
+                console.log(chalk.dim(`      ${describeChange(c)}`));
+              }
+            }
+            for (const id of result.unwritten) {
+              console.log(chalk.yellow(`  ⚠ unwritten: ${id}`));
+            }
           }
           return;
         }

@@ -18,6 +18,7 @@ import {
   FILES_DIR,
   SCREENSHOTS_DIR,
   TASK_STATUSES,
+  TASK_TYPE_VALUES,
   compareTasksByPriorityThenCreated,
 } from "./types.js";
 import type { FileInfo } from "./files.js";
@@ -199,13 +200,90 @@ function normalizeUserIds(raw: unknown): string[] | undefined {
   );
 }
 
+/**
+ * Schema-boundary normalizer for the persisted top-level `type` field.
+ *
+ * Returns the value unchanged when it is exactly one of the documented
+ * task types (see `TASK_TYPE_VALUES` in `core/types.ts`); anything else —
+ * a stringified object, an empty string, a non-string, a retired value —
+ * normalizes to ABSENT (`undefined`), so a normalising write drops the key
+ * and the garbage can never round-trip back out. `null` also reads as
+ * absent here; the cloud stores `null` for typeless records, and the
+ * maintenance planner (`planTaskStoreNormalize`) treats an on-disk `null`
+ * as already clean so pull (remote `null`) and normalize (local absent)
+ * cannot ping-pong a record back and forth.
+ *
+ * Single source for both the read path (`normalizeTask` below) and the
+ * `--normalize` planner — the two must never disagree about what counts
+ * as a valid type.
+ */
+export function normalizeTaskTypeValue(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  return (TASK_TYPE_VALUES as readonly string[]).includes(t) ? t : undefined;
+}
+
+/**
+ * Whether a raw persisted `type` value is safe for `--normalize` to delete.
+ *
+ * The reader boundary (`normalizeTaskTypeValue`) treats every non-vocabulary
+ * value as absent — but the maintenance tool must not destroy data that may
+ * be deliberate. A non-empty string that is NOT a stringified artifact
+ * (e.g. `Chore`, a label the board knowingly carries though the documented
+ * vocabulary does not name it) stays on disk: it reads as absent, it can
+ * never round-trip back out through a normalising write, and deleting it
+ * would risk diverging from a server that stores the same label. Only
+ * values that can never be deliberate are removed: non-strings, empty
+ * strings, and stringified artifacts such as `[object Object]`. An on-disk
+ * `null` is the cloud's own absent and is always left alone.
+ */
+export function shouldDropTypeValue(raw: unknown): boolean {
+  if (raw === null) return false;
+  if (normalizeTaskTypeValue(raw) !== undefined) return false;
+  if (typeof raw !== "string") return true;
+  const t = raw.trim();
+  if (!t) return true;
+  return /^\[object .+\]$/.test(t);
+}
+
+/**
+ * Schema-boundary normalizer for the persisted top-level `links` field.
+ *
+ * Returns the filtered link list when at least one well-formed entry
+ * survives, else ABSENT (`undefined`) — a non-array, an empty array, or an
+ * array with zero valid entries carries no links and must not survive a
+ * normalising write as a stray key. Partially-valid arrays are returned
+ * filtered (same rule `normalizeTask` always applied); the `--normalize`
+ * planner only drops the key when the WHOLE value normalizes to absent and
+ * never rewrites a partially-valid array it does not fully understand.
+ *
+ * Single source for both the read path and the `--normalize` planner.
+ */
+export function normalizeTaskLinksValue(raw: unknown): Task["links"] {
+  if (!Array.isArray(raw)) return undefined;
+  const result = (raw as Record<string, unknown>[])
+    .filter((l) => {
+      if (!l || typeof l !== "object") return false;
+      const taskId = l.taskId;
+      const type = l.type;
+      return (
+        typeof taskId === "string" &&
+        taskId.length > 0 &&
+        typeof type === "string" &&
+        ("parent" === type || "relates" === type || "blocks" === type)
+      );
+    })
+    .map((l) => ({
+      // Spread preserves unknown keys on the link entry.
+      ...l,
+      taskId: String(l.taskId),
+      type: String(l.type) as import("./types.js").TaskLinkType,
+    }));
+  return result.length > 0 ? result : undefined;
+}
+
 function normalizeTask(raw: Record<string, unknown>): Task {
-  const normalizedType = (() => {
-    if (typeof raw.type !== "string") return undefined;
-    const t = raw.type.trim();
-    if (!t || t === "[object Object]") return undefined;
-    return t;
-  })();
+  const normalizedType = normalizeTaskTypeValue(raw.type);
 
   // Presentation normalization, NOT record reconstruction: the persisted
   // record is the lossless mirror push uploads, so `...raw` comes FIRST and
@@ -213,8 +291,12 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   // build does not know) survive read → write untouched. Only the known
   // fields below are rewritten for display; explicit `undefined` overrides
   // drop a known key that normalization decides must be absent (serializes
-  // as a removed key — never null, never "").
-  return {
+  // as a removed key — never null, never ""). The two schema-boundary
+  // fields (`type`, `links`) go further: when they normalize to absent the
+  // key is DELETED outright (see below), so no writer — `updateTask`, pull
+  // merge, `--normalize` — can resurrect a value the schema does not allow.
+  // Every other unknown key keeps the long-standing mirror behavior.
+  const out: Task = {
     ...raw,
     id: String(raw.id ?? ""),
     title: String(raw.title ?? "Untitled"),
@@ -327,33 +409,211 @@ function normalizeTask(raw: Record<string, unknown>): Task {
         ? (raw.baseline as import("./verification-types.js").DomSnapshot)
         : undefined,
     authStateEnc: raw.authStateEnc ? String(raw.authStateEnc) : undefined,
-    links: (() => {
-      if (!Array.isArray(raw.links)) return undefined;
-      const result = (raw.links as Record<string, unknown>[])
-        .filter((l) => {
-          if (!l || typeof l !== "object") return false;
-          const taskId = l.taskId;
-          const type = l.type;
-          return (
-            typeof taskId === "string" &&
-            taskId.length > 0 &&
-            typeof type === "string" &&
-            ("parent" === type || "relates" === type || "blocks" === type)
-          );
-        })
-        .map((l) => ({
-          // Spread preserves unknown keys on the link entry.
-          ...l,
-          taskId: String(l.taskId),
-          type: String(l.type) as import("./types.js").TaskLinkType,
-        }));
-      return result.length > 0 ? result : undefined;
-    })(),
+    links: normalizeTaskLinksValue(raw.links),
     // Per-user state must survive every read-modify-write round-trip;
     // normalizeTask is the single gateway for both.
     openedBy: normalizeUserIds(raw.openedBy),
     expandedBy: normalizeUserIds(raw.expandedBy),
   };
+  // Schema boundary: a `type` outside the documented vocabulary and a
+  // `links` value that carries no links are ABSENT — delete the key rather
+  // than leaving an own key holding `undefined`. Serializers drop both
+  // identically, but in-memory `"type" in task` must also read absent:
+  // the pull merge keys off presence, and presence of a garbage value is
+  // what kept it "local-wins" on every pull instead of converging.
+  if (out.type === undefined) delete out.type;
+  if (out.links === undefined) delete out.links;
+  return out;
+}
+
+// ── Store maintenance: `tasks --normalize` ─────────────────────────────────
+// Healing WITHOUT hand-editing JSON (which project rules forbid): the planner
+// below reads the RAW files, and `--apply` rewrites only the files whose raw
+// `type`/`links` normalize to absent, deleting exactly those two keys. Every
+// other field — including legacy keys the schema does not name (e.g. the
+// singleton `commit`) — is re-serialized untouched, so the tool never
+// destroys a value it does not understand.
+
+/** One top-level key the normalizer would drop from a persisted record. */
+export interface TaskNormalizeFieldChange {
+  /** The removed key. */
+  field: "type" | "links";
+  /** The raw persisted value, for the report. */
+  before: unknown;
+  /** Always `"absent"`: the key is deleted, never nulled. */
+  after: "absent";
+}
+
+/** One file the planner would rewrite (dry-run) or rewrote (`--apply`). */
+export interface TaskNormalizePlan {
+  id: string;
+  filePath: string;
+  changes: TaskNormalizeFieldChange[];
+}
+
+/** Result of planning (dry-run) the store normalization. Writes nothing. */
+export interface TaskNormalizeReport {
+  changes: TaskNormalizePlan[];
+  /** Task files that were listed but could not be parsed — never written. */
+  unreadable: string[];
+}
+
+/** Raw task-file texts, mirroring `collectTaskFiles` traversal (date subdirs + flat legacy layout). */
+function listTaskRawFiles(
+  projectDir: string,
+): Array<{ filePath: string; text: string }> {
+  const tasksDir = getTasksDir(projectDir);
+  if (!existsSync(tasksDir)) return [];
+  const out: Array<{ filePath: string; text: string }> = [];
+  for (const entry of readdirSync(tasksDir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const dateDir = join(tasksDir, entry.name);
+      for (const file of readdirSync(dateDir)) {
+        if (extname(file) !== ".json") continue;
+        const filePath = join(dateDir, file);
+        try {
+          out.push({ filePath, text: readFileSync(filePath, "utf-8") });
+        } catch {
+          /* unreadable here surfaces as unreadable in the plan */
+          out.push({ filePath, text: "" });
+        }
+      }
+    } else if (extname(entry.name) === ".json") {
+      const filePath = join(tasksDir, entry.name);
+      try {
+        out.push({ filePath, text: readFileSync(filePath, "utf-8") });
+      } catch {
+        out.push({ filePath, text: "" });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Plan the store normalization WITHOUT writing: every task file whose raw
+ * `type` is safe to drop (see `shouldDropTypeValue` — artifacts, empties
+ * and non-strings; never a possibly-deliberate label, never an on-disk
+ * `null`) or whose raw `links` normalizes to absent. Deterministic order
+ * (by id). Idempotent by construction: applying the plan removes the
+ * triggers, so a second plan is empty.
+ */
+export function planTaskStoreNormalize(
+  projectDir: string,
+): TaskNormalizeReport {
+  const changes: TaskNormalizePlan[] = [];
+  const unreadable: string[] = [];
+  for (const { filePath, text } of listTaskRawFiles(projectDir)) {
+    let parsed: unknown;
+    try {
+      if (!text) throw new Error("unreadable");
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      unreadable.push(filePath);
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      unreadable.push(filePath);
+      continue;
+    }
+    const rec = parsed as Record<string, unknown>;
+    const id =
+      typeof rec.id === "string" && rec.id.length > 0
+        ? rec.id
+        : filePath.slice(filePath.lastIndexOf("/") + 1, -5);
+    const fileChanges: TaskNormalizeFieldChange[] = [];
+    if ("type" in rec && shouldDropTypeValue(rec.type)) {
+      fileChanges.push({ field: "type", before: rec.type, after: "absent" });
+    }
+    if ("links" in rec && normalizeTaskLinksValue(rec.links) === undefined) {
+      fileChanges.push({
+        field: "links",
+        before: rec.links,
+        after: "absent",
+      });
+    }
+    if (fileChanges.length > 0) changes.push({ id, filePath, changes: fileChanges });
+  }
+  changes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { changes, unreadable };
+}
+
+/**
+ * Apply the normalization plan: delete exactly the planned keys from the raw
+ * JSON and rewrite the file (atomic tmp+rename, trailing-newline state
+ * preserved, every other field re-serialized untouched — key order and
+ * values identical). No `updated` bump: the rewrite itself is the change
+ * the push delta detects; stamping `updated` would churn a volatile field
+ * the wire strips anyway. Each file is re-validated before its write, so a
+ * concurrent edit between plan and apply can only narrow the write, never
+ * widen it. Returns what landed; a second apply reports zero.
+ */
+export function applyTaskStoreNormalize(projectDir: string): {
+  applied: TaskNormalizePlan[];
+  unwritten: string[];
+  unreadable: string[];
+} {
+  const plan = planTaskStoreNormalize(projectDir);
+  const applied: TaskNormalizePlan[] = [];
+  const unwritten: string[] = [];
+  for (const item of plan.changes) {
+    let text: string;
+    try {
+      text = readFileSync(item.filePath, "utf-8");
+    } catch {
+      unwritten.push(item.id);
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      unwritten.push(item.id);
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      unwritten.push(item.id);
+      continue;
+    }
+    const rec = parsed as Record<string, unknown>;
+    // Re-derive at write time: only delete a key that STILL normalizes to
+    // absent (a concurrent edit may have healed or replaced the value).
+    const fields = item.changes
+      .map((c) => c.field)
+      .filter(
+        (f) =>
+          f in rec &&
+          (f === "type"
+            ? shouldDropTypeValue(rec[f])
+            : normalizeTaskLinksValue(rec[f]) === undefined),
+      );
+    if (fields.length === 0) continue;
+    for (const f of fields) delete rec[f];
+    const next =
+      JSON.stringify(rec, null, 2) + (text.endsWith("\n") ? "\n" : "");
+    try {
+      const check = JSON.parse(next) as { id?: unknown };
+      if (typeof check.id !== "string") {
+        unwritten.push(item.id);
+        continue;
+      }
+    } catch {
+      unwritten.push(item.id);
+      continue;
+    }
+    try {
+      const tmp = item.filePath + ".tmp";
+      writeFileSync(tmp, next, "utf-8");
+      renameSync(tmp, item.filePath);
+      applied.push({
+        ...item,
+        changes: item.changes.filter((c) => fields.includes(c.field)),
+      });
+    } catch {
+      unwritten.push(item.id);
+    }
+  }
+  return { applied, unwritten, unreadable: plan.unreadable };
 }
 
 /**
