@@ -65,47 +65,8 @@ const CLI_VERSION =
 const CURRENT_USER_ID =
   (window as unknown as { __VIBEFLOW_USER__?: string }).__VIBEFLOW_USER__ ?? "";
 
-type PushState = "idle" | "pushing" | "done" | "error";
 
 function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
-  const BASE = window.location.origin;
-  const [pushState, setPushState] = React.useState<PushState>("idle");
-  const [keepLocalFiles, setKeepLocalFiles] = React.useState(true);
-  const [pushResult, setPushResult] = React.useState<{
-    imported: number;
-    skipped?: number;
-  } | null>(null);
-  const [pushError, setPushError] = React.useState("");
-
-  async function handlePush() {
-    setPushState("pushing");
-    setPushError("");
-    try {
-      const r = await fetch(`${BASE}/api/push`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepLocalFiles }),
-      });
-      const data = (await r.json()) as {
-        imported?: number;
-        skipped?: number;
-        error?: string;
-      };
-      if (!r.ok) {
-        setPushError(data.error ?? "Push failed");
-        setPushState("error");
-        return;
-      }
-      setPushResult({ imported: data.imported ?? 0, skipped: data.skipped });
-      setPushState("done");
-    } catch (e) {
-      setPushError(e instanceof Error ? e.message : "Network error");
-      setPushState("error");
-    }
-  }
-
-  const isWorking = pushState === "pushing";
-
   return (
     <div
       style={{
@@ -233,58 +194,6 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
           </p>
         </div>
 
-        {/* Push banner */}
-        {pushState === "done" && pushResult && (
-          <div
-            style={{
-              margin: "0 28px 0",
-              padding: "10px 14px",
-              borderRadius: 9,
-              fontSize: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              background: "rgba(16,185,129,0.08)",
-              border: "1px solid rgba(16,185,129,0.18)",
-              color: "#34d399",
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M13 5L6.5 11.5 3 8"
-                stroke="#34d399"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            {pushResult.imported} task{pushResult.imported === 1 ? "" : "s"}{" "}
-            pushed to board
-            {pushResult.skipped != null && pushResult.skipped > 0
-              ? ` · ${pushResult.skipped} already existed`
-              : ""}
-          </div>
-        )}
-
-        {pushState === "error" && pushError && (
-          <div
-            style={{
-              margin: "0 28px 0",
-              padding: "10px 14px",
-              borderRadius: 9,
-              fontSize: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.18)",
-              color: "#f87171",
-            }}
-          >
-            {pushError}
-          </div>
-        )}
-
         {/* Actions */}
         <div
           style={{
@@ -329,45 +238,6 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
             </a>
           )}
 
-          {pushState !== "done" && (
-            <button
-              onClick={() => void handlePush()}
-              disabled={isWorking}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 9,
-                padding: 12,
-                background: "transparent",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 12,
-                color: isWorking
-                  ? "rgba(255,255,255,0.25)"
-                  : "rgba(255,255,255,0.4)",
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: isWorking ? "not-allowed" : "pointer",
-                transition: "border-color 0.15s, color 0.15s, background 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                if (!isWorking) {
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)";
-                  e.currentTarget.style.color = "rgba(255,255,255,0.65)";
-                  e.currentTarget.style.background = "rgba(255,255,255,0.03)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isWorking) {
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
-                  e.currentTarget.style.color = "rgba(255,255,255,0.4)";
-                  e.currentTarget.style.background = "transparent";
-                }
-              }}
-            >
-              {isWorking ? "⏳ Pushing…" : "↑ Push local tasks"}
-            </button>
-          )}
         </div>
 
         {/* Footer */}
@@ -379,29 +249,6 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
             padding: "0 24px 20px",
           }}
         >
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              cursor: "pointer",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={keepLocalFiles}
-              onChange={(e) => setKeepLocalFiles(e.target.checked)}
-              style={{
-                accentColor: "#2563eb",
-                width: 13,
-                height: 13,
-                cursor: "pointer",
-              }}
-            />
-            <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.28)" }}>
-              Keep local files
-            </span>
-          </label>
           {IS_ADMIN && onClose && (
             <button
               onClick={onClose}
