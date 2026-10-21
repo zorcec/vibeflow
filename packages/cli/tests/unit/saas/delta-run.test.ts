@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { hashTaskRecord } from "@vibeflow-tools/shared";
+import { hashTaskRecord } from "@vibeflow-tools/shared/delta-hash";
 import { runDeltaPush } from "../../../src/saas/delta-run";
 import type { ImportTaskInput } from "../../../src/saas/batch-push";
 

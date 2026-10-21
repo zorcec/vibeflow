@@ -60,8 +60,12 @@ export {
   shouldStoreCompressed,
 } from "./compression";
 
-// Push-delta hashing (canonical JSON + sha256) shared by CLI and server
-export { canonicalJson, sha256Hex, hashTaskRecord } from "./delta-hash";
+// Push-delta hashing (canonical JSON + sha256) lives in the `./delta-hash`
+// SUBPATH and is deliberately NOT re-exported from this barrel. It imports
+// `node:crypto`, so a re-export here makes every consumer of this index pull
+// it in — including the CLI's browser-target overlay bundle, whose esbuild
+// pass fails outright with `Could not resolve "node:crypto"`. Import it as
+// `@vibeflow-tools/shared/delta-hash`.
 
 // Signed webhooks (scheme documented in ./webhooks)
 export {
