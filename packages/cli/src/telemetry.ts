@@ -26,6 +26,7 @@ import {
 import { join } from "node:path";
 import os from "node:os";
 import { PostHog } from "posthog-node";
+import { CLI_VERSION } from "./version.js";
 
 // PostHog capture key for the CLI project (public, safe to embed in client code)
 const POSTHOG_API_KEY = "phc_C9AUV3rnayLfVvxgHtvj6AXcwsd8FKWUfJ9262zWsCvM";
@@ -136,6 +137,15 @@ export function capture(
     event,
     properties: {
       ...properties,
+      // WHY these two are attached to EVERY event (ticket: adoption is
+      // unmeasurable without them): the dashboard could show that events
+      // happen but not WHICH released build produced them, so a fix that
+      // shipped in 0.21.2 was indistinguishable from users stuck on an old
+      // version. `os` is the platform string only — never a hostname, path
+      // or username — so it does not widen the privacy surface.
+      cli_version: CLI_VERSION,
+      os: `${process.platform}-${process.arch}`,
+      node_version: process.versions.node,
       $user_id: getUserHash(),
     },
   });
