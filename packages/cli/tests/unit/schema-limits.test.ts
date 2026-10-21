@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
 import {
   createTaskSchema,
   updateTaskSchema,
   createCommentSchema,
   updateCommentSchema,
+  TASK_DESCRIPTION_MAX,
 } from "@vibeflow-tools/shared";
+import { describe, it, expect } from "vitest";
 
 describe("schema string-length limits", () => {
   describe("createTaskSchema", () => {
@@ -14,13 +15,13 @@ describe("schema string-length limits", () => {
       title: "Test",
     };
 
-    it("accepts description at exactly 10 000 chars", () => {
-      const input = { ...base, description: "a".repeat(10_000) };
+    it("accepts description at exactly the shared limit", () => {
+      const input = { ...base, description: "a".repeat(TASK_DESCRIPTION_MAX) };
       expect(createTaskSchema.safeParse(input).success).toBe(true);
     });
 
-    it("rejects description exceeding 10 000 chars", () => {
-      const input = { ...base, description: "a".repeat(10_001) };
+    it("rejects description above the shared limit", () => {
+      const input = { ...base, description: "a".repeat(TASK_DESCRIPTION_MAX + 1) };
       expect(createTaskSchema.safeParse(input).success).toBe(false);
     });
 
@@ -78,13 +79,13 @@ describe("schema string-length limits", () => {
       patch: {} as Record<string, unknown>,
     };
 
-    it("accepts description at exactly 10 000 chars", () => {
-      const input = { ...base, patch: { description: "a".repeat(10_000) } };
+    it("accepts description at exactly the shared limit", () => {
+      const input = { ...base, patch: { description: "a".repeat(TASK_DESCRIPTION_MAX) } };
       expect(updateTaskSchema.safeParse(input).success).toBe(true);
     });
 
-    it("rejects description exceeding 10 000 chars", () => {
-      const input = { ...base, patch: { description: "a".repeat(10_001) } };
+    it("rejects description above the shared limit", () => {
+      const input = { ...base, patch: { description: "a".repeat(TASK_DESCRIPTION_MAX + 1) } };
       expect(updateTaskSchema.safeParse(input).success).toBe(false);
     });
 
