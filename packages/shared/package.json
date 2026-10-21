@@ -10,7 +10,8 @@
     "./compression": "./src/compression.ts",
     "./overlay-bundle": "./src/overlay-bundle.gen.ts",
     "./webhooks": "./src/webhooks.ts",
-    "./delta-hash": "./src/delta-hash.ts"
+    "./delta-hash": "./src/delta-hash.ts",
+    "./tar": "./src/tar.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
