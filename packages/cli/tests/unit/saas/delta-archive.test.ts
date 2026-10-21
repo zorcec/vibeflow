@@ -6,7 +6,7 @@ import {
   type Inventory,
   type LocalTask,
 } from "../../../src/saas/delta-archive";
-import { hashTaskRecord, sha256Hex } from "@vibeflow-tools/shared";
+import { hashTaskRecord, sha256Hex } from "@vibeflow-tools/shared/delta-hash";
 
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
