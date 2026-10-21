@@ -53,20 +53,41 @@ export interface ToolManifest extends McpToolDeclaration {
 // ── CLI Surface Classification (G1) ──────────────────────────────────────
 
 /**
- * Deliberately-unexposed CLI surface. G1 (tests/unit/mcp/drift.test.ts)
- * fails the build when any commander option is neither owned by a manifest
- * `cliRef` nor listed here with an auditable reason.
+ * Deliberate gaps in the CLI⇄MCP parity contract (G1, tests/unit/mcp/drift.test.ts).
+ * The gate holds BOTH directions:
+ *   - every registered command (including subcommands, keyed by space-joined
+ *     path) must be referenced by some tool's `cliRef.command` OR listed in
+ *     `commands` with a reason;
+ *   - every flag of a mapped command must be declared by that tool's input
+ *     schema (the flag's dashed field) OR listed in `flags` with a reason;
+ *   - every entry must still resolve to a real command/flag and carry a
+ *     reason long enough to say something — a bare key is rejected.
+ * The reverse direction (cliRef → live CLI) is checked by the same file.
  */
 export interface CliSurfaceClassification {
-  /** Commands with NO mapped tool (whole command is deliberately unexposed). */
+  /**
+   * Commands with no wholly-exposing MCP tool (or only a partially exposing
+   * one — see kanban/status). Subcommands are keyed by space-joined path,
+   * e.g. "auth login".
+   */
   commands: Record<string, string>;
-  /** Individual flags of partially-exposed commands, keyed "command --flag". */
+  /**
+   * Flags no tool input schema declares as a field, keyed "command --flag".
+   * Two kinds, and the reason says which: genuinely unexposed flags, and CLI
+   * spellings whose capability lives in the schema under a different field
+   * (selectors like --edit, arrays like addLinks, camelCase like timeoutMs).
+   */
   flags: Record<string, string>;
 }
 
 export const intentionallyNotExposed: CliSurfaceClassification = {
   commands: {
     auth: "canonical online-auth group (login/logout/status) plus the encrypted per-task Playwright auth-state file utilities; credential management, not a task operation",
+    "auth login": "device-flow leg of the auth group: interactive browser approval that cannot be driven non-interactively over MCP; credential management, not a task operation",
+    "auth logout": "clears the local auth token — local credential mutation, not a task operation an MCP client should trigger",
+    "auth status": "prints login state for a human; its --json form is for shell scripts, and no MCP tool needs a synchronous auth probe — get_project reports project context, not credentials",
+    authors: "local-only git author enrichment: its `link` leg writes git authorEmails into the git-tracked task store, which must stay a deliberate human action, never something an MCP client triggers remotely",
+    "authors link": "binds git authorEmails to task IDs in the local, git-tracked store — a local git write for repo maintenance, not a task operation",
     changelog: "prints the packed changelog; no task state",
     kanban: "only the board SERVER is exposed, as start_kanban/get_integration_guide; the browser-opening and changelog side of the command are not reachable over MCP",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
@@ -95,6 +116,51 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "CLI preview flag; every mutating tool exposes a `dryRun` input instead",
     "tasks --reindex-sort-keys":
       "one-time board-ordering maintenance; idempotent re-key, no MCP equivalent",
+    "tasks --all":
+      "unbounded listing is CLI-only: list_tasks deliberately has no unbounded mode — it pages with nextCursor and caps limit at the documented default, and its description sends clients to CLI --all for everything, so no input field spells it",
+    // Mode selectors. Over MCP the tool IS the mode: the operation name
+    // replaces the flag, and the target arrives as the tool's own `id`
+    // input, so no schema field can spell the flag that chooses the mode.
+    "tasks --edit":
+      "mode selector for the edit operations — over MCP the tool IS the mode (update_task, add_comment, attach_file) and the target is their `id` input, so there is no input field for the flag that picks them",
+    "tasks --add":
+      "mode selector for create_task — the tool name is `tasks --add`, and a not-yet-existing task has no field the selector could map to",
+    "tasks --get":
+      "mode selector for get_task; the target arrives as the tool's `id` input, so the CLI flag that picks the mode has no schema field",
+    "tasks --next":
+      "mode selector for claim_next_task — the tool claims the next task itself, so there is nothing for an input field to select",
+    // CLI spellings of fields the schema spells differently. Each mirrors an
+    // mcpOnlyFields entry: same capability, different name/shape.
+    "tasks --set-status":
+      "CLI spelling of the status transition; update_task carries it in its `status` input field (attach_file's cliRef names --set-status only because the real CLI form is `tasks --edit <id> --set-status review --report-file`), and no input field is spelled setStatus",
+    "tasks --set-parent":
+      "update_task.parent is the one string field covering this surgical spelling — set with --set-parent, clear with --no-parent; see mcpOnlyFields.update_task.parent",
+    "tasks --no-parent":
+      "clearing spelling of update_task.parent (empty string clears, same as --no-parent); no input field is spelled noParent — see mcpOnlyFields.update_task.parent",
+    "tasks --relates":
+      "surgical link add; update_task declares the capability as its `links`/`addLinks` arrays (MERGE), so the schema carries it under a different field — see mcpOnlyFields.update_task.addLinks",
+    "tasks --blocks":
+      "surgical link add of type blocks; update_task declares the capability as `links`/`addLinks` (MERGE) — same reason and same field as tasks --relates, see mcpOnlyFields.update_task.addLinks",
+    "tasks --unrelates":
+      "surgical link removal; update_task declares the capability as `removeLinks` (named taskId+type pairs), so no input field is spelled unrelates — see mcpOnlyFields.update_task.removeLinks",
+    "tasks --unblocks":
+      "surgical link removal of type blocks; update_task declares the capability as `removeLinks` — same field as tasks --unrelates, see mcpOnlyFields.update_task.removeLinks",
+    "tasks --report-file":
+      "the CLI reads the report bytes from a path on disk; attach_file takes `filename`+`contentB64` instead because an MCP client may not share this filesystem, so no input field is spelled reportFile — see mcpOnlyFields.attach_file.filename",
+    "verify --json":
+      "verify_task always answers JSON on the wire; --json is the CLI renderer switch for the human-readable terminal output",
+    "verify --timeout":
+      "verify_task.timeoutMs carries the same bound (same default, same range) — the field is camelCase with the unit, so its dashed form --timeout-ms is not the flag anyone types; see mcpOnlyFields.verify_task.timeoutMs",
+    "status --json":
+      "get_project already answers JSON on the wire; --json is the CLI renderer switch for the human-readable status text that the hidden status alias (get_project's cliRef) prints",
+    "kanban --no-open":
+      "start_kanban returns the board URL instead of launching a local browser; whether a terminal opens one is a local concern, not a server capability — see the kanban entry in commands",
+    "kanban --no-changelog":
+      "suppresses the changelog panel printed in the terminal; the MCP result carries the server URLs and guide, not terminal chrome — see the kanban entry in commands",
+    "kanban --dev":
+      "runs the board dev server with rebuild-on-change — a local development concern, not a server capability an MCP client configures",
+    "kanban --project":
+      "pins a project root from the command line; an MCP server is spawned per project, so the project is the server's own context, not a per-call tool input",
     "verify --filter":
       "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs/dryRun",
   },

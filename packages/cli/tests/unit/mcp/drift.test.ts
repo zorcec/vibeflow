@@ -21,6 +21,35 @@ const srcRoot = join(__dirname, "../../../src");
 
 let createProgram: () => Command;
 
+/** MCP input field -> CLI flag spelling: taskId -> --task-id, sortKey -> --sort-key. */
+const dashedField = (field: string) =>
+  "--" + field.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+
+/**
+ * Depth-first walk of the whole commander tree, including subcommands.
+ * The path is space-joined (`"auth login"`), the same key format
+ * intentionallyNotExposed.commands uses for nested commands.
+ */
+function walkCommands(
+  program: Command,
+  visit: (path: string, cmd: Command) => void,
+): void {
+  const walk = (cmd: Command, path: string) => {
+    visit(path, cmd);
+    for (const sub of cmd.commands) walk(sub, `${path} ${sub.name()}`);
+  };
+  for (const top of program.commands) walk(top, top.name());
+}
+
+/** Resolve a space-joined command path ("auth login") against the tree. */
+function resolveCommand(program: Command, path: string): Command | undefined {
+  let current: Command | undefined = program;
+  for (const segment of path.split(" ")) {
+    current = current?.commands.find((c) => c.name() === segment);
+  }
+  return current;
+}
+
 describe("MCP drift test", () => {
   beforeAll(async () => {
     // Import src/index.ts for the commander tree without running the CLI or
@@ -273,18 +302,18 @@ describe("MCP drift test", () => {
 
   it("G1 classification — no stale intentionallyNotExposed entries", () => {
     const program = createProgram();
-    const names = new Set(program.commands.map((c) => c.name()));
     for (const key of Object.keys(intentionallyNotExposed.commands)) {
+      // Path-resolved: nested commands are keyed "parent child".
       expect(
-        names.has(key),
+        resolveCommand(program, key),
         `intentionallyNotExposed.commands lists "${key}", which is not a CLI command`,
-      ).toBe(true);
+      ).toBeDefined();
     }
     for (const key of Object.keys(intentionallyNotExposed.flags)) {
       const sep = key.indexOf(" ");
       const command = key.slice(0, sep);
       const flag = key.slice(sep + 1);
-      const cmd = program.commands.find((c) => c.name() === command);
+      const cmd = resolveCommand(program, command);
       expect(
         cmd,
         `intentionallyNotExposed.flags key "${key}" names a nonexistent command`,
@@ -318,6 +347,78 @@ describe("MCP drift test", () => {
     }
   });
 
+  // ── G1 extension: commands, schema strength, and honest reasons ────────
+  //
+  // The original G1 coverage check walked only TOP-LEVEL commands and only
+  // asked whether each flag was named by some cliRef (or classified). Three
+  // blind spots that leaves: a command nobody maps and nobody classifies (as
+  // long as its flags happen to be owned), a flag the cliRef names that the
+  // tool's INPUT SCHEMA never declares (the name exists, the field does not),
+  // and classification entries that say nothing. These three checks close
+  // them — the flag one by asserting the schema spells the flag, not merely
+  // that a cliRef mentions the command.
+
+  it("G1 commands — every registered command is referenced by a cliRef or classified with a reason", () => {
+    const program = createProgram();
+    const mapped = new Set(manifest.map((t) => t.cliRef.command));
+    const unclassified: string[] = [];
+    walkCommands(program, (path) => {
+      if (!mapped.has(path) && !(path in intentionallyNotExposed.commands)) {
+        unclassified.push(path);
+      }
+    });
+    expect(
+      unclassified,
+      `CLI commands with no MCP tool and no entry in intentionallyNotExposed.commands — ` +
+        `map one via cliRef or give the command an explicit reason: ${unclassified.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("G1 schema — every flag of a mapped command is declared by a tool input schema or classified", () => {
+    const program = createProgram();
+    const mapped = new Set(manifest.map((t) => t.cliRef.command));
+    const uncovered: string[] = [];
+    walkCommands(program, (path, cmd) => {
+      if (!mapped.has(path)) return; // unmapped commands are covered (or failed) by the check above
+      const tools = manifest.filter((t) => t.cliRef.command === path);
+      for (const opt of cmd.options) {
+        const flag = opt.long ?? opt.short;
+        if (!flag || flag === "--help") continue; // framework artifact
+        // Covered only when the cliRef names the flag AND the tool's own
+        // input schema declares the field that dashes to it — a cliRef that
+        // merely mentions the command proves nothing about the schema.
+        const schemaDeclares = tools.some(
+          (t) =>
+            t.cliRef.flags.includes(flag) &&
+            Object.keys(t.input).some((field) => dashedField(field) === flag),
+        );
+        if (schemaDeclares) continue;
+        if (`${path} ${flag}` in intentionallyNotExposed.flags) continue;
+        uncovered.push(`${path} ${flag}`);
+      }
+    });
+    expect(
+      uncovered,
+      `CLI flags of mapped commands that no tool input schema declares and no reason covers — ` +
+        `add the schema field, or classify the flag in intentionallyNotExposed.flags: ${uncovered.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("G1 reasons — every classification entry carries a substantive reason (no silent catch-all)", () => {
+    // An entry without a reason is worse than a missing one: it reads as
+    // reviewed when nobody reviewed it. Same bar G5 holds mcpOnlyFields to.
+    for (const group of ["commands", "flags"] as const) {
+      for (const [key, reason] of Object.entries(
+        intentionallyNotExposed[group],
+      )) {
+        expect(
+          (reason ?? "").trim().length,
+          `intentionallyNotExposed.${group}["${key}"] has no reason — every entry must state WHY the surface is not schema-mapped`,
+        ).toBeGreaterThan(20);
+      }
+    }
+  });
+
   // ── G5: the reverse direction G1 never asked ───────────────────────────
   //
   // G1 walks the CLI and fails on an unclassified flag. It never asks the
@@ -346,9 +447,7 @@ describe("MCP drift test", () => {
           .map((o) => o.long ?? o.short)
           .filter(Boolean) as string[],
       );
-    /** taskId <-> --task-id. create_task.url -> --url. */
-    const dashed = (field: string) =>
-      "--" + field.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+    const dashed = dashedField;
 
     const ownedFlags = new Set(
       manifest.flatMap((t) => t.cliRef.flags.map((f) => f)),
