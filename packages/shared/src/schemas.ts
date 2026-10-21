@@ -11,6 +11,25 @@ export const taskStatusValues = [
 
 export type SaasTaskStatus = (typeof taskStatusValues)[number];
 
+/**
+ * Single source of truth for the task description length cap. Imported by
+ * the web create/update schemas AND the overlay collection schema — every
+ * writer enforces the same width (the overlay used to drift at half this).
+ * The DB column is `text` (unbounded); this cap is the product limit.
+ */
+export const TASK_DESCRIPTION_MAX = 20_000;
+
+/**
+ * Human sentence for an over-limit description, mapped at the call site
+ * (overlay route, panel save guard) instead of surfacing a raw Zod
+ * BAD_REQUEST. `formatDescriptionTooLong(21431)` =
+ * `"Description is 21,431 characters; the limit is 20,000."`
+ */
+export function formatDescriptionTooLong(actualLength: number): string {
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  return `Description is ${fmt(actualLength)} characters; the limit is ${fmt(TASK_DESCRIPTION_MAX)}.`;
+}
+
 export const createWorkspaceSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z
@@ -41,7 +60,7 @@ export const createTaskSchema = z.object({
   workspaceId: z.string().min(1),
   boardId: z.string().min(1),
   title: z.string().min(1).max(255),
-  description: z.string().max(10_000).nullish(),
+  description: z.string().max(TASK_DESCRIPTION_MAX).nullish(),
   status: z.enum(taskStatusValues).default("todo"),
   type: z.string().max(50).nullish(),
   priority: z.string().max(50).nullish(),
@@ -66,7 +85,7 @@ export const updateTaskSchema = z.object({
   taskId: z.string().min(1),
   patch: z.object({
     title: z.string().min(1).max(255).optional(),
-    description: z.string().max(10_000).nullish(),
+    description: z.string().max(TASK_DESCRIPTION_MAX).nullish(),
     status: z.enum(taskStatusValues).optional(),
     type: z.string().max(50).nullish(),
     priority: z.string().max(50).nullish(),

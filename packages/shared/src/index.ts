@@ -21,6 +21,8 @@ export { BOARD_REVISION_EVENT_TYPE } from "./collab-types";
 
 // Schemas
 export {
+  TASK_DESCRIPTION_MAX,
+  formatDescriptionTooLong,
   taskStatusValues,
   createWorkspaceSchema,
   createProjectSchema,

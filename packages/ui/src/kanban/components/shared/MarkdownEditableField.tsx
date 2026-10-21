@@ -291,8 +291,16 @@ interface Props {
       (DetailPanel et al.) must pass it. */
   mentionTasks?: Array<{ id: string; title: string }>;
   /** Hover-card lookup for task refs in the preview. Same contract as
-      MarkdownPreview's `taskLookup`; threaded through to it. */
+  MarkdownPreview's `taskLookup`; threaded through to it. */
   taskLookup?: (id: string) => { title: string; status: string } | undefined;
+  /**
+   * Product cap for the field (task description: TASK_DESCRIPTION_MAX).
+   * When set, the textarea gets `maxLength` (over-limit submit by
+   * typing/pasting becomes impossible) and a `N / limit` counter appears
+   * only near the cap — hidden in the normal case, amber in the last 500.
+   * Omit for fields with no cap (comments).
+   */
+  charLimit?: number;
 }
 
 export function MarkdownEditableField({
@@ -320,6 +328,7 @@ export function MarkdownEditableField({
   onSelectionChange,
   mentionTasks,
   taskLookup,
+  charLimit,
 }: Props) {
   const localTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   // Element state (not just a ref) so the cursor overlay re-renders once
@@ -514,11 +523,28 @@ export function MarkdownEditableField({
         baseRows={baseRows}
         maxRows={maxRows}
         autoFocus={autoFocus}
+        maxLength={charLimit}
         onKeyDown={(e) => {
           if (e.key === 'Escape') { setTaskRefSuggest(null); setDropdownAnchor(null); }
           onKeyDown?.(e);
         }}
       />
+      {charLimit !== undefined && value.length >= charLimit - 2000 && (
+        <div
+          data-testid="desc-char-count"
+          style={{
+            marginTop: 4,
+            textAlign: "right",
+            fontSize: 11,
+            color:
+              value.length >= charLimit - 500
+                ? "var(--t-warning)"
+                : "var(--t-text-faint)",
+          }}
+        >
+          {`${value.length.toLocaleString("en-US")} / ${charLimit.toLocaleString("en-US")}`}
+        </div>
+      )}
       {taskRefSuggest && dropdownAnchor && createPortal(
         <div
           data-task-ref-suggest="true"

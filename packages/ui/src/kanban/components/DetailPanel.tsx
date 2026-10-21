@@ -1,5 +1,9 @@
 import React from "react";
 import { X, Upload, Maximize2, Minimize2 } from "lucide-react";
+import {
+  TASK_DESCRIPTION_MAX,
+  formatDescriptionTooLong,
+} from "@vibeflow-tools/shared";
 import type {
   Task,
   Comment,
@@ -428,6 +432,11 @@ export function DetailPanel({
   const [draftTags, setDraftTags] = React.useState<string[]>([]);
   const [_linksSaving, setLinksSaving] = React.useState(false);
   const [linksError, setLinksError] = React.useState<string | null>(null);
+  // Over-limit description guard: maxLength on the editor makes this
+  // unreachable by typing/pasting, but a merged live-doc or a stale client
+  // can still attempt it — map the Zod too_big to a human sentence here
+  // (the call site) instead of a bare BAD_REQUEST. Same box pattern as linksError.
+  const [descError, setDescError] = React.useState<string | null>(null);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const autoSaveRef = React.useRef<() => void>(() => {});
   const commentInputRef = React.useRef("");
@@ -784,6 +793,12 @@ export function DetailPanel({
       await handleSubmitComment();
     }
     if (isAdd) {
+      const trimmedNewDesc = description.trim() || title.trim();
+      if (trimmedNewDesc.length > TASK_DESCRIPTION_MAX) {
+        setDescError(formatDescriptionTooLong(trimmedNewDesc.length));
+        return;
+      }
+      setDescError(null);
       // Close first: the create round-trip must not hold the panel open.
       // The board already paints the optimistic card synchronously inside
       // onCreate, so awaiting here only left the panel sitting open with no
@@ -830,6 +845,12 @@ export function DetailPanel({
     if (!task || isAdd) return;
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return;
+    const trimmedDesc = description.trim();
+    if (trimmedDesc.length > TASK_DESCRIPTION_MAX) {
+      setDescError(formatDescriptionTooLong(trimmedDesc.length));
+      return;
+    }
+    setDescError(null);
     const prevTitle = originalTitleRef.current;
     const prevDesc = originalDescRef.current;
     const titleChanged = trimmedTitle !== prevTitle;
@@ -1762,6 +1783,18 @@ export function DetailPanel({
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
               />
+              {descError && (
+                <div
+                  className="desc-error"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t-danger)",
+                    marginTop: 4,
+                  }}
+                >
+                  {descError}
+                </div>
+              )}
             </div>
             {!isAdd && task && (
               // Ticket 6aa28fd6: the relations section now sits directly

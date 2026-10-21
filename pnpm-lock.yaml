@@ -243,6 +243,9 @@ importers:
       '@jsquash/webp':
         specifier: ^1.5.0
         version: 1.5.0
+      '@vibeflow-tools/shared':
+        specifier: file:../shared
+        version: link:../shared
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@18.3.1)

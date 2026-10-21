@@ -6,6 +6,7 @@
  * All state lives in DetailPanel; this component is purely presentational.
  */
 import React from "react";
+import { TASK_DESCRIPTION_MAX } from "@vibeflow-tools/shared";
 import type {
   Task,
   Priority,
@@ -137,6 +138,7 @@ export function TaskDetailsTab({
           previewMaxRows={24}
           baseRows={6}
           maxRows={24}
+          charLimit={TASK_DESCRIPTION_MAX}
           // New-task mode must not autofocus the description: the panel
           // focuses the title input on open (2abcec19), and a mounted
           // autofocus here wins that race (it fires before the title's
