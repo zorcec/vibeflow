@@ -216,9 +216,11 @@ const STATUS_COLORS: Record<string, (s: string) => string> = {
   done: chalk.green,
 };
 
-// Display vocabulary for task types: the documented store values (the schema
-// boundary in core/tasks.ts `normalizeTaskTypeValue`). Anything else reads as
-// absent and is omitted from display — the same absent the store normalizes to.
+// Display vocabulary for task types: the documented store values (see
+// TASK_TYPE_VALUES in core/types.ts). The store keeps ANY non-empty label
+// (a user-written `Chore` round-trips through push/pull byte-identical);
+// display still shows only the documented values and omits the rest — a
+// display choice, never a record rewrite.
 const VALID_TASK_TYPES = new Set<string>(TASK_TYPE_VALUES);
 
 /** All valid task status values — single source from core/types.ts. */

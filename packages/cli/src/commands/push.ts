@@ -80,7 +80,11 @@ export async function uploadTaskFiles(
   for (const { localId, remoteId } of taskMappings) {
     const files = listFiles(projectDir, localId);
     for (const f of files) {
-      const absPath = f.linkedPath ?? join(getFilesDir(projectDir, localId), f.name);
+      // Linked refs are never uploaded (no server bytes by design — same
+      // rule as collectImportInputs above, so the legacy path cannot
+      // create rows the record disowns either).
+      if (typeof f.linkedPath === "string" && f.linkedPath.length > 0) continue;
+      const absPath = join(getFilesDir(projectDir, localId), f.name);
       if (existsSync(absPath)) {
         allJobs.push({ remoteId, name: f.name, filePath: absPath, size: f.size, system: f.system === true });
       }
@@ -178,12 +182,20 @@ export function collectImportInputs(
       record: t as unknown as Record<string, unknown>,
       files: listFiles(projectDir, t.id)
         .filter((f) => {
-          const absPath = f.linkedPath ?? join(getFilesDir(projectDir, t.id), f.name);
+          // Linked refs point outside the store BY DESIGN: the server holds
+          // no bytes for them, so there is nothing to upload. Uploading the
+          // target's bytes anyway creates a row the record disowns (the
+          // server sanitizes `/` out of row names, so it can never match
+          // the record's ref back) — and the task is then forced onto every
+          // future push forever. The record (with its linkedPath ref) still
+          // travels; only the bytes stay local.
+          if (typeof f.linkedPath === "string" && f.linkedPath.length > 0) return false;
+          const absPath = join(getFilesDir(projectDir, t.id), f.name);
           return existsSync(absPath);
         })
         .map((f) => ({
           name: f.name,
-          filePath: f.linkedPath ?? join(getFilesDir(projectDir, t.id), f.name),
+          filePath: join(getFilesDir(projectDir, t.id), f.name),
           size: f.size,
           system: f.system === true,
         })),

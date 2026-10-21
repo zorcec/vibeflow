@@ -16,14 +16,17 @@ import {
 export { TASK_LINK_TYPES, TASK_STATUSES, type TaskLinkType, type TaskStatus };
 
 /**
- * Documented task-type vocabulary — the store's schema boundary for `type`.
+ * Documented task-type vocabulary — the KNOWN values of the free-form
+ * `type` label (the same five values the `tasks --type` filter accepts:
+ * Task, Bug, Feature, Enhancement, Research).
  *
- * The same five values the `tasks --type` filter accepts (Task, Bug, Feature,
- * Enhancement, Research). Anything else persisted as `type` — a stringified
- * object, a retired value, any other string — is not a type the product
- * models: readers treat it as ABSENT (see `normalizeTaskTypeValue` in
- * `core/tasks.ts`) so it can never round-trip back out, and
- * `tasks --normalize` drops the key from existing records.
+ * `type` is a free string, not a closed enum: a value the user deliberately
+ * wrote (e.g. `Chore`) is data and must survive read → push → pull
+ * round-trips byte-identical, even when no picker names it (see
+ * `normalizeTaskTypeValue` in `core/tasks.ts`). Only values that can never
+ * be deliberate — non-strings, empty strings, stringified artifacts such as
+ * `[object Object]` — read as absent, and `tasks --normalize` drops exactly
+ * those from existing records (never a possibly-deliberate label).
  */
 export const TASK_TYPE_VALUES = [
   "Task",

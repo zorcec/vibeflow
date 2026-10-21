@@ -18,7 +18,6 @@ import {
   FILES_DIR,
   SCREENSHOTS_DIR,
   TASK_STATUSES,
-  TASK_TYPE_VALUES,
   compareTasksByPriorityThenCreated,
 } from "./types.js";
 import type { FileInfo } from "./files.js";
@@ -203,15 +202,18 @@ function normalizeUserIds(raw: unknown): string[] | undefined {
 /**
  * Schema-boundary normalizer for the persisted top-level `type` field.
  *
- * Returns the value unchanged when it is exactly one of the documented
- * task types (see `TASK_TYPE_VALUES` in `core/types.ts`); anything else —
- * a stringified object, an empty string, a non-string, a retired value —
- * normalizes to ABSENT (`undefined`), so a normalising write drops the key
- * and the garbage can never round-trip back out. `null` also reads as
- * absent here; the cloud stores `null` for typeless records, and the
- * maintenance planner (`planTaskStoreNormalize`) treats an on-disk `null`
- * as already clean so pull (remote `null`) and normalize (local absent)
- * cannot ping-pong a record back and forth.
+ * `type` is a free-form label, not a closed enum: any non-empty string is
+ * returned verbatim (trimmed) so a value the user deliberately wrote (e.g.
+ * `Chore`, which no picker names) survives read → push → pull round-trips
+ * byte-identical — the canonical record is the truth and the reader must
+ * not silently discard it. Only values that can never be deliberate read
+ * as ABSENT (`undefined`): non-strings, empty/whitespace strings, and
+ * stringified artifacts such as `[object Object]` — so a normalising write
+ * drops the key and the garbage can never round-trip back out. `null` also
+ * reads as absent here; the cloud stores `null` for typeless records, and
+ * the maintenance planner (`planTaskStoreNormalize`) treats an on-disk
+ * `null` as already clean so pull (remote `null`) and normalize (local
+ * absent) cannot ping-pong a record back and forth.
  *
  * Single source for both the read path (`normalizeTask` below) and the
  * `--normalize` planner — the two must never disagree about what counts
@@ -220,22 +222,28 @@ function normalizeUserIds(raw: unknown): string[] | undefined {
 export function normalizeTaskTypeValue(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const t = raw.trim();
-  return (TASK_TYPE_VALUES as readonly string[]).includes(t) ? t : undefined;
+  if (t.length === 0) return undefined;
+  // A stringified object is stringification garbage, never a label: no
+  // writer deliberately stores `[object Object]` as a task type (the same
+  // shape `shouldDropTypeValue` below refuses to keep).
+  if (/^\[object .+\]$/.test(t)) return undefined;
+  return t;
 }
 
 /**
  * Whether a raw persisted `type` value is safe for `--normalize` to delete.
  *
- * The reader boundary (`normalizeTaskTypeValue`) treats every non-vocabulary
- * value as absent — but the maintenance tool must not destroy data that may
- * be deliberate. A non-empty string that is NOT a stringified artifact
+ * The reader boundary (`normalizeTaskTypeValue`) keeps every non-empty,
+ * non-artifact string verbatim — including labels outside the documented
+ * vocabulary — so the maintenance tool must not destroy data that may be
+ * deliberate. A non-empty string that is NOT a stringified artifact
  * (e.g. `Chore`, a label the board knowingly carries though the documented
- * vocabulary does not name it) stays on disk: it reads as absent, it can
- * never round-trip back out through a normalising write, and deleting it
- * would risk diverging from a server that stores the same label. Only
- * values that can never be deliberate are removed: non-strings, empty
- * strings, and stringified artifacts such as `[object Object]`. An on-disk
- * `null` is the cloud's own absent and is always left alone.
+ * vocabulary does not name it) stays on disk: it round-trips through
+ * normalising writes, and deleting it would risk diverging from a server
+ * that stores the same label. Only values that can never be deliberate are
+ * removed: non-strings, empty strings, and stringified artifacts such as
+ * `[object Object]`. An on-disk `null` is the cloud's own absent and is
+ * always left alone.
  */
 export function shouldDropTypeValue(raw: unknown): boolean {
   if (raw === null) return false;
@@ -295,7 +303,10 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   // fields (`type`, `links`) go further: when they normalize to absent the
   // key is DELETED outright (see below), so no writer — `updateTask`, pull
   // merge, `--normalize` — can resurrect a value the schema does not allow.
-  // Every other unknown key keeps the long-standing mirror behavior.
+  // `type` normalizes to absent only for values that can never be
+  // deliberate (non-strings, empties, stringified artifacts); a real label
+  // survives verbatim. Every other unknown key keeps the long-standing
+  // mirror behavior.
   const out: Task = {
     ...raw,
     id: String(raw.id ?? ""),
@@ -415,12 +426,14 @@ function normalizeTask(raw: Record<string, unknown>): Task {
     openedBy: normalizeUserIds(raw.openedBy),
     expandedBy: normalizeUserIds(raw.expandedBy),
   };
-  // Schema boundary: a `type` outside the documented vocabulary and a
-  // `links` value that carries no links are ABSENT — delete the key rather
-  // than leaving an own key holding `undefined`. Serializers drop both
-  // identically, but in-memory `"type" in task` must also read absent:
-  // the pull merge keys off presence, and presence of a garbage value is
-  // what kept it "local-wins" on every pull instead of converging.
+  // Schema boundary: a `type` that can never be deliberate (non-string,
+  // empty, stringified artifact) and a `links` value that carries no links
+  // are ABSENT — delete the key rather than leaving an own key holding
+  // `undefined`. Serializers drop both identically, but in-memory `"type"
+  // in task` must also read absent: the pull merge keys off presence, and
+  // presence of a garbage value is what kept it "local-wins" on every
+  // pull instead of converging. A real label (even outside the documented
+  // vocabulary) is kept verbatim and is never deleted here.
   if (out.type === undefined) delete out.type;
   if (out.links === undefined) delete out.links;
   return out;

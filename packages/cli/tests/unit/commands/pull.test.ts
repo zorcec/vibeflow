@@ -147,10 +147,11 @@ describe("formatPullSummary", () => {
         filesWritten: 3,
         filesIdentical: 4,
         filesKept: 1,
+        filesSkipped: 2,
         missingBytes: 2,
       }),
     ).toBe(
-      "2 added, 1 merged, 5 unchanged, 1 conflict(s) kept local; files: 3 file(s) written, 4 identical, 1 kept, 2 linked (no bytes)",
+      "2 added, 1 merged, 5 unchanged, 1 conflict(s) kept local; files: 3 file(s) written, 4 identical, 1 kept, 2 skipped, 2 linked (no bytes)",
     );
   });
 });

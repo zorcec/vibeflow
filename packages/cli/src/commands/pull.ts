@@ -67,6 +67,8 @@ export interface PullResult {
   filesWritten: number;
   filesIdentical: number;
   filesKept: number;
+  /** Staged files the merged record disowned (linked/stale) — never written. */
+  filesSkipped: number;
   missingBytes: number;
   board?: string;
   /**
@@ -98,6 +100,7 @@ export function formatPullSummary(summary: PullMergeSummary): string {
     `${summary.filesWritten} file(s) written`,
     `${summary.filesIdentical} identical`,
     `${summary.filesKept} kept`,
+    `${summary.filesSkipped} skipped`,
   ];
   if (summary.missingBytes > 0) files.push(`${summary.missingBytes} linked (no bytes)`);
   return `${parts.join(", ")}; files: ${files.join(", ")}`;
@@ -149,6 +152,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      filesSkipped: 0,
       missingBytes: 0,
       board: "(no board selected)",
       notices: [{ code: "SCOPE_REQUIRED", message: err.message }],
@@ -203,6 +207,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      filesSkipped: 0,
       missingBytes: 0,
       board: boardLabel,
       notices: [{ code: "SCOPE_REQUIRED", message }],
@@ -273,6 +278,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      filesSkipped: 0,
       missingBytes: 0,
       board: boardLabel,
       notices: [{ code: failure.code, message }],
@@ -329,6 +335,7 @@ export async function pull(
           filesWritten: summary.filesWritten,
           filesIdentical: summary.filesIdentical,
           filesKept: summary.filesKept,
+          filesSkipped: summary.filesSkipped,
           missingBytes: summary.missingBytes,
           board: boardLabel,
         }),
@@ -339,6 +346,13 @@ export async function pull(
         console.log(
           chalk.dim(
             `  ${summary.missingBytes} linked file ref(s) have no server bytes and were kept as-is.`,
+          ),
+        );
+      }
+      if (summary.filesSkipped > 0) {
+        console.log(
+          chalk.dim(
+            `  ${summary.filesSkipped} staged file(s) skipped (linked cover or stale row — no bytes written).`,
           ),
         );
       }
@@ -359,6 +373,7 @@ export async function pull(
     filesWritten: summary.filesWritten,
     filesIdentical: summary.filesIdentical,
     filesKept: summary.filesKept,
+    filesSkipped: summary.filesSkipped,
     missingBytes: summary.missingBytes,
     board: boardLabel,
     notices,

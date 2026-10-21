@@ -800,3 +800,219 @@ describe("pull honesty — the summary counts what was written", () => {
     expect(readFileSync(u1Path, "utf-8")).not.toContain("mimeType");
   });
 });
+
+describe("pull linked/stale rule — the record decides what materialises", () => {
+  const linkedRecord = (id: string, files: Array<Record<string, unknown>>) =>
+    taskRecord(id, { sortKey: "0001", files });
+
+  it("never writes bytes for a name the merged record covers with linkedPath", () => {
+    // Bug-2 case 1 (795a42a5/verify-command.md): the record says the bytes
+    // live outside the store. The disk lacks the file, so the old
+    // disk-driven plan wrote it — inventing content no pull converges from.
+    const record = linkedRecord("linked-1", [
+      { name: "report.md", addedAt: "2026-01-01T00:00:00.000Z" },
+      {
+        name: "verify-command.md",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        linkedPath: "docs/research/verify-command.md",
+      },
+    ]);
+    writeTask("linked-1", record);
+    const taskPath = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "linked-1.json");
+    const before = readFileSync(taskPath, "utf-8");
+    const staged = Buffer.from("stale-bytes-that-must-never-land");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "linked-1", hash: hashTaskRecord(record) }],
+        files: [
+          {
+            cliId: "linked-1",
+            name: "verify-command.md",
+            size: staged.length,
+            sha256: sha256Hex(staged),
+          },
+        ],
+      },
+      tasks: [{ clientId: "linked-1", record: { ...record } }],
+      files: [{ clientId: "linked-1", name: "verify-command.md", data: staged }],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, {});
+    expect(summary).toMatchObject({
+      unchanged: 1,
+      filesWritten: 0,
+      filesIdentical: 0,
+      filesKept: 0,
+      filesSkipped: 1,
+    });
+    // No byte written, no ref folded, no `updated` bump: byte-identical.
+    expect(readFileSync(taskPath, "utf-8")).toBe(before);
+    expect(
+      existsSync(join(projectDir, ".vibeflow", "tasks", "files", "linked-1", "verify-command.md")),
+    ).toBe(false);
+  });
+
+  it("never writes bytes for a staged file the record does not reference (stale row)", () => {
+    // Bug-2 case 2 (7f0143c4/information_hmr-...): a stale server row under
+    // a name no files[] entry references. The old plan wrote the bytes AND
+    // folded a local-only ref the next verify flags as `file-missing-raw`.
+    const record = linkedRecord("stale-1", [
+      {
+        name: "information/hmr-live-reload-research.md",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        linkedPath: "information/hmr-live-reload-research.md",
+      },
+    ]);
+    writeTask("stale-1", record);
+    const taskPath = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "stale-1.json");
+    const before = readFileSync(taskPath, "utf-8");
+    const staged = Buffer.from("stale-row-bytes");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "stale-1", hash: hashTaskRecord(record) }],
+        files: [
+          {
+            cliId: "stale-1",
+            name: "information_hmr-live-reload-research.md",
+            size: staged.length,
+            sha256: sha256Hex(staged),
+          },
+        ],
+      },
+      tasks: [{ clientId: "stale-1", record: { ...record } }],
+      files: [{ clientId: "stale-1", name: "information_hmr-live-reload-research.md", data: staged }],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, {});
+    expect(summary).toMatchObject({ unchanged: 1, filesWritten: 0, filesSkipped: 1 });
+    expect(readFileSync(taskPath, "utf-8")).toBe(before);
+    expect(
+      existsSync(
+        join(projectDir, ".vibeflow", "tasks", "files", "stale-1", "information_hmr-live-reload-research.md"),
+      ),
+    ).toBe(false);
+  });
+
+  it("skipping holds under --prefer-remote: the record overrules what exists", () => {
+    const record = linkedRecord("linked-pr", [
+      {
+        name: "ext.md",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        linkedPath: "/abs/ext.md",
+      },
+    ]);
+    writeTask("linked-pr", record);
+    const staged = Buffer.from("remote-bytes");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "linked-pr", hash: hashTaskRecord(record) }],
+        files: [{ cliId: "linked-pr", name: "ext.md", size: staged.length, sha256: sha256Hex(staged) }],
+      },
+      tasks: [{ clientId: "linked-pr", record: { ...record } }],
+      files: [{ clientId: "linked-pr", name: "ext.md", data: staged }],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, { preferRemote: true });
+    expect(summary).toMatchObject({ filesWritten: 0, filesSkipped: 1 });
+    expect(
+      existsSync(join(projectDir, ".vibeflow", "tasks", "files", "linked-pr", "ext.md")),
+    ).toBe(false);
+  });
+
+  it("a record with no files[] array is silent: staged files still materialise", () => {
+    // Synthesised records (web-created tasks) carry no files[] key — the
+    // silence must not read as disowning the staged bytes. New-task path:
+    // the staged record is used verbatim, so no files[] array stays silent.
+    const record = taskRecord("silent-1", { sortKey: "0001" });
+    delete (record as Record<string, unknown>).files;
+    const staged = Buffer.from("web-uploaded-bytes");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "silent-1", hash: hashTaskRecord(record) }],
+        files: [{ cliId: "silent-1", name: "w.md", size: staged.length, sha256: sha256Hex(staged) }],
+      },
+      tasks: [{ clientId: "silent-1", record: { ...record } }],
+      files: [{ clientId: "silent-1", name: "w.md", data: staged }],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, staging, {});
+    expect(summary).toMatchObject({ filesWritten: 1, filesSkipped: 0 });
+    expect(
+      readFileSync(join(projectDir, ".vibeflow", "tasks", "files", "silent-1", "w.md"), "utf-8"),
+    ).toBe("web-uploaded-bytes");
+  });
+
+  it("manifest `linked: true` entries never materialise bytes (no object on the server)", () => {
+    const record = linkedRecord("manifest-linked-1", [
+      {
+        name: "ext.md",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        linkedPath: "/abs/ext.md",
+      },
+    ]);
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "manifest-linked-1", hash: hashTaskRecord(record) }],
+        files: [{ cliId: "manifest-linked-1", name: "ext.md", size: 10, sha256: "x".repeat(64), linked: true }],
+      },
+      tasks: [{ clientId: "manifest-linked-1", record: { ...record } }],
+      files: [],
+      missingBytes: [{ cliId: "manifest-linked-1", name: "ext.md" }],
+    };
+    // Verification accepts the linked entry with zero tar bytes...
+    verifyPullStaging(staging);
+    const summary = applyPullEntries(projectDir, staging, {});
+    // ...and the merge writes nothing for it.
+    expect(summary).toMatchObject({
+      added: 1,
+      filesWritten: 0,
+      filesSkipped: 0,
+      missingBytes: 1,
+    });
+    expect(
+      existsSync(join(projectDir, ".vibeflow", "tasks", "files", "manifest-linked-1")),
+    ).toBe(false);
+  });
+
+  it("a sanctioned file still writes, and a re-pull counts it identical (counts equal reality)", () => {
+    const record = linkedRecord("legit-1", [
+      { name: "a.txt", addedAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    writeTask("legit-1", record);
+    const data = Buffer.from("legit-bytes");
+    const staging: PullStaging = {
+      manifest: {
+        version: 1,
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{ cliId: "legit-1", hash: hashTaskRecord(record) }],
+        files: [{ cliId: "legit-1", name: "a.txt", size: data.length, sha256: sha256Hex(data) }],
+      },
+      tasks: [{ clientId: "legit-1", record: { ...record } }],
+      files: [{ clientId: "legit-1", name: "a.txt", data }],
+      missingBytes: [],
+    };
+    const first = applyPullEntries(projectDir, staging, {});
+    expect(first).toMatchObject({ filesWritten: 1, filesSkipped: 0 });
+    const second = applyPullEntries(projectDir, staging, {});
+    expect(second).toMatchObject({ filesWritten: 0, filesIdentical: 1, filesSkipped: 0 });
+    // Independently recount: exactly one new file on disk after both pulls.
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files", "legit-1");
+    expect(readdirSync(filesDir)).toEqual(["a.txt"]);
+  });
+});

@@ -33,7 +33,7 @@ import * as tokenModule from "../../../src/auth/token.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
-import { push, formatBytes, renderProgressBar, uploadPushedFiles } from "../../../src/commands/push.js";
+import { push, formatBytes, renderProgressBar, uploadPushedFiles, collectImportInputs } from "../../../src/commands/push.js";
 import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -1552,5 +1552,32 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
     const out = await uploadPushedFiles("https://x.test", "tok", makeTempProject(), []);
     expect(out).toEqual({ uploaded: 0, failed: 0, failedFiles: [], skippedPresent: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("collectImportInputs — linked refs carry no bytes", () => {
+  it("excludes linkedPath entries even when the target exists on disk", () => {
+    // Bug-2 push side: uploading a linked target's bytes creates a server
+    // row the record disowns (names never match back), forcing the task
+    // onto every future push. The record (with its linkedPath ref) still
+    // travels; only the bytes stay local.
+    const projectDir = makeTempProject();
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files", "t-linked");
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "real.txt"), "real-bytes");
+    const target = join(projectDir, "docs", "ext.md");
+    mkdirSync(join(projectDir, "docs"), { recursive: true });
+    writeFileSync(target, "external-bytes");
+    vi.mocked(filesModule.listFiles).mockReturnValue([
+      { name: "real.txt", size: 10, linkedPath: null },
+      { name: "ext.md", size: 14, linkedPath: target },
+    ]);
+    vi.mocked(filesModule.getFilesDir).mockReturnValue(filesDir);
+    const inputs = collectImportInputs(projectDir, [{ id: "t-linked" }]);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]!.files.map((f) => f.name)).toEqual(["real.txt"]);
+    expect(inputs[0]!.files[0]).toMatchObject({
+      filePath: join(filesDir, "real.txt"),
+    });
   });
 });

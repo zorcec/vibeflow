@@ -72,25 +72,24 @@ describe("normalizeTaskTypeValue (store schema boundary)", () => {
 
   it("treats a stringified object as absent", () => {
     expect(normalizeTaskTypeValue("[object Object]")).toBeUndefined();
+    expect(normalizeTaskTypeValue("[object Foo]")).toBeUndefined();
   });
 
-  it("treats every other value as absent", () => {
-    for (const junk of [
-      "",
-      "   ",
-      "Foo",
-      "Chore",
-      "bug",
-      "TASK",
-      42,
-      true,
-      null,
-      undefined,
-      {},
-      [],
-    ]) {
+  it("treats empty/whitespace/non-string values as absent", () => {
+    for (const junk of ["", "   ", 42, true, null, undefined, {}, []]) {
       expect(normalizeTaskTypeValue(junk)).toBeUndefined();
     }
+  });
+
+  it("keeps a user-written label verbatim (free-form type, trimmed)", () => {
+    // The convergence contract: a label the user deliberately wrote must
+    // survive read → push → pull byte-identical, even when no picker or
+    // filter names it. Only stringification garbage reads as absent.
+    expect(normalizeTaskTypeValue("Chore")).toBe("Chore");
+    expect(normalizeTaskTypeValue("Foo")).toBe("Foo");
+    expect(normalizeTaskTypeValue("bug")).toBe("bug");
+    expect(normalizeTaskTypeValue("TASK")).toBe("TASK");
+    expect(normalizeTaskTypeValue("  Chore  ")).toBe("Chore");
   });
 });
 
@@ -204,6 +203,37 @@ describe("readTaskFile schema boundary", () => {
     expect(hashTaskRecord(task)).toBe(hashTaskRecord(raw));
     // Same keys, same values — normalization changed nothing.
     expect(task).toEqual(raw);
+  });
+
+  it("reads a user-written label verbatim (round-trips, hash-identical)", () => {
+    // Bug-1 regression: `Chore` reached the server as absent because the
+    // reader discarded it, so push could never converge (`raw.type` null
+    // forever). The label must survive read → push → pull byte-identical.
+    const raw = { ...cleanRaw("chore-roundtrip-00000001"), type: "Chore" };
+    const filePath = writeRawTask(tempDir, "2026-09-13", raw);
+    const task = readTaskFile(filePath);
+    expect(task).not.toBeNull();
+    expect(task!.type).toBe("Chore");
+    expect(hashTaskRecord(task)).toBe(hashTaskRecord(raw));
+  });
+
+  it("an unknown label survives a normalising write", () => {
+    // updateTask re-files by the record's created date (2026-03-25 in the
+    // fixture), so seed that subdir for the re-read below.
+    const filePath = writeRawTask(tempDir, "2026-03-25", {
+      ...cleanRaw("chore-write-000000000001"),
+      type: "Chore",
+    });
+    const updated = updateTask(tempDir, "chore-write-000000000001", {
+      title: "Edited title",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.type).toBe("Chore");
+    const raw = JSON.parse(readFileSync(filePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    expect(raw.type).toBe("Chore");
   });
 
   it("preserves fields outside the boundary vocabulary (legacy `commit`)", () => {

@@ -149,6 +149,15 @@ export interface PullMergeSummary {
   filesIdentical: number;
   /** Local bytes kept over differing remote bytes (local-wins). */
   filesKept: number;
+  /**
+   * Staged files that were never materialised: the merged record covers
+   * the name with a `linkedPath` ref (bytes live outside the store by
+   * design), or the merged record carries a files[] array that does not
+   * reference the name at all (a stale server row the record disowns).
+   * Neither case writes a byte, folds a ref, or bumps `updated` — and both
+   * are reported here so the counts match what the pull actually did.
+   */
+  filesSkipped: number;
   /** Linked refs with no server bytes — kept as-is, reported. */
   missingBytes: number;
 }
@@ -162,6 +171,7 @@ export function emptyPullSummary(): PullMergeSummary {
     filesWritten: 0,
     filesIdentical: 0,
     filesKept: 0,
+    filesSkipped: 0,
     missingBytes: 0,
   };
 }
@@ -586,11 +596,12 @@ interface PullTaskPlan {
 /** One staged file's planned fate. `needsRef` carries the files[] entry the
  * stored task record must contain for bytes this pull writes; it is folded
  * into the task plan BEFORE the first write so the task file is written at
- * most once and the write is counted. */
+ * most once and the write is counted. `skip` never writes a byte, folds no
+ * ref, and bumps no `updated` (see the linked/stale rule in Phase 1b). */
 interface PullFilePlan {
   file: PullFileEntry;
   safeName: string;
-  action: "write" | "identical" | "keep";
+  action: "write" | "identical" | "keep" | "skip";
   needsRef: { clientId: string; serverRef: Record<string, unknown> | null } | null;
 }
 
@@ -615,7 +626,10 @@ interface PullFilePlan {
  * stored task: when the server record carries no `mimeType`, none is
  * added, and `updated` is bumped only for tasks the merge actually changed
  * — an unchanged pull is a byte-no-op, which is what keeps the next push
- * converged instead of re-uploading pulled tasks.
+ * converged instead of re-uploading pulled tasks. Staged files the merged
+ * record disowns (a `linkedPath` cover, or no files[] reference at all)
+ * are SKIPPED: no byte may be written for a path the record sanctions
+ * nothing for, and the skip is counted so the summary matches the disk.
  */
 export function applyPullEntries(
   projectDir: string,
@@ -713,11 +727,30 @@ export function applyPullEntries(
   // ── Phase 1b: plan every file fate (reads only, no writes) ──
   // Files ride AFTER their task record: the record must already exist (new
   // or merged above) before bytes land, so refs always describe reality.
+  //
+  // LINKED/STALE RULE: the merged record decides what is materialisable —
+  // the disk does not. A staged file is skipped (never written, never
+  // folded as a ref, never counted as written) when the task's post-merge
+  // record covers its name with a `linkedPath` ref (bytes live outside the
+  // store by design — writing them invents file content no pull can
+  // converge away from), or when the record carries a files[] array that
+  // does not reference the name at all (a stale server row the record
+  // disowns — folding a ref for it would create a local-only entry the
+  // next verify flags as `file-missing-raw`). Skipping holds regardless of
+  // `--prefer-remote`: that flag settles conflicting VALUES, it never
+  // overrules the record about what EXISTS. A record with NO files[] array
+  // at all is silent (e.g. synthesised web-created tasks), so its staged
+  // files materialise exactly as before.
   const filePlans: PullFilePlan[] = [];
   for (const file of staging.files) {
     // saveFile parity: the on-disk name is the bare filename, so a staged
     // nested name can never escape the task's files dir or throw mid-apply.
     const safeName = basename(file.name);
+    const coverage = plannedFilesCoverage(planByClientId.get(file.clientId));
+    if (coverage !== null && isUnmaterialisable(coverage, file.name)) {
+      filePlans.push({ file, safeName, action: "skip", needsRef: null });
+      continue;
+    }
     const localPath = join(getFilesDir(projectDir, file.clientId), safeName);
     let action: PullFilePlan["action"];
     if (!existsSync(localPath)) {
@@ -816,6 +849,13 @@ export function applyPullEntries(
   }
 
   for (const fp of filePlans) {
+    if (fp.action === "skip") {
+      // Linked or stale: the record sanctions no bytes for this name, so
+      // none are written, no ref is folded, and no task `updated` moves.
+      // Counted separately so the summary matches what hit the disk.
+      summary.filesSkipped++;
+      continue;
+    }
     if (fp.action === "identical") {
       // Identical bytes are not touched: no write, no ref patch, no
       // `updated` bump. An unchanged pull stays byte-identical.
@@ -858,6 +898,65 @@ function readPlannedFileRefs(
     return record ? [] : null;
   }
   return record.files as Array<{ name?: unknown }>;
+}
+
+/**
+ * What the task plan's post-merge record says about attachments.
+ *
+ * `null` = no record to consult (staged file for an unknown task: bytes
+ * still land, orphaned, exactly as before). `present: false` = the record
+ * is silent about files (no files[] array, or an empty one — the
+ * normalizer always emits `files: []`, so an empty array says nothing),
+ * and staged files materialise exactly as before. `present: true` = the
+ * record lists attachments but the staged name is not among them, or is
+ * among them only as a `linkedPath` ref: only a same-name entry WITHOUT
+ * `linkedPath` may materialise.
+ */
+interface PlannedFilesCoverage {
+  present: boolean;
+  entries: Array<{ name?: unknown; linkedPath?: unknown }>;
+}
+
+function plannedFilesCoverage(
+  plan: PullTaskPlan | undefined,
+): PlannedFilesCoverage | null {
+  if (!plan) return null;
+  // SAFETY: readTaskFile returns parsed task JSON objects; only the files[]
+  // array shape is read below. Same record source as readPlannedFileRefs so
+  // the skip decision and the ref fold can never disagree about refs.
+  const stored = (plan.filePath ? readTaskFile(plan.filePath) : null) as unknown as Record<string, unknown> | null;
+  const record: Record<string, unknown> | null = plan.record ?? stored;
+  if (!record) return null;
+  if (!Array.isArray(record.files) || record.files.length === 0) {
+    return { present: false, entries: [] };
+  }
+  return {
+    present: true,
+    entries: (record.files as unknown[]).filter(
+      (f): f is { name?: unknown; linkedPath?: unknown } =>
+        typeof f === "object" && f !== null && !Array.isArray(f),
+    ),
+  };
+}
+
+/**
+ * True when the staged file must never be materialised (linked/stale rule).
+ *
+ * A same-name entry WITH `linkedPath` means the bytes live outside the
+ * store by design — writing them invents content the record disowns. No
+ * same-name entry at all, while the record carries a files[] array, means
+ * a stale server row the record disowns — same answer. In both cases no
+ * byte may be written for a path whose record sanctions nothing.
+ */
+function isUnmaterialisable(coverage: PlannedFilesCoverage, stagedName: string): boolean {
+  if (!coverage.present) return false;
+  const same = coverage.entries.filter(
+    (e) => typeof e.name === "string" && e.name === stagedName,
+  );
+  if (same.some((e) => typeof e.linkedPath === "string" && e.linkedPath.length > 0)) {
+    return true;
+  }
+  return same.length === 0;
 }
 
 /** The staged remote record's files[] entries for one task (faithful source
