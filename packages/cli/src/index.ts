@@ -64,6 +64,8 @@ import { runStdioMcp } from "./mcp/stdio.js";
 import {
   taskRelations,
   formatRelationsSummary,
+  formatSaasDetailRelations,
+  hasSaasDetailRelations,
   buildSetParentLinks,
   buildAddLinks,
   buildRemoveLinks,
@@ -2407,7 +2409,19 @@ program
               outputEnvelope({
                 ok: true,
                 json: opts.json,
-                payload: { task: { ...saasTask, status: cliStatus } },
+                // The detail contract (ticket 086b40aa) travels in the
+                // envelope: parentId/children default to null/[] on older
+                // servers so the keys are always present. (Local MCP
+                // get_task already merges derived relations in
+                // operations.getTask — nothing to change there.)
+                payload: {
+                  task: {
+                    ...saasTask,
+                    status: cliStatus,
+                    parentId: saasTask.parentId ?? null,
+                    children: saasTask.children ?? [],
+                  },
+                },
               });
               return;
             }
@@ -2467,6 +2481,20 @@ program
                   console.log(chalk.dim(`        └─────────────`));
                 }
               }
+            }
+            // ONLINE relations (ticket 086b40aa): rendered from the DETAIL
+            // RESPONSE alone — one detail request, never a board listing or a
+            // second fetch. A response carrying neither field predates the
+            // detail contract: one dim line says so, never silence.
+            if (!hasSaasDetailRelations(saasTask)) {
+              console.log(
+                chalk.dim(
+                  `    relations unavailable (server predates the detail contract)`,
+                ),
+              );
+            } else {
+              for (const line of formatSaasDetailRelations(saasTask))
+                console.log(chalk.dim(`    ${line}`));
             }
             const saasGetSettings = loadSettings(resolve(dir));
             const isResearch =

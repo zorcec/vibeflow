@@ -128,6 +128,14 @@ export interface SaasTask {
    * default the hosted MCP surface does.
    */
   links?: Array<{ taskId: string; type: string }>;
+  /**
+   * Detail-contract relations (ticket 086b40aa): GET /api/v0/tasks/:id answers
+   * parentId + children alongside the task, so online --get renders relations
+   * from the ONE detail response — never a board listing. Absent on older
+   * servers — the CLI prints one 'relations unavailable' line, never nothing.
+   */
+  parentId?: string | null;
+  children?: Array<{ id: string; title: string; status: string; type?: string }>;
   comments?: SaasComment[];
   /**
    * Server-computed counts the v0 list answers alongside each item.
@@ -1133,6 +1141,7 @@ export async function createSaasTask(params: {
         },
       };
     }
+    // SAFETY: v0 answers the created task (contract Task) — parsed JSON body with the SaasTask shape.
     return { ok: true, data: raw.parsed as unknown as SaasTask };
   } catch (err) {
     return {

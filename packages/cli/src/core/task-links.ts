@@ -504,3 +504,52 @@ export function formatRelationsSummary(view: TaskRelationsView): string[] {
 
   return lines;
 }
+
+/** One child row of the online detail-contract relations (ticket 086b40aa). */
+export interface SaasDetailChild {
+  id: string;
+  title: string;
+  status: string;
+  type?: string;
+}
+
+/**
+ * True when the online detail response carries the relations contract
+ * (parentId and/or children). Both keys are always present on a current
+ * server ([]/null when empty); NEITHER present means an older server that
+ * predates the contract — the caller prints the single 'relations
+ * unavailable' line instead of these lines, never silence.
+ */
+export function hasSaasDetailRelations(detail: {
+  parentId?: unknown;
+  children?: unknown;
+}): boolean {
+  return detail.parentId !== undefined || detail.children !== undefined;
+}
+
+/**
+ * Renders the ONLINE --get relations block from the DETAIL RESPONSE alone
+ * (ticket 086b40aa) — no board listing, no extra request. The parent is an
+ * id only (the contract carries no parent title/status), so it prints bare:
+ * agents already hold the full id and need no second lookup. Child statuses
+ * print verbatim as the server sent them (never remapped — an unknown value
+ * remapped to a default would fabricate workflow state). A task with no
+ * children prints 'children: none' — the block is never empty.
+ */
+export function formatSaasDetailRelations(detail: {
+  parentId?: string | null;
+  children?: SaasDetailChild[];
+}): string[] {
+  const lines: string[] = [];
+  if (typeof detail.parentId === "string" && detail.parentId.length > 0) {
+    lines.push(`parent:   ${detail.parentId}`);
+  }
+  const kids = Array.isArray(detail.children) ? detail.children : [];
+  if (kids.length > 0) {
+    lines.push(`children (${kids.length}):`);
+    for (const c of kids) lines.push(`  - ${c.id} ${c.title} (${c.status})`);
+  } else {
+    lines.push(`children: none`);
+  }
+  return lines;
+}
