@@ -14,6 +14,8 @@ import {
       getDescendants,
       getLeafDescendants,
       computePopoverPosition,
+      getStatusColor,
+      STATUS_LABELS,
 } from "../task-links";
 import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
@@ -133,6 +135,44 @@ const NEXT_LANE: Record<TaskStatus, TaskStatus | null> = {
 
 export function nextLaneStatus(status: TaskStatus): TaskStatus | null {
       return NEXT_LANE[status] ?? null;
+}
+
+/**
+ * Status dot for a board card (ticket kwaz437j): the ticket's status as a
+ * colour, with the status name on hover for mouse users and in the
+ * accessible name for assistive tech.
+ *
+ * The colour comes from the canonical STATUS_COLORS mapping in
+ * ../task-links (design tokens, no hex literals) — the same source the
+ * column headers and badges read. The name is always present: `title`
+ * for the hover tooltip plus `role="img"` with `aria-label` so colour
+ * is never the only carrier of meaning. `tabIndex={0}` keeps the
+ * tooltip reachable by keyboard (focus shows the native title in most
+ * browsers); it never traps focus.
+ *
+ * Deliberately NOT a badge chip and NOT a redesign — a 7px dot matching
+ * the column header's `.status-dot` size, so card layout is untouched.
+ */
+export function StatusDot({ status }: { status: TaskStatus }) {
+      const label = STATUS_LABELS[status] ?? status;
+      return (
+            <span
+                  data-role="status-dot"
+                  data-status={status}
+                  tabIndex={0}
+                  role="img"
+                  aria-label={`Status: ${label}`}
+                  title={label}
+                  style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background: getStatusColor(status),
+                        flexShrink: 0,
+                        display: "inline-block",
+                  }}
+            />
+      );
 }
 
 /** Accessible lane names for the advance control's label (keyed by destination). */
@@ -715,6 +755,8 @@ export const TaskCard = React.memo(function TaskCard({
                               isUnread={isUnread}
                               reserve={reserveLeadingSlot}
                         />
+                        {/* Status as colour (kwaz437j): name in tooltip + AT name. */}
+                        <StatusDot status={task.status} />
                         <CardTitle title={task.title} />
                         {/* Actions cluster (37b82fba): advance precedes the
                             copy pill so copy stays flush right; same write

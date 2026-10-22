@@ -103,6 +103,7 @@ export { Header as KanbanHeader } from "./components/Header";
 export { DetailPanel } from "./components/DetailPanel";
 export {
   TaskCard as KanbanTaskCard,
+  StatusDot,
   resolveTaskCardBorderColor,
   nextLaneStatus,
   nextLaneLabel,
@@ -144,6 +145,7 @@ export { ChildRow } from "./components/ChildRow";
 
 export {
   STATUS_COLORS,
+  STATUS_LABELS,
   getStatusColor,
   groupDetailRelations,
   classifyDropZone,

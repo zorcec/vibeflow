@@ -13,6 +13,17 @@ export const STATUS_COLORS: Record<string, string> = {
  done: "var(--t-status-done)",
 };
 
+/** Canonical status display names — mirrors the COLUMNS labels in
+ * components/KanbanBoard.tsx (single spelling per status). Used by the
+ * board card's status dot for its tooltip and accessible name. */
+export const STATUS_LABELS: Record<TaskStatus, string> = {
+ backlog: "Backlog",
+ todo: "Todo",
+ "in-progress": "In Progress",
+ review: "Review",
+ done: "Done",
+};
+
 /** Return all children of a task.
  * Null-entry safe: skips null/undefined tasks and null links so a single
  * corrupted entry in `tasks` can never blank the board during render (P0). */
