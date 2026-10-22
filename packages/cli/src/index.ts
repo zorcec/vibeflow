@@ -94,6 +94,7 @@ import {
   type SaasTask,
 } from "./saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
+import { writeOnlineClone } from "./saas/clone.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
@@ -3232,6 +3233,25 @@ program
               return;
             }
             const saasCreatedTask = saasCreated.data;
+            // Clone mode (ticket 4efaa878): the task the server ACCEPTED is
+            // also persisted in the local `.vibeflow` store as its normal
+            // `.json` record, so the local copy exists for
+            // grep/diff/inspection offline and the two stay identical.
+            // Written from the response (the accepted record), never
+            // re-derived from the request — see saas/clone.ts. A failed
+            // create returned above, so a failure can never leave a clone
+            // behind; a failed clone write warns loudly and keeps the
+            // landed create (exit 0 is the truth about the server write).
+            try {
+              writeOnlineClone(resolve(dir), saasCreatedTask);
+            } catch (err) {
+              const cloneMessage = `Online task created, but the local clone could not be written (${err instanceof Error ? err.message : String(err)}). Run 'vibeflow pull' to fetch it.`;
+              if (opts.json) {
+                console.error(cloneMessage);
+              } else {
+                console.log(chalk.yellow(`  ⚠ ${cloneMessage}`));
+              }
+            }
             const addNextActions = getNextActions("add", saasCreatedTask.id);
             if (opts.json) {
               outputEnvelope({
