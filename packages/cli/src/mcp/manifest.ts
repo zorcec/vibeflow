@@ -155,6 +155,16 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "surgical link removal; update_task declares the capability as `removeLinks` (named taskId+type pairs), so no input field is spelled unrelates — see mcpOnlyFields.update_task.removeLinks",
     "tasks --unblocks":
       "surgical link removal of type blocks; update_task declares the capability as `removeLinks` — same field as tasks --unrelates, see mcpOnlyFields.update_task.removeLinks",
+    "tasks --attach":
+      "the CLI reads the bytes from a path on disk; attach_file takes filename+contentB64 instead because an MCP client may not share this filesystem, so no input field is spelled attach — see mcpOnlyFields.attach_file.filename",
+    // Destructive local operations: MCP has no delete tool by design, so
+    // these flags have no tool to own them. Classified rather than mapped.
+    "tasks --delete":
+      "deletes a task (recursively online). No MCP tool deletes anything: a destructive operation that an agent can trigger in a loop is a footgun, so deletion stays a human CLI action",
+    "tasks --yes":
+      "confirmation bypass for the destructive --delete preview; meaningless without a delete tool, and intended to stay a deliberate human confirmation",
+    "tasks --move":
+      "modifier of --attach that deletes the LOCAL source file after a successful upload; attach_file never deletes a client file, and an MCP client may not share the filesystem",
     "tasks --report-file":
       "the CLI reads the report bytes from a path on disk; attach_file takes `filename`+`contentB64` instead because an MCP client may not share this filesystem, so no input field is spelled reportFile — see mcpOnlyFields.attach_file.filename",
     "verify --json":
@@ -476,7 +486,7 @@ export const manifest: ToolManifest[] = [
       // Naming only --report-file made `id` look like an MCP-only field, which
       // is what G5 caught: the report upload is an EDIT of a named task that
       // moves to review, not a standalone flag.
-      flags: ["--edit", "--set-status", "--report-file"],
+      flags: ["--edit", "--set-status", "--report-file", "--attach"],
     },
     category: "task-write",
     annotations: {

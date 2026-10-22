@@ -66,13 +66,19 @@ interface Props {
 /** Id of the extra tab that hosts the `appearance` slot. */
 const APPEARANCE_TAB: SettingsTab = "appearance";
 
+/**
+ * Order is deliberate (owner request, ticket w0sph9e5): Enforcement is the
+ * FIRST tab and the one the modal opens on. The board/workflow toggles are
+ * what a user opens this dialog to change; appearance and column layout are
+ * secondary. Keep this order when adding a tab — append, never prepend.
+ */
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-  { id: "board", label: "Board", icon: <Layout className="w-3.5 h-3.5" /> },
   {
     id: "enforcement",
     label: "Enforcement",
     icon: <ShieldCheck className="w-3.5 h-3.5" />,
   },
+  { id: "board", label: "Board", icon: <Layout className="w-3.5 h-3.5" /> },
 ];
 
 export function SettingsModal({
@@ -84,7 +90,8 @@ export function SettingsModal({
   appearance,
   appearanceTab,
 }: Props) {
-  const [activeTab, setActiveTab] = React.useState<SettingsTab>("board");
+  // Opens on Enforcement — the first tab (ticket w0sph9e5).
+  const [activeTab, setActiveTab] = React.useState<SettingsTab>("enforcement");
   const [colState, setColState] = React.useState<Record<TaskStatus, boolean>>(
     {} as Record<TaskStatus, boolean>,
   );
@@ -138,7 +145,9 @@ export function SettingsModal({
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
     setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
-    setActiveTab("board");
+    // Reset to the FIRST tab (Enforcement) on open, not to a hardcoded
+    // "board" — otherwise the tab strip says one thing and the pane another.
+    setActiveTab(TABS[0]!.id);
   }, [open, visibleCols, settings]);
 
   function handleApply() {
