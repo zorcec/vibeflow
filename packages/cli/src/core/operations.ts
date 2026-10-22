@@ -5,6 +5,7 @@ import { taskReadNotices, type TaskReadFinding } from "./task-record-read.js";
  * Thin wrappers over core functions that MCP tools call.
  * These operations handle context resolution (projectDir, mode, userId)
  * and delegate to the existing core functions.
+ * P2/P3 seam (ticket 7339393c): MCP operations will call the TaskStore boundary (core/task-store.ts) instead.
  */
 import { z } from "zod";
 import type {
