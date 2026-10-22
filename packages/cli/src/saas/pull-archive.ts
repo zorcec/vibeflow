@@ -12,10 +12,12 @@
  * WHY the merge is additive with LOCAL-WINS by default: pull must never be a
  * destructive sync. Nothing is ever deleted — no task, no file, no local-only
  * field — and on a conflicting field the local value survives unless the
- * caller passed `--prefer-remote`. A second pull of an unchanged board is a
- * byte-no-op: unchanged tasks are not rewritten, identical files are not
- * touched, and `updated` is bumped only when the merge actually changed
- * something.
+ * caller passed `--prefer-remote`. The one exception is `status`: on pull,
+ * `status` follows the remote record — the board is the source of truth for
+ * workflow state — unless `--prefer-local` restores local-wins for it. A
+ * second pull of an unchanged board is a byte-no-op: unchanged tasks are not
+ * rewritten, identical files are not touched, and `updated` is bumped only
+ * when the merge actually changed something.
  *
  * WHY stage-then-merge instead of unpacking straight into the store: a
  * truncated gzip or a hash mismatch must leave ZERO writes behind. The
@@ -135,6 +137,13 @@ export interface PullStaging {
 export interface PullMergeOptions {
   /** Default false: local values win conflicts. True: remote values win. */
   preferRemote?: boolean;
+  /**
+   * Default false: `status` follows the remote record (the board is truth
+   * for workflow state). True: the local status wins like any other
+   * conflicting field. Ignored when `preferRemote` is set — that flag
+   * takes the remote value for every conflicting field, status included.
+   */
+  preferLocal?: boolean;
   /** True: compute the summary without writing anything. */
   dryRun?: boolean;
 }
@@ -149,6 +158,8 @@ export interface PullMergeSummary {
   filesIdentical: number;
   /** Local bytes kept over differing remote bytes (local-wins). */
   filesKept: number;
+  /** Tasks whose `status` followed the remote record this pull. */
+  statusAdopted: number;
   /**
    * Staged files that were never materialised: the merged record covers
    * the name with a `linkedPath` ref (bytes live outside the store by
@@ -171,6 +182,7 @@ export function emptyPullSummary(): PullMergeSummary {
     filesWritten: 0,
     filesIdentical: 0,
     filesKept: 0,
+    statusAdopted: 0,
     filesSkipped: 0,
     missingBytes: 0,
   };
@@ -268,6 +280,8 @@ export interface PullRecordMerge {
   merged: Record<string, unknown>;
   changed: boolean;
   conflict: boolean;
+  /** True when a conflicting `status` was resolved by adopting the remote. */
+  statusAdopted: boolean;
 }
 
 /**
@@ -275,6 +289,10 @@ export interface PullRecordMerge {
  * - a key missing locally is ADDED;
  * - a conflicting key keeps the LOCAL value by default (`--prefer-remote`
  *   takes the remote one), and counts as a conflict either way;
+ * - `status` is the exception: on pull, `status` follows the remote record
+ *   — the board is the source of truth for workflow state — unless
+ *   `--prefer-local` restores local-wins for it (`--prefer-remote` still
+ *   takes the remote value for every conflicting field, status included);
  * - keys the local record has and the remote lacks are KEPT (never dropped);
  * - `comments[]` merge by id, `links[]` union, `sortKey` keeps the local
  *   value when the task exists (the local board's manual order is local
@@ -284,10 +302,12 @@ export function mergePullRecord(
   local: Record<string, unknown>,
   remote: Record<string, unknown>,
   preferRemote: boolean,
+  preferLocal = false,
 ): PullRecordMerge {
   const merged: Record<string, unknown> = { ...local };
   let changed = false;
   let conflict = false;
+  let statusAdopted = false;
 
   for (const [key, remoteValue] of Object.entries(remote)) {
     if (PULL_IGNORED_KEYS.has(key)) continue;
@@ -314,6 +334,20 @@ export function mergePullRecord(
       } else if (!("links" in merged) && result.links !== undefined) {
         merged.links = result.links;
         changed = true;
+      }
+      continue;
+    }
+    if (key === "status") {
+      if (!(key in merged)) {
+        merged[key] = remoteValue;
+        changed = true;
+      } else if (!deepEqual(merged[key], remoteValue)) {
+        conflict = true;
+        if (preferRemote || !preferLocal) {
+          merged[key] = remoteValue;
+          changed = true;
+          statusAdopted = true;
+        }
       }
       continue;
     }
@@ -348,7 +382,7 @@ export function mergePullRecord(
       }
     }
   }
-  return { merged, changed, conflict };
+  return { merged, changed, conflict, statusAdopted };
 }
 
 // ── Stage: gunzip + tar → temp dir ─────────────────────────────────────────
@@ -607,10 +641,11 @@ interface PullFilePlan {
 
 /**
  * Merge staged entries into `<projectDir>/.vibeflow/`. Additive and never
- * destructive: existing tasks merge field-by-field (local wins by default),
- * local-only data is never dropped, and files whose bytes differ are kept
- * locally unless `preferRemote` replaces them. `dryRun` computes the same
- * summary without writing a single byte.
+ * destructive: existing tasks merge field-by-field (local wins by default,
+ * except `status`, which follows the remote record unless `--prefer-local`
+ * restores local-wins for it), local-only data is never dropped, and files
+ * whose bytes differ are kept locally unless `preferRemote` replaces them.
+ * `dryRun` computes the same summary without writing a single byte.
  *
  * ATOMICITY: verification runs FIRST, inside this function — not just in
  * runPullFromBytes — because this is the only writer of staged data into
@@ -639,6 +674,7 @@ export function applyPullEntries(
   verifyPullStaging(staging);
 
   const preferRemote = opts?.preferRemote === true;
+  const preferLocal = opts?.preferLocal === true;
   const dryRun = opts?.dryRun === true;
   const summary = emptyPullSummary();
 
@@ -681,12 +717,14 @@ export function applyPullEntries(
         record: null, conflict: true, ceilingTouched: false });
       continue;
     }
-    const { merged, changed, conflict } = mergePullRecord(
+    const { merged, changed, conflict, statusAdopted } = mergePullRecord(
       // SAFETY: core/tasks readTaskFile returns parsed task JSON objects; the merge treats them as plain records.
       local as unknown as Record<string, unknown>,
       remoteRecord,
       preferRemote,
+      preferLocal,
     );
+    if (statusAdopted) summary.statusAdopted++;
     if (!changed) {
       taskPlans.push({
         clientId,

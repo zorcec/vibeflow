@@ -455,7 +455,10 @@ export const PullInput = z.object({
     "Project root to write into instead of the server's own project (same as the CLI's --out flag). Omit to pull into the current project.",
   ),
   preferRemote: z.boolean().default(false).describe(
-    "On a conflicting field the REMOTE value wins (same as the CLI's --prefer-remote flag). Default false: the local value wins and nothing is ever deleted.",
+    "On a conflicting field the REMOTE value wins (same as the CLI's --prefer-remote flag). Default false: the local value wins and nothing is ever deleted. `status` always follows the remote record unless preferLocal is set.",
+  ),
+  preferLocal: z.boolean().default(false).describe(
+    "Restore local-wins for `status` (same as the CLI's --prefer-local flag). Default false: status follows the remote record.",
   ),
   dryRun: z.boolean().default(false).describe(
     "Preview only: report what WOULD be pulled without writing anything (same as the CLI's --dry-run flag).",

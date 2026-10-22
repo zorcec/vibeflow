@@ -147,11 +147,31 @@ describe("formatPullSummary", () => {
         filesWritten: 3,
         filesIdentical: 4,
         filesKept: 1,
+        statusAdopted: 0,
         filesSkipped: 2,
         missingBytes: 2,
       }),
     ).toBe(
       "2 added, 1 merged, 5 unchanged, 1 conflict(s) kept local; files: 3 file(s) written, 4 identical, 1 kept, 2 skipped, 2 linked (no bytes)",
+    );
+  });
+
+  it("names which side won when status followed the remote record", () => {
+    expect(
+      formatPullSummary({
+        added: 0,
+        merged: 39,
+        unchanged: 1797,
+        conflicts: 42,
+        filesWritten: 0,
+        filesIdentical: 781,
+        filesKept: 0,
+        statusAdopted: 39,
+        filesSkipped: 0,
+        missingBytes: 0,
+      }),
+    ).toBe(
+      "0 added, 39 merged, 1797 unchanged, 42 conflict(s) (39 status followed remote, remainder kept local); files: 0 file(s) written, 781 identical, 0 kept, 0 skipped",
     );
   });
 });

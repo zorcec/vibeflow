@@ -8,15 +8,20 @@
  * a reader that knows one knows the other.
  *
  *   vibeflow pull [dir] [--board <id>] [--out <dir>] [--prefer-remote]
- *                  [--dry-run] [--json]
+ *                  [--prefer-local] [--dry-run] [--json]
  *
  * - `[dir]` (default `.`) is the project whose `.vibeflow/` store is read;
  *   `--out <dir>` writes into a DIFFERENT project root instead (default:
  *   the same `[dir]` — the local store `push` consumes). Either way the
  *   archive lands in `<target>/.vibeflow/`, never beside it.
- * - The merge is ADDITIVE and LOCAL-WINS by default; `--prefer-remote`
- *   flips conflicting fields to the remote value. Nothing is ever deleted:
- *   `pull` cannot destroy a local task, file, or local-only field.
+ * - The merge is ADDITIVE and LOCAL-WINS by default, with one exception:
+ *   `status` follows the remote record — the board is the source of truth
+ *   for workflow state, so a status set online lands locally on the next
+ *   pull. `--prefer-remote` flips every conflicting field to the remote
+ *   value; `--prefer-local` restores local-wins for `status` (an offline
+ *   status edit survives the next pull, but the store stops following the
+ *   board for it). Nothing is ever deleted: `pull` cannot destroy a local
+ *   task, file, or local-only field.
  * - `--dry-run` fetches + verifies the archive and reports the plan, but
  *   writes nothing — the store stays byte-identical.
  */
@@ -48,6 +53,8 @@ export interface PullOptions {
   board?: string;
   out?: string;
   preferRemote?: boolean;
+  /** Restore local-wins for `status` (default: status follows remote). */
+  preferLocal?: boolean;
   dryRun?: boolean;
   json?: boolean;
   /**
@@ -67,6 +74,8 @@ export interface PullResult {
   filesWritten: number;
   filesIdentical: number;
   filesKept: number;
+  /** Tasks whose `status` followed the remote record this pull. */
+  statusAdopted: number;
   /** Staged files the merged record disowned (linked/stale) — never written. */
   filesSkipped: number;
   missingBytes: number;
@@ -95,7 +104,15 @@ export function formatPullSummary(summary: PullMergeSummary): string {
     `${summary.merged} merged`,
     `${summary.unchanged} unchanged`,
   ];
-  if (summary.conflicts > 0) parts.push(`${summary.conflicts} conflict(s) kept local`);
+  if (summary.conflicts > 0) {
+    // A status the pull adopted from the board is a decided divergence, not
+    // a kept-local value — name which side won so the line stays honest.
+    if (summary.statusAdopted > 0)
+      parts.push(
+        `${summary.conflicts} conflict(s) (${summary.statusAdopted} status followed remote, remainder kept local)`,
+      );
+    else parts.push(`${summary.conflicts} conflict(s) kept local`);
+  }
   const files = [
     `${summary.filesWritten} file(s) written`,
     `${summary.filesIdentical} identical`,
@@ -152,6 +169,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      statusAdopted: 0,
       filesSkipped: 0,
       missingBytes: 0,
       board: "(no board selected)",
@@ -207,6 +225,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      statusAdopted: 0,
       filesSkipped: 0,
       missingBytes: 0,
       board: boardLabel,
@@ -278,6 +297,7 @@ export async function pull(
       filesWritten: 0,
       filesIdentical: 0,
       filesKept: 0,
+      statusAdopted: 0,
       filesSkipped: 0,
       missingBytes: 0,
       board: boardLabel,
@@ -289,6 +309,7 @@ export async function pull(
   try {
     ({ summary } = await runPullFromBytes(targetDir, fetched.bytes, {
       preferRemote: opts.preferRemote === true,
+      preferLocal: opts.preferLocal === true,
       dryRun,
     }));
   } catch (err) {
@@ -335,6 +356,7 @@ export async function pull(
           filesWritten: summary.filesWritten,
           filesIdentical: summary.filesIdentical,
           filesKept: summary.filesKept,
+          statusAdopted: summary.statusAdopted,
           filesSkipped: summary.filesSkipped,
           missingBytes: summary.missingBytes,
           board: boardLabel,
@@ -373,6 +395,7 @@ export async function pull(
     filesWritten: summary.filesWritten,
     filesIdentical: summary.filesIdentical,
     filesKept: summary.filesKept,
+    statusAdopted: summary.statusAdopted,
     filesSkipped: summary.filesSkipped,
     missingBytes: summary.missingBytes,
     board: boardLabel,

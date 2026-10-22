@@ -1393,8 +1393,9 @@ export type PushTasksInputType = z.infer<typeof PushTasksInput>;
 /**
  * Pull the online board into the local task store (the MCP spelling of
  * `vibeflow pull`). Additive and never destructive: the merge adds missing
- * tasks, merges conflicting fields (local wins unless `preferRemote`), and
- * deletes nothing. `out` redirects the write target to another project
+ * tasks, merges conflicting fields (local wins unless `preferRemote`,
+ * except `status`, which follows the remote record unless `preferLocal`),
+ * and deletes nothing. `out` redirects the write target to another project
  * root; omit it to pull into the server's own project.
  */
 export async function pullFromBoard(
@@ -1413,6 +1414,7 @@ export async function pullFromBoard(
         board: input.board ?? null,
         out: input.out ?? null,
         preferRemote: input.preferRemote === true,
+        preferLocal: input.preferLocal === true,
       },
       steps: [{ code: "DRY_RUN", message: "Pull would run" }],
     };
@@ -1425,6 +1427,7 @@ export async function pullFromBoard(
       board: input.board,
       out: input.out,
       preferRemote: input.preferRemote,
+      preferLocal: input.preferLocal,
       dryRun: false,
       json: true,
       silent: true,

@@ -185,6 +185,83 @@ describe("mergePullRecord — additive, local-wins", () => {
   });
 });
 
+describe("mergePullRecord — status follows the remote record", () => {
+  it("adopts the remote status by default, even when the local updated stamp is newer", () => {
+    // Ticket d681603c: the lane set done online at 15:05; the local file was
+    // rewritten later (16:31). Record timestamps are not consulted — the
+    // board decides workflow state.
+    const local = { id: "a", status: "todo", updated: "2026-10-22T16:31:40.021Z" };
+    const remote = { id: "a", status: "done", updated: "2026-10-22T15:05:42.686Z" };
+    const { merged, changed, conflict, statusAdopted } = mergePullRecord(
+      local,
+      remote,
+      false,
+    );
+    expect(merged.status).toBe("done");
+    expect(changed).toBe(true);
+    expect(conflict).toBe(true);
+    expect(statusAdopted).toBe(true);
+  });
+
+  it("--prefer-local keeps the local status like any other conflicting field", () => {
+    const local = { id: "a", status: "todo" };
+    const remote = { id: "a", status: "done" };
+    const { merged, changed, conflict, statusAdopted } = mergePullRecord(
+      local,
+      remote,
+      false,
+      true,
+    );
+    expect(merged.status).toBe("todo");
+    expect(changed).toBe(false);
+    expect(conflict).toBe(true);
+    expect(statusAdopted).toBe(false);
+  });
+
+  it("--prefer-remote still takes the remote status", () => {
+    const { merged, changed, statusAdopted } = mergePullRecord(
+      { id: "a", status: "todo" },
+      { id: "a", status: "done" },
+      true,
+    );
+    expect(merged.status).toBe("done");
+    expect(changed).toBe(true);
+    expect(statusAdopted).toBe(true);
+  });
+
+  it("--prefer-remote beats --prefer-local for status", () => {
+    const { merged } = mergePullRecord(
+      { id: "a", status: "todo" },
+      { id: "a", status: "done" },
+      true,
+      true,
+    );
+    expect(merged.status).toBe("done");
+  });
+
+  it("an agreed status is a no-op and counts no adoption", () => {
+    const { changed, conflict, statusAdopted } = mergePullRecord(
+      { id: "a", status: "todo" },
+      { id: "a", status: "todo" },
+      false,
+    );
+    expect(changed).toBe(false);
+    expect(conflict).toBe(false);
+    expect(statusAdopted).toBe(false);
+  });
+
+  it("a missing local status is added, not adopted", () => {
+    const { merged, changed, statusAdopted } = mergePullRecord(
+      { id: "a" },
+      { id: "a", status: "todo" },
+      false,
+    );
+    expect(merged.status).toBe("todo");
+    expect(changed).toBe(true);
+    expect(statusAdopted).toBe(false);
+  });
+});
+
 describe("mergePullComments — by id", () => {
   const c1 = { id: "c1", author: "user", text: "local", createdAt: "2026-01-01" };
   it("appends remote-only comments", () => {
@@ -304,6 +381,30 @@ describe("applyPullEntries — the store merge", () => {
     expect(stored.reportBack).toBe(true);
     // Local wins: the title conflict kept the local value.
     expect(stored.title).toBe("Local title");
+  });
+
+  it("adopts a remote status into the stored record and counts it", () => {
+    writeTask("t1", taskRecord("t1", { status: "todo" }));
+    const summary = applyPullEntries(
+      projectDir,
+      stagingFor([{ clientId: "t1", record: taskRecord("t1", { status: "review" }) }]),
+      {},
+    );
+    expect(summary.merged).toBe(1);
+    expect(summary.statusAdopted).toBe(1);
+    expect(readStoredTask("t1").status).toBe("review");
+  });
+
+  it("--prefer-local keeps the stored status", () => {
+    writeTask("t1", taskRecord("t1", { status: "todo" }));
+    const summary = applyPullEntries(
+      projectDir,
+      stagingFor([{ clientId: "t1", record: taskRecord("t1", { status: "review" }) }]),
+      { preferLocal: true },
+    );
+    expect(summary.unchanged).toBe(1);
+    expect(summary.statusAdopted).toBe(0);
+    expect(readStoredTask("t1").status).toBe("todo");
   });
 
   it("an unchanged task is byte-identical after the pull (a re-pull is a no-op)", () => {

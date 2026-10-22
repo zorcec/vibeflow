@@ -498,10 +498,10 @@ export const manifest: ToolManifest[] = [
     name: "pull",
     title: "Pull board",
     description:
-      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default; pass preferRemote to let the remote value win instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
+      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default, except `status`, which follows the remote record (the board is truth for workflow state) unless preferLocal restores local-wins for it; pass preferRemote to let the remote value win on every conflicting field instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
     cliRef: {
       command: "pull",
-      flags: ["--board", "--out", "--prefer-remote", "--dry-run"],
+      flags: ["--board", "--out", "--prefer-remote", "--prefer-local", "--dry-run"],
     },
     category: "task-write",
     annotations: {

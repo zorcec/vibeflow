@@ -6945,7 +6945,11 @@ program
   )
   .option(
     "--prefer-remote",
-    "On a conflicting field the REMOTE value wins (default: LOCAL wins, nothing is ever deleted)",
+    "On a conflicting field the REMOTE value wins (default: LOCAL wins, nothing is ever deleted; `status` always follows the remote record unless --prefer-local is passed)",
+  )
+  .option(
+    "--prefer-local",
+    "Restore local-wins for `status` (default: status follows the remote record — an offline status edit survives the next pull, but the store stops following the board for it)",
   )
   .option(
     "--dry-run",
@@ -6958,7 +6962,7 @@ program
   .action(
     async (
       dir: string,
-      opts: { board?: string; out?: string; preferRemote?: boolean; dryRun?: boolean; json?: boolean },
+      opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "pull" });
       await pull(dir, opts);
