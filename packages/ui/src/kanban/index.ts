@@ -97,7 +97,7 @@ export type {
 } from "./imageCodecs";
 
 // Kanban components
-export { KanbanBoard, COLUMNS } from "./components/KanbanBoard";
+export { KanbanBoard, COLUMNS, doneCountChipText } from "./components/KanbanBoard";
 export { KanbanListView } from "./components/KanbanListView";
 export { Header as KanbanHeader } from "./components/Header";
 export { DetailPanel } from "./components/DetailPanel";

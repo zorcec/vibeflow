@@ -113,6 +113,19 @@ export function boardColumnWidth(
   ) / perRow;
 }
 
+/**
+ * Done count-chip text (ticket mqd8syq9): `showing X of N`. X is the done
+ * tasks actually held (it grows as more pages load); N is the server-known
+ * total from the single `doneTotal` count source. `shown` clamps to `total`
+ * so a transient overshoot (optimistic pins, realtime overlay) never reads
+ * `showing 53 of 52`. One formatter so the board, hosts, and tests share
+ * the exact wording.
+ */
+export function doneCountChipText(shown: number, total: number): string {
+  const safeShown = Math.max(0, Math.min(shown, total));
+  return `showing ${safeShown} of ${total}`;
+}
+
 /** Space the fit count must keep free below the last card: the chip, its
  * flex gap, and the scroll container's bottom padding. */
 export const DONE_FIT_CHIP_RESERVE =
@@ -344,6 +357,20 @@ interface Props {
    */
   columnFooter?: (status: TaskStatus) => React.ReactNode;
   /**
+   * Server-known total for the DONE column (ticket mqd8syq9, UI half).
+   * The host fetches it ONCE — it already arrives on the done list response,
+   * so the host reuses that number — and passes it here. The Done header
+   * (`Done - N`) and the bottom count chip (`showing X of N`) BOTH read this
+   * one prop, so the two numbers can never come from two queries. X (shown)
+   * is the done tasks actually held in `tasks` and grows as more pages load;
+   * N does not change for the same response. Null/undefined (e.g. surfaces
+   * that hold every task locally) keeps the legacy header (`Done · N`) and
+   * no chip — byte-identical to before. Hosts that pass this should stop
+   * injecting a done footer via `columnFooter` — the built-in chip below
+   * replaces it (it renders after any injected footer, at the very bottom).
+   */
+  doneTotal?: number | null;
+  /**
    * Width, in px, reserved on the board's right edge while the detail panel is
    * open. The panel is an absolutely positioned overlay, so on a viewport
    * narrower than board + panel it covers whatever column sits under it —
@@ -371,6 +398,7 @@ export function KanbanBoard({
   currentUserId,
   onToggleExpanded,
   columnFooter,
+  doneTotal,
   rightInset,
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
@@ -996,6 +1024,7 @@ export function KanbanBoard({
               currentUserId={currentUserId}
               onToggleExpanded={onToggleExpanded}
               footer={columnFooter?.(col.id) ?? null}
+              doneTotal={doneTotal}
             />
           );
         })}
@@ -1088,6 +1117,15 @@ interface ColumnProps {
   /** Optional footer rendered LAST inside `.column-scroll` (after the last
       card / overflow chip). Null/undefined renders nothing. */
   footer?: React.ReactNode;
+  /**
+   * Server-known Done total (ticket mqd8syq9, UI half) — forwarded from the
+   * board's `doneTotal` prop. When a finite number, the Done header reads
+   * `Done - N` (replacing the `Done · shown` count and the separate nested
+   * hint for this column) and the dotted count chip (`showing X of N`) is
+   * rendered after `footer`, at the very bottom of the scroll area. Both
+   * read this ONE prop — never a second query. Absent keeps legacy output.
+   */
+  doneTotal?: number | null;
 }
 
 function KanbanColumn({
@@ -1118,7 +1156,18 @@ function KanbanColumn({
   currentUserId,
   onToggleExpanded,
   footer,
+  doneTotal,
 }: ColumnProps) {
+  // Ticket mqd8syq9 (UI half): the single count source for the Done column.
+  // Header (`Done - N`) and footer chip (`showing X of N`) both derive from
+  // this one number — the host fetches it once (it arrives on the done list
+  // response) and shares it. X is the done tasks actually held and grows as
+  // more pages load; N never changes for the same response.
+  const doneTotalKnown =
+    col.id === "done" &&
+    typeof doneTotal === "number" &&
+    Number.isFinite(doneTotal) &&
+    doneTotal >= 0;
   const [addHovered, setAddHovered] = React.useState(false);
   // B3: fit-screen — stable declarative overflow handling. The scroll
   // container height is observed; cards are never mutated imperatively.
@@ -1225,7 +1274,9 @@ function KanbanColumn({
         <div className={`status-dot ${dotClass}`} />
         <span
           data-role="column-count"
-          data-nested-count={nestedCount > 0 ? nestedCount : undefined}
+          data-nested-count={
+            !doneTotalKnown && nestedCount > 0 ? nestedCount : undefined
+          }
           /* Hover title keeps the numbers reconcilable (owner lane
              f2bef66a): the VISIBLE number is the root-card count only;
              the title states the full breakdown (total = cards + the
@@ -1234,7 +1285,7 @@ function KanbanColumn({
              beside it is the discoverable visible affordance — the title
              alone would be invisible. */
           title={
-            !isLoading && nestedCount > 0
+            !doneTotalKnown && !isLoading && nestedCount > 0
               ? `${tasks.length + nestedCount} tasks in ${col.label}: ${tasks.length} shown as cards, ${nestedCount} nested inside parent cards in this column`
               : undefined
           }
@@ -1244,10 +1295,11 @@ function KanbanColumn({
             color: col.id === "done" ? `${col.color}b3` : col.color,
           }}
         >
-          {col.label}
-          {isLoading ? "" : ` · ${tasks.length}`}
+          {doneTotalKnown
+            ? `${col.label} - ${doneTotal}`
+            : (<>{col.label}{isLoading ? "" : ` · ${tasks.length}`}</>)}
         </span>
-        {!isLoading && nestedCount > 0 ? (
+        {!doneTotalKnown && !isLoading && nestedCount > 0 ? (
           <span
             data-role="nested-hint"
             data-nested-count={nestedCount}
@@ -1456,6 +1508,28 @@ function KanbanColumn({
             inside the scroll area, after the last card / overflow chip —
             never above the board. Null renders nothing. */}
         {footer ?? null}
+        {/* Ticket mqd8syq9: Done count chip — the dotted line at the very
+            bottom of the Done column. Renders only while the single count
+            source (`doneTotal`) is known and the column is not loading
+            (the shown count is meaningless during skeletons). */}
+        {doneTotalKnown && !isLoading ? (
+          <span
+            data-testid="done-count-chip"
+            aria-live="polite"
+            style={{
+              fontSize: 11,
+              color: "var(--t-text-faint)",
+              textAlign: "center",
+              padding: "6px 10px",
+              border: "1px dotted var(--t-border-faint)",
+              borderRadius: 10,
+              background: "transparent",
+              display: "block",
+            }}
+          >
+            {doneCountChipText(tasks.length, doneTotal as number)}
+          </span>
+        ) : null}
       </div>
     </section>
   );
