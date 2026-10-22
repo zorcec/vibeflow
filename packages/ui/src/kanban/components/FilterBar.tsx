@@ -54,6 +54,11 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
   const [focusTag, setFocusTag] = React.useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = React.useState<{ tag: string; count: number } | null>(null);
   const [removing, setRemoving] = React.useState(false);
+  // Synchronous in-flight guard: React state lands on the next render, so
+  // two confirms inside the same tick (double click, Enter + click) would
+  // both read `removing === false` and fire twice. The ref flips in the
+  // same task, making a second invocation impossible by construction.
+  const removingRef = React.useRef(false);
   const [removeError, setRemoveError] = React.useState<string | undefined>(undefined);
   // Focus return targets: the Remove button that opened the confirmation.
   const removeBtnRefs = React.useRef(new Map<string, HTMLButtonElement>());
@@ -69,6 +74,12 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
   }
 
   function closeRemoveConfirm() {
+    // Ignore close/cancel requests while a removal is pending: Escape or a
+    // Cancel reaching here mid-flight would clear `removing` while the
+    // promise is still out, letting a reopened confirm fire a second call.
+    // The dialog stays open (still showing its spinner) until the first
+    // call settles; the ref below is the synchronous source of truth.
+    if (removingRef.current) return;
     const tag = pendingRemove?.tag;
     setPendingRemove(null);
     setRemoving(false);
@@ -78,14 +89,17 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
   }
 
   async function confirmRemoveTag() {
-    if (!pendingRemove || !onRemoveTagFromAll || removing) return;
+    if (!pendingRemove || !onRemoveTagFromAll || removingRef.current) return;
     const { tag } = pendingRemove;
+    removingRef.current = true;
     setRemoving(true);
     setRemoveError(undefined);
     try {
       await onRemoveTagFromAll(tag);
+      removingRef.current = false;
       closeRemoveConfirm();
     } catch (e) {
+      removingRef.current = false;
       setRemoving(false);
       setRemoveError(e instanceof Error ? e.message : 'Could not remove the tag.');
     }

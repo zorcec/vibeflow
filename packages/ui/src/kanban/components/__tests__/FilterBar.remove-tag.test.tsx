@@ -135,6 +135,56 @@ describe("FilterBar per-tag Remove (db2fce26)", () => {
     ).toBeInTheDocument();
   });
 
+  it("Enter with Cancel focused does NOT confirm; Enter on the confirm button does", async () => {
+    const onRemove = vi.fn(async (_tag: string) => 1);
+    renderBar({ onRemoveTagFromAll: onRemove });
+    openTags();
+    fireEvent.click(removeButton("frontend"));
+    expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
+    // Focus Cancel and press Enter — the old window-global handler called
+    // onConfirm for ANY Enter, turning Cancel into Delete.
+    screen.getByRole("button", { name: "Cancel" }).focus();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
+    // Same key with the confirm button focused really confirms — once.
+    screen.getByRole("button", { name: "Remove" }).focus();
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.queryByText(/This cannot be undone/)).toBeNull(),
+    );
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape while removal is pending is ignored — no second in-flight call", async () => {
+    let resolveRemoval!: (n: number) => void;
+    const onRemove = vi.fn(
+      (_tag: string) =>
+        new Promise<number>((resolve) => {
+          resolveRemoval = resolve;
+        }),
+    );
+    renderBar({ onRemoveTagFromAll: onRemove });
+    openTags();
+    fireEvent.click(removeButton("frontend"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    // While the first call is still in flight, Escape must NOT close the
+    // dialog: closing would clear the pending flag and let a reopened
+    // confirm fire a second call alongside the first.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
+    // Nor may a second confirm fire while the first is pending (the button
+    // shows its spinner as "Deleting…" mid-flight, so query it by id).
+    fireEvent.click(document.querySelector("#confirm-modal-confirm")!);
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    resolveRemoval(2);
+    await waitFor(() =>
+      expect(screen.queryByText(/This cannot be undone/)).toBeNull(),
+    );
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
   it("Escape aborts the confirmation and focus returns to the tag", async () => {
     const onRemove = vi.fn(async () => 0);
     renderBar({ onRemoveTagFromAll: onRemove });

@@ -16,7 +16,14 @@ interface Props {
 
 export function ConfirmModal({ open, message, title = 'Confirm', confirmLabel = 'Delete', cancelLabel = 'Cancel', loading, error, onConfirm, onCancel }: Props) {
   const handleKeyDown = React.useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Enter') onConfirm();
+    if (e.key !== 'Enter') return;
+    // Focus-Cancel + Enter must NOT confirm: a window-global Enter turns
+    // the focused Cancel button into Delete. Confirm only when the confirm
+    // button itself is focused, or when focus sits outside buttons entirely
+    // (body/modal text) — never from Cancel or any other button.
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active.tagName === 'BUTTON' && active.id !== 'confirm-modal-confirm') return;
+    onConfirm();
   }, [onConfirm]);
 
   return (
