@@ -13,6 +13,15 @@ fi
 gitleaks protect --staged --source .
 echo "✓ Secret scan passed."
 
+# ── Task store integrity (ticket 8538344b) ───────────────────────────────────
+# A synced .vibeflow must never be committed with unparseable JSON: conflict
+# markers or truncated files quarantine silently and tasks vanish from every
+# listing. Fast (~200ms for ~2000 files), dependency-free, exits 0 when no
+# store exists — so checkouts without a synced store are unaffected.
+echo "Checking task store integrity..."
+pnpm check:store
+echo "✓ Store check passed."
+
 # ── Type check ─────────────────────────────────────────────────────────────────
 echo "Running type check..."
 pnpm run check

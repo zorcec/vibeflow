@@ -55,6 +55,7 @@
     "mutation": "node scripts/mutation.mjs",
     "mutation:ci": "node scripts/mutation.mjs --all",
     "lint": "tsc --noEmit",
+    "check:store": "node scripts/check-store.mjs",
     "prepublishOnly": "npm run build",
     "serve:designs": "node dist/cli/index.js serve ../../docs/ --port 3701"
   },

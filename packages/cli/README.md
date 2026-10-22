@@ -403,6 +403,19 @@ even though the task had been written. The local notice field is `notices` (an a
 **Task statuses:** backlog → todo → in-progress → review → done  
 **Priorities:** Critical · High · Medium · Low
 
+**Synced store safety:** the `.vibeflow` store is git-tracked and syncs across
+machines — never `git add -A` it with an unresolved merge. A task file that
+still contains conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`) is
+unparseable, so the CLI quarantines it and the task silently vanishes from
+every listing. The rule: resolve the merge, pull, verify, then add. The
+pre-commit hook runs `pnpm check:store` (every `.vibeflow/tasks` JSON file
+must parse and contain no conflict markers, failing with the offending
+paths), and `tasks --normalize` reports unparseable and quarantined records
+loudly instead of dropping them. A quarantined record is never silent
+either: `pull`, `list`, and `push` each emit one warning per run with the
+count and the first reason (on stderr and, under `--json`, in the envelope's
+`notices`) — a warning, not a failure, so the exit code stays 0.
+
 ### `vibeflow telemetry`
 
 ```bash

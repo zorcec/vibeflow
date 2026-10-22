@@ -28,6 +28,7 @@
     "scan:secrets:full": "gitleaks detect --source . --verbose",
     "check": "pnpm run lint:symbols && pnpm --filter @vibeflow-tools/cli run lint && pnpm run check:parity",
     "check:parity": "pnpm --filter @vibeflow-tools/cli run test tests/unit/mcp/drift.test.ts",
+    "check:store": "node packages/cli/scripts/check-store.mjs",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
     "vibeflow": "node packages/cli/scripts/dev-parallel.mjs",
     "prepare": "husky"
