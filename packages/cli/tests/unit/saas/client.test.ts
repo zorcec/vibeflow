@@ -1096,6 +1096,49 @@ describe("resolveSaasTaskId — online prefix resolution", () => {
   });
 });
 
+describe("resolveSaasTaskId — one id rule shared by every id-taking tasks flag", () => {
+  // Ticket 7a4c48a5: `--edit`, `--get`, `--delete`, `--attach --task`,
+  // `--commit --task`, `--parent`, `--set-parent`, `--relates`, `--blocks`,
+  // `--unrelates` and `--unblocks` all resolve through this function, so
+  // its contract is their contract. These tests ADD to the suite above;
+  // none of its assertions are changed.
+  const sharedBoard = [
+    { id: "swy7ox61xtgk19uzw7uezzym", title: "Alpha" },
+    { id: "swy7ox61xtgk19uzw7uezzym9q", title: "Alpha child" },
+    { id: "swy7ox610000000000000001", title: "Sibling" },
+  ];
+
+  it("distinguishes 'no task matches' from 'several match'", () => {
+    const missing = resolveSaasTaskId(sharedBoard, "ghost0000");
+    expect(missing).toEqual({
+      ok: false,
+      code: "TASK_NOT_FOUND",
+      message: "Task not found: ghost0000",
+    });
+    const crowded = resolveSaasTaskId(sharedBoard, "swy7ox61");
+    expect(crowded.ok).toBe(false);
+    if (!crowded.ok) {
+      expect(crowded.code).toBe("E_AMBIGUOUS");
+      // An ambiguous prefix must never read like a missing task.
+      expect(crowded.message).not.toMatch(/not found/i);
+      expect(crowded.message).toMatch(/Ambiguous task id prefix/);
+    }
+  });
+
+  it("keeps the resolver's minimum: only the empty string is refused, any non-empty unique prefix resolves", () => {
+    // No minimum length is introduced — a single character that names one
+    // task resolves (exact behaviour of the pre-existing resolver).
+    const divergentBoard = [
+      { id: "aaa00000000000000000000001", title: "Aye" },
+      { id: "bbb00000000000000000000001", title: "Bee" },
+    ];
+    expect(resolveSaasTaskId(divergentBoard, "a")).toEqual({
+      ok: true,
+      id: "aaa00000000000000000000001",
+    });
+  });
+});
+
 describe("deleteSaasTask", () => {
   function mockDelete(response: unknown, ok: boolean, status = 200) {
     vi.stubGlobal(

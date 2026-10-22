@@ -21,8 +21,6 @@ import {
   generateTaskId,
   ensureTaskDirs,
   findTaskFilePath,
-  findTaskByIdOrPrefix,
-  resolveTaskId,
   claimNextTaskAtomic,
   summariseChildren,
   getParentId,
@@ -31,7 +29,6 @@ import {
   getUnfinishedBlockers,
   writeSortKeyMinimal,
   isResearchType,
-  matchesIdOrPrefix,
   planTaskStoreNormalize,
   applyTaskStoreNormalize,
 } from "./core/tasks.js";
@@ -256,7 +253,16 @@ function editStatusTelemetryProps(
   setStatus: string | undefined,
 ): Record<string, string> {
   if (typeof edit !== "string") return {};
-  const task = findTaskByIdOrPrefix(projectDir, edit);
+  // ONE id rule: exact id wins, else a UNIQUE prefix — an ambiguous or
+  // unknown value resolves to nothing and the event is omitted, exactly
+  // like the --edit write path refuses it (never a silent first-match).
+  const allTasks = listTasks(projectDir);
+  const resolved = resolveSaasTaskId(
+    allTasks.map((t) => ({ id: t.id, title: t.title })),
+    edit,
+  );
+  if (!resolved.ok) return {};
+  const task = allTasks.find((t) => t.id === resolved.id);
   if (!task) return {};
   const toStatus =
     setStatus !== undefined &&
@@ -1146,7 +1152,7 @@ program
   )
   .option(
     "--commit-message <msg>",
-    "Commit message for auto-commit on review (required when auto-commit setting is ON)",
+    "Commit message for auto-commit on review (required when auto-commit setting is ON — checked first, before anything else runs)",
   )
   .option(
     "--get <task-id>",
@@ -2285,7 +2291,10 @@ program
           if (getTaskMode === "saas") {
             // One detail request — never a (hydrated) whole-board fetch.
             // A 404 falls back to an UNHYDRATED listing for prefix
-            // resolution only (--get accepts a unique prefix); the matched
+            // resolution only (--get accepts a unique prefix, resolved by
+            // the ONE resolver `resolveSaasTaskId`: exact id wins, a unique
+            // prefix resolves, an ambiguous prefix is E_AMBIGUOUS naming
+            // the candidates — never a silent first-match); the matched
             // full id is then read back as one detail request. Any online
             // failure is reported with its status/path — the run never
             // silently falls back to the local store.
@@ -2325,26 +2334,56 @@ program
                 reportSaasReadError(board.error);
                 return;
               }
-              const match = board.data.tasks.find((t) =>
-                matchesIdOrPrefix(t, opts.get!),
+              const prefixResolved = resolveSaasTaskId(
+                board.data.tasks,
+                opts.get!,
               );
-              if (match && match.id !== opts.get) {
-                const resolved = await fetchSaasTaskDetail(match.id);
-                if (!resolved.ok) {
-                  // A 404 here (deleted between the two reads) is still a
-                  // miss: leave saasTask unset and fall through to the
-                  // TASK_NOT_FOUND branch below.
-                  if (resolved.error.code !== "TASK_NOT_FOUND") {
-                    reportSaasReadError(resolved.error);
-                    return;
+              if (!prefixResolved.ok) {
+                if (prefixResolved.code === "E_AMBIGUOUS") {
+                  if (opts.json) {
+                    outputEnvelope({
+                      ok: false,
+                      code: prefixResolved.code,
+                      message: prefixResolved.message,
+                      suggestion:
+                        "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                      json: opts.json,
+                    });
+                  } else {
+                    console.log(chalk.red(`✗ ${prefixResolved.message}`));
+                    console.log(
+                      chalk.dim(
+                        "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                      ),
+                    );
                   }
-                } else {
-                  saasTask = resolved.data.task;
+                  process.exitCode = ExitCode.USAGE;
+                  return;
                 }
-              } else if (match) {
-                // Exact id answered 404 above but the listing carries it
-                // (read-after-write race): render the listed row as-is.
-                saasTask = match;
+                // TASK_NOT_FOUND: leave saasTask unset and fall through
+                // to the TASK_NOT_FOUND branch below.
+              } else {
+                const match = board.data.tasks.find(
+                  (t) => t.id === prefixResolved.id,
+                );
+                if (match && match.id !== opts.get) {
+                  const resolved = await fetchSaasTaskDetail(match.id);
+                  if (!resolved.ok) {
+                    // A 404 here (deleted between the two reads) is still a
+                    // miss: leave saasTask unset and fall through to the
+                    // TASK_NOT_FOUND branch below.
+                    if (resolved.error.code !== "TASK_NOT_FOUND") {
+                      reportSaasReadError(resolved.error);
+                      return;
+                    }
+                  } else {
+                    saasTask = resolved.data.task;
+                  }
+                } else if (match) {
+                  // Exact id answered 404 above but the listing carries it
+                  // (read-after-write race): render the listed row as-is.
+                  saasTask = match;
+                }
               }
             }
             if (!saasTask) {
@@ -2450,19 +2489,34 @@ program
           const projectDir = resolve(dir);
           const config = readConfig(projectDir);
           const allWithPaths = listTasksWithPaths(projectDir);
-          const task = allWithPaths.find((t) =>
-            matchesIdOrPrefix(t, opts.get!),
-          );
-          if (!task) {
-            outputEnvelope({ ok: false,
-              code: "TASK_NOT_FOUND",
-              message: `Task not found: ${opts.get}`,
-              suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-              json: opts.json,
-            });
-            process.exitCode = ExitCode.NOT_FOUND;
+          // ONE id rule (`resolveSaasTaskId`, shared with the online
+          // path and every other id-taking flag): exact id wins, a UNIQUE
+          // prefix resolves, an ambiguous prefix is E_AMBIGUOUS naming the
+          // candidates — never a silent first-match.
+          const getResolved = resolveSaasTaskId(allWithPaths, opts.get!);
+          if (!getResolved.ok) {
+            if (getResolved.code === "E_AMBIGUOUS") {
+              outputEnvelope({
+                ok: false,
+                code: getResolved.code,
+                message: getResolved.message,
+                suggestion:
+                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.USAGE;
+            } else {
+              outputEnvelope({ ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${opts.get}`,
+                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.NOT_FOUND;
+            }
             return;
           }
+          const task = allWithPaths.find((t) => t.id === getResolved.id)!;
           // Mark task as opened by current user
           const currentUser = getCurrentUserId();
           markTaskOpened(projectDir, task.id, currentUser);
@@ -3363,33 +3417,59 @@ program
             : "todo";
 
           // ── Parent link (--parent) ─────────────────────────────────────
-          // Resolve a full ID or prefix the same way --get/--set-parent do,
-          // then reject a dangling target with the wording the --set-parent
-          // path emits. A brand-new task has no id yet, so self-link,
-          // duplicate and cycle are structurally impossible (see report).
+          // ONE id rule (`resolveSaasTaskId`, shared with --get/--edit/--delete
+          // and the online --parent path): exact id wins, a UNIQUE prefix
+          // resolves, an ambiguous prefix is E_AMBIGUOUS naming the
+          // candidates — never a silent first-match. A brand-new task has
+          // no id yet, so self-link, duplicate and cycle are structurally
+          // impossible (see report).
           let parentId: string | undefined;
           if (typeof opts.parent === "string") {
             const rawParent = opts.parent;
-            const parentTasks = listTasks(projectDir);
-            parentId = resolveTaskId(projectDir, rawParent);
-            if (!parentTasks.some((t) => t.id === parentId)) {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: "TASK_NOT_FOUND",
-                  message: `Parent task not found: ${parentId}`,
-                  suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
+            const parentResolved = resolveSaasTaskId(
+              listTasks(projectDir).map((t) => ({ id: t.id, title: t.title })),
+              rawParent,
+            );
+            if (!parentResolved.ok) {
+              if (parentResolved.code === "E_AMBIGUOUS") {
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: parentResolved.code,
+                    message: parentResolved.message,
+                    suggestion:
+                      "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${parentResolved.message}`));
+                  console.log(
+                    chalk.dim(
+                      "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.USAGE;
               } else {
-                console.log(chalk.red(`✗ Parent task not found: ${parentId}`));
-                console.log(
-                  chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
-                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: "TASK_NOT_FOUND",
+                    message: `Parent task not found: ${rawParent}`,
+                    suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ Parent task not found: ${rawParent}`));
+                  console.log(
+                    chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
+                  );
+                }
+                process.exitCode = ExitCode.NOT_FOUND;
               }
-              process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
+            parentId = parentResolved.id;
           }
 
           if (opts.dryRun) {
@@ -3507,17 +3587,39 @@ program
             return;
           }
           const projectDir = resolve(dir);
-          const task = findTaskByIdOrPrefix(projectDir, opts.task!);
-          if (!task) {
-            outputEnvelope({ ok: false,
-              code: "TASK_NOT_FOUND",
-              message: `Task not found: ${opts.task}`,
-              suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-              json: opts.json,
-            });
-            process.exitCode = ExitCode.NOT_FOUND;
+          // ONE id rule (`resolveSaasTaskId`, shared with every other
+          // id-taking flag): exact id wins, a UNIQUE prefix resolves, an
+          // ambiguous prefix is E_AMBIGUOUS naming the candidates — never
+          // a silent first-match.
+          const commitResolved = resolveSaasTaskId(
+            listTasks(projectDir).map((t) => ({ id: t.id, title: t.title })),
+            opts.task!,
+          );
+          if (!commitResolved.ok) {
+            if (commitResolved.code === "E_AMBIGUOUS") {
+              outputEnvelope({
+                ok: false,
+                code: commitResolved.code,
+                message: commitResolved.message,
+                suggestion:
+                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.USAGE;
+            } else {
+              outputEnvelope({ ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${opts.task}`,
+                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.NOT_FOUND;
+            }
             return;
           }
+          const task = listTasks(projectDir).find(
+            (t) => t.id === commitResolved.id,
+          )!;
           const baseMsg = opts.message?.trim() || task.title;
           if (opts.dryRun) {
             const commitMsg = `${baseMsg} ${formatCommitTag(task.id)}`;
@@ -3979,22 +4081,44 @@ program
           }
 
           // ── Local attach path ──────────────────────────────────────
+          // ONE id rule (`resolveSaasTaskId`, shared with the online
+          // attach path and every other id-taking flag): exact id wins, a
+          // UNIQUE prefix resolves, an ambiguous prefix is E_AMBIGUOUS
+          // naming the candidates — never a silent first-match.
           const attachProjectDir = resolve(dir);
-          const attachTask = findTaskByIdOrPrefix(
-            attachProjectDir,
+          const attachLocalResolved = resolveSaasTaskId(
+            listTasks(attachProjectDir).map((t) => ({
+              id: t.id,
+              title: t.title,
+            })),
             attachRawTask,
           );
-          if (!attachTask) {
-            outputEnvelope({
-              ok: false,
-              code: "TASK_NOT_FOUND",
-              message: `Task not found: ${attachRawTask}`,
-              suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-              json: opts.json,
-            });
-            process.exitCode = ExitCode.NOT_FOUND;
+          if (!attachLocalResolved.ok) {
+            if (attachLocalResolved.code === "E_AMBIGUOUS") {
+              outputEnvelope({
+                ok: false,
+                code: attachLocalResolved.code,
+                message: attachLocalResolved.message,
+                suggestion:
+                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.USAGE;
+            } else {
+              outputEnvelope({
+                ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${attachRawTask}`,
+                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.NOT_FOUND;
+            }
             return;
           }
+          const attachTask = listTasks(attachProjectDir).find(
+            (t) => t.id === attachLocalResolved.id,
+          )!;
           // Same (task, name) refusal as the online path: saveFile would
           // overwrite in place, but the command promises the pair is never
           // uploaded twice — so the duplicate never reaches the store.
@@ -4199,6 +4323,164 @@ program
             return;
           }
 
+          // ── Fail fast: --commit-message on review (before ANY work) ──
+          // The review gate also enforces this, but the gate runs after a
+          // long chain of validation output — so a run missing only the
+          // commit message looked like it did work before refusing. Check
+          // it here, first, so the refusal is the only output. (Also
+          // stated on the --commit-message flag itself.)
+          if (opts.setStatus === "review") {
+            const failFastSettings = loadSettings(resolve(dir));
+            if (
+              failFastSettings.autoCommit &&
+              !opts.commitMessage?.trim()
+            ) {
+              const failFastMessage =
+                "--commit-message is required (auto-commit setting is ON)";
+              const failFastSuggestion =
+                'Stage your changes first, then give a one-line commit summary — vibeflow tasks --edit <id> --set-status review --commit-message "fix: description" --comment "what changed and why"';
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "COMMIT_MESSAGE_REQUIRED",
+                  message: failFastMessage,
+                  suggestion: failFastSuggestion,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${failFastMessage}`));
+                console.log(chalk.dim(`  ${failFastSuggestion}`));
+              }
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+          }
+
+          // ── Resolve the --edit target ONCE, through the ONE resolver ──
+          // Every id-taking flag routes through `resolveSaasTaskId` (exact
+          // id wins, else a UNIQUE prefix; an ambiguous prefix is
+          // E_AMBIGUOUS naming the candidates; only then TASK_NOT_FOUND;
+          // an empty id is refused, never a prefix of everything). The
+          // resolved FULL id feeds every step below (probes, gate, write,
+          // auto-commit), so a prefix can never resolve one way for the
+          // gate and another for the write. In online mode the target is
+          // resolved against the online board (a listing read, never a
+          // guess); the same listing is reused for link-target resolution
+          // below instead of being fetched twice.
+          const editMode = await getMode();
+          let editTargetId: string;
+          let editLinkBoard: SaasTask[] | undefined;
+          if (editMode === "saas") {
+            const editWorkspace = await readWorkspace();
+            const editBoard = await fetchSaasTasks(editWorkspace?.id, {
+              hydrate: false,
+            });
+            if (!editBoard.ok) {
+              const editReadMessage = saasReadErrorMessage(editBoard.error);
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(editBoard.error),
+                  message: `Unable to resolve task ${taskId} in the online board (${editReadMessage}).`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Unable to resolve task ${taskId} in the online board (${editReadMessage}).`,
+                  ),
+                );
+              }
+              process.exitCode = ExitCode.GENERAL;
+              return;
+            }
+            const editResolved = resolveSaasTaskId(
+              editBoard.data.tasks,
+              taskId,
+            );
+            if (!editResolved.ok) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: editResolved.code,
+                  message:
+                    editResolved.code === "TASK_NOT_FOUND"
+                      ? `Task not found: ${taskId}`
+                      : editResolved.message,
+                  suggestion:
+                    editResolved.code === "TASK_NOT_FOUND"
+                      ? "Run 'vibeflow tasks' to see available task IDs."
+                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ ${editResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${taskId}` : editResolved.message}`,
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    editResolved.code === "TASK_NOT_FOUND"
+                      ? "  Run 'vibeflow tasks' to see available task IDs."
+                      : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  ),
+                );
+              }
+              process.exitCode =
+                editResolved.code === "TASK_NOT_FOUND"
+                  ? ExitCode.NOT_FOUND
+                  : ExitCode.USAGE;
+              return;
+            }
+            editTargetId = editResolved.id;
+            editLinkBoard = editBoard.data.tasks;
+          } else {
+            const editLocalResolved = resolveSaasTaskId(
+              listTasks(resolve(dir)).map((t) => ({
+                id: t.id,
+                title: t.title,
+              })),
+              taskId,
+            );
+            if (!editLocalResolved.ok) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: editLocalResolved.code,
+                  message:
+                    editLocalResolved.code === "TASK_NOT_FOUND"
+                      ? `Task not found: ${taskId}`
+                      : editLocalResolved.message,
+                  suggestion:
+                    editLocalResolved.code === "TASK_NOT_FOUND"
+                      ? "Run 'vibeflow tasks' to see available task IDs."
+                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ ${editLocalResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${taskId}` : editLocalResolved.message}`,
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    editLocalResolved.code === "TASK_NOT_FOUND"
+                      ? "  Run 'vibeflow tasks' to see available task IDs."
+                      : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  ),
+                );
+              }
+              process.exitCode =
+                editLocalResolved.code === "TASK_NOT_FOUND"
+                  ? ExitCode.NOT_FOUND
+                  : ExitCode.USAGE;
+              return;
+            }
+            editTargetId = editLocalResolved.id;
+          }
+
           // ── --report-file preconditions (validated before any mutation) ──
           // The flag only means something when a Research task moves to review.
           // Fail loudly instead of silently ignoring an impossible upload.
@@ -4226,7 +4508,12 @@ program
               process.exitCode = ExitCode.USAGE;
               return;
             }
-            const reportTask = findTaskByIdOrPrefix(resolve(dir), taskId);
+            // The target was already resolved to its full id above (ONE
+            // resolver, either store), so the probe is an exact lookup —
+            // never a second, possibly divergent prefix guess.
+            const reportTask = listTasks(resolve(dir)).find(
+              (t) => t.id === editTargetId,
+            );
             if (!reportTask) {
               if (opts.json) {
                 outputEnvelope({
@@ -4383,7 +4670,11 @@ program
           // way the review gate does (RESEARCH_VERIFY_NOT_ALLOWED). This covers
           // both the real write and the --dry-run preview path.
           if (attestation.verdict) {
-            const probeTask = findTaskByIdOrPrefix(resolve(dir), taskId);
+            // Exact lookup on the already-resolved id (see the --report-file
+            // probe above) — never a second prefix guess.
+            const probeTask = listTasks(resolve(dir)).find(
+              (t) => t.id === editTargetId,
+            );
             if (probeTask && isResearchType(probeTask.type)) {
               // The code mirrors what the review gate returns for the same rule,
               // so --json consumers see one code whichever path refuses first —
@@ -4410,7 +4701,7 @@ program
           }
 
           // ── Settings-based enforcement on review ─────────────────────────
-          const editMode = await getMode();
+          // (editMode was resolved once, above, next to the target id.)
           const projectDir = resolve(dir);
           const settings = loadSettings(projectDir);
           // ── Research report validation (read-only — runs BEFORE the gate)
@@ -4464,14 +4755,12 @@ program
             const { checkReviewTransition } = await import(
               "./core/review-gate.js"
             );
-            // Resolve a partial ID prefix BEFORE the gate: the gate reads the
-            // task file to decide whether it is annotated, so a short prefix
-            // (matching how --get/--edit resolve) would otherwise bypass the
-            // verdict check entirely.
-            const gateTaskId = resolveTaskId(projectDir, taskId);
+            // The gate reads the task file by id, so it takes the FULL id
+            // resolved once above — a prefix reaching it unresolved would
+            // bypass the verdict check entirely.
             const gate = checkReviewTransition(
               projectDir,
-              gateTaskId,
+              editTargetId,
               {
                 comment: opts.comment,
                 commitMessage: opts.commitMessage,
@@ -4544,9 +4833,10 @@ program
           // `links` replaces the whole set, so every link-flag change
           // (--set-parent/--no-parent/--relates/--blocks/--unrelates/
           // --unblocks) is computed here from the task just read and sent
-          // as one `links` array. Every id-taking flag is resolved against
-          // the online board BEFORE the PATCH — exact id wins, a unique
-          // prefix resolves, anything else is refused here — so a
+          // as one `links` array. The edited target was already resolved to
+          // its full id above, and every id-taking link flag is resolved
+          // against the online board BEFORE the PATCH — exact id wins, a
+          // unique prefix resolves, anything else is refused here — so a
           // user-supplied prefix is never passed through unresolved. A
           // dangling target is the CLI's own TASK_NOT_FOUND refusal (the
           // same code the local path answers), not the server's
@@ -4563,7 +4853,9 @@ program
             // One detail request for the edited task's current links —
             // never a (hydrated) whole-board fetch. The failure names its
             // status/path; a 404 is the existing TASK_NOT_FOUND below.
-            const boardTasks = await fetchSaasTaskDetail(taskId as string);
+            // The id is the FULL id resolved once above, never the raw
+            // user input.
+            const boardTasks = await fetchSaasTaskDetail(editTargetId);
             if (!boardTasks.ok) {
               if (boardTasks.error.code !== "TASK_NOT_FOUND") {
                 const parentReadMessage = saasReadErrorMessage(
@@ -4573,13 +4865,13 @@ program
                   outputEnvelope({
                     ok: false,
                     ...saasFailure(boardTasks.error),
-                    message: `Unable to read task ${taskId} from the online board — the link change needs its current links (${parentReadMessage}).`,
+                    message: `Unable to read task ${editTargetId} from the online board — the link change needs its current links (${parentReadMessage}).`,
                     json: opts.json,
                   });
                 } else {
                   console.log(
                     chalk.red(
-                      `✗ Unable to read task ${taskId} from the online board — the link change needs its current links (${parentReadMessage}).`,
+                      `✗ Unable to read task ${editTargetId} from the online board — the link change needs its current links (${parentReadMessage}).`,
                     ),
                   );
                 }
@@ -4595,72 +4887,26 @@ program
                 outputEnvelope({
                   ok: false,
                   code: "TASK_NOT_FOUND",
-                  message: `Task not found: ${taskId}`,
+                  message: `Task not found: ${editTargetId}`,
                   suggestion:
                     "Run 'vibeflow tasks' to see available task IDs.",
                   json: opts.json,
                 });
               } else {
-                console.log(chalk.red(`✗ Task not found: ${taskId}`));
+                console.log(chalk.red(`✗ Task not found: ${editTargetId}`));
               }
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
-            // Resolve every id-taking link flag against the same source
+            // Resolve every id-taking link flag (--set-parent/--relates/
+            // --blocks/--unrelates/--unblocks) against the same source
             // the PATCH writes to. Refusals mirror the local path's
             // wording and codes (TASK_NOT_FOUND naming the value,
             // E_AMBIGUOUS naming the candidates, E_USAGE for a self-link).
-            const rawLinkTargets: Array<{ raw: string; flag: string }> = [
-              ...(opts.setParent !== undefined && opts.setParent !== ""
-                ? [{ raw: opts.setParent, flag: "--set-parent" }]
-                : []),
-              ...(opts.relates ?? []).map((raw) => ({
-                raw,
-                flag: "--relates",
-              })),
-              ...(opts.blocks ?? []).map((raw) => ({
-                raw,
-                flag: "--blocks",
-              })),
-              ...(opts.unrelates ?? []).map((raw) => ({
-                raw,
-                flag: "--unrelates",
-              })),
-              ...(opts.unblocks ?? []).map((raw) => ({
-                raw,
-                flag: "--unblocks",
-              })),
-            ];
-            let linkBoard: SaasTask[] | undefined;
-            if (rawLinkTargets.length > 0) {
-              const linkWorkspace = await readWorkspace();
-              const linkBoardResult = await fetchSaasTasks(
-                linkWorkspace?.id,
-                { hydrate: false },
-              );
-              if (!linkBoardResult.ok) {
-                const linkReadMessage = saasReadErrorMessage(
-                  linkBoardResult.error,
-                );
-                if (opts.json) {
-                  outputEnvelope({
-                    ok: false,
-                    ...saasFailure(linkBoardResult.error),
-                    message: `Unable to resolve link targets in the online board (${linkReadMessage}).`,
-                    json: opts.json,
-                  });
-                } else {
-                  console.log(
-                    chalk.red(
-                      `✗ Unable to resolve link targets in the online board (${linkReadMessage}).`,
-                    ),
-                  );
-                }
-                process.exitCode = ExitCode.GENERAL;
-                return;
-              }
-              linkBoard = linkBoardResult.data.tasks;
-            }
+            // Link targets resolve against the board listing fetched once
+            // for the --edit target above — no second listing read, so the
+            // target and its links resolve against the same board state.
+            const linkBoard: SaasTask[] | undefined = editLinkBoard;
             const refuseLinkTarget = (
               code: string,
               message: string,
@@ -4725,7 +4971,9 @@ program
                 "--set-parent",
               );
               if (parentId === null) return;
-              if (parentId === (taskId as string)) {
+              // Self-link is compared against the FULL resolved id: a
+              // prefix of the edited task must not slip past this check.
+              if (parentId === editTargetId) {
                 refuseLinkTarget(
                   "E_USAGE",
                   "Cannot link a task to itself",
@@ -4749,7 +4997,7 @@ program
             ]) {
               const targetId = resolveLinkTarget(raw, flag);
               if (targetId === null) return;
-              if (targetId === (taskId as string)) {
+              if (targetId === editTargetId) {
                 refuseLinkTarget(
                   "E_USAGE",
                   "Cannot link a task to itself",
@@ -4821,8 +5069,9 @@ program
               saasPatch.verified = null;
 
             // Conflict detection: warn when attempting in-progress on an already in-progress task
+            // (the FULL resolved id — a prefix never reaches the server).
             if (opts.setStatus === "in-progress") {
-              const current = await fetchSaasTask(taskId);
+              const current = await fetchSaasTask(editTargetId);
               // Human-mode only: under --json stdout carries only the envelope.
               if (
                 !opts.json &&
@@ -4883,7 +5132,7 @@ program
                     opts.setStatus === "review"
                       ? "set-status:review"
                       : "set-status:in-progress",
-                    taskId,
+                    editTargetId,
                   )
                 : [];
               if (opts.json) {
@@ -4893,7 +5142,7 @@ program
                   payload: {
                     dryRun: true,
                     action: "update",
-                    taskId,
+                    taskId: editTargetId,
                     updates: dryUpdates,
                     next_actions: saasDryRunNextActions,
                     ...noticeFields(editNotices),
@@ -4901,7 +5150,7 @@ program
                 });
               } else {
                 console.log(chalk.yellow("  [dry-run] Would update task:"));
-                console.log(chalk.dim(`    id: ${taskId}`));
+                console.log(chalk.dim(`    id: ${editTargetId}`));
                 for (const [k, v] of Object.entries(dryUpdates)) {
                   console.log(chalk.dim(`    ${k}: ${v}`));
                 }
@@ -4911,7 +5160,10 @@ program
               return;
             }
 
-            const saasResult = await updateSaasTask(taskId, saasPatch);
+            // The PATCH carries the FULL resolved id — a prefix never
+            // reaches the server (this was the reported bug: --edit sent
+            // the raw prefix while --get resolved it).
+            const saasResult = await updateSaasTask(editTargetId, saasPatch);
             if (!saasResult.ok) {
               // Like the --add path: a structured backend refusal (e.g.
               // INVALID_LINKS for a dangling parent) keeps its code so
@@ -4927,14 +5179,14 @@ program
                       }
                     : {
                         ...saasFailure(saasResult.error),
-                        message: `Failed to update task: ${taskId}`,
+                        message: `Failed to update task: ${editTargetId}`,
                       }),
                   json: opts.json,
                 });
               } else if (updateServerCode) {
                 console.log(chalk.red(`✗ ${saasResult.error.message}`));
               } else {
-                console.log(chalk.red(`✗ Failed to update task: ${taskId}`));
+                console.log(chalk.red(`✗ Failed to update task: ${editTargetId}`));
                 console.log(
                   chalk.yellow(
                     "  Ensure you are connected and the task ID exists in the online board.",
@@ -4955,7 +5207,7 @@ program
             let saasCommentError: string | undefined;
             if (opts.comment?.trim()) {
               const commented = await addSaasComment(
-                taskId,
+                editTargetId,
                 opts.comment.trim(),
               );
               if (commented.ok) {
@@ -4984,7 +5236,7 @@ program
             let saasVerifyReasonError: string | undefined;
             if (attestation.verdict === "cannot" && attestation.reason) {
               const recorded = await addSaasComment(
-                taskId,
+                editTargetId,
                 `**Cannot verify:** ${attestation.reason}`,
               );
               if (recorded.ok) {
@@ -5010,7 +5262,7 @@ program
                   opts.setStatus === "review"
                     ? "set-status:review"
                     : "set-status:in-progress",
-                  taskId,
+                  editTargetId,
                 )
               : [];
             if (opts.json) {
@@ -5073,11 +5325,13 @@ program
           }
 
           // ── Local edit path ──────────────────────────────────────────────
-          // Resolve partial ID prefixes to the full task ID so `--edit` behaves like
-          // `--get` and `--commit` (both already accept a unique prefix). The resolved
-          // ID is used for the write so a partial prefix never hits an exact-match miss.
+          // The target was already resolved to its full id through the ONE
+          // resolver above (exact id wins, UNIQUE prefix, E_AMBIGUOUS /
+          // TASK_NOT_FOUND) — the write below takes the full id, so a
+          // prefix can never hit an exact-match miss here while the gate
+          // saw something else.
           const localProjectDir = resolve(dir);
-          const resolvedTaskId = resolveTaskId(localProjectDir, taskId);
+          const resolvedTaskId = editTargetId;
 
           // Verify gate already checked above via checkReviewTransition
 
@@ -5170,8 +5424,11 @@ program
           }
 
           // ── Parent link change (--set-parent / --no-parent) ────────────
-          // Resolve the parent prefix the same way --edit/--get/--commit do,
-          // then compute the new links via the pure helper (set/replace/clear
+          // The parent value resolves through the ONE resolver
+          // (`resolveSaasTaskId`, shared with every other id-taking flag):
+          // exact id wins, a UNIQUE prefix resolves, an ambiguous prefix is
+          // E_AMBIGUOUS naming the candidates — never a silent first-match.
+          // The pure helper then computes the new links (set/replace/clear
           // with exists/self/cycle validation).
           let parentDisplay: string | undefined;
           if (wantsParentChange) {
@@ -5202,10 +5459,41 @@ program
               updates.links = cleared.links;
               parentDisplay = "(cleared)";
             } else {
-              const resolvedParentId = resolveTaskId(
-                localProjectDir,
+              const setParentResolved = resolveSaasTaskId(
+                listTasks(localProjectDir).map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                })),
                 rawParent,
               );
+              if (!setParentResolved.ok) {
+                const setParentSuggestion =
+                  setParentResolved.code === "TASK_NOT_FOUND"
+                    ? "Run 'vibeflow tasks' to see available task IDs."
+                    : "Use the full task id — run 'vibeflow tasks' to see available task IDs.";
+                const setParentMessage =
+                  setParentResolved.code === "TASK_NOT_FOUND"
+                    ? `Parent task not found: ${rawParent}`
+                    : setParentResolved.message;
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: setParentResolved.code,
+                    message: setParentMessage,
+                    suggestion: setParentSuggestion,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${setParentMessage}`));
+                  console.log(chalk.dim(`  ${setParentSuggestion}`));
+                }
+                process.exitCode =
+                  setParentResolved.code === "TASK_NOT_FOUND"
+                    ? ExitCode.NOT_FOUND
+                    : ExitCode.USAGE;
+                return;
+              }
+              const resolvedParentId = setParentResolved.id;
               const applied = buildSetParentLinks({
                 allTasks: listTasks(localProjectDir),
                 taskId: resolvedTaskId,
@@ -5275,6 +5563,64 @@ program
           ];
 
           if (linksAddRequests.length > 0 || linksRemoveRequests.length > 0) {
+            // Every id-taking link flag resolves through the ONE resolver
+            // (`resolveSaasTaskId`) BEFORE any link is touched: exact id
+            // wins, a UNIQUE prefix resolves, an ambiguous prefix is
+            // E_AMBIGUOUS naming the candidates — never a silent
+            // first-match. A dangling target is refused here with the same
+            // wording the SaaS path uses.
+            const resolveEditLinkTargets = (
+              requests: Array<{ raw: string; type: "relates" | "blocks" }>,
+            ): Array<{ id: string; type: "relates" | "blocks" }> | null => {
+              const resolvedRows = listTasks(localProjectDir).map((t) => ({
+                id: t.id,
+                title: t.title,
+              }));
+              const out: Array<{ id: string; type: "relates" | "blocks" }> =
+                [];
+              for (const req of requests) {
+                const linkResolved = resolveSaasTaskId(
+                  resolvedRows,
+                  req.raw,
+                );
+                if (!linkResolved.ok) {
+                  const linkMessage =
+                    linkResolved.code === "TASK_NOT_FOUND"
+                      ? `Task ${req.raw} not found`
+                      : linkResolved.message;
+                  const linkSuggestion =
+                    linkResolved.code === "TASK_NOT_FOUND"
+                      ? "Run 'vibeflow tasks' to see available task IDs."
+                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.";
+                  if (opts.json) {
+                    outputEnvelope({
+                      ok: false,
+                      code: linkResolved.code,
+                      message: linkMessage,
+                      suggestion: linkSuggestion,
+                      json: opts.json,
+                    });
+                  } else {
+                    console.log(chalk.red(`✗ ${linkMessage}`));
+                    console.log(chalk.dim(`  ${linkSuggestion}`));
+                  }
+                  process.exitCode =
+                    linkResolved.code === "TASK_NOT_FOUND"
+                      ? ExitCode.NOT_FOUND
+                      : ExitCode.USAGE;
+                  return null;
+                }
+                out.push({ id: linkResolved.id, type: req.type });
+              }
+              return out;
+            };
+            const resolvedAdds =
+              resolveEditLinkTargets(linksAddRequests);
+            if (!resolvedAdds) return;
+            const resolvedRemoves = resolveEditLinkTargets(
+              linksRemoveRequests,
+            );
+            if (!resolvedRemoves) return;
             const applyLinkChange = (): boolean => {
               // Fold whatever --set-parent already decided into the board the
               // helpers validate against, so a single call can move the parent
@@ -5314,12 +5660,11 @@ program
                 return false;
               };
 
-              for (const req of linksAddRequests) {
-                const targetId = resolveTaskId(localProjectDir, req.raw);
+              for (const add of resolvedAdds) {
                 const added = buildAddLinks({
                   allTasks: board,
                   taskId: resolvedTaskId,
-                  incoming: [{ taskId: targetId, type: req.type }],
+                  incoming: [{ taskId: add.id, type: add.type }],
                 });
                 if (!added.ok) return refuse(added.reason, added.code);
                 updates.links = added.links;
@@ -5328,12 +5673,11 @@ program
                 );
               }
 
-              for (const req of linksRemoveRequests) {
-                const targetId = resolveTaskId(localProjectDir, req.raw);
+              for (const remove of resolvedRemoves) {
                 const removed = buildRemoveLinks({
                   allTasks: board,
                   taskId: resolvedTaskId,
-                  remove: [{ taskId: targetId, type: req.type }],
+                  remove: [{ taskId: remove.id, type: remove.type }],
                 });
                 if (!removed.ok) return refuse(removed.reason, removed.code);
                 updates.links = removed.links;
@@ -5352,7 +5696,11 @@ program
           // Also detect in-progress conflicts (task already claimed by another agent/user).
           if (opts.setStatus === "in-progress") {
             const projectDir = resolve(dir);
-            const editedTask = findTaskByIdOrPrefix(projectDir, taskId);
+            // Exact lookup on the already-resolved id — never a second
+            // prefix guess.
+            const editedTask = listTasks(projectDir).find(
+              (t) => t.id === editTargetId,
+            );
             if (editedTask) {
               if ((editedTask.type ?? "").toLowerCase() === "research") {
                 editNotices.push({
@@ -5430,18 +5778,20 @@ program
             updates.verified = attestation.value;
           }
 
+          // The id was resolved above, so a miss here is only a
+          // delete-between-reads race — still refused, never a guess.
           const updated = updateTask(dir, resolvedTaskId, updates);
           if (!updated) {
             if (opts.json) {
               outputEnvelope({
                 ok: false,
                 code: "TASK_NOT_FOUND",
-                message: `Task not found: ${taskId}`,
+                message: `Task not found: ${editTargetId}`,
                 suggestion: "Run 'vibeflow tasks' to see available task IDs.",
                 json: opts.json,
               });
             } else {
-              console.log(chalk.red(`✗ Task not found: ${taskId}`));
+              console.log(chalk.red(`✗ Task not found: ${editTargetId}`));
               console.log(
                 chalk.yellow(
                   `  Run 'vibeflow tasks' to see available task IDs.`,
@@ -5597,7 +5947,13 @@ program
             const autoDir = resolve(dir);
             const autoSettings = loadSettings(autoDir);
             if (autoSettings.autoCommit && opts.commitMessage?.trim()) {
-              const taskForCommit = findTaskByIdOrPrefix(autoDir, taskId);
+              // Exact lookup on the already-resolved id — never a second
+              // prefix guess (and absent for an online-only task with no
+              // local clone, in which case there is nothing local to
+              // commit and the block is skipped, as before).
+              const taskForCommit = listTasks(autoDir).find(
+                (t) => t.id === editTargetId,
+              );
               if (taskForCommit) {
                 const { commitTaskChanges } = await import("./core/git.js");
                 const commitResult = commitTaskChanges(
