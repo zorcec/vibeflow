@@ -274,10 +274,20 @@ export interface PushResult {
  * fills. Read-only accounting for the push report; comment-id preflight is separate.
  */
 export function countTasksMissingCommitAuthorEmail(
-  tasks: Array<{ commits?: Array<{ authorEmail?: string }> }>,
+  tasks: Array<{ commits?: Array<{ authorEmail?: string; sha?: string }> }>,
 ): number {
+  // Only commits that CAN be enriched are counted. `authors link` resolves a
+  // sha through git history, so an entry with no sha (a record written by an
+  // older flow, or a commit recorded before it was made) is unlinkable — warning
+  // about it tells the user to run a command that reports "0 unresolved" and
+  // fixes nothing. It is still a gap in the DATA; it is just not this gap.
   return tasks.filter((t) =>
-    (t.commits ?? []).some((c) => !c.authorEmail || c.authorEmail.trim() === ""),
+    (t.commits ?? []).some(
+      (c) =>
+        typeof c.sha === "string" &&
+        c.sha.trim() !== "" &&
+        (!c.authorEmail || c.authorEmail.trim() === ""),
+    ),
   ).length;
 }
 
