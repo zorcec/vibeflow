@@ -22,6 +22,19 @@ import { z } from "zod";
 import { flushTelemetry } from "../../../src/telemetry.js";
 import { createMcpServer } from "../../../src/mcp/server.js";
 import { manifest } from "../../../src/mcp/manifest.js";
+import { CLI_VERSION } from "../../../src/version.js";
+
+/**
+ * Every event carries the build/runtime envelope (see telemetry.ts). These are
+ * NOT PII — no hostname, path or username — but they ARE part of the contract,
+ * so they are spelled out here rather than swallowed by objectContaining: a new
+ * property must still fail this file.
+ */
+const ENV_PROPS = {
+  cli_version: CLI_VERSION,
+  os: `${process.platform}-${process.arch}`,
+  node_version: process.versions.node,
+};
 
 /** PostHog transport spy: constructor args + every `capture()` payload. */
 const ctorSpy = vi.hoisted(() => vi.fn());
@@ -128,6 +141,7 @@ describe("MCP command_run telemetry", () => {
           command: "tasks",
           ok: true,
           $user_id: expect.any(String),
+          ...ENV_PROPS,
         },
       },
     ]);
@@ -152,6 +166,7 @@ describe("MCP command_run telemetry", () => {
           command: "tasks",
           ok: false,
           $user_id: expect.any(String),
+          ...ENV_PROPS,
         },
       },
     ]);
@@ -223,6 +238,7 @@ describe("MCP command_run telemetry", () => {
           command: "tasks",
           ok: true,
           $user_id: expect.any(String),
+          ...ENV_PROPS,
         },
       },
     ]);

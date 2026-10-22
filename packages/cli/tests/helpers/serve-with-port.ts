@@ -35,7 +35,17 @@ export type ServeTarget = string | undefined;
 /** Everything `serve()` takes except the port, which this helper owns. */
 export type ServeOptionsWithoutPort = Omit<ServeOptions, "port">;
 
-export const SERVE_WITH_PORT_ATTEMPTS = 8;
+/**
+ * Retry budget for a port the OS just told us was free.
+ *
+ * 8 was enough when suites ran mostly serially. Under a full parallel run many
+ * workers probe simultaneously, so a probe-then-bind pair can lose the race
+ * several times in a row and the suite failed with "address in use after 8
+ * attempt(s)" — a flake, not a product bug (measured: two suites, 8 distinct
+ * ports each, all lost). The budget is the wrong knob to keep tight: each retry
+ * costs one bind attempt, and the failure mode it prevents is a red build.
+ */
+export const SERVE_WITH_PORT_ATTEMPTS = 32;
 
 /** Ports already handed out in this process — never handed out twice. */
 const handedOutPorts = new Set<number>();

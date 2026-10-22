@@ -787,3 +787,26 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     input: GetIntegrationGuideInput.shape,
   },
 ];
+
+/**
+ * Tools that exist ONLY on the LOCAL surface.
+ *
+ * A hosted MCP server has no project directory. `pull` writes records into the
+ * caller's local store, so a cloud runner has nothing to write to — it is not a
+ * missing feature, it is a surface with no filesystem.
+ *
+ * The exclusion is DECLARED rather than implied by the hosted implementation,
+ * because the two surfaces must not drift silently: without this export the
+ * hosted server's name list and this declaration are two independent facts that
+ * can disagree (measured: `pull` was added here and the hosted surface kept
+ * answering 11 tools, which only a DB-gated test noticed). With it, a parity
+ * test can assert a TOTAL PARTITION — every declared tool is either hosted or
+ * CLI-only, never both, never neither — and adding a tool forces a decision.
+ */
+export const CLI_ONLY_MCP_TOOLS = ["pull"] as const;
+export type CliOnlyMcpTool = (typeof CLI_ONLY_MCP_TOOLS)[number];
+
+/** The declarations a HOSTED server must register: everything else. */
+export const HOSTED_MCP_TOOL_DECLARATIONS = MCP_TOOL_DECLARATIONS.filter(
+  (tool) => !(CLI_ONLY_MCP_TOOLS as readonly string[]).includes(tool.name),
+);
