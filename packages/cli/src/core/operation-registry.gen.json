@@ -1,0 +1,855 @@
+{
+  "generatedBy": "scripts/generate-operation-registry.mjs",
+  "commands": {
+    "auth": {
+      "flags": [
+        "--clear",
+        "--json",
+        "--list"
+      ],
+      "positionals": []
+    },
+    "auth login": {
+      "flags": [],
+      "positionals": []
+    },
+    "auth logout": {
+      "flags": [],
+      "positionals": []
+    },
+    "auth status": {
+      "flags": [
+        "--json"
+      ],
+      "positionals": []
+    },
+    "authors": {
+      "flags": [],
+      "positionals": []
+    },
+    "authors link": {
+      "flags": [
+        "--dry-run"
+      ],
+      "positionals": [
+        "[dir]"
+      ]
+    },
+    "changelog": {
+      "flags": [
+        "--all"
+      ],
+      "positionals": []
+    },
+    "kanban": {
+      "flags": [
+        "--dev",
+        "--host",
+        "--no-changelog",
+        "--no-open",
+        "--port",
+        "--project"
+      ],
+      "positionals": [
+        "[dir]"
+      ]
+    },
+    "login": {
+      "flags": [],
+      "positionals": []
+    },
+    "logout": {
+      "flags": [],
+      "positionals": []
+    },
+    "mcp": {
+      "flags": [
+        "--project"
+      ],
+      "positionals": []
+    },
+    "openapi": {
+      "flags": [
+        "--yaml"
+      ],
+      "positionals": []
+    },
+    "pull": {
+      "flags": [
+        "--board",
+        "--dry-run",
+        "--json",
+        "--out",
+        "--prefer-local",
+        "--prefer-remote"
+      ],
+      "positionals": [
+        "[dir]"
+      ]
+    },
+    "push": {
+      "flags": [
+        "--board",
+        "--dry-run",
+        "--json",
+        "--keep-local-files",
+        "--prune-local",
+        "--verbose",
+        "--workspace"
+      ],
+      "positionals": [
+        "[dir]"
+      ]
+    },
+    "serve": {
+      "flags": [
+        "--dev",
+        "--host",
+        "--no-open",
+        "--port",
+        "--project"
+      ],
+      "positionals": [
+        "[target]"
+      ]
+    },
+    "status": {
+      "flags": [
+        "--json"
+      ],
+      "positionals": []
+    },
+    "tasks": {
+      "flags": [
+        "--add",
+        "--all",
+        "--apply",
+        "--attach",
+        "--blocks",
+        "--branch",
+        "--children",
+        "--comment",
+        "--commit",
+        "--commit-message",
+        "--delete",
+        "--description",
+        "--dry-run",
+        "--edit",
+        "--fields",
+        "--get",
+        "--json",
+        "--limit",
+        "--message",
+        "--move",
+        "--next",
+        "--no-parent",
+        "--normalize",
+        "--parent",
+        "--priority",
+        "--reindex-sort-keys",
+        "--relates",
+        "--report-file",
+        "--selector",
+        "--set-parent",
+        "--set-status",
+        "--set-verify",
+        "--sort-key",
+        "--status",
+        "--tag",
+        "--task",
+        "--title",
+        "--type",
+        "--unblocks",
+        "--unrelates",
+        "--url",
+        "--user",
+        "--verify-reason",
+        "--yes"
+      ],
+      "positionals": [
+        "[dir]"
+      ]
+    },
+    "telemetry": {
+      "flags": [
+        "--disable",
+        "--enable",
+        "--status"
+      ],
+      "positionals": []
+    },
+    "verify": {
+      "flags": [
+        "--filter",
+        "--json",
+        "--timeout",
+        "--url"
+      ],
+      "positionals": [
+        "[args...]"
+      ]
+    }
+  },
+  "tools": {
+    "add_comment": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--comment",
+        "--edit"
+      ],
+      "inputFields": [
+        "author",
+        "comment",
+        "dryRun",
+        "id"
+      ]
+    },
+    "attach_file": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--edit",
+        "--report-file",
+        "--set-status"
+      ],
+      "inputFields": [
+        "contentB64",
+        "dryRun",
+        "filename",
+        "id"
+      ]
+    },
+    "claim_next_task": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--next",
+        "--tag",
+        "--type"
+      ],
+      "inputFields": [
+        "dryRun",
+        "tag",
+        "type",
+        "user"
+      ]
+    },
+    "create_task": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--add",
+        "--description",
+        "--fields",
+        "--parent",
+        "--priority",
+        "--selector",
+        "--sort-key",
+        "--tag",
+        "--title",
+        "--type",
+        "--url"
+      ],
+      "inputFields": [
+        "cssSelector",
+        "description",
+        "dryRun",
+        "fields",
+        "links",
+        "parent",
+        "priority",
+        "selector",
+        "sortKey",
+        "status",
+        "tags",
+        "title",
+        "type",
+        "url"
+      ]
+    },
+    "get_integration_guide": {
+      "cliCommand": "kanban",
+      "cliFlags": [],
+      "inputFields": []
+    },
+    "get_project": {
+      "cliCommand": "status",
+      "cliFlags": [],
+      "inputFields": []
+    },
+    "get_task": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--get"
+      ],
+      "inputFields": [
+        "fields",
+        "id"
+      ]
+    },
+    "list_tasks": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--all",
+        "--children",
+        "--fields",
+        "--limit",
+        "--status",
+        "--tag",
+        "--type",
+        "--user"
+      ],
+      "inputFields": [
+        "children",
+        "fields",
+        "limit",
+        "status",
+        "tag",
+        "type",
+        "user"
+      ]
+    },
+    "pull": {
+      "cliCommand": "pull",
+      "cliFlags": [
+        "--board",
+        "--dry-run",
+        "--out",
+        "--prefer-local",
+        "--prefer-remote"
+      ],
+      "inputFields": [
+        "board",
+        "dryRun",
+        "out",
+        "preferLocal",
+        "preferRemote"
+      ]
+    },
+    "start_kanban": {
+      "cliCommand": "kanban",
+      "cliFlags": [
+        "--host",
+        "--port"
+      ],
+      "inputFields": [
+        "dryRun",
+        "host",
+        "port"
+      ]
+    },
+    "update_task": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--blocks",
+        "--branch",
+        "--comment",
+        "--commit-message",
+        "--description",
+        "--edit",
+        "--fields",
+        "--no-parent",
+        "--relates",
+        "--set-parent",
+        "--set-status",
+        "--set-verify",
+        "--title",
+        "--unblocks",
+        "--unrelates",
+        "--verify-reason"
+      ],
+      "inputFields": [
+        "addLinks",
+        "branch",
+        "clearLinks",
+        "comment",
+        "commitMessage",
+        "description",
+        "dryRun",
+        "fields",
+        "id",
+        "links",
+        "parent",
+        "removeLinks",
+        "setVerify",
+        "status",
+        "title",
+        "verifyReason"
+      ]
+    },
+    "verify_task": {
+      "cliCommand": "verify",
+      "cliFlags": [
+        "--json",
+        "--timeout",
+        "--url"
+      ],
+      "inputFields": [
+        "dryRun",
+        "id",
+        "timeoutMs",
+        "url"
+      ]
+    }
+  },
+  "registry": {
+    "addComment": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "add_comment"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --comment",
+        "tasks --edit"
+      ],
+      "operationFn": "addComment",
+      "requirement": "selected-board"
+    },
+    "attachFile": {
+      "mapping": "intentionally-different",
+      "mcpTools": [
+        "attach_file"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --edit",
+        "tasks --report-file",
+        "tasks --set-status"
+      ],
+      "operationFn": "attachFile",
+      "requirement": "selected-board"
+    },
+    "claimNextTask": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "claim_next_task"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --next",
+        "tasks --tag",
+        "tasks --type"
+      ],
+      "operationFn": "claimNextTask",
+      "requirement": "selected-board"
+    },
+    "clearVerificationAuthState": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "auth --clear"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "commitTaskPathsOperation": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "tasks --commit",
+        "tasks --message",
+        "tasks --task"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "createTask": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "create_task"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --add",
+        "tasks --description",
+        "tasks --fields",
+        "tasks --parent",
+        "tasks --priority",
+        "tasks --selector",
+        "tasks --sort-key",
+        "tasks --tag",
+        "tasks --title",
+        "tasks --type",
+        "tasks --url"
+      ],
+      "operationFn": "createTask",
+      "requirement": "selected-board"
+    },
+    "deleteTaskOperation": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "both",
+      "cli": [
+        "tasks --delete",
+        "tasks --yes"
+      ],
+      "operationFn": null,
+      "requirement": "selected-board"
+    },
+    "getAccountStatus": {
+      "mapping": "intentionally-different",
+      "mcpTools": [],
+      "mode": "both",
+      "cli": [
+        "auth",
+        "auth status",
+        "status"
+      ],
+      "operationFn": null,
+      "requirement": "none"
+    },
+    "getChangelog": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "changelog",
+        "changelog --all"
+      ],
+      "operationFn": null,
+      "requirement": "none"
+    },
+    "getIntegrationGuide": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "get_integration_guide"
+      ],
+      "mode": "local",
+      "cli": [
+        "kanban"
+      ],
+      "operationFn": "getIntegrationGuide",
+      "requirement": "local-only"
+    },
+    "getOpenApiDocument": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "openapi",
+        "openapi --yaml"
+      ],
+      "operationFn": null,
+      "requirement": "none"
+    },
+    "getProject": {
+      "mapping": "intentionally-different",
+      "mcpTools": [
+        "get_project"
+      ],
+      "mode": "both",
+      "cli": [
+        "status"
+      ],
+      "operationFn": "getProject",
+      "requirement": "none"
+    },
+    "getTask": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "get_task"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --fields",
+        "tasks --get"
+      ],
+      "operationFn": "getTask",
+      "requirement": "selected-board"
+    },
+    "inspectVerificationEvidence": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "verify"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "linkCommitAuthors": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "authors",
+        "authors link"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "listTasks": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "list_tasks"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks",
+        "tasks --all",
+        "tasks --children",
+        "tasks --fields",
+        "tasks --limit",
+        "tasks --status",
+        "tasks --tag",
+        "tasks --type",
+        "tasks --user"
+      ],
+      "operationFn": "listTasks",
+      "requirement": "selected-board"
+    },
+    "listVerificationAuthState": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "auth --list"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "loginAccount": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "online",
+      "cli": [
+        "auth login",
+        "login"
+      ],
+      "operationFn": null,
+      "requirement": "none"
+    },
+    "logoutAccount": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "auth logout",
+        "logout"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "manageTelemetry": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "telemetry",
+        "telemetry --disable",
+        "telemetry --enable",
+        "telemetry --status"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "normalizeTaskStore": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "tasks --apply",
+        "tasks --normalize"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "pullFromBoard": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "pull"
+      ],
+      "mode": "both",
+      "cli": [
+        "pull",
+        "pull --board",
+        "pull --out",
+        "pull --prefer-local",
+        "pull --prefer-remote"
+      ],
+      "operationFn": "pullFromBoard",
+      "requirement": "sync"
+    },
+    "pushTasks": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "both",
+      "cli": [
+        "push"
+      ],
+      "operationFn": "pushTasks",
+      "requirement": "sync"
+    },
+    "reindexTaskSortKeys": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "tasks --reindex-sort-keys"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "startKanban": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "start_kanban"
+      ],
+      "mode": "local",
+      "cli": [
+        "kanban",
+        "kanban --host",
+        "kanban --port"
+      ],
+      "operationFn": "startKanban",
+      "requirement": "local-only"
+    },
+    "startMcpTransport": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "mcp",
+        "mcp --project"
+      ],
+      "operationFn": null,
+      "requirement": "none"
+    },
+    "startServer": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [
+        "serve"
+      ],
+      "operationFn": null,
+      "requirement": "local-only"
+    },
+    "updateTask": {
+      "mapping": "one-to-one",
+      "mcpTools": [
+        "update_task"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --blocks",
+        "tasks --branch",
+        "tasks --comment",
+        "tasks --commit-message",
+        "tasks --description",
+        "tasks --edit",
+        "tasks --fields",
+        "tasks --no-parent",
+        "tasks --relates",
+        "tasks --set-parent",
+        "tasks --set-status",
+        "tasks --set-verify",
+        "tasks --title",
+        "tasks --unblocks",
+        "tasks --unrelates",
+        "tasks --verify-reason"
+      ],
+      "operationFn": "updateTask",
+      "requirement": "selected-board"
+    },
+    "verifyTaskOp": {
+      "mapping": "intentionally-different",
+      "mcpTools": [
+        "verify_task"
+      ],
+      "mode": "local",
+      "cli": [
+        "verify",
+        "verify --timeout",
+        "verify --url"
+      ],
+      "operationFn": "verifyTaskOp",
+      "requirement": "local-only"
+    }
+  },
+  "registryCliFlags": {
+    "kanban --host": "startKanban",
+    "kanban --port": "startKanban",
+    "pull --board": "pullFromBoard",
+    "pull --dry-run": "pullFromBoard",
+    "pull --json": "pullFromBoard",
+    "pull --out": "pullFromBoard",
+    "pull --prefer-local": "pullFromBoard",
+    "pull --prefer-remote": "pullFromBoard",
+    "tasks --add": "createTask",
+    "tasks --all": "listTasks",
+    "tasks --apply": "normalizeTaskStore",
+    "tasks --attach": "attachFile",
+    "tasks --branch": "updateTask",
+    "tasks --children": "listTasks",
+    "tasks --comment": "updateTask",
+    "tasks --commit": "commitTaskPathsOperation",
+    "tasks --commit-message": "updateTask",
+    "tasks --delete": "deleteTaskOperation",
+    "tasks --description": "updateTask",
+    "tasks --fields": "listTasks",
+    "tasks --get": "getTask",
+    "tasks --limit": "listTasks",
+    "tasks --message": "commitTaskPathsOperation",
+    "tasks --move": "attachFile",
+    "tasks --next": "claimNextTask",
+    "tasks --no-parent": "updateTask",
+    "tasks --normalize": "normalizeTaskStore",
+    "tasks --parent": "createTask",
+    "tasks --priority": "createTask",
+    "tasks --reindex-sort-keys": "reindexTaskSortKeys",
+    "tasks --relates": "updateTask",
+    "tasks --report-file": "attachFile",
+    "tasks --selector": "createTask",
+    "tasks --set-parent": "updateTask",
+    "tasks --set-status": "updateTask",
+    "tasks --set-verify": "updateTask",
+    "tasks --sort-key": "createTask",
+    "tasks --status": "listTasks",
+    "tasks --tag": "listTasks",
+    "tasks --task": "commitTaskPathsOperation",
+    "tasks --title": "createTask",
+    "tasks --type": "listTasks",
+    "tasks --unblocks": "updateTask",
+    "tasks --unrelates": "updateTask",
+    "tasks --url": "createTask",
+    "tasks --user": "listTasks",
+    "tasks --verify-reason": "updateTask",
+    "tasks --yes": "deleteTaskOperation",
+    "verify --filter": "inspectVerificationEvidence",
+    "verify --json": "verifyTaskOp",
+    "verify --timeout": "verifyTaskOp",
+    "verify --url": "verifyTaskOp"
+  },
+  "temporaryCliFlags": {
+    "tasks --apply": "P5",
+    "tasks --attach": "P5",
+    "tasks --commit": "P5",
+    "tasks --delete": "P5",
+    "tasks --message": "P5",
+    "tasks --move": "P5",
+    "tasks --normalize": "P5",
+    "tasks --reindex-sort-keys": "P5",
+    "tasks --task": "P5",
+    "tasks --yes": "P5"
+  },
+  "deltas": [
+    "attach-duplicate-policy",
+    "changelog-raw-text",
+    "chat-context-tools",
+    "cli-mcp-transport-envelopes",
+    "cli-only-unbounded-listing",
+    "hosted-guide-answers",
+    "hosted-project-identity",
+    "hosted-pull-absent",
+    "hosted-server-answers",
+    "hosted-update-no-checkout-git",
+    "hosted-verify-local-only",
+    "local-only-http-chat",
+    "openapi-raw-document",
+    "pull-push-bare-reports",
+    "push-mcp-absent",
+    "status-human-text-envelope",
+    "verify-raw-result-envelope"
+  ]
+}
