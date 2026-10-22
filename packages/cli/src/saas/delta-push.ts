@@ -98,9 +98,28 @@ export interface SendDeltaResult {
  * travel. Zero-length local files ride the same skip (they cost nothing
  * to re-create; see delta-archive's marker contract).
  */
+/**
+ * A file REF must be unique across the WHOLE request: both import routes refuse
+ * a repeated `ref` as an INVALID_BODY caller bug (import/route.ts:281,
+ * import/archive/route.ts:302). Names are only unique WITHIN a task —
+ * `verify-after.json` exists on 26 tasks, `baseline-page.json` on 118 — so a
+ * bare name collides as soon as one chunk carries two of them.
+ *
+ * The archive path is already task-scoped (`files/<taskId>/<name>`) and the ref
+ * is an opaque key the server never parses, so scoping the ref by task id is
+ * free. A name repeated inside ONE task gets an ordinal instead of a refusal:
+ * rejecting would turn a data quirk into a failed push.
+ */
+function fileRef(taskId: string, name: string, counts: Map<string, number>): string {
+  const n = (counts.get(name) ?? 0) + 1;
+  counts.set(name, n);
+  return n === 1 ? `${taskId}/${name}` : `${taskId}/${n}/${name}`;
+}
+
 function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
   const entries: TarInput[] = [];
   for (const task of chunk.tasks) {
+    const refCounts = new Map<string, number>();
     // The archive route reads `tasks/<id>.json` as the SAME manifest entry the
     // multipart route accepts — not a bare record. It validates that
     // `clientId` equals the id in the path, so a bare record is refused with
@@ -117,7 +136,7 @@ function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
           files: task.files
             .filter((f) => f.data.length > 0)
             .map((f) => ({
-              ref: f.name,
+              ref: fileRef(task.id, f.name, refCounts),
               name: f.name,
               ...(f.system === true ? { system: true } : {}),
             })),

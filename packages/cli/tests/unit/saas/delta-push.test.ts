@@ -187,8 +187,79 @@ describe("sendDeltaArchive", () => {
     expect(entry.clientId).toBe("t1");
     expect(entry.record).toEqual(raw);
     expect(entry.fields).toEqual(raw);
-    expect(entry.files).toEqual([{ ref: "note.md", name: "note.md" }]);
+    expect(entry.files).toEqual([{ ref: "t1/note.md", name: "note.md" }]);
     expect(Buffer.from(entries[1]!.data).toString("utf8")).toBe("hello");
+  });
+
+  it("scopes a file ref by task id so a shared filename cannot collide", async () => {
+    // Both import routes refuse a repeated `ref` in one request as an
+    // INVALID_BODY caller bug. Filenames are only unique WITHIN a task
+    // (`verify-after.json` exists on 26 real tasks), so a bare-name ref made a
+    // full push fail on the first chunk holding two of them:
+    //   400 {"error":"duplicate file ref verify-after.json","code":"INVALID_BODY"}
+    const { fetchImpl, calls } = capturingFetch([okRes]);
+
+    await sendDeltaArchive({
+      apiUrl: API,
+      token: "tok",
+      headers: {},
+      boardId: "board-1",
+      chunks: [
+        chunk([
+          task("aaa", { id: "aaa" }, [
+            { name: "verify-after.json", size: 3, data: bytes("one") },
+          ]),
+          task("bbb", { id: "bbb" }, [
+            { name: "verify-after.json", size: 3, data: bytes("two") },
+          ]),
+        ]),
+      ],
+      fetchImpl,
+    });
+
+    const entries = readTar(gunzipSync(calls[0]!.body));
+    const manifests = entries
+      .filter((e) => e.path.startsWith("tasks/"))
+      .map((e) => JSON.parse(Buffer.from(e.data).toString("utf8")));
+    const refs = manifests.flatMap((m) => m.files.map((f: { ref: string }) => f.ref));
+    expect(refs).toEqual(["aaa/verify-after.json", "bbb/verify-after.json"]);
+    expect(new Set(refs).size).toBe(refs.length);
+    // The task-scoped ref is opaque to the server; the archive path — which the
+    // server joins by `files/<clientId>/<name>` — is unchanged.
+    expect(entries.map((e) => e.path)).toEqual([
+      "tasks/aaa.json",
+      "files/aaa/verify-after.json",
+      "tasks/bbb.json",
+      "files/bbb/verify-after.json",
+    ]);
+  });
+
+  it("disambiguates a repeated name inside ONE task by ordinal instead of refusing", async () => {
+    const { fetchImpl, calls } = capturingFetch([okRes]);
+
+    await sendDeltaArchive({
+      apiUrl: API,
+      token: "tok",
+      headers: {},
+      boardId: "board-1",
+      chunks: [
+        chunk([
+          task("t1", { id: "t1" }, [
+            { name: "image.png", size: 1, data: bytes("a") },
+            { name: "image.png", size: 1, data: bytes("b") },
+          ]),
+        ]),
+      ],
+      fetchImpl,
+    });
+
+    const entry = readTar(gunzipSync(calls[0]!.body)).find(
+      (e) => e.path === "tasks/t1.json",
+    )!;
+    const manifest = JSON.parse(Buffer.from(entry.data).toString("utf8"));
+    const refs = manifest.files.map((f: { ref: string }) => f.ref);
+    expect(refs).toEqual(["t1/image.png", "t1/2/image.png"]);
+    expect(new Set(refs).size).toBe(2);
   });
 
   it("omits dropped files (empty data, size > 0) from the archive", async () => {
