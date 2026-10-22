@@ -14,6 +14,7 @@ import {
   updateTask,
   formatTaskForAgent,
   markTaskOpened,
+  deleteTask,
   getCurrentUserId,
   renderTaskForAgent,
   renderAgentInstructions,
@@ -65,6 +66,7 @@ import {
   buildSetParentLinks,
   buildAddLinks,
   buildRemoveLinks,
+  getChildren,
 } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { formatCommitTag } from "./core/commit-tag.js";
@@ -87,6 +89,8 @@ import {
   updateSaasTask,
   addSaasComment,
   createSaasTask,
+  deleteSaasTask,
+  resolveSaasTaskId,
   toCliStatus,
   type SaasTask,
 } from "./saas/client.js";
@@ -1136,6 +1140,14 @@ program
     "Get full details of a single task by ID (supports partial ID prefix)",
   )
   .option(
+    "--delete <task-id>",
+    "Delete a task by ID (supports partial ID prefix; refused without --yes; a parent with children is refused — delete the children first)",
+  )
+  .option(
+    "--yes",
+    "Confirm a destructive operation (use with --delete; without it the command only previews what would be deleted)",
+  )
+  .option(
     "--next",
     "Pick the next todo task, move it to in-progress, and output it ready to work on (prefers the highest-priority ROOT task; when no todo root is claimable, claims the highest-priority matching todo child and says so explicitly — a todo child of a non-todo parent is never skipped silently; the root's children are reported alongside a root claim)",
   )
@@ -1237,6 +1249,8 @@ program
         json?: boolean;
         commit?: boolean;
         get?: string;
+        delete?: string;
+        yes?: boolean;
         next?: boolean;
         children?: boolean;
         task?: string;
@@ -1279,17 +1293,19 @@ program
         // Determine sub-command for telemetry before async operations
         const taskSubcommand = opts.add
           ? "add"
-          : opts.next
-            ? "next"
-            : opts.edit
-              ? "edit"
-              : opts.get
-                ? "get"
-                : opts.reindexSortKeys
-                  ? "reindex"
-                  : opts.normalize
-                    ? "normalize"
-                    : "list";
+          : opts.delete !== undefined
+            ? "delete"
+            : opts.next
+              ? "next"
+              : opts.edit
+                ? "edit"
+                : opts.get
+                  ? "get"
+                  : opts.reindexSortKeys
+                    ? "reindex"
+                    : opts.normalize
+                      ? "normalize"
+                      : "list";
         capture("command_run", {
           surface: "cli",
           command: "tasks",
@@ -1311,6 +1327,46 @@ program
             message: "--parent is only valid with --add",
             suggestion:
               'Example: vibeflow tasks --add --title "Fix CTA spacing" --parent 358fcff6',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --delete is exclusive ───────────────────────────────────────
+        // Deleting while also adding/editing/reading would leave the
+        // preview and the write disagreeing about which task exists, so
+        // the combination is refused before anything is resolved.
+        if (
+          opts.delete !== undefined &&
+          (opts.add ||
+            opts.edit !== undefined ||
+            opts.get ||
+            opts.next ||
+            opts.commit ||
+            opts.reindexSortKeys ||
+            opts.normalize)
+        ) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message:
+              "--delete cannot be combined with --add/--edit/--get/--next/--commit/--reindex-sort-keys/--normalize",
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --yes requires --delete ─────────────────────────────────────
+        // --yes confirms a destructive operation and names no task itself;
+        // without --delete there is nothing to confirm, so it is refused
+        // rather than silently accepted and ignored.
+        if (opts.yes && opts.delete === undefined) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message: "--yes is only valid with --delete",
+            suggestion:
+              'Example: vibeflow tasks --delete <id> --yes',
             json: opts.json,
           });
           process.exitCode = ExitCode.USAGE;
@@ -1731,6 +1787,299 @@ program
             for (const id of result.unwritten) {
               console.log(chalk.yellow(`  ⚠ unwritten: ${id}`));
             }
+          }
+          return;
+        }
+
+        // ── Delete mode ────────────────────────────────────────────────
+        // `tasks --delete <id> [--yes]` removes one task. The id accepts a
+        // unique prefix exactly like --get; ambiguity and unknown values
+        // are refused before anything is touched. Without --yes the command
+        // only previews what would be deleted and exits non-zero — a
+        // destructive operation is never one flag away from an accident.
+        // A task with children is refused even WITH --yes: deleting the
+        // parent would leave the children with a dangling parent link (the
+        // local server route has no cascade — DELETE /api/tasks/:id drops
+        // just the one row — and the online DELETE is the same single-row
+        // write), so the CLI refuses rather than silently orphaning them.
+        // Delete the children first (deepest first), then the parent.
+        if (opts.delete !== undefined) {
+          const rawDeleteId =
+            typeof opts.delete === "string" ? opts.delete : "";
+          const deleteMode = await getMode();
+          let deleteId: string;
+          let deleteTitle = "";
+          let deleteStatus = "";
+          let deleteChildren: Array<{ id: string; title: string }> = [];
+          if (deleteMode === "saas") {
+            const deleteWorkspace = await readWorkspace();
+            const deleteBoard = await fetchSaasTasks(deleteWorkspace?.id, {
+              hydrate: false,
+            });
+            if (!deleteBoard.ok) {
+              const deleteReadMessage = saasReadErrorMessage(
+                deleteBoard.error,
+              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(deleteBoard.error),
+                  message: `Unable to read task ${rawDeleteId} from the online board (${deleteReadMessage}).`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Unable to read task ${rawDeleteId} from the online board (${deleteReadMessage}).`,
+                  ),
+                );
+              }
+              process.exitCode = ExitCode.GENERAL;
+              return;
+            }
+            const deleteResolved = resolveSaasTaskId(
+              deleteBoard.data.tasks,
+              rawDeleteId,
+            );
+            if (!deleteResolved.ok) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: deleteResolved.code,
+                  message:
+                    deleteResolved.code === "TASK_NOT_FOUND"
+                      ? `Task not found: ${rawDeleteId}`
+                      : deleteResolved.message,
+                  suggestion:
+                    deleteResolved.code === "TASK_NOT_FOUND"
+                      ? "Run 'vibeflow tasks' to see available task IDs."
+                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ ${deleteResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${rawDeleteId}` : deleteResolved.message}`,
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    deleteResolved.code === "TASK_NOT_FOUND"
+                      ? "  Run 'vibeflow tasks' to see available task IDs."
+                      : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  ),
+                );
+              }
+              process.exitCode =
+                deleteResolved.code === "TASK_NOT_FOUND"
+                  ? ExitCode.NOT_FOUND
+                  : ExitCode.USAGE;
+              return;
+            }
+            deleteId = deleteResolved.id;
+            const deleteFound = deleteBoard.data.tasks.find(
+              (t) => t.id === deleteId,
+            );
+            deleteTitle = deleteFound?.title ?? "";
+            deleteStatus = deleteFound ? toCliStatus(deleteFound.status) : "";
+            deleteChildren = deleteBoard.data.tasks
+              .filter((t) =>
+                (t.links ?? []).some(
+                  (l) => l.type === "parent" && l.taskId === deleteId,
+                ),
+              )
+              .map((t) => ({ id: t.id, title: t.title }));
+          } else {
+            const deleteProjectDir = resolve(dir);
+            const deleteAll = listTasks(deleteProjectDir);
+            const deleteExact = deleteAll.find((t) => t.id === rawDeleteId);
+            const deleteMatches = deleteExact
+              ? [deleteExact]
+              : deleteAll.filter((t) =>
+                  matchesIdOrPrefix(t, rawDeleteId),
+                );
+            if (deleteMatches.length === 0) {
+              outputEnvelope({
+                ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${rawDeleteId}`,
+                suggestion:
+                  "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
+            }
+            if (deleteMatches.length > 1) {
+              const deleteNamed = deleteMatches
+                .map((t) => `${t.id} "${t.title}"`)
+                .join(", ");
+              const deleteAmbiguousMessage = `Ambiguous task id prefix "${rawDeleteId}" matches ${deleteMatches.length} tasks: ${deleteNamed}`;
+              const deleteAmbiguousSuggestion =
+                "Use the full task id — run 'vibeflow tasks' to see available task IDs.";
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: "E_AMBIGUOUS",
+                  message: deleteAmbiguousMessage,
+                  suggestion: deleteAmbiguousSuggestion,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${deleteAmbiguousMessage}`));
+                console.log(chalk.dim(`  ${deleteAmbiguousSuggestion}`));
+              }
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+            deleteId = deleteMatches[0].id;
+            deleteTitle = deleteMatches[0].title;
+            deleteStatus = deleteMatches[0].status;
+            deleteChildren = getChildren(deleteAll, deleteId).map((t) => ({
+              id: t.id,
+              title: t.title,
+            }));
+          }
+          const deleteChildLines = deleteChildren.map(
+            (c) => `      • ${c.id} ${c.title}`,
+          );
+          // Preview / confirmation gate: without --yes nothing is written.
+          if (!opts.yes) {
+            const deletePreviewMessage = `Would delete task ${deleteId}${deleteTitle ? ` "${deleteTitle}"` : ""}${deleteChildren.length > 0 ? ` — refused: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} that would be left with a dangling parent link` : ""}. Re-run with --yes to delete${deleteChildren.length > 0 ? " (after deleting the children first)" : ""}.`;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "CONFIRM_REQUIRED",
+                message: deletePreviewMessage,
+                suggestion: "Re-run with --yes to delete this task.",
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.yellow("  Would delete task:"));
+              console.log(chalk.dim(`    id:     ${deleteId}`));
+              if (deleteTitle)
+                console.log(chalk.dim(`    title:  ${deleteTitle}`));
+              if (deleteStatus)
+                console.log(chalk.dim(`    status: ${deleteStatus}`));
+              if (deleteChildren.length > 0) {
+                console.log(
+                  chalk.red(
+                    `    ✗ has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} — deleting the parent would leave them with a dangling parent link:`,
+                  ),
+                );
+                for (const line of deleteChildLines)
+                  console.log(chalk.dim(line));
+                console.log(
+                  chalk.dim(
+                    "    Delete the children first (deepest first), then re-run with --yes.",
+                  ),
+                );
+              } else {
+                console.log(
+                  chalk.dim("    Re-run with --yes to delete."),
+                );
+              }
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          // With --yes a parent still refuses: the CLI never orphans
+          // children (no cascade flag exists on either surface).
+          if (deleteChildren.length > 0) {
+            const deleteHasChildrenMessage = `Cannot delete task ${deleteId}: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} (${deleteChildren.map((c) => c.id).join(", ")}) — the CLI never orphans children. Delete the children first (deepest first), then re-run with --yes.`;
+            const deleteHasChildrenSuggestion =
+              "Delete the child tasks first, then delete this parent.";
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "HAS_CHILDREN",
+                message: deleteHasChildrenMessage,
+                suggestion: deleteHasChildrenSuggestion,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${deleteHasChildrenMessage}`));
+              console.log(chalk.dim(`  ${deleteHasChildrenSuggestion}`));
+              for (const line of deleteChildLines)
+                console.log(chalk.dim(line));
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          if (deleteMode === "saas") {
+            const deleted = await deleteSaasTask(deleteId);
+            if (!deleted.ok) {
+              if (deleted.error.code === "TASK_NOT_FOUND") {
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: "TASK_NOT_FOUND",
+                    message: `Task not found: ${deleteId}`,
+                    suggestion:
+                      "Run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(`✗ Task not found: ${deleteId}`),
+                  );
+                }
+                process.exitCode = ExitCode.NOT_FOUND;
+                return;
+              }
+              const deleteServerCode = deleted.error.serverCode;
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...(deleteServerCode
+                    ? {
+                        code: deleteServerCode,
+                        message: deleted.error.message,
+                      }
+                    : {
+                        ...saasFailure(deleted.error),
+                        message: `Failed to delete task: ${deleteId}`,
+                      }),
+                  json: opts.json,
+                });
+              } else if (deleteServerCode) {
+                console.log(chalk.red(`✗ ${deleted.error.message}`));
+              } else {
+                console.log(
+                  chalk.red(`✗ Failed to delete task: ${deleteId}`),
+                );
+                console.log(
+                  chalk.yellow(
+                    "  Ensure you are connected and the task ID exists in the online board.",
+                  ),
+                );
+              }
+              process.exitCode = ExitCode.GENERAL;
+              return;
+            }
+          } else {
+            if (!deleteTask(resolve(dir), deleteId)) {
+              outputEnvelope({
+                ok: false,
+                code: "TASK_NOT_FOUND",
+                message: `Task not found: ${deleteId}`,
+                suggestion:
+                  "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.NOT_FOUND;
+              return;
+            }
+          }
+          if (opts.json) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: { deleted: true, id: deleteId },
+            });
+          } else {
+            console.log(chalk.green(`✓ Task deleted: ${deleteTitle}`));
+            console.log(chalk.dim(`  id: ${deleteId}`));
           }
           return;
         }
@@ -2587,15 +2936,89 @@ program
           if (addMode === "saas") {
             // Online parent links (parity with hosted MCP create_task):
             // the v0 POST body carries `links`, and a parent entry is the
-            // online spelling of the local `--parent` flag. The server
-            // validates the target exists — its refusal code (INVALID_LINKS)
-            // is surfaced verbatim below, the same code the hosted MCP
-            // answers, so both surfaces refuse a dangling parent identically.
-            const addLinks =
-              typeof opts.parent === "string"
-                ? [{ taskId: opts.parent, type: "parent" }]
-                : undefined;
+            // online spelling of the local `--parent` flag. The raw value
+            // is resolved against the online board BEFORE the POST — a
+            // prefix must name the task it means (exact id wins, a unique
+            // prefix resolves, anything else is refused here) so a
+            // user-supplied prefix is never passed through to the server
+            // unresolved. A dangling target is the CLI's own TASK_NOT_FOUND
+            // refusal, not the server's INVALID_LINKS.
+            let addLinks: Array<{ taskId: string; type: string }> | undefined;
             const addWorkspace = await readWorkspace();
+            if (typeof opts.parent === "string") {
+              const addBoard = await fetchSaasTasks(addWorkspace?.id, {
+                hydrate: false,
+              });
+              if (!addBoard.ok) {
+                const addParentReadMessage = saasReadErrorMessage(
+                  addBoard.error,
+                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(addBoard.error),
+                    message: `Unable to resolve parent ${opts.parent} in the online board (${addParentReadMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to resolve parent ${opts.parent} in the online board (${addParentReadMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
+              }
+              const addResolved = resolveSaasTaskId(
+                addBoard.data.tasks,
+                opts.parent,
+              );
+              if (!addResolved.ok) {
+                if (addResolved.code === "TASK_NOT_FOUND") {
+                  const addParentMessage = `Parent task not found: ${opts.parent}`;
+                  if (opts.json) {
+                    outputEnvelope({
+                      ok: false,
+                      code: "TASK_NOT_FOUND",
+                      message: addParentMessage,
+                      suggestion:
+                        "Run 'vibeflow tasks' to see available task IDs.",
+                      json: opts.json,
+                    });
+                  } else {
+                    console.log(chalk.red(`✗ ${addParentMessage}`));
+                    console.log(
+                      chalk.dim(
+                        "  Run 'vibeflow tasks' to see available task IDs.",
+                      ),
+                    );
+                  }
+                  process.exitCode = ExitCode.NOT_FOUND;
+                } else {
+                  if (opts.json) {
+                    outputEnvelope({
+                      ok: false,
+                      code: addResolved.code,
+                      message: addResolved.message,
+                      suggestion:
+                        "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                      json: opts.json,
+                    });
+                  } else {
+                    console.log(chalk.red(`✗ ${addResolved.message}`));
+                    console.log(
+                      chalk.dim(
+                        "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                      ),
+                    );
+                  }
+                  process.exitCode = ExitCode.USAGE;
+                }
+                return;
+              }
+              addLinks = [{ taskId: addResolved.id, type: "parent" }];
+            }
             const validSaasStatuses = [
               "backlog",
               "todo",
@@ -2633,7 +3056,7 @@ program
                 console.log(chalk.dim(`    status: ${dryTask.status}`));
                 if (addLinks)
                   console.log(
-                    chalk.dim(`    parent: ${opts.parent}`),
+                    chalk.dim(`    parent: ${addLinks[0].taskId}`),
                   );
                 if (dryTask.description)
                   console.log(
@@ -3533,19 +3956,26 @@ program
           }
 
           // ── SaaS edit path (online mode) ────────────────────────────────
-          // Online parent links (parity with hosted MCP update_task): the
-          // v0 PATCH `links` replaces the whole set, so the set/replace/clear
-          // is computed here from the task just read (relates/blocks kept,
-          // old parent swapped, never stacked) and sent as `links`.
-          // Validation (exists, not self, no cycle) lives server-side — its
-          // refusal code (INVALID_LINKS) is surfaced verbatim below, the same
-          // code the hosted MCP answers, so both surfaces refuse a dangling
-          // parent identically instead of the CLI pre-validating to a
-          // different code.
-          let saasParentLinks:
-            | Array<{ taskId: string; type: string }>
-            | undefined;
-          if (wantsParentChange && editMode === "saas") {
+          // Online links (parity with hosted MCP update_task): the v0 PATCH
+          // `links` replaces the whole set, so every link-flag change
+          // (--set-parent/--no-parent/--relates/--blocks/--unrelates/
+          // --unblocks) is computed here from the task just read and sent
+          // as one `links` array. Every id-taking flag is resolved against
+          // the online board BEFORE the PATCH — exact id wins, a unique
+          // prefix resolves, anything else is refused here — so a
+          // user-supplied prefix is never passed through unresolved. A
+          // dangling target is the CLI's own TASK_NOT_FOUND refusal (the
+          // same code the local path answers), not the server's
+          // INVALID_LINKS; cycle validation still lives server-side and
+          // its INVALID_LINKS code is surfaced verbatim below.
+          const wantsLinkChange =
+            wantsParentChange ||
+            (opts.relates?.length ?? 0) > 0 ||
+            (opts.blocks?.length ?? 0) > 0 ||
+            (opts.unrelates?.length ?? 0) > 0 ||
+            (opts.unblocks?.length ?? 0) > 0;
+          let saasLinks: Array<{ taskId: string; type: string }> | undefined;
+          if (wantsLinkChange && editMode === "saas") {
             // One detail request for the edited task's current links —
             // never a (hydrated) whole-board fetch. The failure names its
             // status/path; a 404 is the existing TASK_NOT_FOUND below.
@@ -3559,13 +3989,13 @@ program
                   outputEnvelope({
                     ok: false,
                     ...saasFailure(boardTasks.error),
-                    message: `Unable to read task ${taskId} from the online board — the parent change needs its current links (${parentReadMessage}).`,
+                    message: `Unable to read task ${taskId} from the online board — the link change needs its current links (${parentReadMessage}).`,
                     json: opts.json,
                   });
                 } else {
                   console.log(
                     chalk.red(
-                      `✗ Unable to read task ${taskId} from the online board — the parent change needs its current links (${parentReadMessage}).`,
+                      `✗ Unable to read task ${taskId} from the online board — the link change needs its current links (${parentReadMessage}).`,
                     ),
                   );
                 }
@@ -3592,13 +4022,183 @@ program
               process.exitCode = ExitCode.NOT_FOUND;
               return;
             }
-            const kept = (current.links ?? []).filter(
-              (l) => l.type !== "parent",
-            );
-            saasParentLinks =
-              opts.parent === false || opts.setParent === ""
-                ? kept
-                : [...kept, { taskId: opts.setParent ?? "", type: "parent" }];
+            // Resolve every id-taking link flag against the same source
+            // the PATCH writes to. Refusals mirror the local path's
+            // wording and codes (TASK_NOT_FOUND naming the value,
+            // E_AMBIGUOUS naming the candidates, E_USAGE for a self-link).
+            const rawLinkTargets: Array<{ raw: string; flag: string }> = [
+              ...(opts.setParent !== undefined && opts.setParent !== ""
+                ? [{ raw: opts.setParent, flag: "--set-parent" }]
+                : []),
+              ...(opts.relates ?? []).map((raw) => ({
+                raw,
+                flag: "--relates",
+              })),
+              ...(opts.blocks ?? []).map((raw) => ({
+                raw,
+                flag: "--blocks",
+              })),
+              ...(opts.unrelates ?? []).map((raw) => ({
+                raw,
+                flag: "--unrelates",
+              })),
+              ...(opts.unblocks ?? []).map((raw) => ({
+                raw,
+                flag: "--unblocks",
+              })),
+            ];
+            let linkBoard: SaasTask[] | undefined;
+            if (rawLinkTargets.length > 0) {
+              const linkWorkspace = await readWorkspace();
+              const linkBoardResult = await fetchSaasTasks(
+                linkWorkspace?.id,
+                { hydrate: false },
+              );
+              if (!linkBoardResult.ok) {
+                const linkReadMessage = saasReadErrorMessage(
+                  linkBoardResult.error,
+                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(linkBoardResult.error),
+                    message: `Unable to resolve link targets in the online board (${linkReadMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to resolve link targets in the online board (${linkReadMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
+              }
+              linkBoard = linkBoardResult.data.tasks;
+            }
+            const refuseLinkTarget = (
+              code: string,
+              message: string,
+              suggestion: string | undefined,
+            ): null => {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code,
+                  message,
+                  suggestion,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${message}`));
+                if (suggestion) console.log(chalk.dim(`  ${suggestion}`));
+              }
+              process.exitCode =
+                code === "TASK_NOT_FOUND"
+                  ? ExitCode.NOT_FOUND
+                  : ExitCode.USAGE;
+              return null;
+            };
+            const resolveLinkTarget = (
+              raw: string,
+              flag: string,
+            ): string | null => {
+              const resolved = resolveSaasTaskId(linkBoard ?? [], raw);
+              if (resolved.ok) return resolved.id;
+              if (resolved.code === "TASK_NOT_FOUND") {
+                const message =
+                  flag === "--set-parent"
+                    ? `Parent task not found: ${raw}`
+                    : `Task ${raw} not found`;
+                return refuseLinkTarget(
+                  resolved.code,
+                  message,
+                  "Run 'vibeflow tasks' to see available task IDs.",
+                );
+              }
+              return refuseLinkTarget(
+                resolved.code,
+                `${resolved.message} (${flag} ${raw})`,
+                "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+              );
+            };
+            // Merge order mirrors the local path: the parent swap first
+            // (old parent out, new parent appended — never stacked), then
+            // additive relates/blocks (dedupe on taskId+type, self refused),
+            // then subtractive unrelates/unblocks (absent pairs are no-ops).
+            // The v0 PATCH replaces the whole set, so this merged array IS
+            // the new link set — nothing the caller did not name is dropped.
+            let merged = wantsParentChange
+              ? (current.links ?? []).filter((l) => l.type !== "parent")
+              : [...(current.links ?? [])];
+            if (
+              wantsParentChange &&
+              !(opts.parent === false || opts.setParent === "")
+            ) {
+              const parentId = resolveLinkTarget(
+                opts.setParent ?? "",
+                "--set-parent",
+              );
+              if (parentId === null) return;
+              if (parentId === (taskId as string)) {
+                refuseLinkTarget(
+                  "E_USAGE",
+                  "Cannot link a task to itself",
+                  undefined,
+                );
+                return;
+              }
+              merged = [...merged, { taskId: parentId, type: "parent" }];
+            }
+            for (const { raw, flag, type } of [
+              ...(opts.relates ?? []).map((raw) => ({
+                raw,
+                flag: "--relates",
+                type: "relates",
+              })),
+              ...(opts.blocks ?? []).map((raw) => ({
+                raw,
+                flag: "--blocks",
+                type: "blocks",
+              })),
+            ]) {
+              const targetId = resolveLinkTarget(raw, flag);
+              if (targetId === null) return;
+              if (targetId === (taskId as string)) {
+                refuseLinkTarget(
+                  "E_USAGE",
+                  "Cannot link a task to itself",
+                  undefined,
+                );
+                return;
+              }
+              if (
+                !merged.some(
+                  (l) => l.taskId === targetId && l.type === type,
+                )
+              )
+                merged.push({ taskId: targetId, type });
+            }
+            for (const { raw, flag, type } of [
+              ...(opts.unrelates ?? []).map((raw) => ({
+                raw,
+                flag: "--unrelates",
+                type: "relates",
+              })),
+              ...(opts.unblocks ?? []).map((raw) => ({
+                raw,
+                flag: "--unblocks",
+                type: "blocks",
+              })),
+            ]) {
+              const targetId = resolveLinkTarget(raw, flag);
+              if (targetId === null) return;
+              merged = merged.filter(
+                (l) => !(l.taskId === targetId && l.type === type),
+              );
+            }
+            saasLinks = merged;
           }
           if (editMode === "saas") {
             const saasPatch: {
@@ -3613,8 +4213,7 @@ program
             if (opts.title) saasPatch.title = opts.title;
             if (opts.description) saasPatch.description = opts.description;
             if (opts.branch) saasPatch.branchName = opts.branch;
-            if (saasParentLinks !== undefined)
-              saasPatch.links = saasParentLinks;
+            if (saasLinks !== undefined) saasPatch.links = saasLinks;
 
             // ── Agent attestation (--set-verify) ─────────────────────
             // Same tri-state mapping the local path uses (see
@@ -3685,7 +4284,7 @@ program
               if (saasPatch.verified !== undefined)
                 dryUpdates.verified = saasPatch.verified;
               if (saasPatch.links !== undefined)
-                dryUpdates.links = saasParentLinks;
+                dryUpdates.links = saasLinks;
               // A `cannot` verdict also posts the reason as a comment (see
               // the write path below), so the preview names that second
               // write instead of letting --dry-run hide it.

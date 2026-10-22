@@ -15,6 +15,8 @@ import {
   addSaasComment,
   fetchSaasComments,
   createSaasTask,
+  deleteSaasTask,
+  resolveSaasTaskId,
 } from "../../../src/saas/client.js";
 
 const SAMPLE_TASK = {
@@ -1011,5 +1013,123 @@ describe("createSaasTask", () => {
     const result = await createSaasTask({ title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.serverCode).toBeUndefined();
+  });
+});
+
+describe("resolveSaasTaskId — online prefix resolution", () => {
+  const board = [
+    { id: "2e97853ea69e83aafefbfd3b0ebb63", title: "Parent" },
+    { id: "2e97853e000000000000000000000001", title: "Sibling" },
+    { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title: "Other" },
+  ];
+
+  it("uses an exact id as-is, even when it prefixes others", () => {
+    const resolved = resolveSaasTaskId(board, "2e97853ea69e83aafefbfd3b0ebb63");
+    expect(resolved).toEqual({
+      ok: true,
+      id: "2e97853ea69e83aafefbfd3b0ebb63",
+    });
+  });
+
+  it("resolves a unique prefix to the full id", () => {
+    const resolved = resolveSaasTaskId(board, "2e97853ea69e");
+    expect(resolved).toEqual({
+      ok: true,
+      id: "2e97853ea69e83aafefbfd3b0ebb63",
+    });
+  });
+
+  it("refuses an ambiguous prefix, naming every candidate", () => {
+    const resolved = resolveSaasTaskId(board, "2e97853e");
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) {
+      expect(resolved.code).toBe("E_AMBIGUOUS");
+      expect(resolved.message).toContain("2e97853ea69e83aafefbfd3b0ebb63");
+      expect(resolved.message).toContain("2e97853e000000000000000000000001");
+      expect(resolved.candidates).toEqual([
+        "2e97853ea69e83aafefbfd3b0ebb63",
+        "2e97853e000000000000000000000001",
+      ]);
+    }
+  });
+
+  it("refuses an unknown value with TASK_NOT_FOUND, naming the value", () => {
+    const resolved = resolveSaasTaskId(board, "ghost");
+    expect(resolved).toEqual({
+      ok: false,
+      code: "TASK_NOT_FOUND",
+      message: "Task not found: ghost",
+    });
+  });
+
+  it("refuses an empty value with TASK_NOT_FOUND (never matches everything)", () => {
+    const resolved = resolveSaasTaskId(board, "");
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.code).toBe("TASK_NOT_FOUND");
+  });
+});
+
+describe("deleteSaasTask", () => {
+  function mockDelete(response: unknown, ok: boolean, status = 200) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok,
+        status,
+        json: () => Promise.resolve(response),
+      }),
+    );
+  }
+
+  it("sends one DELETE to the task path and resolves the id", async () => {
+    mockDelete({}, true);
+    const result = await deleteSaasTask("abc123");
+    expect(result).toEqual({ ok: true, data: { id: "abc123" } });
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    expect((fetchCall[1] as RequestInit).method).toBe("DELETE");
+    expect(fetchCall[0] as string).toContain("/api/v0/tasks/abc123");
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(1);
+  });
+
+  it("answers TASK_NOT_FOUND on a 404 (deleted between listing and request)", async () => {
+    mockDelete({ error: "Task not found", code: "NOT_FOUND" }, false, 404);
+    const result = await deleteSaasTask("gone");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("TASK_NOT_FOUND");
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it("carries other HTTP refusals with status and path", async () => {
+    mockDelete({ error: "Forbidden", code: "FORBIDDEN" }, false, 403);
+    const result = await deleteSaasTask("abc123");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.status).toBe(403);
+      expect(result.error.serverCode).toBe("FORBIDDEN");
+      expect(result.error.message).toBe("Forbidden");
+    }
+  });
+
+  it("answers NETWORK_ERROR when the request throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("socket hang up")),
+    );
+    const result = await deleteSaasTask("abc123");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
+  });
+
+  it("answers NOT_AUTHENTICATED without a token and sends nothing", async () => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    const result = await deleteSaasTask("abc123");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("NOT_AUTHENTICATED");
+    expect(spy).not.toHaveBeenCalled();
   });
 });

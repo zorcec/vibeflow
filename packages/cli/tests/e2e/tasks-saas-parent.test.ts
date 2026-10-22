@@ -8,15 +8,23 @@
  * `create_task {parent}` / `update_task {parent}` (parity ticket
  * 53c2b790edc71d977ad4250565ddbb, governing contract 831590027ba7d8056c09c39deb4720).
  *
- * The fake backend below emulates the v0 validation the real server does
- * (parent targets must exist; self-links refused) so the refusal-code
- * assertions (INVALID_LINKS, verbatim) prove the CLI surfaces the backend's
- * own code rather than inventing its own.
+ * Id-like flag values are resolved against the online board BEFORE the
+ * write: an exact id is used as-is, a unique prefix resolves to the full
+ * id, an ambiguous prefix is refused naming the candidates, and an unknown
+ * value is refused TASK_NOT_FOUND (the CLI's own code, like the local
+ * path) — none of them ever reach the server unresolved. The fake backend
+ * below emulates the v0 validation the real server does (parent targets
+ * must exist; self-links refused) so the remaining refusal-code assertions
+ * (INVALID_LINKS, verbatim) prove the CLI surfaces the backend's own code
+ * for server-side refusals (e.g. cycles) rather than inventing its own.
  *
  * Non-vacuity proof: with the `links` pass-through removed from
  * `createSaasTask`/`updateSaasTask`, the "honoured" tests fail (no links
  * reach the backend / PATCH body has no links key); with the serverCode
- * mapping removed, the INVALID_LINKS tests fail (E_BACKEND_UNAVAILABLE).
+ * mapping removed, the self-link test fails (E_BACKEND_UNAVAILABLE); with
+ * the pre-write resolution removed, the prefix tests fail (the raw prefix
+ * hits the backend and is refused INVALID_LINKS) and the dangling tests
+ * fail (INVALID_LINKS instead of TASK_NOT_FOUND, and a POST/PATCH is sent).
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -109,6 +117,18 @@ async function startFakeBackend(): Promise<{
       }
       if (/\/api\/v0\/tasks\/[^/]+\/files$/.test(url)) {
         finish(200, { files: [] });
+        return;
+      }
+      // The v0 detail route answers the bare task (never the list envelope)
+      // so the CLI's single-detail reads see the task's current links.
+      const detailMatch = url.match(/^\/api\/v0\/tasks\/([^/?]+)/);
+      if (detailMatch) {
+        const task = tasks.get(decodeURIComponent(detailMatch[1]));
+        if (!task) {
+          finish(404, { error: "Task not found", code: "NOT_FOUND" });
+          return;
+        }
+        finish(200, task);
         return;
       }
       finish(200, { items: [...tasks.values()], nextCursor: null });
@@ -226,10 +246,10 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     ).toBe(true);
   });
 
-  it("--add --parent with a dangling target is refused INVALID_LINKS (the backend code, verbatim)", async () => {
+  it("--add --parent with a dangling target is refused TASK_NOT_FOUND before any POST", async () => {
     const store = freshDir("saas-parent-store-");
     const home = saasHome();
-    const { url } = await startFakeBackend();
+    const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Orphan", "--parent", "ghost", "--json"],
@@ -242,8 +262,52 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
       error: { code: string; message: string };
     };
     expect(envelope.ok).toBe(false);
-    expect(envelope.error.code).toBe("INVALID_LINKS");
+    expect(envelope.error.code).toBe("TASK_NOT_FOUND");
     expect(envelope.error.message).toContain("ghost");
+    // Resolved BEFORE the online request: no POST was attempted.
+    expect(postBodies(requests)).toEqual([]);
+  });
+
+  it("--add --parent resolves a unique prefix to the full id", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "c", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const posts = postBodies(requests);
+    expect(posts).toHaveLength(1);
+    // "c" is a unique prefix of "c1" — the POST carries the full id.
+    expect(posts[0]).toMatchObject({
+      title: "Kid",
+      links: [{ taskId: "c1", type: "parent" }],
+    });
+  });
+
+  it("--add --parent refuses an ambiguous prefix, naming the candidates", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, requests } = await startFakeBackend();
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "p", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).not.toBe(0);
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr) as {
+      ok: boolean;
+      error: { code: string; message: string };
+    };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("E_AMBIGUOUS");
+    // "p" prefixes both p1 and p2 — both candidates are named.
+    expect(envelope.error.message).toContain("p1");
+    expect(envelope.error.message).toContain("p2");
+    expect(postBodies(requests)).toEqual([]);
   });
 
   it("--add --parent --dry-run previews the link and sends no POST", async () => {
@@ -301,7 +365,7 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     expect(tasks.get("c1")!.links).toEqual([{ taskId: "r1", type: "relates" }]);
   });
 
-  it("--set-parent with a dangling target is refused INVALID_LINKS and writes nothing", async () => {
+  it("--set-parent with a dangling target is refused TASK_NOT_FOUND and sends no PATCH", async () => {
     const store = freshDir("saas-parent-store-");
     const home = saasHome();
     const { url, requests, tasks } = await startFakeBackend();
@@ -317,12 +381,101 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
       error: { code: string; message: string };
     };
     expect(envelope.ok).toBe(false);
-    expect(envelope.error.code).toBe("INVALID_LINKS");
-    // The refused PATCH wrote nothing: the old parent still stands.
-    expect(patchBodies(requests, "c1")).toHaveLength(1);
+    expect(envelope.error.code).toBe("TASK_NOT_FOUND");
+    expect(envelope.error.message).toContain("ghost");
+    // Resolved BEFORE the online request: no PATCH was attempted and the
+    // old parent still stands.
+    expect(patchBodies(requests, "c1")).toEqual([]);
     expect(tasks.get("c1")!.links).toEqual([
       { taskId: "p1", type: "parent" },
       { taskId: "r1", type: "relates" },
+    ]);
+  });
+
+  it("--set-parent resolves a unique prefix to the full id", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, tasks } = await startFakeBackend();
+
+    // "p" is ambiguous (p1, p2) but "p2" exact-matches even so.
+    const r = await spawnCli(
+      ["tasks", store, "--edit", "c1", "--set-parent", "p2", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    expect(tasks.get("c1")!.links).toEqual([
+      { taskId: "r1", type: "relates" },
+      { taskId: "p2", type: "parent" },
+    ]);
+  });
+
+  it("--set-parent refuses an ambiguous prefix, naming the candidates", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, requests, tasks } = await startFakeBackend();
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", "c1", "--set-parent", "p", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).not.toBe(0);
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr) as {
+      ok: boolean;
+      error: { code: string; message: string };
+    };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("E_AMBIGUOUS");
+    expect(envelope.error.message).toContain("p1");
+    expect(envelope.error.message).toContain("p2");
+    expect(patchBodies(requests, "c1")).toEqual([]);
+    expect(tasks.get("c1")!.links).toEqual([
+      { taskId: "p1", type: "parent" },
+      { taskId: "r1", type: "relates" },
+    ]);
+  });
+
+  it("--relates resolves a unique prefix and preserves the other links", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, tasks } = await startFakeBackend();
+
+    // p1 already parents c1; adding it as relates is a distinct pair.
+    const r = await spawnCli(
+      ["tasks", store, "--edit", "c1", "--relates", "p", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    // "p" is ambiguous (p1, p2) — refused, nothing written.
+    expect(r.code).not.toBe(0);
+    expect(tasks.get("c1")!.links).toEqual([
+      { taskId: "p1", type: "parent" },
+      { taskId: "r1", type: "relates" },
+    ]);
+
+    const r2 = await spawnCli(
+      ["tasks", store, "--edit", "c1", "--relates", "p2", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r2.code).toBe(0);
+    expect(tasks.get("c1")!.links).toEqual([
+      { taskId: "p1", type: "parent" },
+      { taskId: "r1", type: "relates" },
+      { taskId: "p2", type: "relates" },
+    ]);
+  });
+
+  it("--unrelates removes exactly the named pair and keeps the rest", async () => {
+    const store = freshDir("saas-parent-store-");
+    const home = saasHome();
+    const { url, tasks } = await startFakeBackend();
+
+    const r = await spawnCli(
+      ["tasks", store, "--edit", "c1", "--unrelates", "r1", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    expect(tasks.get("c1")!.links).toEqual([
+      { taskId: "p1", type: "parent" },
     ]);
   });
 

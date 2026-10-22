@@ -492,6 +492,58 @@ export async function fetchSaasTaskDetail(
 }
 
 /**
+ * The online answer to a user-supplied id-like value, resolved against the
+ * board listing the write goes to — the SaaS twin of the local
+ * `resolveTaskId` rule (`matchesIdOrPrefix`): exact id wins first (an exact
+ * id that is also a prefix of others still resolves to itself), then a
+ * unique prefix, then refusal. Ambiguity and unknown values are refusals
+ * with codes the CLI maps to exits — never a silent first-match, so a
+ * link flag can never attach to a task the caller did not name.
+ */
+export type SaasIdResolution =
+  | { ok: true; id: string }
+  | { ok: false; code: "TASK_NOT_FOUND"; message: string }
+  | {
+      ok: false;
+      code: "E_AMBIGUOUS";
+      message: string;
+      candidates: string[];
+    };
+
+export function resolveSaasTaskId(
+  tasks: Array<{ id: string; title?: string | null }>,
+  raw: string,
+): SaasIdResolution {
+  if (raw.length === 0) {
+    return {
+      ok: false,
+      code: "TASK_NOT_FOUND",
+      message: `Task not found: ${raw}`,
+    };
+  }
+  const exact = tasks.find((t) => t.id === raw);
+  if (exact) return { ok: true, id: exact.id };
+  const matches = tasks.filter((t) => t.id.startsWith(raw));
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      code: "TASK_NOT_FOUND",
+      message: `Task not found: ${raw}`,
+    };
+  }
+  if (matches.length === 1) return { ok: true, id: matches[0].id };
+  const named = matches
+    .map((m) => (m.title ? `${m.id} "${m.title}"` : m.id))
+    .join(", ");
+  return {
+    ok: false,
+    code: "E_AMBIGUOUS",
+    message: `Ambiguous task id prefix "${raw}" matches ${matches.length} tasks: ${named}`,
+    candidates: matches.map((m) => m.id),
+  };
+}
+
+/**
  * Fetch a single task from the SaaS by ID.
  * Returns null if not authenticated, not found, or the request fails.
  *
@@ -578,6 +630,79 @@ export async function updateSaasTask(
     const data = (await res.json()) as SaasTask & { warning?: string };
     const { warning, ...task } = data;
     return { ok: true, data: { task, warning } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
+ * Delete a task from the SaaS by its FULL id (callers resolve prefixes
+ * with `resolveSaasTaskId` first — this function never guesses). Exactly
+ * one DELETE request (`DELETE /api/v0/tasks/:id`); the caller checks for
+ * children beforehand and refuses rather than orphaning them, so no
+ * cascade flag is ever sent. A 404 answers `TASK_NOT_FOUND` (deleted
+ * between the listing read and this request); other HTTP refusals carry
+ * status + path, and transport failures the network message.
+ */
+export async function deleteSaasTask(
+  taskId: string,
+): Promise<SaasResult<{ id: string }>> {
+  const headers = await getBearerHeaders();
+  if (!headers)
+    return {
+      ok: false,
+      error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+    };
+
+  const apiUrl = getApiUrl();
+  // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+  const deletePath = surfacePath(
+    "cloud",
+    `/api/cli/tasks/${encodeURIComponent(taskId)}`,
+  );
+  try {
+    const res = await fetch(`${apiUrl}${deletePath}`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          ok: false,
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: `Task not found: ${taskId}`,
+            status: 404,
+            path: deletePath,
+          },
+        };
+      }
+      const errBody = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const serverMessage =
+        typeof errBody.error === "string" ? errBody.error : undefined;
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: serverMessage ?? `HTTP ${res.status}`,
+          status: res.status,
+          path: deletePath,
+          ...(typeof errBody.code === "string" && errBody.code
+            ? { serverCode: errBody.code }
+            : {}),
+        },
+      };
+    }
+    return { ok: true, data: { id: taskId } };
   } catch (err) {
     return {
       ok: false,
