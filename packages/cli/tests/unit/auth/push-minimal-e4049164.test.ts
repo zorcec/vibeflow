@@ -230,10 +230,14 @@ describe("condensed final summary keeps every TRUE number", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const lines = logSpy.mock.calls.map((c) => String(c[0]));
-    // The pushed line carries the TRUE refusal groups on the SAME line …
-    const pushed = lines.filter((l) => l.includes("Pushed 0 task(s) online"));
+    // Wording fix: the result block is its own green line ("Push complete: 0
+    // created, ...") and the TRUE refusal groups ride on a separate yellow
+    // warning line — they used to share the old "Pushed 0 task(s) online"
+    // sentence, which read as if nothing had been attempted.
+    const pushed = lines.filter((l) => l.includes("Push complete: 0 created"));
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]).toContain("0 created, 1 refused: 402 TASK_LIMIT ×1");
+    const refused = lines.filter((l) => l.includes("0 created, 1 refused: 402 TASK_LIMIT ×1"));
+    expect(refused).toHaveLength(1);
     // … and the stop line shares ONE red line with the not-attempted count.
     const stop = lines.filter((l) => l.includes("402") && l.includes("not attempted"));
     expect(stop).toHaveLength(1);

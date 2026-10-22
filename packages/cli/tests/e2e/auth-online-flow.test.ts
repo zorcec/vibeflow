@@ -223,7 +223,9 @@ describe("online auth flow: login → push → create → retrieve in great deta
     // 2. push the seeded local task
     const pushRes = await spawnCliStdin(["push", store, "--keep-local-files"], { cwd: store, home, env });
     expect(pushRes.code).toBe(0);
-    expect(pushRes.stdout).toContain("Pushed 1 task(s) online");
+    // Wording fix: the result block reads "N created" instead of
+    // "Pushed N task(s) online".
+    expect(pushRes.stdout).toContain("Push complete: 1 created");
     expect(pushRes.stdout).not.toContain("SaaS");
 
     // 3. create a ticket online

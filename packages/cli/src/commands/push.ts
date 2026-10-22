@@ -297,6 +297,57 @@ export function formatPushPlanBanner(
   return `  Sending ${tasks} task(s) in ${chunks} ${unit} — legacy path, up to 100 tasks and 50 files per request.`;
 }
 
+/**
+ * One-line push preamble (wording fix, no counting change): how many local
+ * tasks exist, how many the board already holds, and how many will actually
+ * be sent — with the WHY when already-on-board tasks are re-sent.
+ *
+ * WHY a helper: the old preamble printed two parentheticals in one sentence
+ * ("N task(s) to push (M already on the board) (K already on the board and
+ * re-pushed only to sync missing files)") and the two counts contradicted
+ * each other on a lossless server — every existing task is re-sent for
+ * reconciliation, so "already on the board" read 0 while the re-send note
+ * read 1787. `onBoard` here counts what the board HOLDS (independent of what
+ * will be sent). Pure.
+ */
+export function formatPushPreamble(
+  local: number,
+  onBoard: number,
+  toSend: number,
+  resendReason: string | null,
+): string {
+  const reason = resendReason === null ? "" : ` — ${resendReason}`;
+  return `  Push plan: ${local} local task(s), ${onBoard} already on the board, ${toSend} to send${reason}.`;
+}
+
+/**
+ * No-op line: a board that already holds everything must never read as
+ * "Pushed 0" — a zero-create is not a push. Pure.
+ */
+export function formatPushNoop(total: number): string {
+  return `  Nothing to push — board already has all ${total} task(s).`;
+}
+
+/**
+ * Result block, one fact per line (wording fix, same counters the `--json`
+ * envelope carries): created = `imported`, updated = `existing`
+ * (server-matched rows), unchanged = tasks never sent this run, plus the
+ * in-memory file tallies. Refusals travel on their own warning line — they
+ * used to ride inside the green "Pushed N" sentence. Pure.
+ */
+export function formatPushResultLines(args: {
+  created: number;
+  updated: number;
+  unchanged: number;
+  filesUploaded: number;
+  filesSkipped: number;
+}): [summary: string, files: string] {
+  return [
+    `  \u2713 Push complete: ${args.created} created, ${args.updated} updated, ${args.unchanged} unchanged.`,
+    `  Files: ${args.filesUploaded} uploaded, ${args.filesSkipped} skipped (already present).`,
+  ];
+}
+
 export function countTasksMissingCommitAuthorEmail(
   tasks: Array<{ commits?: Array<{ authorEmail?: string; sha?: string }> }>,
 ): number {
@@ -492,18 +543,22 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
 
   const pushTasks =
     onlineIndex !== null ? taskList.filter((t) => needsPush(t.id!)) : taskList;
-  const fileSyncOnly = pushTasks.filter(
-    (t) => onlineIndex !== null && onlineIndex!.has(t.id!),
-  );
-  const alreadyOnBoard = taskList.length - pushTasks.length;
-
-  // Files that would be uploaded this run (push set only). Tasks pulled in
-  // PURELY for a file gap are called out separately so the summary never
-  // reads as "everything is new".
-  const describeFileSync = (): string => {
-    if (fileSyncOnly.length === 0) return "";
-    const n = fileSyncOnly.length;
-    return ` (${n} already on the board and re-pushed only to sync missing files)`;
+  /** Tasks the board already holds (independent of what this run sends). */
+  const isOnBoard = (taskId: string): boolean =>
+    onlineIndex !== null && onlineIndex.has(taskId);
+  const onBoardCount = taskList.filter((t) => isOnBoard(t.id!)).length;
+  // WHY the re-send is happening (wording only — same push set, no new
+  // counting): a task already on the board is re-sent to sync missing files,
+  // or — on a lossless server — to reconcile records an older lossy import
+  // dropped. The old preamble printed both counts as competing
+  // parentheticals ("0 already on the board" next to "1787 already on the
+  // board and re-pushed"), which contradicted itself on every repair run.
+  const resendReasonFor = (tasks: typeof pushTasks): string | null => {
+    const resend = tasks.filter((t) => isOnBoard(t.id!));
+    if (resend.length === 0) return null;
+    if (losslessServer)
+      return `including ${resend.length} re-sent to reconcile records and sync missing files`;
+    return `including ${resend.length} re-sent to sync missing files`;
   };
 
   // Count files that would be uploaded (push set only — already-synced
@@ -520,7 +575,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   if (opts.dryRun) {
     if (onlineIndex !== null) {
       if (pushTasks.length === 0) {
-        console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board, all files synced).`));
+        console.log(chalk.green(formatPushNoop(taskList.length)));
         return {
           dryRun: true,
           tasks: 0,
@@ -531,7 +586,11 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
         };
       }
       // Stryker disable once StringLiteral: display message for dry-run
-      console.log(chalk.cyan(`  Dry run: ${pushTasks.length} task(s) to push (${alreadyOnBoard} already on the board)${describeFileSync()}, ${fileCount} file(s), board: ${boardLabel}`));
+      // Wording fix (ticket: contradictory push counts): one preamble line —
+      // local tasks, board count, what will be sent and why — instead of two
+      // competing parentheticals.
+      const dryReason = resendReasonFor(pushTasks);
+      console.log(chalk.cyan(`  Dry run — push plan: ${taskList.length} local task(s), ${onBoardCount} already on the board, ${pushTasks.length} to send${dryReason === null ? "" : ` — ${dryReason}`}. ${fileCount} file(s), board: ${boardLabel}`));
       return {
         dryRun: true,
         tasks: pushTasks.length,
@@ -600,7 +659,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
     }
   }
   if (onlineIndex !== null && livePushTasks.length === 0) {
-    console.log(chalk.green(`  Everything is already pushed (${taskList.length} tasks on the board, all files synced).`));
+    console.log(chalk.green(formatPushNoop(taskList.length)));
     return {
       dryRun: false,
       tasks: 0,
@@ -610,10 +669,15 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       notices: [{ code: "ALREADY_PUSHED", message: "Everything is already pushed" }],
     };
   }
-  if (onlineIndex !== null) {
-    // Stryker disable once StringLiteral: display message for task count
-    console.log(chalk.cyan(`  ${livePushTasks.length} task(s) to push (${liveAlreadyOnBoard} already on the board)${describeFileSync()}. Pushing online...`));
-  } else {
+  // The preamble prints at transport-decision time (one-by-one below, delta
+  // onPlan, or the multipart fallback) — never here — so the "to send"
+  // count is the exact payload count. Printing the push-set size here and
+  // the archive payload in the banner read as contradictory counts on delta
+  // runs (measured: "1797 to send" vs "Sending 19"). `isOnBoard` closes
+  // over the re-fetched index, so the deferred preamble stays honest after
+  // the login flow. With no board listing there is no on-board count, so the
+  // unknown-board branch keeps its own honest two lines.
+  if (onlineIndex === null) {
     // Stryker disable once StringLiteral: display message for task count
     console.log(chalk.cyan(`  Found ${taskList.length} local task(s). Pushing online...`));
     if (boardListFailed) {
@@ -636,6 +700,29 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // Legacy fallback flag: the links + files phases below run ONLY on
   // the fallback path — the import path carries both in every call.
   let legacyPath = false;
+  let deltaPlanEmpty = false;
+  // An empty delta plan sends nothing at all (early return, chunks 0): the
+  // run IS a no-op even though the push set was non-empty. Tracked
+  // explicitly — `imported === 0` alone also matches a multipart run whose
+  // rows all came back `existing` (a real reconciliation, not a no-op).
+  const liveOnBoardCount =
+    onlineIndex !== null ? taskList.filter((t) => isOnBoard(t.id!)).length : null;
+  /**
+   * Deferred preamble (wording fix): printed at transport-decision time with
+   * the EXACT payload count, so it can never contradict the banner below it.
+   * Unknown board: the branch above already spoke — nothing to add.
+   */
+  const printPushPreamble = (toSend: number, sentIds: string[]): void => {
+    if (liveOnBoardCount === null) return;
+    const resend = sentIds.filter((id) => isOnBoard(id));
+    const reason =
+      resend.length === 0
+        ? null
+        : losslessServer
+          ? `including ${resend.length} re-sent to reconcile records and sync missing files`
+          : `including ${resend.length} re-sent to sync missing files`;
+    console.log(chalk.cyan(formatPushPreamble(taskList.length, liveOnBoardCount, toSend, reason)));
+  };
   try {
     // Minimal push progress (ticket e4049164): one \r line on a TTY
     // (counter + bar + pct + ETA), sparse lines when piped, all on
@@ -673,6 +760,10 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       retryAfter: loop.retryAfter,
     });
     if (probe.supported === false) {
+      printPushPreamble(
+        livePushTasks.length,
+        livePushTasks.map((t) => t.id!),
+      );
       result = toImportResult(
         await createTasksOneByOne(apiUrl, token, workspaceId, records, onProgress, { onWait }),
       );
@@ -728,7 +819,8 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
               // Resolve missing commit emails from the project's own git
               // history — the repo the push is running in, not the CLI's cwd.
               gitCwd: projectDir,
-              onPlan: ({ tasks, chunks }) => {
+              onPlan: ({ tasks, chunks, taskIds }) => {
+                printPushPreamble(tasks, taskIds);
                 console.log(chalk.cyan(formatPushPlanBanner("archive", tasks, chunks)));
               },
             });
@@ -755,6 +847,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
           filesSkippedPresent: delta.filesDropped,
           failedFiles: [],
         };
+        deltaPlanEmpty = delta.imported === 0;
       } else {
         // Delta returns null for two very different reasons; both cost the user
         // the fast path, so neither may be silent.
@@ -772,6 +865,10 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
             probe.preflight.maxTasks >= 1
             ? probe.preflight.maxTasks
             : IMPORT_MAX_TASKS,
+        );
+        printPushPreamble(
+          inputs.length,
+          inputs.map((t) => t.localId),
         );
         console.log(
           chalk.cyan(
@@ -809,16 +906,11 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
     return;
   }
 
-  // Stryker disable once StringLiteral: display message for push success
-  // Condensed summary (ticket e4049164): the pushed line carries the TRUE
-  // refusal groups when any (dec52322 formatter, unchanged — never
-  // "already imported"), and the stop line shares one red line with the
-  // not-attempted count. Every number from dec52322 survives, tighter.
-  const refused =
-    result.skipped > 0 ? ` — ${formatPushRefusalSummary(result)}` : "";
-  const already =
-    result.existing > 0 ? ` (${result.existing} already existed)` : "";
-  console.log(chalk.green(`  ✓ Pushed ${result.imported} task(s) online${already}${refused}`));
+  // Result block placement (wording fix): the summary prints AFTER the file
+  // phases, so the Files line agrees with the phase tallies above — the old
+  // code printed "Pushed N" before the legacy uploader ran, and a legacy
+  // push could report 0 files above its own "Uploaded 5" line. The stop line
+  // stays here (it belongs to the push loop, and it is red either way).
   const stopLine = formatPushStopLine(result);
   if (stopLine !== null) {
     // Stryker disable once StringLiteral: display message for early stop
@@ -835,6 +927,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // every call, so this phase is skipped there — nothing is silently
   // lost either way. Local mode is untouched (cloud push only).
   let filesFailed = 0;
+  let legacyFilesUploaded = 0;
   let legacyLinksApplied = 0;
   let legacyLinksSkipped: Array<{ from: string; to: string; type: string; reason: string }> = [];
   let legacySkippedSummary = "";
@@ -868,7 +961,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       .filter((t) => t.id && idMap[t.id])
       .map((t) => ({ localId: t.id!, remoteId: idMap[t.id!]! }));
 
-    ({ failed: filesFailed } = await uploadPushedFiles(
+    ({ failed: filesFailed, uploaded: legacyFilesUploaded } = await uploadPushedFiles(
       apiUrl,
       token,
       projectDir,
@@ -910,6 +1003,35 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       filesFailed = result.filesFailed ?? 0;
     }
     console.log(chalk.dim(`  Board: ${boardLabel}`));
+  }
+  // Stryker disable once StringLiteral: display message for push success
+  // Result block (wording fix): one fact per line — created / updated /
+  // unchanged / files — instead of the old single "Pushed N (M already
+  // existed)" sentence whose parenthetical read as if M tasks were pushed
+  // too. An empty delta plan sent nothing at all, so it reads as the no-op
+  // (never "0 created"). Refusals ride on their own warning line (yellow,
+  // not green); every number from dec52322 survives. `unchanged` is the
+  // --json `alreadyOnBoard` count; the file tallies are the same in-memory
+  // counters the phase lines above print (legacy uploads finish before this
+  // runs, so they agree).
+  // A skipped-whole task (atomicity) or a legacy upload is never a no-op:
+  // something needed doing. Only an empty delta plan — nothing travelled —
+  // reads as the no-op.
+  if (deltaPlanEmpty) {
+    console.log(chalk.green(formatPushNoop(taskList.length)));
+  } else {
+    const [pushSummaryLine, pushFilesLine] = formatPushResultLines({
+      created: result.imported,
+      updated: result.existing,
+      unchanged: liveAlreadyOnBoard,
+      filesUploaded: legacyPath ? legacyFilesUploaded : (result.filesUploaded ?? 0),
+      filesSkipped: result.filesSkippedPresent ?? 0,
+    });
+    console.log(chalk.green(pushSummaryLine));
+    console.log(chalk.green(pushFilesLine));
+    if (result.skipped > 0) {
+      console.log(chalk.yellow(`  \u26a0 ${formatPushRefusalSummary(result)}`));
+    }
   }
   // Per-task atomicity report (import path only): tasks skipped WHOLE
   // before chunk one — never attempted, never marked pushed. Retryable:

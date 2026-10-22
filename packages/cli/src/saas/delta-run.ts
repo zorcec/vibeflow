@@ -61,8 +61,10 @@ export interface DeltaRunOptions {
    * will travel in how many archives. The caller prints it so the path is
    * visible — a push that silently degrades to the slower transport is exactly
    * the confusion this exists to prevent.
+   * `taskIds` carries WHICH tasks travel, so the caller can word its preamble
+   * with the exact send count (wording only — the plan already exists).
    */
-  onPlan?: (plan: { tasks: number; chunks: number }) => void;
+  onPlan?: (plan: { tasks: number; chunks: number; taskIds: string[] }) => void;
   /** Where to resolve missing `authorEmail`s from git at push time. */
   gitCwd?: string;
   /** Pre-resolved emails (tests, or a caller that already ran the lookup). */
@@ -254,7 +256,7 @@ export async function runDeltaPush(
     };
   }
 
-  opts.onPlan?.({ tasks: plan.tasks.length, chunks: chunks.length });
+  opts.onPlan?.({ tasks: plan.tasks.length, chunks: chunks.length, taskIds: plan.tasks.map((t) => t.id) });
   opts.onProgress?.("delta", 0, chunks.length);
   let sent = 0;
   for (const [index, chunk] of chunks.entries()) {

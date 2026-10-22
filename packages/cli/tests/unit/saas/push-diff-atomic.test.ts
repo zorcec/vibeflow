@@ -210,7 +210,7 @@ describe("partitionImportInputs (per-task atomicity gate)", () => {
 
 describe("importBatchTree atomicity (skipped whole, retried next run)", () => {
   function okFetch() {
-    return vi.fn().mockImplementation((url: unknown, init?: { body?: unknown }) => {
+    return vi.fn().mockImplementation((_url: unknown, init?: { body?: unknown }) => {
       const text = String((init?.body as FormData).get("manifest"));
       const manifest = JSON.parse(text) as { tasks: Array<{ clientId: string }> };
       return Promise.resolve({
@@ -308,7 +308,7 @@ describe("push — diff-based (only unsynced travel)", () => {
   });
 
   function legacyCreateMock() {
-    return vi.fn((url: unknown, init?: { body?: string }) => {
+    return vi.fn((_url: unknown, init?: { body?: string }) => {
       const payload = JSON.parse(init?.body as string) as { id: string };
       return Promise.resolve({
         ok: true,
@@ -343,7 +343,9 @@ describe("push — diff-based (only unsynced travel)", () => {
     expect(inner).toHaveBeenCalledTimes(1);
     expect(JSON.parse(inner.mock.calls[0]?.[1]?.body as string).id).toBe("new-1");
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("1 task(s) to push (1 already on the board)"),
+      // Wording fix: one preamble line (local / on-board / to-send) replaces
+      // the old two-parenthetical sentence whose counts contradicted each other.
+      expect.stringContaining("Push plan: 2 local task(s), 1 already on the board, 1 to send"),
     );
     logSpy.mockRestore();
     // Break: push taskList instead of the diff — inner reads 2 calls.
@@ -367,7 +369,8 @@ describe("push — diff-based (only unsynced travel)", () => {
     };
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed (1 tasks on the board, all files synced)."),
+      // Wording fix: a no-op never reads "Pushed 0" — it names what happened.
+      expect.stringContaining("Nothing to push — board already has all 1 task(s)."),
     );
     expect(inner).not.toHaveBeenCalled();
     // Two read-only calls now: the diff listing AND the capability probe. The
@@ -455,7 +458,9 @@ describe("push — diff-based (only unsynced travel)", () => {
     // The task is already on the board, but only a re-send can repair the
     // comments/commits/links an older lossy import dropped.
     expect(created).toEqual(["synced-1"]);
-    expect(logSpy.mock.calls.flat().join("\n")).not.toContain("Everything is already pushed");
+    // Wording fix: the no-op line is now "Nothing to push ...", so a repair
+    // run must not contain that sentence.
+    expect(logSpy.mock.calls.flat().join("\n")).not.toContain("Nothing to push");
     expect(existsSync(filePath)).toBe(true);
     logSpy.mockRestore();
   });
@@ -481,10 +486,14 @@ describe("push — diff-based (only unsynced travel)", () => {
     await push(projectDir, { dryRun: true });
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("1 task(s) to push"),
+      // Wording fix: the preamble now says "N to send" instead of
+      // "N task(s) to push (...)".
+      expect.stringContaining("1 to send"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("re-pushed only to sync missing files"),
+      // Wording fix: the re-send reason keeps its meaning ("to sync missing
+      // files") without the second contradictory parenthetical.
+      expect.stringContaining("to sync missing files"),
     );
     logSpy.mockRestore();
     // Break: drop the fileCount comparison -> diff is empty and the line
@@ -508,7 +517,8 @@ describe("push — diff-based (only unsynced travel)", () => {
     await push(projectDir, { dryRun: true });
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed"),
+      // Wording fix: the no-op line is now "Nothing to push ...".
+      expect.stringContaining("Nothing to push"),
     );
     logSpy.mockRestore();
   });
@@ -528,7 +538,8 @@ describe("push — diff-based (only unsynced travel)", () => {
     await push(projectDir, { dryRun: true });
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed"),
+      // Wording fix: the no-op line is now "Nothing to push ...".
+      expect.stringContaining("Nothing to push"),
     );
     logSpy.mockRestore();
     // Break: use "!= " instead of ">" and this test goes red forever.
@@ -597,15 +608,19 @@ describe("push — diff-based (only unsynced travel)", () => {
     };
 
     expect(logSpy).toHaveBeenCalledWith(
+      // Wording fix: one dry-run preamble line (local / on-board / to-send)
+      // replaces the old two-parenthetical sentence.
       expect.stringContaining(
-        "Dry run: 1 task(s) to push (1 already on the board)",
+        "Dry run — push plan: 2 local task(s), 1 already on the board, 1 to send",
       ),
     );
     expect(result.tasks).toBe(1);
     logSpy.mockRestore();
   });
 
-  it("dry-run with an empty diff reports everything-pushed", async () => {
+  // Wording fix: the no-op is now named for what it is ("Nothing to push"),
+  // not for the old "Everything is already pushed" sentence.
+  it("dry-run with an empty diff reports a clean no-op", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, taskRecord("synced-1"));
     vi.stubGlobal(
@@ -619,7 +634,9 @@ describe("push — diff-based (only unsynced travel)", () => {
     await push(projectDir, { dryRun: true });
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Everything is already pushed (1 tasks on the board, all files synced)."),
+      // Wording fix: the no-op line is now "Nothing to push ..." — a
+      // zero-create is not a push, so it never reads "Pushed 0".
+      expect.stringContaining("Nothing to push — board already has all 1 task(s)."),
     );
     logSpy.mockRestore();
   });

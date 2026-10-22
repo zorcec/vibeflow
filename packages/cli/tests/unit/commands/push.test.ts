@@ -316,7 +316,9 @@ describe("push — import API interaction", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Pushed 1 task"),
+      // Wording fix: the result block reads "N created" instead of
+      // "Pushed N task(s) online" (which also swallowed the refusal detail).
+      expect.stringContaining("Push complete: 1 created"),
     );
     consoleSpy.mockRestore();
   });
@@ -1429,7 +1431,9 @@ describe("push — tree-import path (bulk-429)", () => {
     expect(manifest.tasks).toHaveLength(2);
     expect(manifest.boardId).toBe("ws-1");
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Pushed 2 task"),
+      // Wording fix: the result block reads "N created" instead of
+      // "Pushed N task(s) online".
+      expect.stringContaining("Push complete: 2 created"),
     );
     // Checkpoint cleared on success — no residue in the project.
     expect(
@@ -1478,7 +1482,9 @@ describe("push — tree-import path (bulk-429)", () => {
     expect(urls[0]).toContain("/api/v0/tasks");
     expect(urls.slice(1).every((u) => u.endsWith("/api/v0/tasks"))).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Pushed 1 task"),
+      // Wording fix: the result block reads "N created" instead of
+      // "Pushed N task(s) online".
+      expect.stringContaining("Push complete: 1 created"),
     );
     consoleSpy.mockRestore();
   });

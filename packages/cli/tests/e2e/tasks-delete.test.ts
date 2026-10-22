@@ -641,6 +641,8 @@ describe("tasks --delete in SaaS mode", () => {
       ["push", store, "--board", "board-1", "--dry-run"],
       { cwd: store, home, env },
     );
-    expect(pushed.stdout).toContain("Everything is already pushed");
+    // Wording fix: the no-op line is now "Nothing to push ..." — a
+    // zero-create is not a push, so it never reads "Pushed 0".
+    expect(pushed.stdout).toContain("Nothing to push");
   });
 });
