@@ -26,6 +26,7 @@ import {
   diffTaskFields,
   verifyFoldedIntoStatusMove,
   filterTasksByQuery,
+  matchesTaskTypeFilter,
   useDebouncedValue,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
@@ -1642,8 +1643,13 @@ function BoardApp() {
     if (filterState.component) {
       result = result.filter((t) => t.component === filterState.component);
     }
+    // Ticket zbew735s: match on the CANONICAL type so tasks stored under a
+    // legacy alias (Feature/Enhancement → Task) stay findable under their
+    // canonical type's filter instead of being silently hidden.
     if (filterState.type) {
-      result = result.filter((t) => t.type === filterState.type);
+      result = result.filter((t) =>
+        matchesTaskTypeFilter(t.type, filterState.type),
+      );
     }
     if (filterState.user) {
       result = result.filter((t) => t.author === filterState.user);

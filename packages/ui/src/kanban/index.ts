@@ -131,6 +131,15 @@ export { AutoExpandTextarea } from "./components/shared/AutoExpandTextarea";
 export { MarkdownPreview } from "./components/shared/MarkdownPreview";
 export type { TaskHoverInfo } from "../MarkdownPreview";
 export { TypePicker } from "./components/shared/TypePicker";
+// Canonical type-filter vocabulary (ticket zbew735s) — the filter offers the
+// three options from this ONE constant; legacy aliases map via
+// `canonicalTaskType` / `matchesTaskTypeFilter` so old values stay findable.
+export {
+  TASK_TYPE_FILTER_OPTIONS,
+  LEGACY_TASK_TYPE_MAP,
+  canonicalTaskType,
+  matchesTaskTypeFilter,
+} from "../task-types";
 export { TagPills } from "./components/shared/TagPills";
 export { TagInput } from "./components/shared/TagInput";
 export { getTagColors } from "./tag-colors";

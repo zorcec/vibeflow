@@ -1,6 +1,7 @@
 import React from 'react';
 import { LayoutDashboard, List, Rows3, Tag, ChevronDown, X, User } from 'lucide-react';
 import type { Task, TaskStatus, TaskType } from '../types';
+import { TASK_TYPE_FILTER_OPTIONS } from '../../task-types';
 import { getTagColors } from '../tag-colors';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -105,10 +106,12 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
     }
   }
 
-  const types = React.useMemo(() =>
-    [...new Set(tasks.map(t => t.type).filter(Boolean) as string[])].sort() as TaskType[],
-    [tasks],
-  );
+  // Ticket zbew735s: the product has exactly three types — the filter offers
+  // the canonical three from the ONE exported constant (never data-derived),
+  // with a friendly label per type. Tasks stored under a legacy alias
+  // (Feature/Enhancement → Task) match via `matchesTaskTypeFilter` at the
+  // filtering call sites, so they stay findable instead of being hidden.
+  const types = TASK_TYPE_FILTER_OPTIONS;
 
   const authors = React.useMemo(() =>
     [...new Set(tasks.map(t => t.author).filter(Boolean) as string[])].sort(),
@@ -361,12 +364,12 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
               >All types</button>
               {types.map(t => (
                 <button
-                  key={t}
-                  style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.type === t ? 'var(--t-cyan-soft)' : 'var(--t-text-muted)', background: filter.type === t ? 'color-mix(in srgb, var(--t-accent) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
-                  onMouseOver={e => { if (filter.type !== t) e.currentTarget.style.background = 'var(--t-hover)'; }}
-                  onMouseOut={e => { if (filter.type !== t) e.currentTarget.style.background = 'none'; }}
-                  onClick={() => setType(t)}
-                >{t}</button>
+                  key={t.value}
+                  style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.type === t.value ? 'var(--t-cyan-soft)' : 'var(--t-text-muted)', background: filter.type === t.value ? 'color-mix(in srgb, var(--t-accent) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
+                  onMouseOver={e => { if (filter.type !== t.value) e.currentTarget.style.background = 'var(--t-hover)'; }}
+                  onMouseOut={e => { if (filter.type !== t.value) e.currentTarget.style.background = 'none'; }}
+                  onClick={() => setType(t.value)}
+                >{t.label}</button>
               ))}
             </div>
           )}
