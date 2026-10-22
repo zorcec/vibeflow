@@ -26,6 +26,8 @@
  *   writes nothing — the store stays byte-identical.
  */
 
+import { taskReadNotices } from "../core/task-record-read.js";
+import { planTaskStoreNormalize } from "../core/tasks.js";
 import chalk from "chalk";
 import { resolve } from "node:path";
 import { readToken } from "../auth/token.js";
@@ -344,7 +346,18 @@ export async function pull(
   const line = dryRun
     ? `  Dry run: would pull ${formatPullSummary(summary)} (nothing written).`
     : `  ✓ Pulled ${formatPullSummary(summary)}.`;
+  // Ticket 74d9c46f: a quarantined local record is skipped by the merge
+  // above (its slot keeps its bytes, counted as unchanged+conflict) — that
+  // skip must be LOUD, not silent. ONE warning per run: the count and the
+  // first reason, never one line per file. Shared shape with list/push
+  // (taskReadNotices), on stderr in every mode so --json cannot swallow it,
+  // and in the --json envelope + result notices. A warning is not a failure:
+  // the exit code stays 0 on a successful run.
+  const recordNotices = taskReadNotices(
+    planTaskStoreNormalize(targetDir).quarantined,
+  );
   if (opts.silent !== true) {
+    for (const notice of recordNotices) console.error(notice.message);
     if (opts.json) {
       console.log(
         JSON.stringify({
@@ -360,6 +373,7 @@ export async function pull(
           filesSkipped: summary.filesSkipped,
           missingBytes: summary.missingBytes,
           board: boardLabel,
+          ...(recordNotices.length > 0 ? { notices: recordNotices } : {}),
         }),
       );
     } else {
@@ -385,6 +399,7 @@ export async function pull(
   const notices: OperationNotice[] = dryRun
     ? [{ code: "DRY_RUN", message: "No changes were made" }]
     : [{ code: "PULL_COMPLETED", message: "Pull completed" }];
+  notices.push(...recordNotices);
   void projectDir;
   return {
     dryRun,

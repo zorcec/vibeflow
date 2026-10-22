@@ -2,7 +2,7 @@ import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.
 import chalk from "chalk";
 import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { prepareTaskRecordsForPush } from "../core/tasks.js";
+import { planTaskStoreNormalize, prepareTaskRecordsForPush } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { readToken } from "../auth/token.js";
 import { readWorkspace } from "../auth/workspace.js";
@@ -1256,7 +1256,11 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // --json (ticket dec52322): the FULL refusal/link detail travels here —
   // stdout stays a machine-readable envelope while the human lines above
   // stay truncated. Printed even without refusals so scripts can rely on it.
+  // Ticket 74d9c46f: record diagnostics ride along too, so a warning is
+  // never lost under --json (stderr stays human-only here; the envelope
+  // carries the same notices the result returns). Absent when clean.
   if (opts.json === true) {
+    const recordNotices = taskReadNotices(reads);
     console.log(JSON.stringify({
       imported: result.imported,
       existing: result.existing,
@@ -1273,6 +1277,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       linksSkipped: legacyPath ? legacyLinksSkipped : (result.failedLinks ?? []),
       skippedTasks,
       tasksMissingCommitAuthorEmail,
+      ...(recordNotices.length > 0 ? { notices: recordNotices } : {}),
     }));
   }
   // `tasks` is the push count (ticket dec52322 reported `deleted` here, so a
@@ -1282,12 +1287,33 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
 }
 
 
-/** Keep record diagnostics on every success path, including a zero-task push. */
+/** Keep record diagnostics on every success path, including a zero-task push.
+ *
+ * Ticket 74d9c46f: the preflight abort below is already loud (it names the
+ * task id and reason), but it threw without a store-wide warning — with N
+ * quarantined records the run died on the first and said nothing about the
+ * rest. So the abort now ALSO emits the ONE quarantine warning (count +
+ * first reason, never one line per file) before the error propagates. The
+ * exit code is unchanged: an aborted push still fails, a warned-and-
+ * successful run still succeeds.
+ */
 export async function push(dir: string, opts: Parameters<typeof pushImpl>[2]): Promise<PushResult | void> {
   const reads: TaskReadFinding[] = [];
-  const result = await pushImpl(dir, reads, opts);
-  const notices = taskReadNotices(reads);
-  if (!opts.json) for (const notice of notices) console.error(notice.message);
-  if (result) result.notices.push(...notices);
-  return result;
+  try {
+    const result = await pushImpl(dir, reads, opts);
+    const notices = taskReadNotices(reads);
+    if (!opts.json) for (const notice of notices) console.error(notice.message);
+    if (result) result.notices.push(...notices);
+    return result;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("push preflight failed")) {
+      try {
+        const quarantined = planTaskStoreNormalize(resolve(dir)).quarantined;
+        for (const notice of taskReadNotices(quarantined)) console.error(notice.message);
+      } catch {
+        /* the warning is best-effort; the original error is the verdict */
+      }
+    }
+    throw err;
+  }
 }
