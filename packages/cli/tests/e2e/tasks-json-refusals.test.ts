@@ -622,6 +622,36 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     );
   });
 
+  it("E_BACKEND_UNAVAILABLE — --add against a host that answers 502 HTML names status, path and head", async () => {
+    // Ticket 5094958f: a proxy 502 HTML page used to collapse into the
+    // same bare "Failed to create task in online board." as a dead host
+    // — the status was discarded wherever the body lacked a code. A
+    // future occurrence must name the status, the path and the first
+    // bytes on the CLI side.
+    const store = freshDir("json-refusal-saas-store-");
+    const home = saasHome();
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(502, { "Content-Type": "text/html" });
+      res.end("<html><body>Bad Gateway</body></html>");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const { port } = server.address() as { port: number };
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "Online task", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: `http://127.0.0.1:${port}` } },
+    );
+    const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
+      retryable: false,
+    });
+    expect(envelope.error.message).toContain("HTTP 502");
+    expect(envelope.error.message).toContain("/api/v0/tasks");
+    expect(envelope.error.message).toContain("<html>");
+  });
+
   it("E_BACKEND_UNAVAILABLE — --edit against an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
     const home = freshDir("json-refusal-home-");

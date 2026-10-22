@@ -3359,6 +3359,26 @@ program
               // refuse identically instead of hiding behind
               // E_BACKEND_UNAVAILABLE ("retry" would never fix it).
               const createServerCode = saasCreated.error.serverCode;
+              // Ticket 5094958f: the generic branch used to discard the
+              // HTTP status (and any non-JSON body head) — a proxy 502 HTML
+              // page or an empty body surfaced as a bare "Failed to create"
+              // with nothing to diagnose. Name status + path + head here;
+              // a true transport failure (no status) keeps the old message
+              // and the connection hint verbatim.
+              const createErr = saasCreated.error;
+              const createWhere =
+                typeof createErr.status === "number"
+                  ? `HTTP ${createErr.status}${createErr.path ? ` ${createErr.path}` : ""}`
+                  : null;
+              const createHead =
+                typeof createErr.bodyHead === "string" &&
+                createErr.bodyHead.length > 0
+                  ? ` — response head: ${createErr.bodyHead}`
+                  : "";
+              const createGenericMessage =
+                createWhere !== null
+                  ? `Failed to create task in online board (${createWhere}${createHead}).`
+                  : "Failed to create task in online board.";
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
@@ -3369,21 +3389,21 @@ program
                       }
                     : {
                         ...saasFailure(saasCreated.error),
-                        message: "Failed to create task in online board.",
+                        message: createGenericMessage,
                       }),
                   json: opts.json,
                 });
               } else if (createServerCode) {
                 console.log(chalk.red(`✗ ${saasCreated.error.message}`));
               } else {
-                console.log(
-                  chalk.red("✗ Failed to create task in online board."),
-                );
-                console.log(
-                  chalk.yellow(
-                    "  Check your connection or run 'vibeflow login'.",
-                  ),
-                );
+                console.log(chalk.red(`✗ ${createGenericMessage}`));
+                if (createWhere === null) {
+                  console.log(
+                    chalk.yellow(
+                      "  Check your connection or run 'vibeflow login'.",
+                    ),
+                  );
+                }
               }
               process.exitCode = ExitCode.GENERAL;
               return;

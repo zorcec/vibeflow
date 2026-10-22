@@ -29,6 +29,14 @@ export type SaasResult<T> =
          * fall back to the mapped `code` (E_BACKEND_UNAVAILABLE, ...).
          */
         serverCode?: string;
+        /**
+         * First bytes of a response body that was NOT valid JSON (a proxy
+         * 502 HTML page, an empty body, truncated bytes). Carried so the
+         * presentation layer can name what the server actually sent —
+         * status, path AND head — instead of a bare parse failure
+         * (ticket 5094958f). Absent whenever the body parsed as JSON.
+         */
+        bodyHead?: string;
       };
     };
 
@@ -993,6 +1001,58 @@ export async function fetchSaasComments(
 }
 
 /**
+ * First bytes of a response body kept for diagnosis (ticket 5094958f).
+ * Long enough to distinguish `<html…` (proxy error page) from a
+ * truncated `{"title…` or an empty body, short enough for a log line.
+ */
+export const NON_JSON_BODY_HEAD_CHARS = 200;
+
+/** What `readResponseBody` recovers from one HTTP response. */
+interface ParsedResponseBody {
+  parsed?: Record<string, unknown>;
+  /** Raw head when the body was not valid JSON (or the read failed). */
+  bodyHead?: string;
+  contentType?: string | null;
+}
+
+/**
+ * Read a response as TEXT first, then interpret (ticket 5094958f).
+ *
+ * `res.json()` on a proxy 502 HTML page (or an empty/truncated body)
+ * throws a bare SyntaxError that used to be swallowed into `{}` on the
+ * error path — the create then reported a generic failure with the HTTP
+ * status discarded — or escaped as NETWORK_ERROR on the success path,
+ * mislabelling a server-shaped reply as "the network failed".
+ * Text-first keeps the status AND the first bytes, so a future
+ * occurrence names status, content-type and head on both paths.
+ */
+async function readResponseBody(res: Response): Promise<ParsedResponseBody> {
+  const contentType =
+    typeof res.headers?.get === "function"
+      ? res.headers.get("content-type")
+      : null;
+  let text: string;
+  try {
+    text = await res.text();
+  } catch {
+    return { contentType };
+  }
+  if (text.trim() === "") return { contentType };
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed === "object" && parsed !== null) {
+      return { parsed: parsed as Record<string, unknown>, contentType };
+    }
+    return { contentType };
+  } catch {
+    return {
+      bodyHead: text.slice(0, NON_JSON_BODY_HEAD_CHARS),
+      contentType,
+    };
+  }
+}
+
+/**
  * Create a new task in the SaaS.
  * Returns the created task or null on failure / not authenticated.
  */
@@ -1019,21 +1079,22 @@ export async function createSaasTask(params: {
       error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
     };
 
+  // The route (no query string) is reported on HTTP failures so the
+  // message names the actual failure — status + path, not a catch-all.
+  const createPath = surfacePath("cloud", "/api/cli/tasks");
   try {
     // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
-    const res = await fetch(`${getApiUrl()}${surfacePath("cloud", "/api/cli/tasks")}`, {
+    const res = await fetch(`${getApiUrl()}${createPath}`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
     if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
+      const errBody = await readResponseBody(res);
+      const parsed = errBody.parsed ?? {};
       const msg =
-        typeof errBody.error === "string"
-          ? errBody.error
+        typeof parsed.error === "string"
+          ? parsed.error
           : `HTTP ${res.status}`;
       return {
         ok: false,
@@ -1041,8 +1102,12 @@ export async function createSaasTask(params: {
           code: "HTTP_ERROR",
           message: msg,
           status: res.status,
-          ...(typeof errBody.code === "string" && errBody.code
-            ? { serverCode: errBody.code }
+          path: createPath,
+          ...(typeof parsed.code === "string" && parsed.code
+            ? { serverCode: parsed.code }
+            : {}),
+          ...(errBody.bodyHead !== undefined
+            ? { bodyHead: errBody.bodyHead }
             : {}),
         },
       };
@@ -1050,8 +1115,25 @@ export async function createSaasTask(params: {
     // v0 answers the created task (contract Task), status 201 — newer
     // servers carry the accepted raw on an explicit `record` member alongside
     // the view (ticket 4efaa878: the clone persists that member verbatim).
-    const data = (await res.json()) as SaasTask;
-    return { ok: true, data };
+    // Text-first (ticket 5094958f): a 201 with an unparseable body
+    // (truncated/proxied bytes) is an HTTP-shaped failure — status + path
+    // + head — never a bare SyntaxError escaping as NETWORK_ERROR.
+    const raw = await readResponseBody(res);
+    if (raw.parsed === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: `HTTP ${res.status}`,
+          status: res.status,
+          path: createPath,
+          ...(raw.bodyHead !== undefined
+            ? { bodyHead: raw.bodyHead }
+            : {}),
+        },
+      };
+    }
+    return { ok: true, data: raw.parsed as unknown as SaasTask };
   } catch (err) {
     return {
       ok: false,

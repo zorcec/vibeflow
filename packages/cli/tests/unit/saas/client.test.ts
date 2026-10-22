@@ -51,11 +51,19 @@ const SAMPLE_COMMENT = {
 };
 
 function mockFetch(response: unknown, ok = true) {
+  // The client reads bodies text-first (ticket 5094958f: a proxy 502 HTML
+  // page must surface status + head, never a bare `res.json()` throw),
+  // so the fake answers both spellings from the same payload.
+  const text =
+    typeof response === "string" ? response : JSON.stringify(response);
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
       ok,
-      json: () => Promise.resolve(response),
+      status: ok ? 200 : 500,
+      headers: { get: () => "application/json" },
+      text: () => Promise.resolve(text),
+      json: () => Promise.resolve(JSON.parse(text)),
     }),
   );
 }
@@ -1030,6 +1038,82 @@ describe("createSaasTask", () => {
     const result = await createSaasTask({ title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.serverCode).toBeUndefined();
+  });
+
+  // Ticket 5094958f: a proxy 502 HTML page (or any non-JSON error body)
+  // used to collapse into `{}` and a generic failure with the status
+  // discarded. The error must name status + path + the body's head.
+  it("names status, path and body head on a non-JSON error response", async () => {
+    const html = "<html><body>Bad Gateway</body></html>";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        headers: { get: () => "text/html" },
+        text: () => Promise.resolve(html),
+        json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+      }),
+    );
+    const result = await createSaasTask({ title: "New Task" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.status).toBe(502);
+      expect(result.error.path).toBe("/api/v0/tasks");
+      expect(result.error.bodyHead).toBe(html);
+      expect(result.error.serverCode).toBeUndefined();
+    }
+  });
+
+  it("names an empty error body as HTTP status + path (no bare parse error)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        headers: { get: () => "text/html" },
+        text: () => Promise.resolve(""),
+        json: () =>
+          Promise.reject(new SyntaxError("Unexpected end of JSON input")),
+      }),
+    );
+    const result = await createSaasTask({ title: "New Task" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.status).toBe(413);
+      expect(result.error.path).toBe("/api/v0/tasks");
+      expect(result.error.message).toBe("HTTP 413");
+      expect(result.error.bodyHead).toBeUndefined();
+    }
+  });
+
+  it("reports a 201 with an unparseable body as HTTP_ERROR, not NETWORK_ERROR", async () => {
+    const truncated = '{"id": "task-1", "title": "Test';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(truncated),
+        json: () =>
+          Promise.reject(
+            new SyntaxError(
+              "Unterminated string in JSON at position 30",
+            ),
+          ),
+      }),
+    );
+    const result = await createSaasTask({ title: "New Task" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("HTTP_ERROR");
+      expect(result.error.status).toBe(201);
+      expect(result.error.path).toBe("/api/v0/tasks");
+      expect(result.error.bodyHead).toBe(truncated);
+    }
   });
 });
 
