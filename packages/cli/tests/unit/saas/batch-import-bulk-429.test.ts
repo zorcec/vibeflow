@@ -373,6 +373,20 @@ describe("importBatchTree chunking + honesty (ticket bulk-429)", () => {
     expect(JSON.parse(text)).toMatchObject({ boardId: "board-9" });
   });
 
+  it("boardId travels in the scope header (flag flows have no saved workspace)", async () => {
+    // Ticket 605e503c: postImportChunk built the header from the saved
+    // workspace peek, so `push --board <id>` without a prior login sent
+    // unscoped POSTs and a multi-board account answered 422
+    // SCOPE_REQUIRED for every task and file. The manifest boardId is not
+    // enough — the server scopes on the header.
+    const { mock } = chunkSpy();
+    vi.stubGlobal("fetch", mock);
+    await importBatchTree("https://x.test", "tok", "board-9", inputs(2), { pacingDelayMs: 0 });
+    expect(mock).toHaveBeenCalledTimes(1);
+    const headers = (mock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
+    expect(headers["X-Vibeflow-Scope"]).toBe("board-9");
+  });
+
   it("server existing matches fill the idMap but count separately", async () => {
     vi.stubGlobal(
       "fetch",

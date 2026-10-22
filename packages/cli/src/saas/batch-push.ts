@@ -37,7 +37,7 @@ import { PROTO_DIR } from "../core/types.js";
 import { pushRefusalCode, resolve429WaitMs, PUSH_429_MAX_RESUMES, type Push429ResumeOptions } from "../auth/login.js";
 import { maybeCompressForUpload } from "./compression.js";
 import type { PushLoopResult, PushRefusalGroup } from "../auth/login.js";
-import { scopeHeaderFor, scopeHeadersFromSaved } from "../auth/board-scope.js";
+import { scopeHeaderFor } from "../auth/board-scope.js";
 
 /**
  * Max tasks per `POST /api/v0/tasks/import` (ticket bulk-429).
@@ -1029,7 +1029,12 @@ async function postImportChunk(
     try {
       res = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, ...(await scopeHeadersFromSaved()) },
+        // The resolved board scopes this POST (ticket 605e503c): the saved
+        // workspace peek is empty in `--board` flows without a prior login
+        // (CI, throwaway HOME), and an unscoped POST answers 422
+        // SCOPE_REQUIRED on a multi-board account — which is every account
+        // the moment the demo/second board exists.
+        headers: { Authorization: `Bearer ${token}`, ...scopeHeaders(boardId) },
         body: form,
         signal: AbortSignal.timeout(IMPORT_CHUNK_TIMEOUT_MS),
       });

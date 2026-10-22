@@ -19,7 +19,7 @@ import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
-import { scopeHeadersFromSaved } from "../auth/board-scope.js";
+import { scopeHeaderFor, scopeHeadersFromSaved } from "../auth/board-scope.js";
 
 type ImportResult = {
   imported: number;
@@ -75,6 +75,7 @@ export async function uploadTaskFiles(
   token: string,
   projectDir: string,
   taskMappings: PushedFileMapping[],
+  boardId?: string,
 ): Promise<{ uploaded: number; failed: number; failedFiles: Array<{ name: string; reason: string }> }> {
   const allJobs: Array<{ remoteId: string; name: string; filePath: string; size: number; system: boolean }> = [];
 
@@ -133,7 +134,11 @@ export async function uploadTaskFiles(
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            ...(await scopeHeadersFromSaved()),
+            // The resolved board scopes this upload (ticket 605e503c):
+            // `--board` flows without a prior login have no saved
+            // workspace, so the peek fallback only serves callers that pass
+            // no board (legacy behaviour, unchanged for them).
+            ...(boardId !== undefined ? scopeHeaderFor(boardId) : await scopeHeadersFromSaved()),
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
             ...(job.system ? { "x-file-system": "1" } : {}),
@@ -222,6 +227,7 @@ export async function uploadPushedFiles(
   token: string,
   projectDir: string,
   taskMappings: PushedFileMapping[],
+  boardId?: string,
 ): Promise<{
   uploaded: number;
   failed: number;
@@ -234,6 +240,7 @@ export async function uploadPushedFiles(
     token,
     projectDir,
     taskMappings,
+    boardId,
   );
   if (uploaded > 0)
     console.log(chalk.green(`  ✓ Uploaded ${uploaded} file(s) to storage`));
@@ -869,7 +876,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
         workspaceId === undefined
           ? null
           : await runDeltaPush(apiUrl, token, workspaceId, inputs, {
-              headers: await scopeHeadersFromSaved(),
+              headers: scopeHeaderFor(workspaceId),
               // Resolve missing commit emails from the project's own git
               // history — the repo the push is running in, not the CLI's cwd.
               gitCwd: projectDir,
@@ -991,7 +998,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
     // filePath string — each entry spreads as a plain record, so the cast is
     // representation-preserving (same invariant as the phase-1 loop above).
     const linkRecords = livePushTasks as unknown as Array<Record<string, unknown>>;
-    const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {});
+    const linkResult = await applyPushLinks(apiUrl, token, linkRecords, result.idMap ?? {}, workspaceId);
     legacyLinksApplied = linkResult.applied;
     legacyLinksSkipped = linkResult.skipped;
     if (linkResult.applied > 0) {
@@ -1021,6 +1028,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       token,
       projectDir,
       taskMappings,
+      workspaceId,
     ));
   } else {
     // Tree-import tallies (ticket bulk-429): links + files rode every

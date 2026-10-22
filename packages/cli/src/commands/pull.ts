@@ -37,7 +37,7 @@ import {
   printBoardScopeRequired,
   resolveBoardScope,
 } from "../auth/board-scope.js";
-import { scopeHeadersFromSaved } from "../auth/board-scope.js";
+import { scopeHeaderFor } from "../auth/board-scope.js";
 import { login } from "../auth/login.js";
 import { getApiUrl } from "../core/api-url.js";
 import { ExitCode } from "../core/exit-codes.js";
@@ -249,7 +249,11 @@ export async function pull(
   const fetched = await fetchPullArchiveWithRetry({
     apiUrl,
     token,
-    headers: await scopeHeadersFromSaved(),
+    // The resolved `--board` id scopes this fetch (ticket 605e503c): the
+    // saved-workspace peek is empty in login-less flows (CI, throwaway
+    // HOME), and an unscoped fetch answers 422 SCOPE_REQUIRED once the
+    // account holds more than one board.
+    headers: scopeHeaderFor(boardId),
     boardId,
   });
 

@@ -1655,6 +1655,30 @@ describe("push — shared phase-3 uploader (ticket 0aac5938)", () => {
     // helper — the two paths drift and login-time pushes drop files again.
   });
 
+  it("scopes the file POST with X-Vibeflow-Scope from the passed board", async () => {
+    // Ticket 605e503c: uploads built the header from the saved workspace
+    // peek, so `push --board <id>` without a prior login sent unscoped
+    // POSTs and a multi-board account answered 422 SCOPE_REQUIRED per file.
+    const projectDir = makeTempProject();
+    seedLocalFile(projectDir, "t1", "notes.md");
+    const fetchMock = filesFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const out = await uploadPushedFiles(
+      "https://x.test",
+      "tok",
+      projectDir,
+      [{ localId: "t1", remoteId: "remote-1" }],
+      "board-9",
+    );
+    expect(out.uploaded).toBe(1);
+    expect(out.failed).toBe(0);
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.[1]?.headers?.["X-Vibeflow-Scope"]).toBe("board-9");
+  });
+
   it("sequential path uploads without a presence probe (old-server parity)", async () => {
     const projectDir = makeTempProject();
     seedLocalFile(projectDir, "t1", "notes.md");

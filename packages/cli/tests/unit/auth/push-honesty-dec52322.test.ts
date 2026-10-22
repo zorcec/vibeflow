@@ -51,6 +51,24 @@ function tasks(n: number): Array<Record<string, unknown>> {
 }
 
 describe("createTasksOneByOne records true refusal reasons", () => {
+  it("scopes every create with X-Vibeflow-Scope from the passed board", async () => {
+    // Ticket 605e503c: creates built the header from the saved workspace
+    // peek, so `--board` flows without a prior login sent unscoped POSTs
+    // and a multi-board account answered 422 SCOPE_REQUIRED per task.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok("c1"))
+      .mockResolvedValueOnce(ok("c2"));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createTasksOneByOne("https://x.test", "tok", "board-9", tasks(2));
+    expect(result.imported).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      const headers = (call[1] as { headers: Record<string, string> }).headers;
+      expect(headers["X-Vibeflow-Scope"]).toBe("board-9");
+    }
+  });
+
   it("stops at the first 402 and reports the server TASK_LIMIT message", async () => {
     const fetchMock = vi
       .fn()

@@ -224,6 +224,30 @@ describe("createTasksOneByOne (v0 import loop)", () => {
       }
     });
 
+    it("scopes link POSTs with X-Vibeflow-Scope from the passed board", async () => {
+      // Ticket 605e503c: link replay built the header from the saved
+      // workspace peek, so `--board` flows without a prior login sent
+      // unscoped POSTs and a multi-board account answered 422 per link.
+      const { applyPushLinks } = await import("../../../src/auth/login.js");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await applyPushLinks(
+        "https://x.test",
+        "tok",
+        [{ id: "local-child", title: "Child", links: [{ taskId: "local-parent", type: "parent" }] }],
+        { "local-child": "cloud-child", "local-parent": "cloud-parent" },
+        "board-9",
+      );
+
+      expect(result).toEqual({ applied: 1, skipped: [] });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1].headers["X-Vibeflow-Scope"]).toBe("board-9");
+    });
+
     it("skips an unknown-target link and reports it instead of failing", async () => {
       const { applyPushLinks } = await import("../../../src/auth/login.js");
       const fetchMock = vi.fn().mockResolvedValue({

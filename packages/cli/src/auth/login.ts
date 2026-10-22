@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
-import { scopeHeadersFromSaved } from "./board-scope.js";
+import { scopeHeaderFor } from "./board-scope.js";
 
 const SETTINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -624,7 +624,10 @@ export async function createTasksOneByOne(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        ...(await scopeHeadersFromSaved()),
+        // The resolved board scopes this create (ticket 605e503c) — every
+        // caller passes the board explicitly, so the saved-workspace peek
+        // (empty in `--board` flows without a prior login) must not be used.
+        ...scopeHeaderFor(boardId),
       },
       body: JSON.stringify(toV0CreateBody(task, boardId)),
       // Bound fetch (ticket dec52322): a hung create must not stall a
@@ -774,11 +777,12 @@ async function resolveRemoteTaskId(
   apiUrl: string,
   token: string,
   localId: string,
+  boardId: string | undefined,
 ): Promise<string | undefined> {
   try {
     const res = await fetch(
       `${apiUrl}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(localId)}`)}`,
-      { headers: { Authorization: `Bearer ${token}`, ...(await scopeHeadersFromSaved()) } },
+      { headers: { Authorization: `Bearer ${token}`, ...scopeHeaderFor(boardId) } },
     );
     if (!res.ok) return undefined;
     const body = (await res.json().catch(() => null)) as {
@@ -797,6 +801,7 @@ export async function applyPushLinks(
   token: string,
   tasks: Array<Record<string, unknown>>,
   idMap: Record<string, string>,
+  boardId?: string,
 ): Promise<ApplyPushLinksResult> {
   let applied = 0;
   const skipped: SkippedPushLink[] = [];
@@ -807,7 +812,7 @@ export async function applyPushLinks(
   const healedRemoteId = async (localId: string): Promise<string | undefined> => {
     const cached = healed.get(localId);
     if (cached !== undefined) return cached;
-    const resolved = await resolveRemoteTaskId(apiUrl, token, localId);
+    const resolved = await resolveRemoteTaskId(apiUrl, token, localId, boardId);
     if (resolved !== undefined) {
       healed.set(localId, resolved);
       // Write-back: the file phase reads this same idMap object after
@@ -883,7 +888,7 @@ export async function applyPushLinks(
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
-              ...(await scopeHeadersFromSaved()),
+              ...scopeHeaderFor(boardId),
             },
             body: JSON.stringify({ taskId: remoteTarget, type }),
           },
@@ -1200,7 +1205,7 @@ async function promptPushLocalTasks(
                 console.log(chalk.red(`  ${stopLine}${unattempted}`));
               }
               const links = probe.supported === false
-                ? await applyPushLinks(apiUrl, token, records, data.idMap)
+                ? await applyPushLinks(apiUrl, token, records, data.idMap, workspace.id)
                 : { applied: importLinksApplied, skipped: [] as Array<{ from: string; to: string; type: string; reason: string }> };
               if (probe.supported !== false && importLinksFailed > 0) {
                 console.log(
@@ -1243,6 +1248,7 @@ async function promptPushLocalTasks(
                   token,
                   projectDir,
                   taskMappings,
+                  workspace.id,
                 );
               } else if (importFilesFailed > 0) {
                 console.log(
