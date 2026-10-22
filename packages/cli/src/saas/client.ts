@@ -758,6 +758,141 @@ export async function deleteSaasTask(
 }
 
 /**
+ * What the task-files endpoint answers for one stored file. The local
+ * board answers `{ success, file: { name, size, url } }` and the cloud
+ * answers `{ success, file: { id, name, sizeBytes, url, ... } }` — every
+ * field but `name` is optional here so both shapes map onto one reader
+ * instead of each caller re-deriving it.
+ */
+export interface SaasUploadedFile {
+  /** Server file id when the backend mints one — otherwise the filename. */
+  id: string;
+  name: string;
+  size: number;
+  url?: string;
+}
+
+/**
+ * Upload one file's bytes to a task in the SaaS (online attach). Exactly
+ * one request: `POST /api/v0/tasks/:id/files` (the legacy
+ * `/api/tasks/:id/files` spelling mapped through `surfacePath`) with a
+ * multipart `file` field — the same contract the web kanban `uploadFile`
+ * client speaks. The server mints a fresh file id per upload (it does NOT
+ * dedupe by name), so callers check the file list first and never upload
+ * the same (taskId, name) twice — one name, one row.
+ *
+ * Failures name the actual failure: 404 answers `TASK_NOT_FOUND`, other
+ * HTTP refusals carry status + path, and transport failures carry the
+ * network message.
+ */
+export async function uploadSaasFile(
+  taskId: string,
+  filename: string,
+  data: Uint8Array,
+): Promise<SaasResult<SaasUploadedFile>> {
+  const headers = await getBearerHeaders();
+  if (!headers)
+    return {
+      ok: false,
+      error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+    };
+
+  const apiUrl = getApiUrl();
+  // Cloud-only path: apiUrl is the SaaS base → always "cloud".
+  const uploadPath = surfacePath(
+    "cloud",
+    `/api/tasks/${encodeURIComponent(taskId)}/files`,
+  );
+  // Multipart `file` field, byte-for-byte the web kanban upload: the v0
+  // route reads `formData.get("file")` (raw bodies need an `x-filename`
+  // header instead, so multipart is the one spelling every server takes).
+  // SAFETY: undici's FormData/Blob accept any ArrayBufferView at runtime;
+  // the shared copy keeps the caller's buffer alive past the send.
+  const shared = new Uint8Array(data.length);
+  shared.set(data);
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([shared], { type: "application/octet-stream" }),
+    filename,
+  );
+  try {
+    const res = await fetch(`${apiUrl}${uploadPath}`, {
+      method: "POST",
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          ok: false,
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: `Task not found: ${taskId}`,
+            status: 404,
+            path: uploadPath,
+          },
+        };
+      }
+      const errBody = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const serverMessage =
+        typeof errBody.error === "string" ? errBody.error : undefined;
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: serverMessage ?? `HTTP ${res.status}`,
+          status: res.status,
+          path: uploadPath,
+          ...(typeof errBody.code === "string" && errBody.code
+            ? { serverCode: errBody.code }
+            : {}),
+        },
+      };
+    }
+    const body = (await res.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    // Local shape `{ success, file: { name, size } }`, cloud shape
+    // `{ success, file: { id, name, sizeBytes, url } }` — read every
+    // spelling in one place so the CLI never branches on the backend.
+    const row =
+      body.file && typeof body.file === "object"
+        ? (body.file as Record<string, unknown>)
+        : body;
+    const name = typeof row.name === "string" ? row.name : filename;
+    const size =
+      typeof row.sizeBytes === "number"
+        ? row.sizeBytes
+        : typeof row.size === "number"
+          ? row.size
+          : data.length;
+    const id =
+      typeof row.id === "string"
+        ? row.id
+        : typeof body.id === "string"
+          ? (body.id as string)
+          : typeof body.fileId === "string"
+            ? (body.fileId as string)
+            : name;
+    const url = typeof row.url === "string" ? row.url : undefined;
+    return { ok: true, data: { id, name, size, ...(url ? { url } : {}) } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
  * Add a comment to a task in the SaaS.
  * Returns the created comment or null on failure / not authenticated.
  */

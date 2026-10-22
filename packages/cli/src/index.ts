@@ -42,7 +42,11 @@ import {
   resolveListLimit,
 } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
-import { listFiles } from "./core/files.js";
+import { listFiles, saveFile } from "./core/files.js";
+import {
+  resolveAttachSource,
+  attachDuplicateRefusal,
+} from "./core/attach.js";
 import { readConfig, getCurrentBranch } from "./core/config.js";
 import {
   resolveProjectRoot,
@@ -90,6 +94,7 @@ import {
   createSaasTask,
   deleteSaasTask,
   resolveSaasTaskId,
+  uploadSaasFile,
   toCliStatus,
   type SaasTask,
 } from "./saas/client.js";
@@ -869,6 +874,8 @@ Typical implement workflow:
 File attachments:
   You can attach .md reports and other files to any task.
   Files are stored in .vibeflow/ and visible in the Kanban Files tab.
+  Attach via the CLI (any task type, status is unchanged):
+    vibeflow tasks --attach ./plan.md --task <id> [--move]
   Upload via the API:
     POST /api/tasks/<id>/files/<filename>
     Content-Type: application/octet-stream
@@ -1121,7 +1128,15 @@ program
   )
   .option(
     "--task <task-id>",
-    "Task ID to link with the commit (use with --commit)",
+    "Task ID (use with --commit to link, or with --attach to choose the target task; supports partial ID prefix)",
+  )
+  .option(
+    "--attach <path>",
+    "Attach a file to a task without changing its status (use with --task; any task type, unlike Research-only --report-file). The source file is kept — pass --move to delete it after a successful attach. The same (task, name) pair is never uploaded twice: re-attaching an existing filename is refused",
+  )
+  .option(
+    "--move",
+    "Delete the source file after a successful attach (use with --attach; kept by default)",
   )
   .option(
     "--message <msg>",
@@ -1257,6 +1272,8 @@ program
         message?: string;
         comment?: string;
         commitMessage?: string;
+        attach?: string;
+        move?: boolean;
         reportFile?: string;
         branch?: string;
         limit?: string;
@@ -1297,15 +1314,17 @@ program
             ? "delete"
             : opts.next
               ? "next"
-              : opts.edit
-                ? "edit"
-                : opts.get
-                  ? "get"
-                  : opts.reindexSortKeys
-                    ? "reindex"
-                    : opts.normalize
-                      ? "normalize"
-                      : "list";
+              : opts.attach !== undefined
+                ? "attach"
+                : opts.edit
+                  ? "edit"
+                  : opts.get
+                    ? "get"
+                    : opts.reindexSortKeys
+                      ? "reindex"
+                      : opts.normalize
+                        ? "normalize"
+                        : "list";
         capture("command_run", {
           surface: "cli",
           command: "tasks",
@@ -1383,6 +1402,62 @@ program
             message: "--comment requires --edit <task-id>",
             suggestion:
               'vibeflow tasks --edit <id> --comment "what changed and why"',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --attach is exclusive (standalone attach mode) ─────────────
+        // Attaching while also adding/editing/reading/deleting would leave
+        // the preview and the write disagreeing about which task exists, so
+        // the combination is refused before anything is resolved.
+        if (
+          opts.attach !== undefined &&
+          (opts.add ||
+            opts.edit !== undefined ||
+            opts.get ||
+            opts.next ||
+            opts.commit ||
+            opts.delete !== undefined ||
+            opts.reindexSortKeys ||
+            opts.normalize)
+        ) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message:
+              "--attach cannot be combined with --add/--edit/--get/--next/--commit/--delete/--reindex-sort-keys/--normalize",
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --move requires --attach ───────────────────────────────────
+        // --move names no file itself; without --attach there is nothing to
+        // consume, so it is refused rather than silently accepted and ignored.
+        if (opts.move && opts.attach === undefined) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message: "--move is only valid with --attach <path>",
+            suggestion:
+              'Example: vibeflow tasks --attach ./plan.md --task <id> --move',
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --attach requires --task ───────────────────────────────────
+        // The [dir] positional is the project root, never a task selector —
+        // the target task is always named explicitly so an attach can never
+        // land on a task the caller did not name.
+        if (opts.attach !== undefined && !opts.task?.trim()) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message: "--attach needs --task <task-id>",
+            suggestion:
+              'Example: vibeflow tasks --attach ./plan.md --task <id>',
             json: opts.json,
           });
           process.exitCode = ExitCode.USAGE;
@@ -3646,6 +3721,376 @@ program
               }
             }
             process.exitCode = ExitCode.GENERAL;
+          }
+          return;
+        }
+
+        // ── Attach mode ────────────────────────────────────────────────────
+        // `tasks --attach <path> --task <id>`: upload one file to a task's
+        // file list without touching any of its fields (any task type, no
+        // status change — unlike Research-only --report-file, which is tied
+        // to the review transition). The target is always the explicit
+        // --task value: exact id wins, a unique prefix resolves (online via
+        // resolveSaasTaskId, local via the same first-match rule --get and
+        // --edit use), anything else is refused here — never a silent
+        // first-match. The same (task, name) pair is never uploaded twice:
+        // the name is checked against the file list first and a duplicate
+        // is refused (E_FILE_EXISTS) in BOTH modes — the cloud route mints
+        // a fresh file id per POST, so only a pre-check keeps one name to
+        // one row, the same dedupe rule push/pull already converge on.
+        if (opts.attach !== undefined) {
+          const attachRawTask = opts.task!.trim();
+          // The source resolves against the invocation cwd (like
+          // --report-file); the [dir] positional is the project root.
+          const validated = resolveAttachSource(process.cwd(), opts.attach);
+          if (!validated.ok) {
+            outputEnvelope({
+              ok: false,
+              code: validated.error.code,
+              message: validated.error.message,
+              suggestion: validated.error.suggestion,
+              json: opts.json,
+            });
+            process.exitCode =
+              validated.error.code === "E_NOT_FOUND"
+                ? ExitCode.NOT_FOUND
+                : ExitCode.USAGE;
+            return;
+          }
+          const attachSource = validated.source;
+          const attachMode = await getMode();
+          if (attachMode === "saas") {
+            const attachWorkspace = await readWorkspace();
+            const attachBoard = await fetchSaasTasks(attachWorkspace?.id, {
+              hydrate: false,
+            });
+            if (!attachBoard.ok) {
+              const attachReadMessage = saasReadErrorMessage(
+                attachBoard.error,
+              );
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(attachBoard.error),
+                  message: `Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
+                  json: opts.json,
+                });
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
+                  ),
+                );
+              }
+              process.exitCode = ExitCode.GENERAL;
+              return;
+            }
+            const attachResolved = resolveSaasTaskId(
+              attachBoard.data.tasks,
+              attachRawTask,
+            );
+            if (!attachResolved.ok) {
+              if (attachResolved.code === "TASK_NOT_FOUND") {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${attachRawTask}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+                process.exitCode = ExitCode.NOT_FOUND;
+              } else {
+                outputEnvelope({
+                  ok: false,
+                  code: attachResolved.code,
+                  message: attachResolved.message,
+                  suggestion:
+                    "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+                process.exitCode = ExitCode.USAGE;
+              }
+              return;
+            }
+            // The cloud route mints a fresh file id per POST (no
+            // name-dedupe server-side), so the duplicate check runs here:
+            // one detail read for the resolved task's file names. A 404
+            // means the task vanished between the listing and this read.
+            const attachDetail = await fetchSaasTaskDetail(attachResolved.id);
+            if (!attachDetail.ok) {
+              if (attachDetail.error.code === "TASK_NOT_FOUND") {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${attachRawTask}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+                process.exitCode = ExitCode.NOT_FOUND;
+              } else {
+                const attachDetailMessage = saasReadErrorMessage(
+                  attachDetail.error,
+                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(attachDetail.error),
+                    message: `Unable to read files of task ${attachResolved.id} (${attachDetailMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to read files of task ${attachResolved.id} (${attachDetailMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+              }
+              return;
+            }
+            if (
+              (attachDetail.data.task.files ?? []).some(
+                (f) => f.name === attachSource.name,
+              )
+            ) {
+              const duplicate = attachDuplicateRefusal(
+                attachResolved.id,
+                attachSource.name,
+              );
+              outputEnvelope({
+                ok: false,
+                code: duplicate.code,
+                message: duplicate.message,
+                suggestion: duplicate.suggestion,
+                json: opts.json,
+              });
+              process.exitCode = ExitCode.USAGE;
+              return;
+            }
+            if (opts.dryRun) {
+              if (opts.json) {
+                outputEnvelope({
+                  ok: true,
+                  json: opts.json,
+                  payload: {
+                    dryRun: true,
+                    action: "attach",
+                    taskId: attachResolved.id,
+                    name: attachSource.name,
+                    size: attachSource.size,
+                    ...(opts.move ? { move: "(source file kept)" } : {}),
+                  },
+                });
+              } else {
+                console.log(chalk.yellow("  [dry-run] Would attach:"));
+                console.log(chalk.dim(`    file: ${attachSource.name}`));
+                console.log(chalk.dim(`    size: ${attachSource.size}`));
+                console.log(chalk.dim(`    task: ${attachResolved.id}`));
+                if (opts.move)
+                  console.log(chalk.dim("    move: (source file kept)"));
+              }
+              return;
+            }
+            const uploaded = await uploadSaasFile(
+              attachResolved.id,
+              attachSource.name,
+              attachSource.bytes,
+            );
+            if (!uploaded.ok) {
+              if (uploaded.error.code === "TASK_NOT_FOUND") {
+                outputEnvelope({
+                  ok: false,
+                  code: "TASK_NOT_FOUND",
+                  message: `Task not found: ${attachResolved.id}`,
+                  suggestion:
+                    "Run 'vibeflow tasks' to see available task IDs.",
+                  json: opts.json,
+                });
+                process.exitCode = ExitCode.NOT_FOUND;
+              } else if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  ...saasFailure(uploaded.error),
+                  message: `Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
+                  json: opts.json,
+                });
+                process.exitCode = ExitCode.GENERAL;
+              } else {
+                console.log(
+                  chalk.red(
+                    `✗ Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
+                  ),
+                );
+                console.log(
+                  chalk.yellow(
+                    "  Ensure you are connected and the task ID exists in the online board.",
+                  ),
+                );
+                process.exitCode = ExitCode.GENERAL;
+              }
+              return;
+            }
+            // --move consumes the source only after the bytes landed: a
+            // failed delete is a NOTICE on a successful attach (the task
+            // data is on the server, so the exit stays 0 and retrying the
+            // attach would be wrong), mirroring the auto-commit convention.
+            let attachMoveNotice: PartialSuccessNotice | undefined;
+            if (opts.move) {
+              try {
+                unlinkSync(attachSource.absPath);
+              } catch (err) {
+                attachMoveNotice = {
+                  code: "MOVE_CLEANUP_FAILED",
+                  message: `File WAS attached, but the source file could not be deleted: ${err instanceof Error ? err.message : String(err)}`,
+                };
+                if (!opts.json) {
+                  console.log(
+                    chalk.yellow(
+                      `⚠ File WAS attached, but the source file could not be deleted: ${attachSource.absPath}`,
+                    ),
+                  );
+                }
+              }
+            }
+            if (opts.json) {
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  taskId: attachResolved.id,
+                  fileId: uploaded.data.id,
+                  name: uploaded.data.name,
+                  size: uploaded.data.size,
+                  ...noticeFields(
+                    attachMoveNotice ? [attachMoveNotice] : [],
+                  ),
+                },
+              });
+            } else {
+              console.log(
+                chalk.green(
+                  `✓ Attached ${uploaded.data.name} (${uploaded.data.size} bytes) to task ${attachResolved.id}`,
+                ),
+              );
+              console.log(chalk.dim(`  file id: ${uploaded.data.id}`));
+            }
+            return;
+          }
+
+          // ── Local attach path ──────────────────────────────────────
+          const attachProjectDir = resolve(dir);
+          const attachTask = findTaskByIdOrPrefix(
+            attachProjectDir,
+            attachRawTask,
+          );
+          if (!attachTask) {
+            outputEnvelope({
+              ok: false,
+              code: "TASK_NOT_FOUND",
+              message: `Task not found: ${attachRawTask}`,
+              suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.NOT_FOUND;
+            return;
+          }
+          // Same (task, name) refusal as the online path: saveFile would
+          // overwrite in place, but the command promises the pair is never
+          // uploaded twice — so the duplicate never reaches the store.
+          if (
+            listFiles(attachProjectDir, attachTask.id).some(
+              (f) => f.name === attachSource.name,
+            )
+          ) {
+            const duplicate = attachDuplicateRefusal(
+              attachTask.id,
+              attachSource.name,
+            );
+            outputEnvelope({
+              ok: false,
+              code: duplicate.code,
+              message: duplicate.message,
+              suggestion: duplicate.suggestion,
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          if (opts.dryRun) {
+            if (opts.json) {
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  action: "attach",
+                  taskId: attachTask.id,
+                  name: attachSource.name,
+                  size: attachSource.size,
+                  ...(opts.move ? { move: "(source file kept)" } : {}),
+                },
+              });
+            } else {
+              console.log(chalk.yellow("  [dry-run] Would attach:"));
+              console.log(chalk.dim(`    file: ${attachSource.name}`));
+              console.log(chalk.dim(`    size: ${attachSource.size}`));
+              console.log(chalk.dim(`    task: ${attachTask.id}`));
+              if (opts.move)
+                console.log(chalk.dim("    move: (source file kept)"));
+            }
+            return;
+          }
+          // Past the duplicate check above the name is new to this task:
+          // saveFile keeps one ref per name, the same dedupe rule the
+          // delta-push manifest relies on, so push plans it exactly once.
+          const attachInfo = saveFile(
+            attachProjectDir,
+            attachTask.id,
+            attachSource.name,
+            attachSource.bytes,
+          );
+          let attachLocalMoveNotice: PartialSuccessNotice | undefined;
+          if (opts.move) {
+            try {
+              unlinkSync(attachSource.absPath);
+            } catch (err) {
+              attachLocalMoveNotice = {
+                code: "MOVE_CLEANUP_FAILED",
+                message: `File WAS attached, but the source file could not be deleted: ${err instanceof Error ? err.message : String(err)}`,
+              };
+              if (!opts.json) {
+                console.log(
+                  chalk.yellow(
+                    `⚠ File WAS attached, but the source file could not be deleted: ${attachSource.absPath}`,
+                  ),
+                );
+              }
+            }
+          }
+          if (opts.json) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                taskId: attachTask.id,
+                fileId: attachInfo.name,
+                name: attachInfo.name,
+                size: attachInfo.size,
+                ...noticeFields(
+                  attachLocalMoveNotice ? [attachLocalMoveNotice] : [],
+                ),
+              },
+            });
+          } else {
+            console.log(
+              chalk.green(
+                `✓ Attached ${attachInfo.name} (${attachInfo.size} bytes) to task ${attachTask.id}`,
+              ),
+            );
+            console.log(chalk.dim(`  file id: ${attachInfo.name}`));
           }
           return;
         }
