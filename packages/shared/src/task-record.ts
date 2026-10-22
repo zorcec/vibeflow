@@ -142,6 +142,9 @@ export type TaskCommentRecord = z.infer<typeof TaskCommentRecordSchema>;
 export const TaskFileRecordSchema = z
   .object({
     schemaVersion: z.literal(TASK_RECORD_SCHEMA_VERSION),
+    /** Server-minted file row id (a37abf9f): explicit identity the server
+     * records and echoes back. Optional — local-only refs predate it. */
+    id: z.string().min(1).max(100).optional(),
     name: z.string().min(1).max(500),
     addedAt: isoUtc("addedAt"),
     /** Local-only: absolute-path link, never materialised as a server row. */

@@ -395,6 +395,25 @@ describe("applyPullEntries — the store merge", () => {
     expect(readStoredTask("t1").status).toBe("review");
   });
 
+  it("merges a record carrying files[].id (a37abf9f quarantine regression)", () => {
+    // The server echoes its file row id into raw.files[]; the local clone
+    // carries it too. The merge must adopt remote status on such a record
+    // instead of quarantining it out of pull/push/listings (d681603c).
+    const withId = taskRecord("t1", {
+      status: "todo",
+      files: [{ id: "gbfvlupweyuio4018i4xkdgi", name: "plan.md", addedAt: "2026-10-22T14:51:04.379Z" }],
+    });
+    writeTask("t1", withId);
+    const summary = applyPullEntries(
+      projectDir,
+      stagingFor([{ clientId: "t1", record: taskRecord("t1", { status: "review" }) }]),
+      {},
+    );
+    expect(summary.merged).toBe(1);
+    expect(summary.statusAdopted).toBe(1);
+    expect(readStoredTask("t1").status).toBe("review");
+  });
+
   it("--prefer-local keeps the stored status", () => {
     writeTask("t1", taskRecord("t1", { status: "todo" }));
     const summary = applyPullEntries(

@@ -82,6 +82,8 @@ export interface TaskComment {
 }
 
 export interface TaskFileRef {
+  /** Server-minted file row id (a37abf9f). Absent on local-only refs. */
+  id?: string;
   name: string;
   addedAt: string;
   linkedPath?: string;

@@ -50,6 +50,22 @@ describe("parseTaskRecord", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("accepts a server-minted files[].id (a37abf9f) and preserves it", () => {
+    const r = parseTaskRecord({
+      ...base,
+      files: [
+        {
+          schemaVersion: 1,
+          id: "gbfvlupweyuio4018i4xkdgi",
+          name: "plan.md",
+          addedAt: "2026-10-22T14:51:04.379Z",
+        },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.record.files?.[0]).toMatchObject({ id: "gbfvlupweyuio4018i4xkdgi", name: "plan.md" });
+  });
+
   it("accepts local-only fields (authStateEnc, filePath, deleted tombstones)", () => {
     const task = parseTaskRecord({
       ...base,
