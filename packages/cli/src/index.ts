@@ -2410,16 +2410,23 @@ program
                 ok: true,
                 json: opts.json,
                 // The detail contract (ticket 086b40aa) travels in the
-                // envelope: parentId/children default to null/[] on older
-                // servers so the keys are always present. (Local MCP
-                // get_task already merges derived relations in
-                // operations.getTask — nothing to change there.)
+                // envelope ONLY as the server sent it: a key the response
+                // did not carry stays absent — never synthesised to
+                // null/[] (a listing-row fallback has links[] but no
+                // detail-relation fields, and null/children:[] would assert
+                // facts the server never sent). (Local MCP get_task already
+                // merges derived relations in operations.getTask — nothing
+                // to change there.)
                 payload: {
                   task: {
                     ...saasTask,
                     status: cliStatus,
-                    parentId: saasTask.parentId ?? null,
-                    children: saasTask.children ?? [],
+                    ...(saasTask.parentId !== undefined
+                      ? { parentId: saasTask.parentId }
+                      : {}),
+                    ...(saasTask.children !== undefined
+                      ? { children: saasTask.children }
+                      : {}),
                   },
                 },
               });
@@ -2484,13 +2491,14 @@ program
             }
             // ONLINE relations (ticket 086b40aa): rendered from the DETAIL
             // RESPONSE alone — one detail request, never a board listing or a
-            // second fetch. A response carrying neither field predates the
-            // detail contract: one dim line says so, never silence.
+            // second fetch. A response carrying neither field may be an older
+            // server OR the listing-row fallback (an exact-id 404 answered
+            // from a current listing, which carries no detail relations) —
+            // the cause is unproven, so one dim cause-neutral line says the
+            // relations are unavailable in this response, never silence.
             if (!hasSaasDetailRelations(saasTask)) {
               console.log(
-                chalk.dim(
-                  `    relations unavailable (server predates the detail contract)`,
-                ),
+                chalk.dim(`    relations unavailable in this response`),
               );
             } else {
               for (const line of formatSaasDetailRelations(saasTask))
