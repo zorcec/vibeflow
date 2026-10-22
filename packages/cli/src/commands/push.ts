@@ -329,21 +329,74 @@ export function formatPushNoop(total: number): string {
 }
 
 /**
+ * Which transport produced the result — the result line may only use the
+ * verbs that transport actually earns. The delta archive reports bytes
+ * moved, not rows created; the multipart import reports per-task created
+ * vs server-matched; the one-by-one loop reports per-POST creates only.
+ */
+export type PushResultTransport = "legacy" | "multipart" | "delta";
+
+/** Headline picked from the outcome (wording only — exit codes untouched). */
+export type PushResultHeadline =
+  | "Push complete"
+  | "Push stopped"
+  | "Push finished with failures";
+
+/**
+ * Headline from the outcome: a stop or any refusal is never "complete",
+ * and a run that finished with failed or skipped-whole work is not
+ * "complete" either. Refusals, stops and failures keep their own warning
+ * lines below — this only picks the noun so the headline cannot contradict
+ * them. Pure.
+ */
+export function formatPushHeadline(args: {
+  stoppedEarly: "plan-limit" | "rate-limited" | null;
+  refused: number;
+  skippedWhole: number;
+  filesFailed: number;
+  linksFailed: number;
+}): PushResultHeadline {
+  if (args.stoppedEarly !== null || args.refused > 0) return "Push stopped";
+  if (args.skippedWhole > 0 || args.filesFailed > 0 || args.linksFailed > 0)
+    return "Push finished with failures";
+  return "Push complete";
+}
+
+/**
  * Result block, one fact per line (wording fix, same counters the `--json`
- * envelope carries): created = `imported`, updated = `existing`
- * (server-matched rows), unchanged = tasks never sent this run, plus the
- * in-memory file tallies. Refusals travel on their own warning line — they
- * used to ride inside the green "Pushed N" sentence. Pure.
+ * envelope carries). The old line printed "N created, M updated" on every
+ * path — but on the delta path `imported` is everything SENT (including
+ * reconciliations of existing rows) and `existing` is ids NOT sent, so one
+ * repaired task among 1797 printed "1 created, 1796 updated". False on
+ * both counts. Now: delta reads "sent / already identical (not sent)" and
+ * never prints "created"; multipart keeps the per-task created/matched
+ * the server reported (never "updated" — a matched row was not
+ * necessarily rewritten); legacy prints per-POST creates only. `unchanged`
+ * is tasks never sent this run on every path. Pure.
  */
 export function formatPushResultLines(args: {
-  created: number;
-  updated: number;
+  transport: PushResultTransport;
+  headline: PushResultHeadline;
+  imported: number;
+  existing: number;
   unchanged: number;
   filesUploaded: number;
   filesSkipped: number;
 }): [summary: string, files: string] {
+  const mark =
+    args.headline === "Push complete"
+      ? "\u2713"
+      : args.headline === "Push stopped"
+        ? "\u2717"
+        : "\u26a0";
+  const detail =
+    args.transport === "delta"
+      ? `${args.imported} sent, ${args.existing} already identical (not sent), ${args.unchanged} unchanged`
+      : args.transport === "multipart"
+        ? `${args.imported} created, ${args.existing} already existed, ${args.unchanged} unchanged`
+        : `${args.imported} created, ${args.unchanged} unchanged`;
   return [
-    `  \u2713 Push complete: ${args.created} created, ${args.updated} updated, ${args.unchanged} unchanged.`,
+    `  ${mark} ${args.headline}: ${detail}.`,
     `  Files: ${args.filesUploaded} uploaded, ${args.filesSkipped} skipped (already present).`,
   ];
 }
@@ -701,6 +754,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // the fallback path — the import path carries both in every call.
   let legacyPath = false;
   let deltaPlanEmpty = false;
+  let deltaUsed = false;
   // An empty delta plan sends nothing at all (early return, chunks 0): the
   // run IS a no-op even though the push set was non-empty. Tracked
   // explicitly — `imported === 0` alone also matches a multipart run whose
@@ -848,6 +902,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
           failedFiles: [],
         };
         deltaPlanEmpty = delta.imported === 0;
+        deltaUsed = true;
       } else {
         // Delta returns null for two very different reasons; both cost the user
         // the fast path, so neither may be silent.
@@ -1005,13 +1060,13 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
     console.log(chalk.dim(`  Board: ${boardLabel}`));
   }
   // Stryker disable once StringLiteral: display message for push success
-  // Result block (wording fix): one fact per line — created / updated /
-  // unchanged / files — instead of the old single "Pushed N (M already
-  // existed)" sentence whose parenthetical read as if M tasks were pushed
-  // too. An empty delta plan sent nothing at all, so it reads as the no-op
-  // (never "0 created"). Refusals ride on their own warning line (yellow,
-  // not green); every number from dec52322 survives. `unchanged` is the
-  // --json `alreadyOnBoard` count; the file tallies are the same in-memory
+  // Result block (wording fix): the transport picks the verbs (the delta
+  // archive reports movement, never creation) and the outcome picks the
+  // headline (a refused or stopped run is never "complete"). An empty
+  // delta plan sent nothing at all, so it reads as the no-op (never
+  // "0 sent"). Refusals ride on their own warning line (yellow); every
+  // number from dec52322 survives. `unchanged` is the --json
+  // `alreadyOnBoard` count; the file tallies are the same in-memory
   // counters the phase lines above print (legacy uploads finish before this
   // runs, so they agree).
   // A skipped-whole task (atomicity) or a legacy upload is never a no-op:
@@ -1020,15 +1075,34 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   if (deltaPlanEmpty) {
     console.log(chalk.green(formatPushNoop(taskList.length)));
   } else {
+    const skippedWhole = (result.skippedTasks ?? []).length;
+    const linksFailedCount = legacyPath
+      ? legacyLinksSkipped.length
+      : (result.linksFailed ?? 0);
+    const headline = formatPushHeadline({
+      stoppedEarly: result.stoppedEarly,
+      refused: result.skipped,
+      skippedWhole,
+      filesFailed,
+      linksFailed: linksFailedCount,
+    });
     const [pushSummaryLine, pushFilesLine] = formatPushResultLines({
-      created: result.imported,
-      updated: result.existing,
+      transport: legacyPath ? "legacy" : deltaUsed ? "delta" : "multipart",
+      headline,
+      imported: result.imported,
+      existing: result.existing,
       unchanged: liveAlreadyOnBoard,
       filesUploaded: legacyPath ? legacyFilesUploaded : (result.filesUploaded ?? 0),
       filesSkipped: result.filesSkippedPresent ?? 0,
     });
-    console.log(chalk.green(pushSummaryLine));
-    console.log(chalk.green(pushFilesLine));
+    const headlineColor =
+      headline === "Push complete"
+        ? chalk.green
+        : headline === "Push stopped"
+          ? chalk.red
+          : chalk.yellow;
+    console.log(headlineColor(pushSummaryLine));
+    console.log(headlineColor(pushFilesLine));
     if (result.skipped > 0) {
       console.log(chalk.yellow(`  \u26a0 ${formatPushRefusalSummary(result)}`));
     }

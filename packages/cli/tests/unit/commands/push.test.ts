@@ -33,7 +33,7 @@ import * as tokenModule from "../../../src/auth/token.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
-import { push, formatBytes, renderProgressBar, uploadPushedFiles, collectImportInputs } from "../../../src/commands/push.js";
+import { push, formatBytes, renderProgressBar, uploadPushedFiles, collectImportInputs, formatPushHeadline, formatPushResultLines } from "../../../src/commands/push.js";
 import realBoardRecord from "../../fixtures/task-record/real-board-local.json";
 import { withOldServerProbe } from "../helpers/old-server-probe.js";
 
@@ -316,9 +316,11 @@ describe("push — import API interaction", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      // Wording fix: the result block reads "N created" instead of
-      // "Pushed N task(s) online" (which also swallowed the refusal detail).
-      expect.stringContaining("Push complete: 1 created"),
+      // Wording fix: the legacy result block reads "N created, M unchanged"
+      // — the one-by-one loop reports per-POST creates only (it cannot
+      // reconcile, so never "updated") — instead of "Pushed N task(s)
+      // online" (which also swallowed the refusal detail).
+      expect.stringContaining("Push complete: 1 created, 0 unchanged."),
     );
     consoleSpy.mockRestore();
   });
@@ -1431,9 +1433,10 @@ describe("push — tree-import path (bulk-429)", () => {
     expect(manifest.tasks).toHaveLength(2);
     expect(manifest.boardId).toBe("ws-1");
     expect(consoleSpy).toHaveBeenCalledWith(
-      // Wording fix: the result block reads "N created" instead of
-      // "Pushed N task(s) online".
-      expect.stringContaining("Push complete: 2 created"),
+      // Wording fix: the multipart result block reads "N created, M already
+      // existed" — the verbs the import transport actually reports (a
+      // matched row was not necessarily rewritten, so never "updated").
+      expect.stringContaining("Push complete: 2 created, 0 already existed, 0 unchanged."),
     );
     // Checkpoint cleared on success — no residue in the project.
     expect(
@@ -1482,9 +1485,9 @@ describe("push — tree-import path (bulk-429)", () => {
     expect(urls[0]).toContain("/api/v0/tasks");
     expect(urls.slice(1).every((u) => u.endsWith("/api/v0/tasks"))).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      // Wording fix: the result block reads "N created" instead of
-      // "Pushed N task(s) online".
-      expect.stringContaining("Push complete: 1 created"),
+      // Wording fix: the legacy result block reads "N created, M unchanged"
+      // — the one-by-one loop reports per-POST creates only.
+      expect.stringContaining("Push complete: 1 created, 0 unchanged."),
     );
     consoleSpy.mockRestore();
   });
@@ -1526,6 +1529,69 @@ describe("push — tree-import path (bulk-429)", () => {
 
     errorSpy.mockRestore();
     process.exitCode = originalExitCode;
+  });
+});
+
+describe("push result wording (transport-aware verbs, outcome headline)", () => {
+  it("delta reports movement, never creation: sent / already identical", () => {
+    // A1: the delta archive moves bytes; it cannot tell the human a row was
+    // created or updated. One repaired task among 1797 used to print
+    // "1 created, 1796 updated" — false on both counts.
+    const [summary] = formatPushResultLines({
+      transport: "delta",
+      headline: "Push complete",
+      imported: 1,
+      existing: 1796,
+      unchanged: 0,
+      filesUploaded: 0,
+      filesSkipped: 0,
+    });
+    expect(summary).toContain("Push complete: 1 sent, 1796 already identical (not sent)");
+    expect(summary).not.toContain("created");
+    expect(summary).not.toContain("updated");
+  });
+
+  it("multipart keeps the server-reported created/matched split, never updated", () => {
+    const [summary] = formatPushResultLines({
+      transport: "multipart",
+      headline: "Push complete",
+      imported: 2,
+      existing: 3,
+      unchanged: 1,
+      filesUploaded: 0,
+      filesSkipped: 0,
+    });
+    expect(summary).toContain("2 created, 3 already existed, 1 unchanged");
+    expect(summary).not.toContain("updated");
+  });
+
+  it("legacy prints per-POST creates only, with no matched segment", () => {
+    const [summary] = formatPushResultLines({
+      transport: "legacy",
+      headline: "Push complete",
+      imported: 1,
+      existing: 0,
+      unchanged: 0,
+      filesUploaded: 0,
+      filesSkipped: 0,
+    });
+    expect(summary).toContain("1 created, 0 unchanged");
+    expect(summary).not.toContain("already existed");
+  });
+
+  it("a refusal or early stop is never a green complete (A2)", () => {
+    const stopped = { skippedWhole: 0, filesFailed: 0, linksFailed: 0 };
+    expect(formatPushHeadline({ ...stopped, stoppedEarly: "plan-limit", refused: 1 })).toBe("Push stopped");
+    expect(formatPushHeadline({ ...stopped, stoppedEarly: "rate-limited", refused: 0 })).toBe("Push stopped");
+    expect(formatPushHeadline({ ...stopped, stoppedEarly: null, refused: 2 })).toBe("Push stopped");
+  });
+
+  it("atomic skips and file/link failures finish, but not complete (A2)", () => {
+    const clean = { stoppedEarly: null as null, refused: 0, skippedWhole: 0, filesFailed: 0, linksFailed: 0 };
+    expect(formatPushHeadline({ ...clean, skippedWhole: 1 })).toBe("Push finished with failures");
+    expect(formatPushHeadline({ ...clean, filesFailed: 1 })).toBe("Push finished with failures");
+    expect(formatPushHeadline({ ...clean, linksFailed: 1 })).toBe("Push finished with failures");
+    expect(formatPushHeadline(clean)).toBe("Push complete");
   });
 });
 

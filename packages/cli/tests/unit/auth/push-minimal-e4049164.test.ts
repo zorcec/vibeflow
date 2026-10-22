@@ -230,12 +230,13 @@ describe("condensed final summary keeps every TRUE number", () => {
     await push(projectDir, { keepLocalFiles: true });
 
     const lines = logSpy.mock.calls.map((c) => String(c[0]));
-    // Wording fix: the result block is its own green line ("Push complete: 0
-    // created, ...") and the TRUE refusal groups ride on a separate yellow
-    // warning line — they used to share the old "Pushed 0 task(s) online"
-    // sentence, which read as if nothing had been attempted.
-    const pushed = lines.filter((l) => l.includes("Push complete: 0 created"));
+    // A refused run must never print a green "Push complete" headline: the
+    // 402 stopped this push before the first create landed, so a green
+    // headline would contradict the refusal warning and the red stop line
+    // printed beside it. The headline reads "Push stopped" instead.
+    const pushed = lines.filter((l) => l.includes("Push stopped: 0 created"));
     expect(pushed).toHaveLength(1);
+    expect(lines.filter((l) => l.includes("Push complete"))).toHaveLength(0);
     const refused = lines.filter((l) => l.includes("0 created, 1 refused: 402 TASK_LIMIT ×1"));
     expect(refused).toHaveLength(1);
     // … and the stop line shares ONE red line with the not-attempted count.
