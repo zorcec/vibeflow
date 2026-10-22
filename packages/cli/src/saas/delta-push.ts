@@ -88,43 +88,66 @@ export interface SendDeltaResult {
 }
 
 /**
- * Serialise one delta-plan chunk as the archive the server expects:
- * `tasks/<id>.json` holds the task's `raw` verbatim (the exact JSON the
- * local store holds — the server re-hashes these bytes against the
- * inventory), `files/<id>/<name>` holds raw file bytes. Entries whose
- * `data` is empty are SKIPPED: `buildDeltaPlan` marks files the server
- * already holds by dropping their bytes, and the server refuses a
- * declared-but-byteless file as MISSING_FILE — so the marker must not
- * travel. Zero-length local files ride the same skip (they cost nothing
- * to re-create; see delta-archive's marker contract).
- */
-/**
- * A file REF must be unique across the WHOLE request: both import routes refuse
- * a repeated `ref` as an INVALID_BODY caller bug (import/route.ts:281,
- * import/archive/route.ts:302). Names are only unique WITHIN a task —
- * `verify-after.json` exists on 26 tasks, `baseline-page.json` on 118 — so a
- * bare name collides as soon as one chunk carries two of them.
+ * Build this task's manifest file list and its archive entries together.
  *
- * The archive path is already task-scoped (`files/<taskId>/<name>`) and the ref
- * is an opaque key the server never parses, so scoping the ref by task id is
- * free. A name repeated inside ONE task gets an ordinal instead of a refusal:
- * rejecting would turn a data quirk into a failed push.
+ * A REF must be unique across the WHOLE request: both import routes refuse a
+ * repeated `files[].ref` as an INVALID_BODY caller bug. It must therefore never
+ * be derived from a filename — names are only unique WITHIN a task
+ * (`verify-after.json` exists on 26 real tasks), and an ordinal inserted into
+ * the name can collide with a legitimately nested name (`2/image.png`). The ref
+ * is an opaque key the server never parses, so it is simply
+ * `<taskId>#<index>`: task ids are unique and the index is unique within a
+ * task, which makes the pair unique in the request by construction.
+ *
+ * A name repeated inside ONE task is COLLAPSED to a single entry. The local
+ * store is a filesystem (`.vibeflow/files/<taskId>/<name>`), so two files with
+ * the same name cannot both exist there; a record that lists the name twice is
+ * a corrupt record, and the archive path `files/<taskId>/<name>` would make the
+ * server overwrite one payload with the other — silent byte corruption. One
+ * entry per name means the archive can never contain two different payloads at
+ * the same path.
  */
-function fileRef(taskId: string, name: string, counts: Map<string, number>): string {
-  const n = (counts.get(name) ?? 0) + 1;
-  counts.set(name, n);
-  return n === 1 ? `${taskId}/${name}` : `${taskId}/${n}/${name}`;
+function declareTaskFiles(task: DeltaPlan["tasks"][number]): {
+  manifest: Array<{ ref: string; name: string; system?: true }>;
+  payloads: TarInput[];
+} {
+  const manifest: Array<{ ref: string; name: string; system?: true }> = [];
+  const payloads: TarInput[] = [];
+  const seenNames = new Set<string>();
+  for (const file of task.files) {
+    // Empty data = the planner dropped bytes the server already holds; the
+    // marker must not travel (the server reports it as MISSING_FILE).
+    if (file.data.length === 0) continue;
+    if (seenNames.has(file.name)) continue;
+    seenNames.add(file.name);
+    manifest.push({
+      ref: `${task.id}#${manifest.length}`,
+      name: file.name,
+      ...(file.system === true ? { system: true as const } : {}),
+    });
+    payloads.push({ path: `files/${task.id}/${file.name}`, data: file.data });
+  }
+  return { manifest, payloads };
 }
 
+/**
+ * Serialise one delta-plan chunk as the archive the server expects:
+ * `tasks/<id>.json` holds the task's `raw` verbatim (the exact JSON the local
+ * store holds — the server re-hashes these bytes against the inventory), and
+ * `files/<id>/<name>` holds raw file bytes. Entries whose `data` is empty are
+ * SKIPPED: `buildDeltaPlan` marks files the server already holds by dropping
+ * their bytes, and the server refuses a declared-but-byteless file as
+ * MISSING_FILE — so the marker must not travel.
+ */
 function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
   const entries: TarInput[] = [];
   for (const task of chunk.tasks) {
-    const refCounts = new Map<string, number>();
     // The archive route reads `tasks/<id>.json` as the SAME manifest entry the
     // multipart route accepts — not a bare record. It validates that
     // `clientId` equals the id in the path, so a bare record is refused with
     // `declares clientId null` (measured against production).
     const wire = recordForWire(task.raw as Record<string, unknown>);
+    const { manifest, payloads } = declareTaskFiles(task);
     entries.push({
       path: `tasks/${task.id}.json`,
       data: Buffer.from(
@@ -133,21 +156,12 @@ function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
           record: wire,
           fields: wire,
           parentClientIds: parentLinkTargets(wire),
-          files: task.files
-            .filter((f) => f.data.length > 0)
-            .map((f) => ({
-              ref: fileRef(task.id, f.name, refCounts),
-              name: f.name,
-              ...(f.system === true ? { system: true } : {}),
-            })),
+          files: manifest,
         }),
         "utf8",
       ),
     });
-    for (const file of task.files) {
-      if (file.data.length === 0) continue;
-      entries.push({ path: `files/${task.id}/${file.name}`, data: file.data });
-    }
+    entries.push(...payloads);
   }
   return entries;
 }

@@ -187,15 +187,15 @@ describe("sendDeltaArchive", () => {
     expect(entry.clientId).toBe("t1");
     expect(entry.record).toEqual(raw);
     expect(entry.fields).toEqual(raw);
-    expect(entry.files).toEqual([{ ref: "t1/note.md", name: "note.md" }]);
+    expect(entry.files).toEqual([{ ref: "t1#0", name: "note.md" }]);
     expect(Buffer.from(entries[1]!.data).toString("utf8")).toBe("hello");
   });
 
-  it("scopes a file ref by task id so a shared filename cannot collide", async () => {
+  it("keeps a shared filename from colliding across tasks", async () => {
     // Both import routes refuse a repeated `ref` in one request as an
     // INVALID_BODY caller bug. Filenames are only unique WITHIN a task
-    // (`verify-after.json` exists on 26 real tasks), so a bare-name ref made a
-    // full push fail on the first chunk holding two of them:
+    // (`verify-after.json` exists on 26 real tasks), so a filename-derived ref
+    // made a full push fail on the first chunk holding two of them:
     //   400 {"error":"duplicate file ref verify-after.json","code":"INVALID_BODY"}
     const { fetchImpl, calls } = capturingFetch([okRes]);
 
@@ -222,7 +222,7 @@ describe("sendDeltaArchive", () => {
       .filter((e) => e.path.startsWith("tasks/"))
       .map((e) => JSON.parse(Buffer.from(e.data).toString("utf8")));
     const refs = manifests.flatMap((m) => m.files.map((f: { ref: string }) => f.ref));
-    expect(refs).toEqual(["aaa/verify-after.json", "bbb/verify-after.json"]);
+    expect(refs).toEqual(["aaa#0", "bbb#0"]);
     expect(new Set(refs).size).toBe(refs.length);
     // The task-scoped ref is opaque to the server; the archive path — which the
     // server joins by `files/<clientId>/<name>` — is unchanged.
@@ -232,9 +232,16 @@ describe("sendDeltaArchive", () => {
       "tasks/bbb.json",
       "files/bbb/verify-after.json",
     ]);
+    // Each task keeps ITS bytes: the paths are distinct, so nothing overwrites.
+    expect(Buffer.from(entries[1]!.data).toString("utf8")).toBe("one");
+    expect(Buffer.from(entries[3]!.data).toString("utf8")).toBe("two");
   });
 
-  it("disambiguates a repeated name inside ONE task by ordinal instead of refusing", async () => {
+  it("a ref never collides with a legitimately nested name", async () => {
+    // A filename-derived ordinal scheme produced `<task>/2/<name>`, which is a
+    // reachable NAME (a file under a `2/` subdirectory) — the whole request then
+    // failed duplicate-ref validation. A `<taskId>#<index>` ref cannot collide
+    // with any name because names never appear in it.
     const { fetchImpl, calls } = capturingFetch([okRes]);
 
     await sendDeltaArchive({
@@ -246,20 +253,52 @@ describe("sendDeltaArchive", () => {
         chunk([
           task("t1", { id: "t1" }, [
             { name: "image.png", size: 1, data: bytes("a") },
-            { name: "image.png", size: 1, data: bytes("b") },
+            { name: "2/image.png", size: 1, data: bytes("b") },
+            { name: "image.png", size: 1, data: bytes("c") },
           ]),
         ]),
       ],
       fetchImpl,
     });
 
-    const entry = readTar(gunzipSync(calls[0]!.body)).find(
-      (e) => e.path === "tasks/t1.json",
-    )!;
-    const manifest = JSON.parse(Buffer.from(entry.data).toString("utf8"));
+    const entries = readTar(gunzipSync(calls[0]!.body));
+    const manifest = JSON.parse(Buffer.from(entries[0]!.data).toString("utf8"));
     const refs = manifest.files.map((f: { ref: string }) => f.ref);
-    expect(refs).toEqual(["t1/image.png", "t1/2/image.png"]);
-    expect(new Set(refs).size).toBe(2);
+    expect(refs).toEqual(["t1#0", "t1#1"]);
+    expect(new Set(refs).size).toBe(refs.length);
+  });
+
+  it("collapses a repeated name to ONE payload instead of overwriting it", async () => {
+    // The local store is a filesystem, so two files with one name cannot both
+    // exist. The archive path `files/<taskId>/<name>` would make the second
+    // payload overwrite the first (the test above sends "a" and "c"). One entry
+    // per name means the archive can never carry two payloads at one path.
+    const { fetchImpl, calls } = capturingFetch([okRes]);
+
+    await sendDeltaArchive({
+      apiUrl: API,
+      token: "tok",
+      headers: {},
+      boardId: "board-1",
+      chunks: [
+        chunk([
+          task("t1", { id: "t1" }, [
+            { name: "image.png", size: 1, data: bytes("first") },
+            { name: "image.png", size: 1, data: bytes("second") },
+          ]),
+        ]),
+      ],
+      fetchImpl,
+    });
+
+    const entries = readTar(gunzipSync(calls[0]!.body));
+    expect(entries.map((e) => e.path)).toEqual([
+      "tasks/t1.json",
+      "files/t1/image.png",
+    ]);
+    const manifest = JSON.parse(Buffer.from(entries[0]!.data).toString("utf8"));
+    expect(manifest.files).toEqual([{ ref: "t1#0", name: "image.png" }]);
+    expect(Buffer.from(entries[1]!.data).toString("utf8")).toBe("first");
   });
 
   it("omits dropped files (empty data, size > 0) from the archive", async () => {
