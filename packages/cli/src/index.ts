@@ -3191,21 +3191,25 @@ program
             // prefix resolves, anything else is refused here) so a
             // user-supplied prefix is never passed through to the server
             // unresolved. A dangling target is the CLI's own TASK_NOT_FOUND
-            // refusal, not the server's INVALID_LINKS.
+            // refusal, not the server's INVALID_LINKS. Detail-first: a FULL
+            // parent id hits one GET and never enumerates the board; only
+            // a 404 falls back to ONE listing for prefix resolution.
             let addLinks: Array<{ taskId: string; type: string }> | undefined;
             const addWorkspace = await readWorkspace();
             if (typeof opts.parent === "string") {
-              const addBoard = await fetchSaasTasks(addWorkspace?.id, {
-                hydrate: false,
-              });
-              if (!addBoard.ok) {
+              const addParentProbe = await fetchSaasTaskDetail(opts.parent);
+              if (addParentProbe.ok) {
+                addLinks = [
+                  { taskId: addParentProbe.data.task.id, type: "parent" },
+                ];
+              } else if (addParentProbe.error.code !== "TASK_NOT_FOUND") {
                 const addParentReadMessage = saasReadErrorMessage(
-                  addBoard.error,
+                  addParentProbe.error,
                 );
                 if (opts.json) {
                   outputEnvelope({
                     ok: false,
-                    ...saasFailure(addBoard.error),
+                    ...saasFailure(addParentProbe.error),
                     message: `Unable to resolve parent ${opts.parent} in the online board (${addParentReadMessage}).`,
                     json: opts.json,
                   });
@@ -3218,55 +3222,80 @@ program
                 }
                 process.exitCode = ExitCode.GENERAL;
                 return;
-              }
-              const addResolved = resolveSaasTaskId(
-                addBoard.data.tasks,
-                opts.parent,
-              );
-              if (!addResolved.ok) {
-                if (addResolved.code === "TASK_NOT_FOUND") {
-                  const addParentMessage = `Parent task not found: ${opts.parent}`;
+              } else {
+                const addBoard = await fetchSaasTasks(addWorkspace?.id, {
+                  hydrate: false,
+                });
+                if (!addBoard.ok) {
+                  const addParentReadMessage = saasReadErrorMessage(
+                    addBoard.error,
+                  );
                   if (opts.json) {
                     outputEnvelope({
                       ok: false,
-                      code: "TASK_NOT_FOUND",
-                      message: addParentMessage,
-                      suggestion:
-                        "Run 'vibeflow tasks' to see available task IDs.",
+                      ...saasFailure(addBoard.error),
+                      message: `Unable to resolve parent ${opts.parent} in the online board (${addParentReadMessage}).`,
                       json: opts.json,
                     });
                   } else {
-                    console.log(chalk.red(`✗ ${addParentMessage}`));
                     console.log(
-                      chalk.dim(
-                        "  Run 'vibeflow tasks' to see available task IDs.",
+                      chalk.red(
+                        `✗ Unable to resolve parent ${opts.parent} in the online board (${addParentReadMessage}).`,
                       ),
                     );
                   }
-                  process.exitCode = ExitCode.NOT_FOUND;
-                } else {
-                  if (opts.json) {
-                    outputEnvelope({
-                      ok: false,
-                      code: addResolved.code,
-                      message: addResolved.message,
-                      suggestion:
-                        "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                      json: opts.json,
-                    });
-                  } else {
-                    console.log(chalk.red(`✗ ${addResolved.message}`));
-                    console.log(
-                      chalk.dim(
-                        "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                      ),
-                    );
-                  }
-                  process.exitCode = ExitCode.USAGE;
+                  process.exitCode = ExitCode.GENERAL;
+                  return;
                 }
-                return;
+                const addResolved = resolveSaasTaskId(
+                  addBoard.data.tasks,
+                  opts.parent,
+                );
+                if (!addResolved.ok) {
+                  if (addResolved.code === "TASK_NOT_FOUND") {
+                    const addParentMessage = `Parent task not found: ${opts.parent}`;
+                    if (opts.json) {
+                      outputEnvelope({
+                        ok: false,
+                        code: "TASK_NOT_FOUND",
+                        message: addParentMessage,
+                        suggestion:
+                          "Run 'vibeflow tasks' to see available task IDs.",
+                        json: opts.json,
+                      });
+                    } else {
+                      console.log(chalk.red(`✗ ${addParentMessage}`));
+                      console.log(
+                        chalk.dim(
+                          "  Run 'vibeflow tasks' to see available task IDs.",
+                        ),
+                      );
+                    }
+                    process.exitCode = ExitCode.NOT_FOUND;
+                  } else {
+                    if (opts.json) {
+                      outputEnvelope({
+                        ok: false,
+                        code: addResolved.code,
+                        message: addResolved.message,
+                        suggestion:
+                          "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                        json: opts.json,
+                      });
+                    } else {
+                      console.log(chalk.red(`✗ ${addResolved.message}`));
+                      console.log(
+                        chalk.dim(
+                          "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                        ),
+                      );
+                    }
+                    process.exitCode = ExitCode.USAGE;
+                  }
+                  return;
+                }
+                addLinks = [{ taskId: addResolved.id, type: "parent" }];
               }
-              addLinks = [{ taskId: addResolved.id, type: "parent" }];
             }
             const validSaasStatuses = [
               "backlog",
@@ -3861,17 +3890,28 @@ program
           const attachMode = await getMode();
           if (attachMode === "saas") {
             const attachWorkspace = await readWorkspace();
-            const attachBoard = await fetchSaasTasks(attachWorkspace?.id, {
-              hydrate: false,
-            });
-            if (!attachBoard.ok) {
+            // Detail-first (same rule as --edit/--get): a FULL id hits
+            // one GET and never enumerates the board; only a 404 falls
+            // back to ONE listing for prefix resolution through the ONE
+            // resolver (same semantics). A detail hit also feeds the
+            // duplicate-name check below, so the second detail read is
+            // skipped too.
+            let attachResolved: { id: string };
+            let attachDetail: Awaited<
+              ReturnType<typeof fetchSaasTaskDetail>
+            > | undefined;
+            const attachProbe = await fetchSaasTaskDetail(attachRawTask);
+            if (attachProbe.ok) {
+              attachResolved = { id: attachProbe.data.task.id };
+              attachDetail = attachProbe;
+            } else if (attachProbe.error.code !== "TASK_NOT_FOUND") {
               const attachReadMessage = saasReadErrorMessage(
-                attachBoard.error,
+                attachProbe.error,
               );
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...saasFailure(attachBoard.error),
+                  ...saasFailure(attachProbe.error),
                   message: `Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
                   json: opts.json,
                 });
@@ -3884,40 +3924,70 @@ program
               }
               process.exitCode = ExitCode.GENERAL;
               return;
-            }
-            const attachResolved = resolveSaasTaskId(
-              attachBoard.data.tasks,
-              attachRawTask,
-            );
-            if (!attachResolved.ok) {
-              if (attachResolved.code === "TASK_NOT_FOUND") {
-                outputEnvelope({
-                  ok: false,
-                  code: "TASK_NOT_FOUND",
-                  message: `Task not found: ${attachRawTask}`,
-                  suggestion:
-                    "Run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-                process.exitCode = ExitCode.NOT_FOUND;
-              } else {
-                outputEnvelope({
-                  ok: false,
-                  code: attachResolved.code,
-                  message: attachResolved.message,
-                  suggestion:
-                    "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-                process.exitCode = ExitCode.USAGE;
+            } else {
+              const attachBoard = await fetchSaasTasks(attachWorkspace?.id, {
+                hydrate: false,
+              });
+              if (!attachBoard.ok) {
+                const attachReadMessage = saasReadErrorMessage(
+                  attachBoard.error,
+                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(attachBoard.error),
+                    message: `Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
               }
-              return;
+              const attachListed = resolveSaasTaskId(
+                attachBoard.data.tasks,
+                attachRawTask,
+              );
+              if (!attachListed.ok) {
+                if (attachListed.code === "TASK_NOT_FOUND") {
+                  outputEnvelope({
+                    ok: false,
+                    code: "TASK_NOT_FOUND",
+                    message: `Task not found: ${attachRawTask}`,
+                    suggestion:
+                      "Run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                  process.exitCode = ExitCode.NOT_FOUND;
+                } else {
+                  outputEnvelope({
+                    ok: false,
+                    code: attachListed.code,
+                    message: attachListed.message,
+                    suggestion:
+                      "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                  process.exitCode = ExitCode.USAGE;
+                }
+                return;
+              }
+              attachResolved = attachListed;
             }
             // The cloud route mints a fresh file id per POST (no
             // name-dedupe server-side), so the duplicate check runs here:
-            // one detail read for the resolved task's file names. A 404
-            // means the task vanished between the listing and this read.
-            const attachDetail = await fetchSaasTaskDetail(attachResolved.id);
+            // one detail read for the resolved task's file names (already
+            // in hand when the probe above hit). A 404 means the task
+            // vanished between the listing and this read.
+            if (!attachDetail) {
+              attachDetail =
+                await fetchSaasTaskDetail(attachResolved.id);
+            }
             if (!attachDetail.ok) {
               if (attachDetail.error.code === "TASK_NOT_FOUND") {
                 outputEnvelope({
@@ -4363,24 +4433,28 @@ program
           // an empty id is refused, never a prefix of everything). The
           // resolved FULL id feeds every step below (probes, gate, write,
           // auto-commit), so a prefix can never resolve one way for the
-          // gate and another for the write. In online mode the target is
-          // resolved against the online board (a listing read, never a
-          // guess); the same listing is reused for link-target resolution
-          // below instead of being fetched twice.
+          // gate and another for the write. In online mode a FULL id hits
+          // ONE detail request and never enumerates the board (no listing
+          // pages, no 500-page cap failure for a valid id, no
+          // tasks:read-of-everything for a straight PATCH); only a 404
+          // falls back to ONE unhydrated listing for prefix resolution
+          // through the ONE resolver — resolver semantics are identical.
+          // The same listing is reused for link-target resolution below
+          // instead of being fetched twice.
           const editMode = await getMode();
           let editTargetId: string;
           let editLinkBoard: SaasTask[] | undefined;
           if (editMode === "saas") {
             const editWorkspace = await readWorkspace();
-            const editBoard = await fetchSaasTasks(editWorkspace?.id, {
-              hydrate: false,
-            });
-            if (!editBoard.ok) {
-              const editReadMessage = saasReadErrorMessage(editBoard.error);
+            const editDetail = await fetchSaasTaskDetail(taskId);
+            if (editDetail.ok) {
+              editTargetId = editDetail.data.task.id;
+            } else if (editDetail.error.code !== "TASK_NOT_FOUND") {
+              const editReadMessage = saasReadErrorMessage(editDetail.error);
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...saasFailure(editBoard.error),
+                  ...saasFailure(editDetail.error),
                   message: `Unable to resolve task ${taskId} in the online board (${editReadMessage}).`,
                   json: opts.json,
                 });
@@ -4393,48 +4467,109 @@ program
               }
               process.exitCode = ExitCode.GENERAL;
               return;
-            }
-            const editResolved = resolveSaasTaskId(
-              editBoard.data.tasks,
-              taskId,
-            );
-            if (!editResolved.ok) {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: editResolved.code,
-                  message:
-                    editResolved.code === "TASK_NOT_FOUND"
-                      ? `Task not found: ${taskId}`
-                      : editResolved.message,
-                  suggestion:
-                    editResolved.code === "TASK_NOT_FOUND"
-                      ? "Run 'vibeflow tasks' to see available task IDs."
-                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red(
-                    `✗ ${editResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${taskId}` : editResolved.message}`,
-                  ),
-                );
-                console.log(
-                  chalk.dim(
-                    editResolved.code === "TASK_NOT_FOUND"
-                      ? "  Run 'vibeflow tasks' to see available task IDs."
-                      : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                  ),
-                );
+            } else {
+              const editBoard = await fetchSaasTasks(editWorkspace?.id, {
+                hydrate: false,
+              });
+              if (!editBoard.ok) {
+                const editReadMessage = saasReadErrorMessage(editBoard.error);
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(editBoard.error),
+                    message: `Unable to resolve task ${taskId} in the online board (${editReadMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to resolve task ${taskId} in the online board (${editReadMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
               }
-              process.exitCode =
-                editResolved.code === "TASK_NOT_FOUND"
-                  ? ExitCode.NOT_FOUND
-                  : ExitCode.USAGE;
-              return;
+              const editResolved = resolveSaasTaskId(
+                editBoard.data.tasks,
+                taskId,
+              );
+              if (!editResolved.ok) {
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: editResolved.code,
+                    message:
+                      editResolved.code === "TASK_NOT_FOUND"
+                        ? `Task not found: ${taskId}`
+                        : editResolved.message,
+                    suggestion:
+                      editResolved.code === "TASK_NOT_FOUND"
+                        ? "Run 'vibeflow tasks' to see available task IDs."
+                        : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ ${editResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${taskId}` : editResolved.message}`,
+                    ),
+                  );
+                  console.log(
+                    chalk.dim(
+                      editResolved.code === "TASK_NOT_FOUND"
+                        ? "  Run 'vibeflow tasks' to see available task IDs."
+                        : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                    ),
+                  );
+                }
+                process.exitCode =
+                  editResolved.code === "TASK_NOT_FOUND"
+                    ? ExitCode.NOT_FOUND
+                    : ExitCode.USAGE;
+                return;
+              }
+              editTargetId = editResolved.id;
+              editLinkBoard = editBoard.data.tasks;
             }
-            editTargetId = editResolved.id;
-            editLinkBoard = editBoard.data.tasks;
+            // Link flags resolve against ONE board listing, fetched here
+            // only when the detail hit left us without one (a full-id
+            // target plus link flags). A prefix-resolved target already
+            // holds the listing above — this never adds a second one.
+            if (
+              editLinkBoard === undefined &&
+              (wantsParentChange ||
+                (opts.relates?.length ?? 0) > 0 ||
+                (opts.blocks?.length ?? 0) > 0 ||
+                (opts.unrelates?.length ?? 0) > 0 ||
+                (opts.unblocks?.length ?? 0) > 0)
+            ) {
+              const editLinkFetch = await fetchSaasTasks(editWorkspace?.id, {
+                hydrate: false,
+              });
+              if (!editLinkFetch.ok) {
+                const editLinkMessage = saasReadErrorMessage(
+                  editLinkFetch.error,
+                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(editLinkFetch.error),
+                    message: `Unable to resolve link targets for task ${editTargetId} in the online board (${editLinkMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to resolve link targets for task ${editTargetId} in the online board (${editLinkMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
+              }
+              editLinkBoard = editLinkFetch.data.tasks;
+            }
           } else {
             const editLocalResolved = resolveSaasTaskId(
               listTasks(resolve(dir)).map((t) => ({

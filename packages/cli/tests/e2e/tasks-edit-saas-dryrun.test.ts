@@ -67,7 +67,33 @@ async function startFakeBackend(): Promise<{
       res.end(JSON.stringify(payload));
     };
     if (req.method === "GET" && req.url?.startsWith("/api/v0/tasks")) {
-      finish(200, { items: [task], nextCursor: null });
+      // The CLI speaks two different reads here and the fake must tell
+      // them apart: the bare path is the BOARD LISTING (`{ items,
+      // nextCursor }`); anything deeper is a DETAIL read for one task
+      // (the bare contract task — comments/files inlined so no hydration
+      // sub-requests fire) or a hydration subpath (empty). Answering the
+      // envelope for a detail read used to go unnoticed because --edit
+      // never issued one; since the full-id fast path it would resolve
+      // the target to `undefined` and PATCH the wrong URL.
+      const pathname = (req.url ?? "/").split("?")[0] as string;
+      if (pathname === "/api/v0/tasks") {
+        finish(200, { items: [task], nextCursor: null });
+        return;
+      }
+      const rest = pathname.slice("/api/v0/tasks/".length);
+      if (rest.endsWith("/comments")) {
+        finish(200, { comments: [] });
+        return;
+      }
+      if (rest.endsWith("/files")) {
+        finish(200, { files: [] });
+        return;
+      }
+      if (rest === task.id) {
+        finish(200, { ...task, comments: [], files: [] });
+        return;
+      }
+      finish(404, { error: "not found" });
       return;
     }
     let body = "";
