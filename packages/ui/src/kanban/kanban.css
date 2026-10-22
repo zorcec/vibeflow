@@ -46,12 +46,20 @@ body {
  background: var(--t-text-muted);
 }
 
-/* ── Kanban board ── */
+/* ── Kanban board (ticket s5dfufqs — no horizontal scroll) ──
+   The board never scrolls horizontally: columns shrink to share the
+   viewport and wrap/stack when the sane minimum no longer fits, so
+   `scrollWidth <= clientWidth` holds at every viewport width. The
+   custom scroll thumb (below) hides itself when there is nothing to
+   scroll. Wrapped rows can exceed the board height, so the vertical
+   axis scrolls. */
 #kanban-board {
  scrollbar-width: none;
  -ms-overflow-style: none;
- overflow-x: auto;
- overflow-y: hidden;
+ overflow-x: hidden;
+ overflow-y: auto;
+ flex-wrap: wrap;
+ align-content: flex-start;
 }
 #kanban-board::-webkit-scrollbar {
  display: none;
@@ -81,10 +89,15 @@ body {
  background: var(--t-text-muted);
 }
 
-/* ── Column layout ── */
+/* ── Column layout (ticket s5dfufqs) ──
+   Columns share the viewport instead of forcing a fixed-width strip:
+   they grow to fill a row and shrink down to a 200px floor that keeps
+   cards readable (never 40px slivers). Below that floor the board's
+   `flex-wrap` moves the column to the next row — at 390px the lanes
+   stack one per row — so the board never overflows horizontally. */
 .board-column {
- flex: 0 0 280px;
- width: 280px;
+ flex: 1 1 220px;
+ min-width: 200px;
  display: flex;
  flex-direction: column;
  gap: 6px;
@@ -1182,6 +1195,7 @@ body.proto-resizing-panel {
  pointer-events: auto;
  outline: 1px solid color-mix(in srgb, var(--t-danger) 50%, transparent);
 }
+
 
 /* ── Add panel ── */
 .relations-add-btn {

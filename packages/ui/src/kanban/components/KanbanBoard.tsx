@@ -70,6 +70,49 @@ export const DONE_FIT_SCROLL_PAD_BOTTOM = 8;
  * from, so a chip restyle goes red here instead of silently clipping
  * the lane again. */
 export const DONE_FIT_CHIP_H = 44;
+/** Ticket s5dfufqs — responsive column geometry (single source; mirrors
+ * `#kanban-board` / `.board-column` in kanban.css — keep them in sync).
+ *
+ * Columns share the row (`flex: 1 1 BASIS`) down to a MIN floor that keeps
+ * cards readable, then wrap to the next row instead of forcing a
+ * horizontal strip. PAD_X is the board's horizontal padding
+ * (`16px 20px` inline on `#kanban-board`); GAP is its flex gap. */
+export const BOARD_COLUMN_MIN_WIDTH_PX = 200;
+export const BOARD_COLUMN_FLEX_BASIS_PX = 220;
+export const BOARD_GAP_PX = 16;
+export const BOARD_PAD_X_PX = 20;
+
+/** How many columns share one row at `viewportWidth` for `colCount` lanes.
+ * Always >= 1: below the MIN floor the lanes stack one per row (at 390px
+ * a single 350px lane), so the row never exceeds the viewport. */
+export function boardColumnsPerRow(
+  viewportWidth: number,
+  colCount: number,
+): number {
+  const available = viewportWidth - BOARD_PAD_X_PX * 2;
+  const perRow = Math.max(
+    1,
+    Math.floor(
+      (available + BOARD_GAP_PX) /
+        (BOARD_COLUMN_MIN_WIDTH_PX + BOARD_GAP_PX),
+    ),
+  );
+  return Math.min(Math.max(1, colCount), perRow);
+}
+
+/** Fitted width of each column in a full row at `viewportWidth`. */
+export function boardColumnWidth(
+  viewportWidth: number,
+  colCount: number,
+): number {
+  const perRow = boardColumnsPerRow(viewportWidth, colCount);
+  return (
+    viewportWidth -
+    BOARD_PAD_X_PX * 2 -
+    (perRow - 1) * BOARD_GAP_PX
+  ) / perRow;
+}
+
 /** Space the fit count must keep free below the last card: the chip, its
  * flex gap, and the scroll container's bottom padding. */
 export const DONE_FIT_CHIP_RESERVE =
@@ -419,12 +462,12 @@ export function KanbanBoard({
 
   /** Edge auto-scroll while a drag is in flight (d4814bb7).
    *
-   * A drop target that starts off-screen was unreachable: the board overflows a
-   * narrow viewport (at 1310px the done lane is clipped off the right edge) and
-   * a tall lane's rows sit below the fold — neither scrolls itself during a
-   * drag, so the pointer had nowhere to go. Two axes, two containers:
-   * `#kanban-board` scrolls horizontally, and the `.column-scroll` under the
-   * pointer scrolls vertically.
+   * A drop target that starts off-screen was unreachable: a tall lane's rows
+   * sit below the fold and wrapped lanes sit below the first row (s5dfufqs) —
+   * neither scrolls itself during a drag, so the pointer had nowhere to go.
+   * Two axes, two containers: `#kanban-board` scrolls vertically when lanes
+   * wrap (its horizontal axis never overflows — the columns fit or wrap),
+   * and the `.column-scroll` under the pointer scrolls vertically.
    *
    * The loop deliberately writes NO React state — only scroll offsets. A React
    * write inside the drag is what aborted the native session (87748ad), so the
@@ -822,7 +865,9 @@ export function KanbanBoard({
       <main
         id="kanban-board"
         ref={boardRef}
-        className="flex-1 flex overflow-x-auto overflow-y-hidden"
+        // s5dfufqs: no horizontal scroll — overflow/wrap live on
+        // `#kanban-board` in kanban.css (hidden x, wrap, readable min).
+        className="flex-1 flex"
         style={{
           padding: "16px 20px",
           gap: 16,
