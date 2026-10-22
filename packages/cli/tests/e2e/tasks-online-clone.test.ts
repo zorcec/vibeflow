@@ -4,29 +4,32 @@
  * normal `.json` record, so the local copy exists for grep/diff/inspection
  * offline and the two stay identical.
  *
- * The fake backend below emulates a server whose stored `raw` IS the
- * local-style record: POST builds the accepted record (honouring the
- * client-sent id — the `(boardId, localTaskId)` identity rule), stores it,
- * and answers the v0 view of it; the export archive serves the stored
- * records verbatim. That shape is the honest one to fake: test 1 proves the
- * clone deep-equals the server's stored bytes even though the CLI only ever
- * saw the v0 response (so the mapping round-trips), and test 3 proves the
- * export of that same stored state merges to zero writes. What the fake
- * CANNOT prove is the real server's synthesis (its defaults for priority /
- * type / selector on a bare single-create) — the real smoke in the ticket
- * gates covers that, and the unit suite pins whatever mapping ships.
+ * The fake backend below mirrors the REAL v0 contract: the stored `raw` is
+ * the VERBATIM client body (plus backfilled id/links — no merged column
+ * defaults, no author/timestamps/comments/files arrays, exactly like
+ * `buildV0CreateRaw`), the row columns (`createdAt`, `updatedAt`, author)
+ * live BESIDE it, the create view echoes the columns, and the create
+ * response carries the accepted raw on the explicit `record` member. The
+ * export archive serves the stored raws verbatim. That shape is the honest
+ * one to fake: test 1 proves the clone deep-equals the response's own
+ * `record` member (not the fake's internals — a test that reuses the
+ * mapper's invention as the fake proves nothing), and test 3 proves the
+ * export of that same stored state merges to zero writes.
  *
  * The first four tests are ONE ordered chain sharing a fake and a store —
  * deliberately, not incidentally: the requirement is a sequence (create,
  * then push sees it as existing, then pull is a no-op, then delete drops
- * the clone), and each step needs the previous step's state. The fifth
- * (failed create leaves nothing) uses fresh fixtures.
+ * the clone), and each step needs the previous step's state. The patch
+ * test and the failed-create test use fresh fixtures (a patch mutates
+ * server state, which would turn the shared pull into a merge).
  *
  * Non-vacuity proof: with the `writeOnlineClone` call removed from the
  * online `--add` path, test 1 fails (no local file); with the clone built
  * from the request instead of the response (e.g. the locally-minted id),
- * test 1 fails on the id/created deep-equal; with the local delete dropped
- * from the online delete path, test 4 fails (stale clone on disk).
+ * test 1 fails on the id deep-equal; with the `record` member dropped from
+ * the fake response, test 1 fails (the CLI warns and reconstructs); with
+ * the local delete dropped from the online delete path, test 4 fails
+ * (stale clone on disk).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
@@ -63,42 +66,44 @@ function saasHome(): string {
 
 type RecordedRequest = { method: string; url: string; body: string };
 type StoredRecord = Record<string, unknown>;
+/** Row columns that live BESIDE the raw (never inside it) — the real server
+ * keeps minted sortKey, stamped author and timestamps in the row while the
+ * raw stays the verbatim client body. */
+type StoredColumns = { createdAt: string; updatedAt: string; author: string };
 
-/** v0 view of a stored local-style record (what the wire carries). */
-function v0View(record: StoredRecord): Record<string, unknown> {
-  const comments = (
-    Array.isArray(record.comments) ? record.comments : []
-  ) as Array<Record<string, unknown>>;
+/**
+ * v0 view of one stored task (what the wire carries): the COLUMN echo plus
+ * the accepted `record` member — exactly the shape the real create route
+ * answers (`serializeV0Task(row)` spread with `record`). Columns echo the
+ * stored row (null when the client sent nothing, like the real nullable
+ * columns); the raw travels untouched on `record`.
+ */
+function v0View(
+  record: StoredRecord,
+  columns: StoredColumns,
+): Record<string, unknown> {
   return {
     id: record.id,
     externalId: record.id,
     title: record.title,
-    description: record.description ?? null,
-    status: record.status,
-    priority: record.priority ?? null,
-    type: record.type ?? null,
+    description:
+      typeof record.description === "string" ? record.description : null,
+    status:
+      typeof record.status === "string" ? record.status : "todo",
+    priority: typeof record.priority === "string" ? record.priority : null,
+    type: typeof record.type === "string" ? record.type : null,
     boardId: "board-1",
-    createdAt: record.created,
-    // A LOSSY view, exactly like the real one (proven by smoke):
-    // description and selector are answered as null even though the stored
-    // raw carries the server defaults ("" / "/") — the clone must
-    // reconstruct them (see saas/clone.ts). Every other stored field is
-    // echoed, including the updatedAt column echo the real view always
-    // carries (SaasTask.updatedAt is required).
-    description: null,
-    selector: null,
-    author: record.author ?? null,
-    updatedAt: record.updated ?? record.created,
-    links: record.links ?? [],
-    comments: comments.map((c) => ({
-      id: c.id,
-      author: c.author,
-      text: c.text,
-      createdAt: c.createdAt,
-    })),
-    commentCount: comments.length,
+    createdAt: columns.createdAt,
+    selector: typeof record.selector === "string" ? record.selector : null,
+    author: columns.author,
+    updatedAt: columns.updatedAt,
+    links: Array.isArray(record.links) ? record.links : [],
+    comments: [],
+    commentCount: 0,
     fileCount: 0,
     files: [],
+    // The ACCEPTED raw, verbatim — this member is the whole clone contract.
+    record,
   };
 }
 
@@ -106,11 +111,13 @@ async function startFakeBackend(): Promise<{
   url: string;
   requests: RecordedRequest[];
   records: Map<string, StoredRecord>;
+  columns: Map<string, StoredColumns>;
   failCreates: { value: boolean };
   close: () => Promise<void>;
 }> {
   const requests: RecordedRequest[] = [];
   const records = new Map<string, StoredRecord>();
+  const columns = new Map<string, StoredColumns>();
   const failCreates = { value: false };
   const server: Server = createServer((req, res) => {
     const finish = (code: number, payload: unknown) => {
@@ -169,16 +176,20 @@ async function startFakeBackend(): Promise<{
       // reads that as "old server", so push takes the id-diff path.
       const detailMatch = url.match(/^\/api\/v0\/tasks\/([^/?]+)/);
       if (detailMatch) {
-        const record = records.get(decodeURIComponent(detailMatch[1]));
-        if (!record) {
+        const id = decodeURIComponent(detailMatch[1]);
+        const record = records.get(id);
+        const cols = columns.get(id);
+        if (!record || !cols) {
           finish(404, { error: "Task not found", code: "NOT_FOUND" });
           return;
         }
-        finish(200, v0View(record));
+        finish(200, v0View(record, cols));
         return;
       }
       finish(200, {
-        items: [...records.values()].map(v0View),
+        items: [...records.entries()].map(([id, record]) =>
+          v0View(record, columns.get(id)!),
+        ),
         nextCursor: null,
       });
       return;
@@ -208,30 +219,52 @@ async function startFakeBackend(): Promise<{
             ? parsed.id
             : `server-minted-${records.size + 1}`;
         const now = new Date().toISOString();
-        // Server synthesis, exactly as the real smoke proved it: a
-        // single-create stores description "" / selector "/" / both
-        // timestamps / the row author, but NO priority / type (the view
-        // answers null for those and the export record lacks them) — and
-        // the export serves the stored record verbatim (manifest hash ==
-        // inventory hash over the same bytes).
-        const record: StoredRecord = {
-          id,
-          title: typeof parsed.title === "string" ? parsed.title : "Untitled",
-          description:
-            typeof parsed.description === "string" ? parsed.description : "",
-          status: typeof parsed.status === "string" ? parsed.status : "todo",
-          selector: "/",
-          author: "Test User",
-          created: now,
-          updated: now,
-          comments: [],
-          files: [],
-          ...(Array.isArray(parsed.links) && parsed.links.length > 0
-            ? { links: parsed.links }
-            : {}),
-        };
+        // Verbatim-raw cut, exactly like the real `buildV0CreateRaw`: the
+        // stored raw is the SENT body (transport routing stripped) plus the
+        // backfilled id and validated links — no merged column defaults, no
+        // author/timestamps/comments/files (those live in the row, never in
+        // the record). The export serves these bytes verbatim (manifest
+        // hash == inventory hash over the same bytes).
+        const record: StoredRecord = { ...(parsed as StoredRecord) };
+        delete record.boardId;
+        record.id = id;
+        if (!Array.isArray(record.links)) delete record.links;
+        if (typeof record.title !== "string") record.title = "Untitled";
         records.set(id, record);
-        finish(201, v0View(record));
+        // Row columns: minted server-side, echoed by the view, never stored
+        // in the raw.
+        const cols: StoredColumns = {
+          createdAt: now,
+          updatedAt: now,
+          author: "Test User",
+        };
+        columns.set(id, cols);
+        finish(201, v0View(record, cols));
+        return;
+      }
+      const patchMatch = url.match(/^\/api\/v0\/tasks\/([^/]+)$/);
+      if (req.method === "PATCH" && patchMatch) {
+        const id = decodeURIComponent(patchMatch[1]);
+        const record = records.get(id);
+        const cols = columns.get(id);
+        if (!record || !cols) {
+          finish(404, { error: "Task not found", code: "NOT_FOUND" });
+          return;
+        }
+        // Real PATCH semantics, minimally: scalar fields land in BOTH the
+        // row and the raw (the raw is the record of truth), `updatedAt`
+        // advances. Unknown keys are ignored, like the validated real route.
+        const patch = (body ? JSON.parse(body) : {}) as Record<
+          string,
+          unknown
+        >;
+        for (const key of ["title", "status", "priority", "type"]) {
+          if (typeof patch[key] === "string") record[key] = patch[key];
+        }
+        if (typeof patch.description === "string" || patch.description === null)
+          record.description = patch.description as string | null;
+        cols.updatedAt = new Date().toISOString();
+        finish(200, v0View(record, cols));
         return;
       }
       const deleteMatch = url.match(/^\/api\/v0\/tasks\/([^/]+)$/);
@@ -255,6 +288,7 @@ async function startFakeBackend(): Promise<{
     url: `http://127.0.0.1:${port}`,
     requests,
     records,
+    columns,
     failCreates,
     close: () =>
       new Promise<void>((resolve, reject) =>
@@ -299,24 +333,30 @@ describe("clone mode: online create also persists the local record", () => {
     await backend.close();
   });
 
-  it("1. create online writes the local .json byte-equal to the server-accepted record", async () => {
+  it("1. create online writes the local .json byte-equal to the `record` member", async () => {
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Clone me", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: backend.url } },
     );
     expect(r.code).toBe(0);
-    // Success envelopes go to stdout (refusals go to stderr).
+    // Success envelopes go to stdout (refusals go to stderr). The task
+    // payload is the FULL create response, including the accepted `record`.
     const envelope = JSON.parse(r.stdout) as {
       ok: boolean;
-      task: { id: string };
+      task: { id: string; record: Record<string, unknown> };
     };
     expect(envelope.ok).toBe(true);
     createdId = envelope.task.id;
 
     // Identity: the clone reuses the ACCEPTED id (the fake honours the
     // client-sent id, like the real server's (boardId, localTaskId) rule).
-    const stored = backend.records.get(createdId);
-    expect(stored).toBeDefined();
+    expect(backend.records.get(createdId)).toBeDefined();
+    // The response carries the accepted raw — the test reads it from the
+    // RESPONSE (what the CLI saw), never from the fake's internals, so a
+    // fake that shares the mapper's invention cannot pass.
+    const accepted = envelope.task.record;
+    expect(accepted).toBeDefined();
+    expect(accepted.id).toBe(createdId);
 
     const files = taskFiles(store);
     expect(files).toHaveLength(1);
@@ -325,13 +365,21 @@ describe("clone mode: online create also persists the local record", () => {
       unknown
     >;
     expect(clone.id).toBe(createdId);
-    // The clone deep-equals the record the server stored — same bytes the
-    // next pull exports and the next push hashes — except sortKey, the one
-    // locally-minted field (the response carries none; see saas/clone.ts).
-    const { sortKey: _cloneSortKey, ...cloneRest } = clone;
-    const { sortKey: _storedSortKey, ...storedRest } = stored!;
-    expect(cloneRest).toEqual(storedRest);
+    // The clone deep-equals the ACCEPTED record — same bytes the next pull
+    // exports and the next push hashes — plus only the two load-bearing
+    // local keys the raw carries neither of (`sortKey` for board order,
+    // `created` for the date-subdir path; see saas/clone.ts).
+    const { sortKey: _cloneSortKey, created: _cloneCreated, ...cloneRest } =
+      clone;
+    expect(cloneRest).toEqual(accepted);
     expect(typeof _cloneSortKey).toBe("string");
+    expect(typeof _cloneCreated).toBe("string");
+    // No invented defaults on the exact path: a bare create sends no
+    // description/selector, so the accepted raw carries neither.
+    expect(clone).not.toHaveProperty("selector");
+    expect(clone).not.toHaveProperty("comments");
+    expect(clone).not.toHaveProperty("files");
+    expect(r.stderr).not.toMatch(/RECONSTRUCTED/);
   });
 
   it("2. push immediately after reports nothing to push and sends no POST", async () => {
@@ -381,6 +429,50 @@ describe("clone mode: online create also persists the local record", () => {
     expect(r.code).toBe(0);
     expect(backend.records.has(createdId)).toBe(false);
     expect(taskFiles(store)).toHaveLength(0);
+  });
+});
+
+describe("clone mode: online patch never rewrites the clone", () => {
+  it("create -> patch leaves the clone's author/sortKey untouched", async () => {
+    const backend = await startFakeBackend();
+    try {
+      const store = freshDir("clone-patch-store-");
+      const home = saasHome();
+      const created = await spawnCli(
+        ["tasks", store, "--add", "--title", "Patch me", "--json"],
+        { cwd: store, home, env: { VIBEFLOW_API_URL: backend.url } },
+      );
+      expect(created.code).toBe(0);
+      const envelope = JSON.parse(created.stdout) as {
+        ok: boolean;
+        task: { id: string };
+      };
+      const id = envelope.task.id;
+      const files = taskFiles(store);
+      expect(files).toHaveLength(1);
+      const before = readFileSync(files[0]!, "utf-8");
+      const beforeJson = JSON.parse(before) as Record<string, unknown>;
+
+      // Online update: moves the task server-side (status + updatedAt).
+      const patched = await spawnCli(
+        ["tasks", store, "--edit", id, "--set-status", "in-progress", "--json"],
+        { cwd: store, home, env: { VIBEFLOW_API_URL: backend.url } },
+      );
+      expect(patched.code).toBe(0);
+      // The raw is the record of truth: it keeps the wire spelling the CLI
+      // sent (`in_progress`), exactly like the real verbatim raw.
+      expect(backend.records.get(id)?.status).toBe("in_progress");
+
+      // ...but the clone is byte-identical: update does not clone (out of
+      // scope by design), so neither the minted sortKey nor the author the
+      // server stamped at create can drift.
+      const after = readFileSync(files[0]!, "utf-8");
+      expect(after).toBe(before);
+      const afterJson = JSON.parse(after) as Record<string, unknown>;
+      expect(afterJson.sortKey).toBe(beforeJson.sortKey);
+    } finally {
+      await backend.close();
+    }
   });
 });
 

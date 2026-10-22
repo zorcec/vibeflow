@@ -11,27 +11,32 @@
  * local record from it is exactly the divergence this ticket repairs: the
  * next `pull` would rewrite the file (the export carries the accepted
  * record) and the next `push` would re-upload it (the delta hash is over
- * the accepted bytes). The v0 create route answers the bare accepted task
- * (contract Task = local fields plus the external id, counts, and the
- * `createdAt` alias), so the response IS the accepted record — map it onto
- * local field names and write those bytes.
+ * the accepted bytes).
  *
- * WHY response-driven with omit-on-absent (no local defaults filled in):
- * the stored server `raw` cannot contain `null` (the shared TaskRecord
- * domain rejects it), so a `null`/absent answer means the key is absent
- * server-side too — inventing a local default (`"Medium"`) would hash
- * differently from the server raw and the next delta push would re-send
- * the task. Two exceptions, both proven by smoke: `description` and
- * `selector` default to `""` / `"/"` (the create view answers null while
- * the raw carries the defaults — see the mapper). `comments: []` /
- * `files: []` are forced: the pull merge ADDS a missing array (a rewrite),
- * while an explicit empty array deep-equals the export. `sortKey` is the
- * one locally-minted field
- * (the response carries none and the local board needs one to order the
- * row); it is minted above the store ceiling exactly like `createTask`
- * mints it, and the ceiling cache is invalidated afterwards — the same
- * rule the pull merge follows for imported tasks — so the next create
- * rescans once instead of minting a colliding key.
+ * The v0 create route carries the ACCEPTED raw record on an explicit
+ * `record` member of the create response (verbatim `raw` the server
+ * stored — client body plus backfilled id/links, sanitized, no merged
+ * column defaults). When that member is present the clone persists it
+ * VERBATIM — no mapper, no invented defaults (`description: ""`,
+ * `selector: "/"`, stamped author, forced `comments: []` / `files: []`
+ * are all dropped on this path; they were guesses about the old
+ * server-synthesized raw and would hash differently from the stored raw).
+ * Only two keys may be ADDED, both load-bearing for the local store and
+ * both the same rule the pull merge applies to imported tasks:
+ * `sortKey` (the raw carries none — the column default lives in the row,
+ * not the record — and the local board needs one to order the row; minted
+ * above the store ceiling with the ceiling cache invalidated afterwards)
+ * and `created` (the writer shards files by date subdirectory and the raw
+ * carries none; taken from the response `createdAt` column echo, falling
+ * back to now). Both ARE hash inputs, so the next delta push re-sends the
+ * clone exactly once and then converges — the price of a locally-minted
+ * order key and file path, stated openly.
+ *
+ * OLDER SERVERS (no `record` member — write path predates the member):
+ * fall back to `saasTaskToLocalRecord`, the response-view mapper, and WARN
+ * LOUDLY on stderr that the clone is RECONSTRUCTED, not exact — never
+ * silently pretend it is. A reconstructed clone converges after a push +
+ * pull round-trip instead of being identical from birth.
  *
  * SCOPE: online create only (`tasks --add` in saas mode, the single
  * `createSaasTask` call site). Online delete already drops the local
@@ -171,25 +176,76 @@ export function saasTaskToLocalRecord(task: SaasTask): Record<string, unknown> {
 }
 
 /**
+ * The accepted record for the clone, plus whether it is the server's own
+ * bytes. `exact` is true only when the create response carried the
+ * explicit `record` member (a plain object with a string id) — that object
+ * is returned by reference-adjacent spread (never mutated here) and the
+ * caller persists it verbatim. Otherwise the response-view mapper
+ * reconstructs the closest approximation and the caller must warn loudly.
+ */
+export function extractAcceptedRecord(task: SaasTask): {
+  record: Record<string, unknown>;
+  exact: boolean;
+} {
+  const candidate = asRecord(task).record;
+  if (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    !Array.isArray(candidate) &&
+    typeof (candidate as Record<string, unknown>).id === "string"
+  ) {
+    return { record: { ...(candidate as Record<string, unknown>) }, exact: true };
+  }
+  return { record: saasTaskToLocalRecord(task), exact: false };
+}
+
+/**
  * Persist the server-accepted task as its normal local `.json` record and
  * return the file path. Serialised under the same `.store-create` lock
  * `createTask` mints under, so a racing local create can never mint the
  * same `sortKey`. Best-effort is the CALLER's decision — this throws on
  * I/O failure so the caller can say so loudly instead of silently
  * diverging.
+ *
+ * Exact path (`record` member present): the accepted object is written
+ * VERBATIM — the mapper's invented defaults are deleted on this path by
+ * construction (the mapper is never called). Only `sortKey` and `created`
+ * are filled when absent (see the module docstring for why those two are
+ * load-bearing and what the one-push convergence cost is). Reconstructed
+ * path (older server): the mapper output is written as before, plus a
+ * LOUD stderr warning naming the clone reconstructed — the caller (and
+ * the test) must never mistake it for exact.
  */
 export function writeOnlineClone(projectDir: string, task: SaasTask): string {
   ensureTaskDirs(projectDir);
   const lock = taskLockPath(projectDir, ".store-create");
   return withFileLockSync(lock, () => {
-    const record = saasTaskToLocalRecord(task);
+    const { record, exact } = extractAcceptedRecord(task);
+    if (!exact) {
+      // LOUD, not silent: stderr keeps --json stdout pure while a human
+      // sees the divergence risk. The fix is `vibeflow pull` (the export
+      // carries the accepted record) followed by a push to converge.
+      console.error(
+        `⚠ Online task created, but the server did not return the accepted record (no \`record\` member on the create response) — the local clone is RECONSTRUCTED from the response view, not exact. Run 'vibeflow pull' to fetch the accepted bytes.`
+      );
+    }
     if (typeof record.sortKey !== "string" || record.sortKey.length === 0) {
-      // No server-minted key on the response: mint above the store ceiling
-      // exactly like createTask, then invalidate the ceiling (the pull
-      // merge's own rule for imported tasks) so the next create rescans
-      // once instead of colliding with the minted key.
+      // No server-minted key on the accepted record: mint above the store
+      // ceiling exactly like createTask, then invalidate the ceiling (the
+      // pull merge's own rule for imported tasks) so the next create
+      // rescans once instead of colliding with the minted key.
       const ceiling = maxStoreSortKey(projectDir);
       record.sortKey = generateSortKeyBetween(ceiling, null);
+    }
+    if (typeof record.created !== "string" || record.created.length === 0) {
+      // The date-subdir writer requires `created`; the accepted raw carries
+      // none (timestamps live in the row columns, not the record). Prefer
+      // the response's own `createdAt` column echo over the local clock so
+      // the clone shards under the server's creation date.
+      record.created =
+        typeof task.createdAt === "string" && task.createdAt.length > 0
+          ? task.createdAt
+          : new Date().toISOString();
     }
     // SAFETY: the record above holds exactly the local Task field set (id,
     // title, status, created, comments, files, plus response-driven

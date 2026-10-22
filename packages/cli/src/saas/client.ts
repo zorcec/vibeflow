@@ -136,6 +136,15 @@ export interface SaasTask {
     /** True when written by the engine. Round-trips through push/import. */
     system?: boolean;
   }>;
+  /**
+   * The ACCEPTED raw record the server stored (ticket 4efaa878 clone mode).
+   * Present on create responses from servers that advertise it: the verbatim
+   * `raw` (client body plus backfilled id/links, sanitized — no merged
+   * column defaults), which the CLI persists as the local clone byte-for-byte.
+   * Absent on older servers — the CLI falls back to the response-view mapper
+   * and warns loudly that the clone is reconstructed, not exact.
+   */
+  record?: Record<string, unknown>;
 }
 async function getBearerHeaders(): Promise<Record<string, string> | null> {
   const token = await readToken();
@@ -1038,7 +1047,9 @@ export async function createSaasTask(params: {
         },
       };
     }
-    // v0 answers the bare created task (contract Task), status 201.
+    // v0 answers the created task (contract Task), status 201 — newer
+    // servers carry the accepted raw on an explicit `record` member alongside
+    // the view (ticket 4efaa878: the clone persists that member verbatim).
     const data = (await res.json()) as SaasTask;
     return { ok: true, data };
   } catch (err) {

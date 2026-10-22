@@ -1,20 +1,24 @@
 /**
- * Clone mode (ticket 4efaa878) — unit suite for the pure mapping
- * (`saasTaskToLocalRecord`) and the local writer (`writeOnlineClone`).
+ * Clone mode (ticket 4efaa878) — unit suite for the accepted-record extractor
+ * (`extractAcceptedRecord`), the fallback mapping (`saasTaskToLocalRecord`)
+ * and the local writer (`writeOnlineClone`).
  *
- * The mapping contract under test: the clone is written from the record the
- * server ACCEPTED (the v0 response), never re-derived from the request —
- * every optional is omit-on-absent (a `null`/absent answer means the key is
- * absent server-side, since the shared TaskRecord domain rejects null), so
- * the clone hashes exactly like the server raw and the next delta push
- * sends nothing. Server-only keys (`boardId`, `externalId`, counts) never
- * enter the file — adding them would change the hash inputs.
+ * The contract under test: when the create response carries the explicit
+ * `record` member (the accepted raw the server stored), the clone persists
+ * it VERBATIM — no mapper, no invented defaults — plus only the two
+ * load-bearing local keys (`sortKey`, `created`, same rule as pull imports).
+ * Without the member (older server) the response-view mapper reconstructs
+ * the closest approximation AND the writer warns loudly that the clone is
+ * reconstructed, never exact. Server-only view keys (`boardId`,
+ * `externalId`, counts) never enter the file — adding them would change
+ * the hash inputs.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  extractAcceptedRecord,
   saasTaskToLocalRecord,
   writeOnlineClone,
 } from "../../../src/saas/clone.js";
@@ -219,6 +223,42 @@ describe("saasTaskToLocalRecord", () => {
   });
 });
 
+describe("extractAcceptedRecord", () => {
+  it("prefers the explicit `record` member verbatim (no mapper defaults)", () => {
+    const accepted = {
+      id: "abc123def456abc123def456abc12345",
+      title: "Accepted task",
+      status: "todo",
+    };
+    const { record, exact } = extractAcceptedRecord(
+      saasTask({ record: accepted } as unknown as Partial<SaasTask>),
+    );
+    expect(exact).toBe(true);
+    expect(record).toEqual(accepted);
+    // No invented defaults on the exact path: the mapper would have forced
+    // description "", selector "/", comments [] and files [].
+    expect(record).not.toHaveProperty("description");
+    expect(record).not.toHaveProperty("selector");
+    expect(record).not.toHaveProperty("comments");
+    expect(record).not.toHaveProperty("files");
+  });
+
+  it("rejects a non-object `record` member and falls back to the mapper", () => {
+    const { record, exact } = extractAcceptedRecord(
+      saasTask({ record: "nope" } as unknown as Partial<SaasTask>),
+    );
+    expect(exact).toBe(false);
+    expect(record.id).toBe("abc123def456abc123def456abc12345");
+  });
+
+  it("falls back to the mapper when the member is absent (older server)", () => {
+    const { record, exact } = extractAcceptedRecord(saasTask());
+    expect(exact).toBe(false);
+    expect(record.description).toBe("");
+    expect(record.selector).toBe("/");
+  });
+});
+
 describe("writeOnlineClone", () => {
   it("writes the clone under the date subdir and returns its path", () => {
     const projectDir = freshDir("clone-write-");
@@ -257,6 +297,63 @@ describe("writeOnlineClone", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it("persists an accepted `record` verbatim, adding only sortKey + created", () => {
+    const projectDir = freshDir("clone-exact-");
+    const accepted = {
+      id: "abc123def456abc123def456abc12345",
+      title: "Accepted task",
+      status: "todo",
+    };
+    const filePath = writeOnlineClone(
+      projectDir,
+      saasTask({ record: accepted } as unknown as Partial<SaasTask>),
+    );
+    const stored = JSON.parse(readFileSync(filePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    // Verbatim: every accepted key survives byte-equal; only the two
+    // load-bearing local keys are added (raw carries neither).
+    expect(stored.title).toBe("Accepted task");
+    expect(stored.status).toBe("todo");
+    expect(typeof stored.sortKey).toBe("string");
+    expect(stored.created).toBe("2026-10-22T10:00:00.000Z");
+    expect(stored).not.toHaveProperty("description");
+    expect(stored).not.toHaveProperty("selector");
+    const { sortKey: _sk, created: _c, ...rest } = stored;
+    expect(rest).toEqual(accepted);
+  });
+
+  it("warns loudly when the server sent no `record` member (reconstructed clone)", () => {
+    const projectDir = freshDir("clone-fallback-");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writeOnlineClone(projectDir, saasTask());
+      expect(err).toHaveBeenCalledTimes(1);
+      const msg = String(err.mock.calls[0]?.[0] ?? "");
+      expect(msg).toMatch(/RECONSTRUCTED/);
+      expect(msg).toMatch(/pull/);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("stays silent when the accepted `record` member is present", () => {
+    const projectDir = freshDir("clone-quiet-");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writeOnlineClone(
+        projectDir,
+        saasTask({
+          record: { id: "abc123def456abc123def456abc12345", title: "T" },
+        } as unknown as Partial<SaasTask>),
+      );
+      expect(err).not.toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+    }
   });
 
   it("mints the sortKey above the store ceiling so the next create stays ordered", async () => {
