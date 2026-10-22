@@ -43,7 +43,6 @@ const COMMANDS = [
   "tasks",
   "telemetry",
   "verify",
-  "watch",
 ];
 
 let createProgram: () => Command;

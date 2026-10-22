@@ -78,7 +78,6 @@ import { getApiUrl, surfacePath } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
 import { pull } from "./commands/pull.js";
-import { watch } from "./commands/watch.js";
 import { showChangelog } from "./commands/changelog.js";
 import { changelogText, readChangelogContent } from "./core/changelog.js";
 import { clearAuthState, listAuthStateFiles } from "./commands/auth.js";
@@ -856,7 +855,6 @@ For coding agents — quick reference:
   vibeflow tasks --edit <id> --set-status in-progress
   vibeflow serve [target]              Start local server / prototype viewer
   vibeflow kanban                      Open the Kanban board in browser
-  vibeflow watch [dir]                 Watch task store; print new + moved-to-todo tickets
   vibeflow changelog [--all]           Show the changelog (latest version / all versions)
   vibeflow openapi [--yaml]            Print the bundled OpenAPI spec (no server needed)
 
@@ -6507,71 +6505,6 @@ authors
     if (!result.gitAvailable) process.exitCode = ExitCode.GENERAL;
     await flushTelemetry();
   });
-
-program
-  .command("watch")
-  .description(
-    "Watch the task store for task updates (new, moved-to-todo, status, comments, files, priority, description).\n" +
-      "  Daemon mode (default): watch continuously and print ticket details.\n" +
-      "  --once mode: one-shot poll, emit events, exit.\n" +
-      "  --json: emit JSONL to stdout.\n" +
-      "  --output <file>: append JSONL to file.\n" +
-      "  --webhook <url>: POST each event to URL.\n" +
-      "  --webhook-secret <secret> (or VIBEFLOW_WEBHOOK_SECRET): sign webhook deliveries.\n" +
-      "  State: .vibeflow/watch-state.json (append-only journal, per-consumer cursors).\n" +
-      "  Gap rule: events older than 1 min that were not delivered trigger a gap event.",
-  )
-  .argument("[dir]", "Project root directory", ".")
-  .option("--json", "Emit events as JSONL lines to stdout")
-  .option("--output <file>", "Append JSONL events to a file")
-  .option("--webhook <url>", "POST each event as JSON to a webhook URL")
-  .option(
-    "--webhook-secret <secret>",
-    "Sign webhook deliveries (or set VIBEFLOW_WEBHOOK_SECRET)",
-  )
-  .option("--once", "One-shot poll: diff against state, emit events, exit")
-  .option(
-    "--interval <seconds>",
-    "Online mode poll period in seconds (default 15, min 5)",
-  )
-  .action(
-    async (
-      dir: string,
-      opts: {
-        json?: boolean;
-        output?: string;
-        webhook?: string;
-        webhookSecret?: string;
-        once?: boolean;
-        interval?: string;
-      },
-    ) => {
-      capture("command_run", { surface: "cli", command: "watch" });
-      await flushTelemetry();
-      let intervalMs: number | undefined;
-      if (opts.interval !== undefined) {
-        const seconds = Number(opts.interval);
-        if (!Number.isFinite(seconds) || seconds <= 0) {
-          if (opts.json) {
-            outputEnvelope({
-              ok: false,
-              code: "USAGE",
-              message: "--interval must be a positive number of seconds.",
-              json: true,
-            });
-          } else {
-            console.error(
-              chalk.red(`  Error: --interval must be a positive number of seconds.`),
-            );
-          }
-          process.exitCode = ExitCode.USAGE;
-          return;
-        }
-        intervalMs = seconds * 1000;
-      }
-      await watch(dir, { ...opts, intervalMs });
-    },
-  );
 
 program
   .command("telemetry")

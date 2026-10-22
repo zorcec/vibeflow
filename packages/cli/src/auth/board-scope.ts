@@ -158,7 +158,7 @@ export async function resolveBoardScope(
 /**
  * Cheap scope peek for request builders (saas/client.ts): returns the saved
  * workspace id and NOTHING else — no token read, no network. Command
- * entries (tasks/push/watch) call resolveBoardScope first, so auto-selection
+ * entries (tasks/push) call resolveBoardScope first, so auto-selection
  * and the 2+ board refusal happen before any request; a lazy peek that finds
  * nothing simply sends no header and the server's 422 remains authoritative.
  */

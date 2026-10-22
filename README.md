@@ -50,7 +50,6 @@ vibeflow tasks --next
 | `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
-| `vibeflow watch [dir]` | Watch the task store and print ticket details for important updates |
 | `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
 
 ### `vibeflow kanban [dir]`
@@ -146,17 +145,6 @@ vibeflow tasks --next
 Because `--next` only considers roots whose own status is `todo`, a child in `todo` whose parent is
 in `backlog`, `in-progress` or `done` is not returned by `--next`. Move the root to `todo` to make the
 whole unit claimable.
-
-### `vibeflow watch [dir]`
-
-```bash
-vibeflow watch                    # watch the current directory's task store
-vibeflow watch ./my-project       # watch a specific project
-```
-
-Runs until interrupted (Ctrl+C) and prints full ticket details whenever a task is
-newly created or moved back to `todo` — handy as a driver for AI-agent loops that
-react to new work.
 
 ### `vibeflow telemetry`
 

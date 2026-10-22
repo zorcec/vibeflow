@@ -1261,7 +1261,7 @@ export async function attachFile(
 // prompt exporter — was deleted with its export_prompt tool. Its single-task
 // read is covered by get_task and its human render by `vibeflow tasks --get`
 // (both via renderTaskForAgent in core/tasks.ts, which stays: the CLI
-// display paths and watch.ts still use it). Callers needing the old
+// display paths still use it). Callers needing the old
 // multi-task dump: loop get_task over the ids from list_tasks.
 
 // Verify task uses the CLI verify command

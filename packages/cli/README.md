@@ -242,7 +242,6 @@ Three rules for the JSON case, all of them the CLI's own conventions:
 | `vibeflow kanban [dir]` | Start the server and open the live Kanban board in your browser |
 | `vibeflow serve [target]` | Serve HTML files with live annotation overlay, or run API-only task server for existing apps |
 | `vibeflow tasks` | List, filter, create, edit, and comment on tasks |
-| `vibeflow watch [dir]` | Watch the task store and print ticket details for important updates |
 | `vibeflow mcp [--project <dir>]` | Run the MCP server over stdio (spawned by an MCP client) |
 | `vibeflow telemetry` | Manage CLI usage telemetry (opt-out at any time) |
 
@@ -403,20 +402,6 @@ even though the task had been written. The local notice field is `notices` (an a
 **Task types:** Task · Bug · Feature · Enhancement · Research  
 **Task statuses:** backlog → todo → in-progress → review → done  
 **Priorities:** Critical · High · Medium · Low
-
-### `vibeflow watch [dir]`
-
-```bash
-vibeflow watch                    # watch the current directory's task store
-vibeflow watch ./my-project       # watch a specific project
-vibeflow watch --json             # emit events as JSONL to stdout
-vibeflow watch --once             # one-shot poll, then exit
-```
-
-Runs until interrupted (Ctrl+C) and prints full ticket details whenever a task is
-newly created or moved back to `todo` — handy as a driver for AI-agent loops that
-react to new work. Events can also be written to a file (`--output <file>`) or POSTed
-to a webhook (`--webhook <url>`).
 
 ### `vibeflow telemetry`
 

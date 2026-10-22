@@ -101,7 +101,6 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     status:
       "prints login state, connection info and task counts for a human; its --json form is for shell scripting, and no MCP tool needs a synchronous health probe — every tool reports its own errors",
-    watch: "long-running task-store event daemon / JSONL stream; not an operation",
   },
   flags: {
     // Machine-output formatting for human CLI rendering. The MCP wire payload

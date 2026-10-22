@@ -152,7 +152,7 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
   // Every v0 request carries X-Vibeflow-Scope when a board is known
   // (ticket dabd2fb7): the server answers 422 SCOPE_REQUIRED to an
   // unscoped request on a multi-board account. The peek is fs-only — the
-  // command entries (tasks/push/watch) run resolveBoardScope first, so
+  // command entries (tasks/push) run resolveBoardScope first, so
   // auto-selection and the 2+ board refusal happen before any request.
   return { Authorization: `Bearer ${token}`, ...scopeHeaderFor(await peekBoardScope()) };
 }

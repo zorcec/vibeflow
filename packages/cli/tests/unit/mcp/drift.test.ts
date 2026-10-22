@@ -271,7 +271,6 @@ describe("MCP drift test", () => {
       "tasks",
       "telemetry",
       "verify",
-      "watch",
     ]);
     // A factory, not a singleton — each call builds a fresh tree.
     expect(createProgram()).not.toBe(program);
