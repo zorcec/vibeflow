@@ -1196,6 +1196,16 @@ body.proto-resizing-panel {
  outline: 1px solid color-mix(in srgb, var(--t-danger) 50%, transparent);
 }
 
+/* ── Tags-filter per-tag Remove (ticket db2fce26) ──
+   Revealed on row hover or keyboard focus (never hover-only); the
+   stylesheet owns only the keyboard focus ring (inline styles cannot
+   express :focus-visible). Tokens only, no new colours. */
+.tag-remove-btn:focus-visible {
+ opacity: 1;
+ outline: 2px solid var(--t-accent);
+ outline-offset: 1px;
+}
+
 
 /* ── Add panel ── */
 .relations-add-btn {

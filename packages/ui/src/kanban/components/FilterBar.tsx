@@ -2,6 +2,7 @@ import React from 'react';
 import { LayoutDashboard, List, Rows3, Tag, ChevronDown, X, User } from 'lucide-react';
 import type { Task, TaskStatus, TaskType } from '../types';
 import { getTagColors } from '../tag-colors';
+import { ConfirmModal } from './ConfirmModal';
 
 const STATUS_FILTERS: { id: TaskStatus | 'all'; label: string; dot: string }[] = [
   { id: 'all',         label: 'All',        dot: '' },
@@ -34,12 +35,61 @@ interface Props {
   view?: 'board' | 'compact' | 'list';
   onViewChange?: (view: 'board' | 'compact' | 'list') => void;
   activityCounter?: React.ReactNode;
+  /** Ticket db2fce26 (UI half only): when present, each tag in the tags
+      filter gets a hover/focus-revealed "Remove" action that asks for
+      confirmation and then calls this. Resolves with the tasks changed.
+      When absent the action is not rendered at all (no dead button). */
+  onRemoveTagFromAll?: (tag: string) => Promise<number>;
+  /** Override for the confirmation count. Defaults to counting `tasks`
+      that carry the tag — prefer the data the filter already has. */
+  countTasksWithTag?: (tag: string) => number;
 }
 
-export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChange, activityCounter }: Props) {
+export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChange, activityCounter, onRemoveTagFromAll, countTasksWithTag }: Props) {
   const [typeOpen, setTypeOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
   const [tagOpen, setTagOpen] = React.useState(false);
+  // Ticket db2fce26: per-tag "Remove" action state.
+  const [hoverTag, setHoverTag] = React.useState<string | null>(null);
+  const [focusTag, setFocusTag] = React.useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = React.useState<{ tag: string; count: number } | null>(null);
+  const [removing, setRemoving] = React.useState(false);
+  const [removeError, setRemoveError] = React.useState<string | undefined>(undefined);
+  // Focus return targets: the Remove button that opened the confirmation.
+  const removeBtnRefs = React.useRef(new Map<string, HTMLButtonElement>());
+
+  const defaultCountTasksWithTag = React.useCallback((tag: string) =>
+    tasks.filter(t => (t.tags ?? []).includes(tag)).length,
+  [tasks]);
+  const countFn = countTasksWithTag ?? defaultCountTasksWithTag;
+
+  function openRemoveConfirm(tag: string) {
+    setRemoveError(undefined);
+    setPendingRemove({ tag, count: countFn(tag) });
+  }
+
+  function closeRemoveConfirm() {
+    const tag = pendingRemove?.tag;
+    setPendingRemove(null);
+    setRemoving(false);
+    setRemoveError(undefined);
+    // Return focus to the tag that opened the confirmation.
+    if (tag) removeBtnRefs.current.get(tag)?.focus();
+  }
+
+  async function confirmRemoveTag() {
+    if (!pendingRemove || !onRemoveTagFromAll || removing) return;
+    const { tag } = pendingRemove;
+    setRemoving(true);
+    setRemoveError(undefined);
+    try {
+      await onRemoveTagFromAll(tag);
+      closeRemoveConfirm();
+    } catch (e) {
+      setRemoving(false);
+      setRemoveError(e instanceof Error ? e.message : 'Could not remove the tag.');
+    }
+  }
 
   const types = React.useMemo(() =>
     [...new Set(tasks.map(t => t.type).filter(Boolean) as string[])].sort() as TaskType[],
@@ -195,18 +245,40 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
             {allTagsInBoard.map(tag => {
               const { bg, text, border } = getTagColors(tag);
               const isActive = (filter.tags ?? []).includes(tag);
+              // Ticket db2fce26: revealed on hover AND on keyboard focus —
+              // never hover-only — so keyboard users can reach Remove by Tab.
+              const revealed = hoverTag === tag || focusTag === tag;
               return (
-                <button
+                <div
                   key={tag}
-                  style={{ width:'100%', textAlign:'left', padding:'6px 12px', fontSize:11, color:'var(--t-text-muted)', background: isActive ? 'var(--t-hover)' : 'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--t-hover)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = isActive ? 'var(--t-hover)' : 'none'; }}
-                  onClick={() => toggleTag(tag)}
+                  data-tag-row={tag}
+                  style={{ width:'100%', textAlign:'left', padding:'6px 12px', fontSize:11, color:'var(--t-text-muted)', background: (isActive || revealed) ? 'var(--t-hover)' : 'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+                  onMouseEnter={() => setHoverTag(tag)}
+                  onMouseLeave={() => setHoverTag(cur => cur === tag ? null : cur)}
+                  onFocus={() => setFocusTag(tag)}
+                  onBlur={() => setFocusTag(cur => cur === tag ? null : cur)}
                 >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, border: `1px solid ${border}`, flexShrink: 0 }} />
-                  <span style={{ flex: 1 }}>{tag}</span>
-                  {isActive && <span style={{ color: text, fontSize: 12, lineHeight: 1 }}>✓</span>}
-                </button>
+                  <button
+                    aria-pressed={isActive}
+                    style={{ flex:1, minWidth:0, textAlign:'left', padding:0, fontSize:11, color:'var(--t-text-muted)', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit' }}
+                    onClick={() => toggleTag(tag)}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: text, border: `1px solid ${border}`, flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{tag}</span>
+                    {isActive && <span style={{ color: text, fontSize: 12, lineHeight: 1 }}>✓</span>}
+                  </button>
+                  {onRemoveTagFromAll && (
+                    <button
+                      ref={el => { if (el) removeBtnRefs.current.set(tag, el); else removeBtnRefs.current.delete(tag); }}
+                      aria-label={`Remove ${tag} from all tasks`}
+                      className="tag-remove-btn"
+                      style={{ flexShrink:0, fontSize:10, fontWeight:600, color:'var(--t-danger)', background:'none', border:'none', cursor:'pointer', padding:'2px 4px', borderRadius:4, opacity: revealed ? 1 : 0, fontFamily:'inherit' }}
+                      onClick={(e) => { e.stopPropagation(); openRemoveConfirm(tag); }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -310,6 +382,20 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           <List style={{ width:13, height:13 }} />
         </button>
       </div>
+      {/* Ticket db2fce26: per-tag bulk-remove confirmation (UI half only).
+          Escape aborts via ModalBase; focus returns to the tag on close. */}
+      {pendingRemove && (
+        <ConfirmModal
+          open
+          title={`Remove "${pendingRemove.tag}"?`}
+          message={`Remove "${pendingRemove.tag}" from ${pendingRemove.count} task${pendingRemove.count === 1 ? '' : 's'}? This cannot be undone.`}
+          confirmLabel="Remove"
+          loading={removing}
+          error={removeError}
+          onConfirm={() => void confirmRemoveTag()}
+          onCancel={closeRemoveConfirm}
+        />
+      )}
     </div>
   );
 }
