@@ -138,17 +138,19 @@ export function nextLaneStatus(status: TaskStatus): TaskStatus | null {
 }
 
 /**
- * Status dot for a board card (ticket kwaz437j): the ticket's status as a
- * colour, with the status name on hover for mouse users and in the
+ * Status dot for a board card (ticket kwaz437j, R11): the ticket's status
+ * as a colour, with the status name on hover for mouse users and in the
  * accessible name for assistive tech.
  *
  * The colour comes from the canonical STATUS_COLORS mapping in
  * ../task-links (design tokens, no hex literals) — the same source the
  * column headers and badges read. The name is always present: `title`
- * for the hover tooltip plus `role="img"` with `aria-label` so colour
- * is never the only carrier of meaning. `tabIndex={0}` keeps the
- * tooltip reachable by keyboard (focus shows the native title in most
- * browsers); it never traps focus.
+ * for the HOVER tooltip (mouse-only — `title` does not open on keyboard
+ * focus in any browser, so no keyboard claim is made) plus `role="img"`
+ * with `aria-label` so colour is never the only carrier of meaning for
+ * keyboard and screen-reader users. Deliberately NOT focusable: a tab stop
+ * with no behaviour would only add keyboard noise for zero information
+ * (the name is already in the accessible tree).
  *
  * Deliberately NOT a badge chip and NOT a redesign — a 7px dot matching
  * the column header's `.status-dot` size, so card layout is untouched.
@@ -159,7 +161,6 @@ export function StatusDot({ status }: { status: TaskStatus }) {
             <span
                   data-role="status-dot"
                   data-status={status}
-                  tabIndex={0}
                   role="img"
                   aria-label={`Status: ${label}`}
                   title={label}

@@ -11,9 +11,12 @@ import type { Task, Column, TaskStatus } from "../../types";
  * The board card shows the ticket's status as a colour dot with the status
  * name on hover. The colour comes from the canonical STATUS_COLORS mapping
  * (design tokens, no hex literals); the name is present twice — `title`
- * for the mouse tooltip and `role="img"` + `aria-label` so colour is never
- * the only carrier — and `tabIndex={0}` keeps the tooltip
- * keyboard-reachable without trapping focus. No badge chip, no redesign.
+ * for the mouse HOVER tooltip and `role="img"` + `aria-label` so colour
+ * is never the only carrier. R11 honest fix: `title` does not open on
+ * keyboard focus in any browser, so the dot is deliberately NOT focusable
+ * (a tab stop with no behaviour is keyboard noise) and no keyboard-tooltip
+ * claim is made — keyboard and screen-reader users get the name from the
+ * accessible tree instead. No badge chip, no redesign.
  *
  * Multi-row cards (the board's open lanes) draw StatusDot; single-row
  * cards (compact view) reuse the leading slot's status dot, upgraded with
@@ -83,7 +86,7 @@ describe("TaskCard status dot (kwaz437j)", () => {
   );
 
   it.each([...MULTI_ROW, "done"] as TaskStatus[])(
-    "%s StatusDot names the status for hover and assistive tech, keyboard-reachable",
+    "%s StatusDot names the status for hover and assistive tech, and is not a tab stop",
     (status) => {
       const { container } = render(<StatusDot status={status} />);
       const label = STATUS_LABELS[status];
@@ -92,10 +95,12 @@ describe("TaskCard status dot (kwaz437j)", () => {
       expect(
         screen.getByRole("img", { name: `Status: ${label}` }),
       ).toBe(statusDot(container));
-      // … and the mouse tooltip carries it too …
+      // … and the mouse hover tooltip carries it too …
       expect(statusDot(container)).toHaveAttribute("title", label);
-      // … reachable by keyboard without trapping focus.
-      expect(statusDot(container)).toHaveAttribute("tabindex", "0");
+      // … but the tooltip is hover-only: `title` never opens on keyboard
+      // focus, so the dot takes no tab stop (R11 — the old tabindex="0"
+      // promised a keyboard tooltip no browser shows).
+      expect(statusDot(container)).not.toHaveAttribute("tabindex");
     },
   );
 
@@ -106,7 +111,7 @@ describe("TaskCard status dot (kwaz437j)", () => {
     expect(dot.style.background).toBe(STATUS_COLORS.review);
     expect(dot.style.background).toMatch(/var\(--/);
     expect(dot).toHaveAttribute("title", STATUS_LABELS.review);
-    expect(dot).toHaveAttribute("tabindex", "0");
+    expect(dot).not.toHaveAttribute("tabindex");
     expect(
       screen.getByRole("img", { name: `Status: ${STATUS_LABELS.review}` }),
     ).toBe(dot);

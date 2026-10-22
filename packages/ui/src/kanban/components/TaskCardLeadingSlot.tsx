@@ -304,16 +304,15 @@ function renderMark(
 }
 
 /**
- * Row-layout status dot (ticket kwaz437j): the same status-as-colour as
- * TaskCard's StatusDot. The colour is the canonical STATUS_COLORS token
- * set inline — the `sd-<lane>` class it keeps sets only size (and the
- * in-progress pulse); notably `sd-in-progress` matches NO CSS rule (the
- * stylesheet spells it `sd-inprogress`), so the class alone left that
- * lane's dot colourless until this inline token. The status name rides
- * along for mouse users (`title` tooltip) and assistive tech
- * (`role="img"` + `aria-label`), and `tabIndex={0}` keeps the tooltip
- * keyboard-reachable without trapping focus — so colour is never the
- * only carrier.
+ * Row-layout status dot (ticket kwaz437j, R11): the same status-as-colour
+ * as TaskCard's StatusDot. The colour is the canonical STATUS_COLORS
+ * token set inline — the `sd-<lane>` class it keeps sets only size (and
+ * the in-progress pulse); notably `sd-in-progress` matches NO CSS rule
+ * (the stylesheet spells it `sd-inprogress`), so the class alone left
+ * that lane's dot colourless until this inline token. The status name
+ * rides along for mouse users (`title` hover tooltip — mouse-only, no
+ * keyboard claim) and assistive tech (`role="img"` + `aria-label`, so
+ * colour is never the only carrier). Not focusable, same as StatusDot.
  */
 function laneDot(columnId: string): React.ReactNode {
      const label =
@@ -322,7 +321,6 @@ function laneDot(columnId: string): React.ReactNode {
           <span
                data-role="status-dot"
                data-status={columnId}
-               tabIndex={0}
                role="img"
                aria-label={`Status: ${label}`}
                title={label}
