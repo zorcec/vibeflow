@@ -1,4 +1,5 @@
 import React from "react";
+import { Loader2 } from "lucide-react";
 import { ModalBase } from "./ModalBase";
 
 export type DeleteChildrenMode = "roots" | "recursive";
@@ -10,6 +11,9 @@ interface DeleteConfirmDialogProps {
   onCancel: () => void;
   onDelete: (mode: DeleteChildrenMode) => void;
   loading?: boolean;
+  /** Failure message from the in-flight delete request. Shown inline while
+      the dialog re-enables (ticket a46ba984). */
+  error?: string;
 }
 
 /**
@@ -25,16 +29,24 @@ export function DeleteConfirmDialog({
   onCancel,
   onDelete,
   loading = false,
+  error,
 }: DeleteConfirmDialogProps) {
   const [mode, setMode] = React.useState<DeleteChildrenMode>("roots");
   React.useEffect(() => {
     if (open) setMode("roots");
   }, [open]);
   const danger = mode === "recursive";
+  // Ticket a46ba984: once the delete request is in flight, Cancel must not
+  // win a race with it — Escape and backdrop clicks are ignored until the
+  // request settles. On failure the host clears `loading` and passes
+  // `error`, which re-enables Cancel and shows what went wrong.
+  const guardClose = React.useCallback(() => {
+    if (!loading) onCancel();
+  }, [loading, onCancel]);
   return (
     <ModalBase
       open={open}
-      onClose={onCancel}
+      onClose={guardClose}
       id="delete-confirm-dialog"
       width="min(420px, 95vw)"
       title={`Delete "${taskTitle}"?`}
@@ -42,7 +54,7 @@ export function DeleteConfirmDialog({
         <>
           <button
             id="delete-confirm-cancel"
-            onClick={onCancel}
+            onClick={guardClose}
             disabled={loading}
             style={{
               padding: "7px 16px",
@@ -62,6 +74,9 @@ export function DeleteConfirmDialog({
             onClick={() => onDelete(mode)}
             disabled={loading}
             style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
               padding: "7px 16px",
               borderRadius: 8,
               background: danger ? "var(--t-danger-strong)" : "var(--t-hover)",
@@ -74,7 +89,14 @@ export function DeleteConfirmDialog({
               transition: "background 0.15s",
             }}
           >
-            {loading ? "…" : "Delete"}
+            {loading && (
+              <Loader2
+                aria-hidden="true"
+                size={14}
+                style={{ animation: "spin 0.7s linear infinite" }}
+              />
+            )}
+            {loading ? "Deleting…" : "Delete"}
           </button>
         </>
       }
@@ -107,6 +129,7 @@ export function DeleteConfirmDialog({
           <DeleteModeOption
             id="delete-mode-roots"
             checked={mode === "roots"}
+            disabled={loading}
             onSelect={() => setMode("roots")}
             title="Delete parent only (children become root tasks)"
             hint="Children remain as root tasks with no parent."
@@ -114,12 +137,26 @@ export function DeleteConfirmDialog({
           <DeleteModeOption
             id="delete-mode-recursive"
             checked={mode === "recursive"}
+            disabled={loading}
             onSelect={() => setMode("recursive")}
             title={`Delete parent and all ${childCount} child task${childCount === 1 ? "" : "s"}`}
             hint="The whole subtree is permanently removed. This cannot be undone."
             warning
           />
         </div>
+        {error && (
+          <p
+            role="alert"
+            style={{
+              margin: "12px 0 0",
+              fontSize: 12,
+              color: "var(--t-danger)",
+              lineHeight: 1.5,
+            }}
+          >
+            {error}
+          </p>
+        )}
       </div>
     </ModalBase>
   );
@@ -128,6 +165,7 @@ export function DeleteConfirmDialog({
 function DeleteModeOption({
   id,
   checked,
+  disabled = false,
   onSelect,
   title,
   hint,
@@ -135,6 +173,7 @@ function DeleteModeOption({
 }: {
   id: string;
   checked: boolean;
+  disabled?: boolean;
   onSelect: () => void;
   title: string;
   hint: string;
@@ -161,6 +200,7 @@ function DeleteModeOption({
         type="radio"
         name="delete-children-mode"
         checked={checked}
+        disabled={disabled}
         onChange={onSelect}
         style={{ marginTop: 2, accentColor: "var(--t-accent)" }}
       />
