@@ -234,6 +234,45 @@ export const DRAG_AUTOSCROLL_MAX_SPEED_PX = 14;
  * narrower than two edge zones is not an error: the NEARER edge wins, with ties
  * going to the start, which is why the start band is tested first.
  */
+/**
+ * Board-level autoscroll target for a WRAPPED board (R10 on s5dfufqs).
+ *
+ * The board clips x and wraps lanes (`overflow-x: hidden`, `flex-wrap` in
+ * kanban.css), so the horizontal axis never overflows — scrolling it is a
+ * dead write, and dragging near the top/bottom edge of a board whose lanes
+ * wrapped below the fold scrolled nothing. Each axis scrolls only when it
+ * actually overflows (`scrollWidth > clientWidth` /
+ * `scrollHeight > clientHeight`, measured live in the loop): on the shipped
+ * board that is vertical-only, and zero on both axes when nothing
+ * overflows. Pure so the axis contract is unit-testable without layout.
+ */
+export interface BoardAutoScrollInput {
+  canScrollX: boolean;
+  canScrollY: boolean;
+  pointerX: number;
+  pointerY: number;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  edge?: number;
+}
+
+export function boardAutoScrollDelta(input: BoardAutoScrollInput): {
+  dx: number;
+  dy: number;
+} {
+  const edge = input.edge ?? DRAG_AUTOSCROLL_EDGE_PX;
+  return {
+    dx: input.canScrollX
+      ? dragAutoScrollDelta(input.pointerX, input.left, input.right, edge)
+      : 0,
+    dy: input.canScrollY
+      ? dragAutoScrollDelta(input.pointerY, input.top, input.bottom, edge)
+      : 0,
+  };
+}
+
 export function dragAutoScrollDelta(
   position: number,
   start: number,
@@ -460,14 +499,18 @@ export function KanbanBoard({
     };
   }, []);
 
-  /** Edge auto-scroll while a drag is in flight (d4814bb7).
+  /** Edge auto-scroll while a drag is in flight (d4814bb7, R10 s5dfufqs).
    *
    * A drop target that starts off-screen was unreachable: a tall lane's rows
    * sit below the fold and wrapped lanes sit below the first row (s5dfufqs) —
    * neither scrolls itself during a drag, so the pointer had nowhere to go.
-   * Two axes, two containers: `#kanban-board` scrolls vertically when lanes
-   * wrap (its horizontal axis never overflows — the columns fit or wrap),
-   * and the `.column-scroll` under the pointer scrolls vertically.
+   * Two containers, but each only on the axis it actually overflows: the
+   * WRAPPED `#kanban-board` never overflows horizontally (columns fit or
+   * wrap, `overflow-x: hidden`), so the old `board.scrollLeft += dx` was a
+   * dead write — the board scrolls vertically, and only when wrapped rows
+   * actually exceed its height; the `.column-scroll` under the pointer
+   * scrolls vertically. The overflow gating lives in `boardAutoScrollDelta`
+   * (unit-pinned) so the loop can never scroll a non-overflowing axis.
    *
    * The loop deliberately writes NO React state — only scroll offsets. A React
    * write inside the drag is what aborted the native session (87748ad), so the
@@ -509,8 +552,21 @@ export function KanbanBoard({
       const p = pointer;
       if (p) {
         const boardRect = board.getBoundingClientRect();
-        const dx = dragAutoScrollDelta(p.x, boardRect.left, boardRect.right);
+        // Wrapped board: scroll the element that actually scrolls, on the
+        // axis that actually overflows (R10 — the old unconditional
+        // `scrollLeft` write scrolled nothing on a wrapping board).
+        const { dx, dy } = boardAutoScrollDelta({
+          canScrollX: board.scrollWidth > board.clientWidth,
+          canScrollY: board.scrollHeight > board.clientHeight,
+          pointerX: p.x,
+          pointerY: p.y,
+          left: boardRect.left,
+          right: boardRect.right,
+          top: boardRect.top,
+          bottom: boardRect.bottom,
+        });
         if (dx !== 0) board.scrollLeft += dx;
+        if (dy !== 0) board.scrollTop += dy;
         // Vertical: only the lane the pointer is over scrolls.
         const scrollables = Array.from(
           board.querySelectorAll<HTMLElement>(".column-scroll"),
