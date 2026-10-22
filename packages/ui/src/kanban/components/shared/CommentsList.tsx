@@ -80,12 +80,21 @@ interface ActivityGroup {
 
 /**
  * Display name for a feed comment (e051e9d6). The server sends the actor
- * vocabulary in `author` ('user'|'agent', Ledger L1) and the human name in
- * `authorName`; legacy/local rows carry the name directly in `author`. The
- * viewer fallback applies ONLY when no name is known at all — the old
- * `authorName ?? viewer` shape rendered every peer row as the viewer.
+ * vocabulary in `author` ('user'|'agent'|'API', Ledger L1) and the human
+ * name in `authorName`; legacy/local rows carry the name directly in
+ * `author`. The viewer fallback applies ONLY when no name is known at
+ * all — the old `authorName ?? viewer` shape rendered every peer row as
+ * the viewer.
+ *
+ * Ticket bs9in00x: surface vocabularies win over `authorName`. A token
+ * comment borrows the owner's credential, so `authorId` (and hence
+ * `authorName`) is the human — without the vocabulary-first order an
+ * agent/API row would render as the human (the reported 👤-instead-of-🤖
+ * bug). Human rows ('user'/legacy) keep the exact old behavior.
  */
 export function commentDisplayName(c: Comment, viewer: string): string {
+  if (c.author === 'agent') return '🤖 Agent';
+  if (c.author === 'API') return 'API';
   if (c.authorName) return c.authorName;
   if (c.author && c.author !== 'user' && c.author !== 'agent') return c.author;
   return viewer;
