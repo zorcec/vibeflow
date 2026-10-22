@@ -9,6 +9,8 @@ import {
   toCliStatus,
   toSaasStatus,
   fetchSaasTasks,
+  fetchSaasTaskDetail,
+  SAAS_HYDRATE_CONCURRENCY,
   updateSaasTask,
   addSaasComment,
   fetchSaasComments,
@@ -107,9 +109,9 @@ describe("toSaasStatus", () => {
 });
 
 describe("fetchSaasTasks", () => {
-  it("returns tasks on success (hydrated with the legacy comments/files shape)", async () => {
+  it("hydrates on explicit opt-in (the legacy comments/files shape)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     // The v0 read hydrates comments/files per task (best-effort `[]` when
     // the subpaths answer nothing shaped) — the legacy row keeps its fields.
     expect(result).toEqual({
@@ -119,6 +121,107 @@ describe("fetchSaasTasks", () => {
         boardId: "",
       },
     });
+  });
+
+  it("does NOT hydrate by default: one list request, zero per-task requests", async () => {
+    const seen: string[] = [];
+    const board = Array.from({ length: 6 }, (_, i) => ({
+      ...SAMPLE_TASK,
+      id: `task-${i}`,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: board, nextCursor: null }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    // Exactly one paginated list read for the whole board…
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("/api/v0/tasks");
+    // …and no per-task comment/file hydration at all.
+    expect(
+      seen.some((u) => u.includes("/comments") || /\/files(\/|$)/.test(u)),
+    ).toBe(false);
+    if (!result.ok) return;
+    expect(result.data.tasks).toEqual(board);
+  });
+
+  it("paginated listing costs one request per page and still zero per-task requests", async () => {
+    const seen: string[] = [];
+    const pages = [
+      { items: [{ ...SAMPLE_TASK, id: "a" }], nextCursor: "cursor-1" },
+      { items: [{ ...SAMPLE_TASK, id: "b" }], nextCursor: null },
+    ];
+    let pageIdx = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const page = pages[Math.min(pageIdx++, pages.length - 1)]!;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(page),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks.map((t) => t.id)).toEqual(["a", "b"]);
+    // Two pages → two list reads, no hydration fan-out.
+    expect(seen).toHaveLength(2);
+    expect(
+      seen.some((u) => u.includes("/comments") || /\/files(\/|$)/.test(u)),
+    ).toBe(false);
+  });
+
+  it("bounded hydration: in-flight per-task requests never exceed the pool cap", async () => {
+    const board = Array.from({ length: 12 }, (_, i) => ({
+      ...SAMPLE_TASK,
+      id: `task-${i}`,
+    }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        try {
+          // Yield so parallel workers actually overlap.
+          await new Promise((r) => setTimeout(r, 5));
+          if (url.endsWith("/comments"))
+            return { ok: true, json: () => Promise.resolve({ comments: [] }) };
+          if (url.endsWith("/files"))
+            return { ok: true, json: () => Promise.resolve({ files: [] }) };
+          return {
+            ok: true,
+            json: () => Promise.resolve({ items: board, nextCursor: null }),
+          };
+        } finally {
+          inFlight--;
+        }
+      }),
+    );
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks).toHaveLength(12);
+    // Every task hydrated…
+    for (const t of result.data.tasks) {
+      expect(t.comments).toEqual([]);
+      expect(t.files).toEqual([]);
+    }
+    // …without ever exceeding the concurrency bound (the list read is
+    // sequential before hydration starts, so the max covers hydration).
+    expect(maxInFlight).toBeLessThanOrEqual(SAAS_HYDRATE_CONCURRENCY);
+    expect(maxInFlight).toBeGreaterThan(1);
   });
 
   it("passes boardId query param when provided", async () => {
@@ -370,7 +473,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
 
   it("parses the v0 { items, nextCursor } envelope (not the legacy { tasks })", async () => {
     mockV0({});
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(1);
@@ -419,7 +522,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
           "field notes line one\n",
       },
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const task = result.data.tasks[0]!;
@@ -456,7 +559,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         },
       ],
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks[0]?.files).toMatchObject([{ name: "evidence.png" }]);
@@ -466,7 +569,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
 
   it("tolerates the legacy { tasks } envelope (pre-cutover fakes)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // SAMPLE_TASK carries no comments/files arrays, so hydration runs and
@@ -488,7 +591,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(1);
@@ -531,6 +634,184 @@ describe("fetchSaasTasks — verified tri-state round-trip", () => {
       expect(byId["absent-null"]).not.toBe(false);
       expect(byId["absent-missing"]).toBeUndefined();
     }
+  });
+});
+
+describe("fetchSaasTaskDetail — one request, never a board listing", () => {
+  const DETAIL_TASK = {
+    id: "ext-9",
+    title: "Detail task",
+    description: "desc",
+    status: "todo",
+    priority: null,
+    type: null,
+    boardId: "board-1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    links: [{ taskId: "parent-1", type: "parent" }],
+    commentCount: 1,
+    fileCount: 0,
+  };
+
+  /** URL-routed fake: detail → bare task, subpaths → edges. */
+  function mockDetail(seen: string[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        if (url.endsWith("/api/v0/tasks/ext-9")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(DETAIL_TASK),
+          });
+        }
+        if (url.endsWith("/api/v0/tasks/ext-9/comments")) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                comments: [
+                  {
+                    id: "c9",
+                    author: "user",
+                    text: "detail note",
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                  },
+                ],
+              }),
+          });
+        }
+        if (url.endsWith("/api/v0/tasks/ext-9/files")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ files: [] }),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: "not found" }),
+        });
+      }),
+    );
+  }
+
+  it("issues one detail request (not a board listing) and hydrates that one task", async () => {
+    const seen: string[] = [];
+    mockDetail(seen);
+    const result = await fetchSaasTaskDetail("ext-9");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Exactly one request hits the detail route…
+    const detailHits = seen.filter((u) =>
+      u.endsWith("/api/v0/tasks/ext-9"),
+    );
+    expect(detailHits).toHaveLength(1);
+    // …and nothing ever hits the bare list route.
+    expect(
+      seen.some((u) => /\/api\/v0\/tasks(\?|$)/.test(u)),
+    ).toBe(false);
+    // The one task still carries comments/files (links preserved too).
+    expect(result.data.task).toMatchObject({
+      id: "ext-9",
+      title: "Detail task",
+      links: [{ taskId: "parent-1", type: "parent" }],
+    });
+    expect(result.data.task.comments).toEqual([
+      {
+        id: "c9",
+        body: "detail note",
+        authorId: "",
+        author: "user",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        taskId: "ext-9",
+      },
+    ]);
+    expect(result.data.task.files).toEqual([]);
+  });
+
+  it("404 answers TASK_NOT_FOUND with the status and the detail path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ error: "not found" }),
+      }),
+    );
+    const result = await fetchSaasTaskDetail("ghost");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("TASK_NOT_FOUND");
+    expect(result.error.status).toBe(404);
+    expect(result.error.path).toContain("/api/v0/tasks/ghost");
+    expect(result.error.message).toContain("ghost");
+  });
+
+  it("a 500 surfaces the status, the path, and the body message", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "boom" }),
+        });
+      }),
+    );
+    const result = await fetchSaasTaskDetail("ext-9");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("HTTP_ERROR");
+    expect(result.error.status).toBe(500);
+    expect(result.error.path).toContain("/api/v0/tasks/ext-9");
+    expect(result.error.message).toContain("boom");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("a transport failure surfaces the network message, not a generic string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("socket hang up")),
+    );
+    const result = await fetchSaasTaskDetail("ext-9");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("NETWORK_ERROR");
+    expect(result.error.message).toContain("socket hang up");
+  });
+});
+
+describe("fetchSaasTasks — failure reporting names the failure", () => {
+  it("a 500 list read carries the status and the list path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "boom" }),
+      }),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("HTTP_ERROR");
+    expect(result.error.status).toBe(500);
+    expect(result.error.path).toContain("/api/v0/tasks");
+  });
+
+  it("a transport failure carries the network message verbatim", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("fetch failed")),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("NETWORK_ERROR");
+    expect(result.error.message).toBe("fetch failed");
   });
 });
 

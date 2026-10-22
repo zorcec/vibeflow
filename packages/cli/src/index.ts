@@ -83,13 +83,14 @@ import { runVerifyTool, VERIFY_TOOLS } from "./commands/verify-tools.js";
 import {
   fetchSaasTasks,
   fetchSaasTask,
+  fetchSaasTaskDetail,
   updateSaasTask,
   addSaasComment,
   createSaasTask,
   toCliStatus,
   type SaasTask,
 } from "./saas/client.js";
-import { saasFailure } from "./saas/failure.js";
+import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
@@ -1738,27 +1739,70 @@ program
         if (opts.get) {
           const getTaskMode = await getMode();
           if (getTaskMode === "saas") {
-            const workspace = await readWorkspace();
-            const saasData = await fetchSaasTasks(workspace?.id);
-            if (!saasData.ok) {
+            // One detail request — never a (hydrated) whole-board fetch.
+            // A 404 falls back to an UNHYDRATED listing for prefix
+            // resolution only (--get accepts a unique prefix); the matched
+            // full id is then read back as one detail request. Any online
+            // failure is reported with its status/path — the run never
+            // silently falls back to the local store.
+            const reportSaasReadError = (error: {
+              code: string;
+              message: string;
+              status?: number;
+              path?: string;
+              serverCode?: string;
+            }) => {
+              const message = saasReadErrorMessage(error);
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...saasFailure(saasData.error),
-                  message: "Unable to reach the online backend.",
+                  ...saasFailure(error),
+                  message,
                   json: opts.json,
                 });
               } else {
-                console.log(
-                  chalk.red("✗ Unable to reach the online backend."),
-                );
+                console.log(chalk.red(`✗ ${message}`));
               }
               process.exitCode = ExitCode.GENERAL;
+            };
+            const detail = await fetchSaasTaskDetail(opts.get);
+            let saasTask: SaasTask | undefined;
+            if (detail.ok) {
+              saasTask = detail.data.task;
+            } else if (detail.error.code !== "TASK_NOT_FOUND") {
+              reportSaasReadError(detail.error);
               return;
+            } else {
+              const workspace = await readWorkspace();
+              const board = await fetchSaasTasks(workspace?.id, {
+                hydrate: false,
+              });
+              if (!board.ok) {
+                reportSaasReadError(board.error);
+                return;
+              }
+              const match = board.data.tasks.find((t) =>
+                matchesIdOrPrefix(t, opts.get!),
+              );
+              if (match && match.id !== opts.get) {
+                const resolved = await fetchSaasTaskDetail(match.id);
+                if (!resolved.ok) {
+                  // A 404 here (deleted between the two reads) is still a
+                  // miss: leave saasTask unset and fall through to the
+                  // TASK_NOT_FOUND branch below.
+                  if (resolved.error.code !== "TASK_NOT_FOUND") {
+                    reportSaasReadError(resolved.error);
+                    return;
+                  }
+                } else {
+                  saasTask = resolved.data.task;
+                }
+              } else if (match) {
+                // Exact id answered 404 above but the listing carries it
+                // (read-after-write race): render the listed row as-is.
+                saasTask = match;
+              }
             }
-            const saasTask = saasData.data.tasks.find((t) =>
-              matchesIdOrPrefix(t, opts.get!),
-            );
             if (!saasTask) {
               if (opts.json) {
                 outputEnvelope({
@@ -1960,19 +2004,22 @@ program
           const nextMode = await getMode();
           if (nextMode === "saas") {
             const nextWorkspace = await readWorkspace();
-            const saasData = await fetchSaasTasks(nextWorkspace?.id);
+            // Unhydrated: claiming needs statuses/priorities only, and the
+            // failure names its status/path instead of a catch-all.
+            const saasData = await fetchSaasTasks(nextWorkspace?.id, {
+              hydrate: false,
+            });
             if (!saasData.ok) {
+              const nextReadMessage = saasReadErrorMessage(saasData.error);
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
                   ...saasFailure(saasData.error),
-                  message: "Unable to reach the online backend.",
+                  message: nextReadMessage,
                   json: opts.json,
                 });
               } else {
-                console.log(
-                  chalk.red("✗ Unable to reach the online backend."),
-                );
+                console.log(chalk.red(`✗ ${nextReadMessage}`));
               }
               process.exitCode = ExitCode.GENERAL;
               return;
@@ -3499,28 +3546,36 @@ program
             | Array<{ taskId: string; type: string }>
             | undefined;
           if (wantsParentChange && editMode === "saas") {
-            const boardTasks = await fetchSaasTasks();
+            // One detail request for the edited task's current links —
+            // never a (hydrated) whole-board fetch. The failure names its
+            // status/path; a 404 is the existing TASK_NOT_FOUND below.
+            const boardTasks = await fetchSaasTaskDetail(taskId as string);
             if (!boardTasks.ok) {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  ...saasFailure(boardTasks.error),
-                  message: `Unable to read task ${taskId} from the online board — the parent change needs its current links.`,
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red(
-                    `✗ Unable to read task ${taskId} from the online board — the parent change needs its current links.`,
-                  ),
+              if (boardTasks.error.code !== "TASK_NOT_FOUND") {
+                const parentReadMessage = saasReadErrorMessage(
+                  boardTasks.error,
                 );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(boardTasks.error),
+                    message: `Unable to read task ${taskId} from the online board — the parent change needs its current links (${parentReadMessage}).`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Unable to read task ${taskId} from the online board — the parent change needs its current links (${parentReadMessage}).`,
+                    ),
+                  );
+                }
+                process.exitCode = ExitCode.GENERAL;
+                return;
               }
-              process.exitCode = ExitCode.GENERAL;
-              return;
             }
-            const current = boardTasks.data.tasks.find(
-              (t) => t.id === taskId,
-            );
+            const current = boardTasks.ok
+              ? boardTasks.data.task
+              : undefined;
             if (!current) {
               if (opts.json) {
                 outputEnvelope({
@@ -4530,24 +4585,30 @@ program
         const mode = await getMode();
         if (mode === "saas") {
           const workspace = await readWorkspace();
-          const saasData = await fetchSaasTasks(workspace?.id);
+          // Unhydrated: the listing needs only commentCount/fileCount,
+          // which the list items already carry. Hydrating the whole board
+          // here cost 2+ requests per task and sank large boards. A failed
+          // read reports its status/path and returns — never a silent
+          // fall back to the local store.
+          const saasData = await fetchSaasTasks(workspace?.id, {
+            hydrate: false,
+          });
           if (!saasData.ok) {
+            const listReadMessage = saasReadErrorMessage(saasData.error);
             if (opts.json) {
               outputEnvelope({
                 ok: false,
                 ...saasFailure(saasData.error),
-                message: "Unable to reach the online backend.",
+                message: listReadMessage,
                 json: opts.json,
               });
             } else {
-              console.log(
-                chalk.red("✗ Unable to reach the online backend."),
-              );
-              console.log(
-                chalk.yellow(
-                  "  Check your connection or run 'vibeflow login' if your session expired.",
-                ),
-              );
+              console.log(chalk.red(`✗ ${listReadMessage}`));
+              if (saasData.error.code === "NOT_AUTHENTICATED") {
+                console.log(
+                  chalk.yellow("  Run 'vibeflow auth login' and retry."),
+                );
+              }
             }
             process.exitCode = ExitCode.GENERAL;
             return;
@@ -4691,6 +4752,15 @@ program
                   for (const line of c.body.split("\n"))
                     console.log(chalk.dim(`        ${line}`));
                 }
+              } else if (
+                typeof task.commentCount === "number" &&
+                task.commentCount > 0
+              ) {
+                // Unhydrated listing: the list items carry counts, not
+                // bodies — show the count instead of hiding the comments.
+                console.log(
+                  chalk.dim(`    comments (${task.commentCount})`),
+                );
               }
               if (task.files && task.files.length > 0) {
                 console.log(
@@ -4711,11 +4781,20 @@ program
                     console.log(chalk.dim(`        └─────────────`));
                   }
                 }
+              } else if (
+                typeof task.fileCount === "number" &&
+                task.fileCount > 0
+              ) {
+                // Unhydrated listing: the list items carry counts, not
+                // rows — show the count instead of hiding the files.
+                console.log(
+                  chalk.dim(`    linked files (${task.fileCount})`),
+                );
               }
               console.log();
             }
 
-            const allForCount = saasData.data.tasks.map((t: SaasTask) => ({
+            const allForCount = saasData.data.tasks.map((t: SaasTask) => ({ 
               ...t,
               status: toCliStatus(t.status),
             }));
@@ -5021,7 +5100,8 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
     }
     console.log();
 
-    const saasData = await fetchSaasTasks(workspace?.id);
+    // Unhydrated: the status rollup needs statuses only.
+    const saasData = await fetchSaasTasks(workspace?.id, { hydrate: false });
     if (!saasData.ok) {
       // Three genuinely different situations, previously all reported as
       // "Could not reach online backend. Check your connection." — which is
@@ -5051,20 +5131,21 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
       }
 
       if (saasData.error.code === "NETWORK_ERROR") {
+        // Transport failure: name it with the network message verbatim so
+        // it stays distinguishable from a server refusal (HTTP_ERROR below).
+        const networkDetail = `Could not reach online backend (${saasData.error.message}).`;
         if (opts.json) {
           outputEnvelope({
             ok: false,
             code: "NETWORK",
-            message: "Could not reach online backend.",
+            message: networkDetail,
             retryable: true,
             suggestion: "Check your connection, then retry.",
             json: true,
           });
         } else {
           console.log(
-            chalk.yellow(
-              "  ⚠  Could not reach online backend. Check your connection.",
-            ),
+            chalk.yellow(`  ⚠  ${networkDetail} Check your connection.`),
           );
         }
         process.exitCode = ExitCode.GENERAL;

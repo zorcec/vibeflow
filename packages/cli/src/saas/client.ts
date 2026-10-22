@@ -17,6 +17,12 @@ export type SaasResult<T> =
         message: string;
         status?: number;
         /**
+         * The request path that failed (e.g. `/api/v0/tasks`). Carried so
+         * callers can name the actual failure (HTTP status + path, or the
+         * transport message) instead of a catch-all "backend is down".
+         */
+        path?: string;
+        /**
          * The backend's own refusal code when the HTTP body carried one
          * (v0 answers `{ error, code }`, e.g. INVALID_LINKS for a dangling
          * parent). Transport/auth failures leave this absent and callers
@@ -143,21 +149,31 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
 }
 
 /**
+ * Upper bound on concurrent hydration requests. The default read path used
+ * to `Promise.all` one hydration per task over the whole board (2+ requests
+ * per task) — on a large board thousands of in-flight requests exhausted
+ * sockets and the entire read failed even though the backend was healthy.
+ * Hydration now runs through a worker pool of this size with strictly
+ * sequential sub-requests inside each task, so in-flight requests never
+ * exceed this bound no matter how large the board is.
+ */
+export const SAAS_HYDRATE_CONCURRENCY = 5;
+
+/**
  * Fetch tasks from the SaaS for the given board (or the user's default board).
  * Returns null if not authenticated or the request fails.
  *
- * Pass `{ hydrate: false }` for cheap polling (watch): the v0 list items
- * already carry `commentCount`/`fileCount`, so per-task comment/file
- * hydration (2 extra requests per task) is skipped and one poll costs only
- * the paginated list reads.
+ * Hydration is OPT-IN (`{ hydrate: true }`): the v0 list items already
+ * carry `commentCount`/`fileCount`, which is all listings need. Passing
+ * `hydrate: true` additionally fetches each task's comments + file list
+ * (+ inlined text content for small `.md`/`.txt`, mirroring the legacy
+ * list shape) — best-effort per task, never fatal, and bounded by
+ * SAAS_HYDRATE_CONCURRENCY in flight.
  *
  * v0 envelope: `GET /api/v0/tasks` answers `{ items, nextCursor }` (NOT the
  * legacy `{ tasks, boardId }` the deleted `/api/cli/tasks` surface spoke).
  * Pages are followed via `?cursor=` until `nextCursor` is null so a large
- * board still reads back whole. The v0 items carry neither comments nor
- * files (only `commentCount`/`fileCount`), so each task is hydrated with
- * its comments + file list (+ inlined text content for small `.md`/`.txt`,
- * mirroring the legacy list shape) — best-effort per task, never fatal.
+ * board still reads back whole.
  */
 export async function fetchSaasTasks(
   boardId?: string,
@@ -174,6 +190,9 @@ export async function fetchSaasTasks(
   try {
     // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
     const listPath = surfacePath("cloud", "/api/cli/tasks");
+    // The route (no query string) is reported on HTTP failures so the
+    // message names the actual failure — status + path, not a catch-all.
+    const listRoute = listPath.split("?")[0] as string;
     const items: SaasTask[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < 50; page++) {
@@ -188,6 +207,7 @@ export async function fetchSaasTasks(
             code: "HTTP_ERROR",
             message: `HTTP ${res.status}`,
             status: res.status,
+            path: listRoute,
           },
         };
       }
@@ -209,12 +229,17 @@ export async function fetchSaasTasks(
           : null;
       if (!cursor) break;
     }
+    // Hydration is explicit opt-in: a listing over a large board must cost
+    // only the paginated list reads (the items already carry
+    // commentCount/fileCount). When requested, a bounded worker pool caps
+    // in-flight requests at SAAS_HYDRATE_CONCURRENCY — never `Promise.all`
+    // over the whole board.
     const tasks =
-      opts?.hydrate === false
-        ? items
-        : await Promise.all(
-            items.map((t) => hydrateSaasTask(apiUrl, headers, t)),
-          );
+      opts?.hydrate === true
+        ? await mapWithConcurrency(items, SAAS_HYDRATE_CONCURRENCY, (t) =>
+            hydrateSaasTask(apiUrl, headers, t),
+          )
+        : items;
     return { ok: true, data: { tasks, boardId: boardId ?? "" } };
   } catch (err) {
     return {
@@ -245,10 +270,39 @@ function isInlineableText(name: string): boolean {
 }
 
 /**
+ * Run `fn` over `items` with at most `limit` workers in flight — the
+ * bounded replacement for `Promise.all(items.map(fn))`. Order is
+ * preserved. A worker takes the next index synchronously between awaits,
+ * so no two workers share an index.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results as R[];
+}
+
+/**
  * Best-effort per-task hydration: comments + files (+ text content) onto a
  * v0 list item. Anything missing/failed degrades to `[]`/absent content —
  * a hydration failure must never fail the whole list read. Items that
  * already carry the legacy inlined shape keep it (no refetch).
+ *
+ * Sub-requests run SEQUENTIALLY inside one task (comments, then files,
+ * then each text download in turn): callers bound whole-board hydration
+ * with a worker pool, and sequential interiors keep total in-flight
+ * requests at or under that pool size no matter the file mix.
  */
 async function hydrateSaasTask(
   apiUrl: string,
@@ -260,14 +314,12 @@ async function hydrateSaasTask(
   if (hasComments && hasFiles) return item;
   const taskId = item.id;
   const base = surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}`);
-  const [comments, files] = await Promise.all([
-    hasComments
-      ? Promise.resolve(item.comments as SaasComment[])
-      : fetchV0Comments(apiUrl, headers, base, taskId),
-    hasFiles
-      ? Promise.resolve(item.files)
-      : fetchV0FilesWithContent(apiUrl, headers, base),
-  ]);
+  const comments = hasComments
+    ? (item.comments as SaasComment[])
+    : await fetchV0Comments(apiUrl, headers, base, taskId);
+  const files = hasFiles
+    ? item.files
+    : await fetchV0FilesWithContent(apiUrl, headers, base);
   return { ...item, comments, files };
 }
 
@@ -305,38 +357,39 @@ async function fetchV0FilesWithContent(
     if (!res.ok) return [];
     const data = (await res.json()) as { files?: V0FileRow[] };
     const rows = Array.isArray(data.files) ? data.files : [];
-    return await Promise.all(
-      rows
-        .filter((f) => typeof f.name === "string" && f.name.length > 0)
-        .map(async (f) => {
-          const name = f.name as string;
-          const rawUrl = typeof f.url === "string" ? f.url : undefined;
-          const url =
-            rawUrl !== undefined && /^https?:\/\//.test(rawUrl)
-              ? rawUrl
-              : rawUrl !== undefined
-                ? `${apiUrl}${rawUrl}`
-                : undefined;
-          const size =
-            typeof f.size === "number" ? f.size : undefined;
-          let content: string | undefined;
-          if (
-            isInlineableText(name) &&
-            url !== undefined &&
-            size !== undefined &&
-            size <= TEXT_INLINE_SIZE_LIMIT
-          ) {
-            content = await downloadTextFile(apiUrl, url, headers);
-          }
-          return {
-            name,
-            size,
-            url,
-            content,
-            system: f.system === true,
-          };
-        }),
-    );
+    // Sequential text downloads: this helper runs inside the bounded
+    // hydration pool, so parallel downloads here would multiply past the
+    // pool cap (one slot per task must mean one request in flight).
+    const out: NonNullable<SaasTask["files"]> = [];
+    for (const f of rows) {
+      if (typeof f.name !== "string" || f.name.length === 0) continue;
+      const name = f.name;
+      const rawUrl = typeof f.url === "string" ? f.url : undefined;
+      const url =
+        rawUrl !== undefined && /^https?:\/\//.test(rawUrl)
+          ? rawUrl
+          : rawUrl !== undefined
+            ? `${apiUrl}${rawUrl}`
+            : undefined;
+      const size = typeof f.size === "number" ? f.size : undefined;
+      let content: string | undefined;
+      if (
+        isInlineableText(name) &&
+        url !== undefined &&
+        size !== undefined &&
+        size <= TEXT_INLINE_SIZE_LIMIT
+      ) {
+        content = await downloadTextFile(apiUrl, url, headers);
+      }
+      out.push({
+        name,
+        size,
+        url,
+        content,
+        system: f.system === true,
+      });
+    }
+    return out;
   } catch {
     return [];
   }
@@ -365,13 +418,89 @@ async function downloadTextFile(
 }
 
 /**
+ * Fetch a single task from the SaaS by ID — exactly ONE detail request
+ * (`GET /api/v0/tasks/:id`), never a whole-board listing. The returned
+ * task still carries its comments/files: the single item is hydrated with
+ * the same best-effort helper the (opt-in) board hydration uses.
+ *
+ * Failures name the actual failure: 404 answers `TASK_NOT_FOUND`, other
+ * HTTP refusals carry status + path, and transport failures carry the
+ * network message — never a catch-all.
+ */
+export async function fetchSaasTaskDetail(
+  taskId: string,
+): Promise<SaasResult<{ task: SaasTask }>> {
+  const headers = await getBearerHeaders();
+  if (!headers)
+    return {
+      ok: false,
+      error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+    };
+
+  const apiUrl = getApiUrl();
+  // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
+  const detailPath = surfacePath(
+    "cloud",
+    `/api/tasks/${encodeURIComponent(taskId)}`,
+  );
+  try {
+    const res = await fetch(`${apiUrl}${detailPath}`, { headers });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          ok: false,
+          error: {
+            code: "TASK_NOT_FOUND",
+            message: `Task not found: ${taskId}`,
+            status: 404,
+            path: detailPath,
+          },
+        };
+      }
+      const errBody = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const serverMessage =
+        typeof errBody.error === "string" ? errBody.error : undefined;
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: serverMessage ?? `HTTP ${res.status}`,
+          status: res.status,
+          path: detailPath,
+          ...(typeof errBody.code === "string" && errBody.code
+            ? { serverCode: errBody.code }
+            : {}),
+        },
+      };
+    }
+    // v0 answers the bare task (contract Task).
+    const item = (await res.json()) as SaasTask;
+    const task = await hydrateSaasTask(apiUrl, headers, item);
+    return { ok: true, data: { task } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
  * Fetch a single task from the SaaS by ID.
  * Returns null if not authenticated, not found, or the request fails.
+ *
+ * Single detail request (see fetchSaasTaskDetail) — never a board listing.
  */
 export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
-  const result = await fetchSaasTasks();
+  const result = await fetchSaasTaskDetail(taskId);
   if (!result.ok) return null;
-  return result.data.tasks.find((t) => t.id === taskId) ?? null;
+  return result.data.task;
 }
 
 /**

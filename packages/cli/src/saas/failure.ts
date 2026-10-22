@@ -65,3 +65,37 @@ export function saasFailure(error: SaasError): SaasFailure {
     retryable: error.code === "NETWORK_ERROR",
   };
 }
+
+/**
+ * Human/JSON `message` for a failed online READ. Names the actual failure
+ * instead of the catch-all "Unable to reach the online backend" (which
+ * blamed the network for server refusals and hid the status entirely):
+ *
+ * - no auth      → the login fix, no status involved;
+ * - transport     → the network message verbatim (fetch failed, refused…);
+ * - server refusal → HTTP status + request path (+ the body's own error).
+ *
+ * The three situations stay distinguishable by code AND by wording, and a
+ * failed online read is always reported — callers must never silently fall
+ * back to the local store in the same invocation.
+ */
+export function saasReadErrorMessage(error: {
+  code: string;
+  message: string;
+  status?: number;
+  path?: string;
+}): string {
+  if (error.code === "NOT_AUTHENTICATED")
+    return "Not logged in. Run 'vibeflow auth login' and retry.";
+  if (error.code === "NETWORK_ERROR")
+    return `Online board read failed (network): ${error.message}`;
+  if (typeof error.status === "number") {
+    const where = error.path ? ` ${error.path}` : "";
+    const body =
+      error.message && error.message !== `HTTP ${error.status}`
+        ? ` — ${error.message}`
+        : "";
+    return `Online board read failed: HTTP ${error.status}${where}${body}`;
+  }
+  return `Online board read failed: ${error.message}`;
+}

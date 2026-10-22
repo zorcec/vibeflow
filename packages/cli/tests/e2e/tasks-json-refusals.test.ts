@@ -503,7 +503,8 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: true,
     });
-    expect(envelope.error.message).toBe("Unable to reach the online backend.");
+    // The read failure names the transport failure, not a catch-all.
+    expect(envelope.error.message).toContain("Online board read failed");
   });
 
   it("E_BACKEND_UNAVAILABLE (not retryable) — a host that answers 500", async () => {

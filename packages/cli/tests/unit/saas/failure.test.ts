@@ -12,7 +12,10 @@
  * down, maybe retry".
  */
 import { describe, it, expect } from "vitest";
-import { saasFailure } from "../../../src/saas/failure.js";
+import {
+  saasFailure,
+  saasReadErrorMessage,
+} from "../../../src/saas/failure.js";
 
 describe("saasFailure", () => {
   it("401 — the session was rejected: not retryable, and login is the fix", () => {
@@ -58,5 +61,60 @@ describe("saasFailure", () => {
     expect(saasFailure({ code: "HTTP_ERROR", status: 404 }).code).toBe(
       "E_BACKEND_UNAVAILABLE",
     );
+  });
+});
+
+describe("saasReadErrorMessage", () => {
+  it("no auth names the login fix (no catch-all, no status)", () => {
+    expect(
+      saasReadErrorMessage({
+        code: "NOT_AUTHENTICATED",
+        message: "Not logged in",
+      }),
+    ).toContain("vibeflow auth login");
+  });
+
+  it("transport names the network message verbatim", () => {
+    const message = saasReadErrorMessage({
+      code: "NETWORK_ERROR",
+      message: "fetch failed",
+    });
+    expect(message).toContain("fetch failed");
+    expect(message).toContain("network");
+  });
+
+  it("server refusal names the HTTP status and the request path", () => {
+    const message = saasReadErrorMessage({
+      code: "HTTP_ERROR",
+      message: "boom",
+      status: 500,
+      path: "/api/v0/tasks",
+    });
+    expect(message).toContain("500");
+    expect(message).toContain("/api/v0/tasks");
+    expect(message).toContain("boom");
+  });
+
+  it("a bare HTTP status is not repeated as a body suffix", () => {
+    expect(
+      saasReadErrorMessage({
+        code: "HTTP_ERROR",
+        message: "HTTP 500",
+        status: 500,
+        path: "/api/v0/tasks",
+      }),
+    ).toBe("Online board read failed: HTTP 500 /api/v0/tasks");
+  });
+
+  it("never falls back to the old catch-all wording", () => {
+    for (const error of [
+      { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+      { code: "NETWORK_ERROR", message: "fetch failed" },
+      { code: "HTTP_ERROR", message: "boom", status: 500, path: "/api/v0/tasks" },
+    ]) {
+      expect(saasReadErrorMessage(error)).not.toContain(
+        "Unable to reach the online backend",
+      );
+    }
   });
 });
