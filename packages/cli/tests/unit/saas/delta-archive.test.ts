@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDeltaPlan,
   chunkDeltaPlan,
+  taskInputBytes,
   type Inventory,
   type LocalTask,
 } from "../../../src/saas/delta-archive";
@@ -199,5 +200,71 @@ describe("determinism", () => {
     expect(chunkDeltaPlan(buildDeltaPlan(local, inventory))).toEqual(
       chunkDeltaPlan(buildDeltaPlan(local, inventory)),
     );
+  });
+});
+
+describe("chunkDeltaPlan — the byte budget", () => {
+  const bigTask = (id: string, bytesize: number): LocalTask =>
+    localTask(id, { title: id }, [
+      { name: "shot.webp", size: bytesize, data: new Uint8Array(bytesize) },
+    ]);
+
+  it("starts a new archive before the budget is exceeded", () => {
+    // Task count alone says nothing about size: 200 tasks carrying screenshots
+    // would build a multi-gigabyte body in memory.
+    const tasks = [bigTask("a", 6), bigTask("b", 6), bigTask("c", 6)];
+    const chunks = chunkDeltaPlan(
+      { tasks, unchangedTaskIds: [], droppedFileCount: 0 },
+      100,
+      10, // ~6 bytes of record JSON + 6 bytes of payload each
+    );
+
+    expect(chunks.every((chunk) => chunk.tasks.length === 1)).toBe(true);
+    expect(chunks.flatMap((chunk) => chunk.tasks)).toEqual(tasks);
+  });
+
+  it("still counts tasks when the budget is generous", () => {
+    const tasks = Array.from({ length: 250 }, (_, i) =>
+      localTask(`t${i}`, { title: `t${i}` }, [
+        { name: "a.txt", size: 1, data: bytes("x") },
+      ]),
+    );
+    const chunks = chunkDeltaPlan(
+      { tasks, unchangedTaskIds: [], droppedFileCount: 0 },
+      100,
+      10 * 1024 * 1024,
+    );
+    expect(chunks.map((chunk) => chunk.tasks.length)).toEqual([100, 100, 50]);
+  });
+
+  it("never splits a task, even when it alone exceeds the budget", () => {
+    // A single oversized file must still ship: splitting it across archives
+    // breaks the manifest (files ride with their task), and refusing would turn
+    // one big screenshot into a push that can never finish.
+    const tasks = [bigTask("huge", 64), bigTask("small", 1)];
+    const chunks = chunkDeltaPlan(
+      { tasks, unchangedTaskIds: [], droppedFileCount: 0 },
+      100,
+      8,
+    );
+    expect(chunks.map((chunk) => chunk.tasks.map((t) => t.id))).toEqual([
+      ["huge"],
+      ["small"],
+    ]);
+  });
+
+  it("does not count dropped-file markers as bytes", () => {
+    // An empty `data` means "the server already holds these bytes" — counting it
+    // as a payload would split archives for files that never travel.
+    const dropped = localTask("t1", { title: "t1" }, [
+      { name: "big.webp", size: 5_000_000, data: new Uint8Array(0) },
+    ]);
+    expect(taskInputBytes(dropped)).toBeLessThan(1000);
+  });
+
+  it("rejects a non-positive budget instead of silently ignoring it", () => {
+    expect(() =>
+      chunkDeltaPlan({ tasks: [bigTask("a", 1)], unchangedTaskIds: [], droppedFileCount: 0 }, 100, 0),
+    ).toThrow(/maxBytesPerChunk/);
   });
 });

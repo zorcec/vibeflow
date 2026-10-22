@@ -149,7 +149,35 @@ export function buildDeltaPlan(
 }
 
 /**
- * Split a plan into chunks of at most `maxEntriesPerChunk` tasks each.
+ * Input bytes a single task contributes to its archive.
+ *
+ * The record JSON plus every payload that will actually be written. Files whose
+ * `data` is empty are markers ("the server already holds this") and travel as
+ * ~0 bytes, so they must not be counted.
+ */
+export function taskInputBytes(task: LocalTask): number {
+  let bytes = Buffer.byteLength(JSON.stringify(task.raw ?? null), "utf8");
+  for (const file of task.files) bytes += file.data.byteLength;
+  return bytes;
+}
+
+/**
+ * Split a plan into chunks, bounded by BOTH task count and input bytes.
+ *
+ * `maxBytesPerChunk` is a budget on UNCOMPRESSED input, which is conservative
+ * for the wire: the archive is gzipped, and deflate never expands data by more
+ * than a few bytes of framing per stream. A chunk that fits here cannot exceed
+ * the budget once compressed.
+ *
+ * WHY a byte bound at all: task count alone says nothing about size. 200 tasks
+ * carrying screenshots is gigabytes; 200 tasks carrying a title is kilobytes.
+ * Without this the archive path could build an arbitrarily large body in memory
+ * — the failure mode is an OOM or a proxy timeout, not a clean error.
+ *
+ * A single task larger than the budget still ships ALONE: splitting a task
+ * across archives would break the manifest (its files must ride with it), and
+ * refusing would turn "one big screenshot" into a push that can never finish.
+ * Every chunk therefore carries at least one task.
  *
  * Every chunk carries the tasks assigned to it together with their files, so
  * concatenating the chunks reproduces the original plan. An empty plan yields
@@ -158,21 +186,41 @@ export function buildDeltaPlan(
 export function chunkDeltaPlan(
   plan: DeltaPlan,
   maxEntriesPerChunk = 100,
+  maxBytesPerChunk = Number.POSITIVE_INFINITY,
 ): DeltaPlan[] {
   if (plan.tasks.length === 0) return [];
   if (maxEntriesPerChunk <= 0) {
     throw new Error("chunkDeltaPlan: maxEntriesPerChunk must be positive");
   }
+  if (!(maxBytesPerChunk > 0)) {
+    throw new Error("chunkDeltaPlan: maxBytesPerChunk must be positive");
+  }
 
   const chunks: DeltaPlan[] = [];
-  for (let i = 0; i < plan.tasks.length; i += maxEntriesPerChunk) {
-    const tasks = plan.tasks.slice(i, i + maxEntriesPerChunk);
-    const droppedFileCount = tasks.reduce(
-      (sum, task) =>
-        sum + task.files.filter(isSkippedFile).length,
-      0,
-    );
-    chunks.push({ tasks, unchangedTaskIds: [], droppedFileCount });
+  let current: LocalTask[] = [];
+  let currentBytes = 0;
+  const flush = (): void => {
+    if (current.length === 0) return;
+    chunks.push({
+      tasks: current,
+      unchangedTaskIds: [],
+      droppedFileCount: current.reduce(
+        (sum, task) => sum + task.files.filter(isSkippedFile).length,
+        0,
+      ),
+    });
+    current = [];
+    currentBytes = 0;
+  };
+
+  for (const task of plan.tasks) {
+    const bytes = taskInputBytes(task);
+    const overCount = current.length >= maxEntriesPerChunk;
+    const overBytes = current.length > 0 && currentBytes + bytes > maxBytesPerChunk;
+    if (overCount || overBytes) flush();
+    current.push(task);
+    currentBytes += bytes;
   }
+  flush();
   return chunks;
 }

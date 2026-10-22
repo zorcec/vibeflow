@@ -25,7 +25,16 @@ import {
 import { probeDeltaCapability, sendDeltaArchive } from "./delta-push";
 
 /** ~10 MiB of gzipped archive per request. */
-export const DELTA_CHUNK_MAX_COMPRESSED_BYTES = 10 * 1024 * 1024;
+/**
+ * Input-byte budget for one archive.
+ *
+ * Named for INPUT bytes, not compressed bytes: the archive is gzipped before it
+ * is sent, and deflate cannot expand data by more than a few bytes of framing,
+ * so bounding the input bounds the wire size too. The previous name claimed the
+ * opposite (and the constant was never read at all) — a budget that lies about
+ * its unit is worse than no budget.
+ */
+export const DELTA_CHUNK_MAX_INPUT_BYTES = 10 * 1024 * 1024;
 /** Tasks per chunk, before the compressed-size cap is applied. */
 export const DELTA_CHUNK_MAX_TASKS = 200;
 
@@ -47,6 +56,13 @@ export interface DeltaRunOptions {
   headers: Record<string, string>;
   fetchImpl?: typeof fetch;
   onProgress?: (phase: string, done: number, total: number) => void;
+  /**
+   * Called once, after planning and BEFORE the first request: how many tasks
+   * will travel in how many archives. The caller prints it so the path is
+   * visible — a push that silently degrades to the slower transport is exactly
+   * the confusion this exists to prevent.
+   */
+  onPlan?: (plan: { tasks: number; chunks: number }) => void;
   /** Where to resolve missing `authorEmail`s from git at push time. */
   gitCwd?: string;
   /** Pre-resolved emails (tests, or a caller that already ran the lookup). */
@@ -217,7 +233,11 @@ export async function runDeltaPush(
     }
   }
 
-  const chunks = chunkDeltaPlan(plan, DELTA_CHUNK_MAX_TASKS);
+  const chunks = chunkDeltaPlan(
+    plan,
+    DELTA_CHUNK_MAX_TASKS,
+    DELTA_CHUNK_MAX_INPUT_BYTES,
+  );
   const filesSent = plan.tasks.reduce(
     (sum, t) => sum + t.files.filter((f) => f.data.length > 0 || f.size === 0).length,
     0,
@@ -234,6 +254,7 @@ export async function runDeltaPush(
     };
   }
 
+  opts.onPlan?.({ tasks: plan.tasks.length, chunks: chunks.length });
   opts.onProgress?.("delta", 0, chunks.length);
   let sent = 0;
   for (const [index, chunk] of chunks.entries()) {

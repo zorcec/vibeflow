@@ -12,7 +12,7 @@ import {
   resolveBoardScope,
 } from "../auth/board-scope.js";
 import { applyPushLinks, createTasksOneByOne, formatPushRefusalSummary, formatPushStopLine, formatSkippedLinks, login, createTaskPushProgressReporter, PUSH_429_MAX_RESUMES, type PushLoopResult } from "../auth/login.js";
-import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, type ImportProbeResult, type ImportTaskInput } from "../saas/batch-push.js";
+import { probeImportCapability, evaluateBatchPreflight, importBatchTree, readBatchCheckpoint, topoOrderImportTasks, fetchOnlineTaskIndex, IMPORT_MAX_TASKS, type ImportProbeResult, type ImportTaskInput } from "../saas/batch-push.js";
 import { runDeltaPush } from "../saas/delta-run.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
@@ -273,6 +273,30 @@ export interface PushResult {
  * non-empty `authorEmail` — the enrichment gap `vibeflow authors link`
  * fills. Read-only accounting for the push report; comment-id preflight is separate.
  */
+/**
+ * One line, before anything is sent, saying WHICH transport runs and how the
+ * work is split.
+ *
+ * WHY this exists: push has two transports and only one of them is fast. When
+ * the archive path is unavailable the CLI silently degrades to legacy batches —
+ * 100 tasks and 50 files per request — and the only visible difference was a
+ * progress counter appearing that the archive path never prints. A user watching
+ * 1800 tasks crawl in 100-task steps had no way to know the archive was off, or
+ * why. Now the first line of every push says it.
+ */
+export function formatPushPlanBanner(
+  transport: "archive" | "legacy",
+  tasks: number,
+  chunks: number,
+): string {
+  if (transport === "archive") {
+    const unit = chunks === 1 ? "archive" : "archives";
+    return `  Sending ${tasks} task(s) in ${chunks} ${unit} — tasks, files and comments ride in one request per ${unit.replace(/s$/, "")}.`;
+  }
+  const unit = chunks === 1 ? "batch" : "batches";
+  return `  Sending ${tasks} task(s) in ${chunks} ${unit} — legacy path, up to 100 tasks and 50 files per request.`;
+}
+
 export function countTasksMissingCommitAuthorEmail(
   tasks: Array<{ commits?: Array<{ authorEmail?: string; sha?: string }> }>,
 ): number {
@@ -704,6 +728,9 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
               // Resolve missing commit emails from the project's own git
               // history — the repo the push is running in, not the CLI's cwd.
               gitCwd: projectDir,
+              onPlan: ({ tasks, chunks }) => {
+                console.log(chalk.cyan(formatPushPlanBanner("archive", tasks, chunks)));
+              },
             });
       if (delta !== null) {
         result = {
@@ -729,6 +756,32 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
           failedFiles: [],
         };
       } else {
+        // Delta returns null for two very different reasons; both cost the user
+        // the fast path, so neither may be silent.
+        console.log(
+          chalk.yellow(
+            workspaceId === undefined
+              ? "  Archive upload needs the board id, which could not be read — falling back to the legacy path."
+              : "  Archive upload is unavailable on this server — falling back to the legacy path.",
+          ),
+        );
+        const batchSize = Math.min(
+          IMPORT_MAX_TASKS,
+          typeof probe.preflight?.maxTasks === "number" &&
+            Number.isInteger(probe.preflight.maxTasks) &&
+            probe.preflight.maxTasks >= 1
+            ? probe.preflight.maxTasks
+            : IMPORT_MAX_TASKS,
+        );
+        console.log(
+          chalk.cyan(
+            formatPushPlanBanner(
+              "legacy",
+              inputs.length,
+              Math.max(1, Math.ceil(inputs.length / batchSize)),
+            ),
+          ),
+        );
         const loop = await importBatchTree(apiUrl, token, workspaceId, inputs, {
           onProgress,
           projectDir,
