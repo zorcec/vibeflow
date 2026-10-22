@@ -79,8 +79,8 @@ function makeTask(id: string, title: string, links: Link[] = []): FakeTask {
 }
 
 /**
- * A fake v0 backend with an in-memory board: parents p1/p2, a peer r1, and
- * a child c1 (parent p1 + a relates link to r1, so the swap/clear tests
+ * A fake v0 backend with an in-memory board: parents 9f2c7a41aa01/9f2c7a41bb02, a peer 7d1e0b55cc03, and
+ * a child 3b8f9d12dd04 (parent 9f2c7a41aa01 + a relates link to 7d1e0b55cc03, so the swap/clear tests
  * prove relates links survive). POST validates parent targets exist;
  * PATCH replaces the whole link set and validates parent entries
  * (exists, not self) — the same INVALID_LINKS refusals the real routes
@@ -93,14 +93,14 @@ async function startFakeBackend(): Promise<{
 }> {
   const requests: RecordedRequest[] = [];
   const tasks = new Map<string, FakeTask>([
-    ["p1", makeTask("p1", "Parent one")],
-    ["p2", makeTask("p2", "Parent two")],
-    ["r1", makeTask("r1", "Peer")],
+    ["9f2c7a41aa01", makeTask("9f2c7a41aa01", "Parent one")],
+    ["9f2c7a41bb02", makeTask("9f2c7a41bb02", "Parent two")],
+    ["7d1e0b55cc03", makeTask("7d1e0b55cc03", "Peer")],
     [
-      "c1",
-      makeTask("c1", "Child of p1", [
-        { taskId: "p1", type: "parent" },
-        { taskId: "r1", type: "relates" },
+      "3b8f9d12dd04",
+      makeTask("3b8f9d12dd04", "Child of 9f2c7a41aa01", [
+        { taskId: "9f2c7a41aa01", type: "parent" },
+        { taskId: "7d1e0b55cc03", type: "relates" },
       ]),
     ],
   ]);
@@ -226,7 +226,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--add", "--title", "Kid", "--parent", "p1", "--json"],
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41aa01", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
@@ -234,7 +234,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({
       title: "Kid",
-      links: [{ taskId: "p1", type: "parent" }],
+      links: [{ taskId: "9f2c7a41aa01", type: "parent" }],
     });
     const payload = JSON.parse(r.stdout) as {
       ok: boolean;
@@ -242,7 +242,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     };
     expect(payload.ok).toBe(true);
     expect(
-      payload.task.links.some((l) => l.taskId === "p1" && l.type === "parent"),
+      payload.task.links.some((l) => l.taskId === "9f2c7a41aa01" && l.type === "parent"),
     ).toBe(true);
   });
 
@@ -274,16 +274,16 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--add", "--title", "Kid", "--parent", "c", "--json"],
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "3b8f9d12", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
     const posts = postBodies(requests);
     expect(posts).toHaveLength(1);
-    // "c" is a unique prefix of "c1" — the POST carries the full id.
+    // "3b8f9d12" is a shortened (8-of-12) prefix of "3b8f9d12dd04" — the POST carries the full id.
     expect(posts[0]).toMatchObject({
       title: "Kid",
-      links: [{ taskId: "c1", type: "parent" }],
+      links: [{ taskId: "3b8f9d12dd04", type: "parent" }],
     });
   });
 
@@ -293,7 +293,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--add", "--title", "Kid", "--parent", "p", "--json"],
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).not.toBe(0);
@@ -304,9 +304,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     };
     expect(envelope.ok).toBe(false);
     expect(envelope.error.code).toBe("E_AMBIGUOUS");
-    // "p" prefixes both p1 and p2 — both candidates are named.
-    expect(envelope.error.message).toContain("p1");
-    expect(envelope.error.message).toContain("p2");
+    // "9f2c7a41" prefixes both parents — both candidates are named.
+    expect(envelope.error.message).toContain("9f2c7a41aa01");
+    expect(envelope.error.message).toContain("9f2c7a41bb02");
     expect(postBodies(requests)).toEqual([]);
   });
 
@@ -316,7 +316,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--add", "--title", "Kid", "--parent", "p1", "--dry-run", "--json"],
+      ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41aa", "--dry-run", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
@@ -328,7 +328,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     };
     expect(payload.ok).toBe(true);
     expect(payload.dryRun).toBe(true);
-    expect(payload.task.links).toEqual([{ taskId: "p1", type: "parent" }]);
+    expect(payload.task.links).toEqual([{ taskId: "9f2c7a41aa01", type: "parent" }]);
   });
 });
 
@@ -339,14 +339,14 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, tasks } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--set-parent", "p2", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41bb", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
     // Replace semantics: the old parent is swapped out, the relates link kept.
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "r1", type: "relates" },
-      { taskId: "p2", type: "parent" },
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "7d1e0b55cc03", type: "relates" },
+      { taskId: "9f2c7a41bb02", type: "parent" },
     ]);
     const payload = JSON.parse(r.stdout) as { ok: boolean };
     expect(payload.ok).toBe(true);
@@ -358,11 +358,11 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, tasks } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--no-parent", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--no-parent", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
-    expect(tasks.get("c1")!.links).toEqual([{ taskId: "r1", type: "relates" }]);
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([{ taskId: "7d1e0b55cc03", type: "relates" }]);
   });
 
   it("--set-parent with a dangling target is refused TASK_NOT_FOUND and sends no PATCH", async () => {
@@ -371,7 +371,7 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, requests, tasks } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--set-parent", "ghost", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "ghost", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).not.toBe(0);
@@ -385,10 +385,10 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     expect(envelope.error.message).toContain("ghost");
     // Resolved BEFORE the online request: no PATCH was attempted and the
     // old parent still stands.
-    expect(patchBodies(requests, "c1")).toEqual([]);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "p1", type: "parent" },
-      { taskId: "r1", type: "relates" },
+    expect(patchBodies(requests, "3b8f9d12dd04")).toEqual([]);
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "9f2c7a41aa01", type: "parent" },
+      { taskId: "7d1e0b55cc03", type: "relates" },
     ]);
   });
 
@@ -397,15 +397,15 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const home = saasHome();
     const { url, tasks } = await startFakeBackend();
 
-    // "p" is ambiguous (p1, p2) but "p2" exact-matches even so.
+    // "9f2c7a41" is ambiguous (aa01, bb02) but "9f2c7a41bb" resolves uniquely.
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--set-parent", "p2", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41bb", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "r1", type: "relates" },
-      { taskId: "p2", type: "parent" },
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "7d1e0b55cc03", type: "relates" },
+      { taskId: "9f2c7a41bb02", type: "parent" },
     ]);
   });
 
@@ -415,7 +415,7 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, requests, tasks } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--set-parent", "p", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).not.toBe(0);
@@ -426,12 +426,12 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     };
     expect(envelope.ok).toBe(false);
     expect(envelope.error.code).toBe("E_AMBIGUOUS");
-    expect(envelope.error.message).toContain("p1");
-    expect(envelope.error.message).toContain("p2");
-    expect(patchBodies(requests, "c1")).toEqual([]);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "p1", type: "parent" },
-      { taskId: "r1", type: "relates" },
+    expect(envelope.error.message).toContain("9f2c7a41aa01");
+    expect(envelope.error.message).toContain("9f2c7a41bb02");
+    expect(patchBodies(requests, "3b8f9d12dd04")).toEqual([]);
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "9f2c7a41aa01", type: "parent" },
+      { taskId: "7d1e0b55cc03", type: "relates" },
     ]);
   });
 
@@ -440,27 +440,27 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const home = saasHome();
     const { url, tasks } = await startFakeBackend();
 
-    // p1 already parents c1; adding it as relates is a distinct pair.
+    // 9f2c7a41aa01 already parents the child; adding it as relates is a distinct pair.
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--relates", "p", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--relates", "9f2c7a41", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
-    // "p" is ambiguous (p1, p2) — refused, nothing written.
+    // "9f2c7a41" is ambiguous (aa01, bb02) — refused, nothing written.
     expect(r.code).not.toBe(0);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "p1", type: "parent" },
-      { taskId: "r1", type: "relates" },
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "9f2c7a41aa01", type: "parent" },
+      { taskId: "7d1e0b55cc03", type: "relates" },
     ]);
 
     const r2 = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--relates", "p2", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--relates", "9f2c7a41bb", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r2.code).toBe(0);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "p1", type: "parent" },
-      { taskId: "r1", type: "relates" },
-      { taskId: "p2", type: "relates" },
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "9f2c7a41aa01", type: "parent" },
+      { taskId: "7d1e0b55cc03", type: "relates" },
+      { taskId: "9f2c7a41bb02", type: "relates" },
     ]);
   });
 
@@ -470,12 +470,12 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, tasks } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--unrelates", "r1", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--unrelates", "7d1e0b55", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
-    expect(tasks.get("c1")!.links).toEqual([
-      { taskId: "p1", type: "parent" },
+    expect(tasks.get("3b8f9d12dd04")!.links).toEqual([
+      { taskId: "9f2c7a41aa01", type: "parent" },
     ]);
   });
 
@@ -485,11 +485,11 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     const { url, requests } = await startFakeBackend();
 
     const r = await spawnCli(
-      ["tasks", store, "--edit", "c1", "--set-parent", "p2", "--dry-run", "--json"],
+      ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41bb", "--dry-run", "--json"],
       { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
     );
     expect(r.code).toBe(0);
-    expect(patchBodies(requests, "c1")).toEqual([]);
+    expect(patchBodies(requests, "3b8f9d12dd04")).toEqual([]);
     const payload = JSON.parse(r.stdout) as {
       ok: boolean;
       dryRun: boolean;
@@ -498,8 +498,8 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     expect(payload.ok).toBe(true);
     expect(payload.dryRun).toBe(true);
     expect(payload.updates.links).toEqual([
-      { taskId: "r1", type: "relates" },
-      { taskId: "p2", type: "parent" },
+      { taskId: "7d1e0b55cc03", type: "relates" },
+      { taskId: "9f2c7a41bb02", type: "parent" },
     ]);
   });
 });
@@ -522,8 +522,8 @@ describe("tasks list in SaaS mode hides children by default", () => {
       hiddenChildren: number;
     };
     const rootIds = rootPayload.tasks.map((t) => t.id);
-    expect(rootIds).toContain("p1");
-    expect(rootIds).not.toContain("c1");
+    expect(rootIds).toContain("9f2c7a41aa01");
+    expect(rootIds).not.toContain("3b8f9d12dd04");
     expect(rootPayload.hiddenChildren).toBe(1);
 
     const all = await spawnCli(
@@ -536,7 +536,7 @@ describe("tasks list in SaaS mode hides children by default", () => {
       tasks: Array<{ id: string }>;
       hiddenChildren: number;
     };
-    expect(allPayload.tasks.map((t) => t.id)).toContain("c1");
+    expect(allPayload.tasks.map((t) => t.id)).toContain("3b8f9d12dd04");
     expect(allPayload.hiddenChildren).toBe(0);
   });
 });

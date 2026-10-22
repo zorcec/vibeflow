@@ -66,7 +66,6 @@ import {
   buildSetParentLinks,
   buildAddLinks,
   buildRemoveLinks,
-  getChildren,
 } from "./core/task-links.js";
 import { getGitUser } from "./core/git-user.js";
 import { formatCommitTag } from "./core/commit-tag.js";
@@ -1141,7 +1140,7 @@ program
   )
   .option(
     "--delete <task-id>",
-    "Delete a task by ID (supports partial ID prefix; refused without --yes; a parent with children is refused — delete the children first)",
+    "Delete a task by ID (supports partial ID prefix; refused without --yes; --yes --dry-run only previews, deleting nothing). A LOCAL parent with children is refused — delete the children first. The ONLINE delete cascades: descendants go with the parent (named in the preview) and matching local records are dropped so push cannot recreate them",
   )
   .option(
     "--yes",
@@ -1793,25 +1792,68 @@ program
 
         // ── Delete mode ────────────────────────────────────────────────
         // `tasks --delete <id> [--yes]` removes one task. The id accepts a
-        // unique prefix exactly like --get; ambiguity and unknown values
-        // are refused before anything is touched. Without --yes the command
-        // only previews what would be deleted and exits non-zero — a
-        // destructive operation is never one flag away from an accident.
-        // A task with children is refused even WITH --yes: deleting the
-        // parent would leave the children with a dangling parent link (the
-        // local server route has no cascade — DELETE /api/tasks/:id drops
-        // just the one row — and the online DELETE is the same single-row
-        // write), so the CLI refuses rather than silently orphaning them.
-        // Delete the children first (deepest first), then the parent.
+        // unique prefix exactly like --get — and ONE resolver
+        // (`resolveSaasTaskId`) serves both stores, so the local and online
+        // paths cannot disagree about what a prefix names. Ambiguity,
+        // unknown values, and the empty string (which every id starts with)
+        // are refused before anything is written. Without --yes the command
+        // only previews what would be deleted and exits non-zero; WITH
+        // --yes --dry-run it reports the confirmed plan and exits 0 — both
+        // without mutating either store. The two stores delete differently
+        // and the difference is stated, not hidden:
+        //   - local: DELETE drops just the one row, so a parent with
+        //     children is refused even WITH --yes (deleting it would leave
+        //     the children with a dangling parent link — delete the
+        //     children first, deepest first, then the parent);
+        //   - online: the v0 DELETE CASCADES — the server deletes the whole
+        //     descendant cone with the parent — so a parent delete proceeds
+        //     WITH an explicit warning naming every descendant that goes
+        //     with it. The listing the cone is read from is paged to
+        //     completion (`fetchSaasTasks` fails loudly on truncation), so
+        //     the guard cannot silently half-read the board.
+        // A successful ONLINE delete also drops the matching local
+        // record(s) — the server's `deletedIds`, root first — otherwise the
+        // next push sees a local id missing remotely and recreates it.
         if (opts.delete !== undefined) {
           const rawDeleteId =
             typeof opts.delete === "string" ? opts.delete : "";
-          const deleteMode = await getMode();
-          let deleteId: string;
-          let deleteTitle = "";
-          let deleteStatus = "";
-          let deleteChildren: Array<{ id: string; title: string }> = [];
-          if (deleteMode === "saas") {
+          const deleteProjectDir = resolve(dir);
+          const deleteIsOnline = (await getMode()) === "saas";
+          // The empty string prefixes every id: refusing it here — before
+          // either store is read — keeps `--delete ""` from resolving to
+          // the whole board (or to the only task on a one-task board).
+          if (rawDeleteId.length === 0) {
+            const deleteEmptyMessage =
+              "Task id must not be empty — pass a task id or unique prefix.";
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "TASK_NOT_FOUND",
+                message: deleteEmptyMessage,
+                suggestion:
+                  "Run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${deleteEmptyMessage}`));
+              console.log(
+                chalk.dim(
+                  "  Run 'vibeflow tasks' to see available task IDs.",
+                ),
+              );
+            }
+            process.exitCode = ExitCode.NOT_FOUND;
+            return;
+          }
+          // ONE row list for both stores (id/title/status/parent links), so
+          // resolution and the child guard below run once, not per store.
+          let deleteRows: Array<{
+            id: string;
+            title: string;
+            status: string;
+            links: Array<{ taskId: string; type: string }>;
+          }>;
+          if (deleteIsOnline) {
             const deleteWorkspace = await readWorkspace();
             const deleteBoard = await fetchSaasTasks(deleteWorkspace?.id, {
               hydrate: false,
@@ -1837,115 +1879,124 @@ program
               process.exitCode = ExitCode.GENERAL;
               return;
             }
-            const deleteResolved = resolveSaasTaskId(
-              deleteBoard.data.tasks,
-              rawDeleteId,
-            );
-            if (!deleteResolved.ok) {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: deleteResolved.code,
-                  message:
-                    deleteResolved.code === "TASK_NOT_FOUND"
-                      ? `Task not found: ${rawDeleteId}`
-                      : deleteResolved.message,
-                  suggestion:
-                    deleteResolved.code === "TASK_NOT_FOUND"
-                      ? "Run 'vibeflow tasks' to see available task IDs."
-                      : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red(
-                    `✗ ${deleteResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${rawDeleteId}` : deleteResolved.message}`,
-                  ),
-                );
-                console.log(
-                  chalk.dim(
-                    deleteResolved.code === "TASK_NOT_FOUND"
-                      ? "  Run 'vibeflow tasks' to see available task IDs."
-                      : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                  ),
-                );
-              }
-              process.exitCode =
-                deleteResolved.code === "TASK_NOT_FOUND"
-                  ? ExitCode.NOT_FOUND
-                  : ExitCode.USAGE;
-              return;
-            }
-            deleteId = deleteResolved.id;
-            const deleteFound = deleteBoard.data.tasks.find(
-              (t) => t.id === deleteId,
-            );
-            deleteTitle = deleteFound?.title ?? "";
-            deleteStatus = deleteFound ? toCliStatus(deleteFound.status) : "";
-            deleteChildren = deleteBoard.data.tasks
-              .filter((t) =>
-                (t.links ?? []).some(
-                  (l) => l.type === "parent" && l.taskId === deleteId,
-                ),
-              )
-              .map((t) => ({ id: t.id, title: t.title }));
+            deleteRows = deleteBoard.data.tasks.map((t) => ({
+              id: t.id,
+              title: t.title ?? "",
+              status: toCliStatus(t.status),
+              links: (t.links ?? []).map((l) => ({
+                taskId: l.taskId,
+                type: l.type,
+              })),
+            }));
           } else {
-            const deleteProjectDir = resolve(dir);
-            const deleteAll = listTasks(deleteProjectDir);
-            const deleteExact = deleteAll.find((t) => t.id === rawDeleteId);
-            const deleteMatches = deleteExact
-              ? [deleteExact]
-              : deleteAll.filter((t) =>
-                  matchesIdOrPrefix(t, rawDeleteId),
-                );
-            if (deleteMatches.length === 0) {
-              outputEnvelope({
-                ok: false,
-                code: "TASK_NOT_FOUND",
-                message: `Task not found: ${rawDeleteId}`,
-                suggestion:
-                  "Run 'vibeflow tasks' to see available task IDs.",
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.NOT_FOUND;
-              return;
-            }
-            if (deleteMatches.length > 1) {
-              const deleteNamed = deleteMatches
-                .map((t) => `${t.id} "${t.title}"`)
-                .join(", ");
-              const deleteAmbiguousMessage = `Ambiguous task id prefix "${rawDeleteId}" matches ${deleteMatches.length} tasks: ${deleteNamed}`;
-              const deleteAmbiguousSuggestion =
-                "Use the full task id — run 'vibeflow tasks' to see available task IDs.";
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: "E_AMBIGUOUS",
-                  message: deleteAmbiguousMessage,
-                  suggestion: deleteAmbiguousSuggestion,
-                  json: opts.json,
-                });
-              } else {
-                console.log(chalk.red(`✗ ${deleteAmbiguousMessage}`));
-                console.log(chalk.dim(`  ${deleteAmbiguousSuggestion}`));
-              }
-              process.exitCode = ExitCode.USAGE;
-              return;
-            }
-            deleteId = deleteMatches[0].id;
-            deleteTitle = deleteMatches[0].title;
-            deleteStatus = deleteMatches[0].status;
-            deleteChildren = getChildren(deleteAll, deleteId).map((t) => ({
+            deleteRows = listTasks(deleteProjectDir).map((t) => ({
               id: t.id,
               title: t.title,
+              status: t.status,
+              links: (t.links ?? []).map((l) => ({
+                taskId: l.taskId,
+                type: l.type,
+              })),
             }));
           }
+          // ONE resolver for both stores: an exact id wins (even when it
+          // prefixes others), a unique prefix resolves, anything else is
+          // refused with the code the exit maps — never a silent
+          // first-match.
+          const deleteResolved = resolveSaasTaskId(
+            deleteRows,
+            rawDeleteId,
+          );
+          if (!deleteResolved.ok) {
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: deleteResolved.code,
+                message:
+                  deleteResolved.code === "TASK_NOT_FOUND"
+                    ? `Task not found: ${rawDeleteId}`
+                    : deleteResolved.message,
+                suggestion:
+                  deleteResolved.code === "TASK_NOT_FOUND"
+                    ? "Run 'vibeflow tasks' to see available task IDs."
+                    : "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                json: opts.json,
+              });
+            } else {
+              console.log(
+                chalk.red(
+                  `✗ ${deleteResolved.code === "TASK_NOT_FOUND" ? `Task not found: ${rawDeleteId}` : deleteResolved.message}`,
+                ),
+              );
+              console.log(
+                chalk.dim(
+                  deleteResolved.code === "TASK_NOT_FOUND"
+                    ? "  Run 'vibeflow tasks' to see available task IDs."
+                    : "  Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                ),
+              );
+            }
+            process.exitCode =
+              deleteResolved.code === "TASK_NOT_FOUND"
+                ? ExitCode.NOT_FOUND
+                : ExitCode.USAGE;
+            return;
+          }
+          const deleteId = deleteResolved.id;
+          const deleteFound = deleteRows.find((t) => t.id === deleteId);
+          const deleteTitle = deleteFound?.title ?? "";
+          const deleteStatus = deleteFound?.status ?? "";
+          const deleteChildren = deleteRows
+            .filter((t) =>
+              t.links.some(
+                (l) => l.type === "parent" && l.taskId === deleteId,
+              ),
+            )
+            .map((t) => ({ id: t.id, title: t.title }));
+          // The online cone is transitive: the v0 DELETE cascades through
+          // the whole subtree, so the warning names every descendant, not
+          // just the direct children (BFS over the listed parent links —
+          // the listing is complete because truncation fails the read).
+          const deleteDescendants: Array<{ id: string; title: string }> =
+            deleteIsOnline
+              ? (() => {
+                  const seen = new Set<string>([deleteId]);
+                  const out: Array<{ id: string; title: string }> = [];
+                  const queue = [deleteId];
+                  while (queue.length > 0) {
+                    const parent = queue.shift()!;
+                    for (const t of deleteRows) {
+                      if (
+                        !seen.has(t.id) &&
+                        t.links.some(
+                          (l) => l.type === "parent" && l.taskId === parent,
+                        )
+                      ) {
+                        seen.add(t.id);
+                        out.push({ id: t.id, title: t.title });
+                        queue.push(t.id);
+                      }
+                    }
+                  }
+                  return out;
+                })()
+              : [];
           const deleteChildLines = deleteChildren.map(
             (c) => `      • ${c.id} ${c.title}`,
           );
+          const deleteDeeperCount =
+            deleteDescendants.length - deleteChildren.length;
           // Preview / confirmation gate: without --yes nothing is written.
           if (!opts.yes) {
-            const deletePreviewMessage = `Would delete task ${deleteId}${deleteTitle ? ` "${deleteTitle}"` : ""}${deleteChildren.length > 0 ? ` — refused: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} that would be left with a dangling parent link` : ""}. Re-run with --yes to delete${deleteChildren.length > 0 ? " (after deleting the children first)" : ""}.`;
+            const deleteCascadeNote =
+              deleteIsOnline && deleteDescendants.length > 0
+                ? ` — WARNING: the online delete CASCADES: ${deleteDescendants.length} descendant task${deleteDescendants.length === 1 ? "" : "s"} (${deleteDescendants.map((d) => d.id).join(", ")}) will be deleted with it`
+                : "";
+            const deleteLocalNote =
+              !deleteIsOnline && deleteChildren.length > 0
+                ? ` — refused: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} that would be left with a dangling parent link`
+                : "";
+            const deletePreviewMessage = `Would delete task ${deleteId}${deleteTitle ? ` "${deleteTitle}"` : ""}${deleteCascadeNote}${deleteLocalNote}. Re-run with --yes to delete${!deleteIsOnline && deleteChildren.length > 0 ? " (after deleting the children first)" : ""}.`;
             if (opts.json) {
               outputEnvelope({
                 ok: false,
@@ -1961,7 +2012,21 @@ program
                 console.log(chalk.dim(`    title:  ${deleteTitle}`));
               if (deleteStatus)
                 console.log(chalk.dim(`    status: ${deleteStatus}`));
-              if (deleteChildren.length > 0) {
+              if (deleteIsOnline && deleteDescendants.length > 0) {
+                console.log(
+                  chalk.red(
+                    `    ⚠ CASCADE: deleting this parent deletes ${deleteDescendants.length} descendant task${deleteDescendants.length === 1 ? "" : "s"} with it (the v0 DELETE cascades):`,
+                  ),
+                );
+                for (const line of deleteChildLines)
+                  console.log(chalk.dim(line));
+                if (deleteDeeperCount > 0)
+                  console.log(
+                    chalk.dim(
+                      `      …plus ${deleteDeeperCount} deeper descendant${deleteDeeperCount === 1 ? "" : "s"} (the server deletes the whole cone)`,
+                    ),
+                  );
+              } else if (deleteChildren.length > 0) {
                 console.log(
                   chalk.red(
                     `    ✗ has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} — deleting the parent would leave them with a dangling parent link:`,
@@ -1983,10 +2048,46 @@ program
             process.exitCode = ExitCode.GENERAL;
             return;
           }
-          // With --yes a parent still refuses: the CLI never orphans
-          // children (no cascade flag exists on either surface).
-          if (deleteChildren.length > 0) {
-            const deleteHasChildrenMessage = `Cannot delete task ${deleteId}: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} (${deleteChildren.map((c) => c.id).join(", ")}) — the CLI never orphans children. Delete the children first (deepest first), then re-run with --yes.`;
+          // Local parents refuse even WITH --yes: no cascade on this
+          // surface. Online parents proceed (the server deletes the cone,
+          // warned about above and below) — dry-run excepted, which only
+          // ever reports.
+          const deleteLocalRefusal =
+            !deleteIsOnline && deleteChildren.length > 0;
+          // --yes --dry-run: the confirmed plan, executed nowhere. Reports
+          // the same write set the live run would produce (root first,
+          // then the online cone) and exits 0 — ZERO mutations in both
+          // stores. A locally-refused parent reports its refusal instead:
+          // the dry run of a refused operation is the refusal.
+          if (opts.dryRun && !deleteLocalRefusal) {
+            const deleteDryIds = deleteIsOnline
+              ? [deleteId, ...deleteDescendants.map((d) => d.id)]
+              : [deleteId];
+            if (opts.json) {
+              outputEnvelope({
+                ok: true,
+                json: opts.json,
+                payload: {
+                  dryRun: true,
+                  id: deleteId,
+                  deletedIds: deleteDryIds,
+                },
+              });
+            } else {
+              console.log(
+                chalk.yellow(`  [dry-run] Would delete task ${deleteId}${deleteTitle ? ` "${deleteTitle}"` : ""} — nothing was deleted.`),
+              );
+              if (deleteIsOnline && deleteDescendants.length > 0)
+                console.log(
+                  chalk.yellow(
+                    `  [dry-run] CASCADE: ${deleteDescendants.length} descendant task${deleteDescendants.length === 1 ? "" : "s"} would go with it: ${deleteDescendants.map((d) => d.id).join(", ")}`,
+                  ),
+                );
+            }
+            return;
+          }
+          if (deleteLocalRefusal) {
+            const deleteHasChildrenMessage = `Cannot delete local task ${deleteId}: it has ${deleteChildren.length} child task${deleteChildren.length === 1 ? "" : "s"} (${deleteChildren.map((c) => c.id).join(", ")}) — the local store does not cascade, so deleting the parent would orphan them. Delete the children first (deepest first), then re-run with --yes.`;
             const deleteHasChildrenSuggestion =
               "Delete the child tasks first, then delete this parent.";
             if (opts.json) {
@@ -2006,7 +2107,8 @@ program
             process.exitCode = ExitCode.GENERAL;
             return;
           }
-          if (deleteMode === "saas") {
+          let deleteDeletedIds = [deleteId];
+          if (deleteIsOnline) {
             const deleted = await deleteSaasTask(deleteId);
             if (!deleted.ok) {
               if (deleted.error.code === "TASK_NOT_FOUND") {
@@ -2057,8 +2159,20 @@ program
               process.exitCode = ExitCode.GENERAL;
               return;
             }
+            deleteDeletedIds = deleted.data.deletedIds;
+            // The local store is what push reads: a local row for a
+            // remotely-deleted id would be re-pushed (recreated) on the
+            // next push, so every remotely-deleted id is dropped locally
+            // too — best-effort, never fatal to a delete that landed.
+            for (const deletedLocalId of deleteDeletedIds) {
+              try {
+                deleteTask(deleteProjectDir, deletedLocalId);
+              } catch {
+                /* absent or raced — the remote delete already landed */
+              }
+            }
           } else {
-            if (!deleteTask(resolve(dir), deleteId)) {
+            if (!deleteTask(deleteProjectDir, deleteId)) {
               outputEnvelope({
                 ok: false,
                 code: "TASK_NOT_FOUND",
@@ -2075,11 +2189,18 @@ program
             outputEnvelope({
               ok: true,
               json: opts.json,
-              payload: { deleted: true, id: deleteId },
+              payload: { deleted: true, id: deleteId, deletedIds: deleteDeletedIds },
             });
           } else {
             console.log(chalk.green(`✓ Task deleted: ${deleteTitle}`));
             console.log(chalk.dim(`  id: ${deleteId}`));
+            if (deleteIsOnline && deleteDeletedIds.length > 1) {
+              console.log(
+                chalk.yellow(
+                  `  ⚠ Online cascade: ${deleteDeletedIds.length - 1} descendant task${deleteDeletedIds.length - 1 === 1 ? "" : "s"} deleted with it: ${deleteDeletedIds.slice(1).join(", ")}`,
+                ),
+              );
+            }
           }
           return;
         }

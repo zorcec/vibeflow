@@ -11,6 +11,7 @@ import {
   fetchSaasTasks,
   fetchSaasTaskDetail,
   SAAS_HYDRATE_CONCURRENCY,
+  SAAS_LIST_MAX_PAGES,
   updateSaasTask,
   addSaasComment,
   fetchSaasComments,
@@ -501,6 +502,22 @@ describe("fetchSaasTasks — v0 envelope", () => {
     if (!result.ok) return;
     expect(result.data.tasks.map((t) => t.id)).toEqual(["a", "b"]);
     expect(seen.some((u) => u.includes("cursor=cursor-1"))).toBe(true);
+  });
+
+  it("fails loudly instead of half-reading when pages never end (no silent page-cap stop)", async () => {
+    // A cursor the server keeps answering forever: the read must refuse
+    // with BOARD_TRUNCATED after the cap rather than returning the first
+    // window of pages as if it were the whole board (that silent stop is
+    // what let a child outside the window bypass the delete guard).
+    const seen = mockV0({
+      pages: [{ items: [{ ...V0_ITEM, id: "a" }], nextCursor: "cursor-forever" }],
+    });
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("BOARD_TRUNCATED");
+    expect(result.error.message).toContain("refusing a partial board");
+    expect(seen).toHaveLength(SAAS_LIST_MAX_PAGES);
   });
 
   it("hydrates comments (filling the v0-missing taskId), file rows, and text content", async () => {
@@ -1019,6 +1036,12 @@ describe("createSaasTask", () => {
 describe("resolveSaasTaskId — online prefix resolution", () => {
   const board = [
     { id: "2e97853ea69e83aafefbfd3b0ebb63", title: "Parent" },
+    // Extends the exact id above: the exact-id test proves the equality
+    // arm wins even when a longer id starts with the whole exact id.
+    {
+      id: "2e97853ea69e83aafefbfd3b0ebb63de",
+      title: "Extends the exact id",
+    },
     { id: "2e97853e000000000000000000000001", title: "Sibling" },
     { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title: "Other" },
   ];
@@ -1032,10 +1055,12 @@ describe("resolveSaasTaskId — online prefix resolution", () => {
   });
 
   it("resolves a unique prefix to the full id", () => {
-    const resolved = resolveSaasTaskId(board, "2e97853ea69e");
+    // "2e97853e00" prefixes only the sibling: every other board id
+    // diverges at the ninth character, including the exact-id extender.
+    const resolved = resolveSaasTaskId(board, "2e97853e00");
     expect(resolved).toEqual({
       ok: true,
-      id: "2e97853ea69e83aafefbfd3b0ebb63",
+      id: "2e97853e000000000000000000000001",
     });
   });
 
@@ -1046,8 +1071,10 @@ describe("resolveSaasTaskId — online prefix resolution", () => {
       expect(resolved.code).toBe("E_AMBIGUOUS");
       expect(resolved.message).toContain("2e97853ea69e83aafefbfd3b0ebb63");
       expect(resolved.message).toContain("2e97853e000000000000000000000001");
+      expect(resolved.message).toContain("2e97853ea69e83aafefbfd3b0ebb63de");
       expect(resolved.candidates).toEqual([
         "2e97853ea69e83aafefbfd3b0ebb63",
+        "2e97853ea69e83aafefbfd3b0ebb63de",
         "2e97853e000000000000000000000001",
       ]);
     }
@@ -1084,11 +1111,32 @@ describe("deleteSaasTask", () => {
   it("sends one DELETE to the task path and resolves the id", async () => {
     mockDelete({}, true);
     const result = await deleteSaasTask("abc123");
-    expect(result).toEqual({ ok: true, data: { id: "abc123" } });
+    expect(result).toEqual({
+      ok: true,
+      data: { id: "abc123", deletedIds: ["abc123"] },
+    });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[1] as RequestInit).method).toBe("DELETE");
     expect(fetchCall[0] as string).toContain("/api/v0/tasks/abc123");
     expect(vi.mocked(fetch).mock.calls).toHaveLength(1);
+  });
+
+  it("reports the server's deletedIds cone (cascade: root first, then descendants)", async () => {
+    mockDelete({ success: true, deletedIds: ["p1", "c1", "g1"] }, true);
+    const result = await deleteSaasTask("p1");
+    expect(result).toEqual({
+      ok: true,
+      data: { id: "p1", deletedIds: ["p1", "c1", "g1"] },
+    });
+  });
+
+  it("falls back to the requested id alone when the body carries no ids (pre-cascade fakes)", async () => {
+    mockDelete({ success: true }, true);
+    const result = await deleteSaasTask("abc123");
+    expect(result).toEqual({
+      ok: true,
+      data: { id: "abc123", deletedIds: ["abc123"] },
+    });
   });
 
   it("answers TASK_NOT_FOUND on a 404 (deleted between listing and request)", async () => {

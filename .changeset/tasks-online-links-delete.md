@@ -20,9 +20,19 @@ change was needed there.
 
 Fix 2 — new `vibeflow tasks --delete <id> [--yes]`: resolves the same
 prefixes (refusing ambiguity), prints what WOULD be deleted and exits
-non-zero without `--yes`, deletes online in online mode (single-row
-`DELETE /api/v0/tasks/:id` against the same store every other write uses)
-and locally otherwise. A parent with children is refused even WITH `--yes`
-— neither surface cascades, so the CLI states the children and refuses
-rather than silently orphaning them; delete the children first, deepest
-first. `--json` success carries `{ ok, deleted, id }`.
+non-zero without `--yes`, deletes online in online mode
+(`DELETE /api/v0/tasks/:id` against the same store every other write uses)
+and locally otherwise. A LOCAL parent with children is refused even WITH
+`--yes` — the local store does not cascade, so the CLI states the children
+and refuses rather than silently orphaning them; delete the children first,
+deepest first. The ONLINE delete cascades (the v0 route deletes the whole
+descendant cone), so a parent delete proceeds WITH an explicit warning
+naming every descendant, reports the server's `deletedIds`, and drops the
+matching local records so a later push cannot recreate them. `--json`
+success carries `{ ok, deleted, id, deletedIds }`; `--yes --dry-run`
+reports the confirmed plan and exits 0 with zero mutations in both stores.
+One shared resolver (`resolveSaasTaskId`) serves both stores, the empty id
+is refused outright, and the online listing is paged to completion
+(`fetchSaasTasks` fails loudly with `BOARD_TRUNCATED` instead of silently
+stopping at a page cap, so a child outside the old window cannot bypass
+the guard).

@@ -160,6 +160,19 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
 export const SAAS_HYDRATE_CONCURRENCY = 5;
 
 /**
+ * Upper bound on v0 list pages per `fetchSaasTasks` read. The pages are
+ * followed to completion (cursor until null) so a large board still reads
+ * back whole — but a server that keeps answering a cursor forever would
+ * spin the CLI forever, so a cursor that REMAINS at this cap FAILS the
+ * read instead of returning a partial board. A partial board is the
+ * dangerous outcome: prefix resolution and the delete child guard would
+ * silently resolve against half the board (an older child reparented to a
+ * newer task can fall outside any fixed window), so truncation is a loud
+ * BOARD_TRUNCATED refusal, never a quiet short list.
+ */
+export const SAAS_LIST_MAX_PAGES = 500;
+
+/**
  * Fetch tasks from the SaaS for the given board (or the user's default board).
  * Returns null if not authenticated or the request fails.
  *
@@ -195,7 +208,7 @@ export async function fetchSaasTasks(
     const listRoute = listPath.split("?")[0] as string;
     const items: SaasTask[] = [];
     let cursor: string | null = null;
-    for (let page = 0; page < 50; page++) {
+    for (let page = 0; page < SAAS_LIST_MAX_PAGES; page++) {
       const url = new URL(`${apiUrl}${listPath}`);
       if (boardId) url.searchParams.set("boardId", boardId);
       if (cursor) url.searchParams.set("cursor", cursor);
@@ -228,6 +241,20 @@ export async function fetchSaasTasks(
           ? data.nextCursor
           : null;
       if (!cursor) break;
+    }
+    // A cursor that survives the whole cap means the board did not fit:
+    // report truncation instead of resolving against a partial board
+    // (prefix resolution and the delete child guard would silently
+    // resolve against half the board).
+    if (cursor) {
+      return {
+        ok: false,
+        error: {
+          code: "BOARD_TRUNCATED",
+          message: `Online board read hit the ${SAAS_LIST_MAX_PAGES}-page list cap with more pages remaining — refusing a partial board rather than resolving against it.`,
+          path: listRoute,
+        },
+      };
     }
     // Hydration is explicit opt-in: a listing over a large board must cost
     // only the paginated list reads (the items already carry
@@ -644,15 +671,22 @@ export async function updateSaasTask(
 /**
  * Delete a task from the SaaS by its FULL id (callers resolve prefixes
  * with `resolveSaasTaskId` first — this function never guesses). Exactly
- * one DELETE request (`DELETE /api/v0/tasks/:id`); the caller checks for
- * children beforehand and refuses rather than orphaning them, so no
- * cascade flag is ever sent. A 404 answers `TASK_NOT_FOUND` (deleted
- * between the listing read and this request); other HTTP refusals carry
- * status + path, and transport failures the network message.
+ * one DELETE request (`DELETE /api/v0/tasks/:id`).
+ *
+ * The v0 DELETE CASCADES: the server deletes the task's whole descendant
+ * cone and answers `{ success, deletedIds }` (root first). The caller
+ * detects children beforehand from the board listing — not to refuse (the
+ * server would delete them anyway), but to WARN explicitly that they go
+ * with the parent — and reports the returned `deletedIds` so the outcome
+ * is auditable. A 404 answers `TASK_NOT_FOUND` (deleted between the
+ * listing read and this request); other HTTP refusals carry status + path,
+ * and transport failures the network message. Fakes predating the cascade
+ * answer `{}`/`{ success }` with no ids — that shape resolves to the
+ * requested id alone, never to an empty set.
  */
 export async function deleteSaasTask(
   taskId: string,
-): Promise<SaasResult<{ id: string }>> {
+): Promise<SaasResult<{ id: string; deletedIds: string[] }>> {
   const headers = await getBearerHeaders();
   if (!headers)
     return {
@@ -702,7 +736,16 @@ export async function deleteSaasTask(
         },
       };
     }
-    return { ok: true, data: { id: taskId } };
+    const data = (await res.json().catch(() => ({}))) as {
+      deletedIds?: unknown;
+    };
+    const deletedIds =
+      Array.isArray(data.deletedIds) &&
+      data.deletedIds.length > 0 &&
+      data.deletedIds.every((d) => typeof d === "string")
+        ? (data.deletedIds as string[])
+        : [taskId];
+    return { ok: true, data: { id: taskId, deletedIds } };
   } catch (err) {
     return {
       ok: false,
