@@ -8,6 +8,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/integration/**/*.test.ts"],
+    // Hermetic HOME (ticket cc18a82d) — globalSetup, NOT setupFiles: see
+    // vitest.config.ts. The integration flow reaches the mode resolver.
+    globalSetup: ["./tests/setup/global-hermetic-home.ts"],
     setupFiles: ["./tests/setup/disable-telemetry.ts"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
