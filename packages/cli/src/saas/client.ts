@@ -186,6 +186,31 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
 export const SAAS_HYDRATE_CONCURRENCY = 5;
 
 /**
+ * The v0 kanban ordering contract (ticket 05076246, private commit
+ * afcb4a41): `?sort=kanban` pages the board in the client's listing order
+ * (status rank, priority rank, created desc, id) so `limit` means "this
+ * page, in that order". Mirrors the server's V0_TASK_KANBAN_ORDER — the
+ * client never invents an ordering, it only asks for this named one.
+ */
+export const V0_TASK_KANBAN_ORDER: readonly string[] = [
+  "status:asc",
+  "priority:asc",
+  "created:desc",
+  "id:asc",
+];
+
+/** Accepted `?sort=` values for `GET /api/v0/tasks` (absent = createdAt DESC). */
+export type V0TaskListSort = "kanban";
+
+/**
+ * Accepted `?scope=` values for `GET /api/v0/tasks` (ticket 05076246,
+ * private LANE Z): `roots` restricts the page AND the total to root tasks
+ * (the server image of the client's root-only filter — a task whose own
+ * links carry no parent edge). Absent = every board row (unchanged).
+ */
+export type V0TaskListScope = "roots";
+
+/**
  * Page size every `fetchSaasTasks` list request asks for (LANE Q step 1).
  *
  * The v0 list accepts `limit` 1–500 and defaults to 100 when the param is
@@ -212,6 +237,137 @@ export const SAAS_LIST_PAGE_SIZE = 500;
  */
 export const SAAS_LIST_MAX_PAGES = 500;
 
+type TopKPage =
+  | { ok: true; tasks: SaasTask[] }
+  | { ok: false; fallbackToFullScan: true }
+  | { ok: false; fallbackToFullScan: false; result: SaasResult<{ tasks: SaasTask[]; boardId: string }> };
+
+/**
+ * ONE-request kanban page for ticket 05076246: `GET <list>?sort=kanban
+ * &limit=K` (+ optional `?status=` SET-narrowing, + optional `?scope=roots`,
+ * + `?boardId=`). No cursor loop — the server's index-backed ordering IS
+ * the page.
+ *
+ * Trust rule: the page is trusted ONLY when (a) the server echoes the kanban
+ * order back (`order` deep-equals V0_TASK_KANBAN_ORDER) and (b) a requested
+ * `scope=roots` leaves no parent edge in the page. An old server that
+ * predates `?sort=` ignores the param and answers the default createdAt
+ * order (or 400s INVALID_SORT), and an old server that predates `?scope=`
+ * ignores it and answers peers including children — returning either as the
+ * requested window would silently show the wrong rows, so all cases fall
+ * back to the full scan (`fallbackToFullScan: true`) instead. Test fakes
+ * that predate the `order` echo carry no `order` member and are trusted
+ * as-is (the fake controls the row order it answers).
+ */
+async function fetchSaasTopKPage(
+  headers: Record<string, string>,
+  listPath: string,
+  listRoute: string,
+  boardId: string | undefined,
+  opts: { status?: string; limit: number; scope?: V0TaskListScope },
+): Promise<TopKPage> {
+  // SAFETY: apiUrl is the validated SaaS base from getApiUrl() (same source
+  // as every other fetch in this module) and listPath is the constant
+  // surface-path mapping — no user input reaches the URL host.
+  const apiUrl = getApiUrl();
+  const url = new URL(`${apiUrl}${listPath}`);
+  if (boardId) url.searchParams.set("boardId", boardId);
+  url.searchParams.set("sort", "kanban");
+  url.searchParams.set("limit", String(opts.limit));
+  if (opts.status !== undefined && opts.status !== "") {
+    url.searchParams.set("status", opts.status);
+  }
+  if (opts.scope === "roots") {
+    url.searchParams.set("scope", "roots");
+  }
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { headers });
+  } catch (err) {
+    return {
+      ok: false,
+      fallbackToFullScan: false,
+      result: {
+        ok: false,
+        error: {
+          code: "NETWORK_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+        },
+      },
+    };
+  }
+  if (!res.ok) {
+    // INVALID_SORT (or any 400 on the versioned route) means the server
+    // does not speak the kanban ordering — fall back to the full scan
+    // rather than trusting a default-ordered page as the kanban window.
+    // Any other HTTP failure (auth/scope/transport-shaped) still refuses.
+    if (res.status === 400) return { ok: false, fallbackToFullScan: true };
+    return {
+      ok: false,
+      fallbackToFullScan: false,
+      result: {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: `HTTP ${res.status}`,
+          status: res.status,
+          path: listRoute,
+        },
+      },
+    };
+  }
+  const data = (await res.json()) as {
+    items?: SaasTask[];
+    tasks?: SaasTask[];
+    order?: unknown;
+  };
+  if (!Array.isArray(data.items) && !Array.isArray(data.tasks)) {
+    return {
+      ok: false,
+      fallbackToFullScan: false,
+      result: {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message:
+            "Online board answered the kanban page without a task list — refusing rather than reading against a board that was never sent.",
+          status: 200,
+          path: listRoute,
+        },
+      },
+    };
+  }
+  // Order echo check (see trust rule above): a present-but-foreign order
+  // means the server ignored `?sort=kanban` — fall back, never wrong rows.
+  if (Array.isArray(data.order)) {
+    const echoed = data.order as unknown[];
+    const matches =
+      echoed.length === V0_TASK_KANBAN_ORDER.length &&
+      echoed.every((v, i) => v === V0_TASK_KANBAN_ORDER[i]);
+    if (!matches) return { ok: false, fallbackToFullScan: true };
+  }
+  const tasks = Array.isArray(data.items) ? data.items : (data.tasks as SaasTask[]);
+  // Scope check for `?scope=roots` (ticket 05076246, LANE Z): an old server
+  // that predates the scope param ignores it and answers peers — including
+  // children. A child carries a parent-type edge on its OWN links (the
+  // forward edge the client's isChildTask reads), so any such edge in the
+  // page proves the scope was ignored and the page falls back to the full
+  // scan rather than presenting children as roots. A scope-honouring server
+  // never returns a parent edge here (ROOTS_ONLY_COND matches the client's
+  // rule, dangling-insensitive), so the check is free of false positives.
+  if (opts.scope === "roots") {
+    const scopeLeaked = tasks.some(
+      (t) =>
+        Array.isArray((t as { links?: unknown }).links) &&
+        ((t as { links: Array<{ type?: unknown }> }).links ?? []).some(
+          (l) => typeof l === "object" && l !== null && (l as { type?: unknown }).type === "parent",
+        ),
+    );
+    if (scopeLeaked) return { ok: false, fallbackToFullScan: true };
+  }
+  return { ok: true, tasks };
+}
+
 /**
  * Fetch tasks from the SaaS for the given board (or the user's default board).
  * Returns null if not authenticated or the request fails.
@@ -231,7 +387,35 @@ export const SAAS_LIST_MAX_PAGES = 500;
  */
 export async function fetchSaasTasks(
   boardId?: string,
-  opts?: { hydrate?: boolean; status?: string },
+  opts?: {
+    hydrate?: boolean;
+    status?: string;
+    /**
+     * `kanban` = the V0_TASK_KANBAN_ORDER contract above. Absent = the
+     * historical `createdAt DESC` default. Only honoured together with a
+     * positive `limit` (the top-K page); without a limit the read stays a
+     * full scan so an unfiltered listing that does NOT request the kanban
+     * sort keeps its historical row order and cost.
+     */
+    sort?: V0TaskListSort;
+    /**
+     * Top-K row cap for a `sort: "kanban"` page (1–500, the v0 ceiling).
+     * Without `sort: "kanban"` this is ignored — a bare limit is NOT a
+     * row cap (LANE Q step 2 rule: `status` narrows WHICH rows match, never
+     * how many come back), so callers that need fewer rows without the
+     * kanban sort keep paging to exhaustion and slicing client-side.
+     */
+    limit?: number;
+    /**
+     * `roots` = `?scope=roots` (page AND total restricted to root tasks).
+     * Only honoured alongside `sort: "kanban"` + a positive `limit` (the
+     * top-K page); without those it is ignored and the read stays a full
+     * scan. The caller guarantees scope-match (see remote-task-store):
+     * `roots` is offered only for the root-only listing, never for a
+     * filtered search (which includes children by contract).
+     */
+    scope?: V0TaskListScope;
+  },
 ): Promise<SaasResult<{ tasks: SaasTask[]; boardId: string }>> {
   const headers = await getBearerHeaders();
   if (!headers)
@@ -247,6 +431,50 @@ export async function fetchSaasTasks(
     // The route (no query string) is reported on HTTP failures so the
     // message names the actual failure — status + path, not a catch-all.
     const listRoute = listPath.split("?")[0] as string;
+    // Ticket 05076246 top-K page: `?sort=kanban&limit=K` (+ optional
+    // `?scope=roots`) returns the first K rows in the client's listing order
+    // in ONE request — no cursor loop. A bare `limit` without
+    // `sort: "kanban"` is NOT a row cap (see the opts doc above); only the
+    // two together take this branch. Anything else falls through to the
+    // paged full scan below, which keeps its historical row order and cost.
+    const topK =
+      opts?.sort === "kanban" &&
+      typeof opts?.limit === "number" &&
+      Number.isInteger(opts.limit) &&
+      (opts.limit as number) >= 1 &&
+      (opts.limit as number) <= 500
+        ? (opts.limit as number)
+        : null;
+    if (topK !== null) {
+      const single = await fetchSaasTopKPage(headers, listPath, listRoute, boardId, {
+        status: opts?.status,
+        limit: topK,
+        ...(opts?.scope === "roots" ? { scope: "roots" as const } : {}),
+      });
+      if (!single.ok) {
+        // An old server that predates `?sort=kanban` answers 400
+        // INVALID_SORT (or ignores the param and answers the default
+        // createdAt order — detected via the `order` echo), and an old
+        // server that predates `?scope=roots` ignores it and answers peers
+        // (detected via a parent edge in the page). Either way the single
+        // page cannot be trusted as the requested window, so fall through
+        // to the full scan rather than returning wrong rows.
+        // A genuinely failed read (auth/transport) still refuses here.
+        if (single.fallbackToFullScan) {
+          // fall through to the paged loop below (no sort, full scan)
+        } else {
+          return single.result;
+        }
+      } else {
+        const tasks =
+          opts?.hydrate === true
+            ? await mapWithConcurrency(single.tasks, SAAS_HYDRATE_CONCURRENCY, (t) =>
+                hydrateSaasTask(apiUrl, headers, t),
+              )
+            : single.tasks;
+        return { ok: true, data: { tasks, boardId: boardId ?? "" } };
+      }
+    }
     const items: SaasTask[] = [];
     let cursor: string | null = null;
     const seenCursors = new Set<string>();

@@ -87,11 +87,76 @@ export async function listTasks(
     // hint does not apply to returns the whole board. queryTaskList below
     // still applies the FULL query, so either path converges to the same
     // answer — the hint only decides how many pages the fetch costs.
+    //
+    // Ticket 05076246: additionally offer `sort: "kanban"` + `limit` as a
+    // top-K hint (`?sort=kanban&limit=K` in ONE request) ONLY where the
+    // server's scope matches the client's. Each fallback below names its
+    // reason so a reader can see why that listing fell back to the full
+    // scan — a listing that cannot use server ordering says so here:
+    // - type/user/tag filters → FULL SCAN (v0 has no server param for them;
+    //   a narrowed fetch could miss a row the client-side filter keeps);
+    // - `--status done` (or an unknown status) → FULL SCAN for the top-K
+    //   hint (the `?status=` narrowing itself is already predicate-unequal
+    //   there: the server would drop storage-cancelled rows the client maps
+    //   to done). The plain status hint below is still offered — the remote
+    //   adapter ignores it for these statuses and reads the whole board;
+    // - root-only scope (no `--children` and no status/type/user/tag filter
+    //   — the DEFAULT unfiltered listing) → offer `scope: "roots"` +
+    //   `sort: "kanban"` + `limit` (ONE `?scope=roots&sort=kanban&limit=K`
+    //   request, LANE Z): ROOTS_ONLY_COND is the server image of the
+    //   client's root-only filter, page + COUNT share the predicate so the
+    //   total is a root count — today's row in one request;
+    // - an unfiltered listing that does NOT request the kanban sort (no
+    //   positive limit to page with, e.g. `--all` or a bad explicit limit
+    //   the model resolves with a notice) → FULL SCAN, historical cost;
+    // - otherwise (unfiltered `--children`, or a pushable-status filtered
+    //   search which includes children by contract) → offer the peers top-K
+    //   hint (sort + limit, NO scope — narrowing a child-including search to
+    //   roots would silently drop matching children); the adapter
+    //   re-validates the same conditions and falls back to the full scan if
+    //   any of them fails there too.
+    const hasServerIneligibleFilter =
+      input.type !== undefined ||
+      (input.user !== undefined && input.user.trim() !== "") ||
+      (input.tag !== undefined && input.tag.length > 0);
+    const limitForTopK =
+      typeof input.limit === "number" &&
+      Number.isInteger(input.limit) &&
+      input.limit >= 1 &&
+      input.limit <= 500
+        ? input.limit
+        : null;
+    const scopeIncludesChildren =
+      input.children === true ||
+      (input.status !== undefined && input.status !== "");
+    const isUnfilteredRootOnly =
+      !hasServerIneligibleFilter &&
+      input.status === undefined &&
+      input.children !== true;
+    const offerRootsTopK = isUnfilteredRootOnly && limitForTopK !== null;
+    const offerPeersTopK =
+      !offerRootsTopK &&
+      !hasServerIneligibleFilter &&
+      limitForTopK !== null &&
+      scopeIncludesChildren;
+    const offerTopK = offerRootsTopK || offerPeersTopK;
     const result = queryTaskList(
       await store.listTasks(
         ctx.projectDir,
         reads,
-        input.status !== undefined ? { status: input.status } : undefined,
+        input.status !== undefined || offerTopK
+          ? {
+              ...(input.status !== undefined ? { status: input.status } : {}),
+              ...(offerTopK
+                ? {
+                    sort: "kanban" as const,
+                    limit: limitForTopK as number,
+                    children: input.children,
+                    ...(offerRootsTopK ? { scope: "roots" as const } : {}),
+                  }
+                : {}),
+            }
+          : undefined,
       ),
       {
         status: input.status,
@@ -172,6 +237,10 @@ export async function listAllTasksForCli(
     const reads: import("../task-record-read.js").TaskReadFinding[] = [];
     // Same narrowing hint as listTasks (LANE Q step 2): `--all --status`
     // pages only over the matching set, still exhaustive via queryAllTasks.
+    // Deliberately NO `sort: "kanban"` top-K hint here (ticket 05076246):
+    // `--all` needs every matching row, not the first page — a row cap
+    // would silently truncate the assembled set. Unbounded overall, bounded
+    // per request via the paged full scan.
     const result = queryAllTasks(
       await store.listTasks(
         ctx.projectDir,

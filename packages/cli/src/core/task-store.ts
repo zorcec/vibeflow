@@ -87,20 +87,43 @@ export interface ClaimPreview {
  */
 export interface TaskStore {
   /**
-   * Transport-level narrowing HINT (LANE Q step 2): the adapter MAY return
-   * fewer rows ONLY by applying a predicate-equal subset of the caller's
-   * query before returning — currently an exact status match the server
-   * can express (`?status=`). It is set semantics, never a row cap: the
+   * Transport-level narrowing HINT (LANE Q step 2, extended ticket 05076246):
+   * the adapter MAY return fewer rows ONLY by applying a predicate-equal
+   * subset of the caller's query before returning — an exact status match
+   * the server can express (`?status=`), and — when `sort: "kanban"` rides
+   * alongside a positive `limit` — the server-ordered top-K page
+   * (`?sort=kanban&limit=K`). The top-K page is trusted ONLY where the
+   * server's scope matches the client's (the caller guarantees this: a
+   * child-inclusive scope — `--children` or a status-filtered search —
+   * over a pushable status or no status; never root-only, never `done`,
+   * never with type/user/tag filters the server has no param for). The
    * caller MUST still run the full query (queryTaskList) over the result,
    * and adapters that cannot express the hint (local files, old servers)
    * ignore it and return the whole board. Exactness rests on the predicate
-   * equality, pinned by the adapter's tests — never infer "these are the
-   * top N after sorting" from a narrowed result.
+   * + ordering equality, pinned by the adapter's same-row tests — never
+   * infer "these are the top N after sorting" from a narrowed result
+   * unless `sort: "kanban"` was honoured (the client checks the `order`
+   * echo and falls back to the full scan otherwise).
    */
   listTasks(
     projectDir: string,
     reads?: TaskReadFinding[],
-    preFilter?: { status?: string },
+    preFilter?: {
+      status?: string;
+      sort?: "kanban";
+      limit?: number;
+      /**
+       * `roots` = the caller's scope is roots-only (default unfiltered
+       * listing): forward as `?scope=roots` with the top-K hint. Absent =
+       * the caller's scope includes children (filtered search or
+       * `--children`), so no scope param is sent. Never combined with a
+       * status filter — a filtered search includes children by contract,
+       * so narrowing it to roots would silently drop rows.
+       */
+      scope?: "roots";
+      /** True when the caller's scope includes children. */
+      children?: boolean;
+    },
   ): Promise<Task[]>;
   /**
    * Full id OR id prefix (first match in list order, exact id included —

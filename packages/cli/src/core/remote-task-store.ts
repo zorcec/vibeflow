@@ -253,9 +253,11 @@ async function resolvePrefix(
   boardId: string | undefined,
   raw: string,
 ): Promise<{ outcome: "resolved"; task: Task } | { outcome: "missing"; id: string }> {
-  // Deliberately UNFILTERED (LANE Q step 2): a prefix can match a task of
-  // any status, so a status-narrowed fetch could miss the very row the
-  // prefix names. Prefix resolution always reads the whole board.
+  // Deliberately UNFILTERED (LANE Q step 2, kept ticket 05076246): a prefix
+  // can match a task of any status, so a status-narrowed fetch could miss
+  // the very row the prefix names — and a `?sort=kanban&limit=K` page could
+  // miss it too (the row may sit below the first page). Prefix resolution
+  // always reads the whole board, never a narrowed or top-K page.
   const board = await fetchSaasTasks(boardId, { hydrate: false });
   if (!board.ok) {
     throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
@@ -328,15 +330,33 @@ function toRemoteClaimRefusal(
  * `done` is DELIBERATELY absent: `?status=done` matches storage `done`
  * only, while the client maps wire `cancelled` to `done` (toCliStatus) and
  * would keep those rows — pushing `done` would silently drop them. The
- * per-filter path table:
+ * per-filter path table (ticket 05076246: `?sort=kanban&limit=K` top-K plus
+ * LANE Z `?scope=roots` — the step-3 contracts this comment promised):
  * - status backlog/todo/in-progress/review → server-side `?status=`, pages
  *   only over the matching set (provably exhausted via nextCursor, same
- *   rows the full scan would filter to);
- * - status done, type, user, tag, text search, root-only scope, unfiltered
- *   (+limit) → FULL SCAN (v0 has no param for them, or — for unfiltered
- *   limit — server order createdAt-desc differs from the client's kanban
- *   sort, so stopping at the limit would return the wrong rows). Pushing
- *   ORDER/LIMIT server-side is step 3 (needs a v0 ordering contract).
+ *   rows the full scan would filter to). With `sort: "kanban"` + a positive
+ *   `limit` AND a child-inclusive scope this becomes ONE `?sort=kanban
+ *   &limit=K` request returning the client's first page exactly (same-row
+ *   pinned): a filtered search includes children by contract, so the
+ *   server's peer scope matches the client's;
+ * - unfiltered `--children` + `sort: "kanban"` + limit → ONE `?sort=kanban
+ *   &limit=K` request (no `?status=`): the scope is the whole board on both
+ *   sides, so the ordering contract applies directly;
+ * - status done → FULL SCAN (`?status=done` would silently drop the
+ *   storage-cancelled rows the client maps to done);
+ * - type/user/tag filters → FULL SCAN (v0 has no param for them — a
+ *   narrowed fetch could miss a row the client-side filter would keep);
+ * - root-only scope (the DEFAULT unfiltered listing, no `--children`, no
+ *   filters) + `sort: "kanban"` + limit → ONE `?scope=roots&sort=kanban
+ *   &limit=K` request returning the client's first root page exactly
+ *   (same-row pinned, LANE Z proof): the server's ROOTS_ONLY_COND is the
+ *   server image of the client's root-only filter, and page + COUNT share
+ *   the predicate so the total is a root count;
+ * - unfiltered listings that do NOT request the kanban sort → FULL SCAN
+ *   (historical createdAt-desc order and cost, unchanged);
+ * - prefix resolution → FULL SCAN, always unfiltered (a prefix can name a
+ *   task of any status, so a status-narrowed fetch could miss it — and a
+ *   top-K page could miss a row below the first page).
  */
 export const SERVER_PUSHABLE_STATUSES: ReadonlySet<string> = new Set([
   "backlog",
@@ -349,7 +369,7 @@ class RemoteTaskStore implements TaskStore {
   async listTasks(
     _projectDir?: string,
     _reads?: unknown,
-    preFilter?: { status?: string },
+    preFilter?: { status?: string; sort?: "kanban"; limit?: number; scope?: "roots"; children?: boolean },
   ): Promise<Task[]> {
     const boardId = await resolveBoardOnce();
     // Push the status only when predicate-equal (see
@@ -361,9 +381,60 @@ class RemoteTaskStore implements TaskStore {
       SERVER_PUSHABLE_STATUSES.has(preFilter.status)
         ? preFilter.status
         : undefined;
+    // Ticket 05076246 top-K (+ LANE Z scope): forward `sort: "kanban"` +
+    // `limit` (+ `scope: "roots"` for the root-only listing) ONLY where the
+    // server's scope matches the client's. Every other shape falls back to
+    // the full scan below, with the reason named at the decision point:
+    // - root-only (no `children`, no status filter) → `scope: "roots"` +
+    //   sort + limit (ONE request): ROOTS_ONLY_COND is the server image of
+    //   the client's root-only filter, page + COUNT share the predicate;
+    // - child-inclusive scope (`children: true`, or a status filter which
+    //   implies children by the shared listing contract) over a
+    //   pushable-or-absent status → sort + limit WITHOUT scope (ONE
+    //   request): peers on both sides. `scope=roots` is NEVER combined with
+    //   a status filter — narrowing a child-including search to roots would
+    //   silently drop matching children;
+    // - `done` (or an unknown status the pushable set excludes) → the
+    //   narrowed set is not predicate-equal (cancelled rows would drop);
+    // - a non-kanban/absent sort or a non-positive/non-integer limit → no
+    //   ordering contract to honour, so a row cap would return wrong rows.
+    const scopeIncludesChildren =
+      preFilter?.children === true ||
+      (preFilter?.status !== undefined && preFilter.status !== "");
+    const statusEligible =
+      preFilter?.status === undefined ||
+      preFilter.status === "" ||
+      SERVER_PUSHABLE_STATUSES.has(preFilter.status);
+    const limitEligible =
+      preFilter?.sort === "kanban" &&
+      typeof preFilter?.limit === "number" &&
+      Number.isInteger(preFilter.limit) &&
+      (preFilter.limit as number) >= 1 &&
+      (preFilter.limit as number) <= 500;
+    // Root-only top-K: no status filter, no children flag, scope=roots.
+    const rootsTopK =
+      limitEligible &&
+      preFilter?.scope === "roots" &&
+      preFilter?.status === undefined &&
+      preFilter?.children !== true
+        ? (preFilter.limit as number)
+        : null;
+    // Peers top-K: child-inclusive scope, pushable-or-absent status, never
+    // with scope=roots (see above).
+    const peersTopK =
+      rootsTopK === null &&
+      limitEligible &&
+      preFilter?.scope !== "roots" &&
+      scopeIncludesChildren &&
+      statusEligible
+        ? (preFilter.limit as number)
+        : null;
+    const topK = rootsTopK ?? peersTopK;
     const board = await fetchSaasTasks(boardId, {
       hydrate: false,
       ...(status !== undefined ? { status } : {}),
+      ...(topK !== null ? { sort: "kanban" as const, limit: topK } : {}),
+      ...(rootsTopK !== null ? { scope: "roots" as const } : {}),
     });
     if (!board.ok) {
       throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
