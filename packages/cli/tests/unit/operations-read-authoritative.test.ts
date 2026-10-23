@@ -6,11 +6,13 @@
  * and absent in the other — and a stale local copy looked current.
  *
  * Every test here seeds a DISTINCT stale local sentinel the remote board
- * never names, then reads through the SAME operations the MCP tools call
- * with `mode: "saas"`:
- * - the sentinel must never be presented as current;
- * - the rows must equal what the CLI's online path (`fetchSaasTasks`, the
- *   function the `tasks` listing reads) returns for the same board;
+ * never names, then reads the same board through BOTH surfaces with
+ * `mode: "saas"` — the real MCP stdio dispatch (`invokeManifestTool` with a
+ * pinned session) and the operations the CLI `tasks` listing branches read
+ * (`listTasks` for the default page, `listAllTasksForCli` for `--all`,
+ * shaped by `remoteListJsonPayload`):
+ * - the sentinel must never be presented as current on either surface;
+ * - both surfaces must return the same remote ids;
  * - a dead backend must refuse, never serve the sentinel as a fallback.
  *
  * Mutation note: routing list/get back to `resolveOperationPorts` (local
@@ -32,8 +34,13 @@ vi.mock("../../src/auth/workspace.js", () => ({
 
 import * as tokenModule from "../../src/auth/token.js";
 import * as workspaceModule from "../../src/auth/workspace.js";
-import { listTasks, getTask } from "../../src/core/operations/tasks.js";
-import { fetchSaasTasks } from "../../src/saas/client.js";
+import { listTasks, getTask, listAllTasksForCli } from "../../src/core/operations/tasks.js";
+import { remoteListJsonPayload } from "../../src/cli/renderers/task-reads.js";
+import {
+  invokeManifestTool,
+  type McpSessionState,
+} from "../../src/mcp/server.js";
+import { manifest } from "../../src/mcp/manifest.js";
 import { localTaskStore } from "../../src/core/task-store.js";
 import type { OperationContext } from "../../src/core/operations.js";
 
@@ -151,24 +158,58 @@ describe("saas-mode operations read the remote board, never the stale local copy
     expect(seen.filter((u) => /\/api\/v0\/tasks(\?|$)/.test(u))).toHaveLength(0);
   });
 
-  it("CLI and MCP return the SAME source of truth for the same mode", async () => {
-    const { projectDir } = await seedSentinel();
+  it("CLI and MCP read the SAME board through BOTH surfaces", async () => {
+    const { projectDir, sentinelId } = await seedSentinel();
     stubRemote(["remote-1", "remote-2"]);
     const ctx: OperationContext = { projectDir, mode: "saas" };
+    const listTasksTool = manifest.find((t) => t.name === "list_tasks")!;
+    const getTaskTool = manifest.find((t) => t.name === "get_task")!;
+    const textOf = (
+      res: Awaited<ReturnType<typeof invokeManifestTool>>,
+    ): unknown => JSON.parse((res.content[0] as { text: string }).text);
 
-    // The MCP surface: the shared operation.
-    const opResult = await listTasks(ctx, {});
-    expect(opResult.ok).toBe(true);
-    if (!opResult.ok) return;
+    // The MCP surface: the real stdio dispatch with a pinned session.
+    const session: McpSessionState = {};
+    const mcpList = textOf(
+      await invokeManifestTool(listTasksTool, ctx, {}, session),
+    ) as { tasks: Array<{ id: string }> };
+    const mcpIds = mcpList.tasks.map((t) => t.id).sort();
 
-    // The CLI online path: the `tasks` listing reads this function.
-    const cliResult = await fetchSaasTasks("board-1", { hydrate: false });
-    expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) return;
+    // The CLI surface: the operations the `tasks` listing branches read —
+    // `listTasks` for the default page, `listAllTasksForCli` for `--all` —
+    // shaped by the renderer that assembles the CLI envelope.
+    const cliPage = await listTasks(ctx, {});
+    expect(cliPage.ok).toBe(true);
+    if (!cliPage.ok) return;
+    const cliAll = await listAllTasksForCli(ctx, {});
+    expect(cliAll.ok).toBe(true);
+    if (!cliAll.ok) return;
+    const cliIds = (
+      remoteListJsonPayload(cliAll.data, []).tasks as Array<{ id: string }>
+    )
+      .map((t) => t.id)
+      .sort();
 
-    expect(opResult.data.tasks.map((t) => t.id).sort()).toEqual(
-      cliResult.data.tasks.map((t) => t.id).sort(),
-    );
+    expect(mcpIds).toEqual(["remote-1", "remote-2"]);
+    expect(cliIds).toEqual(mcpIds);
+    expect(cliPage.data.tasks.map((t) => t.id).sort()).toEqual(mcpIds);
+    for (const blob of [JSON.stringify(mcpList), JSON.stringify(cliAll.data)]) {
+      expect(blob).not.toContain(SENTINEL_TITLE);
+      expect(blob).not.toContain(sentinelId);
+    }
+
+    // The MCP get path refuses the stale local id — it is not on the board.
+    const mcpGetSentinel = textOf(
+      await invokeManifestTool(getTaskTool, ctx, { id: sentinelId }, session),
+    ) as { ok: boolean; error?: { code: string } };
+    expect(mcpGetSentinel.ok).toBe(false);
+    expect(mcpGetSentinel.error?.code).toBe("TASK_NOT_FOUND");
+
+    // ... and finds a real remote row through the same dispatch.
+    const mcpGetRemote = textOf(
+      await invokeManifestTool(getTaskTool, ctx, { id: "remote-1" }, session),
+    ) as { title?: string };
+    expect(mcpGetRemote.title).toBe("remote remote-1");
   });
 
   it("a dead backend refuses — the sentinel is never served as a fallback", async () => {
