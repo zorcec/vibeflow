@@ -189,7 +189,14 @@ function toRemoteRefusal(
  * risks applying the mutation twice. Fix-and-resend (the suggestion) is
  * not a blind retry — it is a new, deliberate write.
  */
-function toRemoteWriteRefusal(
+/**
+ * Write-side refusal mapping, shared with the update operation's report
+ * lifecycle (ticket efcd6992, P4 step 5): a structured server refusal
+ * keeps its own code verbatim; anything else falls back to the read-side
+ * ladder. Uniformly non-retryable — a failed write may or may not have
+ * landed, so fix-and-resend is the only safe recovery.
+ */
+export function toRemoteWriteRefusal(
   error: {
     code: string;
     message: string;

@@ -63,6 +63,96 @@ import type {
   ListTasksInputType,
   UpdateTaskInputType,
 } from "@vibeflow-tools/api-core";
+import type { TaskStore } from "../task-store.js";
+
+/**
+ * CLI-only internal report input (ticket efcd6992, P4 step 5). NOT part of
+ * the MCP schema: MCP attaches its .md via attach_file first and never
+ * sends this. The CLI translates --report-file into it AFTER its own
+ * read-only file validation (exists, .md) — the bytes travel with the call
+ * so the operation validates content-free metadata only and never re-reads
+ * the source. The source file is consumed (deleted) solely here, and only
+ * after the submission effects below are confirmed.
+ */
+export interface UpdateTaskReport {
+  /** Original filename: satisfies gate 5 and names the attachment. */
+  filename: string;
+  /** Raw bytes, validated read-only before any gate runs. */
+  bytes: Uint8Array;
+  /** Absolute source path, deleted only after confirmed submission. */
+  sourcePath: string;
+}
+
+/**
+ * The update operation's internal input: the MCP schema plus the CLI-only
+ * report. The manifest keeps passing bare schema output — the extension is
+ * optional, so no MCP call site changes.
+ */
+export type UpdateTaskOperationInput = UpdateTaskInputType & {
+  report?: UpdateTaskReport;
+};
+
+/**
+ * Report attachment behind the update operation (ticket efcd6992, P4 step
+ * 5). Local mode writes through the write store's file capability; remote
+ * mode POSTs the client's multipart route directly. The standalone file
+ * capability stays local-only (P5) — this helper is the report lifecycle's
+ * own path, reachable solely through the internal `report` input above,
+ * never through `attachFile`. One request, awaited, never retried.
+ */
+async function attachReportFile(
+  ctx: OperationContext,
+  store: TaskStore,
+  taskId: string,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  if (ctx.mode === "saas" && !ctx.store) {
+    const { uploadSaasFile } = await import("../../saas/client.js");
+    const { toRemoteWriteRefusal } = await import(
+      "../remote-task-store.js"
+    );
+    const uploaded = await uploadSaasFile(taskId, filename, bytes);
+    if (!uploaded.ok) {
+      throw toRemoteWriteRefusal(
+        uploaded.error,
+        "The report was NOT attached — fix what the message names and resend the edit with --report-file.",
+      );
+    }
+    return;
+  }
+  await store.saveFile(
+    ctx.projectDir,
+    taskId,
+    filename,
+    Buffer.from(bytes),
+  );
+}
+
+/**
+ * The report partial: the attachment persisted but the transition write
+ * after it did not confirm. The task update is unconfirmed (it may or may
+ * not have applied — never claim either), the report IS attached, and the
+ * source file was kept, so the remedy resends the edit WITHOUT
+ * --report-file (gate 5 is already satisfied by the attached report).
+ * Non-retryable: resending the whole update blindly could re-apply a
+ * transition that already landed.
+ */
+function partialReportRefusal(
+  report: UpdateTaskReport,
+  taskId: string,
+  err: unknown,
+): { ok: false; error: { code: string; message: string; suggestion: string; retryable: false } } {
+  return {
+    ok: false,
+    error: {
+      code: "E_REPORT_PARTIAL",
+      message: `Report "${report.filename}" was attached, but the task update did not confirm: ${err instanceof Error ? err.message : "write failed"}.`,
+      suggestion: `Re-read the task with get_task: if the status moved, only a follow-up is missing (record it with add_comment); if not, resend the edit WITHOUT --report-file for task ${taskId} — the report is already attached. The source file was kept.`,
+      retryable: false,
+    },
+  };
+}
 
 // ── Operations ─────────────────────────────────────────────────────────────
 
@@ -583,7 +673,7 @@ export async function createTask(
 
 export async function updateTask(
   ctx: OperationContext,
-  input: UpdateTaskInputType,
+  input: UpdateTaskOperationInput,
 ): Promise<OperationResult<Task>> {
   try {
     // P4 (ticket efcd6992): the WRITE runs against the write ports —
@@ -621,6 +711,47 @@ export async function updateTask(
       };
     }
 
+    // Research report preconditions (ticket efcd6992, P4 step 5).
+    // Read-only: only metadata is validated here, never the source bytes —
+    // the CLI validated the file (exists, .md) before translating it into
+    // the internal input. Runs before the gate (which it satisfies) and
+    // before ANY write, so a refused report leaves no attachment, no
+    // transition, and the source file untouched. Wording mirrors the CLI's
+    // --report-file refusals byte-for-byte: the operation IS the CLI path
+    // now, so the two cannot disagree.
+    const report = input.report;
+    if (report !== undefined) {
+      if (input.status !== "review") {
+        return {
+          ok: false,
+          error: {
+            code: "E_USAGE",
+            message: "--report-file requires --set-status review",
+            suggestion: `Example: vibeflow tasks --edit ${id} --set-status review --report-file report.md`,
+          },
+        };
+      }
+      if ((existingTask.type ?? "").toLowerCase() !== "research") {
+        return {
+          ok: false,
+          error: {
+            code: "E_USAGE",
+            message: `--report-file is only supported for Research tasks (this task has type: ${existingTask.type || "none"}).`,
+          },
+        };
+      }
+      if (!/\.md$/i.test(report.filename)) {
+        return {
+          ok: false,
+          error: {
+            code: "E_USAGE",
+            message: "Report file must be a Markdown (.md) file",
+            suggestion: "Rename the report to <name>.md and retry.",
+          },
+        };
+      }
+    }
+
     // Gate: review transition check (runs before any writes, including dry-run)
     if (input.status === "review") {
       const { loadSettings } = await import("../settings.js");
@@ -641,6 +772,11 @@ export async function updateTask(
         opts: {
           comment: input.comment,
           commitMessage: input.commitMessage,
+          // A report carried on THIS transition satisfies gate 5 — the
+          // CLI pre-validated the source path above and the upload below
+          // lands before the transition write, so a gate-passed run always
+          // ends with the report attached. MCP never sends this.
+          ...(report !== undefined ? { reportFile: report.filename } : {}),
           // Gate 3 (BRANCH_REQUIRED) reads the branch THIS transition carries.
           // It was never passed, so with createBranch ON a review transition
           // was refused even when the input supplied `branch` — a
@@ -933,8 +1069,60 @@ export async function updateTask(
       }
     }
 
-    const task = await store.updateTask(ctx.projectDir, id, updates);
+    // Research report upload (mutation — runs AFTER the gate).
+    // The gate above is the run's validation, and the source metadata was
+    // already proven (Research type, review transition, .md name) in the
+    // preconditions before it — so reaching here means the run WILL
+    // succeed. Upload FIRST, transition second: gate 5 forbids landing a
+    // review transition with no report attached, so the attachment must
+    // exist before the status write. An upload failure refuses with the
+    // task untouched (no partial — nothing was written yet); a LATER
+    // failure refuses partial, naming the attached-but-untransitioned
+    // state. --dry-run already returned above: the source is never
+    // consumed by a preview.
+    let uploadedReport: UpdateTaskReport | undefined;
+    if (report !== undefined) {
+      try {
+        await attachReportFile(
+          ctx,
+          store,
+          id,
+          report.filename,
+          report.bytes,
+        );
+        uploadedReport = report;
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: "E_REPORT_SAVE",
+            message: `Report "${report.filename}" was NOT attached: ${err instanceof Error ? err.message : "upload failed"}. The task is unchanged.`,
+            suggestion: `Fix what the message names and resend the edit with --report-file for task ${id} (CLI) or attach the .md via attach_file first (MCP).`,
+            retryable: false,
+          },
+        };
+      }
+    }
+
+    let task: Task | null;
+    try {
+      task = await store.updateTask(ctx.projectDir, id, updates);
+    } catch (err) {
+      // The write threw AFTER the report landed: partial, not a clean
+      // miss. The task update is unconfirmed (it may or may not have
+      // applied) while the report IS attached — say both halves plainly
+      // and keep the source, so the resend can skip --report-file.
+      if (uploadedReport) return partialReportRefusal(uploadedReport, id, err);
+      throw err;
+    }
     if (!task) {
+      if (uploadedReport) {
+        return partialReportRefusal(
+          uploadedReport,
+          id,
+          new Error(`Task not found: ${id}`),
+        );
+      }
       return {
         ok: false,
         error: {
@@ -1002,6 +1190,28 @@ export async function updateTask(
     // a commit that SUCCEEDED; the MCP tool always says which happened,
     // because here the notice is the only signal at all.
     const steps: import("../operations.js").OperationNotice[] = [];
+
+    // Source consumption (ticket efcd6992, P4 step 5): the report source
+    // file is deleted ONLY after the submission effects above are
+    // confirmed — attachment uploaded, transition written, follow-up
+    // comments recorded. Any failure before this point keeps the source
+    // (the resend can skip --report-file for the attached part), which is
+    // the explicit correction to the old consume-before-write order. A
+    // vanishing source at this point is a TOCTOU corner, not a failed
+    // submission: the task data is confirmed, so it rides a notice while
+    // ok stays true.
+    if (uploadedReport) {
+      try {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(uploadedReport.sourcePath);
+      } catch (err) {
+        steps.push({
+          code: "REPORT_SOURCE_KEPT",
+          message: `Report "${uploadedReport.filename}" is attached and the task updated, but the source file could not be removed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+
     if (input.status === "review" && input.commitMessage) {
       const { loadSettings } = await import("../settings.js");
       const { commitTaskChanges } = await import("../git.js");
