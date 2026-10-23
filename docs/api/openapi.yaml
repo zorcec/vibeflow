@@ -29,6 +29,20 @@ paths:
               - review
               - done
               - cancelled
+        - name: sort
+          in: query
+          description: "Ordering contract for the page (ticket 05076246): `kanban` pages the board in the client's listing order (status rank, priority rank, created desc, id) so `limit` means \"this page, in that order\" and a top-K read costs one request. Absent = the historical `createdAt DESC` default, so old clients see identical results. Any other value is 400 INVALID_SORT, never a silent fallback."
+          schema:
+            type: string
+            enum:
+              - kanban
+        - name: scope
+          in: query
+          description: "Scope contract for the page (ticket 05076246, LANE Z): `roots` restricts the page AND the total to root tasks (a task whose own links carry no parent edge — the server image of the client's root-only filter). Absent = every board row, unchanged. Any other value is 400 INVALID_SCOPE, never a silent fallback."
+          schema:
+            type: string
+            enum:
+              - roots
         - name: limit
           in: query
           schema:
