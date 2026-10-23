@@ -667,15 +667,6 @@ export {
 export type { ListAllTasksInput } from "./operations/tasks.js";
 export { addComment } from "./operations/comments.js";
 export {
-  deleteTaskOperation,
-  type DeletePlanRow,
-  type DeletePreview,
-  type DeleteTaskData,
-  type DeleteTaskError,
-  type DeleteTaskInput,
-  type DeleteTaskResult,
-} from "./operations/delete.js";
-export {
   attachFile,
   attachStandalone,
   type AttachSourceInput,
