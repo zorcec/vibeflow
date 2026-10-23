@@ -31,11 +31,6 @@ import {
 import { addComment } from "./core/comments.js";
 import { resolveListLimit } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
-import { listFiles, saveFile } from "./core/files.js";
-import {
-  resolveAttachSource,
-  attachDuplicateRefusal,
-} from "./core/attach.js";
 import { readConfig, getCurrentBranch } from "./core/config.js";
 import {
   resolveProjectRoot,
@@ -101,7 +96,6 @@ import {
   createSaasTask,
   deleteSaasTask,
   resolveSaasTaskId,
-  uploadSaasFile,
   toCliStatus,
   type SaasTask,
 } from "./saas/client.js";
@@ -3908,365 +3902,63 @@ program
         // `tasks --attach <path> --task <id>`: upload one file to a task's
         // file list without touching any of its fields (any task type, no
         // status change — unlike Research-only --report-file, which is tied
-        // to the review transition). The target is always the explicit
-        // --task value: exact id wins, a unique prefix resolves (online via
-        // resolveSaasTaskId, local via the same first-match rule --get and
-        // --edit use), anything else is refused here — never a silent
-        // first-match. The same (task, name) pair is never uploaded twice:
-        // the name is checked against the file list first and a duplicate
-        // is refused (E_FILE_EXISTS) in BOTH modes — the cloud route mints
-        // a fresh file id per POST, so only a pre-check keeps one name to
-        // one row, the same dedupe rule push/pull already converge on.
+        // to the review transition). Flag parsing and the gates above stay
+        // here; every effect — id resolution, source gates, the duplicate
+        // policy, the upload, the --move consumption — runs in the shared
+        // `attachStandalone` operation (core/operations/files.ts), so the
+        // CLI and MCP `attach_file` cannot disagree on what a pair means.
+        // The policy split is explicit in the call: the CLI refuses a
+        // repeated (task, name) pair (E_FILE_EXISTS), MCP replaces in place.
         if (opts.attach !== undefined) {
           const attachRawTask = opts.task!.trim();
-          // The source resolves against the invocation cwd (like
-          // --report-file); the [dir] positional is the project root.
-          const validated = resolveAttachSource(process.cwd(), opts.attach);
-          if (!validated.ok) {
-            outputEnvelope({
-              ok: false,
-              code: validated.error.code,
-              message: validated.error.message,
-              suggestion: validated.error.suggestion,
-              json: opts.json,
-            });
-            process.exitCode =
-              validated.error.code === "E_NOT_FOUND"
-                ? ExitCode.NOT_FOUND
-                : ExitCode.USAGE;
-            return;
-          }
-          const attachSource = validated.source;
           const attachMode = await getMode();
-          if (attachMode === "saas") {
-            const attachWorkspace = await readWorkspace();
-            // Detail-first (same rule as --edit/--get): a FULL id hits
-            // one GET and never enumerates the board; only a 404 falls
-            // back to ONE listing for prefix resolution through the ONE
-            // resolver (same semantics). A detail hit also feeds the
-            // duplicate-name check below, so the second detail read is
-            // skipped too.
-            let attachResolved: { id: string };
-            let attachDetail: Awaited<
-              ReturnType<typeof fetchSaasTaskDetail>
-            > | undefined;
-            const attachProbe = await fetchSaasTaskDetail(attachRawTask);
-            if (attachProbe.ok) {
-              attachResolved = { id: attachProbe.data.task.id };
-              attachDetail = attachProbe;
-            } else if (attachProbe.error.code !== "TASK_NOT_FOUND") {
-              const attachReadMessage = saasReadErrorMessage(
-                attachProbe.error,
-              );
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  ...saasFailure(attachProbe.error),
-                  message: `Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red(
-                    `✗ Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
-                  ),
-                );
-              }
-              process.exitCode = ExitCode.GENERAL;
-              return;
-            } else {
-              const attachBoard = await fetchSaasTasks(attachWorkspace?.id, {
-                hydrate: false,
-              });
-              if (!attachBoard.ok) {
-                const attachReadMessage = saasReadErrorMessage(
-                  attachBoard.error,
-                );
-                if (opts.json) {
-                  outputEnvelope({
-                    ok: false,
-                    ...saasFailure(attachBoard.error),
-                    message: `Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
-                    json: opts.json,
-                  });
-                } else {
-                  console.log(
-                    chalk.red(
-                      `✗ Unable to resolve task ${attachRawTask} in the online board (${attachReadMessage}).`,
-                    ),
-                  );
-                }
-                process.exitCode = ExitCode.GENERAL;
-                return;
-              }
-              const attachListed = resolveSaasTaskId(
-                attachBoard.data.tasks,
-                attachRawTask,
-              );
-              if (!attachListed.ok) {
-                if (attachListed.code === "TASK_NOT_FOUND") {
-                  outputEnvelope({
-                    ok: false,
-                    code: "TASK_NOT_FOUND",
-                    message: `Task not found: ${attachRawTask}`,
-                    suggestion:
-                      "Run 'vibeflow tasks' to see available task IDs.",
-                    json: opts.json,
-                  });
-                  process.exitCode = ExitCode.NOT_FOUND;
-                } else {
-                  outputEnvelope({
-                    ok: false,
-                    code: attachListed.code,
-                    message: attachListed.message,
-                    suggestion:
-                      "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                    json: opts.json,
-                  });
-                  process.exitCode = ExitCode.USAGE;
-                }
-                return;
-              }
-              attachResolved = attachListed;
-            }
-            // The cloud route mints a fresh file id per POST (no
-            // name-dedupe server-side), so the duplicate check runs here:
-            // one detail read for the resolved task's file names (already
-            // in hand when the probe above hit). A 404 means the task
-            // vanished between the listing and this read.
-            if (!attachDetail) {
-              attachDetail =
-                await fetchSaasTaskDetail(attachResolved.id);
-            }
-            if (!attachDetail.ok) {
-              if (attachDetail.error.code === "TASK_NOT_FOUND") {
-                outputEnvelope({
-                  ok: false,
-                  code: "TASK_NOT_FOUND",
-                  message: `Task not found: ${attachRawTask}`,
-                  suggestion:
-                    "Run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-                process.exitCode = ExitCode.NOT_FOUND;
-              } else {
-                const attachDetailMessage = saasReadErrorMessage(
-                  attachDetail.error,
-                );
-                if (opts.json) {
-                  outputEnvelope({
-                    ok: false,
-                    ...saasFailure(attachDetail.error),
-                    message: `Unable to read files of task ${attachResolved.id} (${attachDetailMessage}).`,
-                    json: opts.json,
-                  });
-                } else {
-                  console.log(
-                    chalk.red(
-                      `✗ Unable to read files of task ${attachResolved.id} (${attachDetailMessage}).`,
-                    ),
-                  );
-                }
-                process.exitCode = ExitCode.GENERAL;
-              }
-              return;
-            }
-            if (
-              (attachDetail.data.task.files ?? []).some(
-                (f) => f.name === attachSource.name,
-              )
-            ) {
-              const duplicate = attachDuplicateRefusal(
-                attachResolved.id,
-                attachSource.name,
-              );
-              outputEnvelope({
-                ok: false,
-                code: duplicate.code,
-                message: duplicate.message,
-                suggestion: duplicate.suggestion,
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.USAGE;
-              return;
-            }
-            if (opts.dryRun) {
-              if (opts.json) {
-                outputEnvelope({
-                  ok: true,
-                  json: opts.json,
-                  payload: {
-                    dryRun: true,
-                    action: "attach",
-                    taskId: attachResolved.id,
-                    name: attachSource.name,
-                    size: attachSource.size,
-                    ...(opts.move ? { move: "(source file kept)" } : {}),
-                  },
-                });
-              } else {
-                console.log(chalk.yellow("  [dry-run] Would attach:"));
-                console.log(chalk.dim(`    file: ${attachSource.name}`));
-                console.log(chalk.dim(`    size: ${attachSource.size}`));
-                console.log(chalk.dim(`    task: ${attachResolved.id}`));
-                if (opts.move)
-                  console.log(chalk.dim("    move: (source file kept)"));
-              }
-              return;
-            }
-            const uploaded = await uploadSaasFile(
-              attachResolved.id,
-              attachSource.name,
-              attachSource.bytes,
-            );
-            if (!uploaded.ok) {
-              if (uploaded.error.code === "TASK_NOT_FOUND") {
-                outputEnvelope({
-                  ok: false,
-                  code: "TASK_NOT_FOUND",
-                  message: `Task not found: ${attachResolved.id}`,
-                  suggestion:
-                    "Run 'vibeflow tasks' to see available task IDs.",
-                  json: opts.json,
-                });
-                process.exitCode = ExitCode.NOT_FOUND;
-              } else {
-                if (opts.json) {
-                  outputEnvelope({
-                    ok: false,
-                    ...saasFailure(uploaded.error),
-                    message: `Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
-                    json: opts.json,
-                  });
-                } else {
-                  console.log(
-                    chalk.red(
-                      `✗ Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
-                    ),
-                  );
-                  console.log(
-                    chalk.yellow(
-                      "  Ensure you are connected and the task ID exists in the online board.",
-                    ),
-                  );
-                }
-                // One exit for both renderings (same shape as the online
-                // create failure above): the --json recurrence guard
-                // (json-refusal-guard.test.ts) keys on this block's window
-                // mentioning the json surface, which only holds when the
-                // dispatch and the exit share one block.
-                process.exitCode = ExitCode.GENERAL;
-              }
-              return;
-            }
-            // --move consumes the source only after the bytes landed: a
-            // failed delete is a NOTICE on a successful attach (the task
-            // data is on the server, so the exit stays 0 and retrying the
-            // attach would be wrong), mirroring the auto-commit convention.
-            let attachMoveNotice: PartialSuccessNotice | undefined;
-            if (opts.move) {
-              try {
-                unlinkSync(attachSource.absPath);
-              } catch (err) {
-                attachMoveNotice = {
-                  code: "MOVE_CLEANUP_FAILED",
-                  message: `File WAS attached, but the source file could not be deleted: ${err instanceof Error ? err.message : String(err)}`,
-                };
-                if (!opts.json) {
-                  console.log(
-                    chalk.yellow(
-                      `⚠ File WAS attached, but the source file could not be deleted: ${attachSource.absPath}`,
-                    ),
-                  );
-                }
-              }
-            }
-            if (opts.json) {
-              outputEnvelope({
-                ok: true,
-                json: opts.json,
-                payload: {
-                  taskId: attachResolved.id,
-                  fileId: uploaded.data.id,
-                  name: uploaded.data.name,
-                  size: uploaded.data.size,
-                  ...noticeFields(
-                    attachMoveNotice ? [attachMoveNotice] : [],
-                  ),
-                },
-              });
-            } else {
-              console.log(
-                chalk.green(
-                  `✓ Attached ${uploaded.data.name} (${uploaded.data.size} bytes) to task ${attachResolved.id}`,
-                ),
-              );
-              console.log(chalk.dim(`  file id: ${uploaded.data.id}`));
-            }
-            return;
-          }
-
-          // ── Local attach path ──────────────────────────────────────
-          // ONE id rule (`resolveSaasTaskId`, shared with the online
-          // attach path and every other id-taking flag): exact id wins, a
-          // UNIQUE prefix resolves, an ambiguous prefix is E_AMBIGUOUS
-          // naming the candidates — never a silent first-match.
-          const attachProjectDir = resolve(dir);
-          const attachLocalResolved = resolveSaasTaskId(
-            listTasks(attachProjectDir).map((t) => ({
-              id: t.id,
-              title: t.title,
-            })),
-            attachRawTask,
-          );
-          if (!attachLocalResolved.ok) {
-            if (attachLocalResolved.code === "E_AMBIGUOUS") {
-              outputEnvelope({
-                ok: false,
-                code: attachLocalResolved.code,
-                message: attachLocalResolved.message,
-                suggestion:
-                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.USAGE;
-            } else {
-              outputEnvelope({
-                ok: false,
-                code: "TASK_NOT_FOUND",
-                message: `Task not found: ${attachRawTask}`,
-                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.NOT_FOUND;
-            }
-            return;
-          }
-          const attachTask = listTasks(attachProjectDir).find(
-            (t) => t.id === attachLocalResolved.id,
-          )!;
-          // Same (task, name) refusal as the online path: saveFile would
-          // overwrite in place, but the command promises the pair is never
-          // uploaded twice — so the duplicate never reaches the store.
-          if (
-            listFiles(attachProjectDir, attachTask.id).some(
-              (f) => f.name === attachSource.name,
-            )
-          ) {
-            const duplicate = attachDuplicateRefusal(
-              attachTask.id,
-              attachSource.name,
-            );
+          const attachOpCtx: OperationContext = {
+            projectDir: resolve(dir),
+            mode: attachMode === "saas" ? "saas" : "local",
+          };
+          const attachResult = await operations.attachStandalone(attachOpCtx, {
+            id: attachRawTask,
+            // The source resolves against the invocation cwd (like
+            // --report-file); the [dir] positional is the project root.
+            source: {
+              kind: "localPath",
+              path: opts.attach,
+              cwd: process.cwd(),
+            },
+            onExisting: "refuse",
+            ...(opts.move ? { moveAfterSuccess: true } : {}),
+            ...(opts.dryRun ? { dryRun: true } : {}),
+          });
+          if (!attachResult.ok) {
+            const attachErr = attachResult.error;
             outputEnvelope({
               ok: false,
-              code: duplicate.code,
-              message: duplicate.message,
-              suggestion: duplicate.suggestion,
+              code: attachErr.code,
+              message: attachErr.message,
+              suggestion: attachErr.suggestion,
               json: opts.json,
             });
-            process.exitCode = ExitCode.USAGE;
+            // Caller errors (bad id, bad path, duplicate) are USAGE; a
+            // missing task or source is NOT_FOUND; anything else (dead
+            // backend, rejected token, failed upload) is GENERAL. A code
+            // the operation invents tomorrow fails closed to GENERAL —
+            // never silently to USAGE.
+            process.exitCode =
+              attachErr.code === "TASK_NOT_FOUND" ||
+              attachErr.code === "E_NOT_FOUND"
+                ? ExitCode.NOT_FOUND
+                : attachErr.code === "E_AMBIGUOUS" ||
+                    attachErr.code === "E_USAGE" ||
+                    attachErr.code === "E_FILE_EXISTS" ||
+                    attachErr.code === "E_FILE_TOO_LARGE" ||
+                    attachErr.code === "INVALID_FILENAME" ||
+                    attachErr.code === "UNSUPPORTED_FILE_TYPE"
+                  ? ExitCode.USAGE
+                  : ExitCode.GENERAL;
             return;
           }
+          const attached = attachResult.data!;
+          const attachNotices: PartialSuccessNotice[] = attachResult.steps ?? [];
           if (opts.dryRun) {
             if (opts.json) {
               outputEnvelope({
@@ -4275,47 +3967,25 @@ program
                 payload: {
                   dryRun: true,
                   action: "attach",
-                  taskId: attachTask.id,
-                  name: attachSource.name,
-                  size: attachSource.size,
+                  taskId: attached.taskId,
+                  name: attached.name,
+                  size: attached.size,
                   ...(opts.move ? { move: "(source file kept)" } : {}),
                 },
               });
             } else {
               console.log(chalk.yellow("  [dry-run] Would attach:"));
-              console.log(chalk.dim(`    file: ${attachSource.name}`));
-              console.log(chalk.dim(`    size: ${attachSource.size}`));
-              console.log(chalk.dim(`    task: ${attachTask.id}`));
+              console.log(chalk.dim(`    file: ${attached.name}`));
+              console.log(chalk.dim(`    size: ${attached.size}`));
+              console.log(chalk.dim(`    task: ${attached.taskId}`));
               if (opts.move)
                 console.log(chalk.dim("    move: (source file kept)"));
             }
             return;
           }
-          // Past the duplicate check above the name is new to this task:
-          // saveFile keeps one ref per name, the same dedupe rule the
-          // delta-push manifest relies on, so push plans it exactly once.
-          const attachInfo = saveFile(
-            attachProjectDir,
-            attachTask.id,
-            attachSource.name,
-            attachSource.bytes,
-          );
-          let attachLocalMoveNotice: PartialSuccessNotice | undefined;
-          if (opts.move) {
-            try {
-              unlinkSync(attachSource.absPath);
-            } catch (err) {
-              attachLocalMoveNotice = {
-                code: "MOVE_CLEANUP_FAILED",
-                message: `File WAS attached, but the source file could not be deleted: ${err instanceof Error ? err.message : String(err)}`,
-              };
-              if (!opts.json) {
-                console.log(
-                  chalk.yellow(
-                    `⚠ File WAS attached, but the source file could not be deleted: ${attachSource.absPath}`,
-                  ),
-                );
-              }
+          if (!opts.json) {
+            for (const notice of attachNotices) {
+              console.log(chalk.yellow(`⚠ ${notice.message}`));
             }
           }
           if (opts.json) {
@@ -4323,22 +3993,22 @@ program
               ok: true,
               json: opts.json,
               payload: {
-                taskId: attachTask.id,
-                fileId: attachInfo.name,
-                name: attachInfo.name,
-                size: attachInfo.size,
-                ...noticeFields(
-                  attachLocalMoveNotice ? [attachLocalMoveNotice] : [],
-                ),
+                taskId: attached.taskId,
+                fileId: attached.fileId ?? attached.name,
+                name: attached.name,
+                size: attached.size,
+                ...noticeFields(attachNotices),
               },
             });
           } else {
             console.log(
               chalk.green(
-                `✓ Attached ${attachInfo.name} (${attachInfo.size} bytes) to task ${attachTask.id}`,
+                `✓ Attached ${attached.name} (${attached.size} bytes) to task ${attached.taskId}`,
               ),
             );
-            console.log(chalk.dim(`  file id: ${attachInfo.name}`));
+            console.log(
+              chalk.dim(`  file id: ${attached.fileId ?? attached.name}`),
+            );
           }
           return;
         }
