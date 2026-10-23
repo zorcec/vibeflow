@@ -156,7 +156,8 @@ describe("MCP auth", () => {
     expect(list.status).toBe(200);
     const body = await list.json();
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
-    expect(body.result.tools.length).toBe(11);
+    // Then `pull` was added (board -> local additive sync), back to 12.
+    expect(body.result.tools.length).toBe(12);
   });
 
   it("3: non-loopback without token → 401", async () => {
@@ -252,7 +253,8 @@ describe("MCP auth", () => {
     expect(list.status).toBe(200);
     const body = await list.json();
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
-    expect(body.result.tools.length).toBe(11);
+    // Then `pull` was added (board -> local additive sync), back to 12.
+    expect(body.result.tools.length).toBe(12);
   });
 
   it.skip(
