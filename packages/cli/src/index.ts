@@ -4136,25 +4136,31 @@ program
                   json: opts.json,
                 });
                 process.exitCode = ExitCode.NOT_FOUND;
-              } else if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  ...saasFailure(uploaded.error),
-                  message: `Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
-                  json: opts.json,
-                });
-                process.exitCode = ExitCode.GENERAL;
               } else {
-                console.log(
-                  chalk.red(
-                    `✗ Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
-                  ),
-                );
-                console.log(
-                  chalk.yellow(
-                    "  Ensure you are connected and the task ID exists in the online board.",
-                  ),
-                );
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    ...saasFailure(uploaded.error),
+                    message: `Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(
+                    chalk.red(
+                      `✗ Failed to attach ${attachSource.name} to task ${attachResolved.id}`,
+                    ),
+                  );
+                  console.log(
+                    chalk.yellow(
+                      "  Ensure you are connected and the task ID exists in the online board.",
+                    ),
+                  );
+                }
+                // One exit for both renderings (same shape as the online
+                // create failure above): the --json recurrence guard
+                // (json-refusal-guard.test.ts) keys on this block's window
+                // mentioning the json surface, which only holds when the
+                // dispatch and the exit share one block.
                 process.exitCode = ExitCode.GENERAL;
               }
               return;
