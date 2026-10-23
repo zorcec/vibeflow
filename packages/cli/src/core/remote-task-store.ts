@@ -253,6 +253,9 @@ async function resolvePrefix(
   boardId: string | undefined,
   raw: string,
 ): Promise<{ outcome: "resolved"; task: Task } | { outcome: "missing"; id: string }> {
+  // Deliberately UNFILTERED (LANE Q step 2): a prefix can match a task of
+  // any status, so a status-narrowed fetch could miss the very row the
+  // prefix names. Prefix resolution always reads the whole board.
   const board = await fetchSaasTasks(boardId, { hydrate: false });
   if (!board.ok) {
     throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
@@ -314,10 +317,54 @@ function toRemoteClaimRefusal(
  * mutations), so a misrouted write fails instead of landing on the wrong
  * backend.
  */
+/**
+ * Statuses the v0 list can narrow server-side with a predicate EQUAL to
+ * the client's (`?status=` → storage equality on the normalized status).
+ * Verified against the server's list route: `isAcceptedStatus` accepts the
+ * hyphenated wire spelling, `canonicalStatus`/`toStorageStatus` normalize
+ * it, and `listV0TaskPage` matches on storage — so for these four the
+ * narrowed set is exactly what client-side filtering would keep.
+ *
+ * `done` is DELIBERATELY absent: `?status=done` matches storage `done`
+ * only, while the client maps wire `cancelled` to `done` (toCliStatus) and
+ * would keep those rows — pushing `done` would silently drop them. The
+ * per-filter path table:
+ * - status backlog/todo/in-progress/review → server-side `?status=`, pages
+ *   only over the matching set (provably exhausted via nextCursor, same
+ *   rows the full scan would filter to);
+ * - status done, type, user, tag, text search, root-only scope, unfiltered
+ *   (+limit) → FULL SCAN (v0 has no param for them, or — for unfiltered
+ *   limit — server order createdAt-desc differs from the client's kanban
+ *   sort, so stopping at the limit would return the wrong rows). Pushing
+ *   ORDER/LIMIT server-side is step 3 (needs a v0 ordering contract).
+ */
+export const SERVER_PUSHABLE_STATUSES: ReadonlySet<string> = new Set([
+  "backlog",
+  "todo",
+  "in-progress",
+  "review",
+]);
+
 class RemoteTaskStore implements TaskStore {
-  async listTasks(): Promise<Task[]> {
+  async listTasks(
+    _projectDir?: string,
+    _reads?: unknown,
+    preFilter?: { status?: string },
+  ): Promise<Task[]> {
     const boardId = await resolveBoardOnce();
-    const board = await fetchSaasTasks(boardId, { hydrate: false });
+    // Push the status only when predicate-equal (see
+    // SERVER_PUSHABLE_STATUSES): the caller still filters/sorts/limits
+    // client-side, so a narrowed fetch converges to the identical answer.
+    // Anything else (done, unknown, absent) reads the whole board.
+    const status =
+      preFilter?.status !== undefined &&
+      SERVER_PUSHABLE_STATUSES.has(preFilter.status)
+        ? preFilter.status
+        : undefined;
+    const board = await fetchSaasTasks(boardId, {
+      hydrate: false,
+      ...(status !== undefined ? { status } : {}),
+    });
     if (!board.ok) {
       throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
     }

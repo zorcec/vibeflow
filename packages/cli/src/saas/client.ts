@@ -231,7 +231,7 @@ export const SAAS_LIST_MAX_PAGES = 500;
  */
 export async function fetchSaasTasks(
   boardId?: string,
-  opts?: { hydrate?: boolean },
+  opts?: { hydrate?: boolean; status?: string },
 ): Promise<SaasResult<{ tasks: SaasTask[]; boardId: string }>> {
   const headers = await getBearerHeaders();
   if (!headers)
@@ -256,6 +256,13 @@ export async function fetchSaasTasks(
       // Largest page the server supports (see SAAS_LIST_PAGE_SIZE): fewer
       // round trips for the same board, same rows in the same order.
       url.searchParams.set("limit", String(SAAS_LIST_PAGE_SIZE));
+      // SET-narrowing only (LANE Q step 2): `status` restricts WHICH rows
+      // match, never how many come back — the caller still pages to
+      // exhaustion and sorts/limits client-side, so the answer is the same
+      // set the unfiltered read would filter down to. Never a row cap.
+      if (opts?.status !== undefined && opts.status !== "") {
+        url.searchParams.set("status", opts.status);
+      }
       if (cursor) url.searchParams.set("cursor", cursor);
       const res = await fetch(url.toString(), { headers });
       if (!res.ok) {

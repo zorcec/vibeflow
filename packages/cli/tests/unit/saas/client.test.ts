@@ -364,6 +364,78 @@ describe("fetchSaasTasks — largest page size (LANE Q step 1)", () => {
   });
 });
 
+describe("fetchSaasTasks — status narrowing (LANE Q step 2)", () => {
+  /**
+   * Fake honouring `status` + `limit` + offset `cursor` like the v0 list:
+   * an exact wire-status match narrows the set, pages cover the narrowed
+   * set, `nextCursor` is null exactly when it is exhausted.
+   */
+  function mockFilteredBoard(statuses: string[]) {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        const status = u.searchParams.get("status");
+        const rawLimit = u.searchParams.get("limit");
+        const limit = rawLimit === null ? 100 : Number(rawLimit);
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const matching = statuses
+          .map((s, i) => ({ id: `task-${i}`, status: s }))
+          .filter((t) => status === null || t.status === status);
+        const page = matching.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page.map((t) => ({
+                ...SAMPLE_TASK,
+                id: t.id,
+                status: t.status,
+              })),
+              nextCursor:
+                offset + page.length < matching.length
+                  ? String(offset + page.length)
+                  : null,
+            }),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  it("a status-narrowed set pages to exhaustion with the param on every page", async () => {
+    // 650 tasks, 500 of them todo: the narrowed read costs ONE page.
+    const statuses = Array.from({ length: 650 }, (_, i) =>
+      i < 500 ? "todo" : "review",
+    );
+    const seen = mockFilteredBoard(statuses);
+    const result = await fetchSaasTasks("b-1", { status: "todo" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(1);
+    for (const url of seen) {
+      expect(new URL(url).searchParams.get("status")).toBe("todo");
+    }
+    expect(result.data.tasks).toHaveLength(500);
+    expect(
+      result.data.tasks.every((t) => t.status === "todo"),
+    ).toBe(true);
+  });
+
+  it("an unfiltered read sends no status param", async () => {
+    const seen = mockFilteredBoard(["todo", "review"]);
+    const result = await fetchSaasTasks("b-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const url of seen) {
+      expect(new URL(url).searchParams.has("status")).toBe(false);
+    }
+    expect(result.data.tasks).toHaveLength(2);
+  });
+});
+
 describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
     mockFetch(SAMPLE_TASK);

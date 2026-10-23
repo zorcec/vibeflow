@@ -81,14 +81,27 @@ export async function listTasks(
     // `tasks` listing renders — including the filtered-query rule (a filter
     // is an explicit search, so children are included, exactly like the CLI).
     const reads: import("../task-record-read.js").TaskReadFinding[] = [];
-    const result = queryTaskList(await store.listTasks(ctx.projectDir, reads), {
-      status: input.status,
-      type: input.type,
-      user: input.user,
-      tag: input.tag,
-      children: input.children,
-      limit: input.limit,
-    });
+    // LANE Q step 2: offer the status as a transport narrowing hint. The
+    // adapter applies it ONLY when predicate-equal to client filtering
+    // (remote pushes pushable statuses to `?status=`); every adapter the
+    // hint does not apply to returns the whole board. queryTaskList below
+    // still applies the FULL query, so either path converges to the same
+    // answer — the hint only decides how many pages the fetch costs.
+    const result = queryTaskList(
+      await store.listTasks(
+        ctx.projectDir,
+        reads,
+        input.status !== undefined ? { status: input.status } : undefined,
+      ),
+      {
+        status: input.status,
+        type: input.type,
+        user: input.user,
+        tag: input.tag,
+        children: input.children,
+        limit: input.limit,
+      },
+    );
 
     // Apply field selection (ticket b2e56212: projected rows ALWAYS carry
     // commentCount/fileCount — see attachOmissionCounts — so a projection
@@ -157,8 +170,14 @@ export async function listAllTasksForCli(
     const { queryAllTasks } = await import("../task-listing.js");
     const { taskReadNotices } = await import("../task-record-read.js");
     const reads: import("../task-record-read.js").TaskReadFinding[] = [];
+    // Same narrowing hint as listTasks (LANE Q step 2): `--all --status`
+    // pages only over the matching set, still exhaustive via queryAllTasks.
     const result = queryAllTasks(
-      await store.listTasks(ctx.projectDir, reads),
+      await store.listTasks(
+        ctx.projectDir,
+        reads,
+        input.status !== undefined ? { status: input.status } : undefined,
+      ),
       {
         status: input.status,
         type: input.type,

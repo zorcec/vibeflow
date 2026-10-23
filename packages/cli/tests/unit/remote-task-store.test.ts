@@ -480,3 +480,108 @@ describe("remote claim — one versioned POST, never list+PATCH", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("listTasks preFilter — server-side status narrowing (LANE Q step 2)", () => {
+  /**
+   * Fake honouring `status` + `limit` + offset `cursor` with server
+   * semantics: an exact wire-status match narrows the set, pages cover the
+   * narrowed set, `nextCursor` is null exactly when it is exhausted. A
+   * storage-`cancelled` row is present so the `done` guard has teeth: the
+   * server answers it unfiltered, `?status=done` would hide it.
+   */
+  function stubStatusBoard(statuses: string[]) {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        if (url.includes("/api/v0/boards")) {
+          const body = { items: [{ id: "board-1", name: "B1" }], nextCursor: null };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(body)),
+            json: () => Promise.resolve(body),
+          });
+        }
+        const u = new URL(url);
+        const status = u.searchParams.get("status");
+        const rawLimit = u.searchParams.get("limit");
+        const limit = rawLimit === null ? 100 : Number(rawLimit);
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const matching = statuses
+          .map((s, i) => v0Task(`task-${i}`, { status: s }))
+          .filter((t) => status === null || t.status === status);
+        const page = matching.slice(offset, offset + limit);
+        const body = {
+          items: page,
+          nextCursor:
+            offset + page.length < matching.length
+              ? String(offset + page.length)
+              : null,
+        };
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: () => Promise.resolve(JSON.stringify(body)),
+          json: () => Promise.resolve(body),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  // 1,874-task board mirroring the production evidence: 300 todo of them.
+  const BOARD = Array.from({ length: 1874 }, (_, i) =>
+    i < 300 ? "todo" : "in-progress",
+  );
+
+  it("a pushable status pages only over the matching set (1 request, same rows)", async () => {
+    const seen = stubStatusBoard(BOARD);
+    const narrowed = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      status: "todo",
+    });
+    const listUrls = seen.filter(isListUrl);
+    expect(listUrls).toHaveLength(1);
+    expect(new URL(listUrls[0] as string).searchParams.get("status")).toBe(
+      "todo",
+    );
+    expect(narrowed.map((t) => t.id)).toEqual(
+      Array.from({ length: 300 }, (_, i) => `task-${i}`),
+    );
+    // Exactness: identical to filtering the full scan client-side.
+    const seenFull = stubStatusBoard(BOARD);
+    const full = await remoteTaskStore.listTasks(PROJECT);
+    expect(seenFull.filter(isListUrl)).toHaveLength(4);
+    expect(narrowed).toEqual(full.filter((t) => t.status === "todo"));
+  });
+
+  it("status=done stays a full scan (the server would drop cancelled rows)", async () => {
+    const withCancelled = [...BOARD, "cancelled"];
+    const seen = stubStatusBoard(withCancelled);
+    const rows = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      status: "done",
+    });
+    const listUrls = seen.filter(isListUrl);
+    // ceil(1875/500) = 4 pages, and none of them narrows by status…
+    expect(listUrls).toHaveLength(4);
+    for (const url of listUrls) {
+      expect(new URL(url).searchParams.has("status")).toBe(false);
+    }
+    // …so the cancelled row survives as client-side `done`.
+    expect(rows.map((t) => t.id)).toContain("task-1874");
+    expect(rows.find((t) => t.id === "task-1874")?.status).toBe("done");
+  });
+
+  it("an unfiltered read still costs the full board (the (b) floor: sort needs every page)", async () => {
+    const seen = stubStatusBoard(BOARD);
+    const rows = await remoteTaskStore.listTasks(PROJECT);
+    expect(seen.filter(isListUrl)).toHaveLength(4);
+    expect(rows).toHaveLength(1874);
+    for (const url of seen.filter(isListUrl)) {
+      expect(new URL(url).searchParams.has("status")).toBe(false);
+    }
+  });
+});

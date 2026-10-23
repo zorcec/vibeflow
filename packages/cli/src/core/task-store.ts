@@ -86,9 +86,21 @@ export interface ClaimPreview {
  * routes) goes through `LocalArtifactStore` instead — never this interface.
  */
 export interface TaskStore {
+  /**
+   * Transport-level narrowing HINT (LANE Q step 2): the adapter MAY return
+   * fewer rows ONLY by applying a predicate-equal subset of the caller's
+   * query before returning — currently an exact status match the server
+   * can express (`?status=`). It is set semantics, never a row cap: the
+   * caller MUST still run the full query (queryTaskList) over the result,
+   * and adapters that cannot express the hint (local files, old servers)
+   * ignore it and return the whole board. Exactness rests on the predicate
+   * equality, pinned by the adapter's tests — never infer "these are the
+   * top N after sorting" from a narrowed result.
+   */
   listTasks(
     projectDir: string,
     reads?: TaskReadFinding[],
+    preFilter?: { status?: string },
   ): Promise<Task[]>;
   /**
    * Full id OR id prefix (first match in list order, exact id included —
