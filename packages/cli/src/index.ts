@@ -3367,6 +3367,27 @@ program
             );
             console.log();
           }
+          // Visibility: with no pathspec the scope is the task's own record.
+          // Name any other staged paths so the caller knows they were left in
+          // the index on purpose rather than silently dropped.
+          if (commitPathspec.length === 0 && committed.foreign.length > 0 && !opts.json) {
+            // Human mode only — under --json the same paths are reported as
+            // `leftStaged` inside the envelope, and stdout carries only that.
+            console.log(
+              chalk.yellow(
+                "⚠  Staged changes that do NOT belong to this task were left in the index (not committed):",
+              ),
+            );
+            for (const p of committed.foreign) {
+              console.log(chalk.dim(`     ${p}`));
+            }
+            console.log(
+              chalk.dim(
+                '   Commit explicit paths with: tasks --commit --task <id> --message "<msg>" -- <paths...>',
+              ),
+            );
+            console.log();
+          }
           const autoPush = committed.autoPush;
           if (opts.json) {
             outputEnvelope({
