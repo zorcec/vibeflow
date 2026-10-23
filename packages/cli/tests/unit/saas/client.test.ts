@@ -295,6 +295,75 @@ describe("fetchSaasTasks", () => {
   });
 });
 
+describe("fetchSaasTasks — largest page size (LANE Q step 1)", () => {
+  /**
+   * Fake honouring `limit` + offset `cursor` exactly like the v0 list:
+   * no `limit` param answers the server default of 100, `limit` caps the
+   * page, `nextCursor` is null exactly when the board is exhausted.
+   */
+  function mockPagedBoard(total: number) {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        const rawLimit = u.searchParams.get("limit");
+        const limit = rawLimit === null ? 100 : Number(rawLimit);
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const ids = Array.from({ length: total }, (_, i) => `task-${i}`);
+        const page = ids.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page.map((id) => ({ ...SAMPLE_TASK, id })),
+              nextCursor:
+                offset + page.length < total
+                  ? String(offset + page.length)
+                  : null,
+            }),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  it("a 1,874-task board costs ceil(1874/500) = 4 requests, not 19", async () => {
+    const seen = mockPagedBoard(1874);
+    const result = await fetchSaasTasks("b-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Every page asks for the 500-row server ceiling…
+    expect(seen).toHaveLength(4);
+    for (const url of seen) {
+      expect(new URL(url).searchParams.get("limit")).toBe("500");
+    }
+    // …and cursor-following still returns every row exactly once, in order.
+    expect(result.data.tasks.map((t) => t.id)).toEqual(
+      Array.from({ length: 1874 }, (_, i) => `task-${i}`),
+    );
+  });
+
+  it("a small board costs exactly one request", async () => {
+    const seen = mockPagedBoard(40);
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(1);
+    expect(result.data.tasks).toHaveLength(40);
+  });
+
+  it("a board just over one page costs two requests", async () => {
+    const seen = mockPagedBoard(501);
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(2);
+    expect(result.data.tasks).toHaveLength(501);
+  });
+});
+
 describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
     mockFetch(SAMPLE_TASK);

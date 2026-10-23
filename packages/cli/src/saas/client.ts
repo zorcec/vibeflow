@@ -186,6 +186,20 @@ async function getBearerHeaders(): Promise<Record<string, string> | null> {
 export const SAAS_HYDRATE_CONCURRENCY = 5;
 
 /**
+ * Page size every `fetchSaasTasks` list request asks for (LANE Q step 1).
+ *
+ * The v0 list accepts `limit` 1–500 and defaults to 100 when the param is
+ * absent (verified in the server's list route: `limit must be an integer
+ * 1–500`, `V0_DEFAULT_LIST_LIMIT = 100`). The client used to send no
+ * `limit` at all, so a 1,874-task board cost 19 default-sized pages per
+ * listing; asking for the 500-row ceiling cuts that to 4 with the same
+ * rows in the same order. Cursor-following is unchanged — a server that
+ * ignores the param (older/local) simply answers its default pages and
+ * the loop still reads to completion.
+ */
+export const SAAS_LIST_PAGE_SIZE = 500;
+
+/**
  * Upper bound on v0 list pages per `fetchSaasTasks` read. The pages are
  * followed to completion (cursor until null) so a large board still reads
  * back whole — but a server that keeps answering a cursor forever would
@@ -212,7 +226,8 @@ export const SAAS_LIST_MAX_PAGES = 500;
  * v0 envelope: `GET /api/v0/tasks` answers `{ items, nextCursor }` (NOT the
  * legacy `{ tasks, boardId }` the deleted `/api/cli/tasks` surface spoke).
  * Pages are followed via `?cursor=` until `nextCursor` is null so a large
- * board still reads back whole.
+ * board still reads back whole; every page asks for SAAS_LIST_PAGE_SIZE
+ * rows (the server ceiling) so the whole costs ceil(N/500) requests.
  */
 export async function fetchSaasTasks(
   boardId?: string,
@@ -238,6 +253,9 @@ export async function fetchSaasTasks(
     for (let page = 0; page < SAAS_LIST_MAX_PAGES; page++) {
       const url = new URL(`${apiUrl}${listPath}`);
       if (boardId) url.searchParams.set("boardId", boardId);
+      // Largest page the server supports (see SAAS_LIST_PAGE_SIZE): fewer
+      // round trips for the same board, same rows in the same order.
+      url.searchParams.set("limit", String(SAAS_LIST_PAGE_SIZE));
       if (cursor) url.searchParams.set("cursor", cursor);
       const res = await fetch(url.toString(), { headers });
       if (!res.ok) {
