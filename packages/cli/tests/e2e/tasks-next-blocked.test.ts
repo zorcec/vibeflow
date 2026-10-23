@@ -194,6 +194,33 @@ describe("--next skips work blocked by unfinished gates", () => {
     ).toContain(child.id);
   });
 
+  it("only child of live work is the fallback: childClaim with parent context", async () => {
+    // P3 (ticket 6452504d): when no eligible root exists, --next falls back
+    // to the todo child of live work and says so explicitly — childClaim
+    // plus the parent it was sliced from, on both surfaces.
+    const store = freshDir("next-blocked-store-");
+    const home = freshDir("next-blocked-home-");
+    seedGitUser(store);
+    const epic = await addTask(store, home, "Live epic");
+    await setStatus(store, home, epic.id, "in-progress");
+    const child = await addTask(store, home, "Only child", [
+      "--parent",
+      epic.id,
+    ]);
+
+    const r = await spawnCli(["tasks", store, "--next", "--json"], {
+      cwd: store,
+      home,
+    });
+    expect(r.code).toBe(0);
+    const parsed = JSON.parse(r.stdout) as Envelope;
+    expect(parsed.ok).toBe(true);
+    expect((parsed.task as TaskJson).id).toBe(child.id);
+    expect(parsed.childClaim).toBe(true);
+    expect((parsed.parent as { id: string }).id).toBe(epic.id);
+    expect(await getStatus(store, home, child.id)).toBe("in-progress");
+  });
+
   it("a todo blocked by a done gate IS claimable (the link is satisfied)", async () => {
     const store = freshDir("next-blocked-store-");
     const home = freshDir("next-blocked-home-");

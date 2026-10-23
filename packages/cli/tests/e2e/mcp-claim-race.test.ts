@@ -240,4 +240,98 @@ describe("MCP claim atomicity", () => {
       await env.cleanup();
     }
   });
+
+  it("5: two racers, ONE task → exactly one wins, the other gets the empty success", async () => {
+    // P3 (ticket 6452504d): the concurrent-claim acceptance — a real race
+    // (two spawned `tasks --next` against one file state machine), where
+    // exactly one claimant takes the task and the loser reports the empty
+    // success ({ok:true, task:null}, exit 0), never the same task and
+    // never an error. Degrading the primitive to read-then-write makes the
+    // racers collide on the same id and fails this test.
+    const dir = freshProject();
+    seedGitUser(dir);
+    seedTask(dir, {
+      id: "w1000000000000000000000000000aa",
+      title: "sole task",
+      status: "todo",
+      priority: "High",
+    });
+    const home = freshHome();
+    const [r1, r2] = await Promise.all([
+      spawnCli(["tasks", dir, "--next", "--json"], { cwd: dir, home }),
+      spawnCli(["tasks", dir, "--next", "--json"], { cwd: dir, home }),
+    ]);
+    expect(r1.code).toBe(0);
+    expect(r2.code).toBe(0);
+    const p1 = JSON.parse(r1.stdout);
+    const p2 = JSON.parse(r2.stdout);
+    expect(p1.ok).toBe(true);
+    expect(p2.ok).toBe(true);
+    const winner = p1.task ? p1 : p2;
+    const loser = p1.task ? p2 : p1;
+    // Exactly one claimed the task …
+    expect(winner.task.id).toBe("w1000000000000000000000000000aa");
+    expect(winner.task.status).toBe("in-progress");
+    // … and the loser got the empty success, not the same task.
+    expect(loser.task).toBeNull();
+    const onDisk = JSON.parse(
+      readFileSync(
+        taskFile(dir, "w1000000000000000000000000000aa"),
+        "utf-8",
+      ),
+    );
+    expect(onDisk.status).toBe("in-progress");
+  });
+
+  it("6: CLI --next --dry-run previews the live pick and writes nothing", async () => {
+    // P3 (ticket 6452504d): the preview names the SAME task the live call
+    // takes from a reset snapshot, with zero effects — on both surfaces.
+    const dir = freshProject();
+    seedGitUser(dir);
+    seedTask(dir, {
+      id: "v1000000000000000000000000000aa",
+      title: "previewed",
+      status: "todo",
+      priority: "High",
+    });
+    const home = freshHome();
+    const preview = await spawnCli(["tasks", dir, "--next", "--dry-run", "--json"], {
+      cwd: dir,
+      home,
+    });
+    expect(preview.code).toBe(0);
+    const previewed = JSON.parse(preview.stdout);
+    expect(previewed.ok).toBe(true);
+    expect(previewed.task.id).toBe("v1000000000000000000000000000aa");
+    // Still todo: the preview wrote nothing.
+    expect(JSON.parse(readFileSync(taskFile(dir, "v1000000000000000000000000000aa"), "utf-8")).status).toBe("todo");
+    // The live call takes the previewed task.
+    const live = await spawnCli(["tasks", dir, "--next", "--json"], {
+      cwd: dir,
+      home,
+    });
+    expect(JSON.parse(live.stdout).task.id).toBe("v1000000000000000000000000000aa");
+    // MCP dryRun agrees with the CLI preview on the same snapshot shape.
+    const dir2 = freshProject();
+    seedGitUser(dir2);
+    seedTask(dir2, {
+      id: "v2000000000000000000000000000aa",
+      title: "previewed mcp",
+      status: "todo",
+    });
+    const env: McpTestEnv = await bootMcpServer(dir2);
+    try {
+      const client = newClient(env.mcpUrl);
+      await initialize(client);
+      const mcpPreview = await assertJsonTextContent(
+        await callTool(client, "claim_next_task", { dryRun: true }),
+      );
+      expect(mcpPreview.id).toBe("v2000000000000000000000000000aa");
+      expect(
+        JSON.parse(readFileSync(taskFile(dir2, "v2000000000000000000000000000aa"), "utf-8")).status,
+      ).toBe("todo");
+    } finally {
+      await env.cleanup();
+    }
+  });
 });

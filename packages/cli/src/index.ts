@@ -21,18 +21,14 @@ import {
   generateTaskId,
   ensureTaskDirs,
   findTaskFilePath,
-  claimNextTaskAtomic,
   summariseChildren,
   getParentId,
-  isChildTask,
-  isParentChainActive,
-  getUnfinishedBlockers,
   writeSortKeyMinimal,
   isResearchType,
   planTaskStoreNormalize,
   applyTaskStoreNormalize,
 } from "./core/tasks.js";
-import { listComments, addComment } from "./core/comments.js";
+import { addComment } from "./core/comments.js";
 import { resolveListLimit } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
 import { listFiles, saveFile } from "./core/files.js";
@@ -48,11 +44,7 @@ import {
 } from "./core/project-root.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
-import {
-  TASK_STATUSES,
-  TASK_TYPE_VALUES,
-  getPriorityRank,
-} from "./core/types.js";
+import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
 import { PROTO_DIR } from "./core/types.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
@@ -62,7 +54,14 @@ import {
 } from "./core/operation-context.js";
 import * as operations from "./core/operations.js";
 import type { OperationContext } from "./core/operations.js";
-import type { ListTasksInputType } from "@vibeflow-tools/api-core";
+import type {
+  ClaimNextTaskInputType,
+  ListTasksInputType,
+} from "@vibeflow-tools/api-core";
+import {
+  collectBlockedCandidates,
+  collectStrandedCandidates,
+} from "./core/claim-eligibility.js";
 import {
   localListJsonPayload,
   remoteListJsonPayload,
@@ -2639,60 +2638,61 @@ program
         if (opts.next) {
           const nextMode = await getMode();
           if (nextMode === "saas") {
-            const nextWorkspace = await readWorkspace();
-            // Unhydrated: claiming needs statuses/priorities only, and the
-            // failure names its status/path instead of a catch-all.
-            const saasData = await fetchSaasTasks(nextWorkspace?.id, {
-              hydrate: false,
-            });
-            if (!saasData.ok) {
-              const nextReadMessage = saasReadErrorMessage(saasData.error);
+            // P3 (ticket 6452504d): the online claim goes through the shared
+            // claimNextTask operation — exactly ONE versioned agent-claim
+            // POST whose selection and write the server owns — never a
+            // client-side list-then-PATCH. That read-then-write raced (two
+            // agents could take the same task), ignored blockers/ancestry,
+            // and could report success the remote refused.
+            const nextSaasDir = resolve(dir);
+            const nextSaasCtx: OperationContext = {
+              projectDir: nextSaasDir,
+              mode: "saas",
+              userId: getGitUser(nextSaasDir).name,
+            };
+            if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
+            if (opts.user) {
+              // The user hint still names unknown authors before claiming:
+              // one unhydrated snapshot through the read ports (the same
+              // authority the claim resolves through).
+              const { store: nextSaasScopeStore } =
+                resolveReadPorts(nextSaasCtx);
+              const nextSaasScope = await nextSaasScopeStore.listTasks(
+                nextSaasDir,
+              );
+              if (!validateUserFilter(opts.user, nextSaasScope, opts.json))
+                return;
+            }
+            const nextSaasClaim = await operations.claimNextTask(
+              nextSaasCtx,
+              {
+                type: opts.type as ClaimNextTaskInputType["type"],
+                user: opts.user,
+                tag: opts.tag,
+                dryRun: opts.dryRun === true,
+              },
+            );
+            if (!nextSaasClaim.ok) {
+              // A remote refusal travels verbatim (old-server, auth, scope,
+              // transport) — never relabelled, never worked around.
+              const refusal = operationRefusalEnvelope(nextSaasClaim.error);
               if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  ...saasFailure(saasData.error),
-                  message: nextReadMessage,
-                  json: opts.json,
-                });
+                outputEnvelope({ ...refusal, json: opts.json });
               } else {
-                console.log(chalk.red(`✗ ${nextReadMessage}`));
+                console.log(chalk.red(`✗ ${refusal.message}`));
+                if (refusal.suggestion) {
+                  console.log(chalk.dim(`  ${refusal.suggestion}`));
+                }
               }
-              process.exitCode = ExitCode.GENERAL;
+              process.exitCode = refusalExitCode(nextSaasClaim.error.code);
               return;
             }
-            if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
-            let todoTasks = saasData.data.tasks
-              .map((t: SaasTask) => ({ ...t, status: toCliStatus(t.status) }))
-              .filter((t: { status: string }) => t.status === "todo");
-            if (opts.type)
-              todoTasks = todoTasks.filter(
-                (t) =>
-                  (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
-              );
-            if (
-              opts.user &&
-              !validateUserFilter(opts.user, todoTasks, opts.json)
-            )
-              return;
-            if (opts.user)
-              todoTasks = todoTasks.filter((t) =>
-                matchesUserFilter(t.author, opts.user!),
-              );
-            if (opts.tag && opts.tag.length > 0)
-              todoTasks = todoTasks.filter((t) =>
-                opts.tag!.every((tag) =>
-                  ((t as { tags?: string[] }).tags ?? []).includes(tag),
-                ),
-              );
-            todoTasks = todoTasks.sort((a, b) => {
-              const byPriority =
-                getPriorityRank(a.priority ?? undefined) -
-                getPriorityRank(b.priority ?? undefined);
-              if (byPriority !== 0) return byPriority;
-              return sortByCreatedAt(a, b);
-            });
-
-            if (todoTasks.length === 0) {
+            const nextTask = nextSaasClaim.data;
+            const nextSaasIsDryRun = opts.dryRun === true;
+            const nextSaasChildClaim = (nextSaasClaim.steps ?? []).some(
+              (s) => s.code === "CHILD_CLAIM",
+            );
+            if (!nextTask) {
               // "No work available" is a SUCCESS on both surfaces, so the
               // filter hints stay a human-mode nicety and the machine answer
               // is the SAME payload the local path emits.
@@ -2713,45 +2713,17 @@ program
               return;
             }
 
-            const nextTask = todoTasks[0];
-            const updated = await updateSaasTask(nextTask.id, {
-              status: "in-progress",
-            });
-            if (!updated) {
-              // Defensive: updateSaasTask resolves a SaasResult, never a
-              // falsy value, so this only fires if that contract changes.
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: "E_BACKEND_UNAVAILABLE",
-                  retryable: true,
-                  message: `Failed to move task to in-progress: ${nextTask.id}`,
-                  suggestion:
-                    "Check your connection or run 'vibeflow login', then retry.",
-                  json: opts.json,
-                });
-              } else {
-                console.log(
-                  chalk.red(
-                    `✗ Failed to move task to in-progress: ${nextTask.id}`,
-                  ),
-                );
-              }
-              process.exitCode = ExitCode.GENERAL;
-              return;
-            }
-
-            const nextSaasNextActions = getNextActions(
-              "set-status:in-progress",
-              nextTask.id,
-            );
+            const nextSaasNextActions = nextSaasIsDryRun
+              ? []
+              : getNextActions("set-status:in-progress", nextTask.id);
             if (opts.json) {
               outputEnvelope({
                 ok: true,
                 json: opts.json,
                 payload: {
-                  task: { ...nextTask, status: "in-progress" },
+                  task: nextTask,
                   next_actions: nextSaasNextActions,
+                  childClaim: nextSaasChildClaim,
                 },
               });
               return;
@@ -2771,21 +2743,39 @@ program
               requireVerifyBeforeReview: nextSettings.requireVerifyBeforeReview,
             });
 
+            // The claimed record arrives through the shared operation in the
+            // local Task shape (mapped from the online row, status already
+            // in-progress — a dry-run preview stays todo, which is how a
+            // consumer tells nothing was written).
             console.log(
-              chalk.green.bold(
-                "▶ NEXT TASK — Status moved to in-progress. Implement this now:",
-              ),
+              nextSaasIsDryRun
+                ? chalk.green.bold(
+                    "▶ WOULD CLAIM (dry-run — nothing was written):",
+                  )
+                : chalk.green.bold(
+                    "▶ NEXT TASK — Status moved to in-progress. Implement this now:",
+                  ),
             );
             console.log();
             console.log(
-              `  ${chalk.blue(`[in-progress]`)} ${chalk.bold(nextTask.title)}`,
+              `  ${chalk.blue(`[${nextTask.status}]`)} ${chalk.bold(nextTask.title)}`,
             );
             console.log(chalk.dim(`    id:       ${nextTask.id}`));
             if (nextTask.type)
               console.log(chalk.dim(`    type:     ${nextTask.type}`));
             if (nextTask.priority)
               console.log(chalk.dim(`    priority: ${nextTask.priority}`));
-            console.log(chalk.dim(`    created:  ${nextTask.createdAt}`));
+            console.log(chalk.dim(`    created:  ${nextTask.created}`));
+            if (nextSaasChildClaim) {
+              const saasParentId = (nextTask.links ?? []).find(
+                (l) => l.type === "parent",
+              )?.taskId;
+              console.log(
+                chalk.yellow(
+                  `  ⤷ CHILD CLAIM — no todo root was available, so this claims a todo child${saasParentId ? ` of ${saasParentId.slice(0, 8)}` : ""}.`,
+                ),
+              );
+            }
             if (nextTask.description) {
               console.log(chalk.dim(`    description:`));
               for (const line of nextTask.description.split("\n"))
@@ -2799,71 +2789,84 @@ program
                 chalk.dim(`    comments (${sortedNextComments.length}):`),
               );
               for (const c of sortedNextComments) {
-                const author = (c as { authorId?: string }).authorId
-                  ? `user:${(c as { authorId?: string }).authorId!.slice(0, 8)}`
-                  : "agent";
-                console.log(chalk.dim(`      [${author}] ${c.createdAt}`));
-                for (const line of c.body.split("\n"))
+                console.log(chalk.dim(`      [${c.author}] ${c.createdAt}`));
+                for (const line of c.text.split("\n"))
                   console.log(chalk.dim(`        ${line}`));
               }
             }
             console.log();
-            console.log(
-              chalk.yellow(
-                "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
-              ),
-            );
-            printNextHint(nextSaasNextActions);
+            if (!nextSaasIsDryRun) {
+              console.log(
+                chalk.yellow(
+                  "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
+                ),
+              );
+              printNextHint(nextSaasNextActions);
+            }
             return;
           }
 
           // ── Local next mode ──────────────────────────────────────────────
+          // P3 (ticket 6452504d): the claim goes through the shared
+          // claimNextTask operation (same primitive the MCP tool calls),
+          // and the blocked/stranded/children context below derives from a
+          // board snapshot read through the operation's ports — never a
+          // second store read at this surface. The --user empty-list
+          // validation pin (tasks-json-refusals) is preserved verbatim.
           const nextProjectDir = resolve(dir);
           if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
           if (opts.user && !validateUserFilter(opts.user, [], opts.json)) return;
 
-          const nextClaimOpts = {
-            type: opts.type,
+          const nextClaimFilter = {
+            type: opts.type as ClaimNextTaskInputType["type"],
             user: opts.user,
             tag: opts.tag,
-            author: getGitUser(nextProjectDir).name,
           };
-          // Roots first: the root is the unit of work and its children come
-          // back alongside it. But a todo child parented under a non-todo
-          // parent must never be invisible: when no todo root is claimable,
-          // fall back to the highest-priority matching child and say so
-          // explicitly (revised rule — see the --next help text).
-          let nextUpdated = claimNextTaskAtomic(nextProjectDir, {
-            ...nextClaimOpts,
-            rootsOnly: true,
+          const nextCtx: OperationContext = {
+            projectDir: nextProjectDir,
+            mode: "local",
+            userId: getGitUser(nextProjectDir).name,
+          };
+          const nextIsDryRun = opts.dryRun === true;
+          const nextClaim = await operations.claimNextTask(nextCtx, {
+            ...nextClaimFilter,
+            dryRun: nextIsDryRun,
           });
-          let nextIsChildClaim = false;
-          if (!nextUpdated) {
-            nextUpdated = claimNextTaskAtomic(nextProjectDir, nextClaimOpts);
-            nextIsChildClaim = nextUpdated !== null;
+          if (!nextClaim.ok) {
+            const refusal = operationRefusalEnvelope(nextClaim.error);
+            if (opts.json) {
+              outputEnvelope({ ...refusal, json: opts.json });
+            } else {
+              console.log(chalk.red(`✗ ${refusal.message}`));
+              if (refusal.suggestion) {
+                console.log(chalk.dim(`  ${refusal.suggestion}`));
+              }
+            }
+            process.exitCode = refusalExitCode(nextClaim.error.code);
+            return;
           }
+          // Roots first is the operation's two-phase shape (rootsOnly claim,
+          // live-children fallback saying so explicitly) — the root is the
+          // unit of work, so a todo child parented under non-todo work is
+          // never invisible (revised rule — see the --next help text).
+          const nextUpdated = nextClaim.data;
+          const nextIsChildClaim = (nextClaim.steps ?? []).some(
+            (s) => s.code === "CHILD_CLAIM",
+          );
 
           // Blocked candidates the claim above skipped: every filter-matching
           // todo whose `blocks` link points at unfinished work. Computed AFTER
           // the claim, so the just-claimed task (now in-progress) is excluded
           // and the remainder is exactly what `--next` refused to hand out.
-          // Only `done` satisfies a link — `review` is NOT done.
-          const nextBoard = listTasks(nextProjectDir);
-          const nextBlocked = nextBoard
-            .filter(
-              (t) =>
-                t.status === "todo" &&
-                (!nextClaimOpts.type || t.type === nextClaimOpts.type) &&
-                (!nextClaimOpts.user || t.author === nextClaimOpts.user) &&
-                (!nextClaimOpts.tag?.length ||
-                  (t.tags &&
-                    nextClaimOpts.tag.every((tag) => t.tags!.includes(tag)))),
-            )
-            .map((t) => ({
-              task: t,
-              blockers: getUnfinishedBlockers(t, nextBoard),
-            }))
-            .filter((b) => b.blockers.length > 0);
+          // Only `done` satisfies a link — `review` is NOT done. The snapshot
+          // comes from the read ports (same authority the operation read),
+          // and the policy itself is the shared selector module.
+          const { store: nextDisplayStore } = resolveReadPorts(nextCtx);
+          const nextBoard = await nextDisplayStore.listTasks(nextProjectDir);
+          const nextBlocked = collectBlockedCandidates(
+            nextBoard,
+            nextClaimFilter,
+          );
           const formatBlockedLine = (b: {
             task: { id: string; title: string };
             blockers: { id: string; title: string; status: string }[];
@@ -2880,31 +2883,10 @@ program
           // A backlog parent still shows its children locally (`tasks --get
           // <id>` ends with "children (n):"), so the unit stays actionable
           // by hand: move the parent to todo, or claim the child by id.
-          const nextStranded = nextBoard
-            .filter(
-              (t) =>
-                t.status === "todo" &&
-                isChildTask(t) &&
-                !isParentChainActive(nextBoard, t) &&
-                (!nextClaimOpts.type || t.type === nextClaimOpts.type) &&
-                (!nextClaimOpts.user || t.author === nextClaimOpts.user) &&
-                (!nextClaimOpts.tag?.length ||
-                  (t.tags &&
-                    nextClaimOpts.tag.every((tag) => t.tags!.includes(tag)))),
-            )
-            .map((t) => {
-              const pid = getParentId(t);
-              const p = pid
-                ? nextBoard.find((x) => x.id === pid)
-                : undefined;
-              return {
-                id: t.id,
-                title: t.title,
-                parentId: pid ?? null,
-                parentTitle: p?.title ?? "(not found)",
-                parentStatus: p?.status ?? null,
-              };
-            });
+          const nextStranded = collectStrandedCandidates(
+            nextBoard,
+            nextClaimFilter,
+          );
           const nextBlockedPayload = nextBlocked.map((b) => ({
             id: b.task.id,
             title: b.task.title,
@@ -2988,17 +2970,20 @@ program
             return;
           }
 
-          const nextLocalNextActions = getNextActions(
-            "set-status:in-progress",
-            nextUpdated.id,
-          );
+          // A dry-run preview names the task but writes nothing: no
+          // next actions (there is nothing to act on yet) and no
+          // "moved to in-progress" wording below — the previewed record
+          // stays todo, which is how a consumer tells nothing was claimed.
+          const nextLocalNextActions = nextIsDryRun
+            ? []
+            : getNextActions("set-status:in-progress", nextUpdated.id);
           // The root is the unit of work: report its children and their
           // statuses alongside it, so the agent can see what remains without a
           // second call. Empty for a childless root. For a child claim the
           // useful context runs the other way — the parent it was taken from.
-          const nextAllTasks = listTasks(nextProjectDir);
+          // Reuses the port snapshot above (no second store read).
           const nextLocalChildren = summariseChildren(
-            nextAllTasks,
+            nextBoard,
             nextUpdated.id,
           );
           const nextClaimedParent: {
@@ -3009,7 +2994,7 @@ program
             ? (() => {
                 const pid = getParentId(nextUpdated);
                 if (!pid) return null;
-                const p = nextAllTasks.find((t) => t.id === pid);
+                const p = nextBoard.find((t) => t.id === pid);
                 return p
                   ? { id: p.id, title: p.title, status: p.status as string }
                   : { id: pid, title: "(not found)" };
@@ -3058,32 +3043,37 @@ program
           });
 
           const config = readConfig(nextProjectDir);
-          const structuredComments = listComments(
-            nextProjectDir,
-            nextUpdated.id,
+          // Display details through the read ports (same authority the
+          // operation read — the get-task precedent), reusing the board
+          // snapshot above for relations instead of a third store read.
+          const structuredComments = (
+            await nextDisplayStore.listComments(nextProjectDir, nextUpdated.id)
           ).sort(sortByCreatedAt);
-          const linkedFiles = listFiles(nextProjectDir, nextUpdated.id).map(
-            (f) => ({
-              ...f,
-              url: `http://localhost:${config.port}${f.url}`,
-            }),
-          );
+          const linkedFiles = (
+            await nextDisplayStore.listFiles(nextProjectDir, nextUpdated.id)
+          ).map((f) => ({
+            ...f,
+            url: `http://localhost:${config.port}${f.url}`,
+          }));
           const nextLocalFilePath =
             findTaskFilePath(nextProjectDir, nextUpdated.id) ?? "";
-          const allTasks = listTasks(nextProjectDir);
           const agentMessage = renderTaskForAgent(
             nextUpdated,
             nextLocalFilePath,
             structuredComments,
             linkedFiles,
             nextProjectDir,
-            allTasks,
+            nextBoard,
           );
 
           console.log(
-            chalk.green.bold(
-              "▶ NEXT TASK — Status moved to in-progress. Implement this now:",
-            ),
+            nextIsDryRun
+              ? chalk.green.bold(
+                  "▶ WOULD CLAIM (dry-run — nothing was written):",
+                )
+              : chalk.green.bold(
+                  "▶ NEXT TASK — Status moved to in-progress. Implement this now:",
+                ),
           );
           console.log();
           if (nextBlocked.length > 0) {
@@ -3172,12 +3162,14 @@ program
             }
             console.log();
           }
-          console.log(
-            chalk.yellow(
-              "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
-            ),
-          );
-          printNextHint(nextLocalNextActions);
+          if (!nextIsDryRun) {
+            console.log(
+              chalk.yellow(
+                "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
+              ),
+            );
+            printNextHint(nextLocalNextActions);
+          }
           return;
         }
 
