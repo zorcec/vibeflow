@@ -666,10 +666,4 @@ export {
 } from "./operations/tasks.js";
 export type { ListAllTasksInput } from "./operations/tasks.js";
 export { addComment } from "./operations/comments.js";
-export {
-  attachFile,
-  attachStandalone,
-  type AttachSourceInput,
-  type AttachStandaloneInput,
-  type AttachStandaloneData,
-} from "./operations/files.js";
+export { attachFile } from "./operations/files.js";
