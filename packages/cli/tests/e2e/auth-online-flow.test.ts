@@ -163,6 +163,21 @@ async function startStub(opts?: StubOptions): Promise<{
       finish(200, "hydrated file body", "text/plain");
       return;
     }
+    // Detail contract (GET /api/v0/tasks/:id answers the bare task): the
+    // listing branch below matches by prefix, so without this route a
+    // detail read falls into the listing envelope and the caller renders
+    // a task with undefined title/id. Unknown ids 404 (drives the CLI's
+    // prefix-resolution fallback), never an empty listing.
+    const detailMatch = url.match(/^\/api\/v0\/tasks\/([^/?]+)$/);
+    if (req.method === "GET" && detailMatch) {
+      const found = tasks.get(detailMatch[1]);
+      if (!found) {
+        finish(404, { error: "not found" });
+        return;
+      }
+      finish(200, found);
+      return;
+    }
     if (req.method === "GET" && url.startsWith("/api/v0/tasks")) {
       finish(200, { items: [...tasks.values()], nextCursor: null });
       return;
