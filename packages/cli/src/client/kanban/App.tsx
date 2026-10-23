@@ -915,10 +915,12 @@ function BoardApp() {
       // server that is down or refusing the upgrade is not hammered by every
       // open board tab forever.
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
-      const attempt = wsRetryAttemptRef.current++;
-      const backoff = Math.min(2000 * 2 ** attempt, 30_000);
-      const jitter = Math.random() * 0.3 * backoff;
-      wsRetryRef.current = setTimeout(connectWs, backoff + jitter);
+      // Owner decision (2026-10-23): a flat 2s retry is correct here — there
+      // is no polling fallback, so this timer is the ONLY thing that brings a
+      // dropped board back. Do not back it off: a socket that flaps after a
+      // deploy would otherwise take minutes to recover, and the reconnect
+      // itself costs one board read (see "open" above), not a loop.
+      wsRetryRef.current = setTimeout(connectWs, 2000);
     });
     ws.addEventListener("error", () => {
       // On error, let 'close' handle reconnection
