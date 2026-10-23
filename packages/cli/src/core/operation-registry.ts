@@ -96,7 +96,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["tasks --commit", "tasks --task", "tasks --message"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "commitTaskPathsOperation",
     reason:
       "Explicit pathspec git commit stays CLI-only; no MCP destructive tool is added (P5).",
   },
@@ -130,7 +130,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["tasks --delete", "tasks --yes"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "deleteTaskOperation",
     reason:
       "Local parent refusal vs online cascade differ today; no MCP delete tool is added (P5).",
   },
@@ -289,7 +289,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["tasks --normalize", "tasks --apply"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "normalizeTaskStore",
     reason: "One-time local store healing (dry-run default); CLI-only maintenance (P5).",
   },
   pullFromBoard: {
@@ -321,7 +321,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["tasks --reindex-sort-keys"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "reindexTaskSortKeys",
     reason: "One-time local board-ordering maintenance; CLI-only (P5).",
   },
   startKanban: {
@@ -466,59 +466,21 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
 
 /**
  * Live CLI flags that are real product modes still inline in `src/index.ts`
- * — the sibling-lane attach/delete modes and the P5 maintenance modes. Each
- * names its removal phase: the ratchet treats them as covered TODAY but
- * fails entries that outlive their phase's bypass removal. No silent
+ * — each names its removal phase: the ratchet treats them as covered TODAY
+ * but fails entries that outlive their phase's bypass removal. No silent
  * catch-all: every entry carries the phase and the reason.
+ *
+ * Empty since P5 (ticket 4a5f7df6): every P5 mode — standalone attach
+ * (--attach/--move), delete (--delete/--yes), explicit commit
+ * (--commit/--task/--message) and maintenance
+ * (--normalize/--apply/--reindex-sort-keys) — routes through its shared
+ * operation, so no bypass entries remain. Later phases re-add their own
+ * entries here until their extraction lands.
  */
 export const TEMPORARY_CLI_FLAGS: Record<
   string,
   { phase: string; reason: string }
-> = {
-  "tasks --apply": {
-    phase: "P5",
-    reason:
-      "Write switch for --normalize; moves with normalizeTaskStore extraction.",
-  },
-  "tasks --attach": {
-    phase: "P5",
-    reason:
-      "Standalone attach mode added ahead of extraction; routes through the shared attach service in P5.",
-  },
-  "tasks --commit": {
-    phase: "P5",
-    reason: "Explicit pathspec commit workflow; becomes commitTaskPathsOperation.",
-  },
-  "tasks --delete": {
-    phase: "P5",
-    reason:
-      "Standalone delete mode added ahead of extraction; becomes deleteTaskOperation (no MCP tool).",
-  },
-  "tasks --message": {
-    phase: "P5",
-    reason: "Commit message for --commit only; moves with commitTaskPathsOperation.",
-  },
-  "tasks --move": {
-    phase: "P5",
-    reason: "Source-consumption flag for --attach; moves with the attach extraction.",
-  },
-  "tasks --normalize": {
-    phase: "P5",
-    reason: "Local store healing preview; becomes normalizeTaskStore.",
-  },
-  "tasks --reindex-sort-keys": {
-    phase: "P5",
-    reason: "Local ordering maintenance; becomes reindexTaskSortKeys.",
-  },
-  "tasks --task": {
-    phase: "P5",
-    reason: "Task selector for --commit/--attach modes; moves with the P5 extractions.",
-  },
-  "tasks --yes": {
-    phase: "P5",
-    reason: "Destructive-operation confirmation for --delete; becomes part of deleteTaskOperation.",
-  },
-};
+> = {};
 
 /** All operation ids, alphabetical — the registry's key order. */
 export const OPERATION_IDS = Object.keys(OPERATION_REGISTRY).sort();

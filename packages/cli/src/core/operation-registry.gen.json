@@ -451,7 +451,7 @@
         "tasks --message",
         "tasks --task"
       ],
-      "operationFn": null,
+      "operationFn": "commitTaskPathsOperation",
       "requirement": "local-only"
     },
     "createTask": {
@@ -484,7 +484,7 @@
         "tasks --delete",
         "tasks --yes"
       ],
-      "operationFn": null,
+      "operationFn": "deleteTaskOperation",
       "requirement": "selected-board"
     },
     "getAccountStatus": {
@@ -652,7 +652,7 @@
         "tasks --apply",
         "tasks --normalize"
       ],
-      "operationFn": null,
+      "operationFn": "normalizeTaskStore",
       "requirement": "local-only"
     },
     "pullFromBoard": {
@@ -688,7 +688,7 @@
       "cli": [
         "tasks --reindex-sort-keys"
       ],
-      "operationFn": null,
+      "operationFn": "reindexTaskSortKeys",
       "requirement": "local-only"
     },
     "startKanban": {
@@ -822,18 +822,7 @@
     "verify --timeout": "verifyTaskOp",
     "verify --url": "verifyTaskOp"
   },
-  "temporaryCliFlags": {
-    "tasks --apply": "P5",
-    "tasks --attach": "P5",
-    "tasks --commit": "P5",
-    "tasks --delete": "P5",
-    "tasks --message": "P5",
-    "tasks --move": "P5",
-    "tasks --normalize": "P5",
-    "tasks --reindex-sort-keys": "P5",
-    "tasks --task": "P5",
-    "tasks --yes": "P5"
-  },
+  "temporaryCliFlags": {},
   "deltas": [
     "attach-duplicate-policy",
     "changelog-raw-text",

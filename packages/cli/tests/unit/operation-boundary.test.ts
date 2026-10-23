@@ -11,11 +11,11 @@
  *   4. an operation that changes mode without the registry saying so fails
  *      (any registry edit without a regen fails via the artifact comparison).
  *
- * Pre-existing reds are NOT papered over: the sibling-lane standalone
- * attach/delete modes (tasks --attach/--move/--delete/--yes) are covered as
- * TEMPORARY_CLI_FLAGS with their P5 removal phase — the drift.test.ts G1
- * checks still fail on them until the sibling lane classifies its own flags,
- * and that list is recorded in the ticket comment, not fixed here.
+ * P5 is fully routed (ticket 4a5f7df6): the standalone attach/delete,
+ * explicit-commit and maintenance modes all run through shared operations,
+ * so TEMPORARY_CLI_FLAGS is empty and the phase-boundary pin below fails
+ * any P5 bypass entry that comes back. Later phases re-add their own
+ * entries here until their extraction lands.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
@@ -365,12 +365,32 @@ describe("operation boundary ratchet", () => {
       classifiedFlags: intentionallyNotExposed.flags,
     };
     expect(coveringSource("tasks --get", deps)).toBe("registry");
-    // Temporary flags are a subset of the intent map (lookup order finds
-    // the registry first); the temporary membership is what marks them
-    // as not-yet-routed.
+    // Every P5 mode is routed now, so its flags resolve through the
+    // registry with no temporary bypass left (lookup order finds the
+    // registry first; temporary membership is what used to mark the
+    // not-yet-routed subset).
     expect(coveringSource("tasks --attach", deps)).toBe("registry");
-    expect("tasks --attach" in deps.temporaryCliFlags).toBe(true);
     expect(coveringSource("tasks --json", deps)).toBe("classified");
+  });
+
+  it("phase boundary — P5 left no temporary bypass entries", () => {
+    // Ticket 4a5f7df6 extraction is complete: attach, delete, explicit
+    // commit and both maintenance modes run through shared operations, so
+    // no flag may still claim a P5 bypass. A re-added entry fails here
+    // until its phase's extraction lands and removes it again.
+    expect(Object.keys(TEMPORARY_CLI_FLAGS)).toEqual([]);
+    for (const id of [
+      "attachFile",
+      "deleteTaskOperation",
+      "commitTaskPathsOperation",
+      "normalizeTaskStore",
+      "reindexTaskSortKeys",
+    ] as const) {
+      expect(
+        OPERATION_REGISTRY[id].operationFn,
+        `P5 operation "${id}" must stay extracted (non-null operationFn)`,
+      ).not.toBeNull();
+    }
   });
 });
 
