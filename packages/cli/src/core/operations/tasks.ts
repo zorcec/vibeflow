@@ -25,6 +25,8 @@ import type {
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveOperationPorts } from "../task-store.js";
+import { isRemoteReadError } from "../remote-task-store.js";
+import { resolveReadPorts } from "../operation-context.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -65,7 +67,11 @@ export async function listTasks(
   input: ListTasksInputType,
 ): Promise<OperationResult<TaskListResult>> {
   try {
-    const { store } = resolveOperationPorts(ctx);
+    // P2 (ticket d7b9dc13): the READ runs against the authoritative store
+    // for this mode — remote when saas, local otherwise — resolved through
+    // the ONE shared decision in `core/operation-context.ts`. A remote
+    // failure refuses below; it never falls back to local files.
+    const { store } = resolveReadPorts(ctx);
     // Dynamic imports: the pure listing model and the read-notice helper
     // are not storage — they operate on the snapshot the port returned.
     const { queryTaskList } = await import("../task-listing.js");
@@ -114,6 +120,19 @@ export async function listTasks(
     const notices = taskReadNotices(reads);
     return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
   } catch (err) {
+    // P2: a remote refusal already names the actual failure — forward it
+    // verbatim instead of relabelling it as a local store problem.
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -137,12 +156,17 @@ export async function getTask(
     const resolved = await resolveTaskOrRefusal(ctx, input.id);
     if (!resolved.ok) return { ok: false, error: resolved.error };
     const { task } = resolved;
-    const { store } = resolveOperationPorts(ctx);
+    const { store } = resolveReadPorts(ctx);
 
     // Derive relations (parent/children/other) for ergonomic MCP access.
+    // P2: the scope comes from the store — a remote detail already names
+    // its relations, so deriving them must NOT cost a board enumeration.
     const { taskRelations } = await import("../task-links.js");
-    const allTasks = await store.listTasks(ctx.projectDir);
-    const relations = taskRelations(allTasks, task.id);
+    const scope =
+      typeof store.relationScope === "function"
+        ? await store.relationScope(ctx.projectDir, task.id)
+        : await store.listTasks(ctx.projectDir);
+    const relations = taskRelations(scope, task.id);
     const data: Record<string, unknown> = { ...task, ...relations };
 
     // Apply field selection (ticket b2e56212: a projection ALWAYS carries

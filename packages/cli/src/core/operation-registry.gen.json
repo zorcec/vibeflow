@@ -207,6 +207,7 @@
     "attach_file": {
       "cliCommand": "tasks",
       "cliFlags": [
+        "--attach",
         "--edit",
         "--report-file",
         "--set-status"

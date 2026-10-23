@@ -22,7 +22,7 @@ import type {
   OperationContext,
   OperationError,
 } from "../../core/operations.js";
-import { resolveOperationPorts } from "../../core/task-store.js";
+import { resolveReadPorts } from "../../core/operation-context.js";
 
 /**
  * The ONE `TASK_NOT_FOUND` recovery text, shared by every tool that returns
@@ -50,7 +50,9 @@ export async function resolveTaskOrRefusal(
   ctx: OperationContext,
   idOrPrefix: string,
 ): Promise<TaskResolution> {
-  const { store } = resolveOperationPorts(ctx);
+  // P2 (ticket d7b9dc13): existence is checked against the authoritative
+  // store for this mode — the same read ports the list/get operations use.
+  const { store } = resolveReadPorts(ctx);
   const outcome = await store.resolveTask(ctx.projectDir, idOrPrefix);
   if (outcome.status === "missing") {
     return {

@@ -60,6 +60,7 @@ import {
 import { PROTO_DIR } from "./core/types.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
+import { resolveReadBackend } from "./core/operation-context.js";
 import { runStdioMcp } from "./mcp/stdio.js";
 import {
   taskRelations,
@@ -2288,9 +2289,11 @@ program
         }
 
         // ── Get single task mode ───────────────────────────────────────
+        // P2 (ticket d7b9dc13): same shared backend resolution as the
+        // listing above and the MCP get_task operation.
         if (opts.get) {
           const getTaskMode = await getMode();
-          if (getTaskMode === "saas") {
+          if (resolveReadBackend(getTaskMode) === "remote") {
             // One detail request — never a (hydrated) whole-board fetch.
             // A 404 falls back to an UNHYDRATED listing for prefix
             // resolution only (--get accepts a unique prefix, resolved by
@@ -6318,8 +6321,12 @@ program
           : [];
 
         // ── SaaS online mode: fetch from backend ───────────────────────────
+        // P2 (ticket d7b9dc13): the backend decision is the ONE shared
+        // resolution in `core/operation-context.ts` — the same function the
+        // MCP read operations resolve through — so one mode can never mean
+        // two sources of truth. getMode() stays the only credential read.
         const mode = await getMode();
-        if (mode === "saas") {
+        if (resolveReadBackend(mode) === "remote") {
           const workspace = await readWorkspace();
           // Unhydrated: the listing needs only commentCount/fileCount,
           // which the list items already carry. Hydrating the whole board

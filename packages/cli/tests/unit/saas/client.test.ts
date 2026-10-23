@@ -514,9 +514,11 @@ describe("fetchSaasTasks — v0 envelope", () => {
 
   it("fails loudly instead of half-reading when pages never end (no silent page-cap stop)", async () => {
     // A cursor the server keeps answering forever: the read must refuse
-    // with BOARD_TRUNCATED after the cap rather than returning the first
-    // window of pages as if it were the whole board (that silent stop is
-    // what let a child outside the window bypass the delete guard).
+    // with BOARD_TRUNCATED rather than returning the first window of
+    // pages as if it were the whole board (that silent stop is what let a
+    // child outside the window bypass the delete guard). P2 (ticket
+    // d7b9dc13): a REPEATED cursor is a loop, so the read fails on the
+    // second sight of it instead of burning the whole page budget first.
     const seen = mockV0({
       pages: [{ items: [{ ...V0_ITEM, id: "a" }], nextCursor: "cursor-forever" }],
     });
@@ -525,7 +527,29 @@ describe("fetchSaasTasks — v0 envelope", () => {
     if (result.ok) return;
     expect(result.error.code).toBe("BOARD_TRUNCATED");
     expect(result.error.message).toContain("refusing a partial board");
-    expect(seen).toHaveLength(SAAS_LIST_MAX_PAGES);
+    expect(result.error.message).toContain("repeated");
+    expect(seen).toHaveLength(2);
+  });
+
+  it("refuses a page that carries neither items nor tasks ({} is malformed, not empty)", async () => {
+    // P2 (ticket d7b9dc13): accepting `{}` as an empty page resolved reads
+    // against a board that was never sent. One malformed page fails the
+    // whole read instead.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve("{}"),
+        json: () => Promise.resolve({}),
+      }),
+    );
+    const result = await fetchSaasTasks();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("HTTP_ERROR");
+    expect(result.error.message).toContain("without a task list");
   });
 
   it("hydrates comments (filling the v0-missing taskId), file rows, and text content", async () => {

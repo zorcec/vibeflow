@@ -233,6 +233,7 @@ export async function fetchSaasTasks(
     const listRoute = listPath.split("?")[0] as string;
     const items: SaasTask[] = [];
     let cursor: string | null = null;
+    const seenCursors = new Set<string>();
     for (let page = 0; page < SAAS_LIST_MAX_PAGES; page++) {
       const url = new URL(`${apiUrl}${listPath}`);
       if (boardId) url.searchParams.set("boardId", boardId);
@@ -257,14 +258,44 @@ export async function fetchSaasTasks(
         // comments/files already inlined.
         tasks?: SaasTask[];
       };
-      const pageItems = Array.isArray(data.items)
-        ? data.items
-        : (Array.isArray(data.tasks) ? data.tasks : []);
+      // P2 (ticket d7b9dc13): a successful page that carries NEITHER `items`
+      // NOR `tasks` is malformed, not empty — accepting `{}` as an empty
+      // page would resolve reads against a board that was never sent.
+      // P2 (ticket d7b9dc13): a successful page that carries NEITHER `items`
+      // NOR `tasks` is malformed, not empty — accepting `{}` as an empty
+      // page would resolve reads against a board that was never sent.
+      if (!Array.isArray(data.items) && !Array.isArray(data.tasks)) {
+        return {
+          ok: false,
+          error: {
+            code: "HTTP_ERROR",
+            message: `Online board answered page ${page + 1} without a task list — refusing rather than reading against a board that was never sent.`,
+            status: 200,
+            path: listRoute,
+          },
+        };
+      }
+      const pageItems = Array.isArray(data.items) ? data.items : (data.tasks as SaasTask[]);
       items.push(...pageItems);
-      cursor =
+      const next =
         typeof data.nextCursor === "string" && data.nextCursor.length > 0
           ? data.nextCursor
           : null;
+      // P2: a cursor the server already answered is a loop, not progress —
+      // fail now instead of burning the remaining page budget re-reading
+      // the same window and then refusing at the cap anyway.
+      if (next !== null && seenCursors.has(next)) {
+        return {
+          ok: false,
+          error: {
+            code: "BOARD_TRUNCATED",
+            message: `Online board repeated the list cursor "${next}" — refusing a partial board rather than resolving against it.`,
+            path: listRoute,
+          },
+        };
+      }
+      if (next !== null) seenCursors.add(next);
+      cursor = next;
       if (!cursor) break;
     }
     // A cursor that survives the whole cap means the board did not fit:

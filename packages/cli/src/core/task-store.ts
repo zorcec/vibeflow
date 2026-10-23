@@ -105,6 +105,15 @@ export interface TaskStore {
     projectDir: string,
     idOrPrefix: string,
   ): Promise<TaskResolveOutcome>;
+  /**
+   * P2 (ticket d7b9dc13): the minimal board slice the relations view
+   * derives from for ONE task. The local adapter answers the full list
+   * (the relations need the whole board); a remote adapter answers the
+   * detail-derived slice instead, so a single read never costs a board
+   * enumeration. Optional so third-party fakes keep working — callers fall
+   * back to `listTasks` when it is absent.
+   */
+  relationScope?(projectDir: string, taskId: string): Promise<Task[]>;
   createTask(
     projectDir: string,
     input: TaskCreateInput,
