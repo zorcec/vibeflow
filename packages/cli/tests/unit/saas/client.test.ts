@@ -1473,3 +1473,362 @@ describe("deleteSaasTask", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
+  const KANBAN_ORDER = ["status:asc", "priority:asc", "created:desc", "id:asc"];
+  /**
+   * Mixed board where kanban order DIFFERS from createdAt order by
+   * construction: an old in-progress task outranks a new todo task under
+   * kanban (status rank first) but sorts below it under createdAt desc.
+   * The fake answers `?sort=kanban` slices in kanban order (with the `order`
+   * echo) and plain pages in createdAt-desc order — so dropping the sort
+   * param returns the WRONG row and the same-row test below goes red.
+   */
+  function kanbanBoard() {
+    const rows = [
+      { ...SAMPLE_TASK, id: "kanban-top", status: "in-progress", priority: "High", createdAt: "2026-01-01T00:00:00.000Z" },
+      { ...SAMPLE_TASK, id: "second", status: "in-progress", priority: "Low", createdAt: "2026-02-01T00:00:00.000Z" },
+      { ...SAMPLE_TASK, id: "third", status: "todo", priority: "Critical", createdAt: "2026-03-01T00:00:00.000Z" },
+      // Newest by createdAt, but todo rank sits below in-progress — the
+      // createdAt-first row that a sort-less top-K would wrongly return.
+      { ...SAMPLE_TASK, id: "created-first", status: "todo", priority: "Medium", createdAt: "2026-09-01T00:00:00.000Z" },
+    ];
+    const kanbanOrder = rows.map((r) => r.id);
+    const createdOrder = [...rows]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .map((r) => r.id);
+    expect(kanbanOrder[0]).not.toBe(createdOrder[0]);
+    return { rows, kanbanOrder, createdOrder };
+  }
+  function mockKanbanServer(all: Array<typeof SAMPLE_TASK>, seen: string[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        const sort = u.searchParams.get("sort");
+        const rawLimit = u.searchParams.get("limit");
+        const limit = rawLimit === null ? 100 : Number(rawLimit);
+        const status = u.searchParams.get("status");
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        if (sort === "kanban") {
+          const narrowed = status === null ? all : all.filter((t) => t.status === status);
+          const page = narrowed.slice(0, limit);
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({ items: page, nextCursor: null, order: [...KANBAN_ORDER] }),
+          });
+        }
+        // No sort: createdAt-desc pages (the historical default).
+        const ordered = [...all].sort(
+          (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+        );
+        const narrowed = status === null ? ordered : ordered.filter((t) => t.status === status);
+        const page = narrowed.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page,
+              nextCursor:
+                offset + page.length < narrowed.length
+                  ? String(offset + page.length)
+                  : null,
+            }),
+        });
+      }),
+    );
+  }
+
+  it("a top-K page is ONE request with sort=kanban&limit=K", async () => {
+    const { rows } = kanbanBoard();
+    const seen: string[] = [];
+    mockKanbanServer(rows, seen);
+    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(1);
+    const u = new URL(seen[0] as string);
+    expect(u.searchParams.get("sort")).toBe("kanban");
+    expect(u.searchParams.get("limit")).toBe("1");
+    expect(result.data.tasks.map((t) => t.id)).toEqual(["kanban-top"]);
+  });
+
+  it("the one-request row equals the full-scan client-sorted row (same-row)", async () => {
+    const { rows } = kanbanBoard();
+    // Full scan: no sort hint, pages to exhaustion in createdAt order.
+    const seenFull: string[] = [];
+    mockKanbanServer(rows, seenFull);
+    const full = await fetchSaasTasks("b-1");
+    expect(full.ok).toBe(true);
+    if (!full.ok) return;
+    // Four rows fit in one default page — the point is the full scan carries
+    // no sort param and returns createdAt order, while the top-K carries it.
+    expect(seenFull.length).toBeGreaterThanOrEqual(1);
+    for (const url of seenFull) {
+      expect(new URL(url).searchParams.has("sort")).toBe(false);
+    }
+    // Client sort over the full scan (status rank, then created desc —
+    // priorities differ here so sort by the documented contract keys).
+    const { sortTasksForListing, getPriorityRank } = await import(
+      "../../../src/core/task-listing.js"
+    );
+    const { toLocalTask } = await import("../../../src/core/remote-task-store.js");
+    void getPriorityRank;
+    const mapped = full.data.tasks
+      .map((r) => toLocalTask(r as never))
+      .filter((t): t is NonNullable<typeof t> => t !== null);
+    const sorted = sortTasksForListing(mapped);
+    // One-request page for the same K.
+    const seenTopK: string[] = [];
+    mockKanbanServer(rows, seenTopK);
+    const topK = await fetchSaasTasks("b-1", { sort: "kanban", limit: 2 });
+    expect(topK.ok).toBe(true);
+    if (!topK.ok) return;
+    expect(seenTopK).toHaveLength(1);
+    expect(topK.data.tasks.map((t) => t.id)).toEqual(sorted.slice(0, 2).map((t) => t.id));
+  });
+
+  it("a bare limit without sort is NOT a row cap (full scan, historical cost)", async () => {
+    const { rows } = kanbanBoard();
+    // 600 rows: full scan at default pages costs >1 request; the point is
+    // the limit alone never caps — every row still comes back.
+    const big = Array.from({ length: 600 }, (_, i) => ({
+      ...SAMPLE_TASK,
+      id: `task-${i}`,
+      status: "todo",
+      createdAt: `2026-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const seen: string[] = [];
+    mockKanbanServer(big, seen);
+    const result = await fetchSaasTasks("b-1", { limit: 1 } as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks).toHaveLength(600);
+    expect(seen.length).toBeGreaterThan(1);
+    for (const url of seen) {
+      expect(new URL(url).searchParams.has("sort")).toBe(false);
+    }
+    void rows;
+  });
+
+  it("an old server that 400s sort falls back to the full scan (never wrong rows)", async () => {
+    const { rows } = kanbanBoard();
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        if (u.searchParams.get("sort") !== null) {
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            json: () => Promise.resolve({ error: 'sort must be "kanban"', code: "INVALID_SORT" }),
+          });
+        }
+        const limit = Number(u.searchParams.get("limit") ?? "100");
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const page = rows.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page,
+              nextCursor: offset + page.length < rows.length ? String(offset + page.length) : null,
+            }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // 1 refused top-K + the full scan pages.
+    expect(seen.length).toBeGreaterThan(1);
+    expect(result.data.tasks).toHaveLength(rows.length);
+  });
+
+  it("an order echo that is not the kanban order falls back to the full scan", async () => {
+    const { rows } = kanbanBoard();
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        if (u.searchParams.get("sort") !== null) {
+          // Old server ignoring ?sort=: default order, honestly echoed.
+          const ordered = [...rows].sort(
+            (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+          );
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({ items: ordered.slice(0, 1), nextCursor: null, order: ["createdAt:desc"] }),
+          });
+        }
+        const limit = Number(u.searchParams.get("limit") ?? "100");
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const page = rows.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page,
+              nextCursor: offset + page.length < rows.length ? String(offset + page.length) : null,
+            }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen.length).toBeGreaterThan(1);
+    expect(result.data.tasks).toHaveLength(rows.length);
+  });
+
+  it("--limit 1 on a 1,874-task board is ONE request with the kanban top row", async () => {
+    // Mirrors the LANE Q 1,874-task evidence board: 300 in-progress heads in
+    // kanban order, then todo/rest. The kanban top-1 is the first head.
+    const board = Array.from({ length: 1874 }, (_, i) => ({
+      ...SAMPLE_TASK,
+      id: `task-${String(i).padStart(4, "0")}`,
+      status: i < 300 ? "in-progress" : "todo",
+      createdAt: `2026-02-${String((i % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const seen: string[] = [];
+    mockKanbanServer(board, seen);
+    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(1);
+    expect(new URL(seen[0] as string).searchParams.get("sort")).toBe("kanban");
+    expect(result.data.tasks.map((t) => t.id)).toEqual(["task-0000"]);
+  });
+});
+
+describe("fetchSaasTasks — roots scope (ticket 05076246, LANE Z)", () => {
+  const KANBAN_ORDER = ["status:asc", "priority:asc", "created:desc", "id:asc"];
+  /**
+   * Board with a child (parent link on its own links) so a scope-ignoring
+   * server is detectable: the roots page must not contain the child row.
+   */
+  function rootsBoard() {
+    return [
+      { ...SAMPLE_TASK, id: "root-1", status: "todo", createdAt: "2026-03-01T00:00:00.000Z" },
+      { ...SAMPLE_TASK, id: "root-2", status: "todo", createdAt: "2026-02-01T00:00:00.000Z" },
+      {
+        ...SAMPLE_TASK,
+        id: "kid-1",
+        status: "todo",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        links: [{ taskId: "root-1", type: "parent" }],
+      },
+    ];
+  }
+  function mockRootsServer(all: Array<typeof SAMPLE_TASK>, seen: string[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        const sort = u.searchParams.get("sort");
+        const scope = u.searchParams.get("scope");
+        const limit = Number(u.searchParams.get("limit") ?? "100");
+        const rows = scope === "roots"
+          ? all.filter(
+              (t) =>
+                !(
+                  Array.isArray((t as { links?: unknown }).links) &&
+                  ((t as { links: Array<{ type?: unknown }> }).links ?? []).some(
+                    (l) => typeof l === "object" && l !== null && l.type === "parent",
+                  )
+                ),
+            )
+          : all;
+        const page = rows.slice(0, limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page,
+              nextCursor: null,
+              ...(sort === "kanban" ? { order: [...KANBAN_ORDER] } : {}),
+            }),
+        });
+      }),
+    );
+  }
+
+  it("scope=roots&sort=kanban&limit=K is ONE request returning only roots", async () => {
+    const seen: string[] = [];
+    mockRootsServer(rootsBoard(), seen);
+    const result = await fetchSaasTasks("b-1", { scope: "roots", sort: "kanban", limit: 2 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seen).toHaveLength(1);
+    const u = new URL(seen[0] as string);
+    expect(u.searchParams.get("scope")).toBe("roots");
+    expect(u.searchParams.get("sort")).toBe("kanban");
+    expect(u.searchParams.get("limit")).toBe("2");
+    expect(result.data.tasks.map((t) => t.id)).toEqual(["root-1", "root-2"]);
+  });
+
+  it("a scope-ignoring old server (child in the page) falls back to the full scan", async () => {
+    const all = rootsBoard();
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        const u = new URL(url);
+        if (u.searchParams.get("scope") !== null) {
+          // Old server: ignores ?scope= and answers peers (child first —
+          // newest createdAt) with the kanban order echo.
+          const ordered = [...all].sort(
+            (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+          );
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                items: ordered.slice(0, Number(u.searchParams.get("limit") ?? "100")),
+                nextCursor: null,
+                order: [...KANBAN_ORDER],
+              }),
+          });
+        }
+        const limit = Number(u.searchParams.get("limit") ?? "100");
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const page = all.slice(offset, offset + limit);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              items: page,
+              nextCursor: offset + page.length < all.length ? String(offset + page.length) : null,
+            }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks("b-1", { scope: "roots", sort: "kanban", limit: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // 1 refused top-K (child leaked) + the full scan pages.
+    expect(seen.length).toBeGreaterThan(1);
+    expect(result.data.tasks).toHaveLength(all.length);
+  });
+
+  it("scope without sort+limit is ignored (full scan, historical cost)", async () => {
+    const seen: string[] = [];
+    mockRootsServer(rootsBoard(), seen);
+    const result = await fetchSaasTasks("b-1", { scope: "roots" } as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.tasks).toHaveLength(3);
+    for (const url of seen) {
+      expect(new URL(url).searchParams.has("scope")).toBe(false);
+    }
+  });
+});

@@ -585,3 +585,234 @@ describe("listTasks preFilter — server-side status narrowing (LANE Q step 2)",
     }
   });
 });
+
+describe("listTasks top-K — ?sort=kanban&limit=K (ticket 05076246)", () => {
+  const KANBAN_ORDER = ["status:asc", "priority:asc", "created:desc", "id:asc"];
+  /**
+   * Fake honouring `status` (SET-narrowing) + `sort=kanban&limit=K` (top-K
+   * page in kanban order, with the `order` echo) + offset `cursor` paging
+   * in createdAt-desc order otherwise. A storage-`cancelled` row is present
+   * so the `done` guard has teeth; a child (parent link) is present so the
+   * root-only guard has teeth; priorities mix so the rank key has teeth.
+   */
+  function stubKanbanBoard(statuses: Array<{ status: string; priority?: string | null; childOf?: string }>) {
+    const seen: string[] = [];
+    const rows = statuses.map((s, i) => ({
+      ...v0Task(`task-${String(i).padStart(4, "0")}`, {
+        status: s.status,
+        ...(s.priority !== undefined ? { priority: s.priority } : {}),
+        createdAt: `2026-03-${String((i % 27) + 1).padStart(2, "0")}T12:00:00.000Z`,
+        ...(s.childOf !== undefined ? { links: [{ taskId: s.childOf, type: "parent" }] } : {}),
+      }),
+    }));
+    // True kanban comparator mirroring the server contract (and the client
+    // sort over toLocalTask-mapped rows): status rank with storage
+    // `cancelled` ranked with `done`, priority rank, created desc, id.
+    const statusRank = (storage: string): number => {
+      const cli = storage === "cancelled" ? "done" : storage === "in_progress" ? "in-progress" : storage;
+      return ["in-progress", "review", "todo", "backlog", "done"].indexOf(cli);
+    };
+    const priorityRank = (p: unknown): number => {
+      const v = String((p as string | null) ?? "Medium").trim().toLowerCase();
+      if (v === "critical") return 0;
+      if (v === "high") return 1;
+      if (v === "low") return 3;
+      return 2;
+    };
+    const kanbanSort = <T extends { id: string; status: string; priority?: unknown; createdAt: string }>(input: T[]): T[] =>
+      [...input].sort((a, b) => {
+        const byStatus = statusRank(a.status) - statusRank(b.status);
+        if (byStatus !== 0) return byStatus;
+        const byPriority = priorityRank(a.priority) - priorityRank(b.priority);
+        if (byPriority !== 0) return byPriority;
+        const byCreated = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+        if (byCreated !== 0) return byCreated;
+        return a.id.localeCompare(b.id);
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        if (url.includes("/api/v0/boards")) {
+          const body = { items: [{ id: "board-1", name: "B1" }], nextCursor: null };
+          return Promise.resolve({
+            ok: true, status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(body)),
+            json: () => Promise.resolve(body),
+          });
+        }
+        const u = new URL(url);
+        const status = u.searchParams.get("status");
+        const sort = u.searchParams.get("sort");
+        const scope = u.searchParams.get("scope");
+        const rawLimit = u.searchParams.get("limit");
+        const limit = rawLimit === null ? 100 : Number(rawLimit);
+        const offset = Number(u.searchParams.get("cursor") ?? "0");
+        const scoped = scope === "roots"
+          ? rows.filter(
+              (t) =>
+                !(
+                  Array.isArray((t as { links?: unknown }).links) &&
+                  ((t as { links: Array<{ type?: unknown }> }).links ?? []).some(
+                    (l) => typeof l === "object" && l !== null && l.type === "parent",
+                  )
+                ),
+            )
+          : rows;
+        const matching = scoped.filter((t) => status === null || (t as { status: string }).status === status);
+        if (sort === "kanban") {
+          const page = kanbanSort(matching as Array<{ id: string; status: string; priority?: unknown; createdAt: string }>).slice(0, limit);
+          return Promise.resolve({
+            ok: true, status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify({ items: page, nextCursor: null, order: [...KANBAN_ORDER] })),
+            json: () => Promise.resolve({ items: page, nextCursor: null, order: [...KANBAN_ORDER] }),
+          });
+        }
+        const page = matching.slice(offset, offset + limit);
+        const body = {
+          items: page,
+          nextCursor: offset + page.length < matching.length ? String(offset + page.length) : null,
+        };
+        return Promise.resolve({
+          ok: true, status: 200,
+          headers: { get: () => "application/json" },
+          text: () => Promise.resolve(JSON.stringify(body)),
+          json: () => Promise.resolve(body),
+        });
+      }),
+    );
+    return { seen, rows };
+  }
+
+  it("unfiltered --children --limit 1 is ONE request with the kanban top row", async () => {
+    // 1,874-task board (300 in-progress heads, then todo): the top-1 peer
+    // IS the kanban top row because the scope includes children. The exact
+    // head is the newest-created in-progress row (created desc within the
+    // rank) — derived from the full scan below, never hardcoded.
+    const spec = Array.from({ length: 1874 }, (_, i) => ({
+      status: i < 300 ? "in-progress" : "todo",
+    }));
+    const { seen } = stubKanbanBoard(spec);
+    const top = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      sort: "kanban",
+      limit: 1,
+      children: true,
+    });
+    const listUrls = seen.filter(isListUrl);
+    expect(listUrls).toHaveLength(1);
+    const u = new URL(listUrls[0] as string);
+    expect(u.searchParams.get("sort")).toBe("kanban");
+    expect(u.searchParams.get("limit")).toBe("1");
+    expect(top).toHaveLength(1);
+    // Same row the full scan client-sorted would head with.
+    stubKanbanBoard(spec);
+    const full = await remoteTaskStore.listTasks(PROJECT);
+    const { sortTasksForListing } = await import("../../src/core/task-listing.js");
+    expect(top.map((t) => t.id)).toEqual(sortTasksForListing(full).slice(0, 1).map((t) => t.id));
+  });
+
+  it("a pushable-status filtered --limit K is ONE request with the same rows as the full scan", async () => {
+    const spec = [
+      { status: "in-progress", priority: "High" },
+      { status: "review", priority: "Critical" },
+      { status: "todo", priority: "Critical" },
+      { status: "todo", priority: "Low" },
+      { status: "backlog", priority: "Medium" },
+      { status: "todo", priority: "Medium", childOf: "task-0002" },
+      { status: "cancelled", priority: "High" },
+      { status: "done", priority: "Low" },
+    ];
+    const { seen } = stubKanbanBoard(spec);
+    const top = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      status: "todo",
+      sort: "kanban",
+      limit: 3,
+    });
+    const listUrls = seen.filter(isListUrl);
+    expect(listUrls).toHaveLength(1);
+    const u = new URL(listUrls[0] as string);
+    expect(u.searchParams.get("sort")).toBe("kanban");
+    expect(u.searchParams.get("limit")).toBe("3");
+    expect(u.searchParams.get("status")).toBe("todo");
+    // Same rows the full scan filtered client-side would keep (status via
+    // the toCliStatus mapping, then the shared client sort, sliced to K).
+    const { sortTasksForListing } = await import("../../src/core/task-listing.js");
+    const seenFull = stubKanbanBoard(spec).seen;
+    void seenFull;
+    const full = await remoteTaskStore.listTasks(PROJECT);
+    const { toLocalTask: map } = await import("../../src/core/remote-task-store.js");
+    void map;
+    // Filter client-side exactly like queryTaskList does for status.
+    const filtered = full.filter((t) => t.status === "todo");
+    const expected = sortTasksForListing(filtered).slice(0, 3).map((t) => t.id);
+    expect(top.map((t) => t.id)).toEqual(expected);
+  });
+
+  it("status=done with sort+limit stays a full scan (cancelled rows would drop)", async () => {
+    const spec = Array.from({ length: 600 }, (_, i) => ({
+      status: i % 2 === 0 ? "done" : "in-progress",
+    }));
+    spec.push({ status: "cancelled" });
+    const { seen } = stubKanbanBoard(spec);
+    const rows = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      status: "done",
+      sort: "kanban",
+      limit: 1,
+    } as never);
+    const listUrls = seen.filter(isListUrl);
+    // Full scan at 500-row pages over 601 rows = 2 requests, none with sort.
+    expect(listUrls.length).toBeGreaterThan(1);
+    for (const url of listUrls) {
+      expect(new URL(url).searchParams.has("sort")).toBe(false);
+    }
+    // The cancelled row survives as client-side `done`.
+    expect(rows.find((t) => t.status === "done")).toBeDefined();
+  });
+
+  it("root-only unfiltered with scope=roots&sort+limit is ONE request with today's root row", async () => {
+    // 600 roots + 1 child: the scope=roots page hides the child, so the
+    // top-1 root IS today's root-only top-1 (same-row vs the full scan).
+    const spec = Array.from({ length: 600 }, (_, i) => ({ status: "todo" }));
+    spec.push({ status: "todo", childOf: "task-0000" });
+    const { seen } = stubKanbanBoard(spec);
+    const top = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      scope: "roots",
+      sort: "kanban",
+      limit: 1,
+    });
+    const listUrls = seen.filter(isListUrl);
+    expect(listUrls).toHaveLength(1);
+    const u = new URL(listUrls[0] as string);
+    expect(u.searchParams.get("scope")).toBe("roots");
+    expect(u.searchParams.get("sort")).toBe("kanban");
+    expect(u.searchParams.get("limit")).toBe("1");
+    expect(top).toHaveLength(1);
+    // Same row the full-scan root-only path heads with.
+    stubKanbanBoard(spec);
+    const full = await remoteTaskStore.listTasks(PROJECT);
+    const { sortTasksForListing } = await import("../../src/core/task-listing.js");
+    const { isChildTask } = await import("../../src/core/tasks.js");
+    const expected = sortTasksForListing(full.filter((t) => !isChildTask(t))).slice(0, 1);
+    expect(top.map((t) => t.id)).toEqual(expected.map((t) => t.id));
+  });
+
+  it("root-only sort+limit WITHOUT scope stays a full scan (peers are not roots)", async () => {
+    const spec = Array.from({ length: 600 }, (_, i) => ({
+      status: "todo",
+      ...(i === 0 ? { childOf: "task-0005" } : {}),
+    }));
+    const { seen } = stubKanbanBoard(spec);
+    const rows = await remoteTaskStore.listTasks(PROJECT, undefined, {
+      sort: "kanban",
+      limit: 1,
+    } as never);
+    const listUrls = seen.filter(isListUrl);
+    expect(listUrls.length).toBeGreaterThan(1);
+    for (const url of listUrls) {
+      expect(new URL(url).searchParams.has("sort")).toBe(false);
+    }
+    expect(rows.length).toBeGreaterThan(1);
+  });
+});
