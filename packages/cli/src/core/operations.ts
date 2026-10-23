@@ -682,3 +682,23 @@ export {
   type AttachStandaloneInput,
   type AttachStandaloneData,
 } from "./operations/files.js";
+export {
+  commitTaskPathsOperation,
+  tryAutoPush,
+  type CommitTaskPathsInput,
+  type CommitAutoPushReport,
+  type CommitTaskPathsData,
+  type CommitTaskPathsError,
+  type CommitTaskPathsResult,
+} from "./operations/git.js";
+export {
+  normalizeTaskStore,
+  reindexTaskSortKeys,
+  type NormalizeTaskStoreInput,
+  type NormalizeTaskStoreData,
+  type NormalizeTaskStoreResult,
+  type ReindexTaskSortKeysInput,
+  type ReindexPatchView,
+  type ReindexTaskSortKeysData,
+  type ReindexTaskSortKeysResult,
+} from "./operations/maintenance.js";

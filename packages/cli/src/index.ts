@@ -1,6 +1,4 @@
-import { taskReadNotices } from "./core/task-record-read.js";
 import { Command, Option } from "commander";
-import { execSync, execFileSync } from "node:child_process";
 import { serve } from "./server/server.js";
 import {
   buildIntegrationGuide,
@@ -22,10 +20,7 @@ import {
   findTaskFilePath,
   summariseChildren,
   getParentId,
-  writeSortKeyMinimal,
   isResearchType,
-  planTaskStoreNormalize,
-  applyTaskStoreNormalize,
 } from "./core/tasks.js";
 import { addComment } from "./core/comments.js";
 import { resolveListLimit } from "./core/task-listing.js";
@@ -39,8 +34,6 @@ import {
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
-import { PROTO_DIR } from "./core/types.js";
-import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
 import {
   resolveReadBackend,
@@ -100,7 +93,7 @@ import {
 import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 import { writeOnlineClone } from "./saas/clone.js";
 import { readWorkspace } from "./auth/workspace.js";
-import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync, unlinkSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
 import {
@@ -302,53 +295,9 @@ function normalizeTaskType(
 // Status ranking for listings lives in core/task-listing.ts (the ONE
 // shared listing model) — no second copy here.
 
-/**
- * Pushes, and reports how it went.
- *
- * `captureOutput` is what `--json` passes. Git does not confine its push
- * chatter to stderr — `git push --set-upstream` prints "Branch 'x' set up to
- * track 'origin/x'." on STDOUT — so an INHERITED stdio drops git's own words
- * into the middle of the one JSON document the contract promises on stdout.
- * Human mode keeps inheriting: watching the push is the point of it.
- */
-function tryAutoPush(
-  projectDir: string,
-  opts: { captureOutput?: boolean } = {},
-): { ok: boolean; error?: string } {
-  const stdio: "inherit" | ["ignore", "pipe", "pipe"] = opts.captureOutput
-    ? ["ignore", "pipe", "pipe"]
-    : "inherit";
-  try {
-    execFileSync("git", ["push"], { cwd: projectDir, stdio });
-    return { ok: true };
-  } catch {
-    try {
-      const branch = execSync("git rev-parse --abbrev-ref HEAD", {
-        cwd: projectDir,
-      })
-        .toString()
-        .trim();
-      execFileSync("git", ["push", "--set-upstream", "origin", branch], {
-        cwd: projectDir,
-        stdio,
-      });
-      return { ok: true };
-    } catch (err2) {
-      const msg = err2 instanceof Error ? err2.message : String(err2);
-      // A captured run has no console output to read, so git's own reason is
-      // folded into the message — that string is what rides the JSON payload.
-      const stderr =
-        opts.captureOutput &&
-        typeof (err2 as { stderr?: unknown }).stderr === "string"
-          ? (err2 as { stderr: string }).stderr.trim()
-          : "";
-      return {
-        ok: false,
-        error: `${msg}${stderr ? `: ${stderr}` : ""}`.slice(0, 220),
-      };
-    }
-  }
-}
+// tryAutoPush lives in `core/operations/git.ts` (the explicit-commit
+// operation owns the push effect); the post-review auto-commit path below
+// shares it via the operations barrel — one implementation, two callers.
 
 function printAgentInstructions(opts: {
   hasResearchTasks: boolean;
@@ -1487,9 +1436,12 @@ program
         // ── Reindex sort keys (one-time maintenance) ────────────────────────
         // Re-key the tasks the comparator cannot order (keyless / 'n' / same-
         // column duplicates) without touching the well-formed, column-unique
-        // keys around them. Only `sortKey` is written via updateTask, so links
-        // are untouched; updateTask bumps `updated`, which is harmless once
-        // keys decide order but does show on "last modified" surfaces.
+        // keys around them. Flag parsing and the gates above stay here; every
+        // effect — planning, minimal writes, the manifest, the post-assert —
+        // runs in the shared `reindexTaskSortKeys` operation
+        // (core/operations/maintenance.ts), so the CLI and any future caller
+        // cannot disagree on what gets re-keyed. The renderer below performs
+        // no store reads of its own.
         if (opts.reindexSortKeys) {
           if (
             opts.add ||
@@ -1507,43 +1459,59 @@ program
             process.exitCode = ExitCode.USAGE;
             return;
           }
-          const projectDir = resolve(dir);
-          const allTasks = listTasks(projectDir);
-          // Reproduce exactly what the board renders: the server maps
-          // `created` -> `createdAt` and leaves `updatedAt` unset on initial
-          // load, so this is the order compareTaskOrder sees at render time.
-          const view = allTasks.map((t) => ({
-            id: t.id,
-            status: t.status,
-            sortKey: t.sortKey,
-            createdAt: t.created,
-          }));
-          const patches = computeBackfillPlan(view);
-          const titles = new Map(allTasks.map((t) => [t.id, t.title]));
-          const oldKeys = new Map(allTasks.map((t) => [t.id, t.sortKey]));
-          const manifest = patches.map((p) => ({
-            id: p.id,
-            oldKey: oldKeys.get(p.id) ?? null,
-            newKey: p.sortKey,
+          const reindexOpCtx: OperationContext = {
+            projectDir: resolve(dir),
+            mode: "local",
+          };
+          const reindexResult = await operations.reindexTaskSortKeys(reindexOpCtx, {
+            ...(opts.dryRun ? { dryRun: true } : {}),
+          });
+          if (!reindexResult.ok) {
+            const reindexErr = reindexResult.error;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: reindexErr.code,
+                message: reindexErr.message,
+                ...(reindexErr.suggestion
+                  ? { suggestion: reindexErr.suggestion }
+                  : {}),
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${reindexErr.message}`));
+              if (reindexErr.suggestion)
+                console.log(chalk.dim(`  ${reindexErr.suggestion}`));
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          const reindexed = reindexResult.data;
+          // The JSON document carries the manifest shape (id/oldKey/newKey);
+          // titles ride the human lines only.
+          const reindexManifest = reindexed.patches.map((m) => ({
+            id: m.id,
+            oldKey: m.oldKey,
+            newKey: m.newKey,
           }));
 
-          if (opts.dryRun) {
+          if (reindexed.dryRun) {
             if (opts.json) {
               outputEnvelope({
                 ok: true,
                 json: opts.json,
                 payload: {
                   dryRun: true,
-                  count: manifest.length,
+                  count: reindexManifest.length,
                   anchorRule:
                     "whole-store unique keys (a key duplicated anywhere is re-keyed)",
-                  patches: manifest,
+                  patches: reindexManifest,
                 },
               });
             } else {
               console.log(
                 chalk.yellow(
-                  `  [dry-run] Would reindex ${manifest.length} task sortKey(s):`,
+                  `  [dry-run] Would reindex ${reindexManifest.length} task sortKey(s):`,
                 ),
               );
               // Deviation from the plan, recorded so the next reader sees it:
@@ -1556,9 +1524,9 @@ program
                   "  Anchor rule: whole-store unique keys — a key duplicated anywhere is re-keyed, so mixed-status sibling groups keep their order.",
                 ),
               );
-              for (const m of manifest) {
+              for (const m of reindexed.patches) {
                 console.log(
-                  chalk.dim(`    ${m.id}  ${titles.get(m.id) ?? ""}`),
+                  chalk.dim(`    ${m.id}  ${m.title}`),
                 );
                 console.log(
                   chalk.dim(`      ${m.oldKey ?? "(none)"} → ${m.newKey}`),
@@ -1568,123 +1536,24 @@ program
             return;
           }
 
-          let written = 0;
-          const unwritten: string[] = [];
-          for (const p of patches) {
-            // Write minimally ON PURPOSE. `updateTask` re-serialises through
-            // normalizeTask, which drops legacy fields (the singleton `commit`
-            // among them — that once cost 18 commit SHAs), reorders keys and
-            // adds defaults. This command must touch only `sortKey`/`updated`.
-            // Do NOT refactor it back onto updateTask.
-            if (writeSortKeyMinimal(projectDir, p.id, p.sortKey)) written++;
-            else unwritten.push(p.id);
-          }
-
-          // Two outcomes, not one. `writeSortKeyMinimal` can compute a patch
-          // and then decline to write it (a task file with neither a
-          // `sortKey` nor an `updated` field has nothing to edit in place), so
-          // a run that PLANNED writes and wrote NONE never touched the store.
-          // Reporting that as `ok:true` would tell a consumer the re-keying
-          // landed when nothing did — the one lie this contract must not make.
-          // Nothing landed, so it is a refusal with a non-zero exit. Refuse
-          // BEFORE the manifest, which records an apply that did not happen.
-          if (patches.length > 0 && written === 0) {
-            const message = `Reindex wrote 0 of ${patches.length} planned sortKey patch(es) — no task file was changed.`;
-            if (opts.json) {
-              outputEnvelope({
-                ok: false,
-                code: "REINDEX_WRITE_FAILED",
-                message,
-                suggestion: `Each write needs a readable task file carrying a "sortKey" or "updated" field to edit in place; unwritable: ${unwritten.join(", ")}`,
-                json: opts.json,
-              });
-            } else {
-              console.log(chalk.red(`✗ ${message}`));
-              console.log(
-                chalk.dim(
-                  `  Each write needs a readable task file carrying a "sortKey" or "updated" field to edit in place; unwritable: ${unwritten.join(", ")}`,
-                ),
-              );
-            }
-            process.exitCode = ExitCode.GENERAL;
-            return;
-          }
-
-          // Machine-readable manifest (outside tasks/, so it never enters the
-          // store listing). No git operations are performed anywhere here.
-          // Only written when the run actually changed something: a re-run is
-          // idempotent (zero patches) and must not clobber the record of the
-          // apply that did the work.
-          const manifestPath = join(
-            projectDir,
-            PROTO_DIR,
-            "reindex-sort-keys-manifest.json",
-          );
-          if (manifest.length > 0) {
-            writeFileSync(
-              manifestPath,
-              JSON.stringify(
-                { generatedAt: new Date().toISOString(), patches: manifest },
-                null,
-                2,
-              ),
-              "utf-8",
-            );
-          }
-
-          // In-command post-assert: no keyless tasks, no same-column dup groups.
-          const after = listTasks(projectDir);
-          const keyless = after.filter((t) => !t.sortKey);
-          const openKeyless = keyless.filter((t) => t.status !== "done");
-          const byStatus = new Map<string, Map<string, number>>();
-          for (const t of after) {
-            if (!t.sortKey) continue;
-            const counts = byStatus.get(t.status) ?? new Map<string, number>();
-            counts.set(t.sortKey, (counts.get(t.sortKey) ?? 0) + 1);
-            byStatus.set(t.status, counts);
-          }
-          const dupOffenders: string[] = [];
-          for (const [status, counts] of byStatus) {
-            for (const [key, n] of counts) {
-              if (n > 1) dupOffenders.push(`${status}: ${key} ×${n}`);
-            }
-          }
-          const reindexVerified =
-            openKeyless.length === 0 &&
-            keyless.length === 0 &&
-            dupOffenders.length === 0;
-
-          // Past the refusal above, `written > 0`: the re-keying itself landed,
-          // so only the post-assert can fail. That is a NOTICE on a successful
-          // run, not a refusal — the exit code stays 0 and `reindexVerified:
-          // false` says so.
-          const reindexNotices: PartialSuccessNotice[] = reindexVerified
-            ? []
-            : [
-                {
-                  code: "REINDEX_INCOMPLETE",
-                  message: `Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
-                },
-              ];
-
           if (opts.json) {
             outputEnvelope({
               ok: true,
               json: opts.json,
               payload: {
-                reindexVerified,
-                written,
-                manifestPath,
-                remainingKeyless: keyless.length,
-                sameColumnDuplicateGroups: dupOffenders.length,
-                patches: manifest,
-                ...noticeFields(reindexNotices),
+                reindexVerified: reindexed.reindexVerified,
+                written: reindexed.written,
+                manifestPath: reindexed.manifestPath,
+                remainingKeyless: reindexed.keyless,
+                sameColumnDuplicateGroups: reindexed.dupOffenders.length,
+                patches: reindexManifest,
+                ...noticeFields(reindexed.notices),
               },
             });
-          } else if (reindexVerified) {
+          } else if (reindexed.reindexVerified) {
             console.log(
               chalk.green(
-                `✓ Reindexed ${written} task sortKey(s); 0 keyless, 0 same-column duplicate groups.`,
+                `✓ Reindexed ${reindexed.written} task sortKey(s); 0 keyless, 0 same-column duplicate groups.`,
               ),
             );
             console.log(
@@ -1692,7 +1561,7 @@ program
                 "  Anchor rule: whole-store unique keys — a key duplicated anywhere is re-keyed, so mixed-status sibling groups keep their order. See docs/plans/sortkey-fix.md §7.",
               ),
             );
-            console.log(chalk.dim(`  manifest: ${manifestPath}`));
+            console.log(chalk.dim(`  manifest: ${reindexed.manifestPath}`));
             console.log(
               chalk.dim(
                 "  note: only sortKey changed; updateTask also bumped each task's `updated` timestamp.",
@@ -1704,16 +1573,21 @@ program
             // is the one `--json` carries as the warning message.
             console.log(
               chalk.yellow(
-                `⚠ Reindex incomplete: ${keyless.length} keyless (${openKeyless.length} open), ${dupOffenders.length} same-column duplicate group(s).`,
+                `⚠ Reindex incomplete: ${reindexed.keyless} keyless (${reindexed.openKeyless} open), ${reindexed.dupOffenders.length} same-column duplicate group(s).`,
               ),
             );
-            for (const o of dupOffenders) console.log(chalk.dim(`    ${o}`));
+            for (const o of reindexed.dupOffenders) console.log(chalk.dim(`    ${o}`));
           }
           return;
         }
 
         // Closed repairs share the read boundary; unknown/conflicting data
         // remains quarantined. Dry-run by default, explicit --apply to heal.
+        // Flag parsing and the gates above stay here; the preview/apply
+        // effects run in the shared `normalizeTaskStore` operation
+        // (core/operations/maintenance.ts) — a preview never writes, even
+        // with `--apply --dry-run` (dryRun overrides apply). The renderer
+        // below performs no store reads of its own.
         if (opts.normalize) {
           if (
             opts.add ||
@@ -1746,32 +1620,61 @@ program
               after: c.after,
             })),
           });
-          if (!opts.apply) {
-            const report = planTaskStoreNormalize(projectDir);
+          const normalizeOpCtx: OperationContext = {
+            projectDir,
+            mode: "local",
+          };
+          const normalizeResult = await operations.normalizeTaskStore(normalizeOpCtx, {
+            ...(opts.apply ? { apply: true } : {}),
+            ...(opts.dryRun ? { dryRun: true } : {}),
+          });
+          if (!normalizeResult.ok) {
+            const normalizeErr = normalizeResult.error;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: normalizeErr.code,
+                message: normalizeErr.message,
+                ...(normalizeErr.suggestion
+                  ? { suggestion: normalizeErr.suggestion }
+                  : {}),
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${normalizeErr.message}`));
+              if (normalizeErr.suggestion)
+                console.log(chalk.dim(`  ${normalizeErr.suggestion}`));
+            }
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          const normalized = normalizeResult.data;
+          const normalizeNotices = normalized.notices;
+          if (normalized.dryRun) {
             if (opts.json) {
               outputEnvelope({
                 ok: true,
                 json: opts.json,
                 payload: {
                   dryRun: true,
-                  count: report.changes.length,
-                  changes: report.changes.map(changeJson),
-                  unreadable: report.unreadable,
-                  quarantined: report.quarantined,
-                  ...noticeFields(taskReadNotices(report.quarantined)),
+                  count: normalized.plans.length,
+                  changes: normalized.plans.map(changeJson),
+                  unreadable: normalized.unreadable,
+                  quarantined: normalized.quarantined,
+                  ...noticeFields(normalizeNotices),
                 },
               });
-            } else if (report.changes.length === 0) {
+            } else if (normalized.plans.length === 0) {
               console.log(
                 chalk.green("✓ Store already normalized: 0 changes."),
               );
             } else {
               console.log(
                 chalk.yellow(
-                  `  [dry-run] Would normalize ${report.changes.length} task(s):`,
+                  `  [dry-run] Would normalize ${normalized.plans.length} task(s):`,
                 ),
               );
-              for (const p of report.changes) {
+              for (const p of normalized.plans) {
                 console.log(chalk.dim(`    ${p.id}`));
                 for (const c of p.changes) {
                   console.log(chalk.dim(`      ${describeChange(c)}`));
@@ -1780,48 +1683,13 @@ program
               console.log(chalk.dim("  Re-run with --apply to write."));
             }
             if (!opts.json) {
-              for (const notice of taskReadNotices(report.quarantined)) console.error(notice.message);
-              for (const f of report.unreadable) {
+              for (const notice of normalizeNotices) console.error(notice.message);
+              for (const f of normalized.unreadable) {
                 console.log(chalk.dim(`  skipped unreadable file: ${f}`));
               }
             }
             return;
           }
-          const result = applyTaskStoreNormalize(projectDir);
-          const planned = result.applied.length + result.unwritten.length;
-          // The plan named writes and NONE landed: the run touched nothing,
-          // so reporting ok:true would claim a healing that did not happen.
-          if (planned > 0 && result.applied.length === 0) {
-            const message = `Normalize wrote 0 of ${planned} planned change(s) — no task file was changed.`;
-            if (opts.json) {
-              outputEnvelope({
-                ok: false,
-                code: "NORMALIZE_WRITE_FAILED",
-                message,
-                suggestion: `Each write needs a readable task file carrying the planned key; unwritable: ${result.unwritten.join(", ")}`,
-                json: opts.json,
-              });
-            } else {
-              console.log(chalk.red(`✗ ${message}`));
-              console.log(
-                chalk.dim(
-                  `  Each write needs a readable task file carrying the planned key; unwritable: ${result.unwritten.join(", ")}`,
-                ),
-              );
-            }
-            process.exitCode = ExitCode.GENERAL;
-            return;
-          }
-          const normalizeNotices: PartialSuccessNotice[] =
-            result.unwritten.length > 0
-              ? [
-                  {
-                    code: "NORMALIZE_PARTIAL",
-                    message: `Normalize wrote ${result.applied.length} of ${planned} planned change(s); unwritten: ${result.unwritten.join(", ")}.`,
-                  },
-                ]
-              : [];
-          normalizeNotices.push(...taskReadNotices(result.quarantined));
           if (!opts.json) for (const notice of normalizeNotices) console.error(notice.message);
           if (opts.json) {
             outputEnvelope({
@@ -1829,31 +1697,31 @@ program
               json: opts.json,
               payload: {
                 dryRun: false,
-                written: result.applied.length,
-                changes: result.applied.map(changeJson),
-                unwritten: result.unwritten,
-                unreadable: result.unreadable,
-                quarantined: result.quarantined,
+                written: normalized.plans.length,
+                changes: normalized.plans.map(changeJson),
+                unwritten: normalized.unwritten,
+                unreadable: normalized.unreadable,
+                quarantined: normalized.quarantined,
                 ...noticeFields(normalizeNotices),
               },
             });
-          } else if (result.applied.length === 0) {
+          } else if (normalized.plans.length === 0) {
             console.log(
               chalk.green("✓ Store already normalized: 0 changes."),
             );
           } else {
             console.log(
               chalk.green(
-                `✓ Normalized ${result.applied.length} task(s): declared record repairs applied; other values preserved.`,
+                `✓ Normalized ${normalized.plans.length} task(s): declared record repairs applied; other values preserved.`,
               ),
             );
-            for (const p of result.applied) {
+            for (const p of normalized.plans) {
               console.log(chalk.dim(`    ${p.id}`));
               for (const c of p.changes) {
                 console.log(chalk.dim(`      ${describeChange(c)}`));
               }
             }
-            for (const id of result.unwritten) {
+            for (const id of normalized.unwritten) {
               console.log(chalk.yellow(`  ⚠ unwritten: ${id}`));
             }
           }
@@ -3389,6 +3257,14 @@ program
         }
 
         // ── Commit mode ────────────────────────────────────────────────────
+        // `tasks --commit --task <id> [--message "<msg>"] [-- <paths...>]`
+        // records a pathspec-scoped commit and links it to the task. Flag
+        // parsing and the gate above stay here; every effect — id
+        // resolution, the scoped commit, the record link, the best-effort
+        // auto-push — runs in the shared `commitTaskPathsOperation`
+        // (core/operations/git.ts), so an explicit commit can never sweep
+        // another lane's staged work into this task's commit. The renderer
+        // below performs no store or git reads of its own.
         if (opts.commit) {
           if (!opts.task) {
             outputEnvelope({ ok: false,
@@ -3401,43 +3277,60 @@ program
             process.exitCode = ExitCode.USAGE;
             return;
           }
-          const projectDir = resolve(dir);
-          // ONE id rule (`resolveSaasTaskId`, shared with every other
-          // id-taking flag): exact id wins, a UNIQUE prefix resolves, an
-          // ambiguous prefix is E_AMBIGUOUS naming the candidates — never
-          // a silent first-match.
-          const commitResolved = resolveSaasTaskId(
-            listTasks(projectDir).map((t) => ({ id: t.id, title: t.title })),
-            opts.task!,
-          );
-          if (!commitResolved.ok) {
-            if (commitResolved.code === "E_AMBIGUOUS") {
+          const commitOpCtx: OperationContext = {
+            projectDir: resolve(dir),
+            mode: "local",
+          };
+          const commitResult = await operations.commitTaskPathsOperation(commitOpCtx, {
+            id: opts.task,
+            ...(opts.message !== undefined ? { message: opts.message } : {}),
+            ...(commitPathspec.length > 0 ? { paths: commitPathspec } : {}),
+            ...(opts.dryRun ? { dryRun: true } : {}),
+            ...(opts.json ? { capturePushOutput: true } : {}),
+          });
+          if (!commitResult.ok) {
+            const commitErr = commitResult.error;
+            if (opts.json) {
               outputEnvelope({
                 ok: false,
-                code: commitResolved.code,
-                message: commitResolved.message,
-                suggestion:
-                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+                code: commitErr.code,
+                message: commitErr.message,
+                ...(commitErr.suggestion
+                  ? { suggestion: commitErr.suggestion }
+                  : {}),
                 json: opts.json,
               });
-              process.exitCode = ExitCode.USAGE;
+            } else if (commitErr.code === "GIT_COMMIT_FAILED") {
+              console.log(chalk.red(`✗ ${commitErr.message}`));
+              // Throw-path detail only: the notice path carries a
+              // suggestion but prints no `reason:` line, exactly as before.
+              if (commitErr.reason) {
+                console.log(chalk.dim(`  reason: ${commitErr.reason}`));
+              }
             } else {
-              outputEnvelope({ ok: false,
-                code: "TASK_NOT_FOUND",
-                message: `Task not found: ${opts.task}`,
-                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
+              outputEnvelope({
+                ok: false,
+                code: commitErr.code,
+                message: commitErr.message,
+                ...(commitErr.suggestion
+                  ? { suggestion: commitErr.suggestion }
+                  : {}),
                 json: opts.json,
               });
-              process.exitCode = ExitCode.NOT_FOUND;
             }
+            process.exitCode =
+              commitErr.code === "TASK_NOT_FOUND" ||
+              commitErr.code === "E_NOT_FOUND"
+                ? ExitCode.NOT_FOUND
+                : commitErr.code === "E_AMBIGUOUS" ||
+                    commitErr.code === "E_USAGE"
+                  ? ExitCode.USAGE
+                  : ExitCode.GENERAL;
             return;
           }
-          const task = listTasks(projectDir).find(
-            (t) => t.id === commitResolved.id,
-          )!;
-          const baseMsg = opts.message?.trim() || task.title;
-          if (opts.dryRun) {
-            const commitMsg = `${baseMsg} ${formatCommitTag(task.id)}`;
+          const committed = commitResult.data;
+          const commitNextActions = getNextActions("commit", committed.taskId);
+          if (committed.dryRun) {
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -3445,23 +3338,23 @@ program
                 payload: {
                   dryRun: true,
                   action: "commit",
-                  message: commitMsg,
-                  taskId: task.id,
-                  next_actions: getNextActions("commit", task.id),
+                  message: committed.message,
+                  taskId: committed.taskId,
+                  next_actions: commitNextActions,
                 },
               });
             } else {
               console.log(chalk.yellow("  [dry-run] Would commit:"));
-              console.log(chalk.dim(`    message: ${commitMsg}`));
-              console.log(chalk.dim(`    task:    ${task.id}`));
-              printNextHint(getNextActions("commit", task.id));
+              console.log(chalk.dim(`    message: ${committed.message}`));
+              console.log(chalk.dim(`    task:    ${committed.taskId}`));
+              printNextHint(commitNextActions);
             }
             return;
           }
           // Warn when committing for a Research task — code changes should not be made.
           // (Under --json stdout carries only the envelope — this warning is
           // human-mode only.)
-          if (!opts.json && (task.type ?? "").toLowerCase() === "research") {
+          if (!opts.json && (committed.taskType ?? "").toLowerCase() === "research") {
             console.log(
               chalk.yellow(
                 "⚠  WARNING: This is a Research task. Research tasks must NOT produce code changes.",
@@ -3474,168 +3367,66 @@ program
             );
             console.log();
           }
-          try {
-            const { commitTaskPaths } = await import("./core/git.js");
-            const result = commitTaskPaths(
-              projectDir,
-              task.id,
-              baseMsg,
-              commitPathspec,
+          const autoPush = committed.autoPush;
+          if (opts.json) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                commit: committed.sha,
+                linkedExisting: committed.linkedExisting,
+                committed: committed.committed,
+                leftStaged: committed.foreign,
+                // The push ran; this says how it went. `attempted: false`
+                // covers a linked existing commit (nothing new to push) and a
+                // store with autoPush off.
+                autoPush,
+                next_actions: commitNextActions,
+              },
+            });
+          } else if (committed.linkedExisting) {
+            // Nothing to commit is NOT a dead end: the caller's intent is to
+            // record that this task's work is in commit X, and when the work
+            // is already committed, X is HEAD.
+            const reason =
+              commitPathspec.length > 0
+                ? `no changes to commit for: ${commitPathspec.join(", ")}`
+                : "the task's own record has no staged changes";
+            console.log(chalk.yellow(`ℹ  Nothing to commit — ${reason}.`));
+            console.log(
+              chalk.green(`✓ Linked existing commit to task: ${committed.taskTitle}`),
             );
-            if (!result.ok) {
-              // Nothing was written on this path, so this is a refusal, not a
-              // partial success: the task record is untouched. Same code as
-              // the throw below and as the post-review auto-commit notice —
-              // "git could not commit" is one meaning, and it is not
-              // `E_USAGE` (that is reserved for a bad flag value).
-              if (opts.json) {
-                outputEnvelope({
-                  ok: false,
-                  code: "GIT_COMMIT_FAILED",
-                  message: result.error,
-                  suggestion:
-                    "Stage the task's paths with 'git add' and retry the commit.",
-                  json: opts.json,
-                });
-              } else {
-                console.log(chalk.red(`✗ ${result.error}`));
-              }
-              process.exitCode = ExitCode.GENERAL;
-              return;
-            }
+            console.log(chalk.dim(`  commit: ${committed.sha} (HEAD)`));
+            console.log(chalk.dim(`  vibeflow:  ${committed.taskId}`));
+            printNextHint(commitNextActions);
+          } else {
+            console.log(
+              chalk.green(`✓ Committed and linked to task: ${committed.taskTitle}`),
+            );
+            console.log(chalk.dim(`  commit: ${committed.sha}`));
+            console.log(chalk.dim(`  vibeflow:  ${committed.taskId}`));
+            printNextHint(commitNextActions);
+          }
 
-            // Visibility: with no pathspec the scope is the task's own record.
-            // Name any other staged paths so the caller knows they were left in
-            // the index on purpose rather than silently dropped.
-            if (commitPathspec.length === 0 && result.foreign.length > 0 && !opts.json) {
-              // Human mode only — under --json the same paths are reported as
-              // `leftStaged` inside the envelope, and stdout carries only that.
+          // Human-mode only: the push itself already ran above; these lines
+          // are the progress report, and under `--json` they would be
+          // trailing garbage behind the envelope.
+          if (autoPush.attempted && !opts.json) {
+            console.log(
+              chalk.dim("  auto-push: pushing commit to remote..."),
+            );
+            if (autoPush.ok) {
+              console.log(chalk.green("✓ Auto-push complete"));
+            } else {
               console.log(
                 chalk.yellow(
-                  "⚠  Staged changes that do NOT belong to this task were left in the index (not committed):",
+                  "⚠ Auto-push failed. Commit is local; run 'git push' manually.",
                 ),
               );
-              for (const p of result.foreign) {
-                console.log(chalk.dim(`     ${p}`));
-              }
-              console.log(
-                chalk.dim(
-                  '   Commit explicit paths with: tasks --commit --task <id> --message "<msg>" -- <paths...>',
-                ),
-              );
-              console.log();
-            }
-
-            // Auto-push is a best-effort VCS side-effect — the commit above
-            // already landed, and a failed push can be retried separately.
-            // It still RUNS under `--json`: what `--json` suppresses is the
-            // human progress lines below, not the push itself (the sibling
-            // `--edit` auto-commit path works exactly this way). So the attempt
-            // happens HERE, before the envelope: a failure has to ride the
-            // payload, because printing it would be trailing garbage behind the
-            // one document the contract promises on stdout.
-            // A linked HEAD created no new commit, so there is nothing to push.
-            const commitSettings = loadSettings(projectDir);
-            const autoPush =
-              commitSettings.autoPush && !result.linkedExisting
-                ? {
-                    attempted: true,
-                    ...tryAutoPush(projectDir, { captureOutput: opts.json }),
-                  }
-                : { attempted: false, ok: true };
-
-            const commitNextActions = getNextActions("commit", task.id);
-            if (opts.json) {
-              outputEnvelope({
-                ok: true,
-                json: opts.json,
-                payload: {
-                  commit: result.sha,
-                  linkedExisting: result.linkedExisting,
-                  committed: result.committed,
-                  leftStaged: result.foreign,
-                  // The push ran; this says how it went. `attempted: false`
-                  // covers a linked existing commit (nothing new to push) and a
-                  // store with autoPush off.
-                  autoPush,
-                  next_actions: commitNextActions,
-                },
-              });
-            } else if (result.linkedExisting) {
-              // Nothing to commit is NOT a dead end: the caller's intent is to
-              // record that this task's work is in commit X, and when the work
-              // is already committed, X is HEAD.
-              const reason =
-                commitPathspec.length > 0
-                  ? `no changes to commit for: ${commitPathspec.join(", ")}`
-                  : "the task's own record has no staged changes";
-              console.log(chalk.yellow(`ℹ  Nothing to commit — ${reason}.`));
-              console.log(
-                chalk.green(`✓ Linked existing commit to task: ${task.title}`),
-              );
-              console.log(chalk.dim(`  commit: ${result.sha} (HEAD)`));
-              console.log(chalk.dim(`  vibeflow:  ${task.id}`));
-              printNextHint(commitNextActions);
-            } else {
-              console.log(
-                chalk.green(`✓ Committed and linked to task: ${task.title}`),
-              );
-              console.log(chalk.dim(`  commit: ${result.sha}`));
-              console.log(chalk.dim(`  vibeflow:  ${task.id}`));
-              printNextHint(commitNextActions);
-            }
-
-            // Human-mode only: the push itself already ran above; these lines
-            // are the progress report, and under `--json` they would be
-            // trailing garbage behind the envelope.
-            if (autoPush.attempted && !opts.json) {
-              console.log(
-                chalk.dim("  auto-push: pushing commit to remote..."),
-              );
-              if (autoPush.ok) {
-                console.log(chalk.green("✓ Auto-push complete"));
-              } else {
-                console.log(
-                  chalk.yellow(
-                    "⚠ Auto-push failed. Commit is local; run 'git push' manually.",
-                  ),
-                );
-                if (autoPush.error) {
-                  console.log(chalk.dim(`  reason: ${autoPush.error}`));
-                }
+              if (autoPush.error) {
+                console.log(chalk.dim(`  reason: ${autoPush.error}`));
               }
             }
-          } catch (err) {
-            // Nothing was written on this path either, so the refusal is
-            // truthful: no commit record, no task-file change. The code is the
-            // SAME `GIT_COMMIT_FAILED` the notice path uses — here it means
-            // "nothing was committed", there "the task was written but the
-            // commit did not happen" — so `E_USAGE` keeps its one meaning
-            // (a bad flag value or an impossible combination) and the code↔exit
-            // -code pairing stays intact.
-            if (opts.json) {
-              outputEnvelope({
-                ok: false,
-                code: "GIT_COMMIT_FAILED",
-                message:
-                  "git commit failed — ensure changes are staged with 'git add'",
-                suggestion:
-                  err instanceof Error
-                    ? err.message
-                    : "Stage the task's paths with 'git add' and retry.",
-                json: opts.json,
-              });
-            } else {
-              console.log(
-                chalk.red(
-                  "✗ git commit failed — ensure changes are staged with 'git add'",
-                ),
-              );
-              if (err instanceof Error) {
-                console.log(chalk.dim(`  reason: ${err.message}`));
-              }
-            }
-            process.exitCode = ExitCode.GENERAL;
           }
           return;
         }
@@ -5593,7 +5384,7 @@ program
 
                   if (autoSettings.autoPush) {
                     if (!opts.json) console.log(chalk.dim("  pushing..."));
-                    const pushed = tryAutoPush(autoDir, {
+                    const pushed = operations.tryAutoPush(autoDir, {
                       captureOutput: opts.json,
                     });
                     if (pushed.ok) {

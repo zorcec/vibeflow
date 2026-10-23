@@ -1,6 +1,10 @@
 import type { Task, TaskComment } from "./types.js";
 import type { FileInfo } from "./files.js";
 import type { TaskReadFinding } from "./task-record-read.js";
+import type {
+  TaskNormalizePlan,
+  TaskNormalizeReport,
+} from "./tasks.js";
 import * as tasksModule from "./tasks.js";
 import * as commentsModule from "./comments.js";
 import * as filesModule from "./files.js";
@@ -235,6 +239,26 @@ export interface TaskStore {
     projectDir: string,
     opts?: ClaimOptions,
   ): Promise<ClaimPreview | null>;
+  /**
+   * P5 maintenance ports (ticket 4a5f7df6): local-only store healing and
+   * sort-key backfill. Optional so remote adapters and third-party fakes
+   * keep working — there is no cloud normalization, so callers fall back
+   * to the local adapter when these are absent (the same fallback shape
+   * as the optional `relationScope` above). `LocalTaskStore` below
+   * delegates 1:1 to `core/tasks.ts`, like every other port.
+   */
+  planNormalize?(projectDir: string): Promise<TaskNormalizeReport>;
+  applyNormalize?(projectDir: string): Promise<{
+    applied: TaskNormalizePlan[];
+    unwritten: string[];
+    unreadable: string[];
+    quarantined: TaskReadFinding[];
+  }>;
+  writeSortKey?(
+    projectDir: string,
+    taskId: string,
+    sortKey: string,
+  ): Promise<boolean>;
 }
 
 /**
@@ -470,6 +494,29 @@ export class LocalTaskStore implements TaskStore, LocalArtifactStore {
       childClaim: selection.childClaim,
       parentId: selection.parentId,
     };
+  }
+
+  async planNormalize(
+    projectDir: string,
+  ): Promise<TaskNormalizeReport> {
+    return tasksModule.planTaskStoreNormalize(projectDir);
+  }
+
+  async applyNormalize(projectDir: string): Promise<{
+    applied: TaskNormalizePlan[];
+    unwritten: string[];
+    unreadable: string[];
+    quarantined: TaskReadFinding[];
+  }> {
+    return tasksModule.applyTaskStoreNormalize(projectDir);
+  }
+
+  async writeSortKey(
+    projectDir: string,
+    taskId: string,
+    sortKey: string,
+  ): Promise<boolean> {
+    return tasksModule.writeSortKeyMinimal(projectDir, taskId, sortKey);
   }
 
   getFilePath(
