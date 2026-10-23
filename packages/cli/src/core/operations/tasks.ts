@@ -24,9 +24,13 @@ import type {
 } from "../operations.js";
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
-import { resolveOperationPorts } from "../task-store.js";
+import { localTaskStore } from "../task-store.js";
 import { isRemoteReadError } from "../remote-task-store.js";
-import { resolveClaimPorts, resolveReadPorts } from "../operation-context.js";
+import {
+  resolveClaimPorts,
+  resolveReadPorts,
+  resolveWritePorts,
+} from "../operation-context.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -385,7 +389,11 @@ export async function createTask(
   input: CreateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { store } = resolveOperationPorts(ctx);
+    // P4 (ticket efcd6992): the WRITE runs against the write ports —
+    // remote POST in saas mode, local files otherwise — so the MCP and
+    // CLI create share one authoritative path instead of the saas-mode
+    // write landing locally while the existence check read remotely.
+    const { store } = resolveWritePorts(ctx);
     // Links on create are MERGE, identical to `update_task`'s `links` /
     // `addLinks` union: `parent` (when given) and `links` are folded into
     // one set, a pair named twice is a no-op, and every pair is validated
@@ -546,6 +554,21 @@ export async function createTask(
     }
     return { ok: true, data: created };
   } catch (err) {
+    // A remote refusal travels VERBATIM (same rule as the read ops): the
+    // code names the actual failure (structured server refusal, auth,
+    // scope, transport) — never relabelled to a catch-all that would hide
+    // the recovery.
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -563,7 +586,11 @@ export async function updateTask(
   input: UpdateTaskInputType,
 ): Promise<OperationResult<Task>> {
   try {
-    const { store } = resolveOperationPorts(ctx);
+    // P4 (ticket efcd6992): the WRITE runs against the write ports —
+    // remote PATCH in saas mode, local files otherwise — so the MCP and
+    // CLI edit share one authoritative path. The existence check above
+    // stays on the read ports (authoritative in both modes).
+    const { store } = resolveWritePorts(ctx);
     // Existence check FIRST, from the one shared resolver. A task-scoped
     // mutation must never reach its write without this.
     const resolved = await resolveTaskOrRefusal(ctx, input.id);
@@ -979,7 +1006,20 @@ export async function updateTask(
       const { loadSettings } = await import("../settings.js");
       const { commitTaskChanges } = await import("../git.js");
       const settings = loadSettings(ctx.projectDir);
-      if (settings.autoCommit) {
+      // P4 (ticket efcd6992): the commit is a LOCAL git effect, so it runs
+      // only when the task has a local record. A saas-mode write to an
+      // online-only task has nothing local to commit — attempting it would
+      // manufacture a GIT_COMMIT_FAILED for a write that is complete — so
+      // the probe below skips silently, exactly like the CLI's
+      // local-clone guard (`listTasks(autoDir).find(...)`) before it. The
+      // probe reads through the concrete local adapter (never the write
+      // store, which is remote in saas mode) with the same snapshot rule
+      // the CLI guard used, so an unreadable record skips here too.
+      const localRecord =
+        settings.autoCommit && input.commitMessage.trim()
+          ? await localTaskStore.getTask(ctx.projectDir, task.id)
+          : undefined;
+      if (settings.autoCommit && localRecord) {
         const commitResult = commitTaskChanges(
           ctx.projectDir,
           task.id,
@@ -1006,6 +1046,23 @@ export async function updateTask(
       steps: steps.length > 0 ? steps : undefined,
     };
   } catch (err) {
+    // A remote refusal travels VERBATIM (same rule as the read ops and
+    // create above): the code names the actual failure — never relabelled
+    // to a catch-all. The comment-phase wrappers above stay wrapped: a
+    // comment write that fails after the task write landed is a durable
+    // partial effect however the board is reached, so it keeps its
+    // non-retryable UPDATE_COMMENT_FAILED shape on both backends.
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
     return {
       ok: false,
       error: {

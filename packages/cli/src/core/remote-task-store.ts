@@ -1,12 +1,27 @@
 /**
  * Remote read adapter (ticket d7b9dc13, parent e7482da5) plus the truthful
- * remote CLAIM (ticket 6452504d).
+ * remote CLAIM (ticket 6452504d) plus the authoritative remote WRITES
+ * (ticket efcd6992, P4).
  *
  * The READ half of the `TaskStore` ports, backed by the online board instead
  * of the local files. Local MCP operations running under `mode: "saas"` read
  * through here, so they see the same source of truth the CLI's online paths
  * read — a stale local copy can never look current, and a remote failure
  * refuses instead of falling back to local files.
+ *
+ * P4 (ticket efcd6992): the create/update/comment writes are routed here
+ * too, through `resolveWritePorts` — one POST/PATCH per call, awaited
+ * before success is reported, with no local file on either success or
+ * refusal. The CLI's online `--add`/`--edit` branches and the MCP write
+ * tools converge on these methods, so both surfaces POST/PATCH the board
+ * they resolved against. Field parity with the CLI's proven online wire:
+ * create sends title/description/status/boardId/links only (identity is
+ * server-stamped — no `author` member, exactly like the CLI); update
+ * PATCHes the operation-computed merge as a whole-set replace; comments
+ * POST `{text}` only. Extra server members the mapped `Task` cannot carry
+ * (`record` for the CLI's offline clone, `warning` for the CLI's
+ * passthrough) ride the returned task as NON-ENUMERABLE props — invisible
+ * to JSON/MCP wire and to equality — read back through the accessors below.
  *
  * Conventions (all fail-closed):
  * - The board is resolved ONCE per call through `resolveBoardScope`
@@ -26,17 +41,21 @@
  * - The claim IS routed here (P3): `claimNextTaskAtomic` / `previewClaim`
  *   issue exactly ONE versioned agent-claim POST (`agentVersion: 1`) and
  *   map the answer — the client never lists, never filters, never PATCHes,
- *   so a claim can never succeed when the remote refused. Other writes are
- *   still not routed here (P4 owns the remaining remote mutations): every
- *   other mutating method throws `RemoteWriteNotRoutedError`, loudly, so a
- *   misrouted write fails instead of landing on the wrong backend.
+ *   so a claim can never succeed when the remote refused. Remaining
+ *   unrouted mutations (delete, attach, maintenance) still throw
+ *   `RemoteWriteNotRoutedError`, loudly, so a misrouted write fails instead
+ *   of landing on the wrong backend (P5 owns them).
  */
 import {
+  addSaasComment,
   claimSaasTask,
+  createSaasTask,
   fetchSaasTaskDetail,
   fetchSaasTasks,
   resolveSaasTaskId,
   toCliStatus,
+  updateSaasTask,
+  type SaasComment,
   type SaasTask,
 } from "../saas/client.js";
 import { buildAgentClaimRequest } from "@vibeflow-tools/api-core";
@@ -46,8 +65,10 @@ import type {
   ClaimOptions,
   ClaimPreview,
   OperationPorts,
+  TaskCreateInput,
   TaskResolveOutcome,
   TaskStore,
+  TaskUpdateInput,
 } from "./task-store.js";
 import type {
   FileInfo,
@@ -88,7 +109,7 @@ export class RemoteWriteNotRoutedError extends Error {
   readonly code = "REMOTE_WRITE_NOT_ROUTED";
   constructor(method: string) {
     super(
-      `Remote writes are not routed yet (P3/P4 own them) — ${method} must run against the local ports`,
+      `Remote writes are not routed yet (P5 owns ${method}) — ${method} must run against the local ports`,
     );
     this.name = "RemoteWriteNotRoutedError";
   }
@@ -152,6 +173,43 @@ function toRemoteRefusal(
       retryable: error.code === "NETWORK_ERROR",
     },
   );
+}
+
+/**
+ * Write-side refusal mapping (ticket efcd6992, P4): the same fail-closed
+ * ladder as reads, except a STRUCTURED server refusal keeps its own code
+ * verbatim instead of hiding behind E_BACKEND_UNAVAILABLE. The server's
+ * answer to a bad write (e.g. INVALID_LINKS for a dangling parent) is a
+ * fact about the input — "retry" would never fix it — so CLI-online and
+ * hosted MCP refuse identically on it, exactly like the CLI's inline
+ * `--add`/`--edit` branches already did (`serverCode` passthrough).
+ *
+ * `retryable` is uniformly false: a write that failed for an unknown
+ * reason (transport, 500) may or may not have landed, so inviting a retry
+ * risks applying the mutation twice. Fix-and-resend (the suggestion) is
+ * not a blind retry — it is a new, deliberate write.
+ */
+function toRemoteWriteRefusal(
+  error: {
+    code: string;
+    message: string;
+    status?: number;
+    path?: string;
+    serverCode?: string;
+    bodyHead?: string;
+  },
+  fallbackSuggestion: string,
+): RemoteReadError {
+  if (
+    typeof error.serverCode === "string" &&
+    error.serverCode.length > 0
+  ) {
+    return new RemoteReadError(error.serverCode, error.message, {
+      suggestion: fallbackSuggestion,
+      retryable: false,
+    });
+  }
+  return toRemoteRefusal(error, fallbackSuggestion);
 }
 
 /**
@@ -239,6 +297,75 @@ function requireTask(row: SaasTask, taskId: string): Task {
     );
   }
   return mapped;
+}
+
+/**
+ * Server-only write effects that travel WITH the mapped task but never ON
+ * the wire (ticket efcd6992, P4).
+ *
+ * `record` is the create route's accepted raw — the exact bytes the CLI's
+ * offline clone persists verbatim (see `saas/clone.ts`) — and `warning` is
+ * the board's bare-string passthrough the CLI surfaces top-level beside
+ * its own `notices` array. Neither fits the portable `Task` shape, and
+ * both must stay invisible to the MCP wire (which never knew them), so
+ * they ride as NON-ENUMERABLE props: `JSON.stringify` drops them, `toEqual`
+ * ignores them, and only the CLI write renderer reads them back through
+ * the accessors below. Set immediately after mapping, before the task
+ * leaves the adapter — never re-attached downstream.
+ */
+const SAAS_RAW = Symbol.for("vibeflow.saasRaw");
+const SAAS_WARNING = Symbol.for("vibeflow.saasWarning");
+
+function attachWriteEffects(
+  task: Task,
+  raw: SaasTask,
+  warning?: string,
+): Task {
+  Object.defineProperty(task, SAAS_RAW, {
+    value: raw,
+    enumerable: false,
+    writable: false,
+  });
+  if (typeof warning === "string" && warning.length > 0) {
+    Object.defineProperty(task, SAAS_WARNING, {
+      value: warning,
+      enumerable: false,
+      writable: false,
+    });
+  }
+  return task;
+}
+
+/** The accepted server record stashed by the remote write, if any. */
+export function getSaasRaw(task: Task): SaasTask | undefined {
+  // SAFETY: the adapter stashes the raw server row under SAAS_RAW via
+  // defineProperty on the very object it returns — a Task carries no symbol
+  // keys of its own, so the read below recovers exactly what was stashed.
+  return (task as unknown as Record<symbol, unknown>)[SAAS_RAW] as
+    | SaasTask
+    | undefined;
+}
+
+/** The board's `warning` passthrough stashed by the remote write, if any. */
+export function getSaasWarning(task: Task): string | undefined {
+  // SAFETY: same stash contract as getSaasRaw — SAAS_WARNING is only ever
+  // defined by attachWriteEffects on tasks this adapter returned.
+  const warning = (task as unknown as Record<symbol, unknown>)[
+    SAAS_WARNING
+  ];
+  return typeof warning === "string" ? warning : undefined;
+}
+
+/** One v0 comment row onto the local comment shape (server stamps identity). */
+function toLocalComment(row: SaasComment): TaskComment {
+  return {
+    id: row.id,
+    author: (row.author === "user" || row.author === "agent"
+      ? row.author
+      : "agent") as TaskComment["author"],
+    text: row.body,
+    createdAt: row.createdAt,
+  };
 }
 
 
@@ -529,17 +656,122 @@ class RemoteTaskStore implements TaskStore {
   async validateAttachment(): Promise<never> {
     throw new RemoteWriteNotRoutedError("validateAttachment");
   }
-  async createTask(): Promise<never> {
-    throw new RemoteWriteNotRoutedError("createTask");
+  /**
+   * THE authoritative remote create (ticket efcd6992, P4): exactly ONE
+   * POST carrying the operation-validated fields. Identity is
+   * server-stamped — no `author` member rides the body, exactly like the
+   * CLI's online `--add` — and the returned task is the server view with
+   * the accepted raw stashed alongside it for the CLI's offline clone.
+   * A refusal throws before anything local exists; a 201 with an
+   * unmappable row refuses rather than presenting it as current.
+   */
+  async createTask(
+    _projectDir: string,
+    input: TaskCreateInput,
+  ): Promise<Task> {
+    const boardId = await resolveBoardOnce();
+    // Wire parity with the CLI's proven online `--add` body: title /
+    // description / status / boardId / links only. Type/priority/tags/url
+    // annotations have no online column on this path — the CLI drops them
+    // too — so sending them would invent a contract the server never
+    // promised; the operation validates them, the board stamps its own.
+    const created = await createSaasTask({
+      title: input.title,
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(boardId !== undefined ? { boardId } : {}),
+      ...(input.links !== undefined ? { links: input.links } : {}),
+    });
+    if (!created.ok) {
+      throw toRemoteWriteRefusal(
+        created.error,
+        "The task was NOT created — check the message, fix the input, and resend the create.",
+      );
+    }
+    const task = requireTask(created.data, created.data.id);
+    // The clone contract: the accepted record travels with the task for
+    // the CLI's explicit offline clone — never onto the MCP wire.
+    return attachWriteEffects(task, created.data);
   }
-  async updateTask(): Promise<never> {
-    throw new RemoteWriteNotRoutedError("updateTask");
+  /**
+   * THE authoritative remote update (ticket efcd6992, P4): exactly ONE
+   * PATCH carrying the operation-computed merge as a whole-set replace —
+   * the v0 PATCH replaces `links`, so the clear/merge/remove/parent-last
+   * surgery the operation performed above is what the server stores.
+   * `verified: undefined` on the input means CLEAR (the operation uses
+   * absence for "no change"), sent as explicit null. A 404 is a
+   * delete-between-reads race: null, so the operation answers the same
+   * TASK_NOT_FOUND it would for a locally vanished record. The board's
+   * `warning` passthrough (already-claimed, …) rides the returned task
+   * for the CLI renderer — never folded into the notices array.
+   */
+  async updateTask(
+    _projectDir: string,
+    taskId: string,
+    updates: TaskUpdateInput,
+  ): Promise<Task | null> {
+    const patch: {
+      status?: string;
+      title?: string;
+      description?: string;
+      branchName?: string;
+      verified?: boolean | null;
+      links?: Array<{ taskId: string; type: string }>;
+    } = {};
+    if (updates.status !== undefined) patch.status = updates.status;
+    if (updates.title !== undefined) patch.title = updates.title;
+    if (updates.description !== undefined)
+      patch.description = updates.description;
+    if (updates.branchName !== undefined)
+      patch.branchName = updates.branchName;
+    // Tri-state: absent means "no change", present-but-undefined means
+    // CLEAR — the operation clears by omitting the key locally, which the
+    // server spells as explicit null (see updateSaasTask).
+    if ("verified" in updates) patch.verified = updates.verified ?? null;
+    // Whole-set replace of the operation's merged set. Present-but-empty
+    // clears every link (clearLinks:true with nothing re-added).
+    if ("links" in updates) patch.links = updates.links ?? [];
+    // Identity is server-stamped: updates.author (claim/backfill) is a
+    // local-column attribution the PATCH has no spelling for — dropped,
+    // exactly like the CLI's online `--edit`, which never sends it.
+    const patched = await updateSaasTask(taskId, patch);
+    if (!patched.ok) {
+      if (patched.error.code === "TASK_NOT_FOUND") return null;
+      throw toRemoteWriteRefusal(
+        patched.error,
+        "The task was NOT updated — re-read it with get_task, then resend the edit.",
+      );
+    }
+    const task = requireTask(patched.data.task, taskId);
+    return attachWriteEffects(task, patched.data.task, patched.data.warning);
   }
   async deleteTask(): Promise<never> {
     throw new RemoteWriteNotRoutedError("deleteTask");
   }
-  async addComment(): Promise<never> {
-    throw new RemoteWriteNotRoutedError("addComment");
+  /**
+   * THE authoritative remote comment (ticket efcd6992, P4): exactly ONE
+   * POST of `{text}`, awaited before success is reported — the
+   * fire-and-forget that answered ok:true with the comment still in flight
+   * is what this phase removes. Identity rides the server default, exactly
+   * like the CLI's online `--comment` (which posts text only).
+   */
+  async addComment(
+    _projectDir: string,
+    taskId: string,
+    author: TaskComment["author"],
+    text: string,
+  ): Promise<TaskComment> {
+    void author;
+    const posted = await addSaasComment(taskId, text);
+    if (!posted.ok) {
+      throw toRemoteWriteRefusal(
+        posted.error,
+        "Confirm the task exists (get_task) and resend the comment — it was NOT saved.",
+      );
+    }
+    return toLocalComment(posted.data);
   }
   async updateComment(): Promise<never> {
     throw new RemoteWriteNotRoutedError("updateComment");

@@ -329,15 +329,18 @@ describe("fail-closed scope and auth", () => {
 });
 
 describe("writes are not routed here", () => {
-  it("every mutating method except the claim throws REMOTE_WRITE_NOT_ROUTED", async () => {
-    // P3 (ticket 6452504d): the claim IS routed here now — it is the one
-    // remote mutation with a truthful contract. Everything else still
-    // refuses loudly until P4.
+  it("every mutating method except claim/create/update/comment throws REMOTE_WRITE_NOT_ROUTED", async () => {
+    // P3 (ticket 6452504d): the claim IS routed here — it is the remote
+    // mutation with a truthful contract. P4 (ticket efcd6992):
+    // create/update/comment joined it (authoritative remote writes).
+    // Everything else still refuses loudly until P5.
     stubBoard({});
-    await expect(remoteTaskStore.createTask(PROJECT, {} as never)).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
-    await expect(remoteTaskStore.updateTask(PROJECT, "x", {})).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
     await expect(remoteTaskStore.deleteTask(PROJECT, "x")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
-    await expect(remoteTaskStore.addComment(PROJECT, "x", "agent", "hi")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.updateComment(PROJECT, "x", "c", "hi")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.deleteComment(PROJECT, "x", "c")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.validateAttachment(PROJECT, "a.md", 3)).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.saveFile(PROJECT, "x", "a.md", Buffer.from("hi"))).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.deleteFile(PROJECT, "x", "a.md")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
   });
 });
 

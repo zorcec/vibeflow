@@ -12,7 +12,8 @@ import type {
 } from "../operations.js";
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
-import { resolveOperationPorts } from "../task-store.js";
+import { resolveWritePorts } from "../operation-context.js";
+import { isRemoteReadError } from "../remote-task-store.js";
 import type { AddCommentInputType } from "@vibeflow-tools/api-core";
 
 export async function addComment(
@@ -20,7 +21,11 @@ export async function addComment(
   input: AddCommentInputType,
 ): Promise<OperationResult<TaskComment>> {
   try {
-    const { store } = resolveOperationPorts(ctx);
+    // P4 (ticket efcd6992): the WRITE runs against the write ports —
+    // remote POST in saas mode, local files otherwise — so the MCP and
+    // CLI comment share one authoritative path instead of the saas-mode
+    // write minting a local ghost stub while the board saw no POST.
+    const { store } = resolveWritePorts(ctx);
     // Existence check FIRST: a comment on a task that is not there used to
     // CREATE that task (title "Untitled", selector "/", status todo) and answer
     // ok:true — a ghost task on the board that no agent asked for and that the
@@ -51,6 +56,19 @@ export async function addComment(
     );
     return { ok: true, data: comment };
   } catch (err) {
+    // A remote refusal travels VERBATIM (same rule as the task writes):
+    // the code names the actual failure — never relabelled to a catch-all.
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
     return {
       ok: false,
       error: {

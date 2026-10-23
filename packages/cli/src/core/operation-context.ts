@@ -94,3 +94,31 @@ export function resolveClaimPorts(ctx: OperationContext): OperationPorts {
   }
   return resolveOperationPorts(ctx);
 }
+
+/**
+ * The ports a TASK WRITE runs against (ticket efcd6992, P4).
+ *
+ * The authoritative-write rule: `mode: "saas"` creates/updates/comments
+ * through the remote adapter's POST/PATCH (the board owns the write, so a
+ * write can never report success when the remote refused, and no local
+ * ghost file is minted on either success or refusal); `mode: "local"`
+ * writes through the file-backed store. An explicitly injected `ctx.store`
+ * always wins (tests, and callers that already resolved a store). A remote
+ * write failure refuses — it never falls back to the local files.
+ *
+ * Reads stay on `resolveReadPorts` (the existence check runs against the
+ * authoritative store either way); only the mutation resolves here.
+ */
+export function resolveWritePorts(ctx: OperationContext): OperationPorts {
+  if (ctx.store) {
+    return {
+      store: ctx.store,
+      artifacts: ctx.artifacts ?? localTaskStore,
+    };
+  }
+  if (resolveReadBackend(ctx.mode) === "remote") {
+    const store: TaskStore = remoteTaskStore;
+    return { store, artifacts: ctx.artifacts ?? localTaskStore };
+  }
+  return resolveOperationPorts(ctx);
+}

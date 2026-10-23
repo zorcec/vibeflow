@@ -1,28 +1,24 @@
 /**
- * Write-path characterization (ticket efcd6992, P4 step 1).
+ * Write-path characterization (ticket efcd6992, P4 steps 1–2).
  *
- * Pins TODAY's observable behaviour of the three task-write operations in
- * `mode: "saas"` — the divergence P4 exists to remove:
+ * Pins the AUTHORITATIVE behaviour of the three task-write operations in
+ * `mode: "saas"` — the divergence step 1 characterized and step 2
+ * removed:
  *
- * - the existence check (`resolveTaskOrRefusal`) already reads the
- *   AUTHORITATIVE store (remote in saas mode, via `resolveReadPorts`);
- * - the WRITE itself still resolves through `resolveOperationPorts`, which
- *   is the local file adapter unless a store was explicitly injected.
+ * - the existence check (`resolveTaskOrRefusal`) reads the AUTHORITATIVE
+ *   store (remote in saas mode, via `resolveReadPorts`);
+ * - the WRITE itself resolves through the mode-aware write ports
+ *   (`resolveWritePorts`) — the remote adapter in saas mode — so a
+ *   saas-mode write POSTs/PATCHes the board it resolved against.
  *
- * So a saas-mode MCP write today reads one backend and writes another:
- * create lands a local file with zero remote traffic; update of a
- * remote-only id resolves remotely then misses locally; comment on a
- * remote id resolves remotely then mints a LOCAL ghost stub (the ghost
- * the local path's resolver was added to prevent) while the remote board
- * sees no POST.
- *
- * Each test carries a flip note naming the P4 change that must turn it
- * red: routing the three writes through the mode-aware write ports
- * (`resolveWritePorts`) so a saas-mode write POSTs/PATCHes the board it
- * resolved against and writes no local file on either success or refusal.
+ * Each test proves exactly ONE remote write with the awaited durable
+ * response and an empty local store on success: create POSTs once (and
+ * sends no `author` member — identity is server-stamped); update of a
+ * remote id PATCHes once; comment POSTs once. No local file is minted on
+ * either success or refusal, and the ghost-stub path is gone.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -63,59 +59,136 @@ function v0Task(id: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-/** Stub the remote board; return every request the operation layer makes. */
-function stubRemote(remoteIds: string[]): Array<{ method: string; url: string }> {
-  const seen: Array<{ method: string; url: string }> = [];
+/**
+ * Stub the remote board; return every request the operation layer makes.
+ *
+ * The stub speaks the mutating routes too (POST collection, PATCH detail,
+ * POST comments) so the suite proves each write is exactly ONE remote
+ * request with the awaited durable response — a write that never reaches
+ * the fake fails here, and a write that reaches it twice fails the counts.
+ */
+function stubRemote(
+  remoteIds: string[],
+): Array<{ method: string; url: string; body: string }> {
+  const seen: Array<{ method: string; url: string; body: string }> = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockImplementation((url: string, init?: { method?: string }) => {
-      seen.push({ method: (init?.method ?? "GET").toUpperCase(), url });
-      if (url.includes("/api/v0/boards")) {
-        const payload = {
-          items: [{ id: "board-1", name: "B1" }],
+    vi.fn().mockImplementation(
+      (url: string, init?: { method?: string; body?: unknown }) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        const body = typeof init?.body === "string" ? init.body : "";
+        seen.push({ method, url, body });
+        const pathname = url.split("?")[0] as string;
+        if (url.includes("/api/v0/boards")) {
+          const payload = {
+            items: [{ id: "board-1", name: "B1" }],
+            nextCursor: null,
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(payload)),
+            json: () => Promise.resolve(payload),
+          });
+        }
+        const detailMatch = pathname.match(/\/api\/v0\/tasks\/([^/]+)$/);
+        const commentMatch = pathname.match(
+          /\/api\/v0\/tasks\/([^/]+)\/comments$/,
+        );
+        if (method === "POST" && pathname.endsWith("/api/v0/tasks")) {
+          const parsed = (body ? JSON.parse(body) : {}) as Record<
+            string,
+            unknown
+          >;
+          const id =
+            typeof parsed.id === "string" && parsed.id.length > 0
+              ? parsed.id
+              : "server-minted-id";
+          const row = v0Task(id, { ...parsed, id });
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(row)),
+            json: () => Promise.resolve(row),
+          });
+        }
+        if (method === "PATCH" && detailMatch) {
+          const id = detailMatch[1] as string;
+          if (!remoteIds.includes(id)) {
+            return Promise.resolve({
+              ok: false,
+              status: 404,
+              headers: { get: () => "application/json" },
+              text: () => Promise.resolve("{}"),
+              json: () => Promise.resolve({}),
+            });
+          }
+          const parsed = (body ? JSON.parse(body) : {}) as Record<
+            string,
+            unknown
+          >;
+          const row = { ...v0Task(id), ...parsed };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(row)),
+            json: () => Promise.resolve(row),
+          });
+        }
+        if (method === "POST" && commentMatch) {
+          const parsed = (body ? JSON.parse(body) : {}) as Record<
+            string,
+            unknown
+          >;
+          const row = {
+            id: "comment-1",
+            text: typeof parsed.text === "string" ? parsed.text : "",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(row)),
+            json: () => Promise.resolve(row),
+          });
+        }
+        if (method === "GET" && detailMatch) {
+          const id = detailMatch[1];
+          if (!remoteIds.includes(id)) {
+            return Promise.resolve({
+              ok: false,
+              status: 404,
+              headers: { get: () => "application/json" },
+              text: () => Promise.resolve("{}"),
+              json: () => Promise.resolve({}),
+            });
+          }
+          const detail = v0Task(id);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(detail)),
+            json: () => Promise.resolve(detail),
+          });
+        }
+        const page = {
+          items: remoteIds.map((id) => v0Task(id)),
           nextCursor: null,
         };
         return Promise.resolve({
           ok: true,
           status: 200,
           headers: { get: () => "application/json" },
-          text: () => Promise.resolve(JSON.stringify(payload)),
-          json: () => Promise.resolve(payload),
+          text: () => Promise.resolve(JSON.stringify(page)),
+          json: () => Promise.resolve(page),
         });
-      }
-      const detailMatch = url.match(/\/api\/v0\/tasks\/([^/?]+)$/);
-      if (detailMatch) {
-        const id = detailMatch[1];
-        if (!remoteIds.includes(id)) {
-          return Promise.resolve({
-            ok: false,
-            status: 404,
-            headers: { get: () => "application/json" },
-            text: () => Promise.resolve("{}"),
-            json: () => Promise.resolve({}),
-          });
-        }
-        const body = v0Task(id);
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          headers: { get: () => "application/json" },
-          text: () => Promise.resolve(JSON.stringify(body)),
-          json: () => Promise.resolve(body),
-        });
-      }
-      const page = {
-        items: remoteIds.map((id) => v0Task(id)),
-        nextCursor: null,
-      };
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        headers: { get: () => "application/json" },
-        text: () => Promise.resolve(JSON.stringify(page)),
-        json: () => Promise.resolve(page),
-      });
-    }),
+      },
+    ),
   );
   return seen;
 }
@@ -139,79 +212,78 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("saas-mode write operations still land locally (P4 divergence)", () => {
-  it("createTask in saas mode writes a LOCAL file and issues zero remote writes", async () => {
+describe("saas-mode writes are authoritative remote writes (P4, efcd6992)", () => {
+  it("createTask in saas mode POSTs the remote board once and writes no local file", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "write-char-"));
     const seen = stubRemote(["remote-1"]);
     const ctx: OperationContext = { projectDir, mode: "saas" };
 
-    // FLIP NOTE (efcd6992 step 2): routing creates through the write ports
-    // must turn this red — the op must POST the remote board and leave the
-    // local store empty.
+    // efcd6992 step 2 (was the FLIP NOTE): creates resolve through the
+    // write ports — one POST against the board the read resolved, and an
+    // empty local store on success. The returned task is the server view
+    // (identity is server-stamped: no `author` member rides the POST).
     const result = await createTask(ctx, {
-      title: "saas create today",
+      title: "saas create",
       status: "todo",
       selector: "/",
     } as never);
     expect(result.ok).toBe(true);
 
-    const writes = seen.filter((r) => !r.url.includes("/api/v0/boards"));
-    expect(
-      writes,
-      `saas create must not touch the remote board today (saw ${writes.map((r) => `${r.method} ${r.url}`).join(", ")})`,
-    ).toEqual([]);
-    expect(localTaskFiles(projectDir).length).toBeGreaterThan(0);
+    const posts = seen.filter(
+      (r) => r.method === "POST" && r.url.endsWith("/api/v0/tasks"),
+    );
+    expect(posts).toHaveLength(1);
+    const sent = JSON.parse(posts[0].body) as Record<string, unknown>;
+    expect(sent.title).toBe("saas create");
+    expect(sent).not.toHaveProperty("author");
+    expect(result.data?.title).toBe("saas create");
+    expect(localTaskFiles(projectDir)).toEqual([]);
   });
 
-  it("updateTask of a remote-only id resolves remotely then misses locally, with zero remote PATCHes", async () => {
+  it("updateTask of a remote id PATCHes the remote board once and writes no local file", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "write-char-"));
     const seen = stubRemote(["remote-1"]);
     const ctx: OperationContext = { projectDir, mode: "saas" };
 
-    // FLIP NOTE (efcd6992 step 2): the same call must PATCH the remote
-    // board once and answer ok:true; the local store must stay empty.
+    // efcd6992 step 2 (was the FLIP NOTE): the same call PATCHes the
+    // remote board once and answers ok:true; the local store stays empty.
     const result = await updateTask(ctx, {
       id: "remote-1",
       title: "renamed",
     } as never);
-    expect(result.ok).toBe(false);
-    const mutating = seen.filter(
-      (r) => r.method !== "GET" && !r.url.includes("/api/v0/boards"),
-    );
-    expect(
-      mutating,
-      `saas update must issue zero remote writes today (saw ${mutating.map((r) => `${r.method} ${r.url}`).join(", ")})`,
-    ).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.data?.title).toBe("renamed");
+    const patches = seen.filter((r) => r.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(JSON.parse(patches[0].body)).toMatchObject({
+      title: "renamed",
+    });
     expect(localTaskFiles(projectDir)).toEqual([]);
   });
 
-  it("addComment on a remote id resolves remotely then mints a LOCAL ghost stub, with zero remote POSTs", async () => {
+  it("addComment on a remote id POSTs the remote comment once and mints no local file", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "write-char-"));
     const seen = stubRemote(["remote-1"]);
     const ctx: OperationContext = { projectDir, mode: "saas" };
 
-    // FLIP NOTE (efcd6992 step 2): the comment must POST to the remote
-    // board once and mint no local file of any kind.
+    // efcd6992 step 2 (was the FLIP NOTE): the comment POSTs to the
+    // remote board once — awaited before success is reported — and mints
+    // no local file of any kind (the ghost-stub path is gone).
     const result = await addComment(ctx, {
       id: "remote-1",
       author: "agent",
       comment: "a note for the remote board",
     } as never);
     expect(result.ok).toBe(true);
+    expect(result.data?.text).toBe("a note for the remote board");
 
     const posts = seen.filter(
-      (r) => r.method !== "GET" && !r.url.includes("/api/v0/boards"),
+      (r) => r.method === "POST" && r.url.endsWith("/comments"),
     );
-    expect(posts).toEqual([]);
-    const files = localTaskFiles(projectDir);
-    expect(files.length).toBeGreaterThan(0);
-    const ghost = JSON.parse(
-      readFileSync(join(projectDir, ".vibeflow", "tasks", files[0]), "utf-8"),
-    ) as { id: string; title?: string; comments: Array<{ text: string }> };
-    expect(ghost.id).toBe("remote-1");
-    expect(ghost.title).toBeUndefined();
-    expect(ghost.comments.map((c) => c.text)).toEqual([
-      "a note for the remote board",
-    ]);
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0].body)).toMatchObject({
+      text: "a note for the remote board",
+    });
+    expect(localTaskFiles(projectDir)).toEqual([]);
   });
 });
