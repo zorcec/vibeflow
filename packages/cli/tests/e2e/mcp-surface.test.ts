@@ -37,6 +37,10 @@ const COMMANDS = [
   "logout",
   "mcp",
   "openapi",
+  // `pull` (ff85737, 2026-10-21) is a real subcommand — the G2 view
+  // compares the commander tree against COMMANDS, so omitting it fails
+  // the whole surface agreement, not just the pull row.
+  "pull",
   "push",
   "serve",
   "status",
