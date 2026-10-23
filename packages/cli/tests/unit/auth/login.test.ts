@@ -31,222 +31,234 @@ vi.mock("node:readline", () => ({
 import * as tokenModule from "../../../src/auth/token.js";
 import * as settingsModule from "../../../src/core/settings.js";
 import * as workspaceModule from "../../../src/auth/workspace.js";
-import { maybeRefreshSettings, login } from "../../../src/auth/login.js";
+import {
+  maybeRefreshSettings,
+  resetSettingsPreflight,
+  login,
+} from "../../../src/auth/login.js";
 
 const selectMock = (await import("@inquirer/select")).default as ReturnType<typeof vi.fn>;
 const openMock = (await import("open")).default as ReturnType<typeof vi.fn>;
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 
-describe("maybeRefreshSettings", () => {
+describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
+  // Fixed clock: the pre-flight takes an injectable `now` so the 5-minute
+  // window is deterministic without fake timers.
+  const NOW = 1_700_000_000_000;
+
   beforeEach(() => {
     vi.unstubAllGlobals();
     vi.mocked(tokenModule.readToken).mockReset();
     vi.mocked(settingsModule.readGlobalSettings).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
+    resetSettingsPreflight();
+    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetSettingsPreflight();
   });
+
+  const okSettings = (settings: unknown, settingsHash?: string) =>
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve(
+          settingsHash === undefined ? { settings } : { settings, settingsHash },
+        ),
+    });
 
   it("skips refresh when no token is stored", async () => {
     vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-
-    await maybeRefreshSettings();
-
-    expect(settingsModule.readGlobalSettings).not.toHaveBeenCalled();
-    expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
-  });
-
-  it("skips refresh when settings were refreshed within the last 5 minutes", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: Date.now() - 1000, // refreshed 1 second ago
-    });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings();
+    await maybeRefreshSettings(NOW);
 
-    // Settings are fresh — no API call should be made
     expect(fetchMock).not.toHaveBeenCalled();
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
   });
 
-  it("fires a background settings fetch when last refresh is older than 5 minutes", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: Date.now() - FIVE_MINUTES - 1000, // stale
+  it("cold start fetches once without If-None-Match and stores the hash", async () => {
+    const fetchMock = okSettings({ autoCommit: true }, "hash-1");
+    vi.stubGlobal("fetch", fetchMock);
+
+    await maybeRefreshSettings(NOW);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    expect(headers.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect(headers.headers).not.toHaveProperty("If-None-Match");
+    expect(settingsModule.writeGlobalSettings).toHaveBeenCalledWith({
+      autoCommit: true,
     });
-
-    const mockSettings = { autoCommit: true };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ settings: mockSettings }),
-      }),
+    // No freshness timestamp is persisted — freshness lives in the
+    // in-memory checkedAt only (ticket cca4bfe4).
+    expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ _settingsRefreshedAt: expect.anything() }),
     );
+  });
 
-    await maybeRefreshSettings();
+  it("cached path costs zero requests (in-window recheck, ~0 ms)", async () => {
+    vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
+    await maybeRefreshSettings(NOW);
 
-    // Give the background fire-and-forget time to complete in tests
-    await new Promise((r) => setTimeout(r, 10));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const start = Date.now();
+    await maybeRefreshSettings(NOW + 1000);
+    const elapsed = Date.now() - start;
 
-    // The background fetch should write updated settings
-    expect(settingsModule.writeGlobalSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ autoCommit: true }),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(elapsed).toBeLessThan(50);
+  });
+
+  it("no-change run after the window costs exactly one conditional request", async () => {
+    vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
+    await maybeRefreshSettings(NOW);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 304,
+      json: () => Promise.resolve({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    expect(headers.headers).toMatchObject({
+      Authorization: "Bearer test-token",
+      "If-None-Match": '"hash-1"',
+    });
+    // 304 → nothing else happens: no merge, no second disk write.
+    expect(settingsModule.writeGlobalSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("changed hash re-merges once and stores the new pair", async () => {
+    vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
+    await maybeRefreshSettings(NOW);
+
+    const fetchMock = okSettings({ autoCommit: false }, "hash-2");
+    vi.stubGlobal("fetch", fetchMock);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(settingsModule.writeGlobalSettings).toHaveBeenCalledTimes(2);
+    expect(settingsModule.writeGlobalSettings).toHaveBeenLastCalledWith({
+      autoCommit: false,
+    });
   });
 
   it("does not throw when token read throws", async () => {
     vi.mocked(tokenModule.readToken).mockRejectedValue(new Error("fs error"));
 
-    await expect(maybeRefreshSettings()).resolves.toBeUndefined();
+    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
   });
 
-  it("does not throw when settings read throws", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockImplementation(() => {
-      throw new Error("settings corrupted");
-    });
+  it("fail-open: fetch failure keeps cached settings and backs off", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(maybeRefreshSettings()).resolves.toBeUndefined();
+    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
+    expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
+    // Back-off: an immediate retry costs no request either.
+    await maybeRefreshSettings(NOW + 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not throw when fetch fails (non-critical background call)", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0, // very stale → will trigger fetch
-    });
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+  it("passes a short abort signal so a hung server cannot block the command", async () => {
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: unknown, init?: RequestInit) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        return Promise.reject(new Error("network down"));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(maybeRefreshSettings()).resolves.toBeUndefined();
+    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not overwrite settings when API returns empty object", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0,
-    });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
+        status: 200,
         json: () => Promise.resolve({ settings: {} }),
       }),
     );
 
-    await maybeRefreshSettings();
-    await new Promise((r) => setTimeout(r, 10));
+    await maybeRefreshSettings(NOW);
 
     // Empty settings object (no keys) → should NOT write
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
   });
 
   it("does not overwrite settings when API returns non-ok response", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0,
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({}),
-      }),
-    );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings();
-    await new Promise((r) => setTimeout(r, 10));
+    await maybeRefreshSettings(NOW);
 
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
+    // Fail-open back-off still applies to non-ok answers.
+    await maybeRefreshSettings(NOW + 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses VIBEFLOW_API_URL environment variable when set", async () => {
     const originalEnv = process.env.VIBEFLOW_API_URL;
     process.env.VIBEFLOW_API_URL = "http://custom-server:4000";
+    try {
+      const fetchMock = okSettings({ debug: true }, "hash-1");
+      vi.stubGlobal("fetch", fetchMock);
 
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0,
-    });
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ settings: { debug: true } }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+      await maybeRefreshSettings(NOW);
 
-    await maybeRefreshSettings();
-    // Give the fire-and-forget promise time to start the fetch call
-    await new Promise((r) => setTimeout(r, 50));
-
-    const callUrl = fetchMock.mock.calls[0]?.[0] as string;
-    expect(callUrl).toContain("http://custom-server:4000");
-
-    process.env.VIBEFLOW_API_URL = originalEnv;
+      const callUrl = fetchMock.mock.calls[0]?.[0] as string;
+      expect(callUrl).toContain("http://custom-server:4000");
+    } finally {
+      process.env.VIBEFLOW_API_URL = originalEnv;
+    }
   });
 
-  it("fires background fetch with Authorization header when settings are stale", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("my-secret-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0, // very stale
-    });
+  it("merges without a hash from an old server, then rechecks unconditionally", async () => {
+    vi.stubGlobal("fetch", okSettings({ autoCommit: true }));
+    await maybeRefreshSettings(NOW);
+    expect(settingsModule.writeGlobalSettings).toHaveBeenCalledTimes(1);
 
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ settings: { autoCommit: true } }),
-    });
+    const fetchMock = okSettings({ autoCommit: true });
     vi.stubGlobal("fetch", fetchMock);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
 
-    await maybeRefreshSettings();
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(fetchMock).toHaveBeenCalled();
-    const fetchOptions = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(fetchOptions.headers).toEqual({
-      Authorization: "Bearer my-secret-token",
-    });
+    const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    expect(headers.headers).not.toHaveProperty("If-None-Match");
   });
 
-  it("does not write settings when background fetch returns non-ok", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: 0,
-    });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({}),
-      }),
-    );
-
-    await maybeRefreshSettings();
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
-  });
-
-  it("triggers refresh when last refresh is exactly at boundary (5 minutes ago)", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(settingsModule.readGlobalSettings).mockReturnValue({
-      _settingsRefreshedAt: Date.now() - FIVE_MINUTES, // exactly at boundary
-    });
-
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ settings: { debug: true } }),
-    });
+  it("triggers refresh when the window ends exactly at the boundary", async () => {
+    const fetchMock = okSettings({ debug: true }, "hash-1");
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings();
-    await new Promise((r) => setTimeout(r, 50));
-
+    await maybeRefreshSettings(NOW);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     // At exactly the boundary, should trigger refresh (interval is < not <=)
-    expect(fetchMock).toHaveBeenCalled();
+    await maybeRefreshSettings(NOW + FIVE_MINUTES);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

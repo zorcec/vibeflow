@@ -4,11 +4,7 @@ import readline from "node:readline";
 import select from "@inquirer/select";
 import { writeToken, readToken } from "./token.js";
 import { writeWorkspace, type WorkspaceInfo } from "./workspace.js";
-import {
-  writeGlobalSettings,
-  readGlobalSettings,
-  type ProtoSettings,
-} from "../core/settings.js";
+import { writeGlobalSettings, type ProtoSettings } from "../core/settings.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
@@ -16,7 +12,43 @@ import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { scopeHeaderFor } from "./board-scope.js";
 
-const SETTINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Settings pre-flight (ticket cca4bfe4): content-hash revision, 5-minute
+ * in-memory debounce, fail-open.
+ *
+ * - WHAT: `{ hash, checkedAt }` kept in module memory ONLY (never
+ *   persisted — a stale on-disk timestamp defeats the debounce). On
+ *   command start, a check older than 5 min revalidates with a conditional
+ *   GET (`If-None-Match: <hash>`) on the EXISTING settings endpoint — no
+ *   second round-trip. 304 (unchanged) → nothing else happens; 200 with a
+ *   new hash → merge once and store the new pair.
+ * - WHY memory-only: every CLI command is a fresh process, so a disk
+ *   timestamp only suppresses checks for LATER processes while going stale
+ *   for the state that matters; the ticket caps a no-change run at one
+ *   tiny request per 5 min per process, and the cached path at zero.
+ * - TIMEOUT 3000 ms (agent decision, ticket cca4bfe4): fail-open bound so
+ *   an unreachable server delays a command by at most one short timeout —
+ *   measured ~0 ms added on the cached path (no request at all).
+ * - Errors (timeout, non-ok, unreachable) keep cached settings, never
+ *   throw, and still advance checkedAt: backing off avoids hammering a
+ *   down server once per command in long-lived processes (serve/kanban).
+ * - Checked at command start only (`src/index.ts` top level) — never
+ *   mid-write, so a refresh can never interleave with a settings write.
+ */
+const SETTINGS_PREFLIGHT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const SETTINGS_PREFLIGHT_TIMEOUT_MS = 3000;
+
+interface SettingsPreflight {
+  hash: string | null;
+  checkedAt: number;
+}
+
+let preflight: SettingsPreflight | null = null;
+
+/** Test seam: drop the in-memory pre-flight state (it is never on disk). */
+export function resetSettingsPreflight(): void {
+  preflight = null;
+}
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,26 +91,60 @@ async function fetchAndApplySettings(
     if (!res.ok) return;
     const data = (await res.json()) as { settings: ProtoSettings };
     if (data.settings && Object.keys(data.settings).length > 0) {
-      writeGlobalSettings({
-        ...data.settings,
-        _settingsRefreshedAt: Date.now(),
-      });
+      // No freshness timestamp: freshness lives in the pre-flight's
+      // in-memory checkedAt only (ticket cca4bfe4).
+      writeGlobalSettings({ ...data.settings });
     }
   } catch {
     // Non-critical
   }
 }
 
-export async function maybeRefreshSettings(): Promise<void> {
+export async function maybeRefreshSettings(now: number = Date.now()): Promise<void> {
   try {
     const token = await readToken();
     if (!token) return;
-    const existing = readGlobalSettings();
-    const lastRefresh = existing._settingsRefreshedAt ?? 0;
-    if (Date.now() - lastRefresh < SETTINGS_REFRESH_INTERVAL_MS) return;
+    // Cached path: no request at all (~0 ms added).
+    if (preflight && now - preflight.checkedAt < SETTINGS_PREFLIGHT_INTERVAL_MS) {
+      return;
+    }
     const apiUrl = getApiUrl();
-    // Fire-and-forget background refresh
-    void fetchAndApplySettings(apiUrl, token);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (preflight?.hash) headers["If-None-Match"] = `"${preflight.hash}"`;
+    let res: Response;
+    try {
+      res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
+        headers,
+        signal: AbortSignal.timeout(SETTINGS_PREFLIGHT_TIMEOUT_MS),
+      });
+    } catch {
+      // Fail open: keep cached settings, back off until the next window.
+      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
+      return;
+    }
+    // Unchanged: the server answered 304 with an empty body — one tiny
+    // request, nothing else happens (no merge, no disk write).
+    if (res.status === 304) {
+      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
+      return;
+    }
+    if (!res.ok) {
+      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
+      return;
+    }
+    const data = (await res.json()) as {
+      settings?: ProtoSettings;
+      settingsHash?: unknown;
+    };
+    if (data.settings && Object.keys(data.settings).length > 0) {
+      writeGlobalSettings({ ...data.settings });
+    }
+    preflight = {
+      hash: typeof data.settingsHash === "string" ? data.settingsHash : null,
+      checkedAt: now,
+    };
   } catch {
     // Non-critical
   }

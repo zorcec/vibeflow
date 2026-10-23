@@ -24,7 +24,6 @@ export interface ProtoSettings {
   autoPush?: boolean;
   createBranch?: boolean;
   requireVerifyBeforeReview?: boolean;
-  _settingsRefreshedAt?: number;
 }
 
 function getSettingsPath(projectDir: string): string {
