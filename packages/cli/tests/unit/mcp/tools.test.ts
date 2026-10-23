@@ -502,7 +502,8 @@ describe("claim_next_task", () => {
     // valid-but-unmatched filter gets — see the filtered test below.
     const result = await claimNextTask(ctx, {});
     expect(result.ok).toBe(true);
-    expect(result.data).toBeUndefined();
+    // P1 (ticket 3d613068): emptiness is an explicit null payload.
+    expect(result.data).toBeNull();
     expect(result.error).toBeUndefined();
   });
 
@@ -510,7 +511,8 @@ describe("claim_next_task", () => {
     createTestTask({ id: "task-feature", type: "Feature", status: "todo" });
     const result = await claimNextTask(ctx, { type: "Bug" });
     expect(result.ok).toBe(true);
-    expect(result.data).toBeUndefined();
+    // P1 (ticket 3d613068): emptiness is an explicit null payload.
+    expect(result.data).toBeNull();
     expect(result.error).toBeUndefined();
   });
 

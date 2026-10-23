@@ -5,8 +5,9 @@ import {
 } from "../../src/core/review-gate.js";
 import { getFilesDir } from "../../src/core/files.js";
 import type { ProtoSettings } from "../../src/core/settings.js";
-import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 function makeSettings(overrides: Partial<ProtoSettings> = {}): ProtoSettings {
@@ -998,5 +999,246 @@ describe("every review-gate suggestion names BOTH surfaces", () => {
       // stopped refusing would report success.
       expect(result.suggestion).toContain(row.mcp);
     }
+  });
+});
+
+/**
+ * P1 purity + equivalence (ticket 3d613068).
+ *
+ * The decision lives in `core/review-decision.ts` as plain data in / refusal
+ * out; `checkReviewTransition` is the local wrapper that performs the two
+ * reads (task record, attachment names) and delegates. These tests pin both
+ * halves: the pure module never touches the disk (a gained `fs` import fails
+ * the suite), and the wrapper returns an identical matrix for identical
+ * inputs (a precedence swap or a consult-disk-instead-of-input regression
+ * fails the suite).
+ */
+describe("review decision purity and wrapper equivalence", () => {
+  let gateDir: string;
+  beforeEach(() => {
+    gateDir = createTmpDir();
+  });
+  afterEach(() => {
+    rmSync(gateDir, { recursive: true, force: true });
+  });
+
+  const decisionSrc = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../src/core/review-decision.ts",
+  );
+
+  it("the pure decision imports no filesystem, path or storage modules", () => {
+    const src = readFileSync(decisionSrc, "utf-8");
+    const offenders: string[] = [];
+    // Static imports: only `import type` (erased at runtime) may name a
+    // storage-adjacent module; a runtime import of fs/path/storage fails.
+    for (const line of src.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("import type")) continue;
+      if (/from\s+["']node:fs["']/.test(trimmed)) offenders.push(line);
+      if (/from\s+["']node:path["']/.test(trimmed)) offenders.push(line);
+      if (/from\s+["']node:child_process["']/.test(trimmed))
+        offenders.push(line);
+      if (/from\s+["']\.\/tasks\.js["']/.test(trimmed))
+        offenders.push(line);
+      if (/from\s+["']\.\/files\.js["']/.test(trimmed))
+        offenders.push(line);
+      if (/from\s+["']\.\/comments\.js["']/.test(trimmed))
+        offenders.push(line);
+    }
+    // Dynamic imports (the shape a lazy `await import("node:fs")` takes):
+    // none at all in the pure module — a fact from disk arrives as input.
+    const dynamicImports = src.match(/[^:]\bimport\s*\(/g) ?? [];
+    // Type-position `import("…")` (e.g. in a type annotation after `:`) is
+    // erased and cannot read anything; only expression-position counts.
+    const stripped = src.replace(/:\s*import\s*\(/g, ": TYPE_IMPORT(");
+    const runtimeDynamic = stripped.match(/\bimport\s*\(/g) ?? [];
+    expect(
+      offenders,
+      `review-decision.ts must stay import-pure, offending lines: ${offenders.join(" | ")}`,
+    ).toEqual([]);
+    expect(
+      runtimeDynamic,
+      "review-decision.ts must not dynamic-import anything (facts arrive as inputs)",
+    ).toEqual([]);
+    expect(dynamicImports.length).toBe(runtimeDynamic.length);
+  });
+
+  it("the purity assertion is live (it would catch an fs import)", () => {
+    // Non-vacuity: the same scan run against the WRAPPER (which legitimately
+    // reads the store) must find storage imports, or the scan proves nothing.
+    const wrapperSrc = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../src/core/review-gate.ts",
+      ),
+      "utf-8",
+    );
+    expect(wrapperSrc).toMatch(/from\s+["']\.\/tasks\.js["']/);
+  });
+
+  it("wrapper and pure decision return an identical matrix", async () => {
+    const { decideReviewTransition } = await import(
+      "../../src/core/review-decision.js"
+    );
+    const { listFiles } = await import("../../src/core/files.js");
+    const { readTaskFile, findTaskFilePath } = await import(
+      "../../src/core/tasks.js"
+    );
+
+    // Each row builds disk state, runs the wrapper, then replays the pure
+    // decision over the SAME inputs the wrapper read (record + names).
+    const scenarios: Array<{
+      name: string;
+      seed: () => void;
+      taskId: string;
+      opts: Parameters<typeof checkReviewTransition>[2];
+      settings: ProtoSettings;
+    }> = [
+      {
+        name: "clean pass",
+        seed: () => createTaskFile(gateDir, "t-pass", { type: "Task" }),
+        taskId: "t-pass",
+        opts: { comment: "done" },
+        settings: makeSettings({ autoCommit: false }),
+      },
+      {
+        name: "gate 1 before gate 2",
+        seed: () => createTaskFile(gateDir, "t-g1", { type: "Task" }),
+        taskId: "t-g1",
+        opts: {},
+        settings: makeSettings({ autoCommit: true }),
+      },
+      {
+        name: "annotated task without a verdict",
+        seed: () =>
+          createTaskFile(gateDir, "t-ann", {
+            selector: "#main",
+            url: "https://example.com/x",
+          }),
+        taskId: "t-ann",
+        opts: { comment: "done" },
+        settings: makeSettings({
+          autoCommit: false,
+          requireVerifyBeforeReview: true,
+        }),
+      },
+      {
+        name: "fail verdict never reaches review",
+        seed: () =>
+          createTaskFile(gateDir, "t-fail", {
+            selector: "#main",
+            url: "https://example.com/x",
+          }),
+        taskId: "t-fail",
+        opts: { comment: "done", verifyVerdict: "fail" },
+        settings: makeSettings({ autoCommit: false }),
+      },
+      {
+        name: "research without a report",
+        seed: () => createTaskFile(gateDir, "t-res", { type: "Research" }),
+        taskId: "t-res",
+        opts: { comment: "report pending" },
+        settings: makeSettings({ autoCommit: false }),
+      },
+      {
+        name: "missing task passes the record-dependent gates",
+        seed: () => {},
+        taskId: "t-ghost",
+        opts: { comment: "done" },
+        settings: makeSettings({ autoCommit: false }),
+      },
+      {
+        name: "unreadable task resolves to the same refusal as missing",
+        seed: () => {
+          createTaskFile(gateDir, "t-bad", { type: "Task" });
+          const { findTaskFilePath: find } = { findTaskFilePath };
+          void find;
+        },
+        taskId: "t-bad",
+        opts: { comment: "done" },
+        settings: makeSettings({ autoCommit: false }),
+      },
+    ];
+
+    // Corrupt t-bad AFTER seeding (the seed helper writes valid JSON).
+    const mismatches: string[] = [];
+    for (const s of scenarios) {
+      s.seed();
+      if (s.taskId === "t-bad") {
+        const fp = findTaskFilePath(gateDir, "t-bad")!;
+        writeFileSync(fp, "{not json");
+      }
+      const wrapped = checkReviewTransition(gateDir, s.taskId, s.opts, {
+        projectDir: gateDir,
+        settings: s.settings,
+      });
+      const fp = findTaskFilePath(gateDir, s.taskId);
+      const task = fp ? readTaskFile(fp) : null;
+      const attachmentNames = listFiles(gateDir, s.taskId).map((f) => f.name);
+      const pure = decideReviewTransition({
+        task,
+        attachmentNames,
+        settings: s.settings,
+        opts: s.opts,
+        taskId: s.taskId,
+      });
+      if (JSON.stringify(wrapped) !== JSON.stringify(pure)) {
+        mismatches.push(
+          `${s.name}: wrapper=${JSON.stringify(wrapped)} pure=${JSON.stringify(pure)}`,
+        );
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it("the pure decision honors SUPPLIED attachment names, not the disk", async () => {
+    const { decideReviewTransition } = await import(
+      "../../src/core/review-decision.js"
+    );
+    // Disk has NO .md for this Research task (nothing attached), but the
+    // transition carries a report name — the pure decision must pass gate 5
+    // on the supplied input. Consulting the disk instead would refuse.
+    createTaskFile(gateDir, "t-supplied", { type: "Research" });
+    const passed = decideReviewTransition({
+      task: {
+        id: "t-supplied",
+        title: "r",
+        description: "",
+        status: "todo",
+        selector: "/",
+        created: new Date().toISOString(),
+        comments: [],
+        files: [],
+        type: "Research",
+      } as never,
+      attachmentNames: ["report.md"],
+      settings: makeSettings({ autoCommit: false }),
+      opts: { comment: "report attached this transition", reportFile: undefined },
+      taskId: "t-supplied",
+    });
+    expect(passed).toEqual({ ok: true });
+    // And the mirror: disk HAS a .md but the input names none — the decision
+    // still sees the supplied (empty) list, so it refuses on gate 5 rather
+    // than passing on what the disk happens to hold.
+    const refused = decideReviewTransition({
+      task: {
+        id: "t-supplied",
+        title: "r",
+        description: "",
+        status: "todo",
+        selector: "/",
+        created: new Date().toISOString(),
+        comments: [],
+        files: [],
+        type: "Research",
+      } as never,
+      attachmentNames: [],
+      settings: makeSettings({ autoCommit: false }),
+      opts: { comment: "no report" },
+      taskId: "t-supplied",
+    });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.code).toBe("RESEARCH_REPORT_REQUIRED");
   });
 });

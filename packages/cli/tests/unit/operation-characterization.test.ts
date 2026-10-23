@@ -103,7 +103,10 @@ describe("operation characterization (local mode)", () => {
     const { claimNextTask } = await import("../../src/core/operations.js");
     const empty = await claimNextTask(ctx, {});
     expect(empty.ok).toBe(true);
-    expect(empty.data).toBeUndefined();
+    // P1 (ticket 3d613068): emptiness is an explicit null payload, not an
+    // absent one — `Task | null` on the wire is still JSON null, so MCP/CLI
+    // fixtures are unchanged and only this internal expectation moves.
+    expect(empty.data).toBeNull();
 
     seedTask(projectDir, baseTask("low", { priority: "Low" }));
     seedTask(projectDir, baseTask("high", { priority: "High" }));
@@ -130,7 +133,7 @@ describe("operation characterization (local mode)", () => {
     const res = await claimNextTask(ctx, { dryRun: true });
     // No todo root and the only todo child hangs under done work: nothing.
     expect(res.ok).toBe(true);
-    expect(res.data).toBeUndefined();
+    expect(res.data).toBeNull();
   });
 
   it("edit to review without a comment refuses and leaves state untouched", async () => {
@@ -247,6 +250,66 @@ describe("operation characterization (local mode)", () => {
     const res = await pushTasks(ctx, { dryRun: true });
     expect(res.ok).toBe(true);
     expect(readdirSync(projectDir)).toEqual([]);
+  });
+
+  it("a delayed comment failure after the task save reports durable partial state", async () => {
+    // P1 (ticket 3d613068): the update's comment writes are AWAITED. When the
+    // task write lands but the comment write then fails, the operation must
+    // say the edit persisted and must NOT invite a whole-operation retry
+    // (resending update_task would re-apply the edit). Fire-and-forgeting
+    // the comment answers ok:true here and fails this test.
+    const { updateTask } = await import("../../src/core/operations.js");
+    const { LocalTaskStore } = await import(
+      "../../src/core/task-store.js"
+    );
+    class FailingCommentStore extends LocalTaskStore {
+      override async addComment(): Promise<never> {
+        await new Promise<void>((r) => setTimeout(r, 5));
+        throw new Error("comment store down");
+      }
+    }
+    seedTask(projectDir, baseTask("partial"));
+    const res = await updateTask(
+      { ...ctx, store: new FailingCommentStore() },
+      { id: "partial", title: "renamed", comment: "lost note" },
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error!.code).toBe("UPDATE_COMMENT_FAILED");
+    // The whole operation is NOT safe to retry: the edit already landed.
+    expect(res.error!.retryable).toBe(false);
+    expect(res.error!.suggestion).toMatch(/do not resend/i);
+    // Durable partial state: the title write survived the comment failure.
+    const { readTaskFile, findTaskFilePath } = await import(
+      "../../src/core/tasks.js"
+    );
+    expect(readTaskFile(findTaskFilePath(projectDir, "partial")!)!.title).toBe(
+      "renamed",
+    );
+  });
+
+  it("claim preview can name a blocked top candidate the live claim skips (pinned, P3)", async () => {
+    // Pinned divergence (ticket 3d613068 risks): the preview applies the
+    // roots-first / priority order WITHOUT the blocked-by-unfinished-work
+    // check the atomic claim applies inside its lock. On a board whose top
+    // candidate is blocked, the preview names a task the live call skips.
+    // Equalising them is a focused claim-correctness change (P3) — P1 keeps
+    // the behaviour and pins it here instead of silently changing it.
+    const { claimNextTask } = await import("../../src/core/operations.js");
+    seedTask(projectDir, baseTask("blocker", { priority: "Low" }));
+    seedTask(
+      projectDir,
+      baseTask("blocked", {
+        priority: "High",
+        links: [{ taskId: "blocker", type: "blocks" }],
+      }),
+    );
+    const preview = await claimNextTask(ctx, { dryRun: true });
+    expect(preview.ok).toBe(true);
+    expect(preview.data!.id).toBe("blocked");
+    const live = await claimNextTask(ctx, {});
+    expect(live.ok).toBe(true);
+    // The live claim skipped the blocked candidate and took the blocker.
+    expect(live.data!.id).toBe("blocker");
   });
 
   it("online divergences for sync operations are recorded as data, not prose", () => {

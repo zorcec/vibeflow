@@ -373,3 +373,162 @@ describe("operation boundary ratchet", () => {
     expect(coveringSource("tasks --json", deps)).toBe("classified");
   });
 });
+
+/**
+ * Check 5 — storage reaches the migrated operation modules only through
+ * named adapters (ticket 3d613068).
+ *
+ * `src/core/operations.ts` (the barrel) and `src/core/operations/*.ts` (the
+ * migrated modules) must never import the file-backed store directly —
+ * neither `core/tasks.js`, `core/comments.js` nor `core/files.js`, neither
+ * statically nor dynamically (and aliasing the import changes nothing: the
+ * scan matches the RESOLVED module, not the bound names). They reach
+ * storage through `core/task-store.ts` (the ports) and pure helpers
+ * (`task-links`, `task-listing`, `review-decision`, `verify-attestation`)
+ * only. The approved local readers — `task-store.ts` itself and the
+ * `review-gate.ts` compatibility wrapper — are deliberately NOT scanned.
+ *
+ * Specifiers resolve against the importing file: `./files.js` inside
+ * `core/operations/` is a sibling port module (allowed), while `../tasks.js`
+ * from the same directory is the store (denied). `import type` (and
+ * type-position `import("…")`) are erased at runtime and cannot touch the
+ * store, so the scan skips them: only runtime imports can violate the
+ * boundary. Dynamic detection covers `await import("…")` — the only runtime
+ * dynamic-import shape in this package (the one `import(x).then(…)` is the
+ * server's `open`, outside the scanned scope).
+ */
+
+/**
+ * Runtime import specifiers in one source text that resolve to a storage
+ * module. `importerFile` is the path of the file `src` came from (a real
+ * path for the tree scan, an operations-module path for the fixtures), used
+ * to resolve relative specifiers. Covers `import … from "…"`, `import "…"`,
+ * `export … from "…"` and `await import("…")`.
+ */
+export function findStorageImports(
+  src: string,
+  importerFile = "<root>/src/core/operations/tasks.ts",
+): string[] {
+  const isStorage = (spec: string) => {
+    if (!spec.startsWith(".")) return false;
+    const base = importerFile.split("/").slice(0, -1);
+    const parts: string[] = [...base];
+    for (const seg of spec.split("/")) {
+      if (seg === "." || seg === "") continue;
+      else if (seg === "..") parts.pop();
+      else parts.push(seg);
+    }
+    const resolved = parts.join("/");
+    return /\/core\/(tasks|comments|files)\.js$/.test(resolved);
+  };
+  const offenders: string[] = [];
+  for (const rawLine of src.split("\n")) {
+    const line = rawLine.trim();
+    if (line.startsWith("import type")) continue;
+    // Static: import … from "spec" / import "spec" / export … from "spec".
+    const staticMatch =
+      line.match(/\bimport\s+(?:[^"']*?\sfrom\s+)?["']([^"']+)["']/) ??
+      line.match(/\bexport\s+(?:[^"']*?\sfrom\s+)["']([^"']+)["']/);
+    if (staticMatch && isStorage(staticMatch[1])) {
+      offenders.push(staticMatch[1]);
+      continue;
+    }
+    // Dynamic: await import("spec"). Type-position `: import("…")` /
+    // `as import("…")` never awaits, so awaiting is what separates a read
+    // that can touch the store from a type that is erased.
+    const dynamicRe = /\bawait\s+import\s*\(\s*["']([^"']+)["']\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = dynamicRe.exec(line)) !== null) {
+      if (isStorage(m[1])) offenders.push(m[1]);
+    }
+  }
+  return offenders;
+}
+
+describe("operation storage boundary (check 5)", () => {
+  it("migrated operation modules reach storage only through named adapters", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const barrel = path.join(srcRoot, "core/operations.ts");
+    const dir = path.join(srcRoot, "core/operations");
+    const files = [
+      barrel,
+      ...fs
+        .readdirSync(dir)
+        .filter((f: string) => f.endsWith(".ts"))
+        .map((f: string) => path.join(dir, f)),
+    ];
+    expect(files.length).toBeGreaterThan(1);
+    const offenders: string[] = [];
+    for (const file of files) {
+      const found = findStorageImports(fs.readFileSync(file, "utf-8"), file);
+      for (const spec of found) offenders.push(`${file}: ${spec}`);
+    }
+    expect(
+      offenders,
+      `migrated operation modules must not import storage directly (use the task-store ports): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("negative fixture — aliased static and dynamic storage imports are rejected", () => {
+    // Aliasing the bound name hides nothing: the resolved module is denied.
+    expect(
+      findStorageImports(
+        'import * as tasksModule from "../tasks.js";',
+      ),
+    ).toEqual(['../tasks.js']);
+    expect(
+      findStorageImports(
+        'import { listTasks as lt } from "../core/tasks.js";',
+        "<root>/src/core/operations.ts",
+      ),
+    ).toEqual(['../core/tasks.js']);
+    expect(
+      findStorageImports(
+        'const { x } = await import("../comments.js");',
+      ),
+    ).toEqual(['../comments.js']);
+    expect(
+      findStorageImports('export { y } from "../files.js";'),
+    ).toEqual(['../files.js']);
+  });
+
+  it("negative fixture — sibling port modules, type-only and non-storage imports pass", () => {
+    // Sibling port modules resolve inside core/operations/, not core/.
+    expect(
+      findStorageImports('export { x } from "./operations/tasks.js";'),
+    ).toEqual([]);
+    expect(
+      findStorageImports('import { y } from "./files.js";'),
+    ).toEqual([]);
+    // Erased at runtime: cannot touch the store.
+    expect(
+      findStorageImports('import type { FileInfo } from "../files.js";'),
+    ).toEqual([]);
+    expect(
+      findStorageImports(
+        "const reads: import(\"../tasks.js\").TaskReadFinding[] = [];",
+      ),
+    ).toEqual([]);
+    expect(
+      findStorageImports(
+        'const x = foo as import("../tasks.js").Task;',
+      ),
+    ).toEqual([]);
+    // The allowed neighbours: ports, pure helpers, services.
+    expect(
+      findStorageImports(
+        [
+          'import { resolveOperationPorts } from "../task-store.js";',
+          'import { taskRelations } from "../task-links.js";',
+          'import { queryTaskList } from "../task-listing.js";',
+          'import { decideReviewTransition } from "../review-decision.js";',
+          'import { loadSettings } from "../settings.js";',
+          'const { commitTaskChanges } = await import("../git.js");',
+          'const { verifyTask } = await import("../commands/verify.js");',
+          'import { localTaskStore } from "./task-store.js";',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+});
