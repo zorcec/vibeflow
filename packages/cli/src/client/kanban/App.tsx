@@ -391,9 +391,6 @@ function BoardApp() {
   const wsRef = React.useRef<WebSocket | null>(null);
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRetryAttemptRef = React.useRef<number>(0);
-  const pollIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(
-    null,
-  );
   const consumedHashTaskRef = React.useRef<string | null>(null);
   // Navigation history for task-ref jumping (supports browser back + UI back button).
   const [navHistory, setNavHistory] = React.useState<Task[]>([]);
@@ -473,27 +470,6 @@ function BoardApp() {
     };
   }, []);
 
-  // Polling fallback: fetch tasks every 5s when WebSocket is disconnected.
-  React.useEffect(() => {
-    if (wsConnected) {
-      // WS connected — stop polling fallback
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      return;
-    }
-    // Start polling fallback when WS is disconnected
-    pollIntervalRef.current = setInterval(() => {
-      void loadTasks();
-    }, 5000);
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [wsConnected]);
 
   React.useEffect(() => {
     applyInitialTheme();
@@ -932,9 +908,17 @@ function BoardApp() {
     });
     ws.addEventListener("close", () => {
       setWsConnected(false);
-      // Retry WS connection every 2s
+      // Owner decision (2026-10-23): there is NO polling fallback. A dropped
+      // socket must not become a database drumbeat — the board re-reads ONCE
+      // on reconnect ("open" above) and every change in between arrives by
+      // pub/sub. Reconnect backs off exponentially (2s..30s, jittered) so a
+      // server that is down or refusing the upgrade is not hammered by every
+      // open board tab forever.
       if (wsRetryRef.current) clearTimeout(wsRetryRef.current);
-      wsRetryRef.current = setTimeout(connectWs, 2000);
+      const attempt = wsRetryAttemptRef.current++;
+      const backoff = Math.min(2000 * 2 ** attempt, 30_000);
+      const jitter = Math.random() * 0.3 * backoff;
+      wsRetryRef.current = setTimeout(connectWs, backoff + jitter);
     });
     ws.addEventListener("error", () => {
       // On error, let 'close' handle reconnection
