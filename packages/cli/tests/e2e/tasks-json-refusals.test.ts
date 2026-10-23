@@ -673,7 +673,15 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: true,
     });
-    expect(envelope.error.message).toBe(`Failed to update task: ${id}`);
+    // Resolve-first (25fb3cd): --edit reads the target through ONE detail
+    // request before the PATCH, so a dead host fails at the resolve step —
+    // not at the update step the old `Failed to update task` pinned. The
+    // transport tail (`fetch failed`) is Node-version wording, so pin the
+    // stable resolve-step prefix and the read-failure marker only.
+    expect(envelope.error.message).toContain(
+      `Unable to resolve task ${id} in the online board`,
+    );
+    expect(envelope.error.message).toContain("Online board read failed");
   });
 
   it("E_BACKEND_UNAVAILABLE — --add --parent reaches the wire on the online board (no E_USAGE gate)", async () => {
