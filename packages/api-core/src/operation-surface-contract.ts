@@ -301,7 +301,12 @@ export const TEMPORARY_MIGRATION_ENTRIES: readonly TemporaryMigrationEntry[] = [
   { handler: "tasks --commit/--task/--message", removalPhase: "P5", ticket: "2d789b27" },
   { handler: "tasks --reindex-sort-keys", removalPhase: "P5", ticket: "2d789b27" },
   { handler: "tasks --normalize/--apply", removalPhase: "P5", ticket: "2d789b27" },
-  { handler: "tasks list/get/next/add/edit modes", removalPhase: "P2/P4", ticket: "2d789b27" },
+  // P2 (ticket d7b9dc13): the list/get read paths are routed through the
+  // operations layer (resolveReadPorts) and rendered from operation data,
+  // so they are no longer inline handlers — the temporary entry for them is
+  // removed. The remaining tasks modes (next/add/edit) stay inline until
+  // P3/P4 route the writes; they keep their own entry, not the coarse one.
+  { handler: "tasks next/add/edit modes", removalPhase: "P4", ticket: "2d789b27" },
   { handler: "verify engine + evidence-query forms", removalPhase: "P7", ticket: "2d789b27" },
   { handler: "serve/kanban/mcp lifecycle", removalPhase: "P7", ticket: "2d789b27" },
   { handler: "auth/telemetry/authors/changelog/openapi/status/push/pull effects", removalPhase: "P6", ticket: "2d789b27" },

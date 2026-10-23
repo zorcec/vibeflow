@@ -657,11 +657,13 @@ export async function getIntegrationGuide(
 // and every existing importer keep resolving these symbols here.
 export {
   listTasks,
+  listAllTasksForCli,
   getTask,
   createTask,
   updateTask,
   claimNextTask,
   pickTaskFields,
 } from "./operations/tasks.js";
+export type { ListAllTasksInput } from "./operations/tasks.js";
 export { addComment } from "./operations/comments.js";
 export { attachFile } from "./operations/files.js";

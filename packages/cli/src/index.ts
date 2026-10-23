@@ -1,4 +1,4 @@
-import { taskReadNotices, type TaskReadFinding } from "./core/task-record-read.js";
+import { taskReadNotices } from "./core/task-record-read.js";
 import { Command, Option } from "commander";
 import { execSync, execFileSync } from "node:child_process";
 import { serve } from "./server/server.js";
@@ -33,11 +33,7 @@ import {
   applyTaskStoreNormalize,
 } from "./core/tasks.js";
 import { listComments, addComment } from "./core/comments.js";
-import {
-  queryTaskList,
-  queryAllTasks,
-  resolveListLimit,
-} from "./core/task-listing.js";
+import { resolveListLimit } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
 import { listFiles, saveFile } from "./core/files.js";
 import {
@@ -60,7 +56,20 @@ import {
 import { PROTO_DIR } from "./core/types.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import { getMode } from "./auth/mode.js";
-import { resolveReadBackend } from "./core/operation-context.js";
+import {
+  resolveReadBackend,
+  resolveReadPorts,
+} from "./core/operation-context.js";
+import * as operations from "./core/operations.js";
+import type { OperationContext } from "./core/operations.js";
+import type { ListTasksInputType } from "@vibeflow-tools/api-core";
+import {
+  localListJsonPayload,
+  remoteListJsonPayload,
+  localGetJsonPayload,
+  operationRefusalEnvelope,
+  refusalExitCode,
+} from "./cli/renderers/task-reads.js";
 import { runStdioMcp } from "./mcp/stdio.js";
 import {
   taskRelations,
@@ -299,21 +308,8 @@ function normalizeTaskType(
 }
 
 // getPriorityRank is imported from core/types.ts (single source)
-
-// Matches Kanban column order: in-progress → review → todo → backlog → done
-const KANBAN_STATUS_ORDER = [
-  "in-progress",
-  "review",
-  "todo",
-  "backlog",
-  "done",
-] as const;
-function getStatusRank(status: string): number {
-  const idx = KANBAN_STATUS_ORDER.indexOf(
-    status as (typeof KANBAN_STATUS_ORDER)[number],
-  );
-  return idx === -1 ? KANBAN_STATUS_ORDER.length : idx;
-}
+// Status ranking for listings lives in core/task-listing.ts (the ONE
+// shared listing model) — no second copy here.
 
 /**
  * Pushes, and reports how it went.
@@ -2289,10 +2285,30 @@ program
         }
 
         // ── Get single task mode ───────────────────────────────────────
-        // P2 (ticket d7b9dc13): same shared backend resolution as the
-        // listing above and the MCP get_task operation.
+        // P2 (ticket d7b9dc13): reads through the operations layer. Local
+        // get resolves through the get_task operation (same authority and
+        // ports as MCP get_task); remote get reads through the remote
+        // port's detail-first resolveTask below, NOT the relation-deriving
+        // operation — the pinned `--get` contract (one detail request,
+        // raw detail shape passing through: see
+        // tests/unit/commands/saas-get-relations.test.ts) forbids both the
+        // operation's second (relations) request and its mapped rows. The
+        // remote branch never touches local files, so the phantom class
+        // (stale local data presented as current) cannot occur there;
+        // envelopes and exit codes for BOTH modes are assembled by
+        // `cli/renderers/task-reads.ts`.
         if (opts.get) {
           const getTaskMode = await getMode();
+          const getOpCtx: OperationContext = {
+            projectDir: resolve(dir),
+            mode: getTaskMode === "saas" ? "saas" : "local",
+          };
+          const getFields = opts.fields
+            ? opts.fields
+                .split(",")
+                .map((f: string) => f.trim())
+                .filter(Boolean)
+            : [];
           if (resolveReadBackend(getTaskMode) === "remote") {
             // One detail request — never a (hydrated) whole-board fetch.
             // A 404 falls back to an UNHYDRATED listing for prefix
@@ -2524,80 +2540,63 @@ program
             return;
           }
 
-          // ── Local mode ──
-          const projectDir = resolve(dir);
-          const config = readConfig(projectDir);
-          const allWithPaths = listTasksWithPaths(projectDir);
-          // ONE id rule (`resolveSaasTaskId`, shared with the online
-          // path and every other id-taking flag): exact id wins, a UNIQUE
-          // prefix resolves, an ambiguous prefix is E_AMBIGUOUS naming the
-          // candidates — never a silent first-match.
-          const getResolved = resolveSaasTaskId(allWithPaths, opts.get!);
-          if (!getResolved.ok) {
-            if (getResolved.code === "E_AMBIGUOUS") {
-              outputEnvelope({
-                ok: false,
-                code: getResolved.code,
-                message: getResolved.message,
-                suggestion:
-                  "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.USAGE;
+          // ── Local mode: through the get_task operation ──────────────
+          // Existence, prefix rule, and relations come from the operation
+          // (same ports as MCP get_task). The one-id rule is enforced in
+          // the local port itself now, so an ambiguous prefix refuses
+          // here exactly as it does on the remote path.
+          const getResult = await operations.getTask(getOpCtx, {
+            id: opts.get!,
+            ...(getFields.length > 0 ? { fields: getFields } : {}),
+          });
+          if (!getResult.ok) {
+            const refusal = operationRefusalEnvelope(getResult.error);
+            if (opts.json) {
+              outputEnvelope({ ...refusal, json: opts.json });
             } else {
-              outputEnvelope({ ok: false,
-                code: "TASK_NOT_FOUND",
-                message: `Task not found: ${opts.get}`,
-                suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-                json: opts.json,
-              });
-              process.exitCode = ExitCode.NOT_FOUND;
+              console.log(chalk.red(`✗ ${refusal.message}`));
+              if (refusal.suggestion) {
+                console.log(chalk.dim(`  ${refusal.suggestion}`));
+              }
             }
+            process.exitCode = refusalExitCode(getResult.error.code);
             return;
           }
-          const task = allWithPaths.find((t) => t.id === getResolved.id)!;
+          const projectDir = resolve(dir);
+          const config = readConfig(projectDir);
+          const task = getResult.data as Task;
           // Mark task as opened by current user
           const currentUser = getCurrentUserId();
           markTaskOpened(projectDir, task.id, currentUser);
 
-          const structuredComments = listComments(projectDir, task.id).sort(
-            sortByCreatedAt,
-          );
-          const linkedFiles = listFiles(projectDir, task.id).map((f) => ({
+          // Display details through the read ports — the same authority
+          // the operation read.
+          const { store: getDisplayStore } = resolveReadPorts(getOpCtx);
+          const structuredComments = (
+            await getDisplayStore.listComments(projectDir, task.id)
+          ).sort(sortByCreatedAt);
+          const linkedFiles = (
+            await getDisplayStore.listFiles(projectDir, task.id)
+          ).map((f) => ({
             ...f,
             url: `http://localhost:${config.port}${f.url}`,
           }));
           if (opts.json) {
-            const getFields = opts.fields
-              ? opts.fields
-                  .split(",")
-                  .map((f: string) => f.trim())
-                  .filter(Boolean)
-              : [];
-            // SAFETY: Task + comments + files are plain JSON-serializable objects; Record<string, unknown> is the superset for field picking.
             outputEnvelope({
               ok: true,
               json: opts.json,
-              payload: {
-                task: pickFields(
-                  {
-                    ...task,
-                    comments: structuredComments,
-                    files: linkedFiles,
-                  } as unknown as Record<string, unknown>,
-                  getFields,
-                ),
-              },
+              payload: localGetJsonPayload(task, getFields, {
+                comments: structuredComments,
+                files: linkedFiles,
+              }),
             });
             return;
           }
           const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
-          const allTasks = allWithPaths.map(
-            (t) => ({ ...t, id: t.id }) as import("./core/types").Task,
-          );
+          const allTasks = await getDisplayStore.listTasks(projectDir);
           const agentMessage = renderTaskForAgent(
             task,
-            task.filePath,
+            findTaskFilePath(projectDir, task.id) ?? "(unknown)",
             structuredComments,
             linkedFiles,
             projectDir,
@@ -6320,120 +6319,135 @@ program
               .filter(Boolean)
           : [];
 
-        // ── SaaS online mode: fetch from backend ───────────────────────────
-        // P2 (ticket d7b9dc13): the backend decision is the ONE shared
-        // resolution in `core/operation-context.ts` — the same function the
-        // MCP read operations resolve through — so one mode can never mean
-        // two sources of truth. getMode() stays the only credential read.
+        // ── Reads through the operations layer (P2, ticket d7b9dc13) ──────
+        // Every row below arrives through the named registered operations
+        // (`listTasks` / `listAllTasksForCli`), which read through
+        // `resolveReadPorts` — the ONE shared local-vs-remote authority the
+        // MCP read operations use. This branch resolves no store on its own:
+        // no `listTasksWithPaths`/`fetchSaasTasks` snapshot here, no inline
+        // filter/scope/sort/limit reimplementation. A remote failure refuses
+        // below (never a local fallback); envelopes are assembled by
+        // `cli/renderers/task-reads.ts` from the operation result.
+        // Behaviour notes vs the inline code this replaces:
+        // - filtered remote queries now include matching children (the
+        //   shared listing contract, ticket scope) instead of the old
+        //   remote-only root scoping;
+        // - `--all` is honoured in remote mode (bounded internal paging)
+        //   instead of silently returning the default page;
+        // - projections carry commentCount/fileCount from the read ports
+        //   (ticket b2e56212), so nothing silently hides.
         const mode = await getMode();
-        if (resolveReadBackend(mode) === "remote") {
-          const workspace = await readWorkspace();
-          // Unhydrated: the listing needs only commentCount/fileCount,
-          // which the list items already carry. Hydrating the whole board
-          // here cost 2+ requests per task and sank large boards. A failed
-          // read reports its status/path and returns — never a silent
-          // fall back to the local store.
-          const saasData = await fetchSaasTasks(workspace?.id, {
-            hydrate: false,
-          });
-          if (!saasData.ok) {
-            const listReadMessage = saasReadErrorMessage(saasData.error);
-            if (opts.json) {
-              outputEnvelope({
-                ok: false,
-                ...saasFailure(saasData.error),
-                message: listReadMessage,
-                json: opts.json,
-              });
-            } else {
-              console.log(chalk.red(`✗ ${listReadMessage}`));
-              if (saasData.error.code === "NOT_AUTHENTICATED") {
-                console.log(
-                  chalk.yellow("  Run 'vibeflow auth login' and retry."),
-                );
-              }
+        const listOpCtx: OperationContext = {
+          projectDir: resolve(dir),
+          mode: mode === "saas" ? "saas" : "local",
+        };
+        const listBackend = resolveReadBackend(mode);
+        const taskLimit = resolveListLimit(opts.limit);
+        const rawLimit =
+          opts.limit === undefined ? undefined : parseInt(opts.limit, 10);
+        const listInput = {
+          // opts.status/type were validated above against the same
+          // TASK_STATUSES / VALID_FILTER_TYPES vocabularies the operation
+          // schema declares; the casts only satisfy the narrower input
+          // type. --type matching stays case-insensitive inside the
+          // shared listing model.
+          status: opts.status as ListTasksInputType["status"],
+          type: opts.type as ListTasksInputType["type"],
+          user: opts.user,
+          tag: opts.tag,
+          children: opts.children,
+        };
+        // The operation takes the schema OUTPUT type (defaults applied):
+        // an omitted --limit resolves to the default SILENTLY here — the
+        // same answer the model gives for `undefined` — while an explicit
+        // bad value (0/NaN) still passes through and rides the model LOUD
+        // via `limitNotice`. `children` omitted and false are the same
+        // query.
+        const listResult = opts.all
+          ? await operations.listAllTasksForCli(listOpCtx, {
+              ...listInput,
+              pageSize: taskLimit,
+            })
+          : await operations.listTasks(listOpCtx, {
+              ...listInput,
+              limit:
+                rawLimit === undefined ? DEFAULT_LIST_LIMIT : rawLimit,
+              children: opts.children ?? false,
+            });
+        // The ok arm carries data unconditionally (a valid page, possibly
+        // empty); the second disjunct is unreachable fail-closed belt.
+        if (!listResult.ok || !listResult.data) {
+          const error = !listResult.ok
+            ? listResult.error
+            : {
+                code: "LIST_TASKS_ERROR",
+                message: "The board answered without rows — retry the listing.",
+              };
+          const refusal = operationRefusalEnvelope(error);
+          if (opts.json) {
+            outputEnvelope({ ...refusal, json: opts.json });
+          } else {
+            console.log(chalk.red(`✗ ${refusal.message}`));
+            if (refusal.suggestion) {
+              console.log(chalk.yellow(`  ${refusal.suggestion}`));
             }
-            process.exitCode = ExitCode.GENERAL;
-            return;
           }
-
-          let saasTasks = saasData.data.tasks.map((t: SaasTask) => ({
-            ...t,
-            status: toCliStatus(t.status),
-          }));
-          if (opts.status)
-            saasTasks = saasTasks.filter((t) => t.status === opts.status);
-          if (opts.type)
-            saasTasks = saasTasks.filter(
-              (t) =>
-                (t.type ?? "Task").toLowerCase() === opts.type!.toLowerCase(),
-            );
-          if (
-            opts.user &&
-            !validateUserFilter(opts.user, saasTasks, opts.json)
-          )
-            return;
-          if (opts.user)
-            saasTasks = saasTasks.filter((t) =>
-              matchesUserFilter(t.author, opts.user!),
-            );
-          if (opts.tag && opts.tag.length > 0)
-            saasTasks = saasTasks.filter((t) =>
-              opts.tag!.every((tag) =>
-                ((t as { tags?: string[] }).tags ?? []).includes(tag),
-              ),
-            );
-
-          const saasIsChild = (t: SaasTask): boolean =>
-            Array.isArray(t.links) &&
-            t.links.some((l) => l?.type === "parent");
-          // Root-only default, the same scope the hosted MCP surface and the
-          // local board apply: a task carrying a parent link belongs to that
-          // parent, not to the peer list. --children includes them (then
-          // nothing is hidden). Filtered searches stay on the same scoped set
-          // the hosted list_tasks answers — the local filtered-includes-
-          // children exception is a local-CLI rule, not the online one.
-          const saasHiddenChildren = opts.children
-            ? 0
-            : saasTasks.filter(saasIsChild).length;
-          if (!opts.children)
-            saasTasks = saasTasks.filter((t) => !saasIsChild(t));
-
-          const saasLimit = resolveListLimit(opts.limit);
-          if (!isNaN(saasLimit) && saasLimit > 0)
-            saasTasks = saasTasks.slice(0, saasLimit);
+          process.exitCode = refusalExitCode(error.code);
+          return;
+        }
+        const listed = listResult.data;
+        const listNotices = listResult.steps ?? [];
+        if (!opts.json)
+          for (const notice of listNotices) console.error(notice.message);
+        // --user validation against the board's author list, read through
+        // the ports (the operation already applied the filter; this only
+        // preserves the E_USAGE recovery naming the available users).
+        if (opts.user) {
+          const { store: userScopeStore } = resolveReadPorts(listOpCtx);
+          const userScope = await userScopeStore.listTasks(
+            listOpCtx.projectDir,
+          );
+          if (!validateUserFilter(opts.user, userScope, opts.json)) return;
+        }
+        if (listBackend === "remote") {
 
           if (opts.json) {
-            // SAFETY: SaaS tasks have the same shape as CLI tasks for pickFields purposes
-            // REMOTE MODE (ticket 9bb350a7, cloud ticket e07c8212): the
-            // cloud listing does not send position metadata
-            // (offset/remaining/nextCursor/order) yet, so this envelope
-            // passes through EXACTLY what the cloud sent and invents
-            // nothing — do NOT compute those fields locally here. A locally
-            // invented cursor would fake a vocabulary the cloud has not
-            // defined, and the next local page would silently disagree with
-            // the next cloud page. When the cloud starts sending them, pass
-            // them through verbatim.
+            // REMOTE MODE (ticket 9bb350a7): the legacy `tasks` +
+            // `hiddenChildren` envelope, assembled by the read renderer
+            // from the operation result — the position vocabulary
+            // (offset/remaining/nextCursor/order) is a local-envelope
+            // concern and is never invented here. Rows are the mapped
+            // remote records through the shared listing model, so an
+            // unfiltered listing still hides children and `--children`
+            // still reveals them.
             outputEnvelope({
               ok: true,
               json: opts.json,
-              payload: {
-                tasks: saasTasks.map((t) =>
-                  pickFields(
-                    t as unknown as Record<string, unknown>,
-                    parsedFields,
-                  ),
-                ),
-                hiddenChildren: saasHiddenChildren,
-              },
+              payload: remoteListJsonPayload(listed, parsedFields),
             });
             return;
           }
 
-          const hasResearchTasks = saasTasks.some(
+          // Rows are the operation's mapped remote records (already
+          // filtered/scoped/sorted/limited by the shared listing model).
+          // Field notes vs the raw rows above: `created` (not createdAt),
+          // comments carry `text` (not body), files carry names only (no
+          // inlined content — content would cost a hydration request per
+          // task, the N+1 the unhydrated listing removed), and list rows
+          // carry no detail relations (parentId/children ride the --get
+          // detail response, never the listing).
+          // Counts ride the row as plain data (the mapped record carries
+          // whatever the server sent); the Task TYPE does not name them,
+          // so the read is spelled through this row alias, not any-casts.
+          type RemoteListRow = Task & {
+            commentCount?: number;
+            fileCount?: number;
+          };
+          const remoteRows = listed.tasks as RemoteListRow[];
+          const hasResearchTasks = remoteRows.some(
             (t) => (t.type ?? "").toLowerCase() === "research",
           );
-          const hasBugTasks = saasTasks.some(
+          const hasBugTasks = remoteRows.some(
             (t) => (t.type ?? "").toLowerCase() === "bug",
           );
 
@@ -6448,23 +6462,10 @@ program
             requireVerifyBeforeReview: saasSettings.requireVerifyBeforeReview,
           });
 
-          if (saasTasks.length === 0) {
+          if (remoteRows.length === 0) {
             console.log(chalk.dim("No tasks found."));
           } else {
-            saasTasks = saasTasks.sort((a, b) => {
-              const byStatus =
-                getStatusRank(a.status) - getStatusRank(b.status);
-              if (byStatus !== 0) return byStatus;
-              const byPriority =
-                getPriorityRank(a.priority ?? undefined) -
-                getPriorityRank(b.priority ?? undefined);
-              if (byPriority !== 0) return byPriority;
-              return (
-                new Date(b.updatedAt).getTime() -
-                new Date(a.updatedAt).getTime()
-              );
-            });
-            for (const [idx, task] of saasTasks.entries()) {
+            for (const [idx, task] of remoteRows.entries()) {
               const colorFn = STATUS_COLORS[task.status] ?? chalk.white;
               const normalizedType = normalizeTaskType(task.type);
               console.log(
@@ -6476,7 +6477,7 @@ program
                 console.log(chalk.dim(`    type:     ${normalizedType}`));
               if (task.priority)
                 console.log(chalk.dim(`    priority: ${task.priority}`));
-              console.log(chalk.dim(`    created:  ${task.createdAt}`));
+              console.log(chalk.dim(`    created:  ${task.created}`));
               if (task.description) {
                 console.log(chalk.dim(`    description:`));
                 for (const line of task.description.split("\n"))
@@ -6488,11 +6489,8 @@ program
                   chalk.dim(`    comments (${sortedComments.length}):`),
                 );
                 for (const c of sortedComments) {
-                  // v0 contract author (user|agent) reads back verbatim (L1);
-                  // fall back to the ownership id only when it is absent.
-                  const author = c.author ?? (c.authorId ? `user:${c.authorId.slice(0, 8)}` : "agent");
-                  console.log(chalk.dim(`      [${author}] ${c.createdAt}`));
-                  for (const line of c.body.split("\n"))
+                  console.log(chalk.dim(`      [${c.author ?? "agent"}] ${c.createdAt}`));
+                  for (const line of c.text.split("\n"))
                     console.log(chalk.dim(`        ${line}`));
                 }
               } else if (
@@ -6510,19 +6508,12 @@ program
                   chalk.dim(`    linked files (${task.files.length}):`),
                 );
                 for (const f of task.files) {
-                  // Cloud-only URL: getApiUrl() is the SaaS base → always
+                  // Cloud-only URL: getApiUrl() is the remote base → always
                   // "cloud", so the legacy files path maps to /api/v0.
                   const fileUrl =
-                    f.url ??
+                    (f as { url?: string }).url ??
                     `${getApiUrl()}${surfacePath("cloud", `/api/tasks/${task.id}/files/${encodeURIComponent(f.name)}`)}`;
                   console.log(chalk.dim(`      - ${f.name}  ${fileUrl}`));
-                  // Use inlined content from the API response (no extra HTTP request needed).
-                  if (f.content) {
-                    console.log(chalk.dim(`        ┌── content ──`));
-                    for (const line of f.content.split("\n"))
-                      console.log(chalk.dim(`        │  ${line}`));
-                    console.log(chalk.dim(`        └─────────────`));
-                  }
                 }
               } else if (
                 typeof task.fileCount === "number" &&
@@ -6537,16 +6528,19 @@ program
               console.log();
             }
 
-            const allForCount = saasData.data.tasks.map((t: SaasTask) => ({ 
-              ...t,
-              status: toCliStatus(t.status),
-            }));
+            // Board-wide status totals come from one ports snapshot (the
+            // operation page carries scope counts, not per-status
+            // columns) — human mode only, never on the --json path.
+            const { store: countStore } = resolveReadPorts(listOpCtx);
+            const allForCount = await countStore.listTasks(
+              listOpCtx.projectDir,
+            );
             // Never hide existence silently: name the flag that reveals the
             // children, the same disclosure the local listing prints.
             const saasChildSuffix =
-              saasHiddenChildren > 0
+              listed.hiddenChildren > 0
                 ? chalk.dim(
-                    ` · ${saasHiddenChildren} child task${saasHiddenChildren === 1 ? "" : "s"} hidden (use --children)`,
+                    ` · ${listed.hiddenChildren} child task${listed.hiddenChildren === 1 ? "" : "s"} hidden (use --children)`,
                   )
                 : "";
             console.log(
@@ -6556,99 +6550,24 @@ program
           return;
         }
 
-        const taskReads: TaskReadFinding[] = [];
-        const all = listTasksWithPaths(dir, taskReads);
-        const readNotices = taskReadNotices(taskReads);
-        if (!opts.json) for (const notice of readNotices) console.error(notice.message);
-        if (opts.user && !validateUserFilter(opts.user, all, opts.json)) return;
-
-        // Parity contract 83159002: filter/scope/sort/limit/counts come from
-        // the ONE shared listing model (core/task-listing.ts) — the same one
-        // the MCP list_tasks tool renders. Root-only is the default, but a
-        // filtered query is an explicit search returning EVERY match.
-        // The absent-flag default is DEFAULT_LIST_LIMIT (ticket 9bb350a7),
-        // the same constant the MCP schema defaults to.
-        // Ticket b2e56212: there is NO unbounded mode on any surface. The
-        // raw flag value goes straight into queryTaskList, which resolves
-        // an explicit 0/<=0/NaN to the default LOUDLY (`limitNotice`) —
-        // resolveListLimit below is only the human-path page-size default,
-        // not a second rule. --all fetches the whole set through the
-        // EXPLICIT paged helper (bounded per request), never a magic limit.
-        const taskLimit = resolveListLimit(opts.limit);
-        const rawLimit =
-          opts.limit === undefined ? undefined : parseInt(opts.limit, 10);
-        const listQuery = {
-          status: opts.status,
-          type: opts.type,
-          user: opts.user,
-          tag: opts.tag,
-          children: opts.children,
-        };
-        const listed = opts.all
-          ? queryAllTasks(all, { ...listQuery, pageSize: taskLimit })
-          : queryTaskList(all, { ...listQuery, limit: rawLimit });
-        const hiddenChildCount = listed.hiddenChildren;
+        // Local rendering from the same operation result — the remote
+        // branch above already returned, so listBackend is "local" here.
+        // Envelopes come from the read renderer, never a second snapshot.
         const filtered = listed.tasks;
 
         if (opts.json) {
-          // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
-          // Counts share the MCP vocabulary: totalMatching (every match),
-          // totalRoots (matching roots), returned (rows in `tasks`), limit
-          // (echoed RESOLVED, ticket b2e56212 — never 0), truncated +
-          // hiddenChildren — plus the ticket-9bb350a7 position fields
-          // (offset/remaining/nextCursor/order), read off the same shared
-          // listing result the MCP tool returns. `limitNotice` rides along
-          // only when an explicit bad limit fell back to the default.
-          // A --fields projection ALWAYS carries commentCount/fileCount
-          // (ticket b2e56212, change 3) from the same readers the human
-          // listing renders, so a projection never silently hides them.
-          const jsonProjectDir = resolve(dir);
-          const projectedTasks: Record<string, unknown>[] = [];
-          for (const t of filtered) {
-            // SAFETY: Task objects are plain JSON-serializable; Record<string, unknown> is the superset for field picking.
-            const picked = pickFields(
-              t as unknown as Record<string, unknown>,
-              parsedFields,
-            );
-            if (parsedFields.length === 0) {
-              projectedTasks.push(picked);
-              continue;
-            }
-            let commentCount = 0;
-            let fileCount = 0;
-            try {
-              commentCount = listComments(jsonProjectDir, t.id).length;
-              fileCount = listFiles(jsonProjectDir, t.id).length;
-            } catch {
-              // SAFETY: same JSON-superset read as above, only for the fallback count derivation.
-              const rec = t as unknown as Record<string, unknown>;
-              commentCount = Array.isArray(rec.comments)
-                ? rec.comments.length
-                : 0;
-              fileCount = Array.isArray(rec.files) ? rec.files.length : 0;
-            }
-            projectedTasks.push({ ...picked, commentCount, fileCount });
-          }
+          // Counts share the MCP vocabulary (totalMatching/totalRoots /
+          // returned/limit(+limitNotice)/truncated/hint/hiddenChildren /
+          // offset/remaining/nextCursor/order), read off the same shared
+          // listing result the MCP tool returns. A --fields projection
+          // carries commentCount/fileCount (ticket b2e56212) attached by
+          // the operation from the read ports; the renderer keeps them.
           outputEnvelope({
             ok: true,
             json: opts.json,
             payload: {
-              ...noticeFields(readNotices),
-              tasks: projectedTasks,
-              totalMatching: listed.totalMatching,
-              totalRoots: listed.totalRoots,
-              returned: listed.returned,
-              limit: listed.limit,
-              ...(listed.limitNotice
-                ? { limitNotice: listed.limitNotice }
-                : {}),
-              truncated: listed.truncated,
-              ...(listed.hint ? { hint: listed.hint } : {}),
-              hiddenChildren: hiddenChildCount,
-              offset: listed.offset,
-              remaining: listed.remaining,
-              nextCursor: listed.nextCursor,
-              order: listed.order,
+              ...noticeFields(listNotices),
+              ...localListJsonPayload(listed, parsedFields),
             },
           });
           return;
@@ -6660,6 +6579,12 @@ program
         }
 
         const projectDir = resolve(dir);
+        // Display support comes from the read ports — the same authority
+        // the operation read — never a direct store import in this branch.
+        // One full snapshot feeds the footer totals, the relations view,
+        // and the per-task comment/file readers below.
+        const { store: displayStore } = resolveReadPorts(listOpCtx);
+        const displayScope = await displayStore.listTasks(projectDir);
 
         const hasResearchTasks = filtered.some(
           (t) => (t.type ?? "").toLowerCase() === "research",
@@ -6681,10 +6606,12 @@ program
 
         const config = readConfig(projectDir);
         for (const [idx, task] of filtered.entries()) {
-          const structuredComments = listComments(projectDir, task.id).sort(
-            sortByCreatedAt,
-          );
-          const linkedFiles = listFiles(projectDir, task.id).map((f) => ({
+          const structuredComments = (
+            await displayStore.listComments(projectDir, task.id)
+          ).sort(sortByCreatedAt);
+          const linkedFiles = (
+            await displayStore.listFiles(projectDir, task.id)
+          ).map((f) => ({
             ...f,
             url: `http://localhost:${config.port}${f.url}`,
           }));
@@ -6693,7 +6620,18 @@ program
             structuredComments,
             linkedFiles,
           );
-          printTaskDetails(task, agent, idx, config.port, projectDir, all);
+          printTaskDetails(
+            {
+              ...task,
+              filePath:
+                findTaskFilePath(projectDir, task.id) ?? "(unknown)",
+            },
+            agent,
+            idx,
+            config.port,
+            projectDir,
+            displayScope,
+          );
         }
 
         // Ticket b2e56212: the footer echoes the shared hint (single
@@ -6708,13 +6646,13 @@ program
         }
         // Never hide existence silently: name the flag that reveals the children.
         const childSuffix =
-          hiddenChildCount > 0
+          listed.hiddenChildren > 0
             ? chalk.dim(
-                ` · ${hiddenChildCount} child task${hiddenChildCount === 1 ? "" : "s"} hidden (use --children)`,
+                ` · ${listed.hiddenChildren} child task${listed.hiddenChildren === 1 ? "" : "s"} hidden (use --children)`,
               )
             : "";
         console.log(
-          chalk.dim(formatStatusSummary(all)) + limitSuffix + childSuffix,
+          chalk.dim(formatStatusSummary(displayScope)) + limitSuffix + childSuffix,
         );
       }
       async function runTasksAndFlush() {

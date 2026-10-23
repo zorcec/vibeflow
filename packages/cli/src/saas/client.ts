@@ -583,48 +583,12 @@ export async function fetchSaasTaskDetail(
  * with codes the CLI maps to exits — never a silent first-match, so a
  * link flag can never attach to a task the caller did not name.
  */
-export type SaasIdResolution =
-  | { ok: true; id: string }
-  | { ok: false; code: "TASK_NOT_FOUND"; message: string }
-  | {
-      ok: false;
-      code: "E_AMBIGUOUS";
-      message: string;
-      candidates: string[];
-    };
-
-export function resolveSaasTaskId(
-  tasks: Array<{ id: string; title?: string | null }>,
-  raw: string,
-): SaasIdResolution {
-  if (raw.length === 0) {
-    return {
-      ok: false,
-      code: "TASK_NOT_FOUND",
-      message: `Task not found: ${raw}`,
-    };
-  }
-  const exact = tasks.find((t) => t.id === raw);
-  if (exact) return { ok: true, id: exact.id };
-  const matches = tasks.filter((t) => t.id.startsWith(raw));
-  if (matches.length === 0) {
-    return {
-      ok: false,
-      code: "TASK_NOT_FOUND",
-      message: `Task not found: ${raw}`,
-    };
-  }
-  if (matches.length === 1) return { ok: true, id: matches[0].id };
-  const named = matches
-    .map((m) => (m.title ? `${m.id} "${m.title}"` : m.id))
-    .join(", ");
-  return {
-    ok: false,
-    code: "E_AMBIGUOUS",
-    message: `Ambiguous task id prefix "${raw}" matches ${matches.length} tasks: ${named}`,
-    candidates: matches.map((m) => m.id),
-  };
-}
+// ONE id rule — the implementation lives in `core/id-resolution.ts`
+// (backend-neutral, dependency-free) so the file-backed ports share it
+// without importing this HTTP client module. Re-exported here so every
+// existing `saas/client.js` importer keeps resolving it unchanged.
+export { resolveSaasTaskId } from "../core/id-resolution.js";
+export type { SaasIdResolution } from "../core/id-resolution.js";
 
 /**
  * Fetch a single task from the SaaS by ID.

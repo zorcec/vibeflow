@@ -10,6 +10,7 @@ import {
   isParentChainActive,
 } from "./tasks.js";
 import { compareTasksByPriorityThenCreated } from "./types.js";
+import { resolveSaasTaskId } from "./id-resolution.js";
 
 /**
  * P1 seam (ticket 3d613068, parent e7482da5): operation-facing PORTS over the
@@ -59,7 +60,12 @@ export interface ClaimOptions {
 export type TaskResolveOutcome =
   | { status: "found"; id: string; task: Task }
   | { status: "missing"; id: string }
-  | { status: "unreadable"; id: string };
+  | { status: "unreadable"; id: string }
+  // P2 (ticket d7b9dc13): an ambiguous prefix resolves to NO task — the
+  // one-id-rule refusal (`E_AMBIGUOUS` naming the candidates), never a
+  // silent first-match. Carried as an outcome (not a throw) so every
+  // adapter reports it the same way and the operation maps it once.
+  | { status: "ambiguous"; id: string; candidates: string[] };
 
 /** Attachment validation verdict (mirrors `FileValidationResult`). */
 export interface AttachmentValidation {
@@ -247,15 +253,47 @@ export class LocalTaskStore implements TaskStore, LocalArtifactStore {
     projectDir: string,
     idOrPrefix: string,
   ): Promise<TaskResolveOutcome> {
-    // The SAME rule the CLI resolves by: full id, else first prefix match,
-    // else the input unchanged (which then misses below). Kept here — the
-    // one adapter that may read paths — so portable callers never do.
-    const id = tasksModule.resolveTaskId(projectDir, idOrPrefix);
-    const filePath = tasksModule.findTaskFilePath(projectDir, id);
-    if (!filePath) return { status: "missing", id };
+    // P2 (ticket d7b9dc13): the ONE shared id rule (`resolveSaasTaskId`
+    // over this adapter's own snapshot) — exact id wins, a UNIQUE prefix
+    // resolves, an ambiguous prefix is an `ambiguous` outcome, never a
+    // silent first-match. The old first-match guess is gone: `--get`,
+    // `--edit`, and every task-scoped MCP tool refuse ambiguity through
+    // the same `resolveTaskOrRefusal` mapping.
+    //
+    // Ordering matters: the snapshot silently skips records that do not
+    // parse, so an exact id naming a CORRUPT file must be checked directly
+    // first — otherwise it would vanish into `missing` and the
+    // TASK_READ_ERROR recovery ("the file exists but did not parse")
+    // would never fire. A prefix never names a file directly
+    // (`findTaskFilePath` matches exact filenames only), so prefixes
+    // always take the snapshot rule below.
+    const directPath = tasksModule.findTaskFilePath(projectDir, idOrPrefix);
+    if (directPath) {
+      const task = tasksModule.readTaskFile(directPath);
+      if (!task) return { status: "unreadable", id: idOrPrefix };
+      return { status: "found", id: idOrPrefix, task };
+    }
+    const resolved = resolveSaasTaskId(
+      await tasksModule.listTasks(projectDir),
+      idOrPrefix,
+    );
+    if (!resolved.ok) {
+      // The rule reports unknown AND empty ids as TASK_NOT_FOUND; only an
+      // ambiguous prefix carries candidates.
+      if (resolved.code === "E_AMBIGUOUS") {
+        return {
+          status: "ambiguous",
+          id: idOrPrefix,
+          candidates: resolved.candidates,
+        };
+      }
+      return { status: "missing", id: idOrPrefix };
+    }
+    const filePath = tasksModule.findTaskFilePath(projectDir, resolved.id);
+    if (!filePath) return { status: "missing", id: resolved.id };
     const task = tasksModule.readTaskFile(filePath);
-    if (!task) return { status: "unreadable", id };
-    return { status: "found", id, task };
+    if (!task) return { status: "unreadable", id: resolved.id };
+    return { status: "found", id: resolved.id, task };
   }
 
   async createTask(

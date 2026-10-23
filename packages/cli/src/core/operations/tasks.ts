@@ -120,29 +120,115 @@ export async function listTasks(
     const notices = taskReadNotices(reads);
     return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
   } catch (err) {
-    // P2: a remote refusal already names the actual failure — forward it
-    // verbatim instead of relabelling it as a local store problem.
-    if (isRemoteReadError(err)) {
-      return {
-        ok: false,
-        error: {
-          code: err.code,
-          message: err.message,
-          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
-          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
-        },
-      };
+    return forwardListReadError(err);
+  }
+}
+
+/**
+ * CLI-only unbounded assembly (ticket d7b9dc13, plan step 5).
+ *
+ * `vibeflow tasks --all` fetches the whole matching set; the MCP surface
+ * deliberately has no unbounded flag (KNOWN_DELTAS
+ * cli-only-unbounded-listing), so this lives here as a typed internal —
+ * same read ports, same shared listing model, plain (non-zod) input — and
+ * is NOT registered in the manifest or the operation registry. Each page
+ * is bounded (`pageSize`, DEFAULT_LIST_LIMIT unless given) via
+ * `queryAllTasks`; unbounded overall, bounded per request.
+ */
+export interface ListAllTasksInput {
+  status?: string;
+  type?: string;
+  user?: string;
+  tag?: string[];
+  children?: boolean;
+  fields?: string[];
+  pageSize?: number;
+}
+
+export async function listAllTasksForCli(
+  ctx: OperationContext,
+  input: ListAllTasksInput,
+): Promise<OperationResult<TaskListResult>> {
+  try {
+    // Same authority as listTasks: the read ports for this mode — remote
+    // when saas, local otherwise. A remote failure refuses; it never falls
+    // back to local files.
+    const { store } = resolveReadPorts(ctx);
+    const { queryAllTasks } = await import("../task-listing.js");
+    const { taskReadNotices } = await import("../task-record-read.js");
+    const reads: import("../task-record-read.js").TaskReadFinding[] = [];
+    const result = queryAllTasks(
+      await store.listTasks(ctx.projectDir, reads),
+      {
+        status: input.status,
+        type: input.type,
+        user: input.user,
+        tag: input.tag,
+        children: input.children,
+        pageSize: input.pageSize,
+      },
+    );
+
+    if (input.fields && input.fields.length > 0) {
+      const { attachOmissionCounts } = await import("./files.js");
+      const fieldSet = new Set(input.fields);
+      const projected: Task[] = [];
+      for (const t of result.tasks) {
+        const filtered: Record<string, unknown> = {};
+        for (const key of Object.keys(t)) {
+          if (fieldSet.has(key)) {
+            // SAFETY: Task is a plain JSON object; runtime keys match the type's properties
+            filtered[key] = (t as unknown as Record<string, unknown>)[key];
+          }
+        }
+        // SAFETY: filtered contains a subset of Task's keys; partial Task is still structurally valid for JSON serialization
+        projected.push(
+          (await attachOmissionCounts(
+            ctx,
+            filtered,
+            t.id,
+          )) as unknown as Task,
+        );
+      }
+      result.tasks = projected;
     }
+
+    const notices = taskReadNotices(reads);
+    return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
+  } catch (err) {
+    return forwardListReadError(err);
+  }
+}
+
+/**
+ * The ONE list-read error mapping: a remote refusal already names the
+ * actual failure and travels verbatim; anything else is a local store
+ * problem. Shared by listTasks and listAllTasksForCli so the two cannot
+ * disagree on what a dead backend looks like.
+ */
+function forwardListReadError(
+  err: unknown,
+): OperationResult<TaskListResult> {
+  if (isRemoteReadError(err)) {
     return {
       ok: false,
       error: {
-        code: "LIST_TASKS_ERROR",
-        message: err instanceof Error ? err.message : "Failed to list tasks",
-        suggestion:
-          "Check that <project> is a vibeflow store and readable (is there a .vibeflow/tasks directory?), then call list_tasks again",
+        code: err.code,
+        message: err.message,
+        ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+        ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
       },
     };
   }
+  return {
+    ok: false,
+    error: {
+      code: "LIST_TASKS_ERROR",
+      message: err instanceof Error ? err.message : "Failed to list tasks",
+      suggestion:
+        "Check that <project> is a vibeflow store and readable (is there a .vibeflow/tasks directory?), then call list_tasks again",
+    },
+  };
 }
 
 export async function getTask(

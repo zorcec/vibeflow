@@ -33,6 +33,7 @@ import {
   toCliStatus,
   type SaasTask,
 } from "../saas/client.js";
+import { saasReadErrorMessage } from "../saas/failure.js";
 import { resolveBoardScope } from "../auth/board-scope.js";
 import type {
   ClaimOptions,
@@ -97,16 +98,25 @@ function toRemoteRefusal(
   fallbackSuggestion: string,
 ): RemoteReadError {
   if (error.code === "NOT_AUTHENTICATED") {
-    return new RemoteReadError("E_NOT_AUTHENTICATED", error.message, {
-      suggestion: "Run 'vibeflow auth login' and retry.",
-      retryable: false,
-    });
+    return new RemoteReadError(
+      "E_NOT_AUTHENTICATED",
+      saasReadErrorMessage(error),
+      {
+        suggestion: "Run 'vibeflow auth login' and retry.",
+        retryable: false,
+      },
+    );
   }
   if (error.status === 401 || error.status === 403) {
-    return new RemoteReadError("E_NOT_AUTHENTICATED", error.message, {
-      suggestion: "The token was rejected — run 'vibeflow auth login' and retry.",
-      retryable: false,
-    });
+    return new RemoteReadError(
+      "E_NOT_AUTHENTICATED",
+      saasReadErrorMessage(error),
+      {
+        suggestion:
+          "The token was rejected — run 'vibeflow auth login' and retry.",
+        retryable: false,
+      },
+    );
   }
   if (error.code === "TASK_NOT_FOUND") {
     return new RemoteReadError("TASK_NOT_FOUND", error.message, {
@@ -119,10 +129,22 @@ function toRemoteRefusal(
       retryable: false,
     });
   }
-  return new RemoteReadError("E_BACKEND_UNAVAILABLE", error.message, {
-    suggestion: fallbackSuggestion,
-    retryable: error.code === "NETWORK_ERROR",
-  });
+  // P2 CLI-through-operations slice (ticket d7b9dc13): the CLI renders
+  // operation refusals verbatim, so the refusal message is worded here with
+  // the SAME formatter the CLI's inline paths used (`saasReadErrorMessage`:
+  // "Online board read failed …" with status/path). The CLI envelope and
+  // the MCP envelope then agree byte-for-byte on the message, and the
+  // e2e refusal pins ("Online board read failed" on a dead host) hold
+  // through the operations layer. Codes are unchanged — only the wording
+  // is shared, never a local fallback.
+  return new RemoteReadError(
+    "E_BACKEND_UNAVAILABLE",
+    saasReadErrorMessage(error),
+    {
+      suggestion: fallbackSuggestion,
+      retryable: error.code === "NETWORK_ERROR",
+    },
+  );
 }
 
 /**
@@ -188,6 +210,14 @@ export function toLocalTask(row: SaasTask): Task | null {
     ...(files && files.length > 0 ? { files } : {}),
     ...(typeof row.commentCount === "number" ? { commentCount: row.commentCount } : {}),
     ...(typeof row.fileCount === "number" ? { fileCount: row.fileCount } : {}),
+    // P2 CLI-through-operations slice (ticket d7b9dc13): the online
+    // DETAIL contract travels with the mapped task so the CLI `--get`
+    // renderer keeps its pinned raw-detail behaviour (parentId/children
+    // pass through under the legacy `task` key ONLY when the server sent
+    // them — never synthesised, never dropped when present). List rows
+    // carry no detail relations, so nothing changes for listings.
+    ...(row.parentId !== undefined ? { parentId: row.parentId } : {}),
+    ...(Array.isArray(row.children) ? { children: row.children } : {}),
   } as Task;
 }
 

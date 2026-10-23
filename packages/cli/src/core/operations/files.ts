@@ -15,6 +15,7 @@ import type {
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveOperationPorts } from "../task-store.js";
+import { resolveReadPorts } from "../operation-context.js";
 import type { AttachFileInputType } from "@vibeflow-tools/api-core";
 
 /**
@@ -38,7 +39,13 @@ export async function attachOmissionCounts(
   row: Record<string, unknown>,
   taskId: string,
 ): Promise<Record<string, unknown>> {
-  const { store } = resolveOperationPorts(ctx);
+  // P2 CLI-through-operations slice (ticket d7b9dc13): the counts come
+  // from the READ ports for this mode, not the local write-path ports.
+  // Under mode saas the old resolution read the LOCAL sidecars, so a
+  // remote projection carried local counts — the same phantom-record class
+  // (stale local data presented as current) this ticket exists to kill.
+  // Under mode local both resolutions answer the same adapter: unchanged.
+  const { store } = resolveReadPorts(ctx);
   let commentCount: number;
   let fileCount: number;
   try {

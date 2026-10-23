@@ -79,5 +79,22 @@ export async function resolveTaskOrRefusal(
       },
     };
   }
+  if (outcome.status === "ambiguous") {
+    // P2 (ticket d7b9dc13): the one-id-rule refusal. The prefix named
+    // several tasks, so it names none — the caller must disambiguate.
+    // Same code and suggestion the CLI's inline id resolution and the
+    // remote adapter already emit, so local and remote ambiguity refuse
+    // identically (the remote message additionally quotes titles; the
+    // candidates here are ids, which is what the recovery needs).
+    return {
+      ok: false,
+      error: {
+        code: "E_AMBIGUOUS",
+        message: `Ambiguous task id prefix "${outcome.id}" matches ${outcome.candidates.length} tasks: ${outcome.candidates.join(", ")}`,
+        suggestion:
+          "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+      },
+    };
+  }
   return { ok: true, id: outcome.id, task: outcome.task };
 }
