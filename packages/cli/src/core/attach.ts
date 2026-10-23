@@ -31,30 +31,6 @@ export interface AttachSourceRefusal {
 }
 
 /**
- * Raw-name validation for MCP-style bytes uploads (ticket 4a5f7df6, P5).
- *
- * WP-1: separators, traversal and control bytes are REFUSALS, never silently
- * sanitised — the client asked for `../escape.md` and must not get
- * `escape.md` by surprise. `null` means the name is storable (storage still
- * basenames, per saveFile's own rule). Lives here — not in the operation
- * module — because the operation-storage boundary (check 5) forbids operation
- * modules from importing `core/files.js` for values, and every attach gate
- * already resolves through this module.
- */
-export function refuseRawAttachFilename(
-  filename: string,
-  size: number,
-): AttachSourceRefusal | null {
-  const verdict = validateFilename(filename, size);
-  if (verdict.valid) return null;
-  return {
-    code: verdict.errorCode,
-    message: verdict.errorMessage,
-    suggestion: verdict.errorSuggestion,
-  };
-}
-
-/**
  * Refusal for a second upload of the same (taskId, name) pair. The cloud
  * file route mints a fresh file id per POST (it never dedupes by name)
  * and the local store keeps one ref per name — so the CLI checks the
