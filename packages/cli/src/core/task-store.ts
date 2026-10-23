@@ -4,12 +4,7 @@ import type { TaskReadFinding } from "./task-record-read.js";
 import * as tasksModule from "./tasks.js";
 import * as commentsModule from "./comments.js";
 import * as filesModule from "./files.js";
-import {
-  getParentId,
-  isChildTask,
-  isParentChainActive,
-} from "./tasks.js";
-import { compareTasksByPriorityThenCreated } from "./types.js";
+import { selectClaimCandidate } from "./claim-eligibility.js";
 import { resolveSaasTaskId } from "./id-resolution.js";
 
 /**
@@ -191,16 +186,15 @@ export interface TaskStore {
     opts?: ClaimOptions,
   ): Promise<Task | null>;
   /**
-   * Read-only preview of the atomic claim: the SAME roots-first /
-   * live-children-fallback filter the live path applies, but nothing is
-   * written. Deliberately local: a remote board previews by its own rule in
-   * a later phase (P3+), and this preview never activates one.
+   * Read-only preview of the atomic claim: the SAME selector
+   * (`selectClaimCandidate` — roots-first / live-children fallback /
+   * unfinished-blocker suppression) the live path applies, but nothing is
+   * written. Deliberately local: a remote board previews by the versioned
+   * agent-claim contract (P3), and this preview never activates one.
    *
-   * Known divergence, pinned not fixed (ticket 3d613068 risks): the preview
-   * does NOT apply the blocked-by-unfinished-work check the live claim does
-   * inside its lock, so on a board whose top candidate is blocked the preview
-   * can name a task the live call skips. Equalising them is a focused claim
-   * correctness change (P3), not a silent policy change in this conversion.
+   * Fixed divergence (ticket 6452504d): the preview used to omit the
+   * blocked-by-unfinished-work check, so it could name a task the live
+   * claim skipped. Both now select through one selector.
    */
   previewClaim(
     projectDir: string,
@@ -422,35 +416,24 @@ export class LocalTaskStore implements TaskStore, LocalArtifactStore {
     projectDir: string,
     opts?: ClaimOptions,
   ): Promise<ClaimPreview | null> {
-    // Read-only mirror of the live claim's selection: the same todo /
-    // type / user / tag filters, the same roots-first rule with the same
-    // live-children fallback, the same priority-then-created order — but no
-    // lock and no write. Kept beside the atomic primitive (not in the
-    // operation layer) so the two cannot drift apart unnoticed.
-    const chainScope = tasksModule.listTasks(projectDir);
-    let pool = chainScope.filter((t) => t.status === "todo");
-    if (opts?.type) pool = pool.filter((t) => t.type === opts.type);
-    if (opts?.user) pool = pool.filter((t) => t.author === opts.user);
-    if (opts?.tag && opts.tag.length > 0) {
-      pool = pool.filter(
-        (t) => t.tags && opts.tag!.every((tag) => t.tags!.includes(tag)),
-      );
-    }
-    let candidates = pool.filter((t) => !isChildTask(t));
-    let childClaim = false;
-    if (candidates.length === 0) {
-      candidates = pool.filter(
-        (t) => !isChildTask(t) || isParentChainActive(chainScope, t),
-      );
-      childClaim = candidates.length > 0;
-    }
-    candidates.sort(compareTasksByPriorityThenCreated);
-    const preview = candidates[0];
-    if (!preview) return null;
+    // Read-only mirror of the live claim's two-phase shape (see
+    // `claimNextTask` in `core/operations/tasks.ts`): roots first, then the
+    // live-children fallback — both through the SAME selector
+    // (`selectClaimCandidate`, with unfinished-blocker suppression), but no
+    // lock and no write. P3 fix (ticket 6452504d): the old inline filter
+    // omitted the blocked-by-unfinished-work check the live claim applies,
+    // so on a board whose top candidate was blocked the preview named a
+    // task the live call skipped. One selector means one policy — the two
+    // cannot drift apart unnoticed.
+    const board = tasksModule.listTasks(projectDir);
+    const selection =
+      selectClaimCandidate(board, { ...opts, rootsOnly: true }) ??
+      selectClaimCandidate(board, opts);
+    if (!selection) return null;
     return {
-      task: preview,
-      childClaim,
-      parentId: childClaim ? (getParentId(preview) ?? null) : null,
+      task: selection.task,
+      childClaim: selection.childClaim,
+      parentId: selection.parentId,
     };
   }
 

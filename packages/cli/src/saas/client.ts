@@ -7,6 +7,7 @@
 import { readToken } from "../auth/token.js";
 import { peekBoardScope, scopeHeaderFor } from "../auth/board-scope.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import type { AgentClaimRequestType } from "@vibeflow-tools/api-core";
 
 export type SaasResult<T> =
   | { ok: true; data: T }
@@ -589,6 +590,119 @@ export async function fetchSaasTaskDetail(
 // existing `saas/client.js` importer keeps resolving it unchanged.
 export { resolveSaasTaskId } from "../core/id-resolution.js";
 export type { SaasIdResolution } from "../core/id-resolution.js";
+
+/**
+ * Atomically claim the next actionable task on the online board (ticket
+ * 6452504d, parent e7482da5): ONE versioned POST to
+ * `POST /api/v0/tasks/claim-next` carrying the additive agent-claim body
+ * (`agentVersion: 1` plus MCP-vocabulary filters). The SERVER owns
+ * selection, ordering, ancestry/blocker policy and the status/assignee
+ * guard — the client never lists, never filters, never PATCHes, so two
+ * concurrent claimants cannot take the same task and a claim can never
+ * report success when the remote refused.
+ *
+ * Truthfulness rules:
+ * - an old server that does not know the versioned body (404/501/422, or a
+ *   versioned `code` such as UNKNOWN_AGENT_VERSION) is a SPECIFIC refusal
+ *   (`AGENT_VERSION_UNKNOWN`) — never a silent legacy fallback and never a
+ *   list-then-PATCH, either of which would claim under the wrong policy.
+ * - `dryRun: true` previews through the same endpoint: exactly this one
+ *   request, no write, no PATCH follow-up.
+ * - filters are sent VERBATIM (exact match, the local contract) — the old
+ *   online case-folding of type/user is gone; the server applies the
+ *   shared policy.
+ */
+export async function claimSaasTask(
+  boardId: string | undefined,
+  body: AgentClaimRequestType,
+): Promise<
+  SaasResult<{ task: SaasTask | null; warning?: string }>
+> {
+  const headers = await getBearerHeaders();
+  if (!headers)
+    return {
+      ok: false,
+      error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+    };
+
+  const apiUrl = getApiUrl();
+  // Cloud-only path: the single surface-path table maps this to the v0
+  // claim route — no scattered path strings (see `surfacePath`).
+  const claimPath = surfacePath("cloud", "/api/cli/tasks/claim-next");
+  const url = new URL(`${apiUrl}${claimPath}`);
+  if (boardId) url.searchParams.set("boardId", boardId);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const serverCode =
+        typeof errBody.code === "string" ? errBody.code : undefined;
+      // An old server speaks no agent version: 404/501/422 on the
+      // versioned route, or an explicit versioned refusal code. Specific
+      // refusal — the caller must surface it, never work around it.
+      if (
+        res.status === 404 ||
+        res.status === 501 ||
+        res.status === 422 ||
+        serverCode === "UNKNOWN_AGENT_VERSION" ||
+        serverCode === "AGENT_VERSION_UNKNOWN"
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: "AGENT_VERSION_UNKNOWN",
+            message:
+              typeof errBody.error === "string" && errBody.error.length > 0
+                ? errBody.error
+                : "The board does not speak agent claim v1 — update the server before claiming remotely.",
+            status: res.status,
+            path: claimPath,
+            ...(serverCode ? { serverCode } : {}),
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message:
+            typeof errBody.error === "string" && errBody.error.length > 0
+              ? errBody.error
+              : `HTTP ${res.status}`,
+          status: res.status,
+          path: claimPath,
+          ...(serverCode ? { serverCode } : {}),
+        },
+      };
+    }
+    // Versioned success: `{ task }` with the claimed record, or
+    // `{ task: null }` when no candidate was eligible — the same empty
+    // success the local primitive reports as null, never an error.
+    const data = (await res.json()) as {
+      task?: SaasTask | null;
+      warning?: string;
+    };
+    return {
+      ok: true,
+      data: { task: data.task ?? null, ...(data.warning ? { warning: data.warning } : {}) },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
 
 /**
  * Fetch a single task from the SaaS by ID.

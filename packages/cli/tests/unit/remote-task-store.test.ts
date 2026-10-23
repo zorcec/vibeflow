@@ -329,11 +329,154 @@ describe("fail-closed scope and auth", () => {
 });
 
 describe("writes are not routed here", () => {
-  it("every mutating method throws REMOTE_WRITE_NOT_ROUTED", async () => {
+  it("every mutating method except the claim throws REMOTE_WRITE_NOT_ROUTED", async () => {
+    // P3 (ticket 6452504d): the claim IS routed here now — it is the one
+    // remote mutation with a truthful contract. Everything else still
+    // refuses loudly until P4.
     stubBoard({});
     await expect(remoteTaskStore.createTask(PROJECT, {} as never)).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
     await expect(remoteTaskStore.updateTask(PROJECT, "x", {})).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
     await expect(remoteTaskStore.deleteTask(PROJECT, "x")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
-    await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+    await expect(remoteTaskStore.addComment(PROJECT, "x", "agent", "hi")).rejects.toBeInstanceOf(RemoteWriteNotRoutedError);
+  });
+});
+
+describe("remote claim — one versioned POST, never list+PATCH", () => {
+  interface SeenRequest {
+    method: string;
+    url: string;
+    body: unknown;
+  }
+  function stubClaimServer(response: { status: number; body: unknown }): SeenRequest[] {
+    const seen: SeenRequest[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+        seen.push({
+          method: init?.method ?? "GET",
+          url,
+          body: init?.body ? (JSON.parse(init.body) as unknown) : undefined,
+        });
+        if (url.includes("/api/v0/boards")) {
+          const boards = { items: [{ id: "board-1", name: "B1" }], nextCursor: null };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(boards)),
+            json: () => Promise.resolve(boards),
+          });
+        }
+        if (url.includes("/api/v0/tasks/claim-next")) {
+          return Promise.resolve({
+            ok: response.status >= 200 && response.status < 300,
+            status: response.status,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(response.body)),
+            json: () => Promise.resolve(response.body),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          headers: { get: () => "application/json" },
+          text: () => Promise.resolve("{}"),
+          json: () => Promise.resolve({}),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  it("posts the exact versioned agent body with P2 frozen scope", async () => {
+    const seen = stubClaimServer({ status: 200, body: { task: v0Task("claimed-1", { status: "in-progress" }) } });
+    const claimed = await remoteTaskStore.claimNextTaskAtomic(PROJECT, {
+      type: "Bug",
+      user: "zoe",
+      tag: ["x"],
+    });
+    expect(claimed?.id).toBe("claimed-1");
+    expect(claimed?.status).toBe("in-progress");
+    const posts = seen.filter((r) => r.url.includes("/api/v0/tasks/claim-next"));
+    // Exactly ONE claim request — no listing, no PATCH follow-up.
+    expect(posts).toHaveLength(1);
+    expect(seen.filter((r) => r.method === "PATCH" || (isListUrl(r.url) && r.method === "GET"))).toHaveLength(0);
+    expect(posts[0]?.method).toBe("POST");
+    // The versioned body, verbatim filters, frozen board scope.
+    expect(posts[0]?.body).toEqual({
+      agentVersion: 1,
+      type: "Bug",
+      user: "zoe",
+      tag: ["x"],
+      dryRun: false,
+      boardId: "board-1",
+    });
+    expect(posts[0]?.url).toContain("boardId=board-1");
+  });
+
+  it("maps an empty claim to null (the empty success, never an error)", async () => {
+    stubClaimServer({ status: 200, body: { task: null } });
+    await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).resolves.toBeNull();
+    await expect(remoteTaskStore.previewClaim(PROJECT)).resolves.toBeNull();
+  });
+
+  it("preview sends dryRun:true in one request and writes nothing", async () => {
+    const seen = stubClaimServer({ status: 200, body: { task: v0Task("preview-1") } });
+    const preview = await remoteTaskStore.previewClaim(PROJECT, { type: "Task" });
+    expect(preview?.task.id).toBe("preview-1");
+    const posts = seen.filter((r) => r.url.includes("/api/v0/tasks/claim-next"));
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.body).toMatchObject({ agentVersion: 1, type: "Task", dryRun: true });
+    // No write of any kind follows the preview.
+    expect(seen.filter((r) => r.method !== "GET" && r.method !== "POST")).toHaveLength(0);
+    expect(seen.filter((r) => r.method === "PATCH")).toHaveLength(0);
+  });
+
+  it("derives the child-claim notice from the previewed record", async () => {
+    stubClaimServer({
+      status: 200,
+      body: {
+        task: v0Task("kid-1", {
+          links: [{ taskId: "epic-1", type: "parent" }],
+        }),
+      },
+    });
+    const preview = await remoteTaskStore.previewClaim(PROJECT);
+    expect(preview?.childClaim).toBe(true);
+    expect(preview?.parentId).toBe("epic-1");
+  });
+
+  it("an old server is the specific REMOTE_CLAIM_UNSUPPORTED refusal (never a fallback)", async () => {
+    const seen = stubClaimServer({ status: 404, body: {} });
+    const err = await remoteTaskStore.claimNextTaskAtomic(PROJECT).catch((e) => e);
+    expect(err).toBeInstanceOf(RemoteReadError);
+    expect(err.code).toBe("REMOTE_CLAIM_UNSUPPORTED");
+    // One boards listing plus the refused POST — no legacy GET/PATCH workaround.
+    expect(seen).toHaveLength(2);
+    expect(seen.filter((r) => r.method === "PATCH" || isListUrl(r.url))).toHaveLength(0);
+  });
+
+  it("a versioned server refusal code is the same specific refusal", async () => {
+    stubClaimServer({ status: 400, body: { error: "unknown agent version", code: "UNKNOWN_AGENT_VERSION" } });
+    await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).rejects.toMatchObject({
+      code: "REMOTE_CLAIM_UNSUPPORTED",
+    });
+  });
+
+  it("a claimed row that does not parse refuses (never a guessed task)", async () => {
+    stubClaimServer({ status: 200, body: { task: { id: "" } } });
+    await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).rejects.toMatchObject({
+      code: "REMOTE_MALFORMED_RECORD",
+    });
+  });
+
+  it("no token refuses without touching the network", async () => {
+    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).rejects.toMatchObject({
+      code: "E_NOT_AUTHENTICATED",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

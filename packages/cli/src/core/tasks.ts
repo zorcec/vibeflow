@@ -18,10 +18,10 @@ import {
   FILES_DIR,
   SCREENSHOTS_DIR,
   TASK_STATUSES,
-  compareTasksByPriorityThenCreated,
 } from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath, withFileLockSync } from "./lock.js";
+import { selectClaimCandidate } from "./claim-eligibility.js";
 import { inspectLocalTaskRecord, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
 export { taskReadNotices } from "./task-record-read.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
@@ -1234,59 +1234,37 @@ export function claimNextTaskAtomic(
     }
   }
   try {
-    // 1. Snapshot all tasks on disk.
+    // 1. Snapshot all tasks on disk (inside the claim lock, so the blocker
+    //    statuses the selector reads are current).
     const candidates = listTasksWithPaths(projectDir);
-    // 2. Filter to claimable tasks.
-    let filtered = candidates.filter((t) => t.status === "todo");
-    if (opts.type) {
-      filtered = filtered.filter((t) => t.type === opts.type);
-    }
-    if (opts.user) {
-      filtered = filtered.filter((t) => t.author === opts.user);
-    }
-    if (opts.tag && opts.tag.length > 0) {
-      filtered = filtered.filter(
-        (t) => t.tags && opts.tag!.every((tag) => t.tags!.includes(tag)),
-      );
-    }
-    if (opts.rootsOnly) {
-      // A parented task is not a candidate. The caller gets the root instead,
-      // with the child reported alongside it.
-      filtered = filtered.filter((t) => !isChildTask(t));
-    } else if (!opts.allowInactiveParentChain) {
-      // Owner rule (ticket 4ab7104a): the fallback only hands out children
-      // of live work. A todo child of a backlog/done parent — or of a
-      // dangling link — is skipped here and reported loudly by the caller,
-      // never claimed silently and never left invisible.
-      filtered = filtered.filter(
-        (t) => !isChildTask(t) || isParentChainActive(candidates, t),
-      );
-    }
-    // 3. Sort by priority then created ascending.
-    filtered.sort(compareTasksByPriorityThenCreated);
-    // 4. Iterate candidates, re-read each inside the lock to verify it is
-    //    still 'todo' (a concurrent writer may have claimed it). A candidate
-    //    blocked by unfinished work is never claimable: the snapshot above
-    //    was taken inside the same lock, so blocker statuses are current.
-    //    Only `done` satisfies a `blocks` link — `review` is NOT done.
-    for (const candidate of filtered) {
+    // 2-4. Select through the ONE shared eligibility selector (roots first,
+    //    then live-children fallback, unfinished blockers suppressed — see
+    //    `core/claim-eligibility.ts`), then re-read the pick inside the lock
+    //    to verify it is still 'todo' (a concurrent writer may have claimed
+    //    it) before writing. Only `done` satisfies a `blocks` link —
+    //    `review` is NOT done.
+    const selection = selectClaimCandidate(candidates, opts);
+    const candidate = selection?.task;
+    if (candidate) {
       const reRead = readTaskFile(candidate.filePath);
-      if (!reRead || reRead.status !== "todo") continue; // already taken
-      if (isBlockedByUnfinishedWork(reRead, candidates)) continue; // blocked
-      // 5. Write the claimed task — set author ONLY when defined (never
-      //    author: undefined which would overwrite through the spread).
-      const now = new Date().toISOString();
-      const updates: Partial<Task> = {
-        status: "in-progress" as TaskStatus,
-        updated: now,
-      };
-      if (opts.author) {
-        updates.author = opts.author;
+      // The selector already excluded blocked candidates against this same
+      // snapshot, so a re-read that is still todo is claimable — no second
+      // policy check here that could drift from the selector.
+      if (reRead && reRead.status === "todo") {
+        // 5. Write the claimed task — set author ONLY when defined (never
+        //    author: undefined which would overwrite through the spread).
+        const now = new Date().toISOString();
+        const updates: Partial<Task> = {
+          status: "in-progress" as TaskStatus,
+          updated: now,
+        };
+        if (opts.author) {
+          updates.author = opts.author;
+        }
+        const claimedTask: Task = { ...reRead, ...updates };
+        writeTaskJsonAt(candidate.filePath, claimedTask);
+        result = claimedTask;
       }
-      const claimedTask: Task = { ...reRead, ...updates };
-      writeTaskJsonAt(candidate.filePath, claimedTask);
-      result = claimedTask;
-      break;
     }
   } finally {
     try {

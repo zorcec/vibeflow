@@ -23,9 +23,11 @@
  *   ever falls back to the local store after a remote failure — a stale
  *   local copy must never be presented as current.
  *
- * Writes are out of scope: mutating operations keep resolving through
- * `resolveOperationPorts` (local) until P3/P4 route remote writes. The
- * remote adapter below refuses every write loudly so a misrouted write
+ * Writes are mostly out of scope: mutating operations keep resolving
+ * through `resolveOperationPorts` (local) until P4 routes the remaining
+ * remote writes — EXCEPT the claim, which P3 (ticket 6452504d) routes
+ * through `resolveClaimPorts` below (remote adapter in saas mode). The
+ * remote adapter refuses every other write loudly so a misrouted write
  * fails instead of landing on the wrong backend.
  */
 import type { OperationContext } from "./operations.js";
@@ -55,6 +57,31 @@ export function resolveReadBackend(mode: OperationContext["mode"]): ReadBackend 
  * artifact store, and portable read modules must not need one.
  */
 export function resolveReadPorts(ctx: OperationContext): OperationPorts {
+  if (ctx.store) {
+    return {
+      store: ctx.store,
+      artifacts: ctx.artifacts ?? localTaskStore,
+    };
+  }
+  if (resolveReadBackend(ctx.mode) === "remote") {
+    const store: TaskStore = remoteTaskStore;
+    return { store, artifacts: ctx.artifacts ?? localTaskStore };
+  }
+  return resolveOperationPorts(ctx);
+}
+
+/**
+ * The ports a CLAIM runs against (ticket 6452504d, parent e7482da5).
+ *
+ * The truthful-claim rule: `mode: "saas"` claims through the remote
+ * adapter's versioned agent-claim POST (the server owns selection and the
+ * write, so a claim can never report success when the remote refused);
+ * `mode: "local"` claims through the file-backed atomic primitive. An
+ * explicitly injected `ctx.store` always wins (tests, and callers that
+ * already resolved a store). Like reads, a remote claim failure refuses —
+ * it never falls back to list-then-PATCH or to the local files.
+ */
+export function resolveClaimPorts(ctx: OperationContext): OperationPorts {
   if (ctx.store) {
     return {
       store: ctx.store,

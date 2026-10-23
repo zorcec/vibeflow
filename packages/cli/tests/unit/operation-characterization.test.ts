@@ -287,13 +287,12 @@ describe("operation characterization (local mode)", () => {
     );
   });
 
-  it("claim preview can name a blocked top candidate the live claim skips (pinned, P3)", async () => {
-    // Pinned divergence (ticket 3d613068 risks): the preview applies the
+  it("claim preview names the same task the live claim takes (fixed, P3)", async () => {
+    // Fixed divergence (ticket 6452504d): the preview used to apply the
     // roots-first / priority order WITHOUT the blocked-by-unfinished-work
-    // check the atomic claim applies inside its lock. On a board whose top
-    // candidate is blocked, the preview names a task the live call skips.
-    // Equalising them is a focused claim-correctness change (P3) — P1 keeps
-    // the behaviour and pins it here instead of silently changing it.
+    // check, so on a board whose top candidate was blocked it named a task
+    // the live call skipped. Both now select through the one shared
+    // selector, so preview and live agree — including the skip.
     const { claimNextTask } = await import("../../src/core/operations.js");
     seedTask(projectDir, baseTask("blocker", { priority: "Low" }));
     seedTask(
@@ -305,10 +304,10 @@ describe("operation characterization (local mode)", () => {
     );
     const preview = await claimNextTask(ctx, { dryRun: true });
     expect(preview.ok).toBe(true);
-    expect(preview.data!.id).toBe("blocked");
+    // The blocked top candidate is skipped by BOTH paths.
+    expect(preview.data!.id).toBe("blocker");
     const live = await claimNextTask(ctx, {});
     expect(live.ok).toBe(true);
-    // The live claim skipped the blocked candidate and took the blocker.
     expect(live.data!.id).toBe("blocker");
   });
 

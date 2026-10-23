@@ -1,5 +1,6 @@
 /**
- * Remote read adapter (ticket d7b9dc13, parent e7482da5).
+ * Remote read adapter (ticket d7b9dc13, parent e7482da5) plus the truthful
+ * remote CLAIM (ticket 6452504d).
  *
  * The READ half of the `TaskStore` ports, backed by the online board instead
  * of the local files. Local MCP operations running under `mode: "saas"` read
@@ -22,17 +23,23 @@
  *   `items` nor `tasks` fails the read instead of resolving to an empty
  *   board, and a repeated pagination cursor fails instead of spinning to
  *   the cap (both handled in `saas/client.ts`, asserted here).
- * - Writes are not routed here (P3/P4 own remote mutations): every
- *   mutating method throws `RemoteWriteNotRoutedError`, loudly, so a
+ * - The claim IS routed here (P3): `claimNextTaskAtomic` / `previewClaim`
+ *   issue exactly ONE versioned agent-claim POST (`agentVersion: 1`) and
+ *   map the answer — the client never lists, never filters, never PATCHes,
+ *   so a claim can never succeed when the remote refused. Other writes are
+ *   still not routed here (P4 owns the remaining remote mutations): every
+ *   other mutating method throws `RemoteWriteNotRoutedError`, loudly, so a
  *   misrouted write fails instead of landing on the wrong backend.
  */
 import {
+  claimSaasTask,
   fetchSaasTaskDetail,
   fetchSaasTasks,
   resolveSaasTaskId,
   toCliStatus,
   type SaasTask,
 } from "../saas/client.js";
+import { buildAgentClaimRequest } from "@vibeflow-tools/api-core";
 import { saasReadErrorMessage } from "../saas/failure.js";
 import { resolveBoardScope } from "../auth/board-scope.js";
 import type {
@@ -282,9 +289,30 @@ async function resolvePrefix(
 }
 
 /**
- * READ-only remote `TaskStore`. Every method that would write throws
- * `RemoteWriteNotRoutedError`; every read resolves the board once and
- * refuses loudly on any failure — local files are never consulted here.
+ * Map a claim refusal to the operation-facing error. `AGENT_VERSION_UNKNOWN`
+ * is the specific old-server refusal (update the server, never work around
+ * it); every other claim failure travels verbatim like a read refusal.
+ */
+function toRemoteClaimRefusal(
+  error: { code: string; message: string; status?: number; path?: string },
+): RemoteReadError {
+  if (error.code === "AGENT_VERSION_UNKNOWN") {
+    return new RemoteReadError("REMOTE_CLAIM_UNSUPPORTED", error.message, {
+      suggestion:
+        "The board does not speak agent claim v1 — update the server, then retry. The claim was NOT made.",
+      retryable: false,
+    });
+  }
+  return toRemoteRefusal(error, "Check the backend is reachable and retry the claim.");
+}
+
+/**
+ * Remote `TaskStore`: reads plus the truthful agent claim (P3). Reads and
+ * the claim resolve the board once and refuse loudly on any failure —
+ * local files are never consulted here. Every OTHER method that would
+ * write throws `RemoteWriteNotRoutedError` (P4 owns the remaining remote
+ * mutations), so a misrouted write fails instead of landing on the wrong
+ * backend.
  */
 class RemoteTaskStore implements TaskStore {
   async listTasks(): Promise<Task[]> {
@@ -407,11 +435,50 @@ class RemoteTaskStore implements TaskStore {
   async deleteFile(): Promise<never> {
     throw new RemoteWriteNotRoutedError("deleteFile");
   }
-  async claimNextTaskAtomic(_p: string, _o?: ClaimOptions): Promise<never> {
-    throw new RemoteWriteNotRoutedError("claimNextTaskAtomic");
+  /**
+   * THE truthful remote claim (ticket 6452504d): exactly ONE versioned
+   * agent-claim POST (`agentVersion: 1`) built by `buildAgentClaimRequest`.
+   * The server owns selection and the write — this method never lists,
+   * never filters, never PATCHes, so a claim can never report success when
+   * the remote refused, and two concurrent claimants cannot take the same
+   * task. An old server is the specific REMOTE_CLAIM_UNSUPPORTED refusal —
+   * never a legacy fallback, never a list-then-PATCH.
+   */
+  async claimNextTaskAtomic(_p: string, opts?: ClaimOptions): Promise<Task | null> {
+    return this.runRemoteClaim(opts, false);
   }
-  async previewClaim(_p: string, _o?: ClaimOptions): Promise<ClaimPreview | null> {
-    throw new RemoteWriteNotRoutedError("previewClaim");
+  /**
+   * Remote preview through the same versioned endpoint with
+   * `dryRun: true`: exactly ONE request, nothing written. A `task: null`
+   * answer is the empty success (same as the local preview), never an error.
+   */
+  async previewClaim(_p: string, opts?: ClaimOptions): Promise<ClaimPreview | null> {
+    const task = await this.runRemoteClaim(opts, true);
+    if (!task) return null;
+    // The versioned preview answers the same record the live claim would
+    // write: a claimed child carries its parent link, a root carries none —
+    // so the CHILD_CLAIM notice derives from the record, never a second read.
+    const parentId = (task.links ?? []).find((l) => l.type === "parent")?.taskId ?? null;
+    return { task, childClaim: parentId !== null, parentId };
+  }
+  private async runRemoteClaim(opts: ClaimOptions | undefined, dryRun: boolean): Promise<Task | null> {
+    const boardId = await resolveBoardOnce();
+    const claimed = await claimSaasTask(
+      boardId,
+      buildAgentClaimRequest(
+        {
+          ...(opts?.type !== undefined ? { type: opts.type } : {}),
+          ...(opts?.user !== undefined ? { user: opts.user } : {}),
+          ...(opts?.tag !== undefined ? { tag: opts.tag } : {}),
+          dryRun,
+        },
+        boardId !== undefined ? { boardId } : undefined,
+      ),
+    );
+    if (!claimed.ok) throw toRemoteClaimRefusal(claimed.error);
+    const row = claimed.data.task;
+    if (!row) return null;
+    return requireTask(row, row.id);
   }
 }
 

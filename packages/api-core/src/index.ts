@@ -14,3 +14,4 @@ export * from "./scope.js";
 export * from "./tokens.js";
 export * from "./principal.js";
 export * from "./operation-surface-contract.js";
+export * from "./agent-claim.js";

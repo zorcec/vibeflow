@@ -26,7 +26,7 @@ import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveOperationPorts } from "../task-store.js";
 import { isRemoteReadError } from "../remote-task-store.js";
-import { resolveReadPorts } from "../operation-context.js";
+import { resolveClaimPorts, resolveReadPorts } from "../operation-context.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -935,7 +935,12 @@ export async function claimNextTask(
   input: ClaimNextTaskInputType,
 ): Promise<OperationResult<Task | null>> {
   try {
-    const { store } = resolveOperationPorts(ctx);
+    // P3 (ticket 6452504d): the claim resolves through the CLAIM ports —
+    // remote adapter under mode saas (one versioned agent-claim POST, the
+    // server owns selection and the write), the file-backed atomic
+    // primitive otherwise. A remote refusal travels verbatim below; it is
+    // never worked around with a local fallback or a list-then-PATCH.
+    const { store } = resolveClaimPorts(ctx);
     if (isDryRun(ctx, input)) {
       // Read-only preview through the port's preview policy — the same
       // roots-first / live-children-fallback rule the live claim applies,
@@ -1019,6 +1024,21 @@ export async function claimNextTask(
       ],
     };
   } catch (err) {
+    // A remote refusal travels VERBATIM (same rule as the read ops): the
+    // code names the actual failure (REMOTE_CLAIM_UNSUPPORTED for an old
+    // server, E_NOT_AUTHENTICATED, scope, transport) — never relabelled to
+    // a catch-all that would hide the recovery.
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
     return {
       ok: false,
       error: {
