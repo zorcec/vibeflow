@@ -666,4 +666,19 @@ export {
 } from "./operations/tasks.js";
 export type { ListAllTasksInput } from "./operations/tasks.js";
 export { addComment } from "./operations/comments.js";
-export { attachFile } from "./operations/files.js";
+export {
+  deleteTaskOperation,
+  type DeletePlanRow,
+  type DeletePreview,
+  type DeleteTaskData,
+  type DeleteTaskError,
+  type DeleteTaskInput,
+  type DeleteTaskResult,
+} from "./operations/delete.js";
+export {
+  attachFile,
+  attachStandalone,
+  type AttachSourceInput,
+  type AttachStandaloneInput,
+  type AttachStandaloneData,
+} from "./operations/files.js";
