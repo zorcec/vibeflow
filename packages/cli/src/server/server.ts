@@ -1689,14 +1689,14 @@ function registerInjectPage(
         buildInjectPageHtml(
           `Add the Vibeflow overlay to any page to annotate and create tasks.${safeBoardId ? `<br><span style="font-size:12px;color:#64748b">Connected to board <code style="background:#1e293b;padding:2px 6px;border-radius:4px">${safeBoardId}</code> (online).</span>` : ""}`,
           [
-            `<h2>Option 1 — Bookmarklet <span class="badge green">CSP-safe</span> <span class="badge">recommended</span></h2>
+            `<h2>Option 1 — Bookmarklet <span class="badge">recommended</span></h2>
   <div class="card"><p>Drag this link to your bookmarks bar, then click it on any page to activate the overlay:</p>
-    <a class="bookmarklet" href="${bookmarkletCode}"><svg class='bookmarklet-icon' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'><rect x='7' y='13' width='3.5' height='10' rx='1.5' fill='white' opacity='.75'/><rect x='12.25' y='8.5' width='3.5' height='15' rx='1.5' fill='white'/><rect x='17.5' y='14.5' width='3.5' height='8' rx='1.5' fill='white' opacity='.75'/><rect x='22.5' y='11' width='2.5' height='11' rx='1.25' fill='white' opacity='.85'/></svg>Vibeflow annotate</a>
-    <div class="note">✅ Works on pages with strict Content-Security-Policy (uses fetch + eval instead of &lt;script src&gt;).<br>⚠️ Do not click the link here — drag it to your bookmarks bar first, then use it on your target page.</div></div>`,
-            `<h2>Option 2 — Browser console <span class="badge green">CSP-safe</span></h2>
+    <a class="bookmarklet" href="${escapeHtml(bookmarkletCode.replace(/&/g, "&amp;")).replace(/"/g, "&quot;")}"><svg class='bookmarklet-icon' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'><rect x='7' y='13' width='3.5' height='10' rx='1.5' fill='white' opacity='.75'/><rect x='12.25' y='8.5' width='3.5' height='15' rx='1.5' fill='white'/><rect x='17.5' y='14.5' width='3.5' height='8' rx='1.5' fill='white' opacity='.75'/><rect x='22.5' y='11' width='2.5' height='11' rx='1.25' fill='white' opacity='.85'/></svg>Vibeflow annotate</a>
+    <div class="note">Tries an external script, then fetch + blob. Requires the overlay origin in <code>connect-src</code> and either that origin or <code>blob:</code> in <code>script-src</code>.<br>⚠️ Do not click the link here — drag it to your bookmarks bar first, then use it on your target page.</div></div>`,
+            `<h2>Option 2 — Browser console</h2>
   <div class="card"><p>Open browser DevTools console on your target page and paste:</p>
     <pre>${escapeHtml(consoleSaasSnippet)}</pre>
-    <div class="note">✅ Works on most pages — uses fetch + eval which respects <code>connect-src https:</code> and <code>unsafe-eval</code>.</div></div>`,
+    <div class="note">The blob fallback works with policies such as <code>script-src blob:</code>; an inline bootstrap also needs <code>unsafe-inline</code> (which alone does not permit blob scripts). Nonce-only / <code>strict-dynamic</code> policies may block the bootstrap itself: use the browser extension or ask the site owner to adjust CSP. A blocked bootstrap cannot display an error.</div></div>`,
             `<h2>Option 3 — Script tag</h2>
   <div class="card"><p>Add this tag to your HTML (before <code>&lt;/body&gt;</code>):</p>
     <pre>${escapeHtml(saasScriptTag)}</pre>
@@ -1734,7 +1734,7 @@ function registerInjectPage(
         [
           `<h2>Option 1 — Bookmarklet <span class="badge">recommended</span></h2>
   <div class="card"><p>Drag this link to your bookmarks bar, then click it on any page to activate the overlay:</p>
-    <a class="bookmarklet" href="${bookmarkletCode}"><svg class='bookmarklet-icon' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'><rect x='7' y='13' width='3.5' height='10' rx='1.5' fill='white' opacity='.75'/><rect x='12.25' y='8.5' width='3.5' height='15' rx='1.5' fill='white'/><rect x='17.5' y='14.5' width='3.5' height='8' rx='1.5' fill='white' opacity='.75'/><rect x='22.5' y='11' width='2.5' height='11' rx='1.25' fill='white' opacity='.85'/></svg>Vibeflow annotate</a>
+    <a class="bookmarklet" href="${escapeHtml(bookmarkletCode.replace(/&/g, "&amp;")).replace(/"/g, "&quot;")}"><svg class='bookmarklet-icon' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'><rect x='7' y='13' width='3.5' height='10' rx='1.5' fill='white' opacity='.75'/><rect x='12.25' y='8.5' width='3.5' height='15' rx='1.5' fill='white'/><rect x='17.5' y='14.5' width='3.5' height='8' rx='1.5' fill='white' opacity='.75'/><rect x='22.5' y='11' width='2.5' height='11' rx='1.25' fill='white' opacity='.85'/></svg>Vibeflow annotate</a>
     <div class="note">⚠️ Do not click the link here — drag it to your bookmarks bar first, then use it on your target page.</div></div>`,
           `<h2>Option 2 — Script tag</h2>
   <div class="card"><p>Add this tag to your HTML (before <code>&lt;/body&gt;</code>):</p>
@@ -1743,7 +1743,7 @@ function registerInjectPage(
           `<h2>Option 3 — Browser console</h2>
   <div class="card"><p>Open browser DevTools console and paste:</p>
     <pre>${escapeHtml(localGuide.consoleSnippet)}</pre></div>`,
-          `<div class="note" style="margin-top:20px">⚙️ <strong>CSP note:</strong> If your app sets a strict Content-Security-Policy, add <code>http://localhost:${port}</code> to your page's <code>script-src</code> and <code>connect-src</code> — no <code>unsafe-eval</code> and no extension needed. That is a build-time change to your app, so redeploy it afterwards. For pages you do not control, the bookmarklet and console snippet above only work where the page's CSP already permits them.</div>`,
+          `<div class="note" style="margin-top:20px">⚙️ <strong>CSP note:</strong> If your app sets a strict Content-Security-Policy, add <code>http://localhost:${port}</code> to your page's <code>script-src</code> and <code>connect-src</code> — no <code>unsafe-eval</code> and no extension needed. That is a build-time change to your app, so redeploy it afterwards. The bookmarklet and console loader also try fetch + <code>blob:</code> when external scripts are blocked; this requires <code>blob:</code> in <code>script-src</code> and the overlay origin in <code>connect-src</code>. <code>unsafe-inline</code> alone is not enough for blob scripts. Nonce-only / <code>strict-dynamic</code> policies can block the bootstrap itself, before it can display an error: use the browser extension or ask the site owner to adjust CSP.</div>`,
         ],
       ),
     );

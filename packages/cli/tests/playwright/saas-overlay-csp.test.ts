@@ -1,195 +1,185 @@
-/**
- * Playwright e2e tests for the SaaS overlay CSP-safe injection.
- *
- * Reproduces the bug where the CLI's /inject page bookmarklet used
- * createElement('script') pointing to http://localhost which violates
- * "script-src 'self' 'unsafe-inline' 'unsafe-eval'" CSP directives.
- *
- * Verifies that in SaaS mode:
- *   1. The bookmarklet uses fetch+eval (not createElement('script'))
- *   2. The bookmarklet URL points to the HTTPS SaaS origin, not localhost
- *   3. The overlay script has empty wsUrl (no localhost WebSocket connection)
- *   4. Loading the overlay on a CSP-restricted page produces no CSP errors
- */
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
-import { chromium } from "playwright";
-import { guardContext, type ErrorGuard } from "./error-guard";
-import type { Browser, BrowserContext, Page } from "playwright";
+/** Real browser policy enforcement; all tests run under Vitest, never the operator's browser. */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serve } from "../../src/server/server.js";
-import type { ServeInstance } from "../../src/server/server.js";
+import { join } from "node:path";
+import { serveWithPort } from "../helpers/serve-with-port.js";
+import { guardPage, type ErrorGuard } from "./error-guard.js";
+import { chromium, type Browser, type Page } from "playwright";
+import { getOverlaySaasScript, getOverlayScript } from "../../src/client/overlay/index.js";
+import { buildIntegrationGuide } from "../../src/server/startup-guide.js";
 
-const SAAS_BASE_URL = "https://app.vibeflow.tools";
-const BOARD_ID = "board-csp-test-123";
-const PORT = 3913;
-const BASE = `http://localhost:${PORT}`;
+const ORIGIN = "https://app.vibeflow.tools";
+const SCRIPT = `${ORIGIN}/api/overlay.js`;
+const BOARD = "board-csp-test-123";
+const REPORTED_CSP = "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://unpkg.com";
+const guide = buildIntegrationGuide({ url: "http://localhost:3700", localUrl: null }, {
+  online: true, overlayBaseUrl: ORIGIN, boardId: BOARD,
+});
 
-// Mock workspace passed via ServeOptions._testWorkspace to simulate SaaS auth.
-// This avoids vi.mock hoisting issues in forks pool.
-const MOCK_WORKSPACE = {
-  id: BOARD_ID,
-  name: "Test Board",
-  url: `${SAAS_BASE_URL}/kanban?board=${BOARD_ID}`,
-};
+function listen(server: Server): Promise<number> {
+  return new Promise(resolve => server.listen(0, "127.0.0.1", () => {
+    resolve((server.address() as { port: number }).port);
+  }));
+}
 
-// ── HTML page with strict CSP (mimics a real production app) ─────────────────
-// script-src 'self' 'unsafe-inline' 'unsafe-eval' allows eval() but NOT
-// external script URLs from different origins. connect-src allows https: and
-// same-origin but NOT http://localhost.
-const CSP_RESTRICTED_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>CSP-restricted App</title>
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss: ws:; style-src 'self' 'unsafe-inline'">
-</head>
-<body>
-  <h1 data-vibeflow-id="page-title">Production App</h1>
-  <p>This page has a strict CSP.</p>
-</body>
-</html>`;
-
-describe("SaaS overlay — CSP-safe injection", () => {
+describe("overlay loader — Content-Security-Policy", () => {
   let browser: Browser;
-  let context: BrowserContext;
-  let page: Page;
-  let guard: ErrorGuard;
-  let tempDir: string;
-  let instance: ServeInstance;
-
+  let server: Server;
+  let base: string;
+  const guards = new WeakMap<Page, ErrorGuard>();
   beforeAll(async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "proto-saas-csp-"));
-    // In SaaS/online mode, serve() is called without a target (API-only mode).
-    // Pass _testToken and _testWorkspace to simulate authenticated SaaS state.
-    instance = await serve(undefined, {
-      port: PORT,
-      open: false,
-      projectDir: tempDir,
-      _testToken: "mock-saas-token",
-      _testWorkspace: MOCK_WORKSPACE,
+    server = createServer((req, res) => {
+      const policy = req.url === "/allowed" ? `${REPORTED_CSP} ${ORIGIN}`
+        : req.url === "/blocked" ? "script-src 'self' 'unsafe-inline'" : REPORTED_CSP;
+      res.writeHead(200, { "Content-Type": "text/html", "Content-Security-Policy": policy });
+      res.end("<!doctype html><html><head><title>CSP fixture</title></head><body><h1>Target app</h1></body></html>");
     });
-
+    base = `http://127.0.0.1:${await listen(server)}`;
     browser = await chromium.launch({ headless: true });
-    context = await browser.newContext();
-    // Hermetic SaaS probe: the overlay fires a tasks fetch at
-    // <saas-origin>/api/overlay/tasks on load. Answer it deterministically
-    // in the browser so the test never depends on a live production host.
-    // Scoped to the SaaS origin (never localhost) so localhost regressions
-    // stay visible to the guard and the localhost-violation assertion below.
-    // The Access-Control-Allow-Origin header lets the null-origin
-    // setContent page read the fulfilled response instead of failing CORS.
-    await context.route(
-      (url) => url.href.startsWith(`${SAAS_BASE_URL}/api/overlay/tasks`),
-      async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          headers: { "Access-Control-Allow-Origin": "null" },
-          body: JSON.stringify({ tasks: [] }),
-        });
-      },
-    );
-    page = await context.newPage();
-    // STRICT guard: no whitelist. The probe above is fulfilled in-browser,
-    // so any console error or failed request (including real CSP
-    // violations) fails the test. The bespoke localhost-violation
-    // assertion in the last test remains the protection against localhost
-    // regressions.
-    guard = guardContext(context);
   });
-
-  afterEach(() => guard.assertNoErrors());
-
   afterAll(async () => {
-    await page?.close();
-    await context?.close();
     await browser?.close();
-    await instance?.close();
-    rmSync(tempDir, { recursive: true, force: true });
+    await new Promise<void>(resolve => server?.close(() => resolve()));
   });
 
-  it("inject page bookmarklet uses fetch+eval, not createElement('script')", async () => {
-    const res = await fetch(`${BASE}/inject`);
-    expect(res.ok).toBe(true);
-    const html = await res.text();
+  async function fixture(path: string, script = getOverlaySaasScript(ORIGIN)): Promise<Page> {
+    const page = await browser.newPage();
+    guards.set(page, guardPage(page, {
+      allowedConsoleErrors: {
+        deliberateScriptPolicyViolation: {
+          pattern: /^Loading the script '(?:https:\/\/app\.vibeflow\.tools\/api\/overlay\.js|blob:http:\/\/127\.0\.0\.1:[^']+|http:\/\/localhost:43871\/vibeflow-overlay\.js)' violates the following Content Security Policy/,
+          reason: "These probes deliberately block the direct script and/or blob fallback to exercise browser CSP enforcement.",
+        },
+        ...(path === "/blocked" ? {
+          expectedLoaderDiagnostic: {
+            pattern: /^Vibeflow overlay could not initialise\. The page's Content-Security-Policy/,
+            reason: "Both script paths are intentionally blocked; the test asserts this visible/console diagnostic.",
+          },
+        } : {}),
+      },
+    }));
+    page.on("console", msg => console.log(`[${path}] ${msg.type()}: ${msg.text()}`));
+    await page.route(SCRIPT, route => route.fulfill({
+      body: script, contentType: "text/javascript", headers: { "Access-Control-Allow-Origin": base },
+    }));
+    await page.route(`${ORIGIN}/api/overlay/tasks**`, route => route.fulfill({
+      body: JSON.stringify({ tasks: [] }), contentType: "application/json", headers: { "Access-Control-Allow-Origin": base },
+    }));
+    await page.goto(base + path);
+    return page;
+  }
 
-    // Must use fetch+eval approach for CSP compatibility
-    expect(html).toContain("fetch(");
-    expect(html).toContain("eval(");
+  async function closePage(page: Page): Promise<void> {
+    try { guards.get(page)!.assertNoErrors(); }
+    finally { await page.close(); }
+  }
 
-    // Must NOT inject a <script src="http://localhost:..."> which violates script-src CSP
-    expect(html).not.toContain("createElement('script')");
-    expect(html).not.toContain(`http://localhost:${PORT}/vibeflow-overlay.js`);
-  });
-
-  it("inject page bookmarklet references the SaaS HTTPS URL, not localhost", async () => {
-    const res = await fetch(`${BASE}/inject`);
-    const html = await res.text();
-
-    // Bookmarklet must reference the SaaS origin for the fetch call
-    expect(html).toContain(SAAS_BASE_URL);
-
-    // Must NOT reference the CLI localhost port in the bookmarklet
-    expect(html).not.toContain(`localhost:${PORT}`);
-  });
-
-  it("SaaS overlay script has empty wsUrl — no localhost WebSocket connection", async () => {
-    const res = await fetch(`${BASE}/vibeflow-overlay.js`);
-    expect(res.ok).toBe(true);
-    const script = await res.text();
-
-    // In SaaS mode, wsUrl must be empty string to prevent localhost WebSocket attempts
-    expect(script).toContain('"wsUrl":""');
-
-    // API endpoint must use the SaaS HTTPS origin, not localhost
-    expect(script).toContain(`${SAAS_BASE_URL}/api/overlay/tasks`);
-
-    // Must not reference the local CLI WebSocket
-    expect(script).not.toContain(`ws://localhost:${PORT}`);
-    expect(script).not.toContain(`http://localhost:${PORT}`);
-  });
-
-  it("loading the overlay on a CSP-restricted page produces no CSP violations", async () => {
-    const cspViolations: string[] = [];
-
-    // Capture console errors to detect CSP violations
-    page.on("console", (msg) => {
-      if (msg.type() === "error") {
-        const text = msg.text();
-        if (text.includes("Content Security Policy") || text.includes("CSP") || text.includes("Refused to")) {
-          cspViolations.push(text);
-        }
-      }
+  async function assertInitialised(page: Page, blob: boolean): Promise<void> {
+    await page.waitForFunction(() => !!document.getElementById("vibeflow-studio-root")?.shadowRoot?.querySelector(".vibeflow-react-root"));
+    expect(await page.evaluate("({boardId: PROTO_CONFIG.boardId, apiUrl: PROTO_CONFIG.apiUrl, wsUrl: PROTO_CONFIG.wsUrl})")).toEqual({
+      boardId: BOARD, apiUrl: `${ORIGIN}/api/overlay/tasks`, wsUrl: "",
     });
+    expect(await page.locator('script[data-vibeflow-overlay]').getAttribute("src")).toMatch(blob ? /^blob:/ : /^https:/);
+    expect(await page.locator("#vibeflow-overlay-load-error").count()).toBe(0);
+    console.log(`[initialised] board=${BOARD} api=${ORIGIN}/api/overlay/tasks blob=${blob}`);
+  }
 
-    // Serve the CSP-restricted HTML via data: URL so the page itself loads.
-    // Then inject the overlay via eval (simulating the bookmarklet).
-    await page.setContent(CSP_RESTRICTED_HTML, { waitUntil: "domcontentloaded" });
+  it("reproduces the old external-script blank overlay under the exact reported header", async () => {
+    const page = await fixture("/reported-old");
+    try {
+      const errors: string[] = [];
+      page.on("console", msg => { if (msg.type() === "error") errors.push(msg.text()); });
+      await page.evaluate(url => new Promise(resolve => {
+        const script = document.createElement("script");
+        script.src = url;
+        script.onerror = () => resolve("blocked");
+        document.head.appendChild(script);
+      }), SCRIPT);
+      expect(errors.some(text => text.includes("Content Security Policy") && text.includes(SCRIPT))).toBe(true);
+      expect(await page.locator("#vibeflow-studio-root").count()).toBe(0);
+    } finally { await closePage(page); }
+  });
 
-    // Fetch the overlay script from the SaaS inject endpoint and eval it
-    // This replicates what the bookmarklet does on a real production page.
-    const overlayScript = await (await fetch(`${BASE}/vibeflow-overlay.js`)).text();
-    await page.evaluate((script) => {
-      // eslint-disable-next-line security/detect-eval-with-expression -- intentional: testing that CSP blocks eval in overlay
-      try { eval(script); } catch { /* expected in test env without full SaaS backend */ }
-    }, overlayScript);
+  it("initialises the real overlay through the allowed external-script path", async () => {
+    const page = await fixture("/allowed");
+    try {
+      await page.evaluate(guide.consoleSnippet);
+      await assertInitialised(page, false);
+    } finally { await closePage(page); }
+  });
 
-    // Wait for any async CSP violations to surface (network-idle is more reliable than a fixed pause)
-    await page.waitForLoadState("networkidle", { timeout: 2_000 }).catch(() => {});
+  it("initialises the real overlay with board and origin via blob fallback under the exact reported header", async () => {
+    const page = await fixture("/reported-new");
+    try {
+      // Execute the issued bookmarklet rather than just a hand-written loader.
+      await page.evaluate(guide.bookmarkletCode.slice("javascript:".length));
+      await assertInitialised(page, true);
+    } finally { await closePage(page); }
+  });
 
-    // Filter out violations caused by the overlay trying to contact the SaaS
-    // backend (which isn't available in this test) — we only care about localhost violations.
-    const localhostViolations = cspViolations.filter((v) =>
-      v.includes(`localhost:${PORT}`) || v.includes("ws://localhost") || v.includes("http://localhost"),
-    );
+  it("shows a visible CSP remedy and console error when external and blob scripts are both blocked", async () => {
+    const page = await fixture("/blocked");
+    try {
+      const errors: string[] = [];
+      page.on("console", msg => { if (msg.type() === "error") errors.push(msg.text()); });
+      await page.evaluate(guide.consoleSnippet);
+      await page.waitForSelector("#vibeflow-overlay-load-error");
+      const message = await page.locator('[role="alert"]').textContent();
+      expect(message).toContain("Content-Security-Policy (CSP)");
+      expect(message).toContain("browser extension");
+      expect(errors).toContain(message);
+      expect(await page.locator("#vibeflow-studio-root").count()).toBe(0);
+    } finally { await closePage(page); }
+  });
 
-    if (localhostViolations.length > 0) {
-      console.log("[CSP Debug] Localhost violations:", localhostViolations);
+  it("the served /inject bookmarklet survives HTML attribute encoding and runs", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "vf-csp-guide-"));
+    const instance = await serveWithPort(undefined, {
+      projectDir, open: false, _testToken: "fixture-token",
+      _testWorkspace: { id: BOARD, name: "CSP fixture", url: `${ORIGIN}/kanban?board=${BOARD}` },
+    });
+    const page = await fixture("/served-bookmarklet");
+    try {
+      const html = await (await fetch(instance.url + "/inject")).text();
+      expect(html).not.toContain("CSP-safe");
+      expect(html).toContain("strict-dynamic");
+      const bookmarklet = await page.evaluate(source => {
+        const parsed = new DOMParser().parseFromString(source, "text/html");
+        return parsed.querySelector("a.bookmarklet")?.getAttribute("href");
+      }, html);
+      expect(bookmarklet).toBe(guide.bookmarkletCode);
+      await page.evaluate(bookmarklet!.slice("javascript:".length));
+      await assertInitialised(page, true);
+    } finally {
+      try { await closePage(page); }
+      finally {
+        await instance.close();
+        rmSync(projectDir, { recursive: true, force: true });
+      }
     }
+  });
 
-    expect(localhostViolations).toHaveLength(0);
+  it("preserves the local API/WS origin through the blob fallback", async () => {
+    const localOrigin = "http://localhost:43871";
+    const localScript = `${localOrigin}/vibeflow-overlay.js`;
+    const localGuide = buildIntegrationGuide({ url: localOrigin, localUrl: null }, { boardId: BOARD });
+    const page = await fixture("/local-blob");
+    try {
+      await page.route(localScript, route => route.fulfill({
+        body: getOverlayScript(43871), contentType: "text/javascript", headers: { "Access-Control-Allow-Origin": base },
+      }));
+      await page.route(`${localOrigin}/api/**`, route => route.fulfill({
+        body: JSON.stringify({ tasks: [], pages: [] }), contentType: "application/json", headers: { "Access-Control-Allow-Origin": base },
+      }));
+      await page.routeWebSocket("ws://localhost:43871/**", ws => { ws.onMessage(() => {}); });
+      await page.evaluate(localGuide.consoleSnippet);
+      await page.waitForSelector("#vibeflow-studio-root");
+      expect(await page.evaluate("({boardId: PROTO_CONFIG.boardId, apiUrl: PROTO_CONFIG.apiUrl, wsUrl: PROTO_CONFIG.wsUrl})")).toEqual({
+        boardId: BOARD, apiUrl: `${localOrigin}/api/tasks`, wsUrl: "ws://localhost:43871",
+      });
+      expect(await page.locator('script[data-vibeflow-overlay]').getAttribute("src")).toMatch(/^blob:/);
+    } finally { await closePage(page); }
   });
 });

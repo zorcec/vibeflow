@@ -18,12 +18,9 @@
  * `console.log(line)` per line, in the same order, with the same bytes.
  */
 import chalk from "chalk";
+import { buildOverlayLoader } from "./overlay-loader.js";
 import { networkInterfaces } from "node:os";
-import {
-  BOARD_ID_GLOBAL,
-  OVERLAY_ROOT_ID,
-  OVERLAY_SCRIPT_ATTR,
-} from "../client/overlay-attributes.js";
+import { OVERLAY_SCRIPT_ATTR } from "../client/overlay-attributes.js";
 
 /** Returns the first non-loopback IPv4 LAN address for display when bound to 0.0.0.0. */
 function getLanIp(): string | null {
@@ -109,8 +106,7 @@ export interface IntegrationGuideOptions {
    */
   overlayBaseUrl?: string;
   /**
-   * Online mode — tasks post to the SaaS backend, so the CSP-safe
-   * fetch+eval form is the primary snippet and the overlay script lives at
+   * Online mode — tasks post to the remote backend and the script lives at
    * `${saasUrl}/api/overlay.js` rather than `/vibeflow-overlay.js`.
    */
   online?: boolean;
@@ -170,10 +166,7 @@ export function buildIntegrationGuide(
       ? `${urls.localUrl}${online ? "/api/overlay.js" : "/vibeflow-overlay.js"}`
       : null;
 
-  const boardIdSetup = boardId ? `window.${BOARD_ID_GLOBAL}='${boardId}';` : "";
-  const boardIdSetAttr = boardId
-    ? `s.setAttribute('data-board-id','${boardId}');`
-    : "";
+  const loader = buildOverlayLoader(overlayScriptUrl, boardId);
 
   return {
     url: urls.url,
@@ -187,14 +180,8 @@ export function buildIntegrationGuide(
     scriptTagLocal: localOverlayScriptUrl
       ? overlayScriptTag(localOverlayScriptUrl, boardId)
       : null,
-    // Online: the overlay posts to SaaS, so it is loaded with fetch + eval
-    // (survives `script-src` CSP). Offline: a <script> element is enough.
-    consoleSnippet: online
-      ? `${boardIdSetup}fetch('${overlayScriptUrl}').then(r=>r.text()).then(code=>eval(code));`
-      : `var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('${OVERLAY_SCRIPT_ATTR}','');${boardIdSetAttr}document.head.appendChild(s);`,
-    bookmarkletCode: online
-      ? `javascript:(function(){if(document.getElementById('${OVERLAY_ROOT_ID}')){alert('Vibeflow overlay is already active.')}else{${boardIdSetup}fetch('${overlayScriptUrl}').then(function(r){return r.text()}).then(function(code){eval(code)}).catch(function(){alert('Failed to load Vibeflow overlay')})}})()`
-      : `javascript:(function(){if(document.getElementById('${OVERLAY_ROOT_ID}')){alert('Vibeflow overlay is already active on this page.');}else{var s=document.createElement('script');s.src='${overlayScriptUrl}';s.setAttribute('${OVERLAY_SCRIPT_ATTR}','');${boardIdSetAttr}document.head.appendChild(s);}})()`,
+    consoleSnippet: loader,
+    bookmarkletCode: `javascript:void ${loader}`,
     boardId,
     online,
   };

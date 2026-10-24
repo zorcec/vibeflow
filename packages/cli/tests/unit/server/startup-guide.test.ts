@@ -77,7 +77,7 @@ describe("buildIntegrationGuide — the URL/snippet source of truth", () => {
     );
   });
 
-  it("online mode points at the SaaS overlay and uses the CSP-safe snippet", () => {
+  it("online mode points at the SaaS overlay and uses the shared fallback loader", () => {
     const g = buildIntegrationGuide(LOCAL, {
       online: true,
       overlayBaseUrl: "https://app.vibeflow.tools",
@@ -86,16 +86,15 @@ describe("buildIntegrationGuide — the URL/snippet source of truth", () => {
     expect(g.overlayScriptUrl).toBe(
       "https://app.vibeflow.tools/api/overlay.js",
     );
-    expect(g.consoleSnippet).toBe(
-      "window.__VIBEFLOW_BOARD_ID='bid1';fetch('https://app.vibeflow.tools/api/overlay.js').then(r=>r.text()).then(code=>eval(code));",
-    );
-    expect(g.bookmarkletCode).toContain("fetch('https://app.vibeflow.tools/api/overlay.js')");
+    expect(g.consoleSnippet).toContain('"https://app.vibeflow.tools/api/overlay.js","bid1"');
+    expect(g.bookmarkletCode).toBe(`javascript:void ${g.consoleSnippet}`);
   });
 
-  it("offline mode uses the script-tag snippet", () => {
+  it("offline mode uses the same loader without eval", () => {
     const g = buildIntegrationGuide(LOCAL);
-    expect(g.consoleSnippet).toContain("document.head.appendChild(s);");
-    expect(g.consoleSnippet).not.toContain("eval(code)");
+    expect(g.consoleSnippet).toContain("document.head.appendChild(direct)");
+    expect(g.consoleSnippet).not.toContain("eval(");
+    expect(g.bookmarkletCode).toBe(`javascript:void ${g.consoleSnippet}`);
   });
 
   it("an explicit overlayBaseUrl suppresses the dual-URL twin", () => {
@@ -111,7 +110,7 @@ describe("buildIntegrationGuide — the URL/snippet source of truth", () => {
   it("boardId is carried into the script tag and the snippets", () => {
     const g = buildIntegrationGuide(LOCAL, { boardId: "abc" });
     expect(g.scriptTag).toContain('data-board-id="abc"');
-    expect(g.consoleSnippet).toContain("s.setAttribute('data-board-id','abc');");
+    expect(g.consoleSnippet).toContain('"http://localhost:3700/vibeflow-overlay.js","abc"');
   });
 });
 

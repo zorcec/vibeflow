@@ -8,9 +8,10 @@ import { isFeatureEnabled, CHAT_FEATURE } from "../../core/feature-flags.js";
 //
 // Server origin detection strategy (handles all injection modes):
 //
-//  1. Bookmarklet / <script src="..."> injection:
+//  1. Bookmarklet / <script src="..."> injection (including blob fallback):
 //     document.currentScript.src === "http://localhost:3700/vibeflow-overlay.js"
 //     → origin = "http://localhost:3700"
+//     The blob loader preserves this URL in data-vibeflow-source.
 //     This works correctly even when the overlay is clicked on a page with a
 //     completely different host (e.g. wsl.localhost, 192.168.x.x, example.com).
 //
@@ -28,7 +29,7 @@ export function getOverlayScript(port: number): string {
   // in local serve, so the flag alone gates).
   const agentChat = isFeatureEnabled(CHAT_FEATURE);
   const config = `
-var _vfScriptSrc = document.currentScript && document.currentScript.src;
+var _vfScriptSrc = document.currentScript && (document.currentScript.getAttribute("data-vibeflow-source") || document.currentScript.src);
 var _vfPort = '${port}';
 var _vfOrigin = _vfScriptSrc ? new URL(_vfScriptSrc).origin : (window.location.port === _vfPort ? 'http://' + window.location.host : 'http://' + window.location.hostname + ':' + _vfPort);
 var PROTO_CONFIG = {
