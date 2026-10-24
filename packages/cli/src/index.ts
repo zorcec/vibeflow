@@ -202,7 +202,11 @@ function checkForUpdates(showChangelog = true): void {
 // Background: refresh SaaS settings if stale (fire-and-forget, non-blocking).
 // Skipped when the module is imported for commander-tree introspection
 // (VIBEFLOW_CLI_SKIP_REFRESH=1), so importing never triggers a fetch.
-if (process.env.VIBEFLOW_CLI_SKIP_REFRESH !== "1") void maybeRefreshSettings();
+// Ticket d5178789: pass the invocation root so the 5-minute debounce
+// spans CLI processes via the project-local state dir (one tiny request
+// per window per project, zero in-window). A future resolved-command hook
+// can pass the command's target project instead of cwd.
+if (process.env.VIBEFLOW_CLI_SKIP_REFRESH !== "1") void maybeRefreshSettings(Date.now(), process.cwd());
 
 const STATUS_COLORS: Record<string, (s: string) => string> = {
   backlog: chalk.gray,

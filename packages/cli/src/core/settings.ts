@@ -42,11 +42,23 @@ function readGlobalSettings(): ProtoSettings {
 
 export { readGlobalSettings };
 
+let settingsTmpCounter = 0;
+
+/**
+ * Ticket d5178789: unique temp names for concurrent CLI invocations.
+ * Two projects sharing the global settings target used to race on one
+ * fixed `.tmp` name; pid+counter makes each writer's temp file its own.
+ */
+function uniqueSettingsTmp(target: string): string {
+  settingsTmpCounter += 1;
+  return `${target}.tmp.${process.pid}.${settingsTmpCounter}`;
+}
+
 export function writeGlobalSettings(settings: ProtoSettings): void {
   const dir = join(os.homedir(), ".vibeflow");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const target = getGlobalSettingsPath();
-  const tmp = target + ".tmp";
+  const tmp = uniqueSettingsTmp(target);
   writeFileSync(tmp, JSON.stringify(settings, null, 2), "utf-8");
   renameSync(tmp, target);
 }
@@ -75,7 +87,7 @@ export function saveSettings(
   const settingsPath = getSettingsPath(projectDir);
   const existing = loadSettings(projectDir);
   const merged = { ...existing, ...settings };
-  const tmp = settingsPath + ".tmp";
+  const tmp = uniqueSettingsTmp(settingsPath);
   writeFileSync(tmp, JSON.stringify(merged, null, 2), "utf-8");
   renameSync(tmp, settingsPath);
   return merged;

@@ -12,21 +12,34 @@ import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { scopeHeaderFor } from "./board-scope.js";
+import {
+  acquirePreflightLease,
+  fingerprintSettings,
+  identityHashFor,
+  persistPreflightState,
+  readPreflightState,
+  readSettingsParts,
+} from "./settings-preflight-state.js";
 
 /**
- * Settings pre-flight (ticket cca4bfe4): content-hash revision, 5-minute
- * in-memory debounce, fail-open.
+ * Settings pre-flight (ticket cca4bfe4, persistence ticket d5178789):
+ * content-hash revision, 5-minute debounce, fail-open.
  *
- * - WHAT: `{ hash, checkedAt }` kept in module memory ONLY (never
- *   persisted — a stale on-disk timestamp defeats the debounce). On
- *   command start, a check older than 5 min revalidates with a conditional
- *   GET (`If-None-Match: <hash>`) on the EXISTING settings endpoint — no
- *   second round-trip. 304 (unchanged) → nothing else happens; 200 with a
- *   new hash → merge once and store the new pair.
- * - WHY memory-only: every CLI command is a fresh process, so a disk
- *   timestamp only suppresses checks for LATER processes while going stale
- *   for the state that matters; the ticket caps a no-change run at one
- *   tiny request per 5 min per process, and the cached path at zero.
+ * - WHAT: `{ identityHash, hash, checkedAt, fingerprint }` in module
+ *   memory PLUS a tiny stamp on disk
+ *   (`<project>/.vibeflow-state/settings-preflight.json` — an UNSYNCED
+ *   runtime dir, never the synced store, no secrets, no settings payload).
+ *   On command start, a check older than 5 min revalidates with a
+ *   conditional GET (`If-None-Match: <hash>`) on the EXISTING settings
+ *   endpoint — no second round-trip. 304 (unchanged) → nothing else
+ *   happens; 200 with a new hash → merge once and store the new stamp.
+ * - WHY persisted (d5178789, reversing the old memory-only policy): every
+ *   CLI command is a fresh process, so memory-only meant EVERY invocation
+ *   re-checked (51 settings requests in 25 min). The disk stamp is keyed
+ *   by account/token/API (identityHash) and bound to the settings bytes
+ *   actually present (fingerprint), so a stale stamp can neither leak
+ *   across accounts nor mask an independently changed/deleted cache —
+ *   at most one tiny request per 5 minutes per project, zero in-window.
  * - TIMEOUT 3000 ms (agent decision, ticket cca4bfe4): fail-open bound so
  *   an unreachable server delays a command by at most one short timeout —
  *   measured ~0 ms added on the cached path (no request at all).
@@ -35,18 +48,22 @@ import { scopeHeaderFor } from "./board-scope.js";
  *   down server once per command in long-lived processes (serve/kanban).
  * - Checked at command start only (`src/index.ts` top level) — never
  *   mid-write, so a refresh can never interleave with a settings write.
+ * - Concurrent invocations race for a non-blocking lease: the winner
+ *   refreshes, losers continue with current settings (never wait).
  */
 const SETTINGS_PREFLIGHT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const SETTINGS_PREFLIGHT_TIMEOUT_MS = 3000;
 
 interface SettingsPreflight {
+  identityHash: string;
+  fingerprint: string;
   hash: string | null;
   checkedAt: number;
 }
 
 let preflight: SettingsPreflight | null = null;
 
-/** Test seam: drop the in-memory pre-flight state (it is never on disk). */
+/** Test seam: drop the in-memory pre-flight state (disk state untouched). */
 export function resetSettingsPreflight(): void {
   preflight = null;
 }
@@ -83,6 +100,7 @@ async function promptWorkspaceSelection(
 async function fetchAndApplySettings(
   apiUrl: string,
   token: string,
+  projectDir?: string,
 ): Promise<void> {
   try {
     // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
@@ -93,65 +111,197 @@ async function fetchAndApplySettings(
     if (!res.ok) return;
     const data = (await res.json()) as { settings: ProtoSettings };
     if (data.settings && Object.keys(data.settings).length > 0) {
-      // No freshness timestamp: freshness lives in the pre-flight's
-      // in-memory checkedAt only (ticket cca4bfe4).
       writeGlobalSettings({ ...data.settings });
     }
+    // Ticket d5178789: login just performed the real sync, so publish
+    // its stamp — the next command must not re-fetch what login already
+    // reconciled. Never throws; a failed publish only costs one refresh.
+    if (projectDir !== undefined) {
+      const parts = readSettingsParts(projectDir);
+      persistPreflightState(projectDir, {
+        identityHash: identityHashFor(apiUrl, token),
+        checkedAt: Date.now(),
+        settingsHash: null,
+        settingsFingerprint: fingerprintSettings(parts.global, parts.project),
+      });
+    }
+    resetSettingsPreflight();
   } catch {
     // Non-critical
   }
 }
 
-export async function maybeRefreshSettings(now: number = Date.now()): Promise<void> {
+/**
+ * Ticket d5178789: debounced settings refresh that spans CLI invocations.
+ *
+ * `projectDir` selects the project-local state dir. It is OPTIONAL for
+ * backward compatibility: callers that pass none (unit tests, introspection
+ * paths) keep the legacy in-memory-only debounce. Production startup
+ * (`src/index.ts`) passes `process.cwd()` so every invocation of the same
+ * project shares one 5-minute window — zero in-window settings requests.
+ * (A future resolved-command hook can pass the command's target project
+ * instead of cwd; the parameter is already in place for it.)
+ */
+export async function maybeRefreshSettings(now: number = Date.now(), projectDir?: string): Promise<void> {
   try {
     const token = await readToken();
+    // No token: no fetch and no state/lease creation (offline stays offline).
     if (!token) return;
-    // Cached path: no request at all (~0 ms added).
-    if (preflight && now - preflight.checkedAt < SETTINGS_PREFLIGHT_INTERVAL_MS) {
+    const apiUrl = getApiUrl();
+    const identityHash = identityHashFor(apiUrl, token);
+    const parts = projectDir !== undefined ? readSettingsParts(projectDir) : null;
+    const fingerprint = parts !== null
+      ? fingerprintSettings(parts.global, parts.project)
+      : "memory-only";
+    const fresh = (checkedAt: number): boolean =>
+      checkedAt <= now && now - checkedAt < SETTINGS_PREFLIGHT_INTERVAL_MS;
+    // In-memory fast path (long-lived processes: MCP server, serve): the
+    // stamp is keyed by identity+fingerprint, so an account switch or an
+    // independent settings edit re-arms eligibility instead of serving
+    // another identity's window.
+    if (
+      preflight !== null &&
+      preflight.identityHash === identityHash &&
+      preflight.fingerprint === fingerprint &&
+      fresh(preflight.checkedAt)
+    ) {
       return;
     }
-    const apiUrl = getApiUrl();
+    const disk = projectDir !== undefined ? readPreflightState(projectDir) : null;
+    if (
+      disk !== null &&
+      disk.identityHash === identityHash &&
+      disk.settingsFingerprint === fingerprint &&
+      fresh(disk.checkedAt)
+    ) {
+      // Cross-process debounce hit: another invocation already refreshed
+      // inside this window — ZERO requests. Adopt the stamp in memory.
+      preflight = {
+        identityHash,
+        fingerprint,
+        hash: disk.settingsHash,
+        checkedAt: disk.checkedAt,
+      };
+      return;
+    }
+    const hash = disk?.identityHash === identityHash && disk?.settingsFingerprint === fingerprint
+      ? disk.settingsHash
+      : (preflight?.identityHash === identityHash && preflight?.fingerprint === fingerprint
+        ? preflight.hash
+        : null);
+    // A hash without a bound cache must not ride as If-None-Match: 304 is
+    // only usable when the bytes it describes are actually present.
+    const cachePresent = parts === null ||
+      parts.global !== "#missing" ||
+      parts.project !== "#missing";
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
     };
-    if (preflight?.hash) headers["If-None-Match"] = `"${preflight.hash}"`;
-    let res: Response;
-    try {
-      // pi-lens-ignore: ts-ssrf — apiUrl validated by getApiUrl(), path constant
-      // Whole-body bound (ticket d13fa9f5): the old headers-only abort
-      // left a stalled settings body unbounded; same 3s budget, now total.
-      res = await fetchWithTimeout(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
-        headers,
-      }, { phase: "plan-preflight (settings)", timeoutMs: SETTINGS_PREFLIGHT_TIMEOUT_MS });
-    } catch {
-      // Fail open: keep cached settings, back off until the next window.
-      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
-      return;
-    }
-    // Unchanged: the server answered 304 with an empty body — one tiny
-    // request, nothing else happens (no merge, no disk write).
-    if (res.status === 304) {
-      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
-      return;
-    }
-    if (!res.ok) {
-      preflight = { hash: preflight?.hash ?? null, checkedAt: now };
-      return;
-    }
-    const data = (await res.json()) as {
-      settings?: ProtoSettings;
-      settingsHash?: unknown;
+    if (hash && cachePresent) headers["If-None-Match"] = `"${hash}"`;
+    const remember = (nextHash: string | null, checkedAt: number): void => {
+      preflight = { identityHash, fingerprint, hash: nextHash, checkedAt };
+      if (projectDir !== undefined) {
+        persistPreflightState(projectDir, {
+          identityHash,
+          checkedAt,
+          settingsHash: nextHash,
+          settingsFingerprint: fingerprint,
+        });
+      }
     };
-    if (data.settings && Object.keys(data.settings).length > 0) {
-      writeGlobalSettings({ ...data.settings });
+    // One refresh per window per project: the lease winner fetches, losers
+    // keep current settings and continue WITHOUT waiting. No project dir
+    // (legacy callers) means no lease — fetch directly like before.
+    if (projectDir !== undefined) {
+      const lease = acquirePreflightLease(projectDir, now);
+      if (!lease.held) return;
+      try {
+        // Re-read after acquisition: another process may have refreshed
+        // while we raced for the lease — adopt instead of re-fetching.
+        const raced = readPreflightState(projectDir);
+        if (
+          raced !== null &&
+          raced.identityHash === identityHash &&
+          raced.settingsFingerprint === fingerprint &&
+          fresh(raced.checkedAt)
+        ) {
+          preflight = {
+            identityHash,
+            fingerprint,
+            hash: raced.settingsHash,
+            checkedAt: raced.checkedAt,
+          };
+          return;
+        }
+        await refreshSettingsOnce(apiUrl, headers, hash, projectDir, fingerprint, remember, now);
+      } finally {
+        lease.release();
+      }
+      return;
     }
-    preflight = {
-      hash: typeof data.settingsHash === "string" ? data.settingsHash : null,
-      checkedAt: now,
-    };
+    await refreshSettingsOnce(apiUrl, headers, hash, projectDir, fingerprint, remember, now);
   } catch {
     // Non-critical
   }
+}
+
+/**
+ * One bounded conditional refresh. `sentHash` is the ETag the request
+ * carried (if any) — failures back off on it without re-reading headers.
+ * On 200 the fingerprint is re-read BEFORE applying: a local/global edit
+ * that landed mid-flight invalidates instead of being overwritten and
+ * re-stamped fresh — the next invocation stays eligible.
+ */
+async function refreshSettingsOnce(
+  apiUrl: string,
+  headers: Record<string, string>,
+  sentHash: string | null,
+  projectDir: string | undefined,
+  fingerprint: string,
+  remember: (nextHash: string | null, checkedAt: number) => void,
+  now: number,
+): Promise<void> {
+  let res: Response;
+  try {
+    // pi-lens-ignore: ts-ssrf — apiUrl validated by getApiUrl(), path constant
+    // Whole-body bound (ticket d13fa9f5): the old headers-only abort
+    // left a stalled settings body unbounded; same 3s budget, now total.
+    res = await fetchWithTimeout(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
+      headers,
+    }, { phase: "plan-preflight (settings)", timeoutMs: SETTINGS_PREFLIGHT_TIMEOUT_MS });
+  } catch {
+    // Fail open: keep cached settings, back off until the next window.
+    remember(sentHash, now);
+    return;
+  }
+  // Unchanged: the server answered 304 with an empty body — one tiny
+  // request, nothing else happens (no merge, no settings write).
+  if (res.status === 304) {
+    remember(sentHash, now);
+    return;
+  }
+  if (!res.ok) {
+    remember(sentHash, now);
+    return;
+  }
+  const data = (await res.json()) as {
+    settings?: ProtoSettings;
+    settingsHash?: unknown;
+  };
+  const nextHash = typeof data.settingsHash === "string" ? data.settingsHash : null;
+  if (data.settings && Object.keys(data.settings).length > 0) {
+    if (projectDir !== undefined) {
+      const latest = readSettingsParts(projectDir);
+      if (fingerprintSettings(latest.global, latest.project) !== fingerprint) {
+        // A settings edit landed while the request was in flight: do NOT
+        // overwrite the newer state and do NOT stamp it fresh — stay
+        // eligible so the next invocation reconciles.
+        return;
+      }
+    }
+    writeGlobalSettings({ ...data.settings });
+  }
+  remember(nextHash, now);
 }
 
 /**
@@ -1451,7 +1601,7 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
       );
       await Promise.all([
         fetchAndSelectWorkspace(apiUrl, pat),
-        fetchAndApplySettings(apiUrl, pat),
+        fetchAndApplySettings(apiUrl, pat, projectDir),
       ]);
       // After login, ask if user wants to push local tasks
       const { readWorkspace } = await import("./workspace.js");
