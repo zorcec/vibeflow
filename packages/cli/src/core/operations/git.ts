@@ -11,9 +11,11 @@
  *
  * Contract (mirrors the inline branch this replaces, byte-for-byte on every
  * pinned envelope):
- * - resolution through the ONE listing rule (exact id wins, unique prefix
- *   resolves, ambiguous names titled candidates): refusals carry
- *   TASK_NOT_FOUND / E_AMBIGUOUS with the CLI's exact wording;
+ * - resolution through the ONE shared rule (`resolveTaskOrRefusal`, the
+ *   same resolver edit/get use): exact id wins, unique prefix resolves,
+ *   ambiguous names titled candidates (saas mode reads the board, local
+ *   mode the local files). Refusals carry TASK_NOT_FOUND / E_AMBIGUOUS
+ *   with the CLI's exact wording;
  * - `--dry-run` previews the tagged message and writes nothing (no commit,
  *   no record link, no push);
  * - with explicit paths, exactly those paths are committed (git's own
@@ -28,8 +30,9 @@
  *   itself — a failure rides the payload, because printing it would be
  *   trailing garbage behind the one JSON document. A linked HEAD created no
  *   new commit, so there is nothing to push (`attempted: false`).
- * - local-only even with a token: the store read and the git effects always
- *   target the project directory, never the board.
+ * - the git effect and the record link always target the project directory,
+ *   never the board (there is no board commit to route through); only the
+ *   id resolution follows the mode (board in saas, files in local).
  *
  * The human blocks (research warning, foreign-staged notice, linked/committed
  * sentences, push progress) travel on the returned data — the renderer below
@@ -38,8 +41,8 @@
 import { execFileSync, execSync } from "node:child_process";
 import type { OperationContext } from "../operations.js";
 import { isDryRun } from "../operations.js";
-import { resolveSaasTaskId } from "../id-resolution.js";
-import { localTaskStore } from "../task-store.js";
+import { resolveTaskOrRefusal } from "./resolution.js";
+import { isRemoteReadError } from "../remote-task-store.js";
 import { formatCommitTag } from "../commit-tag.js";
 
 export interface CommitTaskPathsInput {
@@ -168,51 +171,52 @@ export async function commitTaskPathsOperation(
   input: CommitTaskPathsInput,
 ): Promise<CommitTaskPathsResult> {
   const rawId = input.id;
-  // Local-only even with a token: the explicit commit scopes a pathspec in
-  // THIS working tree and links the record on disk — there is no board
-  // commit to route through.
-  const store = ctx.store ?? localTaskStore;
-  const all = await store.listTasks(ctx.projectDir);
-  // ONE id rule (`resolveSaasTaskId`, shared with every other id-taking
-  // flag): exact id wins, a UNIQUE prefix resolves, an ambiguous prefix is
-  // E_AMBIGUOUS naming the candidates — never a silent first-match.
-  const resolved = resolveSaasTaskId(
-    all.map((t) => ({ id: t.id, title: t.title })),
-    rawId,
-  );
-  if (!resolved.ok) {
-    if (resolved.code === "E_AMBIGUOUS") {
+  // Resolution runs through the ONE shared rule (ticket e47d3004): the
+  // same `resolveTaskOrRefusal` every other id-taking flag uses — exact id
+  // wins, a UNIQUE prefix resolves, an ambiguous prefix is E_AMBIGUOUS
+  // naming the candidates, an unknown id is TASK_NOT_FOUND. In saas mode
+  // that reads the board (detail-first, then one listing for prefixes),
+  // in local mode the local files. The git effect and the record link
+  // below stay local: they scope a pathspec in THIS working tree and
+  // link the record on disk — there is no board commit to route through.
+  let resolvedId: string;
+  let resolvedTitle: string;
+  let resolvedType: string | undefined;
+  try {
+    const resolved = await resolveTaskOrRefusal(ctx, rawId);
+    if (!resolved.ok) {
+      return { ok: false, error: { ...resolved.error } };
+    }
+    resolvedId = resolved.id;
+    resolvedTitle = resolved.task.title;
+    resolvedType =
+      typeof resolved.task.type === "string" ? resolved.task.type : undefined;
+  } catch (err) {
+    // A remote refusal travels verbatim (same rule as the read ops): the
+    // code names the actual failure — E_AMBIGUOUS, auth, scope, transport.
+    if (isRemoteReadError(err)) {
       return {
         ok: false,
         error: {
-          code: resolved.code,
-          message: resolved.message,
-          suggestion:
-            "Use the full task id — run 'vibeflow tasks' to see available task IDs.",
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
         },
       };
     }
-    return {
-      ok: false,
-      error: {
-        code: "TASK_NOT_FOUND",
-        message: `Task not found: ${rawId}`,
-        suggestion: "Run 'vibeflow tasks' to see available task IDs.",
-      },
-    };
+    throw err;
   }
-  const task = all.find((t) => t.id === resolved.id)!;
-  const baseMsg = input.message?.trim() || task.title;
-  const commitMsg = `${baseMsg} ${formatCommitTag(task.id)}`;
+  const baseMsg = input.message?.trim() || resolvedTitle;
+  const commitMsg = `${baseMsg} ${formatCommitTag(resolvedId)}`;
 
   if (isDryRun(ctx, input)) {
     return {
       ok: true,
       data: {
         dryRun: true,
-        taskId: task.id,
-        taskTitle: task.title,
-        ...(task.type !== undefined ? { taskType: task.type } : {}),
+        taskId: resolvedId,
+        taskTitle: resolvedTitle,
+        ...(resolvedType !== undefined ? { taskType: resolvedType } : {}),
         message: commitMsg,
       },
     };
@@ -223,7 +227,7 @@ export async function commitTaskPathsOperation(
   try {
     result = commitTaskPaths(
       ctx.projectDir,
-      task.id,
+      resolvedId,
       baseMsg,
       input.paths ?? [],
     );
@@ -284,9 +288,9 @@ export async function commitTaskPathsOperation(
     ok: true,
     data: {
       dryRun: false,
-      taskId: task.id,
-      taskTitle: task.title,
-      ...(task.type !== undefined ? { taskType: task.type } : {}),
+      taskId: resolvedId,
+      taskTitle: resolvedTitle,
+      ...(resolvedType !== undefined ? { taskType: resolvedType } : {}),
       message: commitMsg,
       sha: result.sha,
       linkedExisting: result.linkedExisting,

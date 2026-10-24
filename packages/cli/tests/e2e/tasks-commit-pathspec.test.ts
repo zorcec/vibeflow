@@ -178,6 +178,42 @@ describe("tasks --commit pathspec", () => {
     expect(task.commits).toHaveLength(1);
     expect(task.commits[0].sha).toBe(head);
   });
+
+  // Ticket e47d3004: the commit-link path did its own lookup and skipped
+  // the prefix resolution every other flag uses, so a short id that
+  // --edit/--get resolve printed "Task not found". Dry-run proves the
+  // end-to-end wiring (flag → shared resolver) with zero git effects.
+  it("resolves an 8-char prefix end to end (dry run)", async () => {
+    const store = freshDir("commit-prefix-");
+    const home = freshDir("commit-home-");
+    const id = `s329ijxa${"0".repeat(24)}`;
+    initRepo(store);
+    seedTask(store, id);
+
+    const { stdout, code } = await spawnCli(
+      ["tasks", store, "--commit", "--task", "s329ijxa", "--message", "probe", "--dry-run"],
+      { cwd: store, home },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(id);
+  });
+
+  it("refuses an ambiguous prefix clearly (dry run)", async () => {
+    const store = freshDir("commit-ambig-");
+    const home = freshDir("commit-home-");
+    initRepo(store);
+    seedTask(store, `ab${"1".repeat(30)}`);
+    seedTask(store, `ab${"2".repeat(30)}`);
+
+    const { stdout, code } = await spawnCli(
+      ["tasks", store, "--commit", "--task", "ab", "--message", "probe", "--dry-run"],
+      { cwd: store, home },
+    );
+
+    expect(code).not.toBe(0);
+    expect(stdout).toContain("Ambiguous");
+  });
 });
 
 /**

@@ -3336,9 +3336,13 @@ program
             process.exitCode = ExitCode.USAGE;
             return;
           }
+          // Mode-aware like every other id-taking flag (ticket e47d3004):
+          // saas mode resolves the id against the board, local mode
+          // against the local files. The git effect and the record link
+          // stay local either way — only the resolution follows the mode.
           const commitOpCtx: OperationContext = {
             projectDir: resolve(dir),
-            mode: "local",
+            mode: await getMode(),
           };
           const commitResult = await operations.commitTaskPathsOperation(commitOpCtx, {
             id: opts.task,
