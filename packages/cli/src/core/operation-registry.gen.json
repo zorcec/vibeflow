@@ -493,8 +493,13 @@
       "mode": "both",
       "cli": [
         "auth",
+        "auth --clear",
+        "auth --json",
+        "auth --list",
         "auth status",
-        "status"
+        "auth status --json",
+        "status",
+        "status --json"
       ],
       "operationFn": null,
       "requirement": "none"
@@ -676,7 +681,14 @@
       "mcpTools": [],
       "mode": "both",
       "cli": [
-        "push"
+        "push",
+        "push --board",
+        "push --dry-run",
+        "push --json",
+        "push --keep-local-files",
+        "push --prune-local",
+        "push --verbose",
+        "push --workspace"
       ],
       "operationFn": "pushTasks",
       "requirement": "sync"
@@ -787,6 +799,10 @@
     }
   },
   "registryCliFlags": {
+    "auth --clear": "clearVerificationAuthState",
+    "auth --json": "getAccountStatus",
+    "auth --list": "listVerificationAuthState",
+    "auth status --json": "getAccountStatus",
     "authors link --dry-run": "linkCommitAuthors",
     "changelog --all": "getChangelog",
     "kanban --dev": "startKanban",
@@ -801,11 +817,19 @@
     "pull --out": "pullFromBoard",
     "pull --prefer-local": "pullFromBoard",
     "pull --prefer-remote": "pullFromBoard",
+    "push --board": "pushTasks",
+    "push --dry-run": "pushTasks",
+    "push --json": "pushTasks",
+    "push --keep-local-files": "pushTasks",
+    "push --prune-local": "pushTasks",
+    "push --verbose": "pushTasks",
+    "push --workspace": "pushTasks",
     "serve --dev": "startServer",
     "serve --host": "startServer",
     "serve --no-open": "startServer",
     "serve --port": "startServer",
     "serve --project": "startServer",
+    "status --json": "getAccountStatus",
     "tasks --add": "createTask",
     "tasks --all": "listTasks",
     "tasks --apply": "normalizeTaskStore",

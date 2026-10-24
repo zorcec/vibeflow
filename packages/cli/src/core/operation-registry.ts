@@ -65,7 +65,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: ["attach_file"],
     operationFn: "attachFile",
     reason:
-      "Duplicate policy differs by surface (CLI refuses, MCP replaces in place) — see KNOWN_DELTAS attach-duplicate-policy. P5 unifies behind an explicit input.",
+      "Duplicate policy differs by surface (CLI refuses, MCP replaces in place) — see KNOWN_DELTAS attach-duplicate-policy. Unified behind the explicit onExisting input of the shared attachFile implementation (P5 landed).",
   },
   claimNextTask: {
     id: "claimNextTask",
@@ -87,7 +87,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: null,
     reason:
-      "Credential-state clearing is a local file mutation, never an MCP tool (P6 extracts the operation).",
+      "FINAL: credential-state clearing is a local file mutation behind an explicit human flag; it is never an MCP tool because a remote client must not be able to wipe the operator's local encrypted auth state. No operation wrapper is planned — the function in commands/auth.ts IS the implementation, classified here rather than routed.",
   },
   commitTaskPathsOperation: {
     id: "commitTaskPathsOperation",
@@ -132,18 +132,27 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "deleteTaskOperation",
     reason:
-      "Local parent refusal vs online cascade differ today; no MCP delete tool is added (P5).",
+      "Local parent refusal vs online cascade differ by backend; no MCP delete tool is added (P5 landed the shared deleteTaskOperation — CLI-only by design).",
   },
   getAccountStatus: {
     id: "getAccountStatus",
     mode: "both",
     requirement: "none",
     mapping: "intentionally-different",
-    cli: ["status", "auth", "auth status"],
+    cli: [
+      "status",
+      "status --json",
+      "auth",
+      "auth --clear",
+      "auth --list",
+      "auth --json",
+      "auth status",
+      "auth status --json",
+    ],
     mcpTools: [],
     operationFn: null,
     reason:
-      "Human login/count summary with a legacy text envelope; deliberately no MCP tool — get_project is the machine probe (P6 unifies the implementation).",
+      "FINAL: human login/count summary with a legacy text envelope; deliberately no MCP tool — get_project is the machine probe. The status renderer reads through the same ports the operations use; no separate operation wrapper is planned because the output is human text with legacy exit codes, classified here rather than routed.",
   },
   getChangelog: {
     id: "getChangelog",
@@ -154,7 +163,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "getChangelog",
     reason:
-      "Raw packed-text selection through the shared operation; CLI-only, no envelope (P6 increment 1).",
+      "Raw packed-text selection through the shared operation; CLI-only, no envelope (P6 landed).",
   },
   getIntegrationGuide: {
     id: "getIntegrationGuide",
@@ -176,7 +185,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "getOpenApiDocument",
     reason:
-      "Raw bundled spec selection through the shared operation; CLI-only, no envelope (P6 increment 1).",
+      "Raw bundled spec selection through the shared operation; CLI-only, no envelope (P6 landed).",
   },
   getProject: {
     id: "getProject",
@@ -209,7 +218,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "inspectVerificationEvidence",
     reason:
-      "The five evidence-query forms (style_query/style_diff/element_info/html_diff/html_query) run through the shared operation; CLI-only, no MCP tool (P7 verify increment).",
+      "The five evidence-query forms (style_query/style_diff/element_info/html_diff/html_query) run through the shared operation; CLI-only, no MCP tool (P7 landed).",
   },
   linkCommitAuthors: {
     id: "linkCommitAuthors",
@@ -220,7 +229,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "linkCommitAuthors",
     reason:
-      "Git-tracked store enrichment through the shared operation; stays a deliberate human action, never a remotely triggered write (P6 increment 1).",
+      "Git-tracked store enrichment through the shared operation; stays a deliberate human action, never a remotely triggered write (P6 landed).",
   },
   listTasks: {
     id: "listTasks",
@@ -251,7 +260,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     cli: ["auth --list"],
     mcpTools: [],
     operationFn: null,
-    reason: "Encrypted per-task auth-state listing; local-only (P6).",
+    reason: "FINAL: encrypted per-task auth-state listing for a human operator; local-only by design and never an MCP tool. Listed here rather than routed: the reader in commands/auth.ts IS the implementation.",
   },
   loginAccount: {
     id: "loginAccount",
@@ -262,7 +271,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: null,
     reason:
-      "Interactive device flow cannot be driven over MCP; one implementation serves both alias spellings (P6).",
+      "FINAL: interactive device flow (browser approval, TTY prompts, polling) that cannot be driven over MCP by construction; one implementation serves both alias spellings. Never an MCP tool — a remote client must not be able to start an interactive login. Classified here rather than routed.",
   },
   logoutAccount: {
     id: "logoutAccount",
@@ -272,7 +281,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     cli: ["logout", "auth logout"],
     mcpTools: [],
     operationFn: null,
-    reason: "Local credential mutation; never an MCP tool (P6).",
+    reason: "FINAL: local credential mutation (token + workspace removal); never an MCP tool — a remote client must not be able to log the operator out. Classified here rather than routed.",
   },
   manageTelemetry: {
     id: "manageTelemetry",
@@ -283,7 +292,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "manageTelemetry",
     reason:
-      "Global telemetry opt-in/out config through the shared operation; CLI-only (P6 increment 1).",
+      "Global telemetry opt-in/out config through the shared operation; CLI-only (P6 landed).",
   },
   normalizeTaskStore: {
     id: "normalizeTaskStore",
@@ -311,7 +320,16 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mode: "both",
     requirement: "sync",
     mapping: "missing",
-    cli: ["push"],
+    cli: [
+      "push",
+      "push --board",
+      "push --workspace",
+      "push --keep-local-files",
+      "push --prune-local",
+      "push --dry-run",
+      "push --verbose",
+      "push --json",
+    ],
     mcpTools: [],
     operationFn: "pushTasks",
     reason:
@@ -326,7 +344,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "readPageDom",
     reason:
-      "Chat-only live-DOM read scoped to its session tab; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 chat increment).",
+      "Chat-only live-DOM read scoped to its session tab; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 landed).",
   },
   readPageText: {
     id: "readPageText",
@@ -337,7 +355,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "readPageText",
     reason:
-      "Chat-only server-side page-text fetch behind the bounded SSRF-guarded reader; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 chat increment).",
+      "Chat-only server-side page-text fetch behind the bounded SSRF-guarded reader; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 landed).",
   },
   reindexTaskSortKeys: {
     id: "reindexTaskSortKeys",
@@ -369,7 +387,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "startMcpTransport",
     reason:
-      "Stdio transport bootstrap, not a board tool; the CLI handler resolves the root, announces on stderr, and starts the transport through this operation (P7 server-lifecycle increment).",
+      "Stdio transport bootstrap, not a board tool; the CLI handler resolves the root, announces on stderr, and starts the transport through this operation (P7 landed).",
   },
   startServer: {
     id: "startServer",
@@ -380,7 +398,7 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mcpTools: [],
     operationFn: "startServer",
     reason:
-      "Prototype/API-only server lifecycle through the shared operation; prototype viewer unpaired by design, kanban CLI routing remains (P7 server-lifecycle increment).",
+      "Prototype/API-only server lifecycle through the shared operation; prototype viewer unpaired by design, kanban CLI routing remains (P7 landed).",
   },
   updateTask: {
     id: "updateTask",
@@ -425,9 +443,10 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
 
 /**
  * The mode→operation intent map: every "command --flag" the registry owns,
- * each pointing at the operation that handles it (or will handle it after
- * its extraction phase — TEMPORARY_CLI_FLAGS marks the not-yet-routed
- * subset, and the ratchet asserts that subsetting). Shared flags (--title,
+ * each pointing at the operation that handles it — either routed through
+ * the shared implementation or classified in SURFACE_STORAGE_USES with the
+ * owning operation named (TEMPORARY_CLI_FLAGS is empty since P8: nothing
+ * is "not-yet-routed"). Shared flags (--title,
  * --type, --comment …) point at their primary operation; coverage — not
  * uniqueness — is what the ratchet asserts. Formatting/preview flags
  * (--json, --dry-run) and mode selectors owned by the tool name itself are
@@ -451,6 +470,11 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "serve --no-open": "startServer",
   "serve --port": "startServer",
   "serve --project": "startServer",
+  "auth --clear": "clearVerificationAuthState",
+  "auth --json": "getAccountStatus",
+  "auth --list": "listVerificationAuthState",
+  "auth status --json": "getAccountStatus",
+  "status --json": "getAccountStatus",
   "pull --board": "pullFromBoard",
   "pull --dry-run": "pullFromBoard",
   "pull --json": "pullFromBoard",
@@ -499,6 +523,13 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "tasks --user": "listTasks",
   "tasks --verify-reason": "updateTask",
   "tasks --yes": "deleteTaskOperation",
+  "push --board": "pushTasks",
+  "push --keep-local-files": "pushTasks",
+  "push --dry-run": "pushTasks",
+  "push --json": "pushTasks",
+  "push --prune-local": "pushTasks",
+  "push --verbose": "pushTasks",
+  "push --workspace": "pushTasks",
   "verify --filter": "inspectVerificationEvidence",
   "verify --json": "verifyTaskOp",
   "verify --timeout": "verifyTaskOp",
@@ -511,12 +542,12 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
  * but fails entries that outlive their phase's bypass removal. No silent
  * catch-all: every entry carries the phase and the reason.
  *
- * Empty since P5 (ticket 4a5f7df6): every P5 mode — standalone attach
- * (--attach/--move), delete (--delete/--yes), explicit commit
- * (--commit/--task/--message) and maintenance
- * (--normalize/--apply/--reindex-sort-keys) — routes through its shared
- * operation, so no bypass entries remain. Later phases re-add their own
- * entries here until their extraction lands.
+ * Empty since P5 and locked empty by P8 (ticket dc9a42ac): every routed
+ * mode stays routed, and no new inline mode may land without a registry
+ * row. The remaining inline call sites in surface modules are NOT tracked
+ * here — they are classified per call site in SURFACE_STORAGE_USES below,
+ * which the ratchet enforces (a new unlisted storage use fails; a listed
+ * use that disappears fails as stale).
  */
 export const TEMPORARY_CLI_FLAGS: Record<
   string,
@@ -525,3 +556,135 @@ export const TEMPORARY_CLI_FLAGS: Record<
 
 /** All operation ids, alphabetical — the registry's key order. */
 export const OPERATION_IDS = Object.keys(OPERATION_REGISTRY).sort();
+
+/**
+ * Final surface storage-use inventory (P8, ticket dc9a42ac).
+ *
+ * WHAT: every runtime import of a task-storage module
+ * (`core/tasks.js`, `core/comments.js`, `core/files.js`) by a surface
+ * module (`src/index.ts`, `src/mcp/*.ts`, `src/server/agent-chat/*.ts`,
+ * `src/cli/renderers/*.ts`) — keyed `"<file> <callee>"` — with the owning
+ * operation and the reason the call site lives surface-side.
+ *
+ * WHY an inventory instead of a ban: renderers MUST read through display
+ * helpers (plan §1.6 — rendering belongs in surfaces), and the local
+ * add/edit write paths predate operation extraction. Both are classified
+ * here with their owning operation so nothing is "temporarily" duplicated:
+ * a NEW unlisted storage use fails the ratchet, a listed use that
+ * disappears fails as stale, and routing a write path through its operation
+ * removes that row. The inventory can only shrink.
+ *
+ * `operation: "renderer"` is permanent surface-side display/bootstrap with
+ * no owning board operation. Every `write-path` row names the operation it
+ * owns to — that is the routing target, not a second implementation.
+ */
+export interface SurfaceStorageUse {
+  operation: OperationId | "renderer";
+  kind: "renderer" | "bootstrap" | "write-path";
+  reason: string;
+}
+
+export const SURFACE_STORAGE_USES: Record<string, SurfaceStorageUse> = {
+  "src/index.ts createTask": {
+    operation: "createTask",
+    kind: "write-path",
+    reason:
+      "Local tasks --add builds and writes the record inline (validation, parents, clone persistence). Owns to createTask; routing the add flow through the shared operation removes this row.",
+  },
+  "src/index.ts updateTask": {
+    operation: "updateTask",
+    kind: "write-path",
+    reason:
+      "Local tasks --edit writes the record inline (review gate, links, attestation, auto-commit follow-ons). Owns to updateTask; routing the edit flow through the shared operation removes this row.",
+  },
+  "src/index.ts addComment": {
+    operation: "addComment",
+    kind: "write-path",
+    reason:
+      "Local tasks --edit writes --comment and the cannot-reason system comment inline after the task write. Owns to addComment (the comment input of updateTask when routed).",
+  },
+  "src/index.ts saveFile": {
+    operation: "attachFile",
+    kind: "write-path",
+    reason:
+      "Research --report-file bytes are saved and the source consumed inline (dynamic import of core/files.js). Owns to attachFile; routing report submission through the shared operation removes this row.",
+  },
+  "src/index.ts markTaskOpened": {
+    operation: "getTask",
+    kind: "write-path",
+    reason:
+      "tasks --get marks the task opened inline after the shared getTask operation resolves it. Owns to getTask; folding the mark into the operation removes this row.",
+  },
+  "src/index.ts ensureTaskDirs": {
+    operation: "renderer",
+    kind: "bootstrap",
+    reason:
+      "Filesystem scaffolding for local flows and dry-run previews; creates directories, never decides task state.",
+  },
+  "src/index.ts generateTaskId": {
+    operation: "renderer",
+    kind: "bootstrap",
+    reason:
+      "Pure id minting for dry-run previews and local creates; no store access.",
+  },
+  "src/index.ts listTasks": {
+    operation: "listTasks",
+    kind: "renderer",
+    reason:
+      "Local inline reads (validation snapshots, display enumeration) through the shared listing model the listTasks operation queries. Read-only display/validation use; writes own to their operations.",
+  },
+  "src/index.ts listTasksWithPaths": {
+    operation: "getAccountStatus",
+    kind: "renderer",
+    reason:
+      "Status/count display enumeration for the human status renderer (getAccountStatus has no MCP tool by design); read-only display use.",
+  },
+  "src/index.ts formatTaskForAgent": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure display formatting for agent instructions; no store decisions.",
+  },
+  "src/index.ts renderTaskForAgent": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure display formatting for tasks --get human output; no store decisions.",
+  },
+  "src/index.ts renderAgentInstructions": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure display text for agent guidance; no store access.",
+  },
+  "src/index.ts summariseChildren": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure display folding of child rows for claim output; no store decisions.",
+  },
+  "src/index.ts findTaskFilePath": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Display path lookup so human output can name the record file; never writes.",
+  },
+  "src/index.ts getParentId": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure relation read for display derivation; no store decisions.",
+  },
+  "src/index.ts isResearchType": {
+    operation: "renderer",
+    kind: "renderer",
+    reason:
+      "Pure type predicate for display branching; no store access.",
+  },
+  "src/index.ts getCurrentUserId": {
+    operation: "renderer",
+    kind: "bootstrap",
+    reason:
+      "Local identity for display payloads and the opened-by mark; not a task-state decision.",
+  },
+};

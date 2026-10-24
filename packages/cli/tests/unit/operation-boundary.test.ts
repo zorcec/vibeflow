@@ -28,6 +28,7 @@ import {
 } from "../../src/mcp/manifest.js";
 import {
   OPERATION_REGISTRY,
+  OPERATION_IDS,
   REGISTRY_CLI_FLAGS,
   TEMPORARY_CLI_FLAGS,
 } from "../../src/core/operation-registry.js";
@@ -552,3 +553,787 @@ describe("operation storage boundary (check 5)", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Check 6 — same-operation identity (P8, ticket dc9a42ac).
+ *
+ * G4 in drift.test.ts proves each manifest `run:` body calls A function
+ * imported from core/operations. That is necessary but not sufficient: a
+ * tool could call the WRONG operation (same module, different semantics)
+ * and G4 would stay green. This check resolves, per tool, the operation
+ * row that claims it in `mcpTools` and asserts the `run:` body calls
+ * EXACTLY that row's `operationFn` symbol — paired CLI/MCP capabilities
+ * share one implementation, not merely one module.
+ */
+
+/** Tool name → the `run: (ctx, input) => FN(` symbol it delegates to. */
+export function toolRunSymbols(manifestSrc: string): Map<string, string> {
+  const names: Array<{ index: number; name: string }> = [];
+  for (const m of manifestSrc.matchAll(/name:\s*"([^"]+)"/g)) {
+    names.push({ index: m.index ?? 0, name: m[1] });
+  }
+  const runs = new Map<string, string>();
+  const runRe = /run:\s*\(ctx,\s*input\)\s*=>\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = runRe.exec(manifestSrc)) !== null) {
+    const at = m.index ?? 0;
+    let owner = "";
+    for (const n of names) {
+      if (n.index < at) owner = n.name;
+      else break;
+    }
+    if (owner) runs.set(owner, m[1]);
+  }
+  return runs;
+}
+
+describe("operation identity (check 6)", () => {
+  it("every manifest tool calls its registered operation symbol", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const manifestSrc = fs.readFileSync(
+      path.join(srcRoot, "mcp/manifest.ts"),
+      "utf-8",
+    );
+    const runs = toolRunSymbols(manifestSrc);
+    // Shape guard: if the `run:` shape changes, the map is short and this
+    // fails loudly instead of passing vacuously (same discipline as G4).
+    expect(runs.size).toBe(manifest.length);
+    const offenders: string[] = [];
+    for (const tool of manifest) {
+      const owner = Object.values(OPERATION_REGISTRY).find((r) =>
+        r.mcpTools.includes(tool.name),
+      );
+      expect(
+        owner,
+        `manifest tool "${tool.name}" is claimed by no operation-registry row`,
+      ).toBeDefined();
+      if (owner!.operationFn === null) {
+        offenders.push(
+          `${tool.name}: registry row "${owner!.id}" has no operationFn — a paired tool must name its shared implementation`,
+        );
+        continue;
+      }
+      const actual = runs.get(tool.name);
+      expect(
+        actual,
+        `manifest tool "${tool.name}" has no parsed run body — the run shape drifted past toolRunSymbols`,
+      ).toBeDefined();
+      if (actual !== owner!.operationFn) {
+        offenders.push(
+          `${tool.name}: run body calls \`${actual}\` but registry row "${owner!.id}" registers \`${owner!.operationFn}\``,
+        );
+      }
+    }
+    expect(
+      offenders,
+      `tools not calling their registered operation: ${offenders.join("; ")}`,
+    ).toEqual([]);
+  });
+
+  it("negative fixture — a tool calling the wrong operation symbol is rejected", () => {
+    const registryFn = "updateTask";
+    const manifestSrc = `
+      { name: "update_task", run: (ctx, input) => getTask(ctx, input) },
+    `;
+    const runs = toolRunSymbols(manifestSrc);
+    expect(runs.get("update_task")).toBe("getTask");
+    expect(runs.get("update_task")).not.toBe(registryFn);
+  });
+
+  it("negative fixture — an unclaimed tool has no registry owner", () => {
+    const owner = Object.values(OPERATION_REGISTRY).find((r) =>
+      r.mcpTools.includes("nonexistent_tool"),
+    );
+    expect(owner).toBeUndefined();
+  });
+});
+
+/**
+ * Check 7 — finality (P8, ticket dc9a42ac).
+ *
+ * "Final" is enforced, not asserted in prose:
+ *   - TEMPORARY_CLI_FLAGS is empty and the api-core temporary migration
+ *     list is empty (every P1–P7 removal phase has landed);
+ *   - no registry reason promises a future extraction (FINAL-classified
+ *     rows say FINAL; routed rows name the landed phase);
+ *   - every SURFACE_STORAGE_USES row is well-formed (real operation or
+ *     "renderer", matching kind, substantive reason).
+ */
+describe("final boundaries (check 7)", () => {
+  it("no registry reason promises a future extraction", () => {
+    const futureRe =
+      /P[1-9]\s+(extracts|unifies|unify|lands\b(?!.*landed)|removal|increment|will handle|not-?yet-routed)|will be |not yet |TODO|temporar/i;
+    const offenders = Object.values(OPERATION_REGISTRY)
+      .filter((r) => futureRe.test(r.reason))
+      .map((r) => r.id);
+    expect(
+      offenders,
+      `operations promising future extraction (route them or FINAL-classify them): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("every null-operationFn row is FINAL-classified", () => {
+    const offenders: string[] = [];
+    for (const record of Object.values(OPERATION_REGISTRY)) {
+      if (record.operationFn !== null) continue;
+      if (!record.reason.startsWith("FINAL:")) {
+        offenders.push(record.id);
+      }
+      expect(
+        record.mcpTools,
+        `null-operationFn row "${record.id}" must expose no MCP tool`,
+      ).toEqual([]);
+    }
+    expect(
+      offenders,
+      `unrouted operations without FINAL classification: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("both temporary migration lists are empty", async () => {
+    expect(Object.keys(TEMPORARY_CLI_FLAGS)).toEqual([]);
+    const apiCore = await import("@vibeflow-tools/api-core");
+    expect(apiCore.TEMPORARY_MIGRATION_ENTRIES).toEqual([]);
+  });
+
+  it("SURFACE_STORAGE_USES rows are well-formed", async () => {
+    const { SURFACE_STORAGE_USES } = await import(
+      "../../src/core/operation-registry.js"
+    );
+    const offenders: string[] = [];
+    for (const [key, row] of Object.entries(SURFACE_STORAGE_USES)) {
+      const typed = row as {
+        operation: string;
+        kind: string;
+        reason: string;
+      };
+      if (!/^src\/\S+ \S+$/.test(key)) {
+        offenders.push(`${key}: key is not "src/<file> <callee>"`);
+      }
+      const isRenderer = typed.operation === "renderer";
+      const isOp = OPERATION_IDS.includes(typed.operation);
+      if (!isRenderer && !isOp) {
+        offenders.push(`${key}: unknown operation "${typed.operation}"`);
+      }
+      // Read-only display rows may name the operation they read through
+      // (or "renderer" for pure formatting); only write-path rows MUST name
+      // the operation they own to.
+      if (isRenderer && typed.kind !== "renderer" && typed.kind !== "bootstrap") {
+        offenders.push(`${key}: "renderer" operation with kind "${typed.kind}"`);
+      }
+      if (!isRenderer && typed.kind !== "write-path" && typed.kind !== "renderer" && typed.kind !== "bootstrap") {
+        offenders.push(
+          `${key}: operation "${typed.operation}" with unknown kind "${typed.kind}"`,
+        );
+      }
+      if (typed.kind === "write-path" && isRenderer) {
+        offenders.push(
+          `${key}: write-path rows must name their owning operation, not "renderer"`,
+        );
+      }
+      if ((typed.reason ?? "").trim().length <= 20) {
+        offenders.push(`${key}: reason is missing or boilerplate`);
+      }
+    }
+    expect(
+      offenders,
+      `malformed surface-storage inventory rows: ${offenders.join("; ")}`,
+    ).toEqual([]);
+    expect(Object.keys(SURFACE_STORAGE_USES).length).toBeGreaterThan(0);
+  });
+
+  it("negative fixture — future-phase language fails the finality scan", () => {
+    const futureRe =
+      /P[1-9]\s+(extracts|unifies|unify|lands\b(?!.*landed)|removal|increment|will handle|not-?yet-routed)|will be |not yet |TODO|temporar/i;
+    expect(futureRe.test("Local-only; never an MCP tool (P6 extracts).")).toBe(
+      true,
+    );
+    expect(
+      futureRe.test("Stays a deliberate human action (P6 landed)."),
+    ).toBe(false);
+  });
+});
+
+/**
+ * Check 8 — no-bypass import boundaries (P8, ticket dc9a42ac).
+ *
+ * Two directions, both recursive through local helpers:
+ *   (a) surface modules (index, mcp/*, agent-chat, cli/renderers) reach
+ *       task storage ONLY through inventoried callees — a new unlisted
+ *       storage use fails, a listed use that disappears fails as stale;
+ *   (b) operation modules never import surface/transport code, never print,
+ *       and never set process state — comments and string literals are
+ *       stripped first so prose about a surface cannot fail the gate.
+ */
+
+const STORAGE_BASENAME_RE = /\/core\/(tasks|comments|files)\.js$/;
+
+/** Resolve a relative specifier against its importer to a src-root path. */
+function resolveSrcPath(
+  importerFile: string,
+  spec: string,
+): string | null {
+  if (!spec.startsWith(".")) return null;
+  const parts = importerFile.split("/");
+  parts.pop();
+  for (const seg of spec.split("/")) {
+    if (seg === "." || seg === "") continue;
+    else if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+/**
+ * Original exported names a surface file pulls at RUNTIME from task-storage
+ * modules (aliases resolved: `saveFile as saveTaskFile` counts as
+ * `saveFile`). Type-only imports are erased and cannot touch the store.
+ * Imports may span lines — matching runs over the whole text, not per line.
+ */
+export function surfaceStorageCallees(
+  src: string,
+  importerFile: string,
+): string[] {
+  const found: string[] = [];
+  const isStorage = (spec: string) => {
+    const resolved = resolveSrcPath(importerFile, spec);
+    return resolved !== null && STORAGE_BASENAME_RE.test(resolved);
+  };
+  const pushNames = (body: string, sep: "as" | ":") => {
+    for (const part of body.split(",")) {
+      const cells = sep === "as" ? part.split(/\s+as\s+/) : part.split(":");
+      const orig = cells[0].trim();
+      if (orig && orig !== "type" && !orig.startsWith("type ")) {
+        found.push(orig);
+      }
+    }
+  };
+  const noTypeImports = src.replace(/\bimport\s+type\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?/g, "");
+  const staticRe = /\bimport\s*\{([\s\S]*?)\}\s*from\s*["']([^"']+)["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = staticRe.exec(noTypeImports)) !== null) {
+    if (isStorage(m[2])) pushNames(m[1], "as");
+  }
+  const sideRe = /\bimport\s*["']([^"']+)["'];?/g;
+  while ((m = sideRe.exec(noTypeImports)) !== null) {
+    if (isStorage(m[1])) found.push("<side-effect>");
+  }
+  const exportRe = /\bexport\s*\{([\s\S]*?)\}\s*from\s*["']([^"']+)["']/g;
+  while ((m = exportRe.exec(noTypeImports)) !== null) {
+    if (isStorage(m[2])) pushNames(m[1], "as");
+  }
+  const dynamicRe = /\bawait\s+import\s*\(\s*["']([^"']+)["']\s*\)/g;
+  while ((m = dynamicRe.exec(noTypeImports)) !== null) {
+    if (!isStorage(m[1])) continue;
+    const before = noTypeImports.slice(0, m.index);
+    const destructure = before.match(/\{([^{}]*)\}\s*=\s*$/);
+    if (destructure) pushNames(destructure[1], ":");
+    else found.push("<namespace>");
+  }
+  return [...new Set(found)];
+};
+
+const SURFACE_FILES = [
+  "index.ts",
+  "mcp/manifest.ts",
+  "mcp/server.ts",
+  "mcp/stdio.ts",
+  "mcp/http.ts",
+  "server/agent-chat/mcp.ts",
+  "cli/renderers/task-reads.ts",
+];
+
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:"'\\])\/\/.*$/gm, "$1");
+}
+
+/** Runtime surface markers in operation modules (comments/strings removed). */
+export function findSurfaceImports(
+  src: string,
+  importerFile = "<root>/src/core/operations/tasks.ts",
+): string[] {
+  const offenders: string[] = [];
+  const noComments = stripComments(src);
+  // Static + dynamic specifiers first (string literals still present).
+  const specs: string[] = [];
+  for (const rawLine of noComments.split("\n")) {
+    const line = rawLine.trim();
+    if (line.startsWith("import type")) continue;
+    const sm =
+      line.match(/\bimport\s+(?:[^"']*?\sfrom\s+)?["']([^"']+)["']/) ??
+      line.match(/\bexport\s+(?:[^"']*?\sfrom\s+)["']([^"']+)["']/);
+    if (sm) specs.push(sm[1]);
+    const dynRe = /\bawait\s+import\s*\(\s*["']([^"']+)["']\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = dynRe.exec(line)) !== null) specs.push(m[1]);
+  }
+  for (const spec of specs) {
+    if (spec === "commander" || spec.startsWith("@modelcontextprotocol")) {
+      offenders.push(spec);
+      continue;
+    }
+    if (spec === "chalk") {
+      offenders.push(spec);
+      continue;
+    }
+    const resolved = resolveSrcPath(importerFile, spec);
+    if (
+      resolved !== null &&
+      (/\/src\/index\.js$/.test(resolved) ||
+        /\/src\/mcp\//.test(resolved) ||
+        /\/src\/server\/agent-chat\//.test(resolved))
+    ) {
+      offenders.push(spec);
+    }
+  }
+  // Code markers with strings removed (prose about a surface cannot fail).
+  const code = noComments.replace(/(["'`])(?:(?!\1|\\).|\\.)*\1/g, '""');
+  for (const m of code.matchAll(
+    /\bprocess\.exitCode\s*=|\bprocess\.argv\b|\bconsole\.\w+\s*\(/g,
+  )) {
+    offenders.push(m[0].trim());
+  }
+  return [...new Set(offenders)];
+}
+
+describe("surface/operation import boundaries (check 8)", () => {
+  it("surface storage uses are exactly the inventoried set (no more, no fewer)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { SURFACE_STORAGE_USES } = await import(
+      "../../src/core/operation-registry.js"
+    );
+    const live = new Map<string, string[]>();
+    for (const rel of SURFACE_FILES) {
+      const abs = path.join(srcRoot, rel);
+      if (!fs.existsSync(abs)) continue;
+      const callees = surfaceStorageCallees(
+        fs.readFileSync(abs, "utf-8"),
+        `<root>/src/${rel}`,
+      );
+      if (callees.length > 0) live.set(`src/${rel}`, callees);
+    }
+    const unlisted: string[] = [];
+    for (const [file, callees] of live) {
+      for (const callee of callees) {
+        if (!( `${file} ${callee}` in SURFACE_STORAGE_USES)) {
+          unlisted.push(
+            `${file} ${callee}: surface storage use with no inventory row — route it through its operation or classify it in SURFACE_STORAGE_USES`,
+          );
+        }
+      }
+    }
+    expect(unlisted).toEqual([]);
+    const stale = Object.keys(SURFACE_STORAGE_USES).filter((key) => {
+      const sep = key.indexOf(" ");
+      const file = key.slice(0, sep);
+      const callee = key.slice(sep + 1);
+      return !(live.get(file) ?? []).includes(callee);
+    });
+    expect(
+      stale,
+      `stale inventory rows (storage use is gone — remove the row): ${stale.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("mcp, agent-chat and renderers use no task storage directly", async () => {
+    const { SURFACE_STORAGE_USES } = await import(
+      "../../src/core/operation-registry.js"
+    );
+    const rows = Object.keys(SURFACE_STORAGE_USES).filter((k) =>
+      k.startsWith("src/index.ts "),
+    );
+    // Transports and renderers stay pure: any storage row outside index.ts
+    // is a new bypass, not a classification.
+    expect(
+      Object.keys(SURFACE_STORAGE_USES).filter((k) => !k.startsWith("src/index.ts ")),
+      "storage inventory outside src/index.ts — transports/renderers must stay storage-free",
+    ).toEqual([]);
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it("operations import no surface modules, print nothing, set no process state", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const barrel = path.join(srcRoot, "core/operations.ts");
+    const dir = path.join(srcRoot, "core/operations");
+    const files = [
+      barrel,
+      ...fs
+        .readdirSync(dir)
+        .filter((f: string) => f.endsWith(".ts"))
+        .map((f: string) => path.join(dir, f)),
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const spec of findSurfaceImports(
+        fs.readFileSync(file, "utf-8"),
+        file,
+      )) {
+        offenders.push(`${file}: ${spec}`);
+      }
+    }
+    expect(
+      offenders,
+      `operations reaching into surfaces (import the port/service instead): ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("negative fixture — aliased, dynamic and helper storage uses are caught", () => {
+    expect(
+      surfaceStorageCallees(
+        'import { listTasks as lt } from "../core/tasks.js";',
+        "<root>/src/index.ts",
+      ),
+    ).toEqual(["listTasks"]);
+    expect(
+      surfaceStorageCallees(
+        'const { saveFile: saveTaskFile } = await import("./core/files.js");',
+        "<root>/src/index.ts",
+      ),
+    ).toEqual(["saveFile"]);
+    expect(
+      surfaceStorageCallees(
+        'import type { Task } from "../core/tasks.js";',
+        "<root>/src/index.ts",
+      ),
+    ).toEqual([]);
+    expect(
+      surfaceStorageCallees(
+        'import { queryTaskList } from "../core/task-listing.js";',
+        "<root>/src/index.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("negative fixture — operation surface imports, prints and exits are caught", () => {
+    expect(
+      findSurfaceImports('import { Command } from "commander";'),
+    ).toEqual(["commander"]);
+    expect(
+      findSurfaceImports('const m = await import("../../mcp/server.js");'),
+    ).toEqual(["../../mcp/server.js"]);
+    expect(
+      findSurfaceImports("process.exitCode = 1;", "<root>/src/core/x.ts"),
+    ).toEqual(["process.exitCode ="]);
+    expect(findSurfaceImports("console.log(x);")).toEqual(["console.log("]);
+    // Prose about a surface and type-only imports cannot fail the gate.
+    expect(
+      findSurfaceImports(
+        "// the CLI renderer reads this\nimport type { X } from '../index.js';",
+      ),
+    ).toEqual([]);
+    expect(
+      findSurfaceImports('/* see src/mcp/server.ts */\nconst ok = true;'),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * Check 9 — every KNOWN_DELTAS entry is executable (P8, ticket dc9a42ac).
+ *
+ * A delta that names no live wiring and pins no behavior is a comment, not
+ * a contract — and an unused/stale delta fails exactly like an unclassified
+ * divergence (plan §3.3). This suite is the executable side: for every delta
+ * id it asserts the registry/manifest facts the delta's text depends on,
+ * plus a live behavior probe where one is side-effect-free (tmp project,
+ * dry-run, or read-only). A new delta without a probe fails (exact key
+ * match, both directions); a probe whose wiring changed fails at the fact.
+ */
+describe("known deltas are executable (check 9)", () => {
+
+  it("every delta is structurally sound and has a probe (no stale, no missing)", async () => {
+    const apiCore = await import("@vibeflow-tools/api-core");
+    const deltas: Array<{
+      id: string;
+      operation: string;
+      surfaces: string[];
+      kind: string;
+      reason: string;
+      expected: string;
+      ticket: string;
+    }> = [...apiCore.KNOWN_DELTAS];
+    const ids = deltas.map((d) => d.id).sort();
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const d of deltas) {
+      expect(
+        OPERATION_IDS.includes(d.operation),
+        `delta "${d.id}" names unknown operation "${d.operation}"`,
+      ).toBe(true);
+      for (const s of d.surfaces) {
+        expect(
+          ["cli", "local-mcp", "local-http-mcp", "agent-chat", "hosted-mcp", "api"],
+          `delta "${d.id}" names unknown surface "${s}"`,
+        ).toContain(s);
+      }
+      expect(d.kind.length).toBeGreaterThan(0);
+      expect((d.reason ?? "").trim().length).toBeGreaterThan(20);
+      expect((d.expected ?? "").trim().length).toBeGreaterThan(20);
+      expect((d.ticket ?? "").trim().length).toBeGreaterThan(0);
+    }
+    expect(ids).toEqual(Object.keys(DELTA_PROBES).sort());
+  });
+
+  it("each delta's declared wiring holds and its probe passes", async () => {
+    for (const id of Object.keys(DELTA_PROBES).sort()) {
+      await DELTA_PROBES[id]();
+    }
+  });
+
+  it("negative fixture — an unprobed delta and a stale probe both fail", () => {
+    const apiIds = ["push-mcp-absent", "made-up-delta"];
+    const probes = { "push-mcp-absent": () => {} };
+    expect(Object.keys(probes).sort()).not.toEqual([...apiIds].sort());
+    expect(Object.keys(DELTA_PROBES).sort()).toContain("push-mcp-absent");
+    expect(Object.keys(DELTA_PROBES)).not.toContain("made-up-delta");
+  });
+});
+
+/** One executable probe per KNOWN_DELTAS id (see check 9 above). */
+const DELTA_PROBES: Record<string, () => Promise<void>> = {
+  "push-mcp-absent": async () => {
+    // The one destructive sync stays CLI-only: no tool, empty binding,
+    // missing mapping. Resurrecting push_tasks fails here first.
+    expect(manifest.some((m) => m.name === "push_tasks")).toBe(false);
+    expect(OPERATION_REGISTRY.pushTasks.mcpTools).toEqual([]);
+    expect(OPERATION_REGISTRY.pushTasks.mapping).toBe("missing");
+  },
+  "hosted-pull-absent": async () => {
+    // Local pull exists on both surfaces; hosted has no local store, so
+    // the absence is declared, not drift.
+    expect(manifest.some((m) => m.name === "pull")).toBe(true);
+    expect(OPERATION_REGISTRY.pullFromBoard.mcpTools).toEqual(["pull"]);
+  },
+  "hosted-project-identity": async () => {
+    // Local get_project answers the startup-pinned filesystem root —
+    // hosted answers board identity instead (declared alternative).
+    const { getProject } = await import("../../src/core/operations.js");
+    const dir = (await import("node:os")).tmpdir();
+    const result = await getProject({ projectDir: dir, mode: "local" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.root).toBe(dir);
+      expect(typeof result.data.name).toBe("string");
+    }
+    expect(OPERATION_REGISTRY.getProject.mapping).toBe(
+      "intentionally-different",
+    );
+  },
+  "hosted-server-answers": async () => {
+    // Local preview binds nothing and names the URLs it would serve;
+    // hosted returns a board deep link instead (declared alternative).
+    const { startKanban } = await import("../../src/core/operations.js");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const result = await startKanban(
+      { projectDir: mkdtempSync(join(tmpdir(), "delta-kanban-")), mode: "local" },
+      { dryRun: true },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = result.data as { started: boolean; url: string };
+      expect(data.started).toBe(false);
+      expect(typeof data.url).toBe("string");
+    }
+    expect(OPERATION_REGISTRY.startKanban.mapping).toBe("one-to-one");
+  },
+  "hosted-guide-answers": async () => {
+    const { getIntegrationGuide } = await import(
+      "../../src/core/operations.js"
+    );
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const result = await getIntegrationGuide(
+      {
+        projectDir: mkdtempSync(join(tmpdir(), "delta-guide-")),
+        mode: "local",
+      },
+      {},
+    );
+    expect(result.ok).toBe(true);
+    expect(OPERATION_REGISTRY.getIntegrationGuide.mapping).toBe("one-to-one");
+  },
+  "hosted-verify-local-only": async () => {
+    // The engine reads local task/baseline files and drives a local
+    // browser: local-only by requirement, intentionally different by
+    // mapping; hosted answers VERIFY_ENGINE_LOCAL_ONLY.
+    expect(OPERATION_REGISTRY.verifyTaskOp.requirement).toBe("local-only");
+    expect(OPERATION_REGISTRY.verifyTaskOp.mapping).toBe(
+      "intentionally-different",
+    );
+    expect(manifest.some((m) => m.name === "verify_task")).toBe(true);
+  },
+  "hosted-update-no-checkout-git": async () => {
+    // One shared updateTask implementation; the review auto-commit SHA is
+    // CLI/local-only chrome (no checkout hosted), never asserted there.
+    expect(OPERATION_REGISTRY.updateTask.mapping).toBe("one-to-one");
+    expect(OPERATION_REGISTRY.updateTask.mcpTools).toEqual(["update_task"]);
+  },
+  "cli-mcp-transport-envelopes": async () => {
+    // The operation returns the internal ok/data/steps shape; each surface
+    // maps it to its own envelope (CLI {ok:true,...}, MCP content text).
+    const { listTasks } = await import("../../src/core/operations.js");
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "delta-env-"));
+    mkdirSync(join(dir, ".vibeflow", "tasks"), { recursive: true });
+    writeFileSync(
+      join(dir, ".vibeflow", "tasks", "t1.json"),
+      JSON.stringify({
+        id: "t1",
+        title: "T",
+        description: "",
+        status: "todo",
+        selector: "/",
+        created: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const result = await listTasks({ projectDir: dir, mode: "local" }, {});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Array.isArray(result.data.tasks)).toBe(true);
+    }
+    expect(OPERATION_REGISTRY.listTasks.mapping).toBe("one-to-one");
+  },
+  "verify-raw-result-envelope": async () => {
+    // verify --json prints the raw VerifyResult (whose ok is page-health
+    // evidence), not the {ok:true,result} CLI envelope — pinned here so
+    // no "uniformity" cleanup silently rewrites the wire.
+    expect(OPERATION_REGISTRY.verifyTaskOp.mapping).toBe(
+      "intentionally-different",
+    );
+    expect(
+      manifest.find((m) => m.name === "verify_task")!.category,
+    ).toBe("task-mutate");
+  },
+  "pull-push-bare-reports": async () => {
+    // pull/push --json print bare counters/reports, never wrapped in the
+    // tasks {ok:true,...} envelope.
+    expect(OPERATION_REGISTRY.pullFromBoard.requirement).toBe("sync");
+    expect(OPERATION_REGISTRY.pushTasks.requirement).toBe("sync");
+  },
+  "status-human-text-envelope": async () => {
+    // status/auth status --json still prints the human summary; the
+    // machine probe is get_project. No MCP tool may depend on a status
+    // JSON envelope.
+    expect(OPERATION_REGISTRY.getAccountStatus.mcpTools).toEqual([]);
+    expect(OPERATION_REGISTRY.getAccountStatus.mapping).toBe(
+      "intentionally-different",
+    );
+  },
+  "attach-duplicate-policy": async () => {
+    // Same implementation, explicit per-surface policy: MCP replaces
+    // bytes in place (live probe); CLI standalone attach refuses
+    // duplicates (pinned by tasks-attach e2e).
+    const { attachFile } = await import("../../src/core/operations.js");
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "delta-attach-"));
+    mkdirSync(join(dir, ".vibeflow", "tasks"), { recursive: true });
+    writeFileSync(
+      join(dir, ".vibeflow", "tasks", "t1.json"),
+      JSON.stringify({
+        id: "t1",
+        title: "T",
+        description: "",
+        status: "todo",
+        selector: "/",
+        created: "2026-01-01T00:00:00.000Z",
+        files: [],
+      }),
+    );
+    const ctx = { projectDir: dir, mode: "local" } as const;
+    const b64 = (s: string) => Buffer.from(s).toString("base64");
+    const first = await attachFile(ctx, {
+      id: "t1",
+      filename: "note.md",
+      contentB64: b64("v1"),
+    });
+    expect(first.ok).toBe(true);
+    const second = await attachFile(ctx, {
+      id: "t1",
+      filename: "note.md",
+      contentB64: b64("v2-longer"),
+    });
+    expect(second.ok).toBe(true);
+    const { globSync } = await import("node:fs");
+    const matches = globSync(join(dir, ".vibeflow", "tasks", "**", "t1.json"));
+    expect(matches).toHaveLength(1);
+    const stored = JSON.parse(
+      (await import("node:fs")).readFileSync(matches[0], "utf-8"),
+    );
+    expect(stored.files).toHaveLength(1);
+    expect(OPERATION_REGISTRY.attachFile.mapping).toBe(
+      "intentionally-different",
+    );
+  },
+  "cli-only-unbounded-listing": async () => {
+    // list_tasks pages (limit/offset/nextCursor) and deliberately has no
+    // unbounded mode; CLI --all assembles everything itself.
+    const { ListTasksInput } = await import("@vibeflow-tools/api-core");
+    expect("all" in ListTasksInput.shape).toBe(false);
+    const ops = await import("../../src/core/operations.js");
+    expect(typeof ops.listAllTasksForCli).toBe("function");
+    expect(OPERATION_REGISTRY.listTasks.mcpTools).toEqual(["list_tasks"]);
+  },
+  "local-only-http-chat": async () => {
+    // Board tools mount on HTTP/chat only in the offline branch (server
+    // wiring, e2e-pinned); the registry records listTasks as the
+    // representative selected-board capability.
+    expect(OPERATION_REGISTRY.listTasks.requirement).toBe("selected-board");
+  },
+  "chat-context-tools": async () => {
+    // Classified chat-only capabilities with operation wrappers and no
+    // CLI spelling and no main-manifest tool.
+    for (const id of ["readPageText", "readPageDom"] as const) {
+      expect(OPERATION_REGISTRY[id].cli).toEqual([]);
+      expect(OPERATION_REGISTRY[id].mcpTools).toEqual([]);
+      expect(OPERATION_REGISTRY[id].operationFn).not.toBeNull();
+    }
+    expect(
+      manifest.some(
+        (m) => m.name === "read_page_text" || m.name === "read_page_dom",
+      ),
+    ).toBe(false);
+  },
+  "openapi-raw-document": async () => {
+    // Raw bytes, no envelope: the data IS the document.
+    const { getOpenApiDocument } = await import(
+      "../../src/core/operations.js"
+    );
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const result = await getOpenApiDocument(
+      { projectDir: mkdtempSync(join(tmpdir(), "delta-openapi-")), mode: "local" },
+      {},
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.data.content).toBe("string");
+      expect(result.data.content.length).toBeGreaterThan(0);
+      expect(JSON.parse(result.data.content)).toBeTruthy();
+    }
+  },
+  "changelog-raw-text": async () => {
+    const { getChangelog } = await import("../../src/core/operations.js");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const result = await getChangelog(
+      { projectDir: mkdtempSync(join(tmpdir(), "delta-changelog-")), mode: "local" },
+      {},
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.data.text).toBe("string");
+    }
+  },
+};

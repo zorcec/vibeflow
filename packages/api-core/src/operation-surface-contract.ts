@@ -292,24 +292,16 @@ export const KNOWN_DELTAS: readonly SurfaceDelta[] = [
 ];
 
 /**
- * Handlers still inline in `src/index.ts` that later phases move behind the
- * registry (plan §4). Each must reach zero before its removal phase lands —
- * the ratchet fails an entry that outlives its phase's bypass removal, and
- * fails a live handler with no entry here or in the registry.
+ * Temporary migration handlers (plan §4) — EMPTY since P8 (ticket dc9a42ac).
+ *
+ * Every handler listed here named a removal phase in P1–P7, and every one of
+ * those phases has landed: reads (P2), claim (P3), remote writes (P4),
+ * attachments/delete/commit/maintenance (P5), auxiliary/auth/sync (P6),
+ * server lifecycle and verification (P7). The remaining inline call sites
+ * are classified per call site in the CLI's SURFACE_STORAGE_USES (with the
+ * owning operation named), not tracked as temporary migration — so this
+ * list stays empty. The operation-boundary ratchet fails any re-added
+ * entry, and the export itself is kept so external consumers keep
+ * compiling.
  */
-export const TEMPORARY_MIGRATION_ENTRIES: readonly TemporaryMigrationEntry[] = [
-  { handler: "tasks --attach/--move", removalPhase: "P5", ticket: "2d789b27" },
-  { handler: "tasks --delete/--yes", removalPhase: "P5", ticket: "2d789b27" },
-  { handler: "tasks --commit/--task/--message", removalPhase: "P5", ticket: "2d789b27" },
-  { handler: "tasks --reindex-sort-keys", removalPhase: "P5", ticket: "2d789b27" },
-  { handler: "tasks --normalize/--apply", removalPhase: "P5", ticket: "2d789b27" },
-  // P2 (ticket d7b9dc13): the list/get read paths are routed through the
-  // operations layer (resolveReadPorts) and rendered from operation data,
-  // so they are no longer inline handlers — the temporary entry for them is
-  // removed. The remaining tasks modes (next/add/edit) stay inline until
-  // P3/P4 route the writes; they keep their own entry, not the coarse one.
-  { handler: "tasks next/add/edit modes", removalPhase: "P4", ticket: "2d789b27" },
-  { handler: "verify engine + evidence-query forms", removalPhase: "P7", ticket: "2d789b27" },
-  { handler: "serve/kanban/mcp lifecycle", removalPhase: "P7", ticket: "2d789b27" },
-  { handler: "auth/telemetry/authors/changelog/openapi/status/push/pull effects", removalPhase: "P6", ticket: "2d789b27" },
-];
+export const TEMPORARY_MIGRATION_ENTRIES: readonly TemporaryMigrationEntry[] = [];
