@@ -119,6 +119,65 @@ describe("board owns the horizontal scroll (owner reversal of s5dfufqs)", () => 
   });
 });
 
+/**
+ * The contract above is only stable if nobody arrives with a LEGITIMATE looking
+ * refactor that quietly undoes it: a grid rewrite, a shorthand `overflow: auto`
+ * that re-enables the x axis we just hid, a reversed flex direction that turns
+ * the strip into a column. Each rule below fails with the reason, not just with
+ * "expected true", because the next reader will not have this session's context.
+ */
+describe("layout drift cannot slip back in by refactor", () => {
+  it("the board stays a flex strip, never a grid or a column", () => {
+    const block = ruleBlock("#kanban-board");
+    expect(block, "board must be display:flex").toMatch(/display\s*:\s*flex/);
+    expect(block, "a grid rewrite breaks the shared-width lane math").not.toMatch(
+      /display\s*:\s*grid/,
+    );
+    expect(
+      block,
+      "flex-direction: column would stack lanes vertically",
+    ).not.toMatch(/flex-direction\s*:\s*column/);
+    expect(
+      block,
+      "align-content only matters once lanes wrap",
+    ).not.toMatch(/align-content\s*:/);
+  });
+
+  it("no overflow shorthand re-enables the x axis we hide", () => {
+    // `overflow: auto` on a lane (or on .column-scroll) would restore the
+    // nested horizontal scrollbar even though `overflow-x` says hidden,
+    // because the shorthand resets both axes.
+    for (const selector of [".board-column", ".column-scroll"]) {
+      const block = ruleBlock(selector);
+      expect(
+        block,
+        `${selector} must not use the overflow shorthand`,
+      ).not.toMatch(/(^|;|\s)overflow\s*:\s*(auto|scroll)/);
+    }
+  });
+
+  it("the lane column keeps its own flex direction", () => {
+    // Cards stack down inside a lane; a row direction here silently makes
+    // cards sit side by side and reintroduces horizontal overflow.
+    expect(ruleBlock(".board-column")).toMatch(
+      /flex-direction\s*:\s*column/,
+    );
+    expect(ruleBlock(".column-scroll")).toMatch(
+      /flex-direction\s*:\s*column/,
+    );
+  });
+
+  it("the done lane keeps its deliberate no-scroll exception", () => {
+    // Pinned so a future "consistency" pass that deletes the exception has
+    // to fail here and read why: done is capped, the fit chip explains the
+    // remainder, so it must not offer a truncated scroll.
+    const css = readFileSync(cssPath, "utf-8");
+    expect(css).toMatch(
+      /\.column-scroll\[data-status="done"\]\s*\{[^}]*overflow-y\s*:\s*hidden/,
+    );
+  });
+});
+
 describe("wide-lane strip overflows narrow viewports by design", () => {
   const COLS = 5;
 

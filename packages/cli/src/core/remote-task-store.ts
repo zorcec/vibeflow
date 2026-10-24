@@ -19,7 +19,7 @@
  * server-stamped — no `author` member, exactly like the CLI); update
  * PATCHes the operation-computed merge as a whole-set replace; comments
  * POST `{text}` only. Extra server members the mapped `Task` cannot carry
- * (`record` for the CLI's offline clone, `warning` for the CLI's
+ * (`record` for the accepted record, `warning` for the CLI's
  * passthrough) ride the returned task as NON-ENUMERABLE props — invisible
  * to JSON/MCP wire and to equality — read back through the accessors below.
  *
@@ -439,7 +439,7 @@ function requireTask(row: SaasTask, taskId: string): Task {
  * the wire (ticket efcd6992, P4).
  *
  * `record` is the create route's accepted raw — the exact bytes the CLI's
- * offline clone persists verbatim (see `saas/clone.ts`) — and `warning` is
+ * accepted record travels with the task — and `warning` is
  * the board's bare-string passthrough the CLI surfaces top-level beside
  * its own `notices` array. Neither fits the portable `Task` shape, and
  * both must stay invisible to the MCP wire (which never knew them), so
@@ -844,7 +844,8 @@ class RemoteTaskStore implements TaskStore {
    * POST carrying the operation-validated fields. Identity is
    * server-stamped — no `author` member rides the body, exactly like the
    * CLI's online `--add` — and the returned task is the server view with
-   * the accepted raw stashed alongside it for the CLI's offline clone.
+   * the accepted raw stashed alongside it, so a caller can inspect what the
+   * server actually stored (online writes never touch the local store).
    * A refusal throws before anything local exists; a 201 with an
    * unmappable row refuses rather than presenting it as current.
    */
@@ -874,8 +875,7 @@ class RemoteTaskStore implements TaskStore {
       );
     }
     const task = requireTask(created.data, created.data.id);
-    // The clone contract: the accepted record travels with the task for
-    // the CLI's explicit offline clone — never onto the MCP wire.
+    // The accepted record travels with the task — never onto the MCP wire.
     return attachWriteEffects(task, created.data);
   }
   /**

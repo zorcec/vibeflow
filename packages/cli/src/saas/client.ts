@@ -168,12 +168,14 @@ export interface SaasTask {
     system?: boolean;
   }>;
   /**
-   * The ACCEPTED raw record the server stored (ticket 4efaa878 clone mode).
-   * Present on create responses from servers that advertise it: the verbatim
-   * `raw` (client body plus backfilled id/links, sanitized — no merged
-   * column defaults), which the CLI persists as the local clone byte-for-byte.
-   * Absent on older servers — the CLI falls back to the response-view mapper
-   * and warns loudly that the clone is reconstructed, not exact.
+   * The ACCEPTED raw record the server stored. Present on create responses
+   * from servers that advertise it: the verbatim `raw` (client body plus
+   * backfilled id/links, sanitized — no merged column defaults). Absent on
+   * older servers, in which case the response view is all there is.
+   *
+   * Online writes never touch the local store (owner decision): the local
+   * copy comes from `pull`, and this field must not be passed on the MCP
+   * wire.
    */
   record?: Record<string, unknown>;
 }
