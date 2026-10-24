@@ -41,11 +41,13 @@
  * announcement (stdout is the protocol channel). A transport that fails
  * to connect maps to MCP_TRANSPORT_START_FAILED.
  *
- * What stays out (remainder of P7, named in the ticket comment): routing
- * the `kanban` CLI through the existing `startKanban` operation (it still
- * calls `serve()` directly, including `--dev`/`--no-open` chrome the
- * singleton does not take), the `verify` engine/evidence extraction, and
- * the chat-context classifications.
+ * What stays out (remainder of P7, named in the ticket comment): the
+ * `verify` engine/evidence extraction and the chat-context classifications.
+ * The `kanban` CLI routes through the shared `startKanban` operation
+ * (`core/operations/kanban.ts`) since the P7 kanban increment — `--dev`
+ * rides the operation into the singleton, while browser opening
+ * (`--no-open`) and the changelog chrome stay renderer-side in
+ * `src/index.ts` (the singleton never opens a browser by construction).
  */
 import type { OperationContext, OperationError } from "../operations.js";
 import type { ServeInstance } from "../../server/server.js";

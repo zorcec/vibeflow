@@ -962,22 +962,44 @@ program
         return;
       }
       announceProjectRoot(root);
-      const port = parseInt(opts.port, 10);
-      const instance = await serve(undefined, {
-        port,
-        host: opts.host,
-        open: false,
+      // Startup decisions run in the shared `startKanban` operation
+      // (core/operations/kanban.ts); this renderer keeps flag parsing, root
+      // resolution/announcement, browser opening (`--no-open`), the
+      // changelog chrome and the exit code. `quiet: false` + `noCtrlCHint`
+      // keep the exact serve-banner bytes below (the singleton defaults to
+      // quiet, which is what the MCP path needs — stdout is the JSON-RPC
+      // channel there).
+      const kanbanOpCtx: OperationContext = {
         projectDir: root.projectDir,
-        noCtrlCHint: true,
+        mode: "local",
+      };
+      const kanbanResult = await operations.startKanban(kanbanOpCtx, {
+        port: parseInt(opts.port, 10),
+        ...(opts.host === undefined ? {} : { host: opts.host }),
         // Ticket 7e85c338: explicit opt-in only — never default.
-        dev: opts.dev === true,
+        ...(opts.dev === true ? { dev: true as const } : {}),
+        quiet: false,
+        noCtrlCHint: true,
+        dryRun: false as const,
       });
-      const kanbanUrl = instance.url + "/kanban";
+      if (!kanbanResult.ok) {
+        process.stderr.write(chalk.red(`✗ ${kanbanResult.error.message}\n`));
+        if (kanbanResult.error.suggestion) {
+          process.stderr.write(chalk.dim(`  ${kanbanResult.error.suggestion}\n`));
+        }
+        process.exitCode = ExitCode.GENERAL;
+        return;
+      }
+      const { url, localUrl } = kanbanResult.data as {
+        url: string;
+        localUrl: string | null;
+      };
+      const kanbanUrl = url + "/kanban";
       // The ready block + agent prompt come from the ONE guide builder
       // (server/startup-guide.ts) — the same lines `start_kanban` returns.
       printGuideLines(
         buildKanbanReadyLines(
-          buildIntegrationGuide({ url: instance.url, localUrl: instance.localUrl ?? null }),
+          buildIntegrationGuide({ url, localUrl }),
         ),
       );
       if (opts.open) {

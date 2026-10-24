@@ -715,7 +715,9 @@
       "mode": "local",
       "cli": [
         "kanban",
+        "kanban --dev",
         "kanban --host",
+        "kanban --no-open",
         "kanban --port"
       ],
       "operationFn": "startKanban",
@@ -787,7 +789,9 @@
   "registryCliFlags": {
     "authors link --dry-run": "linkCommitAuthors",
     "changelog --all": "getChangelog",
+    "kanban --dev": "startKanban",
     "kanban --host": "startKanban",
+    "kanban --no-open": "startKanban",
     "kanban --port": "startKanban",
     "mcp --project": "startMcpTransport",
     "openapi --yaml": "getOpenApiDocument",

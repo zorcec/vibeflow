@@ -354,11 +354,11 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mode: "local",
     requirement: "local-only",
     mapping: "one-to-one",
-    cli: ["kanban", "kanban --port", "kanban --host"],
+    cli: ["kanban", "kanban --port", "kanban --host", "kanban --dev", "kanban --no-open"],
     mcpTools: ["start_kanban"],
     operationFn: "startKanban",
     reason:
-      "Same singleton lifecycle; browser-opening and changelog chrome stay CLI-side.",
+      "Same singleton lifecycle through the shared operation; --dev rides the operation into the singleton (which never opens a browser, so --no-open stays renderer-side), and changelog chrome stays CLI-side.",
   },
   startMcpTransport: {
     id: "startMcpTransport",
@@ -437,7 +437,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
 export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "authors link --dry-run": "linkCommitAuthors",
   "changelog --all": "getChangelog",
+  "kanban --dev": "startKanban",
   "kanban --host": "startKanban",
+  "kanban --no-open": "startKanban",
   "kanban --port": "startKanban",
   "openapi --yaml": "getOpenApiDocument",
   "telemetry --disable": "manageTelemetry",

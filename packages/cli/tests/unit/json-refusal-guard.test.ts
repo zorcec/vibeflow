@@ -84,12 +84,13 @@ const ALLOWLIST: Array<{ match: RegExp; reason: string }> = [
       "reportProjectRootFailure: callers are serve/kanban/mcp, none of which define --json",
   },
   {
-    // startServer/startMcpTransport startup refusals — the `serve` and `mcp`
-    // commands define no `--json` option either, so no `--json` consumer can
-    // reach these refusals (same position as reportProjectRootFailure).
-    match: /(serveResult|mcpResult)\.error/,
+    // startServer/startMcpTransport/startKanban startup refusals — the
+    // `serve`, `mcp` and `kanban` commands define no `--json` option
+    // either, so no `--json` consumer can reach these refusals (same
+    // position as reportProjectRootFailure).
+    match: /(serveResult|mcpResult|kanbanResult)\.error/,
     reason:
-      "serve/mcp lifecycle refusals: neither command defines --json",
+      "serve/mcp/kanban lifecycle refusals: none of the three commands defines --json",
   },
 ];
 
