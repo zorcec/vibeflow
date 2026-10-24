@@ -1,4 +1,5 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
+import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
 import {
   readFileSync,
   readdirSync,
@@ -555,6 +556,23 @@ function registerTaskApi(
     console.log(`[Vibeflow] Task created: "${task.title}" (${task.id})`);
     broadcast({ type: "tasks-updated" });
     res.json({ success: true, task });
+  });
+
+  app.post("/api/tasks/remove-tag", (req, res) => {
+    let tag: string;
+    try {
+      tag = assertRemovableTag(req.body?.tag);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+      return;
+    }
+    try {
+      const result = removeTagFromAllTasks(projectDir, tag);
+      broadcast({ type: "tasks-updated" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Could not remove the tag." });
+    }
   });
 
   app.patch("/api/tasks/:id", (req, res) => {

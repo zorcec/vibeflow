@@ -63,6 +63,37 @@ describe("FilterBar per-tag Remove (db2fce26)", () => {
     ).toBeNull();
   });
 
+  it("renders no Remove action until the tags dropdown opens", () => {
+    renderBar({ onRemoveTagFromAll: vi.fn(async () => 0) });
+    // Dropdown closed: tag rows (and their Remove actions) are not in the DOM.
+    expect(
+      screen.queryByRole("button", { name: /remove .* from all tasks/i }),
+    ).toBeNull();
+    openTags();
+    expect(removeButton("frontend")).toBeInTheDocument();
+  });
+
+  it("renders no Remove action at all when the board has no tags", () => {
+    const tagless: Task[] = [
+      { id: "t1", title: "One", status: "todo", tags: [] },
+      { id: "t2", title: "Two", status: "done" },
+    ];
+    render(
+      <FilterBar
+        tasks={tagless}
+        filter={baseFilter}
+        onFilter={vi.fn()}
+        onRemoveTagFromAll={vi.fn(async () => 0)}
+      />,
+    );
+    // With no tags on the board the dropdown cannot open, so even with the
+    // prop wired there is nowhere for a Remove action to appear.
+    fireEvent.click(screen.getByRole("button", { name: /tags/i }));
+    expect(
+      screen.queryByRole("button", { name: /remove .* from all tasks/i }),
+    ).toBeNull();
+  });
+
   it("reveals the action on hover", () => {
     renderBar({ onRemoveTagFromAll: vi.fn(async () => 0) });
     openTags();

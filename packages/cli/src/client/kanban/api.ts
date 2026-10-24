@@ -13,6 +13,7 @@ import type {
 export interface KanbanReadStateApi {
   /** Records the current user as having opened a task (persistent read state). */
   markOpened(taskId: string): Promise<void>;
+  removeTagFromAll(tag: string): Promise<number>;
   /** Adds/removes the current user from the task's persisted expanded set. */
   setTaskExpanded(taskId: string, expanded: boolean): Promise<void>;
 }
@@ -43,6 +44,17 @@ export const api: KanbanApi & KanbanReadStateApi = {
   async getTasks(): Promise<{ tasks: Task[] }> {
     const r = await fetch(`${API}?_=${Date.now()}`, { cache: "no-store" });
     return readJson(r, { tasks: [] }, "GET /api/tasks");
+  },
+
+  async removeTagFromAll(tag: string): Promise<number> {
+    const r = await fetch(`${API}/remove-tag`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag }),
+    });
+    const data = await r.json() as { removed: number; error?: string };
+    if (!r.ok) throw new Error(data.error ?? "Could not remove the tag.");
+    return data.removed;
   },
 
   async createTask(

@@ -1001,6 +1001,14 @@ function BoardApp() {
     });
   }
 
+  // The shared FilterBar owns confirmation, busy state and errors. Refresh
+  // only after success; don't optimistically strip tags from the board.
+  async function handleRemoveTagFromAll(tag: string): Promise<number> {
+    const removed = await api.removeTagFromAll(tag);
+    void loadTasks();
+    return removed;
+  }
+
   async function patchTask(id: string, updates: Partial<Task>) {
     const previous = tasksRef.current.find((t) => t.id === id);
     // 3647a471: mark our own write so its WS echo (REST broadcast + file
@@ -1695,6 +1703,7 @@ function BoardApp() {
       />
 
       <FilterBar
+        onRemoveTagFromAll={handleRemoveTagFromAll}
         tasks={tasks}
         filter={filterState}
         view={viewMode}

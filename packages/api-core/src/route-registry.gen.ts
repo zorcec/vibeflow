@@ -437,6 +437,7 @@ export const LOCAL_ONLY_ROUTES: LocalOnlyRoute[] = [
   { method: "POST", path: "/api/push", reason: "Local→cloud push stays a CLI command (§2.5) — not v0." },
   { method: "GET", path: "/api/github-url", reason: "Folded into GET /api/v0/project scope description — not a standalone v0 op." },
   { method: "DELETE", path: "/api/mcp", reason: "MCP session teardown — local transport detail, classified under mcp-get/mcp-post." },
+  { method: "POST", path: "/api/tasks/remove-tag", reason: "Kanban Tags-filter bulk removal — board-local UI mutation (confirm, mutate, refresh); the portable mutation stays PATCH /api/tasks/:id — not v0." },
 ];
 
 /** Non-API route prefixes carved out of the duplication guard, with reasons. */
