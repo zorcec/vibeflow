@@ -44,7 +44,9 @@ export type OperationId =
   | "getChangelog"
   | "getOpenApiDocument"
   | "startServer"
-  | "startMcpTransport";
+  | "startMcpTransport"
+  | "readPageText"
+  | "readPageDom";
 
 /** Where an operation can run. `both` means the same implementation serves
  * local and online backends (the mode decision lives below the surface). */

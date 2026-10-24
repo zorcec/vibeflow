@@ -681,6 +681,22 @@
       "operationFn": "pushTasks",
       "requirement": "sync"
     },
+    "readPageDom": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [],
+      "operationFn": "readPageDom",
+      "requirement": "local-only"
+    },
+    "readPageText": {
+      "mapping": "missing",
+      "mcpTools": [],
+      "mode": "local",
+      "cli": [],
+      "operationFn": "readPageText",
+      "requirement": "local-only"
+    },
     "reindexTaskSortKeys": {
       "mapping": "missing",
       "mcpTools": [],

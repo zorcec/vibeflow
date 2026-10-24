@@ -733,3 +733,13 @@ export {
   type StartMcpTransportData,
   type StartMcpTransportResult,
 } from "./operations/server.js";
+export {
+  readPageText,
+  readPageDom,
+  type ReadPageTextRunner,
+  type ReadPageTextInput,
+  type BrowserDomAnswer,
+  type RequestBrowserDomFn,
+  type ReadPageDomRunner,
+  type ReadPageDomInput,
+} from "./operations/chat.js";

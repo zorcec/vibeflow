@@ -317,6 +317,28 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     reason:
       "Hidden CLI sync with no MCP tool — do not resurrect push_tasks; the drift gate pins its absence (P6 repairs the service).",
   },
+  readPageDom: {
+    id: "readPageDom",
+    mode: "local",
+    requirement: "local-only",
+    mapping: "missing",
+    cli: [],
+    mcpTools: [],
+    operationFn: "readPageDom",
+    reason:
+      "Chat-only live-DOM read scoped to its session tab; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 chat increment).",
+  },
+  readPageText: {
+    id: "readPageText",
+    mode: "local",
+    requirement: "local-only",
+    mapping: "missing",
+    cli: [],
+    mcpTools: [],
+    operationFn: "readPageText",
+    reason:
+      "Chat-only server-side page-text fetch behind the bounded SSRF-guarded reader; read-only and approval-free, never a board write, with no CLI spelling and no main-manifest MCP tool (P7 chat increment).",
+  },
   reindexTaskSortKeys: {
     id: "reindexTaskSortKeys",
     mode: "local",
