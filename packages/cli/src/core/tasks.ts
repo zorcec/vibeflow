@@ -21,6 +21,14 @@ import {
 } from "./types.js";
 import type { FileInfo } from "./files.js";
 import { taskLockPath, withFileLockSync } from "./lock.js";
+import { getDescendants } from "./task-links.js";
+import {
+  loadFreshChildrenIndex,
+  refreshChildrenIndex,
+  invalidateChildrenIndexLocked,
+  type ChildEdge,
+  type TaskChildrenIndex,
+} from "./task-children-index.js";
 import { selectClaimCandidate } from "./claim-eligibility.js";
 import { inspectLocalTaskRecord, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
 export { taskReadNotices } from "./task-record-read.js";
@@ -491,6 +499,10 @@ export function applyTaskStoreNormalize(projectDir: string): {
       });
     } catch { unwritten.push(item.id); }
   }
+  // Normalisation repairs records and can drop or rewrite parent links:
+  // invalidate (outside the per-task locks above) so the next cascade
+  // rebuilds once instead of trusting a map built from pre-repair edges.
+  if (applied.length > 0) invalidateChildrenIndexLocked(projectDir);
   return { applied, unwritten, unreadable: plan.unreadable, quarantined: plan.quarantined };
 }
 
@@ -728,6 +740,12 @@ export function createTask(
     if (!ceiling || sortKey > ceiling) {
       writeSortKeyCeiling(projectDir, sortKey);
     }
+    // A created parent edge changes the children map: invalidate under the
+    // index lock (ordered against concurrent publishes — see
+    // `task-children-index.ts`). Link-free creates skip the index entirely.
+    if ((input.links ?? []).some((l) => l?.type === "parent" && l?.taskId)) {
+      invalidateChildrenIndexLocked(projectDir);
+    }
     return task;
   });
 }
@@ -858,6 +876,19 @@ export function listTasksWithPaths(projectDir: string, reads?: TaskReadFinding[]
   return collectTaskFiles(projectDir, reads).map(({ task, filePath }) => ({ ...task, filePath }));
 }
 
+/** Parent edges of the whole store, for the children-index scanner. */
+function scanChildEdges(projectDir: string): ChildEdge[] {
+  const edges: ChildEdge[] = [];
+  for (const t of listTasksWithPaths(projectDir)) {
+    for (const l of t.links ?? []) {
+      if (l?.type === "parent" && l?.taskId) {
+        edges.push({ id: t.id, parentId: l.taskId });
+      }
+    }
+  }
+  return edges;
+}
+
 export function updateTask(
   projectDir: string,
   taskId: string,
@@ -900,12 +931,98 @@ export function updateTask(
     const existingPath = findTaskFilePath(projectDir, taskId);
     const task = existingPath ? readTaskFile(existingPath) : null;
     if (!task) return null;
+    const now = new Date().toISOString();
     const updated: Task = scrubResearchVerified({
       ...task,
       ...updates,
-      updated: new Date().toISOString(),
+      updated: now,
     });
+    // Owner rule: a parent marked done marks all descendants done.
+    // The descendant SET comes from the parent→children sidecar index
+    // (O(1); rebuilt from one full scan when missing/stale/corrupt — see
+    // `task-children-index.ts`), never from a per-edit board scan: scanning
+    // here turned 500 done-edits on a 5k-task store from <10s into ~140s.
+    // The edge map is walked with the canonical `getDescendants` (cycle-
+    // safe) over minimal reconstructed rows — no second walker. Forward-
+    // only (a child done never touches its parent); already-done
+    // descendants are left byte-untouched (no `updated` bump), so the
+    // cascade is idempotent.
+    const cascaded: Array<{ filePath: string; record: Task }> = [];
+    let cascadeIndex: TaskChildrenIndex | null = null;
+    if (updated.status === "done") {
+      cascadeIndex = loadFreshChildrenIndex(projectDir, () =>
+        scanChildEdges(projectDir),
+      );
+      // Minimal rows for the canonical walker: id + parent edges only.
+      // A child with several parent links (hand-forged stores) keeps them
+      // all, exactly as a board snapshot would present them.
+      const parentsByChild = new Map<string, Set<string>>();
+      for (const [parentId, childIds] of Object.entries(
+        cascadeIndex.parents,
+      )) {
+        for (const childId of childIds) {
+          let set = parentsByChild.get(childId);
+          if (!set) {
+            set = new Set<string>();
+            parentsByChild.set(childId, set);
+          }
+          set.add(parentId);
+        }
+      }
+      // SAFETY: `getDescendants` reads only `id` and `links`; the remaining
+      // Task fields are never touched by the walk, so narrowed rows are
+      // exact for this call (same as passing full records).
+      const walkerRows = [...parentsByChild.entries()].map(([id, ps]) => ({
+        id,
+        links: [...ps].map((linkParentId) => ({
+          taskId: linkParentId,
+          type: "parent" as const,
+        })),
+      })) as unknown as Task[];
+      const ids = getDescendants(walkerRows, taskId).filter(
+        (id) => id !== taskId,
+      );
+      for (const id of ids) {
+        const childPath = findTaskFilePath(projectDir, id);
+        const child = childPath ? readTaskFile(childPath) : null;
+        // Missing (deleted mid-flight) or already done: skip without
+        // writing, so the cascade never fails the parent edit and never
+        // bumps `updated` on tasks that already converged.
+        if (!child || !childPath || child.status === "done") continue;
+        cascaded.push({
+          filePath: childPath,
+          record: scrubResearchVerified({
+            ...child,
+            status: "done",
+            updated: now,
+          }),
+        });
+      }
+    }
     writeTaskJson(projectDir, updated);
+    // Same record writer as a normal edit (temp/rename per file, so no torn
+    // reads); every record was prepared before the first write, so a failure
+    // cannot leave a half-computed set behind.
+    for (const { filePath, record } of cascaded) {
+      writeTaskJsonAt(filePath, record);
+    }
+    // Index bookkeeping, LAST (record writes already landed): a link edit
+    // in this call invalidates (deleted, never patched — the next cascade
+    // rebuilds once); a pure status cascade only re-stamps (map unchanged).
+    // `"links" in updates` — not a value check: clearing every link writes
+    // `links: undefined`, which still changes edges. Non-done, non-link
+    // edits skip the index entirely (claims stay on the zero-I/O path).
+    // Best-effort throughout: a missed write only costs a rebuild, because
+    // every record write above already bumped the generation stamp.
+    if ("links" in updates) {
+      invalidateChildrenIndexLocked(projectDir);
+    } else if (cascadeIndex) {
+      refreshChildrenIndex(
+        projectDir,
+        () => scanChildEdges(projectDir),
+        cascadeIndex,
+      );
+    }
     // Keep the monotonic sortKey ceiling above any key an update writes (a drag
     // appended to the bottom raises the store max). Read through
     // `maxStoreSortKey`, not the raw cache: when the sidecar is missing — e.g.
@@ -956,6 +1073,11 @@ export function deleteTask(projectDir: string, taskId: string): boolean {
   const filePath = findTaskFilePath(projectDir, taskId);
   if (!filePath) return false;
   unlinkSync(filePath);
+  // Node removal: stale entries for the deleted task can only produce
+  // skippable-missing lookups (never a wrong cascade), and the mtime bump
+  // forces a rebuild anyway — but invalidate under lock regardless, so the
+  // rule stays absolute: every edge-affecting writer invalidates.
+  invalidateChildrenIndexLocked(projectDir);
   return true;
 }
 

@@ -56,6 +56,7 @@ import {
   writeTaskJson,
 } from "../core/tasks.js";
 import { toCliStatus, type SaasTask } from "./client.js";
+import { invalidateChildrenIndexLocked } from "../core/task-children-index.js";
 
 /** Non-empty strings travel verbatim; anything else reads as absent. */
 function presentString(value: unknown): value is string {
@@ -253,6 +254,10 @@ export function writeOnlineClone(projectDir: string, task: SaasTask): string {
     // only restores the writer's parameter type.
     writeTaskJson(projectDir, record as unknown as Task);
     invalidateSortKeyCeiling(projectDir);
+    // An imported record can carry parent edges: invalidate under lock so
+    // the next local cascade rebuilds instead of trusting pre-clone edges.
+    // (Inside the store-create lock: order store-create → index everywhere.)
+    invalidateChildrenIndexLocked(projectDir);
     return getTaskFilePath(
       projectDir,
       String(record.id),

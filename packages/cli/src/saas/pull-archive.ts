@@ -60,6 +60,7 @@ import {
   invalidateSortKeyCeiling,
 } from "../core/tasks.js";
 import { getFilesDir } from "../core/files.js";
+import { invalidateChildrenIndexLocked } from "../core/task-children-index.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 import type { Task, TaskComment, TaskLink } from "../core/types.js";
 
@@ -908,6 +909,12 @@ export function applyPullEntries(
   summary.missingBytes = staging.missingBytes.length;
 
   if (ceilingTouched && !dryRun) invalidateSortKeyCeiling(projectDir);
+  // A pull can add, change, or drop parent edges: invalidate the children
+  // index (under lock, ordered against concurrent publishes) so the next
+  // local cascade rebuilds once instead of trusting pre-pull edges.
+  if (!dryRun && summary.added + summary.merged > 0) {
+    invalidateChildrenIndexLocked(projectDir);
+  }
   return summary;
 }
 
