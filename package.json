@@ -1,7 +1,7 @@
 {
   "name": "vibeflow",
   "version": "1.0.0",
-  "description": "Vibeflow — annotate, iterate, and ship faster with your AI agent",
+  "description": "Vibeflow \u2014 annotate, iterate, and ship faster with your AI agent",
   "private": true,
   "license": "Apache-2.0",
   "author": "Tomislav Zorcec <contact@vibeflow.tools>",
@@ -32,7 +32,8 @@
     "check:store": "node packages/cli/scripts/check-store.mjs",
     "mutation": "pnpm --filter @vibeflow-tools/cli run mutation",
     "vibeflow": "node packages/cli/scripts/dev-parallel.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "release:check-deps": "node scripts/check-publishable-deps.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
