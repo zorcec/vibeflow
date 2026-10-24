@@ -6,23 +6,33 @@ import {
   BOARD_COLUMN_MIN_WIDTH_PX,
   BOARD_GAP_PX,
   BOARD_PAD_X_PX,
-  boardColumnsPerRow,
-  boardColumnWidth,
 } from "../KanbanBoard";
 
 /**
- * Ticket s5dfufqs — "Remove horizontal scroll".
+ * OWNER REVERSAL of ticket s5dfufqs — "Restore the horizontal scroll".
  *
- * The board used to force a fixed-width strip (`flex: 0 0 280px` columns in
- * an `overflow-x: auto` container), so viewports narrower than the strip got
- * a horizontal page scrollbar. Columns now shrink to share the viewport and
- * wrap/stack below a readable floor, and the board clips the x axis — so
- * `scrollWidth <= clientWidth` holds at every width.
+ * The owner DELIBERATELY rejected the s5dfufqs/b72c5bc5 layout contract
+ * (wrap + `overflow-x: hidden` + a 200px shrink floor that stacked lanes one
+ * per row). The new contract, pinned below, is:
  *
- * jsdom performs no layout, so this suite pins the two halves that together
- * guarantee it: (1) the stylesheet rules that make overflow impossible, and
- * (2) the exported geometry math, measured at 1280 / 768 / 390, showing the
- * fitted row never exceeds the viewport and no column becomes a sliver.
+ * - lanes are WIDE (320px floor) and NEVER wrap (`flex-wrap: nowrap`);
+ * - when the lanes do not fit, the HORIZONTAL scrollbar belongs on
+ *   `#kanban-board` (`overflow-x: auto`) — never inside a lane;
+ * - every lane stretches to 100% of the board height and owns its VERTICAL
+ *   scroll (`.column-scroll`, the only vertical scroller); the board never
+ *   scrolls vertically (`overflow-y: hidden`).
+ *
+ * Do NOT "fix" these assertions back to wrap/hidden-x: the wrap era is
+ * recorded here on purpose, and the red-run proof for the inversion lives
+ * in the lane report (restoring `flex-wrap: wrap` / `overflow-x: hidden` on
+ * the board goes red). jsdom performs no layout, so this suite pins the
+ * stylesheet rules directly, plus the strip math showing the 5-lane strip
+ * overflows every narrow viewport by design.
+ *
+ * Parts of the old guard that are STILL true and stay pinned: a lane never
+ * scrolls sideways internally, and the board is the only horizontal
+ * scroller (the done lane's fit-chip `overflow-y: hidden` exception is
+ * pinned in the done-lane-fit suite).
  */
 
 const cssPath = resolve(
@@ -39,59 +49,90 @@ function ruleBlock(selector: string): string {
   return match![1];
 }
 
-describe("board has no horizontal scroll (s5dfufqs)", () => {
-  it("clips the horizontal axis instead of scrolling it", () => {
+/** Full strip width of `colCount` lanes plus gaps and board padding. */
+function stripWidth(colCount: number): number {
+  return (
+    colCount * BOARD_COLUMN_MIN_WIDTH_PX +
+    (colCount - 1) * BOARD_GAP_PX +
+    BOARD_PAD_X_PX * 2
+  );
+}
+
+describe("board owns the horizontal scroll (owner reversal of s5dfufqs)", () => {
+  it("scrolls horizontally instead of clipping the x axis", () => {
     const block = ruleBlock("#kanban-board");
-    expect(block).not.toMatch(/overflow-x\s*:\s*(auto|scroll)/);
-    expect(block).toMatch(/overflow-x\s*:\s*(hidden|clip)/);
+    expect(block).toMatch(/overflow-x\s*:\s*(auto|scroll)/);
+    expect(block).not.toMatch(/overflow-x\s*:\s*(hidden|clip)/);
   });
 
-  it("wraps columns instead of forcing a strip", () => {
-    expect(ruleBlock("#kanban-board")).toMatch(/flex-wrap\s*:\s*wrap/);
+  it("never wraps lanes into rows", () => {
+    const block = ruleBlock("#kanban-board");
+    expect(block).toMatch(/flex-wrap\s*:\s*nowrap/);
+    expect(block).not.toMatch(/flex-wrap\s*:\s*wrap/);
   });
 
-  it("columns shrink (no fixed 280px strip, no shrink-zero)", () => {
-    const block = ruleBlock(".board-column");
-    expect(block).not.toMatch(/flex\s*:\s*0\s+0\s+280px/);
-    expect(block).not.toMatch(/width\s*:\s*280px/);
+  it("never scrolls vertically — lanes own the y axis", () => {
+    const block = ruleBlock("#kanban-board");
+    expect(block).toMatch(/overflow-y\s*:\s*(hidden|clip)/);
+    expect(block).not.toMatch(/overflow-y\s*:\s*(auto|scroll)/);
   });
 
-  it("columns keep a readable floor (never 40px slivers)", () => {
+  it("lanes are wider than the rejected 200px floor", () => {
     const block = ruleBlock(".board-column");
     const min = block.match(/min-width\s*:\s*(\d+)px/);
     expect(min, ".board-column must declare a min-width floor").toBeTruthy();
     const floor = Number(min![1]);
-    expect(floor).toBeGreaterThanOrEqual(160);
+    // 320px: the readable card width (the 240px title tooltip + card
+    // padding + badge cluster fit without squeezing), restored above the
+    // rejected 200px wrap-era floor — and pinned to the TS single source.
+    expect(floor).toBe(320);
     expect(floor).toBe(BOARD_COLUMN_MIN_WIDTH_PX);
+  });
+
+  it("lanes share spare width without a fixed strip or shrink-zero", () => {
+    const block = ruleBlock(".board-column");
+    expect(block).toMatch(/flex\s*:\s*1\s+1\s+0/);
+    expect(block).not.toMatch(/flex\s*:\s*0\s+0\s+280px/);
+    expect(block).not.toMatch(/width\s*:\s*280px/);
+  });
+
+  it("lanes stretch to the full board height without capping it", () => {
+    const block = ruleBlock(".board-column");
+    expect(block).toMatch(/height\s*:\s*100%/);
+    expect(block).toMatch(/min-height\s*:\s*0/);
+    expect(block).not.toMatch(/max-height\s*:/);
+  });
+
+  it("a lane never scrolls horizontally", () => {
+    for (const selector of [".board-column", ".column-scroll"]) {
+      const block = ruleBlock(selector);
+      expect(block).toMatch(/overflow-x\s*:\s*(hidden|clip)/);
+      expect(block).not.toMatch(/overflow-x\s*:\s*(auto|scroll)/);
+    }
+  });
+
+  it("the lane scroll is the ONLY vertical scroller for tasks", () => {
+    const block = ruleBlock(".column-scroll");
+    expect(block).toMatch(/overflow-y\s*:\s*(auto|scroll)/);
+    expect(block).toMatch(/flex\s*:\s*1\s+1\s+auto/);
+    expect(block).toMatch(/min-height\s*:\s*0/);
   });
 });
 
-describe("fitted geometry at 1280 / 768 / 390 (s5dfufqs)", () => {
+describe("wide-lane strip overflows narrow viewports by design", () => {
   const COLS = 5;
 
-  for (const viewport of [1280, 768, 390]) {
-    it(`scrollWidth <= clientWidth at ${viewport}px`, () => {
-      const perRow = boardColumnsPerRow(viewport, COLS);
-      const width = boardColumnWidth(viewport, COLS);
-      // The rendered row: perRow columns at the fitted width plus gaps.
-      const scrollWidth = perRow * width + (perRow - 1) * BOARD_GAP_PX;
-      const clientWidth = viewport - BOARD_PAD_X_PX * 2;
-      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1e-6);
-    });
-
-    it(`columns stay readable at ${viewport}px (width >= floor)`, () => {
-      expect(boardColumnWidth(viewport, COLS)).toBeGreaterThanOrEqual(
-        BOARD_COLUMN_MIN_WIDTH_PX,
-      );
-    });
-  }
-
-  it("stacks one per row at 390px instead of squeezing five slivers", () => {
-    expect(boardColumnsPerRow(390, COLS)).toBe(1);
-    expect(boardColumnWidth(390, COLS)).toBeGreaterThan(300);
+  it("the 5-lane strip is wider than 1280 / 768 / 390 viewports", () => {
+    // 5 * 320 + 4 * 16 + 2 * 20 = 1704: every viewport below needs the
+    // board's horizontal scrollbar — lanes hold 320px instead of
+    // squeezing or stacking.
+    expect(stripWidth(COLS)).toBe(1704);
+    for (const viewport of [1280, 768, 390]) {
+      expect(stripWidth(COLS)).toBeGreaterThan(viewport);
+    }
   });
 
-  it("keeps all five in one row at 1280px", () => {
-    expect(boardColumnsPerRow(1280, COLS)).toBe(5);
+  it("lanes hold the floor at every viewport (no squeeze, no stack)", () => {
+    expect(BOARD_COLUMN_MIN_WIDTH_PX).toBe(320);
   });
 });

@@ -70,21 +70,26 @@ export const DONE_FIT_SCROLL_PAD_BOTTOM = 8;
  * from, so a chip restyle goes red here instead of silently clipping
  * the lane again. */
 export const DONE_FIT_CHIP_H = 44;
-/** Ticket s5dfufqs — responsive column geometry (single source; mirrors
- * `#kanban-board` / `.board-column` in kanban.css — keep them in sync).
+/** Owner reversal of s5dfufqs — wide-lane strip geometry (single source;
+ * mirrors `#kanban-board` / `.board-column` in kanban.css — keep them in
+ * sync).
  *
- * Columns share the row (`flex: 1 1 BASIS`) down to a MIN floor that keeps
- * cards readable, then wrap to the next row instead of forcing a
- * horizontal strip. PAD_X is the board's horizontal padding
- * (`16px 20px` inline on `#kanban-board`); GAP is its flex gap. */
-export const BOARD_COLUMN_MIN_WIDTH_PX = 200;
-export const BOARD_COLUMN_FLEX_BASIS_PX = 220;
+ * Lanes keep a WIDE floor (320px: the readable card width — the 240px title
+ * tooltip + card padding + badge cluster fit without squeezing — restored
+ * above the rejected 200px wrap-era floor) and never wrap: `flex: 1 1 0`
+ * (BASIS 0) shares spare width while MIN holds readability, so overflow
+ * goes to the board's horizontal scrollbar. PAD_X is the board's horizontal
+ * padding (`16px 20px` inline on `#kanban-board`); GAP is its flex gap. */
+export const BOARD_COLUMN_MIN_WIDTH_PX = 320;
+export const BOARD_COLUMN_FLEX_BASIS_PX = 0;
 export const BOARD_GAP_PX = 16;
 export const BOARD_PAD_X_PX = 20;
 
-/** How many columns share one row at `viewportWidth` for `colCount` lanes.
- * Always >= 1: below the MIN floor the lanes stack one per row (at 390px
- * a single 350px lane), so the row never exceeds the viewport. */
+/** Wrap-era geometry (s5dfufqs) — LEGACY, kept for external hosts.
+ * The board no longer wraps (owner reversal: `flex-wrap: nowrap`, lanes hold
+ * the 320px floor and the board scrolls horizontally), so nothing in the
+ * board calls this. How many columns WOULD share one row at `viewportWidth`
+ * for `colCount` lanes under the old wrap math. */
 export function boardColumnsPerRow(
   viewportWidth: number,
   colCount: number,
@@ -100,7 +105,10 @@ export function boardColumnsPerRow(
   return Math.min(Math.max(1, colCount), perRow);
 }
 
-/** Fitted width of each column in a full row at `viewportWidth`. */
+/** Wrap-era geometry (s5dfufqs) — LEGACY, kept for external hosts.
+ * Fitted width of each column in a full row at `viewportWidth` under the old
+ * wrap math. The board no longer wraps; lanes hold BOARD_COLUMN_MIN_WIDTH_PX
+ * and the strip scrolls. */
 export function boardColumnWidth(
   viewportWidth: number,
   colCount: number,
@@ -248,16 +256,18 @@ export const DRAG_AUTOSCROLL_MAX_SPEED_PX = 14;
  * going to the start, which is why the start band is tested first.
  */
 /**
- * Board-level autoscroll target for a WRAPPED board (R10 on s5dfufqs).
+ * Board-level autoscroll target for the wide-lane STRIP board (owner
+ * reversal of s5dfufqs; R10 updated).
  *
- * The board clips x and wraps lanes (`overflow-x: hidden`, `flex-wrap` in
- * kanban.css), so the horizontal axis never overflows — scrolling it is a
- * dead write, and dragging near the top/bottom edge of a board whose lanes
- * wrapped below the fold scrolled nothing. Each axis scrolls only when it
- * actually overflows (`scrollWidth > clientWidth` /
- * `scrollHeight > clientHeight`, measured live in the loop): on the shipped
- * board that is vertical-only, and zero on both axes when nothing
- * overflows. Pure so the axis contract is unit-testable without layout.
+ * The board scrolls horizontally and never wraps (`overflow-x: auto`,
+ * `flex-wrap: nowrap` in kanban.css), while each lane owns its vertical
+ * scroll — so the horizontal axis overflows whenever the strip is wider
+ * than the viewport, and the board itself never overflows vertically.
+ * Each axis scrolls only when it actually overflows
+ * (`scrollWidth > clientWidth` / `scrollHeight > clientHeight`, measured
+ * live in the loop): on the shipped board that is horizontal-only, and
+ * zero on both axes when nothing overflows. Pure so the axis contract is
+ * unit-testable without layout.
  */
 export interface BoardAutoScrollInput {
   canScrollX: boolean;
@@ -530,13 +540,14 @@ export function KanbanBoard({
   /** Edge auto-scroll while a drag is in flight (d4814bb7, R10 s5dfufqs).
    *
    * A drop target that starts off-screen was unreachable: a tall lane's rows
-   * sit below the fold and wrapped lanes sit below the first row (s5dfufqs) —
-   * neither scrolls itself during a drag, so the pointer had nowhere to go.
+   * sit below the fold and strip lanes sit past the right edge (owner
+   * reversal of s5dfufqs) — neither scrolls itself during a drag, so the
+   * pointer had nowhere to go.
    * Two containers, but each only on the axis it actually overflows: the
-   * WRAPPED `#kanban-board` never overflows horizontally (columns fit or
-   * wrap, `overflow-x: hidden`), so the old `board.scrollLeft += dx` was a
-   * dead write — the board scrolls vertically, and only when wrapped rows
-   * actually exceed its height; the `.column-scroll` under the pointer
+   * STRIP `#kanban-board` overflows horizontally whenever the wide lanes do
+   * not fit (`overflow-x: auto`, `flex-wrap: nowrap`), and never overflows
+   * vertically (lanes stretch to 100% and own their y scroll) — so the
+   * board scrolls horizontally and the `.column-scroll` under the pointer
    * scrolls vertically. The overflow gating lives in `boardAutoScrollDelta`
    * (unit-pinned) so the loop can never scroll a non-overflowing axis.
    *
@@ -580,9 +591,10 @@ export function KanbanBoard({
       const p = pointer;
       if (p) {
         const boardRect = board.getBoundingClientRect();
-        // Wrapped board: scroll the element that actually scrolls, on the
+        // Strip board: scroll the element that actually scrolls, on the
         // axis that actually overflows (R10 — the old unconditional
-        // `scrollLeft` write scrolled nothing on a wrapping board).
+        // `scrollTop` write scrolls nothing on a board that never
+        // overflows vertically).
         const { dx, dy } = boardAutoScrollDelta({
           canScrollX: board.scrollWidth > board.clientWidth,
           canScrollY: board.scrollHeight > board.clientHeight,
@@ -949,8 +961,9 @@ export function KanbanBoard({
       <main
         id="kanban-board"
         ref={boardRef}
-        // s5dfufqs: no horizontal scroll — overflow/wrap live on
-        // `#kanban-board` in kanban.css (hidden x, wrap, readable min).
+        // Owner reversal of s5dfufqs: the board owns the horizontal scroll —
+        // overflow/nowrap live on `#kanban-board` in kanban.css (auto x,
+        // hidden y, wide 320px lane floor).
         className="flex-1 flex"
         style={{
           padding: "16px 20px",

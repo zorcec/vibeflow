@@ -46,20 +46,25 @@ body {
  background: var(--t-text-muted);
 }
 
-/* ── Kanban board (ticket s5dfufqs — no horizontal scroll) ──
-   The board never scrolls horizontally: columns shrink to share the
-   viewport and wrap/stack when the sane minimum no longer fits, so
-   `scrollWidth <= clientWidth` holds at every viewport width. The
-   custom scroll thumb (below) hides itself when there is nothing to
-   scroll. Wrapped rows can exceed the board height, so the vertical
-   axis scrolls. */
+/* ── Kanban board (owner reversal of s5dfufqs/b72c5bc5 — lanes scroll sideways) ──
+   OWNER DECISION: lanes are WIDE and keep their width. When they do not
+   fit the viewport the BOARD scrolls horizontally — the horizontal
+   scrollbar belongs on THIS container and never inside a lane. Every lane
+   stretches to the full board height and scrolls its own tasks
+   vertically, so the board itself never scrolls vertically. Do NOT "fix"
+   this back to wrap + hidden-x: the owner explicitly rejected that layout
+   (s5dfufqs fixed a horizontal overflow with `flex-wrap: wrap` +
+   `overflow-x: hidden` + a 200px floor; this contract restores the scroll).
+   The custom scroll thumb (below) shows itself while the strip overflows.
+   Height stays bounded by the flex layout (`flex-1 flex` on the element
+   inside #root's column flex). */
 #kanban-board {
+ display: flex;
+ flex-wrap: nowrap;
+ overflow-x: auto;
+ overflow-y: hidden;
  scrollbar-width: none;
  -ms-overflow-style: none;
- overflow-x: hidden;
- overflow-y: auto;
- flex-wrap: wrap;
- align-content: flex-start;
 }
 #kanban-board::-webkit-scrollbar {
  display: none;
@@ -89,19 +94,22 @@ body {
  background: var(--t-text-muted);
 }
 
-/* ── Column layout (ticket s5dfufqs) ──
-   Columns share the viewport instead of forcing a fixed-width strip:
-   they grow to fill a row and shrink down to a 200px floor that keeps
-   cards readable (never 40px slivers). Below that floor the board's
-   `flex-wrap` moves the column to the next row — at 390px the lanes
-   stack one per row — so the board never overflows horizontally. */
+/* ── Column layout (owner reversal of s5dfufqs — wide lanes, no wrap) ──
+   Lanes keep a WIDE floor (320px, up from the rejected 200px) and never
+   wrap: `flex: 1 1 0` shares any spare board width equally while the
+   min-width floor holds the readable width, so overflow goes to the
+   board's horizontal scrollbar. Each lane stretches to the full board
+   height (`height: 100%` + `min-height: 0`) and clips the x axis — a lane
+   can never scroll sideways internally. */
 .board-column {
- flex: 1 1 220px;
- min-width: 200px;
+ flex: 1 1 0;
+ min-width: 320px;
+ height: 100%;
+ min-height: 0;
  display: flex;
  flex-direction: column;
  gap: 6px;
- min-height: 0;
+ overflow-x: hidden;
 }
 .column-header {
  display: flex;
@@ -112,10 +120,16 @@ body {
  background: var(--t-surface);
  border: 1px solid var(--t-border);
 }
+/* The ONLY vertical scroller for tasks: each lane's scroll fills the lane
+   (`flex: 1 1 auto` + `min-height: 0`) and scrolls the y axis while
+   clipping x, so tasks scroll per-lane and the board never scrolls
+   vertically. The done lane keeps its fit-chip exception
+   (`.column-scroll[data-status="done"]` stays `overflow-y: hidden`). */
 .column-scroll {
- flex: 1;
- overflow-y: auto;
+ flex: 1 1 auto;
  min-height: 0;
+ overflow-y: auto;
+ overflow-x: hidden;
  display: flex;
  flex-direction: column;
  gap: 5px;
