@@ -721,3 +721,15 @@ export {
   type ReindexTaskSortKeysData,
   type ReindexTaskSortKeysResult,
 } from "./operations/maintenance.js";
+export {
+  startServer,
+  startMcpTransport,
+  type ServeFn,
+  type StartServerInput,
+  type StartServerData,
+  type StartServerResult,
+  type McpRunFn,
+  type StartMcpTransportInput,
+  type StartMcpTransportData,
+  type StartMcpTransportResult,
+} from "./operations/server.js";

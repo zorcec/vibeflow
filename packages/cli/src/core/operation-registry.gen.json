@@ -713,7 +713,7 @@
         "mcp",
         "mcp --project"
       ],
-      "operationFn": null,
+      "operationFn": "startMcpTransport",
       "requirement": "none"
     },
     "startServer": {
@@ -723,7 +723,7 @@
       "cli": [
         "serve"
       ],
-      "operationFn": null,
+      "operationFn": "startServer",
       "requirement": "local-only"
     },
     "updateTask": {
@@ -773,6 +773,7 @@
     "changelog --all": "getChangelog",
     "kanban --host": "startKanban",
     "kanban --port": "startKanban",
+    "mcp --project": "startMcpTransport",
     "openapi --yaml": "getOpenApiDocument",
     "pull --board": "pullFromBoard",
     "pull --dry-run": "pullFromBoard",
@@ -780,6 +781,11 @@
     "pull --out": "pullFromBoard",
     "pull --prefer-local": "pullFromBoard",
     "pull --prefer-remote": "pullFromBoard",
+    "serve --dev": "startServer",
+    "serve --host": "startServer",
+    "serve --no-open": "startServer",
+    "serve --port": "startServer",
+    "serve --project": "startServer",
     "tasks --add": "createTask",
     "tasks --all": "listTasks",
     "tasks --apply": "normalizeTaskStore",

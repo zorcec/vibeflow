@@ -35,6 +35,7 @@ import { loadSettings } from "./core/settings.js";
 import type { Task, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
+import { runStdioMcp } from "./mcp/stdio.js";
 import {
   resolveReadBackend,
   resolveReadPorts,
@@ -56,7 +57,6 @@ import {
   operationRefusalEnvelope,
   refusalExitCode,
 } from "./cli/renderers/task-reads.js";
-import { runStdioMcp } from "./mcp/stdio.js";
 import {
   taskRelations,
   formatRelationsSummary,
@@ -885,14 +885,34 @@ program
         announceProjectRoot(root);
         projectDir = root.projectDir;
       }
-      await serve(target, {
+      // Startup decisions run in the shared `startServer` operation
+      // (core/operations/server.ts); this renderer keeps flag parsing, root
+      // resolution/announcement, and the exit code, and prints nothing on
+      // success (serve() owns all startup output and browser opening).
+      const serveOpCtx: OperationContext = {
+        projectDir: projectDir ?? resolve("."),
+        mode: "local",
+      };
+      const serveResult = await operations.startServer(serveOpCtx, {
+        // The statically imported `serve()` — also what the CLI-level
+        // `vi.mock(".../server/server.js")` seam replaces in tests.
+        serve,
+        ...(target === undefined ? {} : { target }),
         port: parseInt(opts.port, 10),
-        host: opts.host,
+        ...(opts.host === undefined ? {} : { host: opts.host }),
         open: opts.open,
-        projectDir,
+        ...(projectDir === undefined ? {} : { projectDir }),
         // Ticket 7e85c338: explicit opt-in only — never default.
-        dev: opts.dev === true,
+        ...(opts.dev === true ? { dev: true as const } : {}),
       });
+      if (!serveResult.ok) {
+        process.stderr.write(chalk.red(`✗ ${serveResult.error.message}\n`));
+        if (serveResult.error.suggestion) {
+          process.stderr.write(chalk.dim(`  ${serveResult.error.suggestion}\n`));
+        }
+        process.exitCode = ExitCode.GENERAL;
+        return;
+      }
     },
   );
 
@@ -990,8 +1010,26 @@ program
     process.stderr.write(
       `${chalk.green(formatProjectRootAnnouncement(root))}\n`,
     );
-    const mode = await getMode();
-    await runStdioMcp(root.projectDir, mode === "saas" ? "saas" : "local");
+    // Backend/context setup runs in the shared `startMcpTransport` operation
+    // (core/operations/server.ts); this renderer keeps root resolution and
+    // the stderr-only announcement (stdout is the JSON-RPC channel), and
+    // the transport module keeps owning the connection and EOF handling.
+    const mcpOpCtx: OperationContext = {
+      projectDir: root.projectDir,
+      mode: "local",
+    };
+    const mcpResult = await operations.startMcpTransport(mcpOpCtx, {
+      // The statically imported transport — same mock-seam reason as `serve`.
+      run: runStdioMcp,
+    });
+    if (!mcpResult.ok) {
+      process.stderr.write(chalk.red(`✗ ${mcpResult.error.message}\n`));
+      if (mcpResult.error.suggestion) {
+        process.stderr.write(chalk.dim(`  ${mcpResult.error.suggestion}\n`));
+      }
+      process.exitCode = ExitCode.GENERAL;
+      return;
+    }
   });
 
 program

@@ -345,8 +345,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["mcp", "mcp --project"],
     mcpTools: [],
-    operationFn: null,
-    reason: "Stdio transport bootstrap, not a board tool (P7).",
+    operationFn: "startMcpTransport",
+    reason:
+      "Stdio transport bootstrap, not a board tool; the CLI handler resolves the root, announces on stderr, and starts the transport through this operation (P7 server-lifecycle increment).",
   },
   startServer: {
     id: "startServer",
@@ -355,8 +356,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["serve"],
     mcpTools: [],
-    operationFn: null,
-    reason: "Prototype/API-only server lifecycle; prototype viewer unpaired (P7).",
+    operationFn: "startServer",
+    reason:
+      "Prototype/API-only server lifecycle through the shared operation; prototype viewer unpaired by design, kanban CLI routing remains (P7 server-lifecycle increment).",
   },
   updateTask: {
     id: "updateTask",
@@ -419,6 +421,12 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "telemetry --disable": "manageTelemetry",
   "telemetry --enable": "manageTelemetry",
   "telemetry --status": "manageTelemetry",
+  "mcp --project": "startMcpTransport",
+  "serve --dev": "startServer",
+  "serve --host": "startServer",
+  "serve --no-open": "startServer",
+  "serve --port": "startServer",
+  "serve --project": "startServer",
   "pull --board": "pullFromBoard",
   "pull --dry-run": "pullFromBoard",
   "pull --json": "pullFromBoard",
