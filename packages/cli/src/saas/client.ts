@@ -5,6 +5,12 @@
  * comments from the SaaS backend instead of local .proto/ files.
  */
 import { readToken } from "../auth/token.js";
+import {
+  fetchWithTimeout,
+  isSaasRequestTimeout,
+  parseFallback,
+  SAAS_UPLOAD_TIMEOUT_MS,
+} from "./request.js";
 import { peekBoardScope, scopeHeaderFor } from "../auth/board-scope.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import type { AgentClaimRequestType } from "@vibeflow-tools/api-core";
@@ -38,6 +44,14 @@ export type SaasResult<T> =
          * (ticket 5094958f). Absent whenever the body parsed as JSON.
          */
         bodyHead?: string;
+        /**
+         * Deadline marker (ticket d13fa9f5): present when the request hit
+         * the transport deadline instead of answering. The message already
+         * names phase + redacted URL; this marker lets the presentation
+         * layer say "timed out" instead of reusing the bare transport
+         * wording reserved for refused connections.
+         */
+        timeout?: { phase: string; timeoutMs: number };
       };
     };
 
@@ -282,7 +296,8 @@ async function fetchSaasTopKPage(
   }
   let res: Response;
   try {
-    res = await fetch(url.toString(), { headers });
+    // pi-lens-ignore: ts-ssrf — url is getApiUrl() + constant surface path
+    res = await fetchWithTimeout(url.toString(), { headers }, { phase: "board-resolution" });
   } catch (err) {
     return {
       ok: false,
@@ -492,7 +507,8 @@ export async function fetchSaasTasks(
         url.searchParams.set("status", opts.status);
       }
       if (cursor) url.searchParams.set("cursor", cursor);
-      const res = await fetch(url.toString(), { headers });
+      // pi-lens-ignore: ts-ssrf — url is getApiUrl() + constant surface path
+      const res = await fetchWithTimeout(url.toString(), { headers }, { phase: "board-resolution" });
       if (!res.ok) {
         return {
           ok: false,
@@ -667,7 +683,8 @@ async function fetchV0Comments(
   taskId: string,
 ): Promise<SaasComment[]> {
   try {
-    const res = await fetch(`${apiUrl}${taskBase}/comments`, { headers });
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), taskBase a constant path
+    const res = await fetchWithTimeout(`${apiUrl}${taskBase}/comments`, { headers }, { phase: "board-resolution" });
     if (!res.ok) return [];
     const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
     if (!Array.isArray(data.comments)) return [];
@@ -690,7 +707,8 @@ async function fetchV0FilesWithContent(
   taskBase: string,
 ): Promise<SaasTask["files"]> {
   try {
-    const res = await fetch(`${apiUrl}${taskBase}/files`, { headers });
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), taskBase a constant path
+    const res = await fetchWithTimeout(`${apiUrl}${taskBase}/files`, { headers }, { phase: "board-resolution" });
     if (!res.ok) return [];
     const data = (await res.json()) as { files?: V0FileRow[] };
     const rows = Array.isArray(data.files) ? data.files : [];
@@ -744,9 +762,10 @@ async function downloadTextFile(
   try {
     // `identity` forces the plain-bytes branch server-side (no brotli
     // transfer framing to decode) — the bytes arrive as stored-plain.
-    const res = await fetch(url, {
+    // pi-lens-ignore: ts-ssrf — guarded above: url must start with apiUrl
+    const res = await fetchWithTimeout(url, {
       headers: { ...headers, "Accept-Encoding": "identity" },
-    });
+    }, { phase: "board-resolution" });
     if (!res.ok) return undefined;
     return await res.text();
   } catch {
@@ -781,7 +800,8 @@ export async function fetchSaasTaskDetail(
     `/api/tasks/${encodeURIComponent(taskId)}`,
   );
   try {
-    const res = await fetch(`${apiUrl}${detailPath}`, { headers });
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), detailPath a constant-mapped path
+    const res = await fetchWithTimeout(`${apiUrl}${detailPath}`, { headers }, { phase: "board-resolution" });
     if (!res.ok) {
       if (res.status === 404) {
         return {
@@ -885,11 +905,12 @@ export async function claimSaasTask(
   const url = new URL(`${apiUrl}${claimPath}`);
   if (boardId) url.searchParams.set("boardId", boardId);
   try {
-    const res = await fetch(url.toString(), {
+    // pi-lens-ignore: ts-ssrf — url is getApiUrl() + constant claim path
+    const res = await fetchWithTimeout(url.toString(), {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, { phase: "POST (claim-next)" });
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<
         string,
@@ -1009,7 +1030,8 @@ export async function updateSaasTask(
   if (patch.links !== undefined) body.links = patch.links;
 
   try {
-    const res = await fetch(
+    // pi-lens-ignore: ts-ssrf — getApiUrl() base + constant-mapped path
+    const res = await fetchWithTimeout(
       // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
       `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}`)}`,
       {
@@ -1017,6 +1039,7 @@ export async function updateSaasTask(
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },
+      { phase: "PATCH (task-update)" },
     );
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<
@@ -1088,10 +1111,11 @@ export async function deleteSaasTask(
     `/api/cli/tasks/${encodeURIComponent(taskId)}`,
   );
   try {
-    const res = await fetch(`${apiUrl}${deletePath}`, {
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), deletePath a constant-mapped path
+    const res = await fetchWithTimeout(`${apiUrl}${deletePath}`, {
       method: "DELETE",
       headers,
-    });
+    }, { phase: "DELETE (task-delete)" });
     if (!res.ok) {
       if (res.status === 404) {
         return {
@@ -1123,7 +1147,9 @@ export async function deleteSaasTask(
         },
       };
     }
-    const data = (await res.json().catch(() => ({}))) as {
+    // Success-path body: a stalled body still wins as a timeout (ticket
+    // d13fa9f5) — never a silent fallback to the requested id alone.
+    const data = (await res.json().catch(parseFallback({}))) as {
       deletedIds?: unknown;
     };
     const deletedIds =
@@ -1204,11 +1230,12 @@ export async function uploadSaasFile(
     filename,
   );
   try {
-    const res = await fetch(`${apiUrl}${uploadPath}`, {
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), uploadPath a constant-mapped path
+    const res = await fetchWithTimeout(`${apiUrl}${uploadPath}`, {
       method: "POST",
       headers,
       body: form,
-    });
+    }, { phase: "POST (file-upload)", timeoutMs: SAAS_UPLOAD_TIMEOUT_MS });
     if (!res.ok) {
       if (res.status === 404) {
         return {
@@ -1240,7 +1267,9 @@ export async function uploadSaasFile(
         },
       };
     }
-    const body = (await res.json().catch(() => ({}))) as Record<
+    // Success-path body: a stalled body still wins as a timeout (ticket
+    // d13fa9f5) — never a silent fallback to filename/size guesses.
+    const body = (await res.json().catch(parseFallback({}))) as Record<
       string,
       unknown
     >;
@@ -1295,7 +1324,8 @@ export async function addSaasComment(
     };
 
   try {
-    const res = await fetch(
+    // pi-lens-ignore: ts-ssrf — getApiUrl() base + constant-mapped path
+    const res = await fetchWithTimeout(
       // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
       `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}/comments`)}`,
       {
@@ -1305,6 +1335,7 @@ export async function addSaasComment(
         // The CLI posts human-authored text; the server defaults author.
         body: JSON.stringify({ text: body }),
       },
+      { phase: "POST (comment)" },
     );
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<
@@ -1349,10 +1380,12 @@ export async function fetchSaasComments(
   if (!headers) return null;
 
   try {
-    const res = await fetch(
+    // pi-lens-ignore: ts-ssrf — getApiUrl() base + constant-mapped path
+    const res = await fetchWithTimeout(
       // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
       `${getApiUrl()}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(taskId)}/comments`)}`,
       { headers },
+      { phase: "board-resolution" },
     );
     if (!res.ok) return null;
     const data = (await res.json()) as { comments?: Array<Record<string, unknown>> };
@@ -1404,7 +1437,11 @@ async function readResponseBody(res: Response): Promise<ParsedResponseBody> {
   let text: string;
   try {
     text = await res.text();
-  } catch {
+  } catch (err) {
+    // A deadline while the body stalled still wins as a timeout — never
+    // a swallowed empty read (ticket d13fa9f5). Parse failures keep the
+    // old recovery below; only the deadline propagates.
+    if (isSaasRequestTimeout(err)) throw err;
     return { contentType };
   }
   if (text.trim() === "") return { contentType };
@@ -1454,13 +1491,19 @@ export async function createSaasTask(params: {
   const createPath = surfacePath("cloud", "/api/cli/tasks");
   try {
     // Cloud-only path: getApiUrl() is the SaaS base → always "cloud".
-    const res = await fetch(`${getApiUrl()}${createPath}`, {
+    // pi-lens-ignore: ts-ssrf — getApiUrl() base + constant surface path
+    const res = await fetchWithTimeout(`${getApiUrl()}${createPath}`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(params),
-    });
+    }, { phase: "POST (task-create)" });
     if (!res.ok) {
-      const errBody = await readResponseBody(res);
+      // The HTTP status is already known here: a deadline while reading
+      // the error body falls back to the status-only refusal rather than
+      // replacing it with a timeout (ticket d13fa9f5).
+      const errBody = await readResponseBody(res).catch(
+        parseFallback<ParsedResponseBody>({}),
+      );
       const parsed = errBody.parsed ?? {};
       const msg =
         typeof parsed.error === "string"
@@ -1511,6 +1554,12 @@ export async function createSaasTask(params: {
       error: {
         code: "NETWORK_ERROR",
         message: err instanceof Error ? err.message : String(err),
+        // Deadline marker for the add renderer: timeout says "timed
+        // out", refused connections keep the bare wording (ticket
+        // d13fa9f5). Other mutations surface the phase via the message.
+        ...(isSaasRequestTimeout(err)
+          ? { timeout: { phase: err.phase, timeoutMs: err.timeoutMs } }
+          : {}),
       },
     };
   }

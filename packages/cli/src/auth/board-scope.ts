@@ -19,6 +19,7 @@
 
 import chalk from "chalk";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import { fetchWithTimeout } from "../saas/request.js";
 import { readToken } from "./token.js";
 import { readWorkspace } from "./workspace.js";
 
@@ -91,7 +92,7 @@ async function fetchBoardSummaries(): Promise<BoardSummary[]> {
     // production default — the repo's SSRF/credential-leak guard) plus a
     // constant path; cursor is appended as a query param, never a host.
     // pi-lens-ignore: ts-ssrf — base validated by getApiUrl()
-    const res = await fetch(url.toString(), { headers });
+    const res = await fetchWithTimeout(url.toString(), { headers }, { phase: "board-resolution" });
     if (!res.ok) throw new Error(`board listing failed: HTTP ${res.status}`);
     const body = (await res.json()) as {
       items?: unknown;

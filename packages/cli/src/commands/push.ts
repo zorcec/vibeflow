@@ -18,6 +18,10 @@ import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
+import {
+  fetchWithTimeout,
+  SAAS_UPLOAD_TIMEOUT_MS,
+} from "../saas/request.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { scopeHeaderFor, scopeHeadersFromSaved } from "../auth/board-scope.js";
 
@@ -126,7 +130,8 @@ export async function uploadTaskFiles(
         job.name,
         data,
       );
-      const res = await fetch(
+      // pi-lens-ignore: ts-ssrf — apiUrl validated by getApiUrl(), path constant-mapped
+      const res = await fetchWithTimeout(
         // Cloud-only path: push runs Bearer-authenticated against the SaaS
         // base from getApiUrl(), so the mode is always "cloud" → v0 files op.
         `${apiUrl}${surfacePath("cloud", `/api/tasks/${encodeURIComponent(job.remoteId)}/files`)}`,
@@ -149,6 +154,9 @@ export async function uploadTaskFiles(
           // readFileSync returns a NonSharedBuffer that it accepts.
           body: new Uint8Array(payload),
         },
+        // Slow-uplink allowance for binary uploads (ticket d13fa9f5) —
+        // still a hard bound, just larger than the JSON default.
+        { phase: "POST (file-upload)", timeoutMs: SAAS_UPLOAD_TIMEOUT_MS },
       );
       if (res.ok) {
         uploaded++;

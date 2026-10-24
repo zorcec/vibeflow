@@ -3062,10 +3062,16 @@ program
                 createErr.bodyHead.length > 0
                   ? ` — response head: ${createErr.bodyHead}`
                   : "";
+              // Deadline marker (ticket d13fa9f5): a timed-out POST names
+              // the phase and budget; refused connections keep the exact
+              // bare wording the refusals suite asserts.
+              const createTimeout = saasCreated.error.timeout ?? null;
               const createGenericMessage =
                 createWhere !== null
                   ? `Failed to create task in online board (${createWhere}${createHead}).`
-                  : "Failed to create task in online board.";
+                  : createTimeout !== null
+                    ? `Failed to create task in online board (timed out after ${createTimeout.timeoutMs} ms during ${createTimeout.phase}).`
+                    : "Failed to create task in online board.";
               if (opts.json) {
                 outputEnvelope({
                   ok: false,

@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import { PROTO_DIR, TASKS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import { fetchWithTimeout } from "../saas/request.js";
 import { scopeHeaderFor } from "./board-scope.js";
 
 /**
@@ -85,9 +86,10 @@ async function fetchAndApplySettings(
 ): Promise<void> {
   try {
     // Cloud-only path: apiUrl is the getApiUrl() SaaS base → always "cloud".
-    const res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
+    // pi-lens-ignore: ts-ssrf — apiUrl validated by getApiUrl(), path constant
+    const res = await fetchWithTimeout(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
       headers: { Authorization: `Bearer ${token}` },
-    });
+    }, { phase: "plan-preflight (settings)", timeoutMs: SETTINGS_PREFLIGHT_TIMEOUT_MS });
     if (!res.ok) return;
     const data = (await res.json()) as { settings: ProtoSettings };
     if (data.settings && Object.keys(data.settings).length > 0) {
@@ -115,10 +117,12 @@ export async function maybeRefreshSettings(now: number = Date.now()): Promise<vo
     if (preflight?.hash) headers["If-None-Match"] = `"${preflight.hash}"`;
     let res: Response;
     try {
-      res = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
+      // pi-lens-ignore: ts-ssrf — apiUrl validated by getApiUrl(), path constant
+      // Whole-body bound (ticket d13fa9f5): the old headers-only abort
+      // left a stalled settings body unbounded; same 3s budget, now total.
+      res = await fetchWithTimeout(`${apiUrl}${surfacePath("cloud", "/api/cli/settings")}`, {
         headers,
-        signal: AbortSignal.timeout(SETTINGS_PREFLIGHT_TIMEOUT_MS),
-      });
+      }, { phase: "plan-preflight (settings)", timeoutMs: SETTINGS_PREFLIGHT_TIMEOUT_MS });
     } catch {
       // Fail open: keep cached settings, back off until the next window.
       preflight = { hash: preflight?.hash ?? null, checkedAt: now };
