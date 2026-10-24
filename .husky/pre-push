@@ -26,6 +26,9 @@ set -e
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CLI_DIR="$ROOT/packages/cli"
 
+# Check every ref's outgoing commits before any optional suite skips.
+node "$ROOT/scripts/check-git-identity.mjs" --pre-push "${1:-origin}"
+
 if [ ! -d "$CLI_DIR" ]; then
   echo "✗ pre-push: cannot find $CLI_DIR (expected repo root: $ROOT)"
   exit 1

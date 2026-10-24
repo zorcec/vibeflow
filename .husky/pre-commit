@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -e
 
+# Hooks can be bypassed via --no-verify/core.hooksPath (or HUSKY=0); the unit history test is the backstop.
+node scripts/check-git-identity.mjs
+
 # Ensure system-installed tools like gitleaks are on PATH
 export PATH="/usr/local/bin:$PATH"
 
