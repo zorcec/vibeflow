@@ -262,131 +262,9 @@ export async function getProject(
 // display paths still use it). Callers needing the old
 // multi-task dump: loop get_task over the ids from list_tasks.
 
-// Verify task uses the CLI verify command
-// Semaphore ensures only one verify runs at a time (spec §5.9)
-let verifyTail: Promise<unknown> = Promise.resolve();
-function withVerifySemaphore<T>(fn: () => Promise<T>): Promise<T> {
-  const run = verifyTail.then(fn, fn);
-  verifyTail = run.catch(() => undefined);
-  return run;
-}
+// verifyTaskOp / inspectVerificationEvidence live in
+// `core/operations/verify.ts` (re-exported below, P7 verify increment).
 
-export async function verifyTaskOp(
-  ctx: OperationContext,
-  input: VerifyTaskInputType,
-): Promise<OperationResult<unknown>> {
-  // Dry run FIRST, before the semaphore and before `../commands/verify.js` is
-  // imported: the engine shells out to a browser, and a preview must not do
-  // that work. Everything below this line (semaphore, timer, the E_NOT_FOUND /
-  // E_NO_BASELINE / VERIFY_TIMEOUT refusal paths) behaves exactly as before.
-  if (isDryRun(ctx, input)) {
-    // P1: the existence probe runs through the port's own resolution rule —
-    // the same first-match prefix rule the engine's exact lookup below
-    // agrees with via the resolved id.
-    const { resolveOperationPorts } = await import("./task-store.js");
-    const { store } = resolveOperationPorts(ctx);
-    const task = await store.getTask(ctx.projectDir, input.id);
-    if (!task) {
-      // The SAME refusal the real path raises: commands/verify.ts throws
-      // VerifyError("E_NOT_FOUND", `Task not found: ${taskId}`, …) when
-      // findTaskFilePath misses. A preview that answered ok:true with
-      // data:null for an unresolvable id told the client the id was fine —
-      // and updateTask's preview already refused the same case.
-      return {
-        ok: false,
-        error: {
-          code: "E_NOT_FOUND",
-          message: `Task not found: ${input.id}`,
-          suggestion:
-            "That id resolves to no task — list_tasks (MCP) or 'vibeflow tasks' (CLI) to see the ids on this board",
-        },
-      };
-    }
-    return {
-      ok: true,
-      data: task,
-      steps: [{ code: "DRY_RUN", message: "Verification would run" }],
-    };
-  }
-  return withVerifySemaphore(async () => {
-    const { verifyTask, addVerifySystemComment } = await import(
-      "../commands/verify.js"
-    );
-    // ONE id rule. The port's `getTask` is the shared "full id, or a prefix
-    // of one" rule every other task-bearing surface resolves through. The
-    // dryRun preview above already resolved through it, so the real call has to
-    // agree with its own preview: the raw input used to go straight to the
-    // engine, which looks the task file up EXACTLY, so a prefix the preview
-    // accepted was refused here with E_NOT_FOUND. The engine still raises that
-    // code for an id that resolves to nothing (the port resolves unknown ids
-    // to undefined and the raw input is passed through then) — its code is
-    // not renamed here.
-    const { resolveOperationPorts } = await import("./task-store.js");
-    const { store } = resolveOperationPorts(ctx);
-    const resolvedTask = await store.getTask(ctx.projectDir, input.id);
-    const taskId = resolvedTask?.id ?? input.id;
-    const timeoutMs = input.timeoutMs ?? 60_000;
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
-    timer.unref?.();
-
-    try {
-      const result = await verifyTask(ctx.projectDir, taskId, {
-        url: input.url,
-        signal: ac.signal,
-      } as { json?: boolean; url?: string; signal?: AbortSignal });
-      // The RESOLVED id, always: a tool must never name a path it has not
-      // resolved (the rule resolveTaskOrRefusal exists to enforce).
-      await addVerifySystemComment(ctx.projectDir, taskId, result);
-      return { ok: true, data: result };
-    } catch (err) {
-      const ve =
-        err instanceof Error && "code" in err
-          ? (err as { code: string; message: string; suggestion?: string })
-          : null;
-      if (ve) {
-        return {
-          ok: false,
-          error: {
-            code: ve.code,
-            message: ve.message,
-            // FALLBACK, not a rename. Several verify-engine codes carry no
-            // `suggestion` of their own (E_NO_SELECTOR, E_AUTH_EXPIRED,
-            // E_AUTH_CORRUPT, E_APP_NOT_RUNNING, E_NAVIGATION_FAILED,
-            // E_CANCELLED), and this passthrough used to forward that absence
-            // verbatim — so a reachable refusal arrived with a code and nothing
-            // to act on, which is the one thing the contract forbids. The
-            // engine's own text always wins when it has one; the code is
-            // forwarded exactly as thrown.
-            suggestion: ve.suggestion ?? VERIFY_ERROR_SUGGESTION,
-          },
-        };
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "VERIFY_TIMEOUT" || ac.signal.aborted) {
-        return {
-          ok: false,
-          error: {
-            code: "VERIFY_TIMEOUT",
-            message: `Verification timed out after ${input.timeoutMs}ms`,
-            suggestion: "Increase timeoutMs or check that the app is running.",
-          },
-        };
-      }
-      return {
-        ok: false,
-        error: {
-          code: "VERIFY_TASK_ERROR",
-          message: msg,
-          suggestion:
-            "Check that the app under test is running and reachable at the task's url, then run verify_task again",
-        },
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-}
 
 export const PushTasksInput = z.object({
   workspace: z.string().optional(),
@@ -743,3 +621,13 @@ export {
   type ReadPageDomRunner,
   type ReadPageDomInput,
 } from "./operations/chat.js";
+export {
+  verifyTaskOp,
+  inspectVerificationEvidence,
+  type VerifyEngineFn,
+  type VerifyCommentFn,
+  type VerifyTaskPorts,
+  type EvidenceQueryTool,
+  type InspectVerificationEvidenceInput,
+  type InspectVerificationEvidencePorts,
+} from "./operations/verify.js";

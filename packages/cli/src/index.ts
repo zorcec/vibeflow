@@ -6479,23 +6479,12 @@ program
         process.exitCode = 1;
         return;
       }
-      // The ONE wall-clock bound for a CLI run: the same AbortController
-      // `verify_task.timeoutMs` installs in core/operations.ts, handed to the
-      // engine as the same `signal` that call passes. runVerify forwards its
-      // opts object straight to verifyTask, which reads `signal` — so this is
-      // the MCP path, not a second, divergent timeout mechanism layered next
-      // to it.
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), timeoutMs);
-      timer.unref?.();
-      // Built as a variable (not an inline literal) because runVerify's
-      // declared opts type predates `signal`; the engine's type carries it.
-      const runOpts = { ...opts, signal: ac.signal };
-      try {
-        await runVerify(".", head, runOpts);
-      } finally {
-        clearTimeout(timer);
-      }
+      // The wall-clock bound lives in ONE place: the shared `verifyTaskOp`
+      // operation installs the single timer from `timeoutMs` and hands the
+      // engine the abort signal. This handler installs nothing of its own —
+      // a second AbortController here would be a double timer racing the
+      // operation's (P7 verify delta (a)): same bound, single owner.
+      await runVerify(".", head, { ...opts, timeoutMs });
       await flushTelemetry();
     },
   );

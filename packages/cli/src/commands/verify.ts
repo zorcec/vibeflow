@@ -1475,71 +1475,88 @@ function buildResult(
 export async function runVerify(
   dir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string },
+  opts: { json?: boolean; url?: string; timeoutMs?: number },
 ): Promise<void> {
   const projectDir = resolve(dir);
 
-  try {
-    const result = await verifyTask(projectDir, taskId, opts);
+  // Engine + system comment run in the shared `verifyTaskOp` operation
+  // (`core/operations/verify.ts`), which owns the one wall-clock bound and
+  // the one id rule. This entry keeps the CLI's rendering — the stdout /
+  // stderr shapes and the exit codes — byte-identical: an operation success
+  // carries the raw VerifyResult, and every operation refusal carries the
+  // engine's code with text the two branches below print exactly as before
+  // (engine-code failures like the old VerifyError branch, unexpected
+  // failures like the old unknown-error branch).
+  const { verifyTaskOp } = await import("../core/operations.js");
+  const opResult = await verifyTaskOp(
+    { projectDir, mode: "local" },
+    {
+      id: taskId,
+      // The schema defaults (timeoutMs 60000, dryRun false) apply on the
+      // MCP wire; a direct caller spells them out — the CLI never previews.
+      timeoutMs: opts.timeoutMs ?? 60_000,
+      dryRun: false as const,
+      ...(opts.url === undefined ? {} : { url: opts.url }),
+    },
+  );
 
-    // Write system comment via the shared helper.
-    await addVerifySystemComment(projectDir, taskId, result);
-
+  if (opResult.ok) {
+    const result = opResult.data as VerifyResult;
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       printResult(result);
     }
-  } catch (err) {
-    if (err instanceof VerifyError) {
-      if (opts.json) {
-        process.stderr.write(
-          JSON.stringify({
-            ok: false,
-            error: {
-              code: err.code,
-              message: err.message,
-              suggestion: err.suggestion,
-            },
-          }) + "\n",
-        );
-      } else {
-        process.stderr.write(chalk.red(`✗ ${err.message}\n`));
-        if (err.suggestion) {
-          process.stderr.write(chalk.dim(`  ${err.suggestion}\n`));
-        }
-        // Tell the agent the run is not finished: fix the cause and retry.
-        // Skipped when retrying cannot help (missing/invalid task id, or a
-        // run the user cancelled).
-        if (!NON_RETRYABLE_VERIFY_CODES.has(err.code)) {
-          process.stderr.write(
-            chalk.yellow(
-              `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
-            ),
-          );
-        }
-      }
-      process.exitCode = ExitCode.GENERAL;
+    return;
+  }
+
+  const code = opResult.error?.code ?? "E_UNKNOWN";
+  const message = opResult.error?.message ?? "Verification failed";
+  const suggestion = opResult.error?.suggestion;
+  if (code === "VERIFY_TASK_ERROR") {
+    const msg = message;
+    if (opts.json) {
+      process.stderr.write(
+        JSON.stringify({
+          ok: false,
+          error: { code: "E_UNKNOWN", message: msg },
+        }) + "\n",
+      );
     } else {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (opts.json) {
-        process.stderr.write(
-          JSON.stringify({
-            ok: false,
-            error: { code: "E_UNKNOWN", message: msg },
-          }) + "\n",
-        );
-      } else {
-        process.stderr.write(chalk.red(`✗ Verification failed: ${msg}\n`));
-        process.stderr.write(
-          chalk.yellow(
-            `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
-          ),
-        );
-      }
-      process.exitCode = ExitCode.GENERAL;
+      process.stderr.write(chalk.red(`✗ Verification failed: ${msg}\n`));
+      process.stderr.write(
+        chalk.yellow(
+          `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
+        ),
+      );
+    }
+    process.exitCode = ExitCode.GENERAL;
+    return;
+  }
+  if (opts.json) {
+    process.stderr.write(
+      JSON.stringify({
+        ok: false,
+        error: { code, message, suggestion },
+      }) + "\n",
+    );
+  } else {
+    process.stderr.write(chalk.red(`✗ ${message}\n`));
+    if (suggestion) {
+      process.stderr.write(chalk.dim(`  ${suggestion}\n`));
+    }
+    // Tell the agent the run is not finished: fix the cause and retry.
+    // Skipped when retrying cannot help (missing/invalid task id, or a
+    // run the user cancelled).
+    if (!NON_RETRYABLE_VERIFY_CODES.has(code)) {
+      process.stderr.write(
+        chalk.yellow(
+          `  Fix the issues above, then re-run: vibeflow verify ${taskId}\n`,
+        ),
+      );
     }
   }
+  process.exitCode = ExitCode.GENERAL;
 }
 
 /**

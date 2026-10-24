@@ -2,7 +2,6 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { getFilesDir } from "../core/files.js";
-import { findTaskFilePath } from "../core/tasks.js";
 import {
   queryChildChanges,
   queryTextChanges,
@@ -306,72 +305,48 @@ export async function runVerifyTool(
     return;
   }
 
-  // Validate task exists
-  const taskFilePath = findTaskFilePath(projectDir, taskId);
-  if (!taskFilePath) {
-    const msg = `Task not found: ${taskId}`;
-    if (opts.json) {
-      console.log(JSON.stringify({ ok: false, error: msg }));
-    } else {
-      process.stderr.write(`✗ ${msg}\n`);
-    }
-    process.exitCode = 1;
-    return;
-  }
+  // Task resolution, evidence load, and query dispatch run in the shared
+  // `inspectVerificationEvidence` operation (`core/operations/verify.ts`),
+  // which owns the one id rule (a UNIQUE prefix resolves; an ambiguous one
+  // is refused). This dispatcher keeps the CLI's rendering — usage lines,
+  // stdout/stderr shapes, exit codes — byte-identical: tool-level misses
+  // travel as data, exactly as the switch below used to produce.
+  const { inspectVerificationEvidence } = await import(
+    "../core/operations.js"
+  );
+  const opResult = await inspectVerificationEvidence(
+    { projectDir, mode: "local" },
+    {
+      taskId,
+      tool,
+      ...(tool === "style_query" ? { property: rest[1] } : {}),
+      ...(opts.filter === undefined ? {} : { filter: opts.filter }),
+      ...(tool === "html_query" ? { queryType: rest[1] } : {}),
+    },
+  );
 
-  // A present-but-malformed baseline artifact throws out of readEvidence
-  // (BaselineValidationError) instead of degrading to nulls. Surface it as a
-  // hard tool failure — same shape as every other tool error, but with a
-  // nonzero exit: the evidence cannot be trusted, so the command must fail.
-  let ev: EvidenceSet;
-  try {
-    ev = await readEvidence(projectDir, taskId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  let result: Record<string, unknown>;
+  if (!opResult.ok) {
+    // A task that cannot be resolved or evidence that cannot be trusted is
+    // a hard tool failure with a nonzero exit, as before. The
+    // malformed-evidence shape stays pretty-printed JSON while the
+    // not-found shape stays compact — each matches the inline branch the
+    // operation replaces.
+    const message = opResult.error?.message ?? "Unknown error";
     const failure = { ok: false, error: message };
     if (opts.json) {
-      console.log(JSON.stringify(failure, null, 2));
+      console.log(
+        opResult.error?.code === "E_EVIDENCE_MALFORMED"
+          ? JSON.stringify(failure, null, 2)
+          : JSON.stringify(failure),
+      );
     } else {
       process.stderr.write(`✗ ${message}\n`);
     }
     process.exitCode = 1;
     return;
   }
-  let result: Record<string, unknown>;
-
-  switch (tool) {
-    case "style_query": {
-      const prop = rest[1];
-      if (!prop) {
-        const msg = `Usage: vibeflow verify style_query <task-id> <property>`;
-        result = { ok: false, error: msg };
-        break;
-      }
-      result = queryStyle(ev, prop);
-      break;
-    }
-    case "style_diff":
-      result = diffStyles(ev, opts.filter);
-      break;
-    case "element_info":
-      result = elementInfo(ev);
-      break;
-    case "html_diff":
-      result = htmlDiff(ev);
-      break;
-    case "html_query": {
-      const queryType = rest[1];
-      if (!queryType || !(["children", "text", "attributes"] as const).includes(queryType as "children" | "text" | "attributes")) {
-        result = { ok: false, error: `Usage: vibeflow verify html_query <task-id> children|text|attributes` };
-        break;
-      }
-      result = queryHtml(ev, queryType as "children" | "text" | "attributes");
-      break;
-    }
-    default:
-      result = { ok: false, error: `Unknown tool: ${tool}` };
-      break;
-  }
+  result = opResult.data as Record<string, unknown>;
 
   // A truncated capture makes every page-wide result a partial view. Attach the
   // warning to the tool's own output so it cannot be missed alongside the data.
@@ -392,7 +367,11 @@ export async function runVerifyTool(
 }
 
 // ── Tool: html_query (page-wide structural diff) ────────────────────────
-function queryHtml(
+// Exported for the shared `inspectVerificationEvidence` operation
+// (`core/operations/verify.ts`), which dispatches the same query behind an
+// injected evidence loader. No behaviour change: the renderer calls it
+// exactly as before.
+export function queryHtml(
   ev: EvidenceSet,
   queryType: "children" | "text" | "attributes",
 ): Record<string, unknown> {

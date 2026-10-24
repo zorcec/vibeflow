@@ -1,0 +1,5 @@
+---
+"@vibeflow-tools/cli": patch
+---
+
+Verify engine behind shared operations (ticket 453c7465, P7 verify increment). New `core/operations/verify.ts` owns `verifyTaskOp` (single wall-clock timer, shared unique-prefix id rule, one semaphore, exactly one system comment, engine codes/suggestions preserved, VERIFY_TIMEOUT names the resolved bound) and `inspectVerificationEvidence` (data half of the five evidence-query forms behind an injected loader; tool-level misses stay data, only unresolvable tasks and untrustworthy artifacts refuse). The `verify` CLI handler and both `commands/verify*.ts` dispatchers route through these operations and keep flag parsing plus every output shape and exit code byte-identical. No behaviour change except the two flagged deltas, both pinned by `tests/unit/operations-verify.test.ts`: (a) the CLI no longer installs a second AbortController/timer next to the operation's, and (b) exact-only CLI lookup vs first-match MCP lookup are unified on exact-wins/unique-prefix-resolves/ambiguous-refused.

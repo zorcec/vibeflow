@@ -565,7 +565,7 @@
       "cli": [
         "verify"
       ],
-      "operationFn": null,
+      "operationFn": "inspectVerificationEvidence",
       "requirement": "local-only"
     },
     "linkCommitAuthors": {

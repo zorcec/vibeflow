@@ -207,9 +207,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["verify"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "inspectVerificationEvidence",
     reason:
-      "The four evidence-query forms (style_query/style_diff/element_info/html_diff) have no MCP tool; P7 extracts the operation.",
+      "The five evidence-query forms (style_query/style_diff/element_info/html_diff/html_query) run through the shared operation; CLI-only, no MCP tool (P7 verify increment).",
   },
   linkCommitAuthors: {
     id: "linkCommitAuthors",
