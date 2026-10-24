@@ -133,8 +133,18 @@ export function SettingsModal({
     [appearanceSession],
   );
 
+  // Which open-session the first-tab reset has already run for. A live
+  // settings/columns update while the dialog stays open must NOT snap the
+  // user back to Enforcement mid-interaction (ticket xpm4z3n3: first tab
+  // click succeeded, a prop update reset it, the second click "fixed" it).
+  // Only a genuine closed→open transition resets to the first tab; the
+  // form-field sync below still follows every prop change.
+  const tabResetForOpenRef = React.useRef(open);
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      tabResetForOpenRef.current = false;
+      return;
+    }
     const m: Record<TaskStatus, boolean> = {} as Record<TaskStatus, boolean>;
     COLUMNS.forEach((c) => {
       m[c.id] = visibleCols.includes(c.id);
@@ -145,9 +155,13 @@ export function SettingsModal({
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
     setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
-    // Reset to the FIRST tab (Enforcement) on open, not to a hardcoded
-    // "board" — otherwise the tab strip says one thing and the pane another.
-    setActiveTab(TABS[0]!.id);
+    // Reset to the FIRST tab (Enforcement) on a genuine open, not on every
+    // live prop change — otherwise the tab strip says one thing and the
+    // pane another mid-interaction.
+    if (!tabResetForOpenRef.current) {
+      tabResetForOpenRef.current = true;
+      setActiveTab(TABS[0]!.id);
+    }
   }, [open, visibleCols, settings]);
 
   function handleApply() {
