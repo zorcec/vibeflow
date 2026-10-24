@@ -244,7 +244,7 @@ importers:
         specifier: ^1.5.0
         version: 1.5.0
       '@vibeflow-tools/shared':
-        specifier: file:../shared
+        specifier: workspace:^
         version: link:../shared
       lucide-react:
         specifier: ^0.468.0
