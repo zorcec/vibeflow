@@ -31,6 +31,10 @@ import { z } from "zod";
 import { manifest, type ToolManifest } from "../../mcp/manifest.js";
 import { invokeManifestTool } from "../../mcp/server.js";
 import type { OperationContext } from "../../core/operations.js";
+import {
+  readPageDom as readPageDomOp,
+  readPageText as readPageTextOp,
+} from "../../core/operations.js";
 import { getGitUser } from "../../core/git-user.js";
 import {
   extractPageText,
@@ -166,7 +170,12 @@ export function createChatMcpServer(
         .strict(),
       annotations: { readOnlyHint: true },
     },
-    async (input: unknown) => runReadPageText(input),
+    // Page-text reads run through the shared `readPageText` operation
+    // (core/operations/chat.ts); this dispatcher keeps the tool shape and
+    // passes the statically imported runner — same seam discipline as the
+    // `serve`/`mcp` CLI renderers — and the raw tool input verbatim.
+    async (input: unknown) =>
+      readPageTextOp(ctx, { input, run: runReadPageText }),
   );
 
   server.registerTool(
@@ -188,8 +197,16 @@ export function createChatMcpServer(
         .strict(),
       annotations: { readOnlyHint: true },
     },
+    // Live-DOM reads run through the shared `readPageDom` operation
+    // (core/operations/chat.ts); same verbatim-input discipline — the
+    // session id and tab round-trip hook ride along unchanged.
     async (input: unknown) =>
-      runReadPageDom(sessionId, input, hooks.requestBrowserDom),
+      readPageDomOp(ctx, {
+        sessionId,
+        input,
+        run: runReadPageDom,
+        requestDom: hooks.requestBrowserDom,
+      }),
   );
 
   return server;
