@@ -1,5 +1,51 @@
 # @vibeflow-tools/ui
 
+## 0.5.0
+
+### Minor Changes
+
+- 166d9d8: Task descriptions now have one length limit instead of three, and the limit is
+  visible before it is hit.
+
+  `TASK_DESCRIPTION_MAX = 20_000` is exported from `@vibeflow-tools/shared` and used
+  by every schema that accepts a description. The overlay API previously capped at
+  5,000 while the web form capped at 10,000 and Postgres (`text`) capped at nothing
+  — so a description accepted by the form was silently refused by the bookmarklet,
+  and anything over 10,000 produced a bare `400 Bad Request` with no field, no
+  limit and no explanation.
+
+  `MarkdownEditableField` gained an optional `charLimit`: it sets `maxLength` so an
+  over-limit submit is impossible by typing or pasting, and renders a
+  `N / limit` counter **only near the cap** (revealed in the last 2,000 characters,
+  amber in the last 500). Fields without a cap, such as comments, are unchanged.
+
+### Patch Changes
+
+- 50ad9a1: Dragging a card near the edge of a wrapped board now autoscrolls vertically, so lanes below the fold are reachable mid-drag. Previously the scroll targeted the horizontal axis, which never overflows on wrapped boards, and the drag went nowhere.
+- 590ea85: The board delete dialog now blocks Cancel while the delete request is in flight: Cancel is disabled, the confirm button shows progress, and Escape/backdrop are ignored. If the request fails, Cancel re-enables and the error is shown.
+- b72c5bc: Board no longer scrolls horizontally: columns shrink to share the viewport down to a 200px readable floor, then wrap/stack instead of forcing a fixed-width strip. No horizontal scrollbar at 1280px or 390px.
+- 23703c1: Kanban cards show the ticket's status as a colour dot with the status name on hover. The colour comes from the
+  existing canonical status-colour mapping (design tokens, no new values); the name rides in the hover tooltip and
+  in the dot's accessible name, and the tooltip is hover-only. No badge chip, no card redesign.
+- 047a886: Kanban cards: a truncated card title now reveals its full text on hover in a width-limited, multi-line tooltip
+  (max-width 240px, wraps, matching the existing popover tokens). Titles that fit get no tooltip; the tip appears
+  only while the title is actually truncated and disappears on mouseleave.
+- f88c4a7: Show an animated spinner on confirmation buttons while an action is pending.
+- cfbf738: Done column counts come from one query: the Done header reads `Done - N` and the dotted bottom chip reads `showing X of N` from the same total. Shown (X) grows as more pages load while the total (N) stays put. Without the total, the legacy header renders as before.
+- 8fa3a4e: Kanban cards show assignee initials instead of the full name, with the full name kept in the hover title. The pill renders for in-progress work only and clears when the item leaves the active lane.
+- 17eaf81: Fixed the kanban board crashing with "Maximum update depth exceeded" when badge-overflow fitting failed to settle. The fit now measures a stable width and only re-runs when its inputs change; badge fitting behavior is unchanged.
+- 316b4dc: SettingsModal opens on the Enforcement tab and lists it first. The workflow toggles are what the dialog is opened for; the reset effect now returns to the first tab instead of a hardcoded "board", so the strip and the pane cannot disagree.
+- 030ced6: The kanban status dot's tooltip is hover-only: the dot is no longer keyboard-focusable, since no browser opens tooltips on keyboard focus and the extra tab stop had no behavior. Nothing is lost for keyboard or screen-reader users — the status name stays in the accessible name.
+- 9f7ef07: Tag bulk-remove confirmation is now hard to trigger by accident: Enter no longer confirms from any focused control — only the confirm button (or focus outside buttons) confirms. Closing the dialog (Escape, Cancel, backdrop) is ignored while a removal is pending, so two removals can never be put in flight; the dialog stays on its spinner until the first call settles.
+- 265908e: Activity feed names the actual tags added and removed (e.g. "added: bug, ui · removed: p1") instead of a generic "changed tags" row. The diff is recorded at the write path (`diffTaskFields` and the detail panel now carry the added/removed arrays, diffed from the real tag strings so comma-containing tags stay exact); rows recorded before this change derive the same diff from their stored from/to keys, so no old entry renders generic anymore. Field-change entries are in-session only — a board reload starts with no field rows, as before.
+- 255fc26: Tags filter: per-tag "Remove" action on hover and keyboard focus with confirmation. The host wires `onRemoveTagFromAll`; without it no action renders.
+- a1ac6fe: The board type filter offers exactly three canonical options: Bug, Task, Research. Tasks stored under legacy aliases (Feature and Enhancement) now appear under Task instead of being silently hidden. The CLI kanban board matches on the canonical type too.
+- 7db5d1a: New reusable `ChatPanel`: messages, streaming tokens, tool-call cards, approval cards with Approve/Deny, image paste with previews, and degraded states (no assistant, no auth, unavailable, error). Presentational only — hosts drive it via props, so overlay, kanban, and web share one component.
+- f3cc6d6: The board search box now propagates on a 150ms trailing debounce instead of re-rendering on every keystroke, while the input echo stays instant.
+- e58ff36: Blend the detail-panel type picker into the title field and fix the card badge-overflow tooltip. The task-type picker is now an inline leading segment inside the title input's bounds (one shared border) instead of a detached widget. The badge-overflow chip shows an explicit `+N` count with a chevron instead of a bare `…`, and its tooltip anchors to the chip via the shared popover helper so it stays inside the viewport instead of clipping.
+- 7320c92: Fix the detail-panel type picker opening invisibly inside the title field. The picker's menu rendered inside the `.dp-title-field` wrapper, whose `overflow: hidden` (the approved single-field look) clipped the menu to zero visible pixels — clicking the trigger resolved but showed nothing. The menu now portals to `document.body`, positioned with the shared `computePopoverPosition` helper (the same one the child popover and badge tooltip use), so it anchors to the trigger and stays inside the viewport. The wrapper keeps its overflow and the approved look; Escape closes just the menu, and picking a type no longer closes the panel.
+- dfa9bc3: Activity feed: a save that moves a task into review (the verification stage) while attesting a verdict now reads as ONE event — the move row carries the Pass/Fail badge, and the companion "changed verify: none → verified" row is folded away instead of splitting the save in two. Standalone attestations (no status move), moves into lanes that draw no verdict, and verdict clears keep their own `verify` row, which is the only record of the verdict there. Rows recorded before this change render exactly as before. Field-change entries are in-session only — a board reload starts with no field rows, as before.
+
 ## 0.4.1
 
 ### Patch Changes

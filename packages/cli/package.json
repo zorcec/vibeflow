@@ -1,6 +1,6 @@
 {
   "name": "@vibeflow-tools/cli",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "mcpName": "io.github.zorcec/vibeflow",
   "description": "Task management for AI coding agents: board, CLI and MCP tools, with UI annotation and verification built in.",
   "license": "Apache-2.0",

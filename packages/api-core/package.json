@@ -1,9 +1,9 @@
 {
   "name": "@vibeflow-tools/api-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Shared /api/v0 contract primitives: generated route registry, response normalizer, and conformance runner skeleton. Raw-TS workspace package (same file:-dep pattern as shared/ui) \u2014 bundled into the CLI at build time, never published.",
+  "description": "Shared /api/v0 contract primitives: generated route registry, response normalizer, and conformance runner skeleton. Raw-TS workspace package (same file:-dep pattern as shared/ui) — bundled into the CLI at build time, never published.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

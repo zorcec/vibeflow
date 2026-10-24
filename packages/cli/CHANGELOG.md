@@ -1,5 +1,192 @@
 # Changelog
 
+## 0.22.0
+
+### Minor Changes
+
+- e97c041: `vibeflow push` now uses the batched import when the server offers it, falling back to the one-by-one path on older servers. Tasks go up in chunks of at most 100 with per-chunk timeout and retry, quota is checked before the first chunk, each chunk is checkpointed to disk so a killed push resumes, and file uploads skip files the server already holds. Progress, refusals, and `--json` output are unchanged.
+- d1594b7: `vibeflow tasks --attach <path> --task <id>` attaches a file (e.g. an implementation plan) to a ticket without changing any field, on any task type, locally and online. It supports `--move` (delete the source after a successful attach), `--dry-run`, and `--json` (answering `{ ok, taskId, fileId, name, size }`). The target is the explicit `--task` value (full id or unique prefix); the same file is never uploaded twice (`E_FILE_EXISTS` names the file). Directories, empty files, executable types, and files over the size limit are refused with the limit printed.
+- Include your hostname and operating system when logging in so supported servers can give your API token a recognizable device name.
+- Send a stable, salted machine identifier during login so supported servers can associate API tokens with your machine without using its hostname as an identifier. The identifier survives logout and is not a credential.
+- c821fdf: New kanban dev mode: `--dev` (or `VIBEFLOW_DEV=1`) serves the board script as a separate asset and the dev board full-page reloads whenever the bundle rebuilds, so editing the kanban client refreshes the browser with no server restart. Production is unchanged (single-file inlined bundle). Full-page reload only — no state preservation.
+- 6bf7997: The CLI kanban server now serves a read-only board overview page at `/overview`, linked from the board header ("Overview") and back. It renders board-level aggregates — counts by status, tasks done today and in the last 7 days, the oldest todo and in-progress tasks with age and board deep-links, and an assignee breakdown — computed client-side from the same `GET /api/tasks` payload the columns use, so no new API or data layer was added. Both routes serve the same inlined single-file shell (production npx packaging unchanged), the page uses only shared theme tokens and real table semantics, and it never mutates: no drag, no writes, card references link back to `/kanban#task-<id>`.
+- 250112e: `limit: 0` is no longer an unbounded mode on `vibeflow tasks` / `list_tasks`: an explicit 0 (or any non-positive value) now resolves to the default page size (20) exactly like omitting the parameter, and the fallback is named loudly in the `--json` envelope and the human listing. New `tasks --all` flag pages through everything when you really want it all; cursor paging (`nextCursor`) remains the MCP path. `remaining` counts now agree with `hint`, and projected rows (`--fields` / `fields`) always carry `commentCount`/`fileCount` so a projection never silently hides discussion or attachments.
+- 64c2629: In local mode, marking a parent task `done` now cascades `done` to all descendants in the same edit. Already-done descendants are left untouched, cycles terminate, and marking a child `done` never touches its parent.
+- 13f208f: Push now sends the complete local record, and a server that supports it mirrors it verbatim instead of reconstructing a subset — so comments, commits, `openedBy`/`expandedBy`, and non-parent links survive the round trip. Record normalization preserves unknown keys instead of silently dropping them. `vibeflow authors link [--dry-run]` resolves each commit to its original git author email, filling only missing values and reporting conflicts without overwriting. CLI-created comments capture `git config user.email` as `authorEmail` (absent when unavailable, with one warning per process).
+- ff85737: Add `vibeflow pull` (board → local additive sync, the inverse of `push`): fetches `POST /api/v0/tasks/export/archive?boardId=…` with the stored bearer token, stages the gzipped tar under `.vibeflow/.pull-tmp-*/`, verifies it (manifest version, entry counts, per-task hashes, per-file sha256) and only then merges into the local store — any verification failure writes nothing. The merge is additive and local-wins by default (`--prefer-remote` flips conflicting fields); nothing is ever deleted. Refusals map to non-retryable messages (`403 EXPORT_NOT_ALLOWED` → `E_PLAN_REQUIRED` upgrade hint, `413` → size-cap message); retries fire only for transient failures. Flags: `--board`, `--out`, `--prefer-remote`, `--dry-run`, `--json`. Ships with a `pull` MCP tool (`cliRef.command: "pull"`, `dryRun` default `false`) wired through the manifest like every other tool.
+- 8d1c99c: Push now rides out rate limits instead of abandoning the remaining tasks: when the server answers 429, the push waits for the advertised `Retry-After` (capped at 120 seconds) and resumes where it stopped, up to 3 waits per push — on both the batch path and the one-by-one fallback. The login-time push also uses the batch import when the server offers it, with the same one-by-one fallback and quota preflight as `push`.
+- 8de4ac5: Push now reports true grouped counts (e.g. "60 created, 1319 refused: 402 plan-limit ×1319") with each refusal's HTTP status and server error code, instead of a false "already existed" line. The loop stops early on 402 plan-limit and 429 quota and prints the server's message loudly with the retry delay. Skipped links summarize by type with the full list behind `--verbose`/`--json`.
+- abc34bc: Push output stays minimal on huge runs: a TTY shows one updating line (counter, bar, percent, ETA) and piped output logs sparsely instead of one line per task. The final summary merges created/refused and stop/not-attempted counts into two lines, all on stderr with `--verbose`/`--json` detail unchanged.
+- d979a34: `vibeflow push` no longer deletes anything locally.
+
+  Push used to remove every pushed task's JSON, its asset directory and its
+  screenshots by default, so a routine command consumed the local store. That
+  delete is unrecoverable by push, and measured in production one run removed
+  2416 files — including six attachments whose upload had just failed, taking the
+  last reference to those files with it.
+
+  Keeping local files is now the default. Deletion requires an explicit
+  `--prune-local`, and even then the whole prune is refused whenever any file
+  upload failed, so a partial push can never destroy local-only data.
+  `--keep-local-files` still parses (now a no-op) for existing scripts.
+
+- 735bf34: Pushing many unsynced tasks no longer runs silent: the push loop reports `Pushing done/total` after every task, with a visual bar on a TTY and counter-only updates when piped, all on stderr so stdout and `--json` stay clean.
+- 20c49b9: Make a re-push a repair, and refuse destructive pruning.
+
+  - `push` now probes the import capability BEFORE filtering the diff and sends
+    tasks that are already on the board when the server advertises `lossless`. A
+    re-push is therefore the only thing that can restore comments, commits, links
+    and `openedBy` an older lossy import dropped — previously "Everything is
+    already pushed" returned first and the repair never ran.
+  - Quota preflight counts only tasks that will be CREATED.
+  - `--prune-local` refuses to delete anything unless the server proved a
+    lossless import; on a lossy server the local store is the only complete copy.
+  - `authors link` only asks git about hex-shaped shas: `--all` used to be read as
+    an option and "resolved" to a real author email that was then written into a
+    task file. It also exits 1 when git is unavailable instead of succeeding.
+  - `push --json` reports the number of tasks pushed, not the number pruned.
+
+- c2f4608: Online `tasks --add` no longer also writes the local `.vibeflow` record: online writes stay online, and `pull`/`push` are the only things that materialise the local store. A local copy that silently lags behind the board was worse than none.
+- ac668a9: BREAKING: removed the `export_prompt` MCP tool. Its single-task read is covered by `get_task` and its human render by `vibeflow tasks --get`; callers needing the old multi-task dump can loop `get_task` over the ids from `list_tasks`. The remaining 11 tool descriptions now name sibling routing, disclose behavior annotations cannot express (claim null contract, attach overwrite-in-place, verify codes, dryRun previews), and the input schemas document previously undocumented fields.
+- 7c1edd1: New `vibeflow tasks --delete <id> [--yes]`: resolves full ids and unique prefixes (refusing ambiguity), prints what would be deleted and exits non-zero without `--yes`. A local parent with children is refused even with `--yes` — delete the children first, deepest first. The remote delete cascades, so a parent delete warns naming every descendant and drops the matching local records so a later push cannot recreate them. `--json` carries `{ ok, deleted, id, deletedIds }`, and `--yes --dry-run` previews with zero mutations.
+
+  Every id-taking link flag (`--parent`, `--set-parent`, `--relates`, `--blocks`, `--unrelates`, `--unblocks`) now resolves prefixes against the remote board before the request — exact id wins, a unique prefix resolves, an ambiguous prefix is refused naming the candidates — instead of failing with a not-found error for values `--get` displays.
+
+- 43798f6: Push now carries a whole subtree — tasks with parent links and files — in one request per chunk (up to 100 tasks / 50 files / 25 MB), instead of one write per task, link, and file. Parent links resolve in-manifest first, else against tasks already on the board, so children can never be orphaned by a failed follow-up phase. Old servers without the endpoint fall back to the legacy phases automatically.
+- 65d08e5: Two new v0 batch-import operations: `POST /api/v0/tasks/batch` creates up to 100 tasks per chunk with per-item results in request order (one bad item never sinks the batch); `GET /api/v0/tasks/batch` is the preflight probe reporting remaining capacity before the first POST. Additive only — no existing operation changed.
+- 42b030b: Removed the `watch` command entirely. `pull` (and the kanban board) remain the sync mechanisms; README and CLI help no longer mention `watch`.
+
+### Patch Changes
+
+- 46d9779: Agent chat now runs its tools through a per-session MCP server with an explicit approval gate (behind `VIBEFLOW_FEATURES=CHAT`). Reading tools run freely; tools that change anything pause for your approval in the UI and fail closed if you deny them or the request times out. Chat-only web tools fetch page text (capped at 4000 characters) and page content via the browser, always labelled as untrusted third-party content. The server exposes session lifecycle, approvals, and a live event stream at `/api/chat/*` and `/api/chat-mcp/*`.
+- c28d719: Behind `VIBEFLOW_FEATURES=CHAT`: each chat session now runs one long-lived assistant process, so a conversation keeps context across messages instead of restarting every turn. Idle sessions expire and concurrent sessions are capped. Assistant output is mapped to live UI events for streamed text, tool calls, tool results, and completion.
+- 71488f3: MCP `update_task` now reports a failure when the task edit is saved but the follow-up comment cannot be recorded, instead of answering success. The edit itself is preserved and the error is marked non-retryable so clients do not re-apply it.
+- d997fc4: Logged-in state now reads "online" everywhere: the login banner, the status line, push output, help text, and README. `vibeflow auth login`, `vibeflow auth logout`, and `vibeflow auth status` are the canonical commands — bare `vibeflow auth` shows the same status, and the old bare `login` / `logout` spellings still work but print a redirect notice.
+- 96851b7: Re-pushing tasks that are already on the board no longer inflates the created count. The server now answers each already-present task with its existing id, so links still heal but the summary prints honestly (e.g. "0 created, N already existed" for a pure re-push).
+- c5b357b: Large pushes now pause 5 seconds between chunk uploads, so back-to-back 100-task batch inserts no longer saturate the small server and disturb other users. The pause is skipped before the first chunk and on rate-limit retries that already waited. Override with `pacingDelayMs` (`0` disables).
+- 495fb9e: Every CLI request now follows one board-selection rule: an explicit `--board` flag wins, then the workspace saved by `auth login`, then auto-select only when the account has exactly one board. With 2+ boards and nothing selected, the command stops before sending anything and lists every board, telling you to re-run with `--board <boardId>` (or `vibeflow auth login` to bind a default) — a push can never land on the wrong board by guessing. `vibeflow push` also accepts `--board <boardId>` for one-off targeting.
+- d997fc4: Fixed a login dead-end where every fresh device authorization ended at "No boards found" even though the account has boards. The login step now reads both boards-list formats, follows all result pages, and maps the current row shape. The empty-account message now says where to create a board and which command re-runs the pick.
+- 1cbfb0b: The agent-chat opt-in is now `VIBEFLOW_FEATURES=CHAT` instead of the dedicated `VIBEFLOW_AGENT_CHAT=1`. One variable gates every opt-in surface; the value is a comma- and/or space-separated list matched case-insensitively, so future opt-ins reuse the same variable. With the flag absent, chat stays fully off.
+- a284c77: Agent-chat hardening (behind `VIBEFLOW_FEATURES=CHAT`): each chat session now reaches its own tool server, so the assistant actually has tools. Pasted images travel with the message and images over 2 MiB are skipped with a visible note. Page reads are capped at 4000 characters, browser reads have a 5-second budget with explicit timeout/not-found errors, and the approval gate fails closed for unlisted tools. Login-time push prints already-existed counts and `push --json` includes the `existing` count.
+- 011b668: Fixed `push --board <id>` / `pull --board <id>` failing without a prior `auth login`: the import, task-create, file-upload, link-replay, and archive steps now carry the resolved board as `X-Vibeflow-Scope`, instead of only the capability probe doing so. On a multi-board account every one of those calls previously answered 422 SCOPE_REQUIRED, so scripted push/pull against a fresh board failed 100% of the time. Per-file failure lines are unchanged.
+- 76c303f: Fixed the published `vibeflow` binary crashing on every invocation with `Dynamic require of "crypto" is not supported`. The build now keeps Node builtins external, and a bootsmoke check spawns the built artifact to prove it starts.
+- 7db5d1a: New agent-chat dock (behind `VIBEFLOW_FEATURES=CHAT`, default off): a trigger button opens a panel with the session, streamed replies, tool-call cards, and Approve/Deny cards wired to the server approval gate. It supports browser page reads, trusted page metadata on send, and pasted-image downscaling.
+- 242072f: `tasks --add` against the remote board now names the HTTP status, path, and response head when the create fails without a backend code. A proxy 502 HTML page (or an empty/truncated body) used to collapse into the same bare creation failure as a dead host; the failing call now prints e.g. `HTTP 502 /api/v0/tasks — response head: …`. True transport failures keep the old message and hint.
+- 8c19bd3: Online listings now request the board's kanban order from the server: the default unfiltered root-only listing and the `--children` / status-filtered listings each render the first page in one request with the same rows as a full client-side sort. `--status done`, type/user/tag filters, and prefix resolution still read the full board; servers that ignore the new parameters fall back to the full scan automatically.
+- b3eb912: Upload compression now follows the shared policy (`@vibeflow-tools/shared/compression`), including `baseline-*.json` artifacts which the server has always accepted compressed. Removes the CLI-only baseline exclusion that made large baseline uploads travel (and bill) uncompressed.
+- 65177e9: Fixed `tasks --commit --task` failing to resolve a short task id. The commit-link path now resolves through the same shared id rule every other flag uses: an exact id wins, a unique prefix resolves, an ambiguous prefix refuses naming the candidates, and an unknown id says not found. The commit and the record link stay local; only the resolution follows the board when one is configured.
+- 25fb3cd: Online edits no longer enumerate the whole board to resolve an exact id. `tasks --edit`, `--attach --task`, and `--add --parent` now hit one detail request first (the `--get` rule) and only fall back to a single unhydrated listing when the value 404s and may be a prefix — resolver semantics unchanged (exact wins, unique prefix resolves, ambiguous is E_AMBIGUOUS naming the candidates, else TASK_NOT_FOUND). A prefix edit still costs exactly one listing, and an edit with link flags never costs two. `--delete` keeps its one listing: the online cascade warning needs the full board to name every descendant.
+- 2d6fc9d: Remote `tasks --get` now renders parent/children from the detail response: one request, no board listing. A task with children lists each child id, title and status; a task with none prints `children: none`. A response carrying no relation fields prints one cause-neutral `relations unavailable in this response` line instead of nothing. The `--json` envelope carries `parentId`/`children` only when the response actually carried them — each key stays absent for legacy shapes instead of being synthesised to `null`/`[]`.
+- 1506ba1: Remove the kanban polling fallback. A dropped socket no longer starts a 5-second task poll; the board re-reads once on reconnect and every change in between arrives over the socket. Reconnect now backs off exponentially (2s to 30s, jittered) instead of retrying every 2 seconds forever.
+- a8a88af: The kanban overlay no longer offers a "Push local tasks" button or a
+  "Keep local files" toggle. Pushing is a standalone, explicit command
+  (`vibeflow push`) with its own flags, so duplicating it behind a one-click button
+  inside an informational banner was misleading: it silently reused the local
+  store's options and gave no way to see what would be sent. The overlay now only
+  reports state — which board you are connected to, and a link to open it. The
+  `POST /api/push` route and the `push` command are unchanged.
+- 7177ddb: Keep the 2-second reconnect retry (no backoff) now that the polling fallback is gone; the retry is the only thing that restores a dropped board, and each reconnect costs one board read rather than a loop.
+- 823c8ef: Push links now heal across runs. When a link endpoint is missing from the current run, the CLI resolves it against the board by client id and writes it back, so tasks pushed in earlier runs (whose locals are since deleted) link up on the next push instead of being skipped forever. Truly unknown targets keep the clean skip.
+- c5adb43: MCP `list_tasks` and CLI `tasks --limit` now share one default page size (`DEFAULT_LIST_LIMIT = 20`, previously an undocumented 5 on each surface), and every local listing response carries position metadata — `offset`, `remaining`, `nextCursor` (null when exhausted) and `order` — so a caller can tell where it is and how much is left.
+- f911045: Fix the login-time push on a multi-board account.
+
+  `auth login` listed the boards and stored the chosen one, then pushed with a
+  capability probe that omitted the board — so a 2-board account answered
+  `422 SCOPE_REQUIRED` and the login ended with "Push failed: this account has more
+  than one board and none is selected", immediately after asking which board to
+  use. The selected board now travels with the probe (and therefore as
+  `X-Vibeflow-Scope`), and two tests pin the header being present with a board and
+  absent without one.
+
+- 9e6b25a: Login-time push now uploads file attachments. It runs the same uploader as standalone `push`, so attachments are no longer silently dropped at login. Login never deletes local files, so upload failures only warn — a later `vibeflow push` retries them.
+- db73809: `claim_next_task` now follows the same roots-first rule as `vibeflow tasks --next`: when no todo root is
+  claimable it falls back to the highest-priority matching todo child and says so explicitly (a `CHILD_CLAIM`
+  notice naming the parent), instead of reporting "nothing to claim" while the CLI claimed the child on the
+  same board. Roots are still always preferred; the manifest description now documents the fallback.
+- c716ad1: The CLI now reports MCP tool usage to PostHog: every MCP tool call emits the same `command_run` event the CLI commands already emit, tagged `surface: "mcp"` (existing CLI events now carry `surface: "cli"`), plus the tool name, its CLI command equivalent, and the outcome (`ok`). MCP and CLI usage are directly comparable with a single PostHog filter. Same opt-out (`VIBEFLOW_TELEMETRY=0` / `vibeflow telemetry --disable`), same no-PII guarantee — no paths, ids, or content leave the machine.
+- 59c0674: `tasks --next` (and the `claim_next_task` MCP tool) no longer auto-claim a todo child off a parked unit: the child fallback only takes children whose full parent chain is live work (todo/in-progress/review). Children of backlog/done parents — or dangling links — are refused and reported as stranded (with the remedy: move the parent to todo or claim by id) instead of being sliced off silently.
+- 97e7227: Use the remote overlay URL and selected board in online startup snippets. Suppress integration snippets until a logged-in account selects a board, and clearly label the local proxy as requiring the CLI to remain running.
+- fb53e09: Remote reads are dramatically faster on large boards: listings no longer fetch every task's details up front, and `tasks --get <id>` issues one detail request instead of fetching the whole board. On the production board, `tasks --status todo` dropped from ~18s to ~6s with zero per-task requests. Read failures now name the HTTP status and path, and a failed remote read always reports loudly instead of silently falling back to the local store.
+- af9c686: `--normalize --apply --dry-run` is now a true preview: `--dry-run` overrides `--apply`, like every other operation. Previously the maintenance write ran despite the dry-run flag.
+- 26dfa1a: Persist deterministic ids for historical comments before pushing tasks, and stop with the task id and reason if a record cannot be repaired. The same repair is available through `tasks --normalize --apply`; existing comment ids are preserved.
+- 1181d2b: Fix push on accounts with more than one board.
+
+  `auth login` could finish without selecting a board (the boards fetch failed, or
+  the picker could not prompt) and said nothing, then `push` probed the import
+  capability with no board scope and aborted with `HTTP 422`. Sending a board id
+  is now done through the documented `X-Vibeflow-Scope` header, so
+  `push --workspace <boardId>` works on a multi-board account, and a 422 reports
+  "this account has more than one board and none is selected" with the two ways
+  out instead of reading like a network failure. Login reports why board
+  selection failed instead of swallowing it.
+
+- 6856b7b: `vibeflow pull` now verifies the archive (manifest version, entry counts, per-task hashes, per-file sizes) before writing anything — a corrupt archive fails before the first store write, and the whole merge is planned before it executes. Tasks and files the server record did not change are left byte-identical, which keeps the next push converged instead of re-uploading pulled tasks. Summary counts now reflect exactly what was written, and non-verification failures report honestly that partial writes may have occurred instead of claiming nothing was written.
+- 04b6a04: Make the `push` attribution warning name a gap that can actually be closed.
+
+  The warning advised running `vibeflow authors link` for every task with a commit missing `authorEmail`, but that command resolves a commit through its sha in git history. A commit entry with an empty sha can never be resolved, so the advice was permanent: the command reported "0 unresolved" while the warning stayed. Only linkable commits are counted now.
+
+- cc4a135: `vibeflow push` fetches the board's task ids first and pushes only the diff — an empty diff prints "Everything is already pushed" and exits 0 with no further network calls. `--dry-run` reports the same diff. Tasks that cannot fit one import call are skipped with the exact reason and retried on the next run, never created partially.
+- 5f6e0ad: `vibeflow push` now retries tasks whose files never made it, instead of treating them as done forever. Previously the diff was id-only: a task on the board was excluded from every later push, so a failed file upload was lost permanently — measured on a real board, 1746 tasks synced while only ~601 of ~790 files were present, yet push reported "everything is already pushed". Now the board index keeps each task's file count, and a task is re-pushed when it is missing locally or has more local files than the board reports — the re-push returns `existing: true` (no duplicate row) and only the missing bytes travel. The summary distinguishes the two reasons, and the empty-diff line now says "all files synced" only when that is actually true.
+- f4feaf9: Fix `push` failing on a full upload with `400 duplicate file ref` when two tasks own a file with the same name.
+
+  File refs are now scoped by task id (`<taskId>/<name>`), with an ordinal when one task repeats a name. The previous bare filename was only unique within a task, and the import endpoint requires refs to be unique across the whole request. The bug stayed hidden because push normally sends a delta and skips bytes the server already holds; a full push (for example after recreating a board) sends every file, which is when the collision surfaced.
+
+- b0bbdcc: `push` now says which transport it is using, and archive chunks are bounded by size as well as task count.
+
+  - The first line of a push reports the split, e.g. `Sending 1788 task(s) in 9 archives` or `Sending 1788 task(s) in 18 batches — legacy path, up to 100 tasks and 50 files per request`. Previously the archive path printed nothing per chunk and the legacy path printed a counter, so falling back to the slower transport was invisible — 1800 tasks crawling in 100-task steps looked like normal behaviour.
+  - When the archive path is unavailable the CLI now says so before starting (`Archive upload is unavailable on this server` / `…needs the board id`), instead of silently switching transports.
+  - Archive chunks are capped at 10 MiB of input bytes in addition to 200 tasks, so a chunk full of screenshots cannot build an arbitrarily large request. A single oversized task still ships alone rather than being split or refused.
+
+- cc974a3: `vibeflow push` now refuses up front when the saved board is no longer
+  reachable, instead of attempting every local task.
+
+  A board-scope rejection (HTTP 401/403/404) from the board listing is not a
+  transient failure, but the push treated it as one: it fell back to "Could
+  not read the board — attempting push of all local tasks" and fired a create
+  per task at a board that no longer existed. Every write was refused, so the
+  progress bar counted attempts while nothing landed anywhere.
+
+  The push now stops before the first write, prints that the board is not
+  accessible (deleted, or the token belongs to another account), exits
+  non-zero, and points at `vibeflow auth login`. Only genuine transport
+  failures keep the old "attempt everything, say so" fallback.
+
+- 741792e: Stop sending captured credentials in the legacy `fields` payload.
+
+  The lossless manifest sent a sanitized `record` next to the ORIGINAL record as
+  `fields`, so `authStateEnc` (captured browser auth state) and the absolute local
+  `filePath` still left the machine. One sanitized wire record now feeds both
+  representations, and the sanitizer recurses into arrays nested inside arrays.
+
+- f8489e9: Push result lines now use transport-aware verbs and an outcome headline (wording only — no behaviour, counting, exit-code, or `--json` change): the delta path reads `N sent, M already identical (not sent)` and never claims `created` (the archive reports bytes moved, so one repaired task among 1797 no longer prints `1 created, 1796 updated`); the multipart path keeps the server-reported `N created, M already existed` split (never `updated`); the headline is `Push complete` only for a clean run — `Push stopped` after a refusal or early stop, `Push finished with failures` when atomic skips or file/link failures remain.
+- e276cef: Quarantined records are loud now: `pull` warns when the merge skips quarantined local records, `push` emits the store-wide quarantine warning, and `list` already warned. Every surface emits one warning per run — the count and the first reason, never one line per file — on stderr in every mode and in the `--json` envelope. A warning is not a failure: successful runs keep exit code 0.
+- 94538ec: MCP list/get now apply the same record schema and quarantine as CLI-online reads. The remote adapter validates every board row through the shared record reader, so a row the CLI would quarantine (for example a description over 20,000 characters) is excluded from MCP and CLI-online listings with the same `TASK_RECORD_QUARANTINED` notice, and an invalid detail refuses instead of serving a stale copy. A top-K page containing invalid rows falls back to the full scan so valid rows below the page are not lost.
+- 0224ba8: Online listings request 500-row pages (the server maximum), so a 1,874-task board costs 4 list requests instead of 19 with identical rows in identical order. Servers that ignore the parameter answer default pages and still read to completion.
+- ed14e78: Online listings narrow by status server-side when it matches exactly what the client would keep, so a status-filtered listing on a large board pages only over the matching set. `done`, type/user/tag filters, root scope, and unfiltered limited reads stay full-scan reads with identical answers.
+- 1689e46: Bound every board request with an explicit deadline (30s by default, 120s for file uploads, 3s for the settings check) covering headers and body. A stalled response now fails with a timeout naming the operation phase instead of hanging the command, and `tasks --add` reports the phase for a timed-out create.
+- 1758dc8: The CLI no longer re-checks remote settings on every invocation: the 5-minute settings check is now remembered across processes, so back-to-back commands issue zero settings requests. Account or token rotation and independent settings edits re-arm the check, and a corrupt or unwritable cache fails open.
+- a1ec433: Never commit a synced store with an unresolved merge: a new `check:store` script walks the `.vibeflow` tasks tree and fails on any file with a JSON parse error or git conflict marker, naming every offending path, and it runs in the pre-commit hook so a conflicted store can never be committed silently.
+- 265908e: Activity feed names the actual tags added and removed (e.g. "added: bug, ui · removed: p1") instead of a generic "changed tags" row. The diff is recorded at the write path (`diffTaskFields` and the detail panel now carry the added/removed arrays, diffed from the real tag strings so comma-containing tags stay exact); rows recorded before this change derive the same diff from their stored from/to keys, so no old entry renders generic anymore. Field-change entries are in-session only — a board reload starts with no field rows, as before.
+- b5a3f9d: Store maintenance: heal schema-invalid task records at the schema boundary (`tasks --normalize`, dry-run by default, `--apply` to write; idempotent; honors `--json`). Empty/absent-normalizing `links` no longer survive a normalising write — so garbage local values stop winning every pull and local records converge with the server. The maintenance write is a surgical raw-JSON edit of the affected keys (legacy fields such as the singleton `commit` survive byte-for-byte; no `updated` bump).
+- 51b7e52: Fixed local↔cloud convergence for user-written task `type` labels: `type` is now a free-form label, so any non-empty, non-artifact string round-trips verbatim through read → push → pull. Previously an undocumented label (e.g. `Chore`) was treated as absent, so push sent no key, the server stored null, and the local label could never converge. The pull file plan also never materializes staged bytes the merged record disowns, counted as `filesSkipped` so the summary matches the filesystem.
+- 434d87e: Every id-taking `tasks` flag now resolves through one rule: an exact id wins, else a unique prefix; an ambiguous prefix is refused naming the candidates, and an unknown id says not found. Previously `--edit` sent the raw prefix to the server while `--get` resolved it, so `--edit <prefix>` failed for values `--get <prefix>` displayed. A review transition missing `--commit-message` while auto-commit is on is now refused up front with `COMMIT_MESSAGE_REQUIRED` instead of failing at the end of a long run.
+- e121663: Agent claims are truthful on both surfaces: the claim preview and the claim share one selection, and a claim never reports success when the remote refuses. Old boards answer a specific unsupported-version refusal instead of a silent fallback, and `tasks --next --dry-run` previews through the same path without writing.
+- a1ac6fe: The board type filter offers exactly three canonical options: Bug, Task, Research. Tasks stored under legacy aliases (Feature and Enhancement) now appear under Task instead of being silently hidden. The CLI kanban board matches on the canonical type too.
+- 71bfb46: Send the board scope on every v0 request, not just the capability probe.
+
+  Fixing only the probe moved the failure one step later: `auth login` then pushed
+  1758 tasks and 782 files that ALL came back `422 SCOPE_REQUIRED`, because task
+  create, file upload, online-id listing and link apply each built their own
+  `Authorization` header without `X-Vibeflow-Scope`. On a 2-board account the
+  server refuses every one of them.
+
+  `scopeHeadersFromSaved()` resolves the saved board per call (not at module load:
+  login writes the board and pushes in the same process) and is applied at those
+  sites. 112 targeted tests pass.
+
+- b2b4ea7: Validate local task records without crashing the board. Report quarantined records, preserve unreadable task files during comments and pulls, and extend dry-run normalization with safe artifact and legacy-comment repairs while preserving custom labels.
+- dfa9bc3: Activity feed: a save that moves a task into review (the verification stage) while attesting a verdict now reads as ONE event — the move row carries the Pass/Fail badge, and the companion "changed verify: none → verified" row is folded away instead of splitting the save in two. Standalone attestations (no status move), moves into lanes that draw no verdict, and verdict clears keep their own `verify` row, which is the only record of the verdict there. Rows recorded before this change render exactly as before. Field-change entries are in-session only — a board reload starts with no field rows, as before.
+
 ## 0.21.1
 
 ### Patch Changes
