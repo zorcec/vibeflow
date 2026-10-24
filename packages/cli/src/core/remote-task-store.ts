@@ -79,6 +79,10 @@ import type {
   TaskLink,
   TaskStatus,
 } from "./types.js";
+import {
+  inspectLocalTaskRecord,
+  type TaskReadFinding,
+} from "./task-record-read.js";
 
 /**
  * A remote read refused. Carries the operation-facing code so the operation
@@ -293,13 +297,137 @@ export function toLocalTask(row: SaasTask): Task | null {
   } as Task;
 }
 
-/** A detail response whose record does not map is unreadable, never empty. */
+/**
+ * Ticket 38f085df: one v0 row against the SAME record schema the local
+ * reader enforces (`inspectLocalTaskRecord`), so MCP list/get and
+ * CLI-online agree on what a task IS — including the >20,000-character
+ * description quarantine the CLI applies to local files.
+ *
+ * The v0 view is a projection, not a raw record: wire spellings are
+ * normalized to record spellings first (`createdAt`→`created`,
+ * `in_progress`→`in-progress`), and transport-only members (`boardId`,
+ * comment/file counts, `files`, detail relations, comment `taskId` /
+ * `authorId`) stay OUTSIDE the validated candidate and are reattached
+ * unchanged by `toLocalTask` after it passes. Unknown statuses pass
+ * through verbatim so strict parsing quarantines them instead of
+ * silently coercing to `todo` the way display mapping does. Null
+ * wire scalars are omitted silently (routine server data, not a local
+ * repair worth a notice); everything else validates exactly as a local
+ * record would.
+ */
+function saasRowToRecordCandidate(row: SaasTask): Record<string, unknown> {
+  const candidate: Record<string, unknown> = {
+    id: row.id,
+    title: row.title,
+  };
+  if (typeof row.description === "string") candidate.description = row.description;
+  if (typeof row.status === "string") {
+    candidate.status = row.status === "in_progress" ? "in-progress" : row.status;
+  }
+  if (typeof row.type === "string") candidate.type = row.type;
+  if (typeof row.priority === "string") candidate.priority = row.priority;
+  if (typeof row.author === "string") candidate.author = row.author;
+  if (typeof row.branchName === "string") candidate.branchName = row.branchName;
+  if (typeof row.verified === "boolean") candidate.verified = row.verified;
+  if (typeof row.annotatedElementText === "string") {
+    candidate.annotatedElementText = row.annotatedElementText;
+  }
+  if (typeof row.createdAt === "string") candidate.created = row.createdAt;
+  if (typeof row.updatedAt === "string") candidate.updated = row.updatedAt;
+  if (Array.isArray(row.links)) candidate.links = row.links;
+  if (Array.isArray(row.comments)) {
+    candidate.comments = row.comments.map((c) => ({
+      ...(typeof c.id === "string" ? { id: c.id } : {}),
+      // Same coercion the display mapper applies: a server comment
+      // without an author label still renders (as `agent`), so it
+      // validates as one too — quarantine is for malformed records,
+      // not for the server's default attribution.
+      author:
+        typeof c.author === "string" && c.author.length > 0 ? c.author : "agent",
+      ...(typeof c.body === "string" ? { text: c.body } : {}),
+      ...(typeof c.createdAt === "string" ? { createdAt: c.createdAt } : {}),
+    }));
+  }
+  return candidate;
+}
+
+/** One board row through the shared record schema, with its notice payload. */
+function inspectSaasTaskRecord(row: SaasTask): {
+  ok: boolean;
+  finding: TaskReadFinding;
+} {
+  const read = inspectLocalTaskRecord(saasRowToRecordCandidate(row));
+  const id =
+    typeof row.id === "string" && row.id.length > 0 ? row.id : "<unidentified>";
+  return {
+    ok: read.record !== null,
+    finding: {
+      id,
+      quarantined: read.record === null,
+      findings: read.findings,
+      issues: read.issues,
+    },
+  };
+}
+
+/**
+ * Validate a board snapshot the way the local listing does: quarantined
+ * rows are excluded and reported through `reads` (the same
+ * `TASK_RECORD_QUARANTINED` / `TASK_RECORD_REPAIRED` notices the CLI
+ * renders), repaired rows are kept. Mirrors the local convention — a
+ * finding is recorded exactly when the row is quarantined or carries
+ * in-memory repairs.
+ */
+function validateSaasRows(
+  rows: SaasTask[],
+  reads: TaskReadFinding[] | undefined,
+): { tasks: Task[]; quarantined: number } {
+  const tasks: Task[] = [];
+  let quarantined = 0;
+  for (const row of rows) {
+    const inspection = inspectSaasTaskRecord(row);
+    if (!inspection.ok) {
+      quarantined += 1;
+      reads?.push(inspection.finding);
+      continue;
+    }
+    const mapped = toLocalTask(row);
+    if (!mapped) {
+      // Unreachable for schema-passing rows (id/title/created are all
+      // required non-empty by the schema), but never present a row the
+      // mapper cannot express — fail closed with the same quarantine.
+      quarantined += 1;
+      reads?.push({
+        ...inspection.finding,
+        quarantined: true,
+        issues: [
+          ...inspection.finding.issues,
+          {
+            path: "",
+            code: "unmappable_row",
+            message: "Row passed record validation but does not map to a display task",
+          },
+        ],
+      });
+      continue;
+    }
+    if (inspection.finding.findings.length > 0) reads?.push(inspection.finding);
+    tasks.push(mapped);
+  }
+  return { tasks, quarantined };
+}
+
+/** A detail response whose record does not validate is unreadable, never empty. */
 function requireTask(row: SaasTask, taskId: string): Task {
-  const mapped = toLocalTask(row);
+  const inspection = inspectSaasTaskRecord(row);
+  const mapped = inspection.ok ? toLocalTask(row) : null;
   if (!mapped) {
+    const reasons = inspection.finding.issues
+      .map((issue) => `${issue.path || "<root>"}: ${issue.message}`)
+      .join("; ");
     throw new RemoteReadError(
       "REMOTE_MALFORMED_RECORD",
-      `The board answered task ${taskId} with a record that does not parse — refusing rather than presenting it as current.`,
+      `The board answered task ${taskId} with a record that does not parse — refusing rather than presenting it as current.${reasons ? ` (${reasons})` : ""}`,
       { retryable: false },
     );
   }
@@ -386,7 +514,11 @@ function toLocalComment(row: SaasComment): TaskComment {
 async function resolvePrefix(
   boardId: string | undefined,
   raw: string,
-): Promise<{ outcome: "resolved"; task: Task } | { outcome: "missing"; id: string }> {
+): Promise<
+  | { outcome: "resolved"; task: Task }
+  | { outcome: "missing"; id: string }
+  | { outcome: "unreadable"; id: string }
+> {
   // Deliberately UNFILTERED (LANE Q step 2, kept ticket 05076246): a prefix
   // can match a task of any status, so a status-narrowed fetch could miss
   // the very row the prefix names — and a `?sort=kanban&limit=K` page could
@@ -397,7 +529,10 @@ async function resolvePrefix(
     throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
   }
   const rows = board.data.tasks;
-  const valid = rows.filter((r) => toLocalTask(r) !== null);
+  // Ticket 38f085df: a prefix resolves over validated rows only — a
+  // quarantined row must never win an id match (the detail read would
+  // refuse it anyway), and a ghost id keeps its `missing` answer.
+  const valid = rows.filter((r) => inspectSaasTaskRecord(r).ok && toLocalTask(r) !== null);
   const resolved = resolveSaasTaskId(
     valid.map((r) => ({ id: r.id })),
     raw,
@@ -424,7 +559,16 @@ async function resolvePrefix(
       "The board changed during the read — retry it.",
     );
   }
-  return { outcome: "resolved", task: requireTask(detail.data.task, resolved.id) };
+  // A row that validated in the listing but answers an invalid detail
+  // changed mid-read: unreadable, like the detail-first path above.
+  try {
+    return { outcome: "resolved", task: requireTask(detail.data.task, resolved.id) };
+  } catch (err) {
+    if (err instanceof RemoteReadError && err.code === "REMOTE_MALFORMED_RECORD") {
+      return { outcome: "unreadable", id: resolved.id };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -573,15 +717,32 @@ class RemoteTaskStore implements TaskStore {
     if (!board.ok) {
       throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
     }
-    const out: Task[] = [];
-    for (const row of board.data.tasks) {
-      const mapped = toLocalTask(row);
-      // A list row that does not map is SKIPPED, not fatal: one malformed
-      // row must not hide the whole board (detail reads stay strict —
-      // presenting one current record demands a parseable answer).
-      if (mapped) out.push(mapped);
+    // A list row that does not validate is SKIPPED, not fatal: one
+    // malformed row must not hide the whole board (detail reads stay
+    // strict — presenting one current record demands a parseable answer).
+    // Quarantined rows still fill `reads` so the operation layer renders
+    // the same TASK_RECORD_QUARANTINED notice the CLI shows for local files.
+    const reads = Array.isArray(_reads) ? (_reads as TaskReadFinding[]) : undefined;
+    let validated = validateSaasRows(board.data.tasks, reads);
+    if (topK !== null && validated.quarantined > 0) {
+      // Exceptional case: a top-K page containing invalid rows would
+      // silently hide valid rows below the page. Fall back to the full
+      // paginated read, validate first, then let the shared listing model
+      // page it — the normal one-request fast path is preserved for
+      // valid data. Findings from the discarded attempt are dropped so
+      // the notice names each bad row exactly once.
+      const attemptFindings = reads?.length ?? 0;
+      const full = await fetchSaasTasks(boardId, {
+        hydrate: false,
+        ...(status !== undefined ? { status } : {}),
+      });
+      if (!full.ok) {
+        throw toRemoteRefusal(full.error, "Check the backend is reachable and retry the read.");
+      }
+      if (reads) reads.splice(reads.length - attemptFindings, attemptFindings);
+      validated = validateSaasRows(full.data.tasks, reads);
     }
-    return out;
+    return validated.tasks;
   }
 
   async getTask(_projectDir: string, idOrPrefix: string): Promise<Task | undefined> {
@@ -595,12 +756,27 @@ class RemoteTaskStore implements TaskStore {
     // not an exact hit falls to the single-listing prefix rule — never a
     // board scan before the detail attempt.
     const detail = await fetchSaasTaskDetail(idOrPrefix);
-    if (detail.ok) return { status: "found", id: detail.data.task.id, task: requireTask(detail.data.task, idOrPrefix) };
+    if (detail.ok) {
+      // Ticket 38f085df: a 200 whose record does not validate is the
+      // remote image of a corrupt local file — the `unreadable` outcome,
+      // never its stale local copy, never a truncated description. The
+      // operation layer answers the same TASK_READ_ERROR the local
+      // quarantine produces. Transport/absence refusals keep throwing.
+      try {
+        return { status: "found", id: detail.data.task.id, task: requireTask(detail.data.task, idOrPrefix) };
+      } catch (err) {
+        if (err instanceof RemoteReadError && err.code === "REMOTE_MALFORMED_RECORD") {
+          return { status: "unreadable", id: idOrPrefix };
+        }
+        throw err;
+      }
+    }
     if (detail.error.code !== "TASK_NOT_FOUND") {
       throw toRemoteRefusal(detail.error, "Check the backend is reachable and retry the read.");
     }
     const prefix = await resolvePrefix(boardId, idOrPrefix);
     if (prefix.outcome === "missing") return { status: "missing", id: idOrPrefix };
+    if (prefix.outcome === "unreadable") return { status: "unreadable", id: prefix.id };
     return { status: "found", id: prefix.task.id, task: prefix.task };
   }
 
