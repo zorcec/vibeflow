@@ -3,6 +3,7 @@ import open from "open";
 import readline from "node:readline";
 import select from "@inquirer/select";
 import { writeToken, readToken } from "./token.js";
+import { getDeviceName, getMachineId } from "./machine.js";
 import { writeWorkspace, type WorkspaceInfo } from "./workspace.js";
 import { writeGlobalSettings, type ProtoSettings } from "../core/settings.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -1503,6 +1504,10 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
     initRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/auth/device-init")}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceName: getDeviceName(),
+        machineId: await getMachineId(),
+      }),
     });
   } catch (err) {
     console.error(

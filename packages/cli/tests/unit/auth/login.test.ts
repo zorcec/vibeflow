@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock all heavy dependencies before importing the module under test.
+vi.mock("../../../src/auth/machine.js", () => ({
+  getDeviceName: vi.fn(() => "test-laptop (Linux)"),
+  getMachineId: vi.fn(async () => "a".repeat(64)),
+}));
 vi.mock("../../../src/auth/token.js", () => ({
   readToken: vi.fn(),
   writeToken: vi.fn(),
@@ -277,7 +281,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fetches workspaces and writes selected workspace on successful login", async () => {
+  it("logs in and selects a workspace when an older server ignores device metadata", async () => {
     const workspace = { id: "ws-1", name: "My Board", url: "http://localhost:3000", icon: "📋", email: null };
 
     // Mock device-init
@@ -328,6 +332,16 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
 
     await login();
 
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      deviceName: "test-laptop (Linux)",
+      machineId: "a".repeat(64),
+    });
+    // The old server returns only its original token response: no metadata echo required.
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ deviceCode: "device-123" });
+    expect(tokenModule.writeToken).toHaveBeenCalledWith(
+      "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq",
+    );
+    expect(logSpy.mock.calls.flat().join(" ")).not.toContain("vbf_pat_");
     // Workspace should be written with email from profile
     expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ id: "ws-1", email: "user@example.com" }),
