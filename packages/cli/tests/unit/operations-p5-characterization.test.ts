@@ -33,10 +33,12 @@ import {
   existsSync,
   rmSync,
   readdirSync,
+  realpathSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 import { computeBackfillPlan } from "@vibeflow-tools/ui/kanban";
 import type { OperationContext } from "../../src/core/operations.js";
 import { attachFile } from "../../src/core/operations.js";
@@ -170,11 +172,30 @@ describe("attachFile operation (MCP shape, current behaviour)", () => {
 // ── commitTaskPaths: payload shapes ───────────────────────────────────────
 
 describe("commitTaskPaths (explicit commit service)", () => {
+  // Fixture git must never inherit the caller's repo-location env: git
+  // exports GIT_DIR and friends when it invokes hooks such as pre-commit,
+  // and an inherited variable makes every `git` below ignore `cwd` and
+  // operate on that other repository (fixture commits landing in the real
+  // repo). Same hygiene as the source under test (gitEnvWithCleanLocation).
+  function gitEnv(): NodeJS.ProcessEnv {
+    const env = gitEnvWithCleanLocation();
+    env.GIT_CEILING_DIRECTORIES = projectDir;
+    return env;
+  }
+
   function initGit(): void {
     execSync(
       "git init -q && git config user.name 'P5' && git config user.email 'p5@test.local'",
-      { cwd: projectDir, stdio: "ignore" },
+      { cwd: projectDir, stdio: "ignore", env: gitEnv() },
     );
+    // Pin: the temp repo resolves to the temp directory, never the repo
+    // that invoked the test runner. Fails loudly if isolation regresses.
+    const top = execSync("git rev-parse --show-toplevel", {
+      cwd: projectDir,
+      encoding: "utf-8",
+      env: gitEnv(),
+    }).trim();
+    expect(top).toBe(realpathSync(projectDir));
   }
 
   function taskFileRel(id: string): string {
@@ -191,6 +212,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     return execSync("git diff --cached --name-only -z", {
       cwd: projectDir,
       encoding: "utf-8",
+      env: gitEnv(),
     })
       .split("\0")
       .filter(Boolean);
@@ -203,6 +225,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     execSync("git add owned.txt foreign.txt && git commit -qm init", {
       cwd: projectDir,
       stdio: "ignore",
+      env: gitEnv(),
     });
     const created = createTask(projectDir, {
       title: "commit me",
@@ -215,6 +238,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     const headBefore = execSync("git rev-parse HEAD", {
       cwd: projectDir,
       encoding: "utf-8",
+      env: gitEnv(),
     }).trim();
     expect(headBefore.length).toBeGreaterThan(0);
     // A pathspec commit records working-tree content: modify the owned path
@@ -223,7 +247,11 @@ describe("commitTaskPaths (explicit commit service)", () => {
     // unrelated change for another lane, which must survive the commit.
     writeFileSync(join(projectDir, "owned.txt"), "owned v2\n");
     writeFileSync(join(projectDir, "foreign.txt"), "foreign v2\n");
-    execSync("git add foreign.txt", { cwd: projectDir, stdio: "ignore" });
+    execSync("git add foreign.txt", {
+      cwd: projectDir,
+      stdio: "ignore",
+      env: gitEnv(),
+    });
 
     const r = commitTaskPaths(projectDir, created.id, "do work", ["owned.txt"]);
     expect(r.ok).toBe(true);
@@ -249,6 +277,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     execSync("git add other.txt && git commit -qm init", {
       cwd: projectDir,
       stdio: "ignore",
+      env: gitEnv(),
     });
     const created = createTask(projectDir, {
       title: "scoped",
@@ -260,7 +289,11 @@ describe("commitTaskPaths (explicit commit service)", () => {
     const rel = taskFileRel(created.id);
     // Modify the task file (unstaged) and stage an unrelated path.
     writeFileSync(join(projectDir, "unrelated.txt"), "u\n");
-    execSync("git add unrelated.txt", { cwd: projectDir, stdio: "ignore" });
+    execSync("git add unrelated.txt", {
+      cwd: projectDir,
+      stdio: "ignore",
+      env: gitEnv(),
+    });
 
     const r: TaskCommitResult = commitTaskPaths(
       projectDir,
@@ -285,6 +318,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     execSync("git add a.txt && git commit -qm init", {
       cwd: projectDir,
       stdio: "ignore",
+      env: gitEnv(),
     });
     const created = createTask(projectDir, {
       title: "clean",
@@ -296,6 +330,7 @@ describe("commitTaskPaths (explicit commit service)", () => {
     const head = execSync("git rev-parse HEAD", {
       cwd: projectDir,
       encoding: "utf-8",
+      env: gitEnv(),
     }).trim();
     const r = commitTaskPaths(projectDir, created.id, "nothing new");
     expect(r.ok).toBe(true);

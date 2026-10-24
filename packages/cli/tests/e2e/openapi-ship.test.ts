@@ -26,7 +26,12 @@ process.env.VIBEFLOW_TELEMETRY = "0";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(join(HERE, "..", "..", "..", ".."));
-const DIST_DIR = resolve(process.cwd(), "dist");
+// ADR-adjacent rule: never resolve build artifacts from process.cwd() — the
+// suite root (packages/cli) and the invoker cwd differ whenever this file is
+// run by absolute path from the repo root or /tmp, so cwd-based resolution
+// lies depending on where you stand. Anchor at the module location instead.
+const PKG_ROOT = resolve(join(HERE, "..", ".."));
+const DIST_DIR = join(PKG_ROOT, "dist");
 
 function readDoc(name: string): string {
   return readFileSync(join(REPO_ROOT, "docs", "api", name), "utf-8");
@@ -42,6 +47,19 @@ function readDist(name: string): string {
 }
 
 describe("openapi-ship (dist): shipped spec files equal the checked-in spec", () => {
+  it("regression: DIST_DIR is anchored at the package root, not process.cwd()", () => {
+    expect(DIST_DIR).toBe(join(PKG_ROOT, "dist"));
+    expect(PKG_ROOT).toBe(resolve(join(HERE, "..", "..")));
+  });
+
+  it("regression: a missing artifact fails loudly naming the absolute path looked for", () => {
+    const name = "__regression_probe__.json";
+    const abs = join(DIST_DIR, name);
+    expect(resolve(abs)).toBe(abs);
+    expect(existsSync(abs)).toBe(false);
+    expect(() => readDist(name)).toThrow(abs);
+  });
+
   it("dist/openapi.json is byte-identical to docs/api/openapi.json", () => {
     expect(readDist("openapi.json")).toBe(readDoc("openapi.json"));
   });

@@ -14,7 +14,8 @@
  */
 
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { getFreePort } from "../ports.js";
@@ -183,7 +184,11 @@ export { stopMcpForTests, getSessionCount };
  * runs, the suite exercises the shipped `dist/index.js` exactly as before.
  */
 const CLI_PATH =
-  process.env.VIBEFLOW_E2E_CLI ?? join(process.cwd(), "dist", "index.js");
+  process.env.VIBEFLOW_E2E_CLI ??
+  // Never process.cwd(): the invoker cwd differs from the package root
+  // whenever a spec runs by absolute path from the repo root or /tmp.
+  // Anchor at the module location (tests/e2e → packages/cli/dist).
+  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "index.js");
 
 export function isolatedEnv(tmpHome: string): NodeJS.ProcessEnv {
   return { ...process.env, HOME: tmpHome, VIBEFLOW_TELEMETRY: "0" };
