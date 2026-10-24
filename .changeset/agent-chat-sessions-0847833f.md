@@ -2,10 +2,4 @@
 "@vibeflow-tools/cli": patch
 ---
 
-Agent chat foundation (ticket 0847833f, part 1, behind
-`VIBEFLOW_FEATURES=CHAT`). New server-side chat session manager: one
-long-lived `pi --mode rpc` child per chat session (LF-only JSONL
-framing, per-command correlation, idle expiry, concurrency cap), plus
-the pure pi→overlay event mapper (`agent:token` / `agent:tool-call` /
-`agent:tool-result` / `agent:done`). No routes wired yet — sessions and
-mapping ship first with bulletproof unit coverage.
+Behind `VIBEFLOW_FEATURES=CHAT`: each chat session now runs one long-lived assistant process, so a conversation keeps context across messages instead of restarting every turn. Idle sessions expire and concurrent sessions are capped. Assistant output is mapped to live UI events for streamed text, tool calls, tool results, and completion.

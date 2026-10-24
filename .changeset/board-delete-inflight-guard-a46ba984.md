@@ -2,4 +2,4 @@
 "@vibeflow-tools/ui": patch
 ---
 
-Board delete modal blocks Cancel while the delete request is in flight (ticket a46ba984): Cancel disabled, progress state on the confirm button, Escape/backdrop ignored. On failure Cancel re-enables and the error is shown.
+The board delete dialog now blocks Cancel while the delete request is in flight: Cancel is disabled, the confirm button shows progress, and Escape/backdrop are ignored. If the request fails, Cancel re-enables and the error is shown.

@@ -2,4 +2,4 @@
 "@vibeflow-tools/ui": patch
 ---
 
-Tag bulk-remove confirmation (ticket db2fce26): Enter no longer confirms from any focused control — `ConfirmModal` only confirms when its own confirm button is focused (or focus is outside buttons), so focus-Cancel + Enter can never delete. Close/cancel requests (Escape, Cancel, backdrop) are ignored while a removal is pending via a synchronous in-flight ref, so confirm → Escape → confirm can never put two calls in flight; the dialog stays open on its spinner until the first call settles.
+Tag bulk-remove confirmation is now hard to trigger by accident: Enter no longer confirms from any focused control — only the confirm button (or focus outside buttons) confirms. Closing the dialog (Escape, Cancel, backdrop) is ignored while a removal is pending, so two removals can never be put in flight; the dialog stays on its spinner until the first call settles.

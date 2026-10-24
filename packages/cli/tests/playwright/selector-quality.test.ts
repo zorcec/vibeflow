@@ -71,8 +71,12 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
 </html>`;
 
 async function waitForShadowRoot(page: Page): Promise<void> {
+  // NOTE: the timeout belongs in the THIRD argument (options). Passing it
+  // as the second argument sends it as `arg` to the predicate and disables
+  // the timeout entirely (infinite wait → hook timeout instead of failure).
   await page.waitForFunction(
     () => !!(document.querySelector("#vibeflow-studio-root") as HTMLElement)?.shadowRoot,
+    undefined,
     { timeout: 10_000 },
   );
 }
@@ -152,9 +156,15 @@ describe("CSS selector quality — data-task-id / data-id support", () => {
     const appExpress = express();
     const overlayScript = getOverlayScript(API_PORT);
     appExpress.get("/", (_req, res) => {
+      // NOTE: the replacement MUST be a function. String.replace() treats
+      // `$` patterns ($`, $', $&, $n) in a string replacement specially,
+      // and the overlay bundle contains `$`+backtick sequences (minified
+      // template literals). A string replacement silently splices copies of
+      // the page HTML into the bundle, producing a SyntaxError at parse and
+      // an overlay that never mounts.
       const html = TEST_PAGE_HTML.replace(
         "</body>",
-        `<script data-proto-overlay="test">${overlayScript}</script></body>`,
+        () => `<script data-proto-overlay="test">${overlayScript}</script></body>`,
       );
       res.type("html").send(html);
     });

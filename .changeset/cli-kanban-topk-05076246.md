@@ -2,4 +2,4 @@
 "@vibeflow-tools/cli": patch
 ---
 
-CLI online listings use the v0 kanban ordering contract (ticket 05076246, server commits afcb4a41 + LANE Z scope): the default unfiltered root-only listing requests `?scope=roots&sort=kanban&limit=K`, `--children` and pushable-status-filtered listings request `?sort=kanban&limit=K`, each rendering the first page in ONE request with the SAME rows as the full-scan client sort. `--status done`, type/user/tag filters, and prefix resolution stay full-scan with the reason named at the decision point; old servers that ignore or refuse `sort`/`scope` fall back to the full scan. Documents `sort` and `scope` in the public OpenAPI spec.
+Online listings now request the board's kanban order from the server: the default unfiltered root-only listing and the `--children` / status-filtered listings each render the first page in one request with the same rows as a full client-side sort. `--status done`, type/user/tag filters, and prefix resolution still read the full board; servers that ignore the new parameters fall back to the full scan automatically.

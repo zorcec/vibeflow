@@ -2,9 +2,4 @@
 "@vibeflow-tools/cli": patch
 ---
 
-Login-time push uploads file attachments (ticket 0aac5938). The
-login-time push did tasks → links and stopped, silently dropping every
-attachment; it now runs the same shared phase-3 uploader as standalone
-push (batch when probed, sequential on old servers). Login never deletes
-local files, so upload failures only warn — a later `vibeflow push`
-retries them.
+Login-time push now uploads file attachments. It runs the same uploader as standalone `push`, so attachments are no longer silently dropped at login. Login never deletes local files, so upload failures only warn — a later `vibeflow push` retries them.

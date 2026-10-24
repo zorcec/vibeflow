@@ -2,4 +2,4 @@
 "@vibeflow-tools/cli": patch
 ---
 
-Bulk push paces chunk POSTs with a 5s breather between chunks (ticket 7fa3ef3b), so back-to-back 100-task batch inserts and their broadcasts don't saturate the small server and disturb other users. Skipped before the first chunk and on 429-resume re-POSTs (which already waited). Override with `pacingDelayMs` (`0` disables).
+Large pushes now pause 5 seconds between chunk uploads, so back-to-back 100-task batch inserts no longer saturate the small server and disturb other users. The pause is skipped before the first chunk and on rate-limit retries that already waited. Override with `pacingDelayMs` (`0` disables).

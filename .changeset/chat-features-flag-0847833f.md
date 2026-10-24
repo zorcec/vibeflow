@@ -2,8 +2,4 @@
 "@vibeflow-tools/cli": patch
 ---
 
-Agent chat flag is now `VIBEFLOW_FEATURES=CHAT` instead of a dedicated
-`VIBEFLOW_AGENT_CHAT=1`. One env var gates every opt-in surface; the
-value is a comma- and/or space-separated list (`CHAT,FOO BAR`) matched
-case-insensitively, so future flags need no new plumbing. Behavior with
-the flag absent is unchanged (chat fully off, zero surface).
+The agent-chat opt-in is now `VIBEFLOW_FEATURES=CHAT` instead of the dedicated `VIBEFLOW_AGENT_CHAT=1`. One variable gates every opt-in surface; the value is a comma- and/or space-separated list matched case-insensitively, so future opt-ins reuse the same variable. With the flag absent, chat stays fully off.

@@ -117,6 +117,57 @@ async function waitForTaskOnBoard(
   );
 }
 
+/**
+ * Drag a card from the todo lane into another lane with the REAL pointer.
+ *
+ * Not `dragTo`: the board is a nowrap strip (owner reversal of s5dfufqs), so
+ * at a laptop viewport the target lane starts beyond the right edge. A drop
+ * outside the visible area is never delivered — the browser sends `dragend`,
+ * not `drop` — and `dragTo` scrolls the TARGET into view, which scrolls the
+ * SOURCE out, so nothing is ever dropped. A user scrolls while holding the
+ * card; this does the same, then releases over the destination lane.
+ */
+async function dragCardToLane(
+  page: import("@playwright/test").Page,
+  taskId: string,
+  laneId: string,
+): Promise<boolean> {
+  // WIDEN the viewport for the drag instead of scrolling mid-gesture.
+  //
+  // The board is a nowrap strip (owner reversal of s5dfufqs): five 320px lanes
+  // are 1704px, so at this file's 1440px viewport the destination lane starts
+  // beyond the right edge. A drop outside the visible area is never delivered
+  // (the browser sends `dragend`, not `drop`) and `dragTo` scrolls the TARGET
+  // into view, which scrolls the SOURCE out — the drop silently does nothing.
+  // Holding the card and scrolling by hand is a real user path but inherently
+  // racy in a synthetic pointer; 1800px makes the whole strip visible so the
+  // guard tests the DROP, which is what it is about. The scroll behaviour has
+  // its own guards (ui layout-contract pins + the stage browser contract).
+  const original = page.viewportSize();
+  await page.setViewportSize({ width: 1800, height: 900 });
+  try {
+    let patched = false;
+    const onResponse = (res: import("@playwright/test").Response) => {
+      if (res.request().method() === "PATCH" && res.url().includes(taskId)) {
+        patched = res.status() < 400;
+      }
+    };
+    page.on("response", onResponse);
+    const card = page
+      .locator(`[data-column-id="todo"] [data-task-id="${taskId}"]`)
+      .first();
+    const column = page.locator(`[data-column-id="${laneId}"] .column-scroll`);
+    await card.dragTo(column);
+    for (let i = 0; i < 20 && !patched; i++) {
+      await page.waitForTimeout(100);
+    }
+    page.off("response", onResponse);
+    return patched;
+  } finally {
+    if (original) await page.setViewportSize(original);
+  }
+}
+
 describe("Kanban board", () => {
   let browser: Browser;
   let context: BrowserContext;
@@ -2161,8 +2212,14 @@ describe("Kanban board", () => {
     const sourceCard = page.locator(`[data-task-id="${task.id}"]`).first();
     const doneColumn = page.locator('[data-column-id="done"] .column-scroll');
 
-    // Perform drag and drop
-    await sourceCard.dragTo(doneColumn);
+    // Drag with the real pointer, not `dragTo`. The board is a NOWRAP strip
+    // (owner reversal of s5dfufqs) and five 320px lanes are 1704px wide, so
+    // the done lane starts beyond the right edge: `dragTo` scrolls the target
+    // into view, which scrolls the SOURCE out, and the drop never lands. A
+    // user instead drags to the right edge, lets the board auto-scroll, and
+    // drops — which is what this does. Same geometry the real-pointer drag
+    // suite asserts; here we only want the status change.
+    await dragCardToLane(page, task.id, "done");
 
     // Wait for the task to appear in the done column (optimistic update or WS)
     await page.waitForFunction(
@@ -2207,9 +2264,7 @@ describe("Kanban board", () => {
       { timeout: 5_000 },
     );
 
-    const sourceCard = page.locator(`[data-task-id="${task.id}"]`).first();
-    const doneColumn = page.locator('[data-column-id="done"] .column-scroll');
-    await sourceCard.dragTo(doneColumn);
+    expect(await dragCardToLane(page, task.id, "done")).toBe(true);
 
     // Wait for optimistic move to done column
     await page.waitForFunction(
