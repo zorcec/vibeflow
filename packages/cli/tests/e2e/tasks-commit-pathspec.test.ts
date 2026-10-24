@@ -206,13 +206,20 @@ describe("tasks --commit pathspec", () => {
     seedTask(store, `ab${"1".repeat(30)}`);
     seedTask(store, `ab${"2".repeat(30)}`);
 
-    const { stdout, code } = await spawnCli(
+    const { stdout, stderr, code } = await spawnCli(
       ["tasks", store, "--commit", "--task", "ab", "--message", "probe", "--dry-run"],
       { cwd: store, home },
     );
 
     expect(code).not.toBe(0);
-    expect(stdout).toContain("Ambiguous");
+    // Refusals are written to STDERR by `outputEnvelope` — every machine
+    // consumer reads the error channel, and stdout carries only payloads.
+    // This assertion used to read stdout and passed while the commit path
+    // printed with console.log; the operation migration moved it to the
+    // envelope and the guard kept asserting a channel the CLI no longer
+    // uses, so it failed for a reason that was not a defect.
+    expect(stderr).toContain("Ambiguous");
+    expect(stdout).toBe("");
   });
 });
 
