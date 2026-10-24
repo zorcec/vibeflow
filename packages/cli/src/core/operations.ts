@@ -692,6 +692,25 @@ export {
   type CommitTaskPathsResult,
 } from "./operations/git.js";
 export {
+  getChangelog,
+  getOpenApiDocument,
+  manageTelemetry,
+  linkCommitAuthors,
+  type GetChangelogInput,
+  type GetChangelogData,
+  type GetChangelogResult,
+  type GetOpenApiDocumentInput,
+  type GetOpenApiDocumentData,
+  type GetOpenApiDocumentResult,
+  type TelemetryAction,
+  type ManageTelemetryInput,
+  type ManageTelemetryData,
+  type ManageTelemetryResult,
+  type LinkCommitAuthorsInput,
+  type LinkCommitAuthorsData,
+  type LinkCommitAuthorsResult,
+} from "./operations/auxiliary.js";
+export {
   normalizeTaskStore,
   reindexTaskSortKeys,
   type NormalizeTaskStoreInput,

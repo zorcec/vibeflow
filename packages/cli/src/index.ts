@@ -73,10 +73,8 @@ import { getApiUrl, surfacePath } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
 import { pull } from "./commands/pull.js";
-import { showChangelog } from "./commands/changelog.js";
 import { changelogText, readChangelogContent } from "./core/changelog.js";
 import { clearAuthState, listAuthStateFiles } from "./commands/auth.js";
-import { printOpenApi } from "./commands/openapi.js";
 import { runVerify } from "./commands/verify.js";
 import { runVerifyTool, VERIFY_TOOLS } from "./commands/verify-tools.js";
 import {
@@ -96,12 +94,7 @@ import { readWorkspace } from "./auth/workspace.js";
 import { readFileSync, existsSync, statSync, unlinkSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
-import {
-  capture,
-  flushTelemetry,
-  setTelemetryEnabled,
-  getTelemetryStatus,
-} from "./telemetry.js";
+import { capture, flushTelemetry } from "./telemetry.js";
 import { ExitCode } from "./core/exit-codes.js";
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
@@ -6209,15 +6202,27 @@ authors
   .option("--dry-run", "Report what would change without writing anything")
   .action(async (dir: string, opts: { dryRun?: boolean; json?: boolean }) => {
     capture("command_run", { surface: "cli", command: "authors link" });
+    // Flag parsing and the exit-code rule stay here; the enrichment itself
+    // runs in the shared `linkCommitAuthors` operation
+    // (core/operations/auxiliary.ts), so the request shape and the report
+    // cannot drift from any future caller. The renderer below performs no
+    // store or git reads of its own.
+    const authorsOpCtx: OperationContext = {
+      projectDir: resolve(dir),
+      mode: "local",
+    };
+    const linkResult = await operations.linkCommitAuthors(authorsOpCtx, {
+      ...(opts.dryRun === true ? { dryRun: true as const } : {}),
+    });
+    const result = linkResult.data.report;
     // Loaded on demand: a top-level import would run git/fs module init for
     // every command, which measurably delays the CLI's first output (and broke
     // a test that waits for the program to go quiet).
-    const { authorsLink, formatAuthorsLinkResult } = await import(
+    const { formatAuthorsLinkResult } = await import(
       "./commands/authors.js"
     );
-    const result = authorsLink(dir, opts);
     if (opts.json === true) console.log(JSON.stringify(result));
-    else console.log(formatAuthorsLinkResult(result, opts.dryRun === true));
+    else console.log(formatAuthorsLinkResult(result, linkResult.data.dryRun));
     // Enrichment that could not run is a FAILURE, not a success with a note:
     // `authors link && git commit` must not sail through after doing nothing.
     if (!result.gitAvailable) process.exitCode = ExitCode.GENERAL;
@@ -6232,8 +6237,24 @@ program
   .option("--status", "Show current telemetry status")
   .action(
     async (opts: { enable?: boolean; disable?: boolean; status?: boolean }) => {
-      if (opts.disable) {
-        setTelemetryEnabled(false);
+      // Flag parsing and printing stay here; the enable/disable/status
+      // decision and every config read/write run in the shared
+      // `manageTelemetry` operation (core/operations/auxiliary.ts).
+      const telemetryOpCtx: OperationContext = {
+        projectDir: resolve("."),
+        mode: "local",
+      };
+      const telemetryResult = await operations.manageTelemetry(telemetryOpCtx, {
+        action:
+          opts.disable === true
+            ? "disable"
+            : opts.enable === true
+              ? "enable"
+              : "status",
+      });
+      const { action, enabled, anonymousId, envOverride } =
+        telemetryResult.data;
+      if (action === "disable") {
         console.log(
           chalk.yellow("Telemetry disabled. No usage data will be collected."),
         );
@@ -6244,8 +6265,7 @@ program
         );
         return;
       }
-      if (opts.enable) {
-        setTelemetryEnabled(true);
+      if (action === "enable") {
         console.log(
           chalk.green(
             "Telemetry enabled. Thank you for helping improve Vibeflow!",
@@ -6254,8 +6274,6 @@ program
         return;
       }
       // Default: show status
-      const { enabled, anonymousId } = getTelemetryStatus();
-      const envOverride = process.env.VIBEFLOW_TELEMETRY === "0";
       console.log(chalk.bold("Telemetry status:"));
       console.log(
         `  Enabled: ${enabled ? chalk.green("yes") : chalk.yellow("no")}`,
@@ -6451,7 +6469,31 @@ program
   .action(async (opts: { all?: boolean }) => {
     capture("command_run", { surface: "cli", command: "changelog" });
     await flushTelemetry();
-    showChangelog({ all: opts.all === true });
+    // Content selection runs in the shared `getChangelog` operation
+    // (core/operations/auxiliary.ts); this renderer only prints.
+    const changelogOpCtx: OperationContext = {
+      projectDir: resolve("."),
+      mode: "local",
+    };
+    const changelogResult = await operations.getChangelog(changelogOpCtx, {
+      ...(opts.all === true ? { all: true as const } : {}),
+    });
+    const { text, empty, all } = changelogResult.data;
+    if (empty) {
+      console.log(chalk.dim("  No changelog found for this installation."));
+      return;
+    }
+    console.log();
+    console.log(text);
+    console.log();
+    if (!all) {
+      console.log(
+        chalk.dim("  Run ") +
+          chalk.cyan("vibeflow changelog --all") +
+          chalk.dim(" to see every release."),
+      );
+      console.log();
+    }
   });
 
 program
@@ -6461,7 +6503,21 @@ program
   .action(async (opts: { yaml?: boolean }) => {
     capture("command_run", { surface: "cli", command: "openapi" });
     await flushTelemetry();
-    printOpenApi({ yaml: opts.yaml === true });
+    // Spec selection runs in the shared `getOpenApiDocument` operation
+    // (core/operations/auxiliary.ts); the EPIPE-quiet stdout write below is
+    // transport plumbing that stays in the renderer.
+    const openapiOpCtx: OperationContext = {
+      projectDir: resolve("."),
+      mode: "local",
+    };
+    const openapiResult = await operations.getOpenApiDocument(openapiOpCtx, {
+      ...(opts.yaml === true ? { yaml: true as const } : {}),
+    });
+    process.stdout.write(openapiResult.data.content, (err) => {
+      if (err === undefined || err === null) return;
+      if ((err as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
+      else throw err;
+    });
   });
 
   return program;

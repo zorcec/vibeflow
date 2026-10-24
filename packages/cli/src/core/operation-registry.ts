@@ -152,8 +152,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["changelog", "changelog --all"],
     mcpTools: [],
-    operationFn: null,
-    reason: "Raw packed-text selection; CLI-only, no envelope (P6).",
+    operationFn: "getChangelog",
+    reason:
+      "Raw packed-text selection through the shared operation; CLI-only, no envelope (P6 increment 1).",
   },
   getIntegrationGuide: {
     id: "getIntegrationGuide",
@@ -173,8 +174,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["openapi", "openapi --yaml"],
     mcpTools: [],
-    operationFn: null,
-    reason: "Raw bundled spec print; CLI-only, no envelope (P6).",
+    operationFn: "getOpenApiDocument",
+    reason:
+      "Raw bundled spec selection through the shared operation; CLI-only, no envelope (P6 increment 1).",
   },
   getProject: {
     id: "getProject",
@@ -216,9 +218,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["authors", "authors link"],
     mcpTools: [],
-    operationFn: null,
+    operationFn: "linkCommitAuthors",
     reason:
-      "Git-tracked store enrichment must stay a deliberate human action, never a remotely triggered write (P6).",
+      "Git-tracked store enrichment through the shared operation; stays a deliberate human action, never a remotely triggered write (P6 increment 1).",
   },
   listTasks: {
     id: "listTasks",
@@ -279,8 +281,9 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     mapping: "missing",
     cli: ["telemetry", "telemetry --enable", "telemetry --disable", "telemetry --status"],
     mcpTools: [],
-    operationFn: null,
-    reason: "Global telemetry opt-in/out config; CLI-only (P6).",
+    operationFn: "manageTelemetry",
+    reason:
+      "Global telemetry opt-in/out config through the shared operation; CLI-only (P6 increment 1).",
   },
   normalizeTaskStore: {
     id: "normalizeTaskStore",
@@ -408,8 +411,14 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
  * the ratchet reads as the second coverage source.
  */
 export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
+  "authors link --dry-run": "linkCommitAuthors",
+  "changelog --all": "getChangelog",
   "kanban --host": "startKanban",
   "kanban --port": "startKanban",
+  "openapi --yaml": "getOpenApiDocument",
+  "telemetry --disable": "manageTelemetry",
+  "telemetry --enable": "manageTelemetry",
+  "telemetry --status": "manageTelemetry",
   "pull --board": "pullFromBoard",
   "pull --dry-run": "pullFromBoard",
   "pull --json": "pullFromBoard",

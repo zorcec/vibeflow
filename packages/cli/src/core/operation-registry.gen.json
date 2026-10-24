@@ -507,7 +507,7 @@
         "changelog",
         "changelog --all"
       ],
-      "operationFn": null,
+      "operationFn": "getChangelog",
       "requirement": "none"
     },
     "getIntegrationGuide": {
@@ -530,7 +530,7 @@
         "openapi",
         "openapi --yaml"
       ],
-      "operationFn": null,
+      "operationFn": "getOpenApiDocument",
       "requirement": "none"
     },
     "getProject": {
@@ -576,7 +576,7 @@
         "authors",
         "authors link"
       ],
-      "operationFn": null,
+      "operationFn": "linkCommitAuthors",
       "requirement": "local-only"
     },
     "listTasks": {
@@ -641,7 +641,7 @@
         "telemetry --enable",
         "telemetry --status"
       ],
-      "operationFn": null,
+      "operationFn": "manageTelemetry",
       "requirement": "local-only"
     },
     "normalizeTaskStore": {
@@ -769,8 +769,11 @@
     }
   },
   "registryCliFlags": {
+    "authors link --dry-run": "linkCommitAuthors",
+    "changelog --all": "getChangelog",
     "kanban --host": "startKanban",
     "kanban --port": "startKanban",
+    "openapi --yaml": "getOpenApiDocument",
     "pull --board": "pullFromBoard",
     "pull --dry-run": "pullFromBoard",
     "pull --json": "pullFromBoard",
@@ -817,6 +820,9 @@
     "tasks --user": "listTasks",
     "tasks --verify-reason": "updateTask",
     "tasks --yes": "deleteTaskOperation",
+    "telemetry --disable": "manageTelemetry",
+    "telemetry --enable": "manageTelemetry",
+    "telemetry --status": "manageTelemetry",
     "verify --filter": "inspectVerificationEvidence",
     "verify --json": "verifyTaskOp",
     "verify --timeout": "verifyTaskOp",
