@@ -69,8 +69,8 @@ const BOGUS_PATH = "/this-path-does-not-exist-on-the-board";
 
 /**
  * Where Playwright's browsers actually are. The CLI child below runs with an
- * isolated HOME (so a real `~/.vibeflow/token` on the machine cannot flip
- * `tasks` into SaaS mode) — but Playwright resolves its browser download under
+ * isolated HOME (so real credentials on the machine cannot flip `tasks`
+ * into SaaS mode — ADR-0005) — but Playwright resolves its browser download under
  * HOME too, so without this the child answers E_PLAYWRIGHT_MISSING.
  */
 const BROWSERS_PATH =
@@ -103,9 +103,9 @@ const EVIDENCE_FILES = [
 ];
 
 /**
- * Run the CLI against the scratch project with an isolated HOME, so a real
- * `~/.vibeflow/token` on the machine cannot silently flip `tasks` into SaaS
- * mode. Async on purpose: the board this spec started lives in THIS event loop,
+ * Run the CLI against the scratch project with an isolated HOME, so real
+ * machine credentials cannot silently flip `tasks` into SaaS mode (ADR-0005).
+ * Async on purpose: the board this spec started lives in THIS event loop,
  * and the verify run needs it to answer chromium's page load.
  */
 function runCli(
@@ -181,8 +181,8 @@ beforeAll(async () => {
     try {
       port = await getFreePort();
       // @internal test hooks — force OFFLINE mode deterministically; without
-      // them the server reads the real ~/.vibeflow/token and hides every local
-      // task API behind a 503.
+      // them the server reads the machine's real credentials and hides every
+      // local task API behind a 503.
       instance = await serve(undefined, {
         port,
         open: false,
