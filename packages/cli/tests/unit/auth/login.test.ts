@@ -22,7 +22,10 @@ vi.mock("../../../src/auth/credentials.js", async (importOriginal) => {
   const actual = await importOriginal<
     typeof import("../../../src/auth/credentials.js")
   >();
-  return { ...actual, writeCredential: vi.fn() };
+  // Both write and read are mocked: login() must never touch the real
+  // HOME credential store in unit tests (ticket 64204dec reuse branch
+  // reads via readCredential).
+  return { ...actual, writeCredential: vi.fn(), readCredential: vi.fn() };
 });
 vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
   const actual = await importOriginal<
@@ -54,7 +57,7 @@ vi.mock("node:readline", () => ({
 }));
 
 import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
-import { writeCredential } from "../../../src/auth/credentials.js";
+import { readCredential, writeCredential } from "../../../src/auth/credentials.js";
 import {
   readProjectPointer,
   writeProjectPointer,
@@ -320,6 +323,8 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     vi.mocked(settingsModule.readGlobalSettings).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
     vi.mocked(writeCredential).mockReset();
+    vi.mocked(readCredential).mockReset();
+    vi.mocked(readCredential).mockResolvedValue(null);
     vi.mocked(writeProjectPointer).mockReset();
     vi.mocked(readProjectPointer).mockReset();
     vi.mocked(readProjectPointer).mockReturnValue(null);
@@ -782,6 +787,136 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     await login(projectDir);
 
     expect(process.exitCode).toBe(4);
+  });
+
+  // Ticket 64204dec: the reuse shape must rotate, not die as "expired".
+  it("reused without a local credential sends rotate and completes", async () => {
+    const fresh = "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq";
+    const workspace = { id: "ws-1", name: "My Board", url: "http://localhost:3000", icon: "📋", email: null };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (u.endsWith("/api/v0/auth/device-init")) {
+        return { ok: true, json: () => Promise.resolve({ deviceCode: "device-123", userCode: "AB", verificationUrl: "http://localhost:3000/activate", expiresIn: 30 }) };
+      }
+      if (u.endsWith("/api/v0/auth/device-poll")) {
+        // No rotate flag yet → reuse signal; rotate flag → fresh PAT.
+        if (body.rotate === true) {
+          return { ok: true, json: () => Promise.resolve({ token: fresh }) };
+        }
+        expect(body).toEqual({ deviceCode: "device-123" });
+        return { ok: true, json: () => Promise.resolve({ reused: true, tokenId: "pat-live", name: "field-box (Linux)" }) };
+      }
+      if (u.endsWith("/api/v0/me")) {
+        return { ok: true, json: () => Promise.resolve({ email: "user@example.com" }) };
+      }
+      if (u.endsWith("/api/v0/settings")) {
+        return { ok: true, json: () => Promise.resolve({ settings: {} }) };
+      }
+      if (u.includes("/api/v0/boards")) {
+        return { ok: true, json: () => Promise.resolve({ items: [workspace], nextCursor: null }) };
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login(projectDir);
+
+    // One plain poll (reuse) plus exactly one rotate request — and the
+    // fresh PAT lands in the project-scoped store, board linked.
+    const polls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/api/v0/auth/device-poll"));
+    expect(polls).toHaveLength(2);
+    expect(polls[1]?.[1]).toMatchObject({ body: JSON.stringify({ deviceCode: "device-123", rotate: true }) });
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({ token: fresh, workspaceId: "ws-1" }),
+    );
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, { apiUrl: TEST_API_URL, id: "ws-1" });
+    expect(logSpy.mock.calls.map((c) => c.join(" ")).join("\n")).toContain("revoked");
+  });
+
+  // Ticket 64204dec: reuse with a live credential adopts, never mints.
+  it("reused with a live local credential adopts the link and mints nothing", async () => {
+    const live = "vbf_pat_live01_live-live-live-live-live-live-live-live";
+    vi.mocked(readCredential).mockResolvedValue({
+      token: live,
+      workspaceId: "ws-9",
+      account: "adopt@example.com",
+      updatedAt: new Date().toISOString(),
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (u.endsWith("/api/v0/auth/device-init")) {
+        return { ok: true, json: () => Promise.resolve({ deviceCode: "device-123", userCode: "AB", verificationUrl: "http://localhost:3000/activate", expiresIn: 30 }) };
+      }
+      if (u.endsWith("/api/v0/auth/device-poll")) {
+        if (body.rotate === true) throw new Error("must not rotate when a live credential exists");
+        return { ok: true, json: () => Promise.resolve({ reused: true, tokenId: "pat-live", name: "field-box (Linux)" }) };
+      }
+      if (u.endsWith("/api/v0/me")) {
+        return { ok: true, json: () => Promise.resolve({ email: "adopt@example.com" }) };
+      }
+      if (u.endsWith("/api/v0/settings")) {
+        return { ok: true, json: () => Promise.resolve({ settings: {} }) };
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login(projectDir);
+
+    // Adopted: the stored secret is untouched, the pointer is written,
+    // and the user is told no new token was minted.
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({ token: live, workspaceId: "ws-9" }),
+    );
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, { apiUrl: TEST_API_URL, id: "ws-9" });
+    const printed = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(printed).toMatch(/existing token/);
+    expect(printed).toContain("no new token minted");
+  });
+
+  // Ticket 64204dec: an unknown shape fails LOUDLY — never "pending".
+  it("unknown poll shape fails loudly with UNEXPECTED_DEVICE_POLL_RESPONSE", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          deviceCode: "device-123",
+          userCode: "ABCD-1234",
+          verificationUrl: "http://localhost:3000/activate",
+          expiresIn: 30,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ frobnicate: true }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login(projectDir);
+
+    // Loud, named, and terminal: one poll, no retry loop, no timeout.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(process.exitCode).toBe(4);
+    const printed = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(printed).toContain("UNEXPECTED_DEVICE_POLL_RESPONSE");
+    expect(printed).toContain("frobnicate");
+    expect(writeCredential).not.toHaveBeenCalled();
   });
 });
 

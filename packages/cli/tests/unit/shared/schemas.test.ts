@@ -182,6 +182,13 @@ describe("@vibeflow/shared schemas", () => {
       ).toBe(false);
     });
 
+    it("accepts the rotate flag (ticket 64204dec)", () => {
+      expect(
+        devicePollRequestSchema.safeParse({ deviceCode: "abc", rotate: true })
+          .success,
+      ).toBe(true);
+    });
+
     it("validates device poll response - pending", () => {
       const result = devicePollResponseSchema.safeParse({ pending: true });
       expect(result.success).toBe(true);
@@ -197,6 +204,21 @@ describe("@vibeflow/shared schemas", () => {
     it("validates device poll response - expired", () => {
       const result = devicePollResponseSchema.safeParse({ expired: true });
       expect(result.success).toBe(true);
+    });
+
+    it("validates device poll response - reused (ticket 64204dec)", () => {
+      const result = devicePollResponseSchema.safeParse({
+        reused: true,
+        tokenId: "pat-live",
+        name: "field-box (Linux)",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a reuse shape without identity", () => {
+      expect(
+        devicePollResponseSchema.safeParse({ reused: true }).success,
+      ).toBe(false);
     });
   });
 });

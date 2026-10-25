@@ -174,10 +174,23 @@ export const deviceInitResponseSchema = z.object({
 
 export const devicePollRequestSchema = z.object({
   deviceCode: z.string().min(1),
+  // Ticket 64204dec: rotate asks the server to revoke the live row for
+  // this user+machine and mint a fresh PAT in the same poll. Sent only
+  // when the client holds no usable secret for the reuse signal — the
+  // secret no longer exists anywhere, so "reuse" is useless to it.
+  rotate: z.boolean().optional(),
 });
 
 export const devicePollResponseSchema = z.union([
   z.object({ pending: z.literal(true) }),
   z.object({ token: z.string().min(1) }),
   z.object({ expired: z.literal(true) }),
+  // Ticket 6e1aecea: one token per machine — a live row already exists
+  // for this user+machine, so the server mints nothing and answers with
+  // identity (never a secret). Ticket 64204dec: the CLI must handle it.
+  z.object({
+    reused: z.literal(true),
+    tokenId: z.string().min(1),
+    name: z.string(),
+  }),
 ]);

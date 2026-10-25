@@ -2,7 +2,7 @@ import chalk from "chalk";
 import open from "open";
 import readline from "node:readline";
 import select from "@inquirer/select";
-import { writeCredential } from "./credentials.js";
+import { readCredential, writeCredential } from "./credentials.js";
 import { getDeviceName, getMachineId } from "./machine.js";
 import type { WorkspaceInfo } from "./workspace.js";
 import { resolveProjectAuth } from "./project-auth.js";
@@ -1504,6 +1504,247 @@ async function promptPushLocalTasks(
 }
 
 /**
+ * Device-poll response shapes (ticket 64204dec).
+ *
+ * The server answers FOUR shapes: `{ pending: true }`, `{ token }`
+ * (authorized, code consumed), `{ expired: true }` (no row, or consumed
+ * earlier), and `{ reused: true, tokenId, name }` (one token per machine,
+ * 6e1aecea — a live token already exists for this user+machine, so the
+ * server refuses to mint a second row and leaves the device row
+ * UNCONSUMED so the client can retry).
+ */
+export type DevicePollOutcome =
+  | { kind: "pending" }
+  | { kind: "token"; token: string }
+  | { kind: "expired" }
+  | { kind: "reused"; tokenId: string; name: string };
+
+/**
+ * Ticket 64204dec: an unknown poll shape is a hard, named error — never
+ * "pending". Treating `{ reused: true, ... }` as pending is what
+ * converted an authorization success into a misleading
+ * "Device code expired" on the very next poll.
+ */
+export class UnexpectedDevicePollResponseError extends Error {
+  /** Machine-readable code: UNEXPECTED_DEVICE_POLL_RESPONSE. */
+  readonly code = "UNEXPECTED_DEVICE_POLL_RESPONSE";
+  /** Top-level keys the server actually sent (for the report). */
+  readonly keys: string[];
+  constructor(data: unknown) {
+    const keys =
+      typeof data === "object" && data !== null ? Object.keys(data) : [];
+    super(
+      `Unexpected device-poll response (keys: ${keys.length > 0 ? keys.join(", ") : "<none>"}). ` +
+        `The login server answered a shape this CLI does not understand — refusing to treat it as pending.`,
+    );
+    this.name = "UnexpectedDevicePollResponseError";
+    this.keys = keys;
+  }
+}
+
+/**
+ * Classify one device-poll body. Throws
+ * UnexpectedDevicePollResponseError on anything outside the four-shape
+ * contract — the caller fails loudly instead of polling forever. A
+ * present-but-malformed field (non-string token, reuse without identity)
+ * is unknown too: a half-shape must never be stored or adopted blindly.
+ */
+export function parseDevicePollResponse(data: unknown): DevicePollOutcome {
+  if (typeof data === "object" && data !== null) {
+    const body = data as Record<string, unknown>;
+    if (body.pending === true) return { kind: "pending" };
+    if (typeof body.token === "string" && body.token.length > 0)
+      return { kind: "token", token: body.token };
+    if (body.expired === true) return { kind: "expired" };
+    if (
+      body.reused === true &&
+      typeof body.tokenId === "string" &&
+      body.tokenId.length > 0 &&
+      typeof body.name === "string"
+    )
+      return { kind: "reused", tokenId: body.tokenId, name: body.name };
+  }
+  throw new UnexpectedDevicePollResponseError(data);
+}
+
+/**
+ * Shared post-token tail of every successful login (mint, rotate, adopt):
+ * settings sync + board selection run concurrently, then the PAT lands in
+ * the user-scoped store keyed by apiUrl and the selected board becomes
+ * THIS project's pointer (ADR-0005). Nothing global is written.
+ */
+async function completeLoginWithToken(
+  apiUrl: string,
+  pat: string,
+  resolvedDir: string,
+  farewell: "minted" | "rotated" | "reused",
+  reuseName?: string,
+): Promise<void> {
+  console.log();
+  if (farewell === "reused") {
+    console.log(
+      chalk.green(
+        `  Reusing your existing token${reuseName ? ` "${reuseName}"` : ""} — no new token minted.`,
+      ),
+    );
+  }
+  if (farewell === "rotated") {
+    console.log(
+      chalk.yellow(
+        `  This machine already had a token${reuseName ? ` ("${reuseName}")` : ""} whose secret is gone — the old row was revoked and a fresh token was minted.`,
+      ),
+    );
+  }
+  console.log(
+    chalk.green("  Logged in successfully. Now operating in online mode."),
+  );
+  const [selected] = await Promise.all([
+    fetchAndSelectWorkspace(apiUrl, pat),
+    fetchAndApplySettings(apiUrl, pat, resolvedDir),
+  ]);
+  // Project-scoped persistence (ADR-0005): the PAT lands in the
+  // user-scoped store keyed by apiUrl; the selected board becomes
+  // THIS project's pointer. Nothing global is written.
+  await writeCredential(apiUrl, {
+    token: pat,
+    workspaceId: selected?.id,
+    account: selected?.email ?? null,
+  });
+  if (selected) {
+    writeProjectPointer(resolvedDir, { apiUrl, id: selected.id });
+  }
+  // After login, ask if user wants to push local tasks
+  const pointer = readProjectPointer(resolvedDir);
+  if (pointer) {
+    await promptPushLocalTasks(resolvedDir, apiUrl, pat, {
+      id: pointer.id,
+      name: pointer.id,
+      url: apiUrl,
+      icon: null,
+    });
+  }
+}
+
+/**
+ * Reuse branch (ticket 64204dec): the server answered
+ * `{ reused: true, tokenId, name }` — a live token already exists for
+ * this user+machine, and the device row is still unconsumed.
+ *
+ * - Live local credential for this apiUrl → adopt: prove the stored
+ *   secret still authenticates (one profile read), then write/refresh
+ *   the project pointer and say so. No second token is minted.
+ * - No (or dead) local credential → rotate: ask the server for a fresh
+ *   PAT (`{ deviceCode, rotate: true }`), letting it revoke the old row
+ *   nobody can use anymore. The secret no longer exists anywhere, so
+ *   "reuse" is useless to a client that never had it.
+ */
+async function handleReusePoll(
+  apiUrl: string,
+  deviceCode: string,
+  resolvedDir: string,
+  reused: { tokenId: string; name: string },
+): Promise<"done" | "retry"> {
+  let existing: { token: string; workspaceId?: string; account?: string | null } | null = null;
+  try {
+    existing = await readCredential(apiUrl);
+  } catch {
+    existing = null;
+  }
+  if (existing?.token) {
+    // Adopt only what still authenticates: a revoked server-side secret
+    // must fall through to rotate, never be adopted blindly.
+    let alive = false;
+    try {
+      // Cloud-only path: apiUrl is the getApiUrl() SaaS base → "cloud".
+      const probe = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/profile")}`, {
+        headers: { Authorization: `Bearer ${existing.token}` },
+      });
+      alive = probe.ok;
+    } catch {
+      alive = false;
+    }
+    if (alive) {
+      console.log();
+      console.log(
+        chalk.green(
+          `  Reusing your existing token "${reused.name}" — no new token minted.`,
+        ),
+      );
+      console.log(
+        chalk.green("  Logged in successfully. Now operating in online mode."),
+      );
+      await fetchAndApplySettings(apiUrl, existing.token, resolvedDir);
+      if (existing.workspaceId) {
+        // The credential already names the linked board: adopt the link
+        // directly, no re-prompt. Refresh the stored entry (account,
+        // timestamp) while the secret stays untouched.
+        await writeCredential(apiUrl, {
+          token: existing.token,
+          workspaceId: existing.workspaceId,
+          account: existing.account ?? null,
+        });
+        writeProjectPointer(resolvedDir, { apiUrl, id: existing.workspaceId });
+      } else {
+        // No board bound yet (logged in when the account had none):
+        // run the normal selection with the adopted token.
+        const selected = await fetchAndSelectWorkspace(apiUrl, existing.token);
+        await writeCredential(apiUrl, {
+          token: existing.token,
+          workspaceId: selected?.id,
+          account: selected?.email ?? null,
+        });
+        if (selected) {
+          writeProjectPointer(resolvedDir, { apiUrl, id: selected.id });
+        }
+      }
+      return "done";
+    }
+    console.log(
+      chalk.yellow("  The stored token no longer works — requesting a fresh one…"),
+    );
+  } else {
+    console.log(
+      chalk.dim(`  This machine already has a token ("${reused.name}") — requesting a fresh one…`),
+    );
+  }
+  // Rotate: the server revokes the unusable old row, mints once, and
+  // consumes the device row with the mint (exactly-once holds). The row
+  // stays unconsumed on every other outcome, so a failed rotate is
+  // retryable on the next plain poll.
+  let rotateRes: Response | null = null;
+  try {
+    // Cloud-only path: apiUrl is the getApiUrl() SaaS base → "cloud".
+    rotateRes = await fetch(`${apiUrl}${surfacePath("cloud", "/api/cli/auth/device-poll")}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceCode, rotate: true }),
+    });
+  } catch {
+    console.error(
+      chalk.red("  Rotate request failed (network error). Retrying…"),
+    );
+    return "retry";
+  }
+  if (!rotateRes.ok) {
+    console.error(chalk.red("  Rotate request failed. Retrying…"));
+    return "retry";
+  }
+  const outcome = parseDevicePollResponse(await rotateRes.json());
+  if (outcome.kind === "token") {
+    await completeLoginWithToken(apiUrl, outcome.token, resolvedDir, "rotated", reused.name);
+    return "done";
+  }
+  if (outcome.kind === "expired") {
+    console.error(chalk.red("  Device code expired. Please try again."));
+    process.exitCode = ExitCode.AUTH;
+    return "done";
+  }
+  // Pending (or a repeated reuse the server should never send to a
+  // rotate): the device row survived — keep polling until the deadline.
+  return "retry";
+}
+
+/**
  * Project-scoped login (ADR-0005): the device flow mints a credential
  * that is stored user-scoped (`credentials.json`, keyed by apiUrl) while
  * the selected board is written as the PROJECT's pointer
@@ -1622,54 +1863,47 @@ export async function login(projectDir?: string): Promise<void> {
       continue;
     }
 
-    // The device flow issues an `api_tokens` PAT directly: the server
-    // mints it on authorization and returns the plaintext exactly once in
-    // `{ token }`. There is no other token shape — the PAT is stored
-    // verbatim and is the Bearer credential for every cloud call below
-    // (`/api/v0` via `surfacePath("cloud", …)`).
-    const data = (await pollRes.json()) as
-      | { pending: true }
-      | { token: string }
-      | { expired: true };
+    // Four-shape contract (ticket 64204dec): pending, token, expired,
+    // and reused. Anything else is a hard named error — never "pending".
+    // Treating an unknown shape as pending is what converted an
+    // authorization success into a misleading "expired" on the next poll.
+    let outcome: DevicePollOutcome;
+    try {
+      outcome = parseDevicePollResponse(await pollRes.json());
+    } catch (err) {
+      if (err instanceof UnexpectedDevicePollResponseError) {
+        console.error(chalk.red(`  Login failed: ${err.message}`));
+        console.error(chalk.dim(`  (code: ${err.code})`));
+        process.exitCode = ExitCode.AUTH;
+        return;
+      }
+      throw err;
+    }
 
-    if ("token" in data) {
-      const pat = data.token;
-      console.log();
-      console.log(
-        chalk.green("  Logged in successfully. Now operating in online mode."),
-      );
-      const [selected] = await Promise.all([
-        fetchAndSelectWorkspace(apiUrl, pat),
-        fetchAndApplySettings(apiUrl, pat, resolvedDir),
-      ]);
-      // Project-scoped persistence (ADR-0005): the PAT lands in the
-      // user-scoped store keyed by apiUrl; the selected board becomes
-      // THIS project's pointer. Nothing global is written.
-      await writeCredential(apiUrl, {
-        token: pat,
-        workspaceId: selected?.id,
-        account: selected?.email ?? null,
-      });
-      if (selected) {
-        writeProjectPointer(resolvedDir, { apiUrl, id: selected.id });
-      }
-      // After login, ask if user wants to push local tasks
-      const pointer = readProjectPointer(resolvedDir);
-      if (pointer) {
-        await promptPushLocalTasks(resolvedDir, apiUrl, pat, {
-          id: pointer.id,
-          name: pointer.id,
-          url: apiUrl,
-          icon: null,
-        });
-      }
+    if (outcome.kind === "token") {
+      // The device flow issues an `api_tokens` PAT directly: the server
+      // mints it on authorization and returns the plaintext exactly once
+      // in `{ token }`. The PAT is stored verbatim and is the Bearer
+      // credential for every cloud call below
+      // (`/api/v0` via `surfacePath("cloud", …)`).
+      await completeLoginWithToken(apiUrl, outcome.token, resolvedDir, "minted");
       return;
     }
 
-    if ("expired" in data) {
+    if (outcome.kind === "expired") {
       console.error(chalk.red("  Device code expired. Please try again."));
       process.exitCode = ExitCode.AUTH;
       return;
+    }
+
+    if (outcome.kind === "reused") {
+      // One token per machine (6e1aecea): adopt the existing link or
+      // rotate to a fresh PAT. The device row survived (unconsumed), so
+      // "retry" just keeps polling until the deadline.
+      if ((await handleReusePoll(apiUrl, deviceCode, resolvedDir, outcome)) === "done") {
+        return;
+      }
+      continue;
     }
 
     // pending — keep polling
