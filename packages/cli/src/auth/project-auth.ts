@@ -19,15 +19,22 @@ import { getLegacyTokenPath } from "./token.js";
  *
  *   explicit `--project <dir>` / positional dir (resolved by the caller)
  *     → `<project>/.vibeflow/settings.json` workspace pointer
- *       → credential for that apiUrl (+ workspaceId match)
+ *       → credential for that apiUrl
  *         → saas; otherwise local.
+ *
+ * The pointer picks the board; the credential only proves account
+ * identity (ADR-0005). The credential store is keyed by apiUrl (ONE
+ * entry per host), so `cred.workspaceId` is advisory metadata — a
+ * default for future links — and a mismatch with this project's pointer
+ * never unlinks the project: two linked projects on two boards of one
+ * account share one credential and each resolve saas on their own board.
  *
  * A project that declares nothing is local, even when the credential
  * store holds entries for other projects — a global credential is never
  * consulted for a pointer-less project. A pointer whose credential is
- * missing (or names a different workspace) resolves `unlinked`: the CLI
- * maps that to local-with-a-notice, the MCP server to a NOT_CONNECTED
- * refusal — never to another project's token, never to silent local.
+ * missing resolves `unlinked`: the CLI maps that to local-with-a-notice,
+ * the MCP server to a NOT_CONNECTED refusal — never to another
+ * project's token, never to silent local.
  */
 
 export type ProjectAuthMode = "local" | "saas";
@@ -114,18 +121,13 @@ export async function resolveProjectAuth(
         `run \`vibeflow login\` in ${abs} to link it.`,
     };
   }
-  if (cred.workspaceId !== undefined && cred.workspaceId !== pointer.id) {
-    return {
-      ...base,
-      mode: "local",
-      unlinked: true,
-      token: null,
-      workspaceId: pointer.id,
-      notice:
-        `This project is linked to board ${pointer.id}, but the stored credential ` +
-        `names board ${cred.workspaceId} — run \`vibeflow login\` in ${abs} to link it.`,
-    };
-  }
+  // POINTER_GOVERNS_BOARD: a credential whose stored workspaceId names a
+  // different board is still this project's proof of identity — the token
+  // is account-scoped, and the credential store holds ONE entry per host
+  // for every project on that host. Resolve saas on the POINTER's board;
+  // the stored workspaceId stays advisory metadata (a default for future
+  // links), never a hard unlink. (The mismatch gate that used to return
+  // local+unlinked here broke every multi-project/multi-board account.)
   return {
     ...base,
     mode: "saas",

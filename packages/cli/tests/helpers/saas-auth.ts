@@ -13,8 +13,11 @@
  * The credential key and the pointer apiUrl both go through the
  * production `normalizeApiUrl`, so the fixture cannot drift from the
  * resolver. `workspaceId` defaults to `board-1` (the board id the fake
- * backends below serve); the credential always names the same board as
- * the pointer, otherwise the resolution is `unlinked` (local-with-notice).
+ * backends below serve); the fixture names the same board on both halves
+ * by default. A credential whose `workspaceId` differs from a project's
+ * pointer still resolves `saas` on the pointer's board (the pointer picks
+ * the board; the credential only proves identity) — see
+ * `tests/unit/auth/project-auth.test.ts` for the multi-board pin.
  *
  * This is the ONE implementation — the copies that lived in
  * `auth-online-flow.test.ts` (`seedCredential`/`seedPointer`) and

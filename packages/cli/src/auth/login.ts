@@ -1675,15 +1675,21 @@ async function handleReusePoll(
       );
       await fetchAndApplySettings(apiUrl, existing.token, resolvedDir);
       if (existing.workspaceId) {
-        // The credential already names the linked board: adopt the link
+        // The credential already names a linked board: adopt the link
         // directly, no re-prompt. Refresh the stored entry (account,
-        // timestamp) while the secret stays untouched.
+        // timestamp) while the secret stays untouched. The pointer is
+        // the PROJECT's choice of board, so an existing pointer is kept
+        // as-is — adopting must never silently re-point this project to
+        // whatever board last won in the shared credential store. Only
+        // a pointer-less project takes the credential's board as its link.
         await writeCredential(apiUrl, {
           token: existing.token,
           workspaceId: existing.workspaceId,
           account: existing.account ?? null,
         });
-        writeProjectPointer(resolvedDir, { apiUrl, id: existing.workspaceId });
+        if (!readProjectPointer(resolvedDir)) {
+          writeProjectPointer(resolvedDir, { apiUrl, id: existing.workspaceId });
+        }
       } else {
         // No board bound yet (logged in when the account had none):
         // run the normal selection with the adopted token.

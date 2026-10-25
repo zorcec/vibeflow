@@ -886,6 +886,96 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     expect(printed).toContain("no new token minted");
   });
 
+  // Multi-board topology: adopt must NOT silently re-point a project
+  // whose pointer names a different board than the credential store.
+  // The pointer is the project's choice of board; the credential only
+  // proves account identity. Only a pointer-less project adopts the
+  // credential's board as its link.
+  it("adopt keeps an existing pointer when the credential names another board", async () => {
+    const live = "vbf_pat_live01_live-live-live-live-live-live-live-live";
+    vi.mocked(readCredential).mockResolvedValue({
+      token: live,
+      workspaceId: "board-B",
+      account: "adopt@example.com",
+      updatedAt: new Date().toISOString(),
+    });
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "board-A" });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (u.endsWith("/api/v0/auth/device-init")) {
+        return { ok: true, json: () => Promise.resolve({ deviceCode: "device-123", userCode: "AB", verificationUrl: "http://localhost:3000/activate", expiresIn: 30 }) };
+      }
+      if (u.endsWith("/api/v0/auth/device-poll")) {
+        if (body.rotate === true) throw new Error("must not rotate when a live credential exists");
+        return { ok: true, json: () => Promise.resolve({ reused: true, tokenId: "pat-live", name: "field-box (Linux)" }) };
+      }
+      if (u.endsWith("/api/v0/me")) {
+        return { ok: true, json: () => Promise.resolve({ email: "adopt@example.com" }) };
+      }
+      if (u.endsWith("/api/v0/settings")) {
+        return { ok: true, json: () => Promise.resolve({ settings: {} }) };
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login(projectDir);
+
+    // The stored entry is refreshed but the secret is untouched — and
+    // the project's pointer is the project's choice: it must NOT be
+    // re-pointed from board-A to the credential's board-B.
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({ token: live, workspaceId: "board-B" }),
+    );
+    expect(writeProjectPointer).not.toHaveBeenCalled();
+    const printed = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(printed).toContain("no new token minted");
+  });
+
+  it("adopt with no pointer writes the credential's board as the link", async () => {
+    const live = "vbf_pat_live01_live-live-live-live-live-live-live-live";
+    vi.mocked(readCredential).mockResolvedValue({
+      token: live,
+      workspaceId: "board-B",
+      account: "adopt@example.com",
+      updatedAt: new Date().toISOString(),
+    });
+    vi.mocked(readProjectPointer).mockReturnValue(null);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      if (u.endsWith("/api/v0/auth/device-init")) {
+        return { ok: true, json: () => Promise.resolve({ deviceCode: "device-123", userCode: "AB", verificationUrl: "http://localhost:3000/activate", expiresIn: 30 }) };
+      }
+      if (u.endsWith("/api/v0/auth/device-poll")) {
+        if (body.rotate === true) throw new Error("must not rotate when a live credential exists");
+        return { ok: true, json: () => Promise.resolve({ reused: true, tokenId: "pat-live", name: "field-box (Linux)" }) };
+      }
+      if (u.endsWith("/api/v0/me")) {
+        return { ok: true, json: () => Promise.resolve({ email: "adopt@example.com" }) };
+      }
+      if (u.endsWith("/api/v0/settings")) {
+        return { ok: true, json: () => Promise.resolve({ settings: {} }) };
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await login(projectDir);
+
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, { apiUrl: TEST_API_URL, id: "board-B" });
+  });
+
   // Ticket 64204dec: an unknown shape fails LOUDLY — never "pending".
   it("unknown poll shape fails loudly with UNEXPECTED_DEVICE_POLL_RESPONSE", async () => {
     const fetchMock = vi.fn()
