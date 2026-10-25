@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.23.0
+
+### Minor Changes
+
+- ba2e776: Include your device name and a stable, salted machine identifier during login so supported servers can associate API tokens with your machine. The identifier survives logout and is not a credential; servers that ignore this metadata continue to work unchanged.
+- 2623818: Add bulk tag Remove to the kanban board's Tags filter: each tag row offers a confirm-then-remove action that strips the tag from every matching task and refreshes on success.
+
+  ### Highlights
+
+  - Bulk-remove a tag from every matching task in the board's Tags filter, with a confirmation step before anything is removed.
+
+  The core operation stages all replacements under deterministic per-task lock order with byte-exact backups, rolls every file back on failure, and broadcasts once; crash-window semantics are all-or-nothing against an exception and best-effort against a kill, same as the single-task path.
+
+### Patch Changes
+
+- 301dd17: Fix `tasks --commit` failing with `Task file not found` while `--get` resolved the same ticket. The commit path re-derived a concrete file path with a second directory scan after the shared id resolution, so any concurrent store rewrite (every task operation rewrites files via tmp-file + atomic rename) in between lost a race the read path never ran. Both commit helpers now resolve through the same single lookup as reads (`resolveLocalTask`), retry once on a transient miss, and fail loudly naming the resolved id and the tasks directory tried; the commit-record link is written against the resolved snapshot and a lost link is reported instead of silently dropped.
+- b6784e8: Add a blob fallback to the overlay console and bookmarklet loaders, show a clear Content-Security-Policy diagnostic when loading fails, and clarify strict-policy limitations in the integration guide.
+- bd4b9d0: Refuse commits with test author or committer identities, with resolved identities and Git configuration instructions in the error. Check outgoing commits before push and recent history in the unit suite as additional safeguards. The five existing diagnostic-identity commits are permanent exceptions by owner decision, keyed only by their full commit SHAs; a new commit cannot inherit an exception. Local hooks can be bypassed with `HUSKY=0`, `--no-verify` or `core.hooksPath`; the history test still checks when the unit suite runs.
+
 ## 0.22.0
 
 ### Minor Changes

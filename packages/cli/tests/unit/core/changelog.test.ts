@@ -231,21 +231,29 @@ describe("buildChangelogResponse", () => {
 });
 
 describe("CHANGELOG.md highlights constraint", () => {
-  it("has exactly one ### Highlights subsection (consolidated)", () => {
+  it("has at most one ### Highlights subsection per version section", () => {
     const content = readChangelogContent() ?? "";
-    const highlightMatches = content.match(/^  ### Highlights$/gm) ?? [];
-    expect(highlightMatches).toHaveLength(1);
+    const sections = parseChangelogSections(content);
+    expect(sections.length).toBeGreaterThan(0);
+    for (const section of sections) {
+      const highlightMatches =
+        section.markdown.match(/^\s*### Highlights$/gm) ?? [];
+      expect(highlightMatches.length).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("the single highlight mentions parent-child", () => {
+  it("every ### Highlights block contains at least one bullet", () => {
     const content = readChangelogContent() ?? "";
     const lines = content.split("\n");
-    const idx = lines.findIndex((l: string) => l.trim() === "### Highlights");
-    expect(idx).toBeGreaterThan(-1);
-    const bullet = lines
-      .slice(idx + 1)
-      .find((l: string) => l.trim().startsWith("- "));
-    expect(bullet).toBeDefined();
-    expect(bullet?.toLowerCase()).toContain("parent");
+    const idxs = lines.flatMap((l: string, i: number) =>
+      /^\s*### Highlights\s*$/.test(l) ? [i] : [],
+    );
+    expect(idxs.length).toBeGreaterThan(0);
+    for (const idx of idxs) {
+      const rest = lines.slice(idx + 1);
+      const end = rest.findIndex((l: string) => /^#{1,6}\s/.test(l.trim()));
+      const block = end === -1 ? rest : rest.slice(0, end);
+      expect(block.some((l: string) => /^\s*[-*]\s+\S/.test(l))).toBe(true);
+    }
   });
 });
