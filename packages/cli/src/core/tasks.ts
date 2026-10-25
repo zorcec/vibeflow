@@ -22,6 +22,7 @@ import {
 import type { FileInfo } from "./files.js";
 import { taskLockPath, withFileLockSync } from "./lock.js";
 import { getDescendants } from "./task-links.js";
+import { resolveSaasTaskId } from "./id-resolution.js";
 import {
   loadFreshChildrenIndex,
   refreshChildrenIndex,
@@ -179,6 +180,64 @@ export function findTaskByIdOrPrefix(
  */
 export function resolveTaskId(projectDir: string, idOrPrefix: string): string {
   return findTaskByIdOrPrefix(projectDir, idOrPrefix)?.id ?? idOrPrefix;
+}
+
+/**
+ * Portable local resolution WITH the record's file path: the ONE lookup
+ * implementation every local surface resolves through (ticket 3d9a2b97).
+ *
+ * `--get` reaches this via the `TaskStore.resolveTask` port; the commit
+ * helpers in `core/git.ts` call it directly. One implementation, not two —
+ * a second scan anywhere else is how `--commit` lost a rewrite-window race
+ * `--get` never ran (the commit path re-derived a file path AFTER the
+ * shared resolve, and a concurrent tmp-file + atomic-rename rewrite in
+ * between turned into `Task file not found` for an id `--get` resolved
+ * in the same second).
+ *
+ * Rule (same as every read): exact id wins, a UNIQUE prefix resolves, an
+ * ambiguous prefix refuses with candidates, unknown stays missing.
+ * Ordering matters: the snapshot silently skips records that do not parse,
+ * so an exact id naming a CORRUPT file is checked directly first — otherwise
+ * it would vanish into `missing` and the read-error recovery ("the file
+ * exists but did not parse") would never fire. A prefix never names a file
+ * directly (`findTaskFilePath` matches exact filenames only), so prefixes
+ * always take the snapshot rule below.
+ */
+export type LocalTaskResolution =
+  | { status: "found"; id: string; task: Task; filePath: string }
+  | { status: "missing"; id: string }
+  | { status: "unreadable"; id: string; filePath: string }
+  | { status: "ambiguous"; id: string; candidates: string[] };
+
+export function resolveLocalTask(
+  projectDir: string,
+  idOrPrefix: string,
+): LocalTaskResolution {
+  const directPath = findTaskFilePath(projectDir, idOrPrefix);
+  if (directPath) {
+    const task = readTaskFile(directPath);
+    if (!task)
+      return { status: "unreadable", id: idOrPrefix, filePath: directPath };
+    return { status: "found", id: idOrPrefix, task, filePath: directPath };
+  }
+  const resolved = resolveSaasTaskId(listTasks(projectDir), idOrPrefix);
+  if (!resolved.ok) {
+    // The rule reports unknown AND empty ids as TASK_NOT_FOUND; only an
+    // ambiguous prefix carries candidates.
+    if (resolved.code === "E_AMBIGUOUS") {
+      return {
+        status: "ambiguous",
+        id: idOrPrefix,
+        candidates: resolved.candidates,
+      };
+    }
+    return { status: "missing", id: idOrPrefix };
+  }
+  const filePath = findTaskFilePath(projectDir, resolved.id);
+  if (!filePath) return { status: "missing", id: resolved.id };
+  const task = readTaskFile(filePath);
+  if (!task) return { status: "unreadable", id: resolved.id, filePath };
+  return { status: "found", id: resolved.id, task, filePath };
 }
 
 function normalizeComment(c: Record<string, unknown>): TaskComment {

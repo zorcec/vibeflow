@@ -13,24 +13,102 @@ import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { formatCommitTag } from "./commit-tag.js";
 import { gitEnvWithCleanLocation } from "./git-env.js";
-import { findTaskFilePath, readTaskFile, updateTask } from "./tasks.js";
+import * as tasksModule from "./tasks.js";
 import { getFilesDir } from "./files.js";
 
-/** Appends a commit record (sha + message + timestamp) to the task's `commits` array. */
+/**
+ * Resolution for the commit link (ticket 3d9a2b97): the ONE shared lookup
+ * (`resolveLocalTask` — the same implementation `--get` resolves through
+ * via the store port), not a second file-path scan.
+ *
+ * The store rewrites task files on every operation (tmp-file + atomic
+ * rename), so a scan that runs AFTER the resolve can land mid-rewrite and
+ * miss a record that is present a moment later. A transient `missing` is
+ * therefore retried ONCE; only a persistent miss fails — loudly, naming
+ * the id it resolved and the directory it looked in.
+ *
+ * Callers operate on the returned snapshot (resolved full id + file path)
+ * rather than re-deriving a path later, so the resolve and the write agree
+ * on which record they mean.
+ */
+function resolveCommitTarget(
+  projectDir: string,
+  taskId: string,
+):
+  | { ok: true; fullId: string; filePath: string }
+  | { ok: false; error: string } {
+  let resolution = tasksModule.resolveLocalTask(projectDir, taskId);
+  if (resolution.status === "missing") {
+    resolution = tasksModule.resolveLocalTask(projectDir, taskId);
+  }
+  if (resolution.status === "found") {
+    return {
+      ok: true,
+      fullId: resolution.id,
+      filePath: resolution.filePath,
+    };
+  }
+  if (resolution.status === "unreadable") {
+    return {
+      ok: false,
+      error: `Task file for ${taskId} exists but did not parse: ${resolution.filePath}`,
+    };
+  }
+  if (resolution.status === "ambiguous") {
+    return {
+      ok: false,
+      error: `Ambiguous task id prefix "${resolution.id}" matches ${resolution.candidates.length} tasks: ${resolution.candidates.join(", ")}`,
+    };
+  }
+  return {
+    ok: false,
+    error: `Task file not found: ${resolution.id} (looked in ${tasksModule.getTasksDir(projectDir)})`,
+  };
+}
+
+/**
+ * Appends a commit record (sha + message + timestamp) to the task's
+ * `commits` array. Snapshot-consistent: the existing records are read from
+ * the ALREADY-RESOLVED file path and the write goes through `updateTask`
+ * keyed on the resolved full id — never a re-derived path. A concurrent
+ * rewrite that slips between the read and the write makes `updateTask`
+ * miss, so that miss is retried once against a fresh resolution; a
+ * persistent miss returns an error (never a silent drop — the old code
+ * ignored the `updateTask` null and lost the ticket↔commit link quietly).
+ *
+ * Returns an error string when the link could not be recorded, else null.
+ */
 function appendCommitRecord(
   projectDir: string,
   filePath: string,
-  taskId: string,
+  fullId: string,
   message: string,
   sha: string,
-): void {
-  const existingCommits = readTaskFile(filePath)?.commits ?? [];
-  updateTask(projectDir, taskId, {
-    commits: [
-      ...existingCommits,
-      { sha, message, timestamp: new Date().toISOString() },
-    ],
-  });
+): string | null {
+  const record = {
+    sha,
+    message,
+    timestamp: new Date().toISOString(),
+  };
+  const appendTo: (
+    commits: Array<{ sha: string; message: string; timestamp: string }>,
+  ) => ReturnType<typeof tasksModule.updateTask> = (commits) =>
+    tasksModule.updateTask(projectDir, fullId, {
+      commits: [...commits, record],
+    });
+  const existingCommits =
+    tasksModule.readTaskFile(filePath)?.commits ?? [];
+  if (appendTo(existingCommits)) return null;
+  // Lost a concurrent rewrite between resolve and write: re-resolve once
+  // and retry against the fresh snapshot instead of failing the link.
+  const retry = tasksModule.resolveLocalTask(projectDir, fullId);
+  if (retry.status === "found") {
+    if (appendTo(retry.task.commits ?? [])) return null;
+  }
+  return (
+    `Failed to record commit ${sha} on task ${fullId}: ` +
+    `task file not found (looked in ${tasksModule.getTasksDir(projectDir)})`
+  );
 }
 
 /**
@@ -50,14 +128,15 @@ export function commitTaskChanges(
   | { ok: true; sha: string; linkedExisting?: boolean }
   | { ok: false; error: string } {
   try {
-    const commitMsg = `${message} ${formatCommitTag(taskId)}`;
+    // One shared lookup (ticket 3d9a2b97) — never a second scan that can
+    // lose a rewrite-window race the read path never runs.
+    const target = resolveCommitTarget(projectDir, taskId);
+    if (!target.ok) return target;
+    const { fullId, filePath } = target;
+    const commitMsg = `${message} ${formatCommitTag(fullId)}`;
 
-    const filePath = findTaskFilePath(projectDir, taskId);
-    if (!filePath) {
-      return { ok: false, error: `Task file not found: ${taskId}` };
-    }
     const relTaskPath = relative(projectDir, filePath);
-    const relFilesDir = relative(projectDir, getFilesDir(projectDir, taskId));
+    const relFilesDir = relative(projectDir, getFilesDir(projectDir, fullId));
     // Existing paths owned by this task. The attachments directory may not
     // exist (no files attached yet) — git rejects a pathspec that matches
     // nothing, so only existing paths are ever passed to it.
@@ -135,7 +214,14 @@ export function commitTaskChanges(
           const sha = execSync("git rev-parse HEAD", gitOpts)
             .toString()
             .trim();
-          appendCommitRecord(projectDir, filePath, taskId, message, sha);
+          const linkError = appendCommitRecord(
+            projectDir,
+            filePath,
+            fullId,
+            message,
+            sha,
+          );
+          if (linkError) return { ok: false, error: linkError };
           return { ok: true, sha, linkedExisting: true };
         }
       } catch {
@@ -143,15 +229,23 @@ export function commitTaskChanges(
       }
       return {
         ok: false,
-        error: `No staged changes for task ${taskId}. Stage the task file first: git add ${relTaskPath}`,
+        error: `No staged changes for task ${fullId}. Stage the task file first: git add ${relTaskPath}`,
       };
     }
 
     execFileSync("git", ["commit", "-m", commitMsg, "--", ...scoped], gitOpts);
     const sha = execSync("git rev-parse HEAD", gitOpts).toString().trim();
 
-    // Append commit record — updateTask handles its own locking.
-    appendCommitRecord(projectDir, filePath, taskId, message, sha);
+    // Append commit record — updateTask handles its own locking. A lost
+    // record link is a loud failure, never a silent drop.
+    const linkError = appendCommitRecord(
+      projectDir,
+      filePath,
+      fullId,
+      message,
+      sha,
+    );
+    if (linkError) return { ok: false, error: linkError };
 
     return { ok: true, sha };
   } catch (err) {
@@ -206,14 +300,15 @@ export function commitTaskPaths(
 ): TaskCommitResult {
   try {
     const env = gitEnvWithCleanLocation();
-    const commitMsg = `${message} ${formatCommitTag(taskId)}`;
+    // One shared lookup (ticket 3d9a2b97) — never a second scan that can
+    // lose a rewrite-window race the read path never runs.
+    const target = resolveCommitTarget(projectDir, taskId);
+    if (!target.ok) return target;
+    const { fullId, filePath } = target;
+    const commitMsg = `${message} ${formatCommitTag(fullId)}`;
 
-    const filePath = findTaskFilePath(projectDir, taskId);
-    if (!filePath) {
-      return { ok: false, error: `Task file not found: ${taskId}` };
-    }
     const relTaskPath = relative(projectDir, filePath);
-    const relFilesDir = relative(projectDir, getFilesDir(projectDir, taskId));
+    const relFilesDir = relative(projectDir, getFilesDir(projectDir, fullId));
     const belongsToTask = (p: string): boolean =>
       p === relTaskPath ||
       p === relFilesDir ||
@@ -259,7 +354,14 @@ export function commitTaskPaths(
       })
         .toString()
         .trim();
-      appendCommitRecord(projectDir, filePath, taskId, message, sha);
+      const linkError = appendCommitRecord(
+        projectDir,
+        filePath,
+        fullId,
+        message,
+        sha,
+      );
+      if (linkError) return { ok: false, error: linkError };
       return { ok: true, sha, linkedExisting: true, committed: [], foreign };
     }
 
@@ -277,7 +379,14 @@ export function commitTaskPaths(
     })
       .toString()
       .trim();
-    appendCommitRecord(projectDir, filePath, taskId, message, sha);
+    const linkError = appendCommitRecord(
+      projectDir,
+      filePath,
+      fullId,
+      message,
+      sha,
+    );
+    if (linkError) return { ok: false, error: linkError };
     return { ok: true, sha, linkedExisting: false, committed: scoped, foreign };
   } catch (err) {
     return {

@@ -9,7 +9,6 @@ import * as tasksModule from "./tasks.js";
 import * as commentsModule from "./comments.js";
 import * as filesModule from "./files.js";
 import { selectClaimCandidate } from "./claim-eligibility.js";
-import { resolveSaasTaskId } from "./id-resolution.js";
 
 /**
  * P1 seam (ticket 3d613068, parent e7482da5): operation-facing PORTS over the
@@ -306,47 +305,24 @@ export class LocalTaskStore implements TaskStore, LocalArtifactStore {
     projectDir: string,
     idOrPrefix: string,
   ): Promise<TaskResolveOutcome> {
-    // P2 (ticket d7b9dc13): the ONE shared id rule (`resolveSaasTaskId`
-    // over this adapter's own snapshot) — exact id wins, a UNIQUE prefix
-    // resolves, an ambiguous prefix is an `ambiguous` outcome, never a
-    // silent first-match. The old first-match guess is gone: `--get`,
-    // `--edit`, and every task-scoped MCP tool refuse ambiguity through
-    // the same `resolveTaskOrRefusal` mapping.
-    //
-    // Ordering matters: the snapshot silently skips records that do not
-    // parse, so an exact id naming a CORRUPT file must be checked directly
-    // first — otherwise it would vanish into `missing` and the
-    // TASK_READ_ERROR recovery ("the file exists but did not parse")
-    // would never fire. A prefix never names a file directly
-    // (`findTaskFilePath` matches exact filenames only), so prefixes
-    // always take the snapshot rule below.
-    const directPath = tasksModule.findTaskFilePath(projectDir, idOrPrefix);
-    if (directPath) {
-      const task = tasksModule.readTaskFile(directPath);
-      if (!task) return { status: "unreadable", id: idOrPrefix };
-      return { status: "found", id: idOrPrefix, task };
-    }
-    const resolved = resolveSaasTaskId(
-      await tasksModule.listTasks(projectDir),
-      idOrPrefix,
-    );
-    if (!resolved.ok) {
-      // The rule reports unknown AND empty ids as TASK_NOT_FOUND; only an
-      // ambiguous prefix carries candidates.
-      if (resolved.code === "E_AMBIGUOUS") {
-        return {
-          status: "ambiguous",
-          id: idOrPrefix,
-          candidates: resolved.candidates,
-        };
-      }
-      return { status: "missing", id: idOrPrefix };
-    }
-    const filePath = tasksModule.findTaskFilePath(projectDir, resolved.id);
-    if (!filePath) return { status: "missing", id: resolved.id };
-    const task = tasksModule.readTaskFile(filePath);
-    if (!task) return { status: "unreadable", id: resolved.id };
-    return { status: "found", id: resolved.id, task };
+    // P2 (ticket d7b9dc13) plus ticket 3d9a2b97: the port is path-free, so
+    // it delegates to the ONE shared local lookup (`resolveLocalTask` — the
+    // same implementation the commit helpers resolve through) and drops the
+    // file path at the boundary. `--get`, `--edit`, every task-scoped MCP
+    // tool, and `--commit` refuse ambiguity through the same mapping, so the
+    // read and commit surfaces cannot diverge again.
+    const outcome = tasksModule.resolveLocalTask(projectDir, idOrPrefix);
+    if (outcome.status === "found")
+      return { status: "found", id: outcome.id, task: outcome.task };
+    if (outcome.status === "unreadable")
+      return { status: "unreadable", id: outcome.id };
+    if (outcome.status === "ambiguous")
+      return {
+        status: "ambiguous",
+        id: outcome.id,
+        candidates: outcome.candidates,
+      };
+    return { status: "missing", id: outcome.id };
   }
 
   async createTask(
