@@ -111,6 +111,13 @@ packages/
 
 See [packages/cli/src/](packages/cli/src/) for the CLI source and [README.md](README.md) for the full command reference.
 
+### Architectural decisions
+
+Binding decisions live in [docs/decisions/](docs/decisions/) — read [the index](docs/decisions/index.md)
+before changing governed code. Accepted ADRs are immutable (reverse by superseding); each names the
+pins that enforce it, and `node scripts/check-adrs.mjs` (also in the pre-commit hook) fails the commit
+when a pointer, pin, or index row drifts.
+
 ## Releases
 
 Versioning uses [Changesets](https://github.com/changesets/changesets).

@@ -12,7 +12,8 @@
  * P4 (ticket efcd6992): the create/update/comment writes are routed here
  * too, through `resolveWritePorts` — one POST/PATCH per call, awaited
  * before success is reported, with no local file on either success or
- * refusal. The CLI's online `--add`/`--edit` branches and the MCP write
+ * refusal. ADR-0002: online writes stay online — only push/pull
+ * materialise the local store. The CLI's online `--add`/`--edit` branches and the MCP write
  * tools converge on these methods, so both surfaces POST/PATCH the board
  * they resolved against. Field parity with the CLI's proven online wire:
  * create sends title/description/status/boardId/links only (identity is

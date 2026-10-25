@@ -185,6 +185,8 @@ export function resolveTaskId(projectDir: string, idOrPrefix: string): string {
 /**
  * Portable local resolution WITH the record's file path: the ONE lookup
  * implementation every local surface resolves through (ticket 3d9a2b97).
+ * ADR-0003: `--commit --task` resolves short ids here — a second scan
+ * anywhere else must never appear.
  *
  * `--get` reaches this via the `TaskStore.resolveTask` port; the commit
  * helpers in `core/git.ts` call it directly. One implementation, not two —

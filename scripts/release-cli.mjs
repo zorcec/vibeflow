@@ -2,7 +2,7 @@
 /**
  * Create (or confirm) the GitHub Release for the published CLI version.
  *
- * There is no CI (ADR-0007: every gate runs locally), so GitHub releases are
+ * There is no CI (ADR-0004: every gate runs locally), so GitHub releases are
  * created locally with this script, run once after `npm publish` lands:
  *
  *   pnpm release:cli

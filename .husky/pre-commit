@@ -4,6 +4,12 @@ set -e
 # Hooks can be bypassed via --no-verify/core.hooksPath (or HUSKY=0); the unit history test is the backstop.
 node scripts/check-git-identity.mjs
 
+# ── ADR reference guard (docs/decisions) ──────────────────────────────────────
+# Fast (~1s), dependency-free: every ADR-NNNN pointer resolves, every accepted
+# ADR declares Pins: that exist, index.md lists every ADR with no phantom rows,
+# and governed code has not drifted past its Reviewed: date (ADR-0004).
+node scripts/check-adrs.mjs
+
 # Ensure system-installed tools like gitleaks are on PATH
 export PATH="/usr/local/bin:$PATH"
 

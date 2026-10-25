@@ -19,7 +19,7 @@ import { getFilesDir } from "./files.js";
 /**
  * Resolution for the commit link (ticket 3d9a2b97): the ONE shared lookup
  * (`resolveLocalTask` — the same implementation `--get` resolves through
- * via the store port), not a second file-path scan.
+ * via the store port), not a second file-path scan. ADR-0003.
  *
  * The store rewrites task files on every operation (tmp-file + atomic
  * rename), so a scan that runs AFTER the resolve can land mid-rewrite and

@@ -169,6 +169,9 @@ function makeAliasHandler(
  * Mount the read alias. Must be called BEFORE the legacy task/meta
  * registrations so the rewritten URL still reaches their layers via next().
  *
+ * ADR-0001: /api/v0/project and /api/v0/changelog are CLI-local-only —
+ * thin aliases over the legacy local handlers, never a remote surface.
+ *
  * Routes are explicit string literals (not a registration loop) so the
  * drift guard's static scanner sees every handler: the guard asserts each
  * scanned /api/v0 handler matches exactly one registry op and each mounted
