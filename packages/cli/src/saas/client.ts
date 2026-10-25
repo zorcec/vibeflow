@@ -130,6 +130,12 @@ export interface SaasTask {
   author?: string | null;
   priority: string | null;
   type: string | null;
+  /**
+   * Free-form tags the v0 wire sends on every row (`serializeV0Task`).
+   * Present on list/detail/create reads; absent (or null) on older
+   * shapes — callers read through the mapping, never this field.
+   */
+  tags?: string[] | null;
   boardId: string;
   createdAt: string;
   updatedAt: string;

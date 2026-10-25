@@ -819,3 +819,108 @@ describe("listTasks top-K — ?sort=kanban&limit=K (ticket 05076246)", () => {
     expect(rows.length).toBeGreaterThan(1);
   });
 });
+
+describe("online tag parity — server tags reach the shared filter", () => {
+  // Ticket 601fd5f3: the server already sends `tags` on every v0 row, but
+  // the CLI's server->task mapping dropped them, so an online `--tag`
+  // filter matched nothing while the same filter locally matched. The fix
+  // is ONE task shape — the mapping carries tags where the local path
+  // puts them — and the existing shared filter keeps doing its one job.
+  // Every test here runs the shared queryTaskList model both sides read
+  // through, so the modes cannot drift again without going red.
+  const taggedBoard = () =>
+    stubBoard({
+      pages: [
+        {
+          items: [
+            v0Task("t-alpha", { tags: ["frontend"] }),
+            v0Task("t-beta", { tags: ["frontend", "demo"] }),
+            v0Task("t-gamma", { tags: ["backend"] }),
+            v0Task("t-plain"),
+          ],
+          nextCursor: null,
+        },
+      ],
+    });
+
+  /** The same fixture as local records: tags where normalizeTask puts them. */
+  const localFixture = () =>
+    [
+      { id: "t-alpha", tags: ["frontend"] },
+      { id: "t-beta", tags: ["frontend", "demo"] },
+      { id: "t-gamma", tags: ["backend"] },
+      { id: "t-plain", tags: undefined },
+    ].map((t) => ({
+      id: t.id,
+      title: `remote ${t.id}`,
+      description: `body of ${t.id}`,
+      status: "todo" as const,
+      selector: "/",
+      created: "2026-01-01T00:00:00.000Z",
+      ...(t.tags !== undefined ? { tags: t.tags } : {}),
+    }));
+
+  it("toLocalTask carries tags where the local path puts them (no second filter path)", () => {
+    const task = toLocalTask(
+      v0Task("tagged-1", { tags: ["frontend", "demo"] }) as never,
+    );
+    expect(task?.tags).toEqual(["frontend", "demo"]);
+  });
+
+  it("toLocalTask leaves tags absent when the server sends none (no invented defaults)", () => {
+    const task = toLocalTask(v0Task("plain-1") as never);
+    expect(task).not.toHaveProperty("tags");
+  });
+
+  it("toLocalTask drops non-string/empty tags exactly like the local normalizer", () => {
+    const task = toLocalTask(
+      v0Task("messy-1", { tags: ["ok", "", 42, " auth "] }) as never,
+    );
+    // Verbatim, like core/tasks.ts: no trim, no lowercase, no dedupe.
+    expect(task?.tags).toEqual(["ok", " auth "]);
+  });
+
+  it("parity: the same fixture filtered by --tag answers identically local and online", async () => {
+    taggedBoard();
+    const online = await remoteTaskStore.listTasks(PROJECT);
+    const { queryTaskList } = await import("../../src/core/task-listing.js");
+    const onlineIds = queryTaskList(online, { tag: ["frontend"] }).tasks.map(
+      (t) => t.id,
+    );
+    const localIds = queryTaskList(localFixture(), {
+      tag: ["frontend"],
+    }).tasks.map((t) => t.id);
+    // The modes agree AND the answer is the tagged set (not empty).
+    expect(onlineIds).toEqual(["t-alpha", "t-beta"]);
+    expect(onlineIds).toEqual(localIds);
+  });
+
+  it("parity holds for multi-tag every-match, not just single-tag", async () => {
+    taggedBoard();
+    const online = await remoteTaskStore.listTasks(PROJECT);
+    const { queryTaskList } = await import("../../src/core/task-listing.js");
+    const onlineIds = queryTaskList(online, {
+      tag: ["frontend", "demo"],
+    }).tasks.map((t) => t.id);
+    const localIds = queryTaskList(localFixture(), {
+      tag: ["frontend", "demo"],
+    }).tasks.map((t) => t.id);
+    expect(onlineIds).toEqual(["t-beta"]);
+    expect(onlineIds).toEqual(localIds);
+  });
+
+  it("honest empty: a tag nobody has returns empty without error, never a silent fall-through", async () => {
+    taggedBoard();
+    const online = await remoteTaskStore.listTasks(PROJECT);
+    const { queryTaskList } = await import("../../src/core/task-listing.js");
+    const res = queryTaskList(online, { tag: ["no-such-tag"] });
+    expect(res.tasks).toEqual([]);
+    expect(res.totalMatching).toBe(0);
+    expect(res.truncated).toBe(false);
+    // And the filter ran over real data: the rows still carry their tags,
+    // so empty here means "nobody has it", not "the filter is broken".
+    expect(online.find((t) => t.id === "t-alpha")?.tags).toEqual([
+      "frontend",
+    ]);
+  });
+});

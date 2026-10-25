@@ -281,6 +281,17 @@ export function toLocalTask(row: SaasTask): Task | null {
     ...(row.annotatedElementText != null
       ? { annotatedElementText: row.annotatedElementText }
       : {}),
+    // Tags ride the mapped task exactly where the local path puts them
+    // (core/tasks.ts normalizer: every non-empty string verbatim — no
+    // trim, no lowercase, no dedupe), so the shared --tag filter reads
+    // the same field in both modes instead of a second online-only path.
+    ...(Array.isArray(row.tags)
+      ? {
+          tags: row.tags.filter(
+            (t): t is string => typeof t === "string" && t.length > 0,
+          ),
+        }
+      : {}),
     ...(links && links.length > 0 ? { links } : {}),
     ...(comments && comments.length > 0 ? { comments } : {}),
     ...(files && files.length > 0 ? { files } : {}),
@@ -327,6 +338,10 @@ function saasRowToRecordCandidate(row: SaasTask): Record<string, unknown> {
   if (typeof row.type === "string") candidate.type = row.type;
   if (typeof row.priority === "string") candidate.priority = row.priority;
   if (typeof row.author === "string") candidate.author = row.author;
+  // Tags validate exactly like a local record (same schema, verbatim) so
+  // quarantine treats both modes identically — the display mapper above
+  // applies the local non-empty-verbatim rule after validation passes.
+  if (Array.isArray(row.tags)) candidate.tags = row.tags;
   if (typeof row.branchName === "string") candidate.branchName = row.branchName;
   if (typeof row.verified === "boolean") candidate.verified = row.verified;
   if (typeof row.annotatedElementText === "string") {
