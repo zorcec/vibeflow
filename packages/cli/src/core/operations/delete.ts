@@ -38,7 +38,7 @@ import type { OperationContext } from "../operations.js";
 import { isDryRun } from "../operations.js";
 import { resolveSaasTaskId } from "../id-resolution.js";
 import { localTaskStore } from "../task-store.js";
-import { readWorkspace } from "../../auth/workspace.js";
+import { readProjectPointer } from "../../auth/project-pointer.js";
 import { fetchSaasTasks, toCliStatus } from "../../saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "../../saas/failure.js";
 import { isRemoteReadError } from "../remote-task-store.js";
@@ -118,7 +118,7 @@ export async function deleteTaskOperation(
   // resolution and the child guard below run once, not per store.
   //
   // The online listing is byte-for-byte the inline branch this operation
-  // replaces: `readWorkspace` + ONE unhydrated `fetchSaasTasks`, mapped
+  // replaces: the project pointer + ONE unhydrated `fetchSaasTasks`, mapped
   // straight off the v0 rows (`title ?? ""`, `toCliStatus`, raw links).
   // It deliberately does NOT go through `remoteTaskStore.listTasks`:
   // that adapter maps through `toLocalTask`, which drops every row
@@ -129,8 +129,8 @@ export async function deleteTaskOperation(
   // the read), so the cascade cone below can never half-read the board.
   let rows: DeletePlanRow[];
   if (online) {
-    const workspace = await readWorkspace();
-    const board = await fetchSaasTasks(workspace?.id, { hydrate: false });
+    const workspace = readProjectPointer(ctx.projectDir);
+    const board = await fetchSaasTasks(workspace?.id, { hydrate: false, projectDir: ctx.projectDir });
     if (!board.ok) {
       const readMessage = saasReadErrorMessage(board.error);
       const mapped = saasFailure(board.error);
@@ -295,7 +295,7 @@ export async function deleteTaskOperation(
 
   if (online) {
     const { deleteSaasTask } = await import("../../saas/client.js");
-    const deleted = await deleteSaasTask(id);
+    const deleted = await deleteSaasTask(id, ctx.projectDir);
     if (!deleted.ok) {
       if (deleted.error.code === "TASK_NOT_FOUND") {
         return {

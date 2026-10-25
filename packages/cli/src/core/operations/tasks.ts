@@ -112,7 +112,7 @@ async function attachReportFile(
     const { toRemoteWriteRefusal } = await import(
       "../remote-task-store.js"
     );
-    const uploaded = await uploadSaasFile(taskId, filename, bytes);
+    const uploaded = await uploadSaasFile(taskId, filename, bytes, ctx.projectDir);
     if (!uploaded.ok) {
       throw toRemoteWriteRefusal(
         uploaded.error,

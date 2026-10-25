@@ -20,8 +20,8 @@
 import chalk from "chalk";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { fetchWithTimeout } from "../saas/request.js";
-import { readToken } from "./token.js";
-import { readWorkspace } from "./workspace.js";
+import { resolveProjectAuth } from "./project-auth.js";
+import { readProjectPointer } from "./project-pointer.js";
 
 export interface BoardSummary {
   id: string;
@@ -76,10 +76,12 @@ export interface BoardScopeDeps {
  * Default board listing: the same endpoint `auth login` paginates
  * (`GET /api/v0/boards`, bounded to 50 pages like login). Any failure
  * throws — callers decide whether that is fatal or falls back to the
- * server's own authoritative 403/422.
+ * server's own authoritative 403/422. Project-scoped (ADR-0005): the
+ * token comes from this project's credential, never a global file.
  */
-async function fetchBoardSummaries(): Promise<BoardSummary[]> {
-  const token = await readToken();
+async function fetchBoardSummaries(projectDir: string): Promise<BoardSummary[]> {
+  const auth = await resolveProjectAuth(projectDir);
+  const token = auth.mode === "saas" ? auth.token : null;
   if (!token) return [];
   const headers = { Authorization: `Bearer ${token}` };
   const base = `${getApiUrl()}${surfacePath("cloud", "/api/cli/workspaces")}`;
@@ -124,24 +126,40 @@ async function fetchBoardSummaries(): Promise<BoardSummary[]> {
 }
 
 /**
- * Resolve the board id for a command: (a) explicit flag, (b) saved
- * workspace, (c) single-board auto-select; throws BoardScopeRequiredError
- * on 2+ boards with nothing selected. Returns null when no board is known
- * (no token → local mode is unchanged; board listing unreachable → the
- * server stays the authority and answers with its own 403/422).
+ * Resolve the board id for a command: (a) explicit flag, (b) the
+ * project's workspace pointer (ADR-0005), (c) single-board auto-select;
+ * throws BoardScopeRequiredError on 2+ boards with nothing selected.
+ * Returns null when no board is known (no pointer/credential → the caller
+ * stays local or refuses; board listing unreachable → the server stays
+ * the authority and answers with its own 403/422). projectDir is
+ * REQUIRED — without it there is no pointer to read and no credential
+ * to list with, so the answer is null (fail-closed, never global).
  */
 export async function resolveBoardScope(
   flagBoard?: string | null,
+  projectDir?: string,
   deps?: BoardScopeDeps,
 ): Promise<string | null> {
   if (typeof flagBoard === "string" && flagBoard.trim() !== "") {
     return flagBoard.trim();
   }
-  const saved = await (deps?.readSavedBoard ?? readWorkspace)();
+  const saved =
+    projectDir !== undefined
+      ? await (deps?.readSavedBoard ??
+          (async () => readProjectPointer(projectDir)))()
+      : null;
   if (saved?.id) return saved.id;
-  const hasToken = deps?.hasToken ?? (async () => (await readToken()) !== null);
+  const hasToken =
+    deps?.hasToken ??
+    (projectDir === undefined
+      ? async () => false
+      : async () => (await resolveProjectAuth(projectDir)).mode === "saas");
   if (!(await hasToken())) return null;
-  const listBoards = deps?.listBoards ?? fetchBoardSummaries;
+  const listBoards =
+    deps?.listBoards ??
+    (projectDir === undefined
+      ? async () => [] as BoardSummary[]
+      : async () => fetchBoardSummaries(projectDir));
   let boards: BoardSummary[];
   try {
     boards = await listBoards();
@@ -157,16 +175,19 @@ export async function resolveBoardScope(
 }
 
 /**
- * Cheap scope peek for request builders (saas/client.ts): returns the saved
- * workspace id and NOTHING else — no token read, no network. Command
- * entries (tasks/push) call resolveBoardScope first, so auto-selection
- * and the 2+ board refusal happen before any request; a lazy peek that finds
- * nothing simply sends no header and the server's 422 remains authoritative.
+ * Cheap scope peek for request builders (saas/client.ts): returns the
+ * project's pointer board id and NOTHING else — no token read, no
+ * network (ADR-0005). Command entries (tasks/push) call
+ * resolveBoardScope first, so auto-selection and the 2+ board refusal
+ * happen before any request; a lazy peek that finds nothing simply
+ * sends no header and the server's 422 remains authoritative.
  */
-export async function peekBoardScope(): Promise<string | null> {
+export async function peekBoardScope(
+  projectDir?: string,
+): Promise<string | null> {
+  if (projectDir === undefined) return null;
   try {
-    const saved = await readWorkspace();
-    return saved?.id ?? null;
+    return readProjectPointer(projectDir)?.id ?? null;
   } catch {
     return null;
   }
@@ -190,6 +211,8 @@ export function printBoardScopeRequired(err: BoardScopeRequiredError): void {
  * account: the server answers 422 SCOPE_REQUIRED for any of them without
  * X-Vibeflow-Scope (measured: 1758/1758 tasks and 782 files refused).
  */
-export async function scopeHeadersFromSaved(): Promise<Record<string, string>> {
-  return scopeHeaderFor(await peekBoardScope());
+export async function scopeHeadersFromSaved(
+  projectDir?: string,
+): Promise<Record<string, string>> {
+  return scopeHeaderFor(await peekBoardScope(projectDir));
 }

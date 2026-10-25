@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 
-import * as tokenModule from "../../../src/auth/token.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { saasAuth, localAuth } from "../helpers/mock-project-auth.js";
+
+const PROJ = "/test-project";
 import {
   toCliStatus,
   toSaasStatus,
@@ -69,7 +73,7 @@ function mockFetch(response: unknown, ok = true) {
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
 });
 
 afterEach(() => {
@@ -122,7 +126,7 @@ describe("toSaasStatus", () => {
 describe("fetchSaasTasks", () => {
   it("hydrates on explicit opt-in (the legacy comments/files shape)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     // The v0 read hydrates comments/files per task (best-effort `[]` when
     // the subpaths answer nothing shaped) — the legacy row keeps its fields.
     expect(result).toEqual({
@@ -150,7 +154,7 @@ describe("fetchSaasTasks", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     // Exactly one paginated list read for the whole board…
     expect(seen).toHaveLength(1);
@@ -181,7 +185,7 @@ describe("fetchSaasTasks", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks.map((t) => t.id)).toEqual(["a", "b"]);
@@ -220,7 +224,7 @@ describe("fetchSaasTasks", () => {
         }
       }),
     );
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(12);
@@ -237,14 +241,14 @@ describe("fetchSaasTasks", () => {
 
   it("passes boardId query param when provided", async () => {
     mockFetch({ tasks: [], boardId: "b-2" });
-    await fetchSaasTasks("b-2");
+    await fetchSaasTasks("b-2", { projectDir: "/test-project" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("boardId=b-2");
   });
 
   it("hits the v0 tasks list, never the deleted cloud legacy surface", async () => {
     mockFetch({ tasks: [], boardId: "b-1" });
-    await fetchSaasTasks("b-1");
+    await fetchSaasTasks("b-1", { projectDir: "/test-project" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks");
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
@@ -253,34 +257,34 @@ describe("fetchSaasTasks", () => {
   it("uses VIBEFLOW_API_URL env var when set", async () => {
     process.env.VIBEFLOW_API_URL = "http://custom-api:9000";
     mockFetch({ tasks: [], boardId: "b-x" });
-    await fetchSaasTasks();
+    await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("custom-api:9000");
   });
 
   it("returns NOT_AUTHENTICATED when not authenticated", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-    const result = await fetchSaasTasks();
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
   it("returns HTTP_ERROR when response is not ok", async () => {
     mockFetch(null, false);
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("HTTP_ERROR");
   });
 
   it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends Authorization header with Bearer token", async () => {
     mockFetch({ tasks: [], boardId: "b-1" });
-    await fetchSaasTasks();
+    await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
@@ -289,7 +293,7 @@ describe("fetchSaasTasks", () => {
   it("uses default API URL when VIBEFLOW_API_URL is not set", async () => {
     delete process.env.VIBEFLOW_API_URL;
     mockFetch({ tasks: [], boardId: "b-1" });
-    await fetchSaasTasks();
+    await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("https://app.vibeflow.tools");
   });
@@ -331,7 +335,7 @@ describe("fetchSaasTasks — largest page size (LANE Q step 1)", () => {
 
   it("a 1,874-task board costs ceil(1874/500) = 4 requests, not 19", async () => {
     const seen = mockPagedBoard(1874);
-    const result = await fetchSaasTasks("b-1");
+    const result = await fetchSaasTasks("b-1", { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Every page asks for the 500-row server ceiling…
@@ -347,7 +351,7 @@ describe("fetchSaasTasks — largest page size (LANE Q step 1)", () => {
 
   it("a small board costs exactly one request", async () => {
     const seen = mockPagedBoard(40);
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(1);
@@ -356,7 +360,7 @@ describe("fetchSaasTasks — largest page size (LANE Q step 1)", () => {
 
   it("a board just over one page costs two requests", async () => {
     const seen = mockPagedBoard(501);
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(2);
@@ -411,7 +415,7 @@ describe("fetchSaasTasks — status narrowing (LANE Q step 2)", () => {
       i < 500 ? "todo" : "review",
     );
     const seen = mockFilteredBoard(statuses);
-    const result = await fetchSaasTasks("b-1", { status: "todo" });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", status: "todo" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(1);
@@ -426,7 +430,7 @@ describe("fetchSaasTasks — status narrowing (LANE Q step 2)", () => {
 
   it("an unfiltered read sends no status param", async () => {
     const seen = mockFilteredBoard(["todo", "review"]);
-    const result = await fetchSaasTasks("b-1");
+    const result = await fetchSaasTasks("b-1", { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     for (const url of seen) {
@@ -439,46 +443,46 @@ describe("fetchSaasTasks — status narrowing (LANE Q step 2)", () => {
 describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
     mockFetch(SAMPLE_TASK);
-    const result = await updateSaasTask("task-1", { status: "in-progress" });
+    const result = await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: undefined } });
   });
 
   it("maps CLI status to SaaS status in request body", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { status: "in-progress" });
+    await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.status).toBe("in_progress");
   });
 
   it("returns warning when server provides one", async () => {
     mockFetch({ ...SAMPLE_TASK, warning: "Task is already in-progress by another user" });
-    const result = await updateSaasTask("task-1", { status: "in-progress" });
+    const result = await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     expect(result).toEqual({ ok: true, data: { task: SAMPLE_TASK, warning: "Task is already in-progress by another user" } });
   });
 
   it("returns NOT_AUTHENTICATED when not authenticated", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-    const result = await updateSaasTask("task-1", {});
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
+    const result = await updateSaasTask("task-1", {}, "/test-project");
     expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
   it("returns error when response is not ok", async () => {
     mockFetch(null, false);
-    const result = await updateSaasTask("task-1", { title: "New Title" });
+    const result = await updateSaasTask("task-1", { title: "New Title" }, "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
   it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
-    const result = await updateSaasTask("task-1", {});
+    const result = await updateSaasTask("task-1", {}, "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends Authorization header with Bearer token", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { status: "in-progress" });
+    await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
@@ -486,7 +490,7 @@ describe("updateSaasTask", () => {
 
   it("sends PATCH request to correct URL", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { status: "in-progress" });
+    await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1");
     expect((fetchCall[1] as RequestInit).method).toBe("PATCH");
@@ -494,14 +498,14 @@ describe("updateSaasTask", () => {
 
   it("never hits the deleted cloud legacy surface", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { status: "todo" });
+    await updateSaasTask("task-1", { status: "todo" }, "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
   });
 
   it("sends Content-Type header with JSON body", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { status: "in-progress" });
+    await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
@@ -509,21 +513,21 @@ describe("updateSaasTask", () => {
 
   it("sends verified:true in the PATCH body", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { verified: true });
+    await updateSaasTask("task-1", { verified: true }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.verified).toBe(true);
   });
 
   it("sends verified:false as a real verdict", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { verified: false });
+    await updateSaasTask("task-1", { verified: false }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.verified).toBe(false);
   });
 
   it("sends verified:null to clear the verdict (not false)", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { verified: null });
+    await updateSaasTask("task-1", { verified: null }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect("verified" in body).toBe(true);
     expect(body.verified).toBeNull();
@@ -532,7 +536,7 @@ describe("updateSaasTask", () => {
 
   it("omits verified when no verdict is supplied (leaves the server value untouched)", async () => {
     mockFetch(SAMPLE_TASK);
-    await updateSaasTask("task-1", { title: "New Title" });
+    await updateSaasTask("task-1", { title: "New Title" }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect("verified" in body).toBe(false);
   });
@@ -544,7 +548,7 @@ describe("updateSaasTask", () => {
         { taskId: "rel-1", type: "relates" },
         { taskId: "parent-2", type: "parent" },
       ],
-    });
+    }, "/test-project");
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
     expect(body.links).toEqual([
       { taskId: "rel-1", type: "relates" },
@@ -556,7 +560,7 @@ describe("updateSaasTask", () => {
     mockFetch({ error: "parent link would create a cycle", code: "INVALID_LINKS" }, false);
     const result = await updateSaasTask("task-1", {
       links: [{ taskId: "task-1", type: "parent" }],
-    });
+    }, "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("HTTP_ERROR");
@@ -625,7 +629,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
 
   it("parses the v0 { items, nextCursor } envelope (not the legacy { tasks })", async () => {
     mockV0({});
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(1);
@@ -646,7 +650,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         { items: [{ ...V0_ITEM, id: "b" }], nextCursor: null },
       ],
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks.map((t) => t.id)).toEqual(["a", "b"]);
@@ -663,7 +667,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
     const seen = mockV0({
       pages: [{ items: [{ ...V0_ITEM, id: "a" }], nextCursor: "cursor-forever" }],
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("BOARD_TRUNCATED");
@@ -686,7 +690,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         json: () => Promise.resolve({}),
       }),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("HTTP_ERROR");
@@ -714,7 +718,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
           "field notes line one\n",
       },
     });
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const task = result.data.tasks[0]!;
@@ -751,7 +755,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         },
       ],
     });
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks[0]?.files).toMatchObject([{ name: "evidence.png" }]);
@@ -761,7 +765,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
 
   it("tolerates the legacy { tasks } envelope (pre-cutover fakes)", async () => {
     mockFetch({ tasks: [SAMPLE_TASK], boardId: "board-1" });
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // SAMPLE_TASK carries no comments/files arrays, so hydration runs and
@@ -783,7 +787,7 @@ describe("fetchSaasTasks — v0 envelope", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks(undefined, { hydrate: true });
+    const result = await fetchSaasTasks(undefined,  { projectDir: "/test-project", hydrate: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(1);
@@ -801,7 +805,7 @@ describe("fetchSaasTasks — verified tri-state round-trip", () => {
       ],
       boardId: "board-1",
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.tasks.find((t) => t.id === "a")?.verified).toBe(true);
@@ -818,7 +822,7 @@ describe("fetchSaasTasks — verified tri-state round-trip", () => {
       ],
       boardId: "board-1",
     });
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(true);
     if (result.ok) {
       const byId = Object.fromEntries(result.data.tasks.map((t) => [t.id, t.verified]));
@@ -891,7 +895,7 @@ describe("fetchSaasTaskDetail — one request, never a board listing", () => {
   it("issues one detail request (not a board listing) and hydrates that one task", async () => {
     const seen: string[] = [];
     mockDetail(seen);
-    const result = await fetchSaasTaskDetail("ext-9");
+    const result = await fetchSaasTaskDetail("ext-9", "/test-project");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Exactly one request hits the detail route…
@@ -931,7 +935,7 @@ describe("fetchSaasTaskDetail — one request, never a board listing", () => {
         json: () => Promise.resolve({ error: "not found" }),
       }),
     );
-    const result = await fetchSaasTaskDetail("ghost");
+    const result = await fetchSaasTaskDetail("ghost", "/test-project");
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("TASK_NOT_FOUND");
@@ -953,7 +957,7 @@ describe("fetchSaasTaskDetail — one request, never a board listing", () => {
         });
       }),
     );
-    const result = await fetchSaasTaskDetail("ext-9");
+    const result = await fetchSaasTaskDetail("ext-9", "/test-project");
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("HTTP_ERROR");
@@ -968,7 +972,7 @@ describe("fetchSaasTaskDetail — one request, never a board listing", () => {
       "fetch",
       vi.fn().mockRejectedValue(new Error("socket hang up")),
     );
-    const result = await fetchSaasTaskDetail("ext-9");
+    const result = await fetchSaasTaskDetail("ext-9", "/test-project");
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("NETWORK_ERROR");
@@ -986,7 +990,7 @@ describe("fetchSaasTasks — failure reporting names the failure", () => {
         json: () => Promise.resolve({ error: "boom" }),
       }),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("HTTP_ERROR");
@@ -999,7 +1003,7 @@ describe("fetchSaasTasks — failure reporting names the failure", () => {
       "fetch",
       vi.fn().mockRejectedValue(new Error("fetch failed")),
     );
-    const result = await fetchSaasTasks();
+    const result = await fetchSaasTasks(undefined, { projectDir: "/test-project" });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("NETWORK_ERROR");
@@ -1010,33 +1014,33 @@ describe("fetchSaasTasks — failure reporting names the failure", () => {
 describe("addSaasComment", () => {
   it("returns created comment on success", async () => {
     mockFetch(V0_COMMENT);
-    const result = await addSaasComment("task-1", "Hello");
+    const result = await addSaasComment("task-1", "Hello", "/test-project");
     expect(result).toEqual({ ok: true, data: SAMPLE_COMMENT });
   });
 
   it("returns NOT_AUTHENTICATED when not authenticated", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-    const result = await addSaasComment("task-1", "Hello");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
+    const result = await addSaasComment("task-1", "Hello", "/test-project");
     expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
   it("returns error when response is not ok", async () => {
     mockFetch(null, false);
-    const result = await addSaasComment("task-1", "Hello");
+    const result = await addSaasComment("task-1", "Hello", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
   it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
-    const result = await addSaasComment("task-1", "Hello");
+    const result = await addSaasComment("task-1", "Hello", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends POST request with Authorization header", async () => {
     mockFetch(V0_COMMENT);
-    await addSaasComment("task-1", "Hello");
+    await addSaasComment("task-1", "Hello", "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
@@ -1045,7 +1049,7 @@ describe("addSaasComment", () => {
 
   it("sends comment body in JSON payload", async () => {
     mockFetch(V0_COMMENT);
-    await addSaasComment("task-1", "Test comment");
+    await addSaasComment("task-1", "Test comment", "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
     expect(body.text).toBe("Test comment");
@@ -1053,7 +1057,7 @@ describe("addSaasComment", () => {
 
   it("posts comments to the v0 path", async () => {
     mockFetch(V0_COMMENT);
-    await addSaasComment("task-1", "Hello");
+    await addSaasComment("task-1", "Hello", "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1/comments");
   });
@@ -1062,31 +1066,31 @@ describe("addSaasComment", () => {
 describe("fetchSaasComments", () => {
   it("returns comments on success", async () => {
     mockFetch({ comments: [V0_COMMENT] });
-    const result = await fetchSaasComments("task-1");
+    const result = await fetchSaasComments("task-1", "/test-project");
     expect(result).toEqual([SAMPLE_COMMENT]);
   });
 
   it("returns null when not authenticated", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-    const result = await fetchSaasComments("task-1");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
+    const result = await fetchSaasComments("task-1", "/test-project");
     expect(result).toBeNull();
   });
 
   it("returns null when response is not ok", async () => {
     mockFetch(null, false);
-    const result = await fetchSaasComments("task-1");
+    const result = await fetchSaasComments("task-1", "/test-project");
     expect(result).toBeNull();
   });
 
   it("returns null when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
-    const result = await fetchSaasComments("task-1");
+    const result = await fetchSaasComments("task-1", "/test-project");
     expect(result).toBeNull();
   });
 
   it("sends GET request with Authorization header", async () => {
     mockFetch({ comments: [V0_COMMENT] });
-    await fetchSaasComments("task-1");
+    await fetchSaasComments("task-1", "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
@@ -1094,7 +1098,7 @@ describe("fetchSaasComments", () => {
 
   it("requests comments from correct URL", async () => {
     mockFetch({ comments: [V0_COMMENT] });
-    await fetchSaasComments("task-1");
+    await fetchSaasComments("task-1", "/test-project");
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks/task-1/comments");
   });
@@ -1107,7 +1111,7 @@ describe("fetchSaasComments", () => {
         { id: "c1", author: "agent", text: "x", createdAt: "2026-01-01T00:00:00.000Z" },
       ],
     });
-    const result = await fetchSaasComments("task-9");
+    const result = await fetchSaasComments("task-9", "/test-project");
     expect(result).toEqual([
       {
         id: "c1",
@@ -1124,33 +1128,33 @@ describe("fetchSaasComments", () => {
 describe("createSaasTask", () => {
   it("returns created task on success", async () => {
     mockFetch(SAMPLE_TASK);
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result).toEqual({ ok: true, data: SAMPLE_TASK });
   });
 
   it("returns NOT_AUTHENTICATED when not authenticated", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
-    const result = await createSaasTask({ title: "New Task" });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result).toEqual({ ok: false, error: { code: "NOT_AUTHENTICATED", message: "Not logged in" } });
   });
 
   it("returns error when response is not ok", async () => {
     mockFetch(null, false);
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(["HTTP_ERROR", "NETWORK_ERROR"]).toContain(result.error.code);
   });
 
   it("returns NETWORK_ERROR when fetch throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("sends POST request with Authorization header", async () => {
     mockFetch(SAMPLE_TASK);
-    await createSaasTask({ title: "New Task" });
+    await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const options = fetchCall[1] as RequestInit;
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
@@ -1159,7 +1163,7 @@ describe("createSaasTask", () => {
 
   it("sends task params in JSON body", async () => {
     mockFetch(SAMPLE_TASK);
-    await createSaasTask({ title: "Test Task", description: "Test desc" });
+    await createSaasTask({ projectDir: "/test-project", title: "Test Task", description: "Test desc" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
     expect(body.title).toBe("Test Task");
@@ -1168,7 +1172,7 @@ describe("createSaasTask", () => {
 
   it("requests tasks from correct URL", async () => {
     mockFetch(SAMPLE_TASK);
-    await createSaasTask({ title: "New Task" });
+    await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     expect((fetchCall[0] as string)).toContain("/api/v0/tasks");
     expect((fetchCall[0] as string)).not.toContain("/api/cli/");
@@ -1176,7 +1180,7 @@ describe("createSaasTask", () => {
 
   it("sends links in the POST body (the online spelling of --parent)", async () => {
     mockFetch(SAMPLE_TASK);
-    await createSaasTask({
+    await createSaasTask({ projectDir: "/test-project",
       title: "Child",
       links: [{ taskId: "parent-1", type: "parent" }],
     });
@@ -1186,7 +1190,7 @@ describe("createSaasTask", () => {
 
   it("carries the server refusal code through as serverCode", async () => {
     mockFetch({ error: "Parent target task ghost not found", code: "INVALID_LINKS" }, false);
-    const result = await createSaasTask({
+    const result = await createSaasTask({ projectDir: "/test-project",
       title: "Child",
       links: [{ taskId: "ghost", type: "parent" }],
     });
@@ -1200,7 +1204,7 @@ describe("createSaasTask", () => {
 
   it("leaves serverCode absent on transport failures", async () => {
     mockFetch(null, false);
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.serverCode).toBeUndefined();
   });
@@ -1220,7 +1224,7 @@ describe("createSaasTask", () => {
         json: () => Promise.reject(new SyntaxError("Unexpected token <")),
       }),
     );
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("HTTP_ERROR");
@@ -1243,7 +1247,7 @@ describe("createSaasTask", () => {
           Promise.reject(new SyntaxError("Unexpected end of JSON input")),
       }),
     );
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("HTTP_ERROR");
@@ -1271,7 +1275,7 @@ describe("createSaasTask", () => {
           ),
       }),
     );
-    const result = await createSaasTask({ title: "New Task" });
+    const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("HTTP_ERROR");
@@ -1402,7 +1406,7 @@ describe("deleteSaasTask", () => {
 
   it("sends one DELETE to the task path and resolves the id", async () => {
     mockDelete({}, true);
-    const result = await deleteSaasTask("abc123");
+    const result = await deleteSaasTask("abc123", "/test-project");
     expect(result).toEqual({
       ok: true,
       data: { id: "abc123", deletedIds: ["abc123"] },
@@ -1415,7 +1419,7 @@ describe("deleteSaasTask", () => {
 
   it("reports the server's deletedIds cone (cascade: root first, then descendants)", async () => {
     mockDelete({ success: true, deletedIds: ["p1", "c1", "g1"] }, true);
-    const result = await deleteSaasTask("p1");
+    const result = await deleteSaasTask("p1", "/test-project");
     expect(result).toEqual({
       ok: true,
       data: { id: "p1", deletedIds: ["p1", "c1", "g1"] },
@@ -1424,7 +1428,7 @@ describe("deleteSaasTask", () => {
 
   it("falls back to the requested id alone when the body carries no ids (pre-cascade fakes)", async () => {
     mockDelete({ success: true }, true);
-    const result = await deleteSaasTask("abc123");
+    const result = await deleteSaasTask("abc123", "/test-project");
     expect(result).toEqual({
       ok: true,
       data: { id: "abc123", deletedIds: ["abc123"] },
@@ -1433,7 +1437,7 @@ describe("deleteSaasTask", () => {
 
   it("answers TASK_NOT_FOUND on a 404 (deleted between listing and request)", async () => {
     mockDelete({ error: "Task not found", code: "NOT_FOUND" }, false, 404);
-    const result = await deleteSaasTask("gone");
+    const result = await deleteSaasTask("gone", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("TASK_NOT_FOUND");
@@ -1443,7 +1447,7 @@ describe("deleteSaasTask", () => {
 
   it("carries other HTTP refusals with status and path", async () => {
     mockDelete({ error: "Forbidden", code: "FORBIDDEN" }, false, 403);
-    const result = await deleteSaasTask("abc123");
+    const result = await deleteSaasTask("abc123", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("HTTP_ERROR");
@@ -1458,16 +1462,16 @@ describe("deleteSaasTask", () => {
       "fetch",
       vi.fn().mockRejectedValue(new Error("socket hang up")),
     );
-    const result = await deleteSaasTask("abc123");
+    const result = await deleteSaasTask("abc123", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NETWORK_ERROR");
   });
 
   it("answers NOT_AUTHENTICATED without a token and sends nothing", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const spy = vi.fn();
     vi.stubGlobal("fetch", spy);
-    const result = await deleteSaasTask("abc123");
+    const result = await deleteSaasTask("abc123", "/test-project");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NOT_AUTHENTICATED");
     expect(spy).not.toHaveBeenCalled();
@@ -1545,7 +1549,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
     const { rows } = kanbanBoard();
     const seen: string[] = [];
     mockKanbanServer(rows, seen);
-    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", sort: "kanban", limit: 1 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(1);
@@ -1560,7 +1564,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
     // Full scan: no sort hint, pages to exhaustion in createdAt order.
     const seenFull: string[] = [];
     mockKanbanServer(rows, seenFull);
-    const full = await fetchSaasTasks("b-1");
+    const full = await fetchSaasTasks("b-1", { projectDir: "/test-project" });
     expect(full.ok).toBe(true);
     if (!full.ok) return;
     // Four rows fit in one default page — the point is the full scan carries
@@ -1583,7 +1587,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
     // One-request page for the same K.
     const seenTopK: string[] = [];
     mockKanbanServer(rows, seenTopK);
-    const topK = await fetchSaasTasks("b-1", { sort: "kanban", limit: 2 });
+    const topK = await fetchSaasTasks("b-1",  { projectDir: "/test-project", sort: "kanban", limit: 2 });
     expect(topK.ok).toBe(true);
     if (!topK.ok) return;
     expect(seenTopK).toHaveLength(1);
@@ -1602,7 +1606,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
     }));
     const seen: string[] = [];
     mockKanbanServer(big, seen);
-    const result = await fetchSaasTasks("b-1", { limit: 1 } as never);
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", limit: 1 } as never);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(600);
@@ -1641,7 +1645,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", sort: "kanban", limit: 1 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // 1 refused top-K + the full scan pages.
@@ -1681,7 +1685,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", sort: "kanban", limit: 1 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen.length).toBeGreaterThan(1);
@@ -1699,7 +1703,7 @@ describe("fetchSaasTasks — kanban top-K (ticket 05076246)", () => {
     }));
     const seen: string[] = [];
     mockKanbanServer(board, seen);
-    const result = await fetchSaasTasks("b-1", { sort: "kanban", limit: 1 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", sort: "kanban", limit: 1 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(1);
@@ -1764,7 +1768,7 @@ describe("fetchSaasTasks — roots scope (ticket 05076246, LANE Z)", () => {
   it("scope=roots&sort=kanban&limit=K is ONE request returning only roots", async () => {
     const seen: string[] = [];
     mockRootsServer(rootsBoard(), seen);
-    const result = await fetchSaasTasks("b-1", { scope: "roots", sort: "kanban", limit: 2 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", scope: "roots", sort: "kanban", limit: 2 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(seen).toHaveLength(1);
@@ -1812,7 +1816,7 @@ describe("fetchSaasTasks — roots scope (ticket 05076246, LANE Z)", () => {
         });
       }),
     );
-    const result = await fetchSaasTasks("b-1", { scope: "roots", sort: "kanban", limit: 1 });
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", scope: "roots", sort: "kanban", limit: 1 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // 1 refused top-K (child leaked) + the full scan pages.
@@ -1823,7 +1827,7 @@ describe("fetchSaasTasks — roots scope (ticket 05076246, LANE Z)", () => {
   it("scope without sort+limit is ignored (full scan, historical cost)", async () => {
     const seen: string[] = [];
     mockRootsServer(rootsBoard(), seen);
-    const result = await fetchSaasTasks("b-1", { scope: "roots" } as never);
+    const result = await fetchSaasTasks("b-1",  { projectDir: "/test-project", scope: "roots" } as never);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.tasks).toHaveLength(3);

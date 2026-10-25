@@ -4,14 +4,14 @@
  * When the CLI has a valid token, these functions read/write tasks and
  * comments from the SaaS backend instead of local .proto/ files.
  */
-import { readToken } from "../auth/token.js";
+import { resolveProjectAuth } from "../auth/project-auth.js";
+import { scopeHeaderFor } from "../auth/board-scope.js";
 import {
   fetchWithTimeout,
   isSaasRequestTimeout,
   parseFallback,
   SAAS_UPLOAD_TIMEOUT_MS,
 } from "./request.js";
-import { peekBoardScope, scopeHeaderFor } from "../auth/board-scope.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import type { AgentClaimRequestType } from "@vibeflow-tools/api-core";
 
@@ -185,15 +185,24 @@ export interface SaasTask {
    */
   record?: Record<string, unknown>;
 }
-async function getBearerHeaders(): Promise<Record<string, string> | null> {
-  const token = await readToken();
-  if (!token) return null;
+/**
+ * Project-scoped bearer headers (ADR-0005): the token AND the board
+ * scope come from the given project's resolution. No projectDir means
+ * no headers (fail-closed) — there are no ambient global reads.
+ */
+async function getBearerHeaders(
+  projectDir?: string,
+): Promise<Record<string, string> | null> {
+  if (projectDir === undefined) return null;
+  const auth = await resolveProjectAuth(projectDir);
+  if (auth.mode !== "saas" || !auth.token) return null;
   // Every v0 request carries X-Vibeflow-Scope when a board is known
   // (ticket dabd2fb7): the server answers 422 SCOPE_REQUIRED to an
-  // unscoped request on a multi-board account. The peek is fs-only — the
-  // command entries (tasks/push) run resolveBoardScope first, so
-  // auto-selection and the 2+ board refusal happen before any request.
-  return { Authorization: `Bearer ${token}`, ...scopeHeaderFor(await peekBoardScope()) };
+  // unscoped request on a multi-board account. The board is the
+  // project's own pointer — the command entries (tasks/push) run
+  // resolveBoardScope first, so auto-selection and the 2+ board refusal
+  // happen before any request.
+  return { Authorization: `Bearer ${auth.token}`, ...scopeHeaderFor(auth.workspaceId) };
 }
 
 /**
@@ -438,9 +447,15 @@ export async function fetchSaasTasks(
      * filtered search (which includes children by contract).
      */
     scope?: V0TaskListScope;
+    /**
+     * Project the request is scoped to (ADR-0005): token + board scope
+     * come from this project's resolution. Absent → NOT_AUTHENTICATED
+     * (fail-closed, never a global credential).
+     */
+    projectDir?: string;
   },
 ): Promise<SaasResult<{ tasks: SaasTask[]; boardId: string }>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(opts?.projectDir);
   if (!headers)
     return {
       ok: false,
@@ -793,8 +808,9 @@ async function downloadTextFile(
  */
 export async function fetchSaasTaskDetail(
   taskId: string,
+  projectDir?: string,
 ): Promise<SaasResult<{ task: SaasTask }>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -896,10 +912,11 @@ export type { SaasIdResolution } from "../core/id-resolution.js";
 export async function claimSaasTask(
   boardId: string | undefined,
   body: AgentClaimRequestType,
+  projectDir?: string,
 ): Promise<
   SaasResult<{ task: SaasTask | null; warning?: string }>
 > {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -992,8 +1009,8 @@ export async function claimSaasTask(
  *
  * Single detail request (see fetchSaasTaskDetail) — never a board listing.
  */
-export async function fetchSaasTask(taskId: string): Promise<SaasTask | null> {
-  const result = await fetchSaasTaskDetail(taskId);
+export async function fetchSaasTask(taskId: string, projectDir?: string): Promise<SaasTask | null> {
+  const result = await fetchSaasTaskDetail(taskId, projectDir);
   if (!result.ok) return null;
   return result.data.task;
 }
@@ -1019,8 +1036,9 @@ export async function updateSaasTask(
      */
     links?: Array<{ taskId: string; type: string }>;
   },
+  projectDir?: string,
 ): Promise<SaasResult<{ task: SaasTask; warning?: string }>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -1104,8 +1122,9 @@ export async function updateSaasTask(
  */
 export async function deleteSaasTask(
   taskId: string,
+  projectDir?: string,
 ): Promise<SaasResult<{ id: string; deletedIds: string[] }>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -1210,8 +1229,9 @@ export async function uploadSaasFile(
   taskId: string,
   filename: string,
   data: Uint8Array,
+  projectDir?: string,
 ): Promise<SaasResult<SaasUploadedFile>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -1323,8 +1343,9 @@ export async function uploadSaasFile(
 export async function addSaasComment(
   taskId: string,
   body: string,
+  projectDir?: string,
 ): Promise<SaasResult<SaasComment>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -1383,8 +1404,9 @@ export async function addSaasComment(
  */
 export async function fetchSaasComments(
   taskId: string,
+  projectDir?: string,
 ): Promise<SaasComment[] | null> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(projectDir);
   if (!headers) return null;
 
   try {
@@ -1486,8 +1508,14 @@ export async function createSaasTask(params: {
    * local `--parent` flag — the server validates the target exists.
    */
   links?: Array<{ taskId: string; type: string }>;
+  /**
+   * Project the request is scoped to (ADR-0005): token + board scope
+   * come from this project's resolution. Absent → NOT_AUTHENTICATED
+   * (fail-closed, never a global credential).
+   */
+  projectDir?: string;
 }): Promise<SaasResult<SaasTask>> {
-  const headers = await getBearerHeaders();
+  const headers = await getBearerHeaders(params.projectDir);
   if (!headers)
     return {
       ok: false,

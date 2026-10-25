@@ -32,11 +32,14 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
+vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 
-import * as tokenModule from "../../src/auth/token.js";
+import { resolveProjectAuth } from "../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "./helpers/mock-project-auth.js";
 import {
   resolveAttachSource,
   attachDuplicateRefusal,
@@ -53,10 +56,10 @@ import { createTask, readTaskFile, findTaskFilePath } from "../../src/core/tasks
 import { listFiles } from "../../src/core/files.js";
 import { buildDeltaPlan } from "../../src/saas/delta-archive.js";
 
-const mockedReadToken = vi.mocked(tokenModule.readToken);
+const mockedReadToken = vi.mocked(resolveProjectAuth);
 
 beforeEach(() => {
-  mockedReadToken.mockResolvedValue("test-token");
+  mockedReadToken.mockResolvedValue(saasAuth());
 });
 
 afterEach(() => {
@@ -229,6 +232,7 @@ describe("uploadSaasFile", () => {
       "task-1",
       "plan.md",
       Buffer.from("body"),
+      "t-proj",
     );
     expect(result.ok).toBe(true);
     expect(seen).toHaveLength(1);
@@ -253,7 +257,7 @@ describe("uploadSaasFile", () => {
     mockFetch(() =>
       okJson({ success: true, file: { name: "plan.md", size: 4 } }),
     );
-    const result = await uploadSaasFile("t", "plan.md", Buffer.from("body"));
+    const result = await uploadSaasFile("t", "plan.md", Buffer.from("body"), "t-proj");
     expect(result).toEqual({
       ok: true,
       data: { id: "plan.md", name: "plan.md", size: 4 },
@@ -272,7 +276,7 @@ describe("uploadSaasFile", () => {
         },
       }),
     );
-    const result = await uploadSaasFile("t", "plan.md", Buffer.from("body"));
+    const result = await uploadSaasFile("t", "plan.md", Buffer.from("body"), "t-proj");
     expect(result).toEqual({
       ok: true,
       data: {
@@ -286,7 +290,7 @@ describe("uploadSaasFile", () => {
 
   it("answers TASK_NOT_FOUND on a 404", async () => {
     mockFetch(() => ({ ok: false, status: 404, json: () => Promise.resolve({}) }));
-    const result = await uploadSaasFile("ghost", "plan.md", Buffer.from("x"));
+    const result = await uploadSaasFile("ghost", "plan.md", Buffer.from("x"), "t-proj");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("TASK_NOT_FOUND");
   });
@@ -296,7 +300,7 @@ describe("uploadSaasFile", () => {
       "fetch",
       vi.fn().mockRejectedValue(new Error("boom")),
     );
-    const result = await uploadSaasFile("t", "plan.md", Buffer.from("x"));
+    const result = await uploadSaasFile("t", "plan.md", Buffer.from("x"), "t-proj");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NETWORK_ERROR");
@@ -305,8 +309,8 @@ describe("uploadSaasFile", () => {
   });
 
   it("refuses without a token", async () => {
-    mockedReadToken.mockResolvedValue(null);
-    const result = await uploadSaasFile("t", "plan.md", Buffer.from("x"));
+    mockedReadToken.mockResolvedValue(localAuth());
+    const result = await uploadSaasFile("t", "plan.md", Buffer.from("x"), "t-proj");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("NOT_AUTHENTICATED");
   });

@@ -175,8 +175,8 @@ export type McpRunFn = (
   mode: "local" | "saas",
 ) => Promise<void>;
 
-async function defaultResolveMode(): Promise<"local" | "saas"> {
-  const mode = await getMode();
+async function defaultResolveMode(projectDir: string): Promise<"local" | "saas"> {
+  const mode = await getMode(projectDir);
   return mode === "saas" ? "saas" : "local";
 }
 
@@ -188,9 +188,10 @@ export interface StartMcpTransportInput {
    */
   mode?: "local" | "saas";
   /**
-   * Resolves the backend mode. Defaults to the real `getMode()` (token
-   * presence, never reachability — the same fail-closed rule as the inline
-   * branch it replaces); unit tests inject a fake.
+   * Resolves the backend mode. Defaults to the real `getMode(projectDir)`
+   * (project-scoped token presence, never reachability — the same
+   * fail-closed rule as the inline branch it replaces); unit tests inject
+   * a fake.
    */
   resolveMode?: () => Promise<"local" | "saas">;
   /**
@@ -217,7 +218,8 @@ export async function startMcpTransport(
 ): Promise<StartMcpTransportResult> {
   const projectDir = ctx.projectDir;
   const mode =
-    input.mode ?? (await (input.resolveMode ?? defaultResolveMode)());
+    input.mode ??
+    (await (input.resolveMode ?? (() => defaultResolveMode(projectDir)))());
   try {
     await input.run(projectDir, mode);
     return { ok: true, data: { projectDir, mode } };

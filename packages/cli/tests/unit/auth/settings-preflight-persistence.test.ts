@@ -19,17 +19,18 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 vi.mock("../../../src/core/settings.js", () => ({
   readGlobalSettings: vi.fn(),
   writeGlobalSettings: vi.fn(),
 }));
-vi.mock("../../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 vi.mock("open", () => ({ default: vi.fn() }));
 vi.mock("@inquirer/select", () => ({ default: vi.fn() }));
 vi.mock("node:readline", () => ({
@@ -43,7 +44,9 @@ vi.mock("node:readline", () => ({
   },
 }));
 
-import * as tokenModule from "../../../src/auth/token.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "../helpers/mock-project-auth.js";
 import * as settingsModule from "../../../src/core/settings.js";
 
 const NOW = 1_700_000_000_000;
@@ -75,9 +78,9 @@ describe("settings pre-flight persists across CLI invocations (d5178789)", () =>
     // the ETag describes bytes actually on disk (see implementation).
     mkdirSync(join(projectDir, ".vibeflow"), { recursive: true });
     writeFileSync(join(projectDir, ".vibeflow", "settings.json"), "{}");
-    vi.mocked(tokenModule.readToken).mockReset();
+    vi.mocked(resolveProjectAuth).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
   });
 
   afterEach(() => {
@@ -159,7 +162,7 @@ describe("settings pre-flight persists across CLI invocations (d5178789)", () =>
     vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
     await first.maybeRefreshSettings(NOW, projectDir);
 
-    vi.mocked(tokenModule.readToken).mockResolvedValue("rotated-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth({ token: "rotated-token" }));
     const second = await freshLogin();
     const fetchMock = okSettings({ autoCommit: true }, "hash-2");
     vi.stubGlobal("fetch", fetchMock);
@@ -205,7 +208,7 @@ describe("settings pre-flight persists across CLI invocations (d5178789)", () =>
   });
 
   it("no token means no fetch and no state dir", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const login = await freshLogin();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

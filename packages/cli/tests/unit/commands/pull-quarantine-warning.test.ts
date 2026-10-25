@@ -16,25 +16,24 @@ import {
   sha256Hex,
 } from "@vibeflow-tools/shared/delta-hash";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-  writeToken: vi.fn(),
-}));
-vi.mock("../../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 vi.mock("../../../src/auth/login.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../src/auth/login.js")>();
   return { ...actual, login: vi.fn(), maybeRefreshSettings: vi.fn() };
 });
 
-import * as tokenModule from "../../../src/auth/token.js";
-import * as workspaceModule from "../../../src/auth/workspace.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../../src/auth/project-pointer.js";
+import { saasAuth, TEST_API_URL } from "../helpers/mock-project-auth.js";
 import { pull, type PullResult } from "../../../src/commands/pull.js";
-
-const BOARD = { id: "b_1", name: "My Board", url: "http://x", icon: null, email: null };
 
 function taskRecord(id: string, extra: Record<string, unknown> = {}) {
   return {
@@ -88,8 +87,13 @@ function fixture(): { projectDir: string; badId: string; badPath: string; badBef
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(BOARD);
+  // Explicit --board wins, so the pointer is irrelevant here — but the
+  // credential must resolve or pull refuses as offline (ADR-0005).
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+  vi.mocked(readProjectPointer).mockReturnValue({
+    apiUrl: TEST_API_URL,
+    id: "b_1",
+  });
 });
 
 afterEach(() => {

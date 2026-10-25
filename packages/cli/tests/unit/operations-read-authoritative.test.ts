@@ -23,17 +23,22 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
-vi.mock("../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
-}));
+vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+vi.mock("../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 
-import * as tokenModule from "../../src/auth/token.js";
-import * as workspaceModule from "../../src/auth/workspace.js";
+import {
+  resolveProjectAuth,
+  dropProjectAuthCache,
+} from "../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../src/auth/project-pointer.js";
+import { getApiUrl } from "../../src/core/api-url.js";
+import { saasAuth, localAuth, TEST_API_URL } from "./helpers/mock-project-auth.js";
 import { listTasks, getTask, listAllTasksForCli } from "../../src/core/operations/tasks.js";
 import { remoteListJsonPayload } from "../../src/cli/renderers/task-reads.js";
 import {
@@ -120,8 +125,8 @@ async function seedSentinel(): Promise<{ projectDir: string; sentinelId: string 
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+  vi.mocked(readProjectPointer).mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -161,6 +166,19 @@ describe("saas-mode operations read the remote board, never the stale local copy
   it("CLI and MCP read the SAME board through BOTH surfaces", async () => {
     const { projectDir, sentinelId } = await seedSentinel();
     stubRemote(["remote-1", "remote-2"]);
+    // The MCP session path re-resolves through the REAL mtime-checked
+    // cache (which calls the module-local resolver, not the
+    // `resolveProjectAuth` mock above) — so the seed project is linked
+    // for real: the pointer mock names board-1, the credential is a real
+    // file under the hermetic temp HOME, and the cache is dropped. The
+    // CLI surface in this file keeps steering through the mock.
+    vi.mocked(readProjectPointer).mockReturnValue({
+      apiUrl: getApiUrl(),
+      id: "board-1",
+    });
+    const { writeCredential } = await import("../../src/auth/credentials.js");
+    await writeCredential(getApiUrl(), { token: "test-token" });
+    dropProjectAuthCache(projectDir);
     const ctx: OperationContext = { projectDir, mode: "saas" };
     const listTasksTool = manifest.find((t) => t.name === "list_tasks")!;
     const getTaskTool = manifest.find((t) => t.name === "get_task")!;

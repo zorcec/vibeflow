@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 
 // Keep the create-routing test on microtasks only: the real peek reads the
 // workspace file (real I/O), which does not interleave with fake-timer
@@ -12,7 +13,8 @@ vi.mock("../../../src/auth/board-scope.js", () => ({
   peekBoardScope: vi.fn().mockResolvedValue(null),
 }));
 
-import * as tokenModule from "../../../src/auth/token.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { saasAuth } from "../helpers/mock-project-auth.js";
 import { createSaasTask } from "../../../src/saas/client.js";
 import {
   DEFAULT_SAAS_REQUEST_TIMEOUT_MS,
@@ -101,7 +103,7 @@ describe("saas request deadline", () => {
 
   it("a stalled headers wait fails at the deadline, naming the phase", async () => {
     vi.useFakeTimers();
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
     const { observedSignal } = abortRejectingFetch();
     const outcome = fetchWithTimeout(
       "https://board.example.com/api/v0/tasks",
@@ -265,9 +267,12 @@ describe("saas request deadline", () => {
 
   it("createSaasTask routes through the deadline and marks the timeout", async () => {
     vi.useFakeTimers();
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
     abortRejectingFetch();
-    const outcome = createSaasTask({ title: "Timed out add" }).then((r) => r);
+    const outcome = createSaasTask({
+      projectDir: "/test-project",
+      title: "Timed out add",
+    }).then((r) => r);
     await vi.advanceTimersByTimeAsync(30_000);
     const result = await outcome;
     expect(result.ok).toBe(false);

@@ -30,8 +30,8 @@ import { taskReadNotices } from "../core/task-record-read.js";
 import { planTaskStoreNormalize } from "../core/tasks.js";
 import chalk from "chalk";
 import { resolve } from "node:path";
-import { readToken } from "../auth/token.js";
-import { readWorkspace } from "../auth/workspace.js";
+import { resolveProjectAuth } from "../auth/project-auth.js";
+import { readProjectPointer } from "../auth/project-pointer.js";
 import {
   BoardScopeRequiredError,
   printBoardScopeRequired,
@@ -134,17 +134,20 @@ export async function pull(
   const dryRun = opts.dryRun === true;
 
   // ONE token read, up front — the same two-read login sequence push uses
-  // (initial check → after login).
-  const earlyToken = await readToken();
+  // (initial check → after login). Project-scoped (ADR-0005): this
+  // project's credential only, never a global token.
+  const earlyToken = (await resolveProjectAuth(projectDir)).token;
 
   let boardId: string | undefined;
   try {
-    // One shared rule (ticket dabd2fb7): --board > saved workspace >
-    // single-board auto-select. A 2+ board account with nothing selected
-    // refuses here — a wrong-board pull would merge a foreign board's tasks
-    // into the local store.
+    // One shared rule (ticket dabd2fb7, ADR-0005): --board > the
+    // project's workspace pointer > single-board auto-select. A 2+ board
+    // account with nothing selected refuses here — a wrong-board pull
+    // would merge a foreign board's tasks into the local store.
+    // A project that declares NOTHING never reaches another project's
+    // board: resolveBoardScope is fail-closed without a pointer.
     boardId =
-      (await resolveBoardScope(opts.board ?? null, {
+      (await resolveBoardScope(opts.board ?? null, projectDir, {
         hasToken: async () => Boolean(earlyToken),
       })) ?? undefined;
   } catch (err) {
@@ -179,7 +182,7 @@ export async function pull(
     };
   }
   const boardLabel =
-    (await readWorkspace().catch(() => null))?.name ?? boardId ?? "(no board selected)";
+    readProjectPointer(projectDir)?.id ?? boardId ?? "(no board selected)";
 
   let token = earlyToken;
   if (!token) {
@@ -200,8 +203,8 @@ export async function pull(
       };
     }
     console.log(chalk.yellow("  Not logged in. Starting login flow..."));
-    await login();
-    token = await readToken();
+    await login(projectDir);
+    token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
       console.error(chalk.red("  Login failed. Please run `vibeflow auth login` and try again."));
       process.exitCode = ExitCode.AUTH;

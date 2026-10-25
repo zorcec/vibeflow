@@ -17,14 +17,14 @@ import {
   sha256Hex,
 } from "@vibeflow-tools/shared/delta-hash";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-  writeToken: vi.fn(),
-}));
-vi.mock("../../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 // Keep the real pull flow; only the interactive login is stubbed out.
 vi.mock("../../../src/auth/login.js", async (importOriginal) => {
   const actual =
@@ -32,8 +32,9 @@ vi.mock("../../../src/auth/login.js", async (importOriginal) => {
   return { ...actual, login: vi.fn(), maybeRefreshSettings: vi.fn() };
 });
 
-import * as tokenModule from "../../../src/auth/token.js";
-import * as workspaceModule from "../../../src/auth/workspace.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "../helpers/mock-project-auth.js";
 import * as loginModule from "../../../src/auth/login.js";
 import {
   pull,
@@ -111,8 +112,8 @@ function silence() {
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(BOARD);
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+  vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: BOARD.id });
 });
 
 afterEach(() => {
@@ -224,7 +225,7 @@ describe("pull — live merge", () => {
     expect(result.dryRun).toBe(false);
     expect(result.added).toBe(1);
     expect(result.filesWritten).toBe(1);
-    expect(result.board).toBe("My Board");
+    expect(result.board).toBe(BOARD.id); // ADR-0005: the pointer carries the board id, not its display name
     expect(result.notices).toEqual([{ code: "PULL_COMPLETED", message: "Pull completed" }]);
     const stored = JSON.parse(
       readFileSync(
@@ -309,7 +310,7 @@ describe("pull — refusals", () => {
 
 describe("pull — auth", () => {
   it("starts the login flow when no token is stored, and refuses when it still fails", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const projectDir = mkdtempSync(join(tmpdir(), "pull-cmd-"));
     silence();
     const originalExitCode = process.exitCode;

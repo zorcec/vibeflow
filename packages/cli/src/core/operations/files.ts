@@ -257,7 +257,7 @@ export async function attachStandalone(
       const { toRemoteWriteRefusal } = await import(
         "../remote-task-store.js"
       );
-      const uploaded = await uploadSaasFile(resolved.id, filename, bytes);
+      const uploaded = await uploadSaasFile(resolved.id, filename, bytes, ctx.projectDir);
       if (!uploaded.ok) {
         throw toRemoteWriteRefusal(
           uploaded.error,

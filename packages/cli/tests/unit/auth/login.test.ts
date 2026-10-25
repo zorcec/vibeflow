@@ -1,21 +1,42 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // Mock all heavy dependencies before importing the module under test.
 vi.mock("../../../src/auth/machine.js", () => ({
   getDeviceName: vi.fn(() => "test-laptop (Linux)"),
   getMachineId: vi.fn(async () => "a".repeat(64)),
 }));
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-  writeToken: vi.fn(),
-}));
+// Project-scoped auth (ADR-0005): the pre-flight resolves the token
+// through resolveProjectAuth(projectDir) — never a global token file.
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../src/auth/project-auth.js")
+  >();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+// Login persists the PAT user-scoped (keyed by apiUrl) and the board as
+// the project's pointer — both seams are mocked, never the real HOME.
+vi.mock("../../../src/auth/credentials.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../src/auth/credentials.js")
+  >();
+  return { ...actual, writeCredential: vi.fn() };
+});
+vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../src/auth/project-pointer.js")
+  >();
+  return {
+    ...actual,
+    readProjectPointer: vi.fn(),
+    writeProjectPointer: vi.fn(),
+  };
+});
 vi.mock("../../../src/core/settings.js", () => ({
   readGlobalSettings: vi.fn(),
   writeGlobalSettings: vi.fn(),
-}));
-vi.mock("../../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
 }));
 vi.mock("open", () => ({ default: vi.fn() }));
 vi.mock("@inquirer/select", () => ({ default: vi.fn() }));
@@ -32,9 +53,18 @@ vi.mock("node:readline", () => ({
   },
 }));
 
-import * as tokenModule from "../../../src/auth/token.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { writeCredential } from "../../../src/auth/credentials.js";
+import {
+  readProjectPointer,
+  writeProjectPointer,
+} from "../../../src/auth/project-pointer.js";
 import * as settingsModule from "../../../src/core/settings.js";
-import * as workspaceModule from "../../../src/auth/workspace.js";
+import {
+  saasAuth,
+  localAuth,
+  TEST_API_URL,
+} from "../helpers/mock-project-auth.js";
 import {
   maybeRefreshSettings,
   resetSettingsPreflight,
@@ -46,18 +76,28 @@ const openMock = (await import("open")).default as ReturnType<typeof vi.fn>;
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 
+/** A resolvable temp project: login() refuses outside one (ADR-0005). */
+function makeProject(): string {
+  const dir = mkdtempSync(join(tmpdir(), "login-test-"));
+  mkdirSync(join(dir, ".vibeflow"), { recursive: true });
+  writeFileSync(join(dir, ".vibeflow", "settings.json"), "{}");
+  return dir;
+}
+
 describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
   // Fixed clock: the pre-flight takes an injectable `now` so the 5-minute
   // window is deterministic without fake timers.
   const NOW = 1_700_000_000_000;
+  let projectDir: string;
 
   beforeEach(() => {
     vi.unstubAllGlobals();
-    vi.mocked(tokenModule.readToken).mockReset();
+    projectDir = makeProject();
+    vi.mocked(resolveProjectAuth).mockReset();
     vi.mocked(settingsModule.readGlobalSettings).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
     resetSettingsPreflight();
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
   });
 
   afterEach(() => {
@@ -76,11 +116,11 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
     });
 
   it("skips refresh when no token is stored", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
@@ -90,7 +130,7 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
     const fetchMock = okSettings({ autoCommit: true }, "hash-1");
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
@@ -110,12 +150,12 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
 
   it("cached path costs zero requests (in-window recheck, ~0 ms)", async () => {
     vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const start = Date.now();
-    await maybeRefreshSettings(NOW + 1000);
+    await maybeRefreshSettings(NOW + 1000, projectDir);
     const elapsed = Date.now() - start;
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -124,7 +164,7 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
 
   it("no-change run after the window costs exactly one conditional request", async () => {
     vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -132,7 +172,7 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
       json: () => Promise.resolve({}),
     });
     vi.stubGlobal("fetch", fetchMock);
-    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1, projectDir);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
@@ -148,11 +188,11 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
 
   it("changed hash re-merges once and stores the new pair", async () => {
     vi.stubGlobal("fetch", okSettings({ autoCommit: true }, "hash-1"));
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     const fetchMock = okSettings({ autoCommit: false }, "hash-2");
     vi.stubGlobal("fetch", fetchMock);
-    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1, projectDir);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(settingsModule.writeGlobalSettings).toHaveBeenCalledTimes(2);
@@ -162,19 +202,23 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
   });
 
   it("does not throw when token read throws", async () => {
-    vi.mocked(tokenModule.readToken).mockRejectedValue(new Error("fs error"));
+    vi.mocked(resolveProjectAuth).mockRejectedValue(new Error("fs error"));
 
-    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
+    await expect(
+      maybeRefreshSettings(NOW, projectDir),
+    ).resolves.toBeUndefined();
   });
 
   it("fail-open: fetch failure keeps cached settings and backs off", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
+    await expect(
+      maybeRefreshSettings(NOW, projectDir),
+    ).resolves.toBeUndefined();
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
     // Back-off: an immediate retry costs no request either.
-    await maybeRefreshSettings(NOW + 1);
+    await maybeRefreshSettings(NOW + 1, projectDir);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -187,7 +231,9 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(maybeRefreshSettings(NOW)).resolves.toBeUndefined();
+    await expect(
+      maybeRefreshSettings(NOW, projectDir),
+    ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -201,7 +247,7 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
       }),
     );
 
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     // Empty settings object (no keys) → should NOT write
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
@@ -215,11 +261,11 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
 
     expect(settingsModule.writeGlobalSettings).not.toHaveBeenCalled();
     // Fail-open back-off still applies to non-ok answers.
-    await maybeRefreshSettings(NOW + 1);
+    await maybeRefreshSettings(NOW + 1, projectDir);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -230,7 +276,7 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
       const fetchMock = okSettings({ debug: true }, "hash-1");
       vi.stubGlobal("fetch", fetchMock);
 
-      await maybeRefreshSettings(NOW);
+      await maybeRefreshSettings(NOW, projectDir);
 
       const callUrl = fetchMock.mock.calls[0]?.[0] as string;
       expect(callUrl).toContain("http://custom-server:4000");
@@ -241,12 +287,12 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
 
   it("merges without a hash from an old server, then rechecks unconditionally", async () => {
     vi.stubGlobal("fetch", okSettings({ autoCommit: true }));
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
     expect(settingsModule.writeGlobalSettings).toHaveBeenCalledTimes(1);
 
     const fetchMock = okSettings({ autoCommit: true });
     vi.stubGlobal("fetch", fetchMock);
-    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES + 1, projectDir);
 
     const headers = fetchMock.mock.calls[0]?.[1] as RequestInit & {
       headers: Record<string, string>;
@@ -258,21 +304,27 @@ describe("maybeRefreshSettings pre-flight (cca4bfe4)", () => {
     const fetchMock = okSettings({ debug: true }, "hash-1");
     vi.stubGlobal("fetch", fetchMock);
 
-    await maybeRefreshSettings(NOW);
+    await maybeRefreshSettings(NOW, projectDir);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // At exactly the boundary, should trigger refresh (interval is < not <=)
-    await maybeRefreshSettings(NOW + FIVE_MINUTES);
+    await maybeRefreshSettings(NOW + FIVE_MINUTES, projectDir);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
 describe("fetchAndSelectWorkspace (via login flow)", () => {
+  let projectDir: string;
+
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockReset();
+    vi.mocked(resolveProjectAuth).mockReset();
     vi.mocked(settingsModule.readGlobalSettings).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
-    vi.mocked(workspaceModule.writeWorkspace).mockReset();
-    vi.mocked(workspaceModule.readWorkspace).mockReset();
+    vi.mocked(writeCredential).mockReset();
+    vi.mocked(writeProjectPointer).mockReset();
+    vi.mocked(readProjectPointer).mockReset();
+    vi.mocked(readProjectPointer).mockReturnValue(null);
+    resetSettingsPreflight();
+    projectDir = makeProject();
     selectMock.mockReset();
     openMock.mockReset();
   });
@@ -324,13 +376,12 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(workspace);
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       deviceName: "test-laptop (Linux)",
@@ -338,14 +389,21 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     });
     // The old server returns only its original token response: no metadata echo required.
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ deviceCode: "device-123" });
-    expect(tokenModule.writeToken).toHaveBeenCalledWith(
-      "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq",
+    // Project-scoped persistence (ADR-0005): the PAT lands user-scoped
+    // keyed by apiUrl, the board becomes THIS project's pointer.
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({
+        token: "vbf_pat_abcdef01_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOpq",
+        workspaceId: "ws-1",
+        account: "user@example.com",
+      }),
     );
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, {
+      apiUrl: TEST_API_URL,
+      id: "ws-1",
+    });
     expect(logSpy.mock.calls.flat().join(" ")).not.toContain("vbf_pat_");
-    // Workspace should be written with email from profile
-    expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "ws-1", email: "user@example.com" }),
-    );
     // A board WAS found, so the empty-account guidance must not print.
     expect(logSpy.mock.calls.map((c) => c.join(" ")).join("\n")).not.toContain(
       "No boards found",
@@ -383,16 +441,23 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
-    expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "ws-9", email: "legacy@example.com" }),
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, {
+      apiUrl: TEST_API_URL,
+      id: "ws-9",
+    });
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({
+        workspaceId: "ws-9",
+        account: "legacy@example.com",
+      }),
     );
   });
 
@@ -433,21 +498,28 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
     const boardCalls = fetchMock.mock.calls.filter((c) =>
       String(c[0]).includes("/api/v0/boards"),
     );
     expect(boardCalls).toHaveLength(2);
     expect(String(boardCalls[1]?.[0])).toContain("cursor=cursor-1");
-    expect(workspaceModule.writeWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "b-b", email: "paged@example.com" }),
+    expect(writeProjectPointer).toHaveBeenCalledWith(projectDir, {
+      apiUrl: TEST_API_URL,
+      id: "b-b",
+    });
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({
+        workspaceId: "b-b",
+        account: "paged@example.com",
+      }),
     );
   });
 
@@ -480,15 +552,20 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
-    expect(workspaceModule.writeWorkspace).not.toHaveBeenCalled();
+    // No board selected → no pointer written, but the PAT is still stored.
+    // (No selection means no account email is attached — selected is null.)
+    expect(writeProjectPointer).not.toHaveBeenCalled();
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({ workspaceId: undefined, account: null }),
+    );
     const printed = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
     expect(printed).toContain("No boards found on this account yet.");
     expect(printed).toContain("vibeflow auth login");
@@ -511,13 +588,12 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/v0\/auth\/device-init$/);
@@ -533,7 +609,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     const pat =
       "vbf_pat_01234567_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";
     const workspace = { id: "ws-1", name: "My Board", url: "http://localhost:3000", icon: "📋", email: null };
-    vi.mocked(tokenModule.writeToken).mockClear();
+    vi.mocked(writeCredential).mockClear();
 
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -568,16 +644,18 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(workspace);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
     // The PAT is stored verbatim …
-    expect(tokenModule.writeToken).toHaveBeenCalledWith(pat);
+    expect(writeCredential).toHaveBeenCalledWith(
+      TEST_API_URL,
+      expect.objectContaining({ token: pat }),
+    );
     // … and rides as the Bearer credential on every follow-up cloud call
     // (boards, profile, settings, tasks — all /api/v0 via surfacePath).
     // Calls 0–1 are device-init/poll, which carry no Authorization header.
@@ -619,16 +697,15 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
-    // No workspace should be written when list is empty
-    expect(workspaceModule.writeWorkspace).not.toHaveBeenCalled();
+    // No board selected → no pointer written
+    expect(writeProjectPointer).not.toHaveBeenCalled();
   });
 
   it("handles workspace fetch failure gracefully", async () => {
@@ -656,14 +733,13 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
       });
 
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     // Should not throw
-    await expect(login()).resolves.toBeUndefined();
+    await expect(login(projectDir)).resolves.toBeUndefined();
   });
 
   it("handles login timeout when device code expires", async () => {
@@ -688,7 +764,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await login();
+    await login(projectDir);
 
     expect(process.exitCode).toBe(4);
   });
@@ -703,7 +779,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await login();
+    await login(projectDir);
 
     expect(process.exitCode).toBe(4);
   });
@@ -714,12 +790,17 @@ describe("login — never opens a browser when it should not", () => {
    * `vibeflow login` used to shell out to the `open` package unconditionally,
    * which on Linux means `xdkg-open` and a REAL browser tab. In CI, in a script
    * and in the web e2e suite that produced surprise tabs at
-   * `…/cli/verify?code=…` on the developer's desktop, pointing at a throwaway
+   * `…/cli/verify?code=…` on the developer's desk, pointing at a throwaway
    * instance. These lock in the two conditions that prevent it, and — just as
    * importantly — that the URL is still printed when the browser is suppressed,
    * so nothing is lost by not opening it.
    */
   const realIsTTY = process.stdout.isTTY;
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = makeProject();
+  });
 
   afterEach(() => {
     process.stdout.isTTY = realIsTTY;
@@ -751,7 +832,7 @@ describe("login — never opens a browser when it should not", () => {
         return { ok: true, json: async () => ({ expired: true }) } as unknown as Response;
       }),
     );
-    await login("/tmp");
+    await login(projectDir);
     return open;
   }
 

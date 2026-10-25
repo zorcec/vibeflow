@@ -10,6 +10,11 @@ node scripts/check-git-identity.mjs
 # and governed code has not drifted past its Reviewed: date (ADR-0004).
 node scripts/check-adrs.mjs
 
+# ── Credential guard (ADR-0005) ────────────────────────────────────────────
+# Project-scoped auth keeps secrets in ~/.vibeflow/credentials.json (never
+# the repo). Block credential store paths from being staged.
+node scripts/check-no-credentials.mjs
+
 # Ensure system-installed tools like gitleaks are on PATH
 export PATH="/usr/local/bin:$PATH"
 

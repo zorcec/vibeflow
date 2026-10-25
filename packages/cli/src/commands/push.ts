@@ -4,8 +4,8 @@ import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { planTaskStoreNormalize, prepareTaskRecordsForPush } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
-import { readToken } from "../auth/token.js";
-import { readWorkspace } from "../auth/workspace.js";
+import { resolveProjectAuth } from "../auth/project-auth.js";
+import { readProjectPointer } from "../auth/project-pointer.js";
 import {
   BoardScopeRequiredError,
   printBoardScopeRequired,
@@ -140,10 +140,8 @@ export async function uploadTaskFiles(
           headers: {
             Authorization: `Bearer ${token}`,
             // The resolved board scopes this upload (ticket 605e503c):
-            // `--board` flows without a prior login have no saved
-            // workspace, so the peek fallback only serves callers that pass
-            // no board (legacy behaviour, unchanged for them).
-            ...(boardId !== undefined ? scopeHeaderFor(boardId) : await scopeHeadersFromSaved()),
+            // the peek fallback only serves callers that pass no board.
+            ...(boardId !== undefined ? scopeHeaderFor(boardId) : await scopeHeadersFromSaved(projectDir)),
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
             ...(job.system ? { "x-file-system": "1" } : {}),
@@ -453,19 +451,43 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
     };
   }
 
+  // Auto-push follows the project pointer (ADR-0005): a project that
+  // declares no board never pushes anywhere — this is how one project's
+  // tickets were pushed into another's workspace. Said once, then stop.
+  const pointer = readProjectPointer(projectDir);
+  if (!pointer) {
+    const message =
+      `This project is not linked to a board — nothing to push. Run \`vibeflow login\` in ${projectDir} to link it.`;
+    if (opts.json) {
+      console.log(JSON.stringify({ ok: false, code: "NOT_LINKED", message }));
+    } else {
+      console.log(chalk.yellow(`  ${message}`));
+    }
+    process.exitCode = ExitCode.GENERAL;
+    return {
+      dryRun: opts.dryRun === true,
+      tasks: 0,
+      files: 0,
+      board: "(no board selected)",
+      tasksMissingCommitAuthorEmail,
+      notices: [{ code: "NOT_LINKED", message }],
+    };
+  }
+
   // ONE token read, up front: the scope resolver below reuses this probe
   // through deps.hasToken instead of reading the token again — push keeps
   // its original two-read login sequence (initial check → after login).
-  const earlyToken = await readToken();
+  // Project-scoped (ADR-0005): this project's credential only.
+  const earlyToken = (await resolveProjectAuth(projectDir)).token;
 
   let workspaceId: string | undefined;
   try {
-    // One shared rule (ticket dabd2fb7): --board > --workspace (legacy) >
-    // saved workspace > single-board auto-select. A 2+ board account with
-    // nothing selected refuses here — a wrong-board push moves the whole
-    // local store (1753 tasks) to the wrong board.
+    // One shared rule (ticket dabd2fb7, ADR-0005): --board > --workspace
+    // (legacy) > the project pointer > single-board auto-select. A 2+
+    // board account with nothing selected refuses here — a wrong-board
+    // push moves the whole local store (1753 tasks) to the wrong board.
     workspaceId =
-      (await resolveBoardScope(opts.board ?? opts.workspace ?? null, {
+      (await resolveBoardScope(opts.board ?? opts.workspace ?? null, projectDir, {
         hasToken: async () => Boolean(earlyToken),
       })) ??
       undefined;
@@ -492,7 +514,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       notices: [{ code: "SCOPE_REQUIRED", message: err.message }],
     };
   }
-  const boardLabel = workspaceId ? ((await readWorkspace().catch(() => null))?.name ?? workspaceId) : "(no board selected)";
+  const boardLabel = workspaceId ?? "(no board selected)";
 
   const apiUrl = getApiUrl();
 
@@ -688,8 +710,8 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   if (!token) {
     // Stryker disable once StringLiteral: display message for login flow
     console.log(chalk.yellow("  Not logged in. Starting login flow..."));
-    await login();
-    token = await readToken();
+    await login(projectDir);
+    token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
       // Stryker disable once StringLiteral: display message for login failure
       console.error(chalk.red("  Login failed. Please run `vibeflow auth login` and try again."));

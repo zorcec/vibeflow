@@ -19,17 +19,20 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
-vi.mock("../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
-}));
+vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
+  return {
+    ...actual,
+    resolveProjectAuth: vi.fn(),
+    resolveProjectAuthCached: vi.fn(),
+  };
+});
 
-import * as tokenModule from "../../src/auth/token.js";
-import * as workspaceModule from "../../src/auth/workspace.js";
+import {
+  resolveProjectAuth,
+  resolveProjectAuthCached,
+} from "../../src/auth/project-auth.js";
+import { saasAuth } from "./helpers/mock-project-auth.js";
 import { listTasks, getTask } from "../../src/core/operations/tasks.js";
 import {
   invokeManifestTool,
@@ -153,8 +156,11 @@ async function seedLocalGhosts(): Promise<{
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+  // Both surfaces steer through the same saas auth: operations use the
+  // direct resolver, the MCP session dispatch uses the mtime-checked
+  // cache (which calls the module-local resolver, not the mock above).
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+  vi.mocked(resolveProjectAuthCached).mockResolvedValue(saasAuth());
 });
 
 afterEach(() => {

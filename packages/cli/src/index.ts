@@ -69,6 +69,7 @@ import {
 import { getGitUser } from "./core/git-user.js";
 import { formatCommitTag } from "./core/commit-tag.js";
 import { login, maybeRefreshSettings } from "./auth/login.js";
+import { resolveProjectAuth } from "./auth/project-auth.js";
 import { getApiUrl, surfacePath } from "./core/api-url.js";
 import { logout } from "./auth/logout.js";
 import { push } from "./commands/push.js";
@@ -89,7 +90,7 @@ import {
   type SaasTask,
 } from "./saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
-import { readWorkspace } from "./auth/workspace.js";
+import { readProjectPointer } from "./auth/project-pointer.js";
 import { readFileSync, existsSync, statSync, unlinkSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
@@ -1035,6 +1036,23 @@ program
     process.stderr.write(
       `${chalk.green(formatProjectRootAnnouncement(root))}\n`,
     );
+    // One-line backend statement (ADR-0005): the pinned project path plus
+    // whether it resolves local or to a workspace — silent ambiguity here
+    // is what cost an hour of debugging a pinned root serving a wrong board.
+    try {
+      const mcpAuth = await resolveProjectAuth(root.projectDir);
+      process.stderr.write(
+        chalk.dim(
+          mcpAuth.mode === "saas"
+            ? `  backend: workspace ${mcpAuth.workspaceId} (${mcpAuth.apiUrl})\n`
+            : mcpAuth.unlinked
+              ? `  backend: local (linked board ${mcpAuth.workspaceId} has no credential — run \`vibeflow login\` in ${mcpAuth.projectDir})\n`
+              : `  backend: local\n`,
+        ),
+      );
+    } catch {
+      // Banner only — the transport resolves auth per call regardless.
+    }
     // Backend/context setup runs in the shared `startMcpTransport` operation
     // (core/operations/server.ts); this renderer keeps root resolution and
     // the stderr-only announcement (stdout is the JSON-RPC channel), and
@@ -1797,7 +1815,7 @@ program
           const deleteRawId =
             typeof opts.delete === "string" ? opts.delete : "";
           const deleteProjectDir = resolve(dir);
-          const deleteIsOnline = (await getMode()) === "saas";
+          const deleteIsOnline = (await getMode(deleteProjectDir)) === "saas";
           const deleteOpCtx: OperationContext = {
             projectDir: deleteProjectDir,
             mode: deleteIsOnline ? "saas" : "local",
@@ -1957,7 +1975,7 @@ program
         // envelopes and exit codes for BOTH modes are assembled by
         // `cli/renderers/task-reads.ts`.
         if (opts.get) {
-          const getTaskMode = await getMode();
+          const getTaskMode = await getMode(dir);
           const getOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: getTaskMode === "saas" ? "saas" : "local",
@@ -1998,7 +2016,7 @@ program
               }
               process.exitCode = ExitCode.GENERAL;
             };
-            const detail = await fetchSaasTaskDetail(opts.get);
+            const detail = await fetchSaasTaskDetail(opts.get, dir);
             let saasTask: SaasTask | undefined;
             if (detail.ok) {
               saasTask = detail.data.task;
@@ -2006,9 +2024,10 @@ program
               reportSaasReadError(detail.error);
               return;
             } else {
-              const workspace = await readWorkspace();
+              const workspace = readProjectPointer(dir);
               const board = await fetchSaasTasks(workspace?.id, {
                 hydrate: false,
+                projectDir: dir,
               });
               if (!board.ok) {
                 reportSaasReadError(board.error);
@@ -2047,7 +2066,7 @@ program
                   (t) => t.id === prefixResolved.id,
                 );
                 if (match && match.id !== opts.get) {
-                  const resolved = await fetchSaasTaskDetail(match.id);
+                  const resolved = await fetchSaasTaskDetail(match.id, dir);
                   if (!resolved.ok) {
                     // A 404 here (deleted between the two reads) is still a
                     // miss: leave saasTask unset and fall through to the
@@ -2296,7 +2315,7 @@ program
 
         // ── Next mode ──────────────────────────────────────────────────────
         if (opts.next) {
-          const nextMode = await getMode();
+          const nextMode = await getMode(dir);
           if (nextMode === "saas") {
             // P3 (ticket 6452504d): the online claim goes through the shared
             // claimNextTask operation — exactly ONE versioned agent-claim
@@ -2871,7 +2890,7 @@ program
             return;
           }
 
-          const addMode = await getMode();
+          const addMode = await getMode(dir);
           if (addMode === "saas") {
             // Online parent links (parity with hosted MCP create_task):
             // the v0 POST body carries `links`, and a parent entry is the
@@ -2885,9 +2904,9 @@ program
             // parent id hits one GET and never enumerates the board; only
             // a 404 falls back to ONE listing for prefix resolution.
             let addLinks: Array<{ taskId: string; type: string }> | undefined;
-            const addWorkspace = await readWorkspace();
+            const addWorkspace = readProjectPointer(dir);
             if (typeof opts.parent === "string") {
-              const addParentProbe = await fetchSaasTaskDetail(opts.parent);
+              const addParentProbe = await fetchSaasTaskDetail(opts.parent, dir);
               if (addParentProbe.ok) {
                 addLinks = [
                   { taskId: addParentProbe.data.task.id, type: "parent" },
@@ -2915,6 +2934,7 @@ program
               } else {
                 const addBoard = await fetchSaasTasks(addWorkspace?.id, {
                   hydrate: false,
+                  projectDir: dir,
                 });
                 if (!addBoard.ok) {
                   const addParentReadMessage = saasReadErrorMessage(
@@ -3041,6 +3061,7 @@ program
               status: saasStatus,
               boardId: addWorkspace?.id,
               ...(addLinks ? { links: addLinks } : {}),
+              projectDir: dir,
             });
             if (!saasCreated.ok) {
               // A structured backend refusal (e.g. INVALID_LINKS for a
@@ -3326,7 +3347,7 @@ program
           // stay local either way — only the resolution follows the mode.
           const commitOpCtx: OperationContext = {
             projectDir: resolve(dir),
-            mode: await getMode(),
+            mode: await getMode(dir),
           };
           const commitResult = await operations.commitTaskPathsOperation(commitOpCtx, {
             id: opts.task,
@@ -3512,7 +3533,7 @@ program
         // repeated (task, name) pair (E_FILE_EXISTS), MCP replaces in place.
         if (opts.attach !== undefined) {
           const attachRawTask = opts.task!.trim();
-          const attachMode = await getMode();
+          const attachMode = await getMode(dir);
           const attachOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: attachMode === "saas" ? "saas" : "local",
@@ -3768,12 +3789,12 @@ program
           // through the ONE resolver — resolver semantics are identical.
           // The same listing is reused for link-target resolution below
           // instead of being fetched twice.
-          const editMode = await getMode();
+          const editMode = await getMode(dir);
           let editTargetId: string;
           let editLinkBoard: SaasTask[] | undefined;
           if (editMode === "saas") {
-            const editWorkspace = await readWorkspace();
-            const editDetail = await fetchSaasTaskDetail(taskId);
+            const editWorkspace = readProjectPointer(dir);
+            const editDetail = await fetchSaasTaskDetail(taskId, dir);
             if (editDetail.ok) {
               editTargetId = editDetail.data.task.id;
             } else if (editDetail.error.code !== "TASK_NOT_FOUND") {
@@ -3797,6 +3818,7 @@ program
             } else {
               const editBoard = await fetchSaasTasks(editWorkspace?.id, {
                 hydrate: false,
+                projectDir: dir,
               });
               if (!editBoard.ok) {
                 const editReadMessage = saasReadErrorMessage(editBoard.error);
@@ -3873,6 +3895,7 @@ program
             ) {
               const editLinkFetch = await fetchSaasTasks(editWorkspace?.id, {
                 hydrate: false,
+                projectDir: dir,
               });
               if (!editLinkFetch.ok) {
                 const editLinkMessage = saasReadErrorMessage(
@@ -4317,7 +4340,7 @@ program
             // status/path; a 404 is the existing TASK_NOT_FOUND below.
             // The id is the FULL id resolved once above, never the raw
             // user input.
-            const boardTasks = await fetchSaasTaskDetail(editTargetId);
+            const boardTasks = await fetchSaasTaskDetail(editTargetId, dir);
             if (!boardTasks.ok) {
               if (boardTasks.error.code !== "TASK_NOT_FOUND") {
                 const parentReadMessage = saasReadErrorMessage(
@@ -4533,7 +4556,7 @@ program
             // Conflict detection: warn when attempting in-progress on an already in-progress task
             // (the FULL resolved id — a prefix never reaches the server).
             if (opts.setStatus === "in-progress") {
-              const current = await fetchSaasTask(editTargetId);
+              const current = await fetchSaasTask(editTargetId, dir);
               // Human-mode only: under --json stdout carries only the envelope.
               if (
                 !opts.json &&
@@ -4625,7 +4648,7 @@ program
             // The PATCH carries the FULL resolved id — a prefix never
             // reaches the server (this was the reported bug: --edit sent
             // the raw prefix while --get resolved it).
-            const saasResult = await updateSaasTask(editTargetId, saasPatch);
+            const saasResult = await updateSaasTask(editTargetId, saasPatch, dir);
             if (!saasResult.ok) {
               // Like the --add path: a structured backend refusal (e.g.
               // INVALID_LINKS for a dangling parent) keeps its code so
@@ -4671,6 +4694,7 @@ program
               const commented = await addSaasComment(
                 editTargetId,
                 opts.comment.trim(),
+                dir,
               );
               if (commented.ok) {
                 if (!opts.json) console.log(chalk.dim("  comment: added"));
@@ -4700,6 +4724,7 @@ program
               const recorded = await addSaasComment(
                 editTargetId,
                 `**Cannot verify:** ${attestation.reason}`,
+                dir,
               );
               if (recorded.ok) {
                 if (!opts.json)
@@ -5599,7 +5624,7 @@ program
         //   instead of silently returning the default page;
         // - projections carry commentCount/fileCount from the read ports
         //   (ticket b2e56212), so nothing silently hides.
-        const mode = await getMode();
+        const mode = await getMode(dir);
         const listOpCtx: OperationContext = {
           projectDir: resolve(dir),
           mode: mode === "saas" ? "saas" : "local",
@@ -5984,7 +6009,8 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
     // below). The json-refusal guard requires every non-zero exit to speak the
     // envelope, and the honest way to satisfy that is to give the command a
     // json surface rather than to allowlist the exits away.
-    const mode = await getMode();
+    const statusDir = resolve(".");
+    const mode = await getMode(statusDir);
 
     if (mode === "local") {
       console.log(
@@ -6024,18 +6050,17 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
       return;
     }
 
-    // Online mode
-    const workspace = await readWorkspace();
+    // Online mode (ADR-0005): the board is this project's pointer — the
+    // name/email/URL lived in the retired global workspace file, so the
+    // status shows the linked board id and API base instead.
+    const statusAuth = await resolveProjectAuth(statusDir);
+    const pointer = statusAuth.workspaceId
+      ? { id: statusAuth.workspaceId, apiUrl: statusAuth.apiUrl }
+      : null;
     console.log(chalk.green("●  Online") + chalk.dim("  (online mode)"));
-    if (workspace) {
-      console.log(
-        chalk.dim(
-          `  Board:   ${workspace.icon ? `${workspace.icon} ` : ""}${workspace.name}`,
-        ),
-      );
-      if (workspace.email)
-        console.log(chalk.dim(`  Email:   ${workspace.email}`));
-      console.log(chalk.dim(`  URL:     `) + chalk.cyan(workspace.url));
+    if (pointer) {
+      console.log(chalk.dim(`  Board:   ${pointer.id}`));
+      console.log(chalk.dim(`  API:     `) + chalk.cyan(pointer.apiUrl));
     } else {
       // Logged in but no board bound. Saying "Online" and then complaining
       // about the connection (which is what happened next, historically) sent
@@ -6045,7 +6070,7 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
     console.log();
 
     // Unhydrated: the status rollup needs statuses only.
-    const saasData = await fetchSaasTasks(workspace?.id, { hydrate: false });
+    const saasData = await fetchSaasTasks(pointer?.id, { hydrate: false, projectDir: statusDir });
     if (!saasData.ok) {
       // Three genuinely different situations, previously all reported as
       // "Could not reach online backend. Check your connection." — which is
@@ -6096,7 +6121,7 @@ async function showAuthStatus(opts: { json?: boolean }): Promise<void> {
         return;
       }
 
-      if (!workspace) {
+      if (!pointer) {
         // A perfectly healthy state: signed in, no board chosen yet, and the
         // backend demonstrably answered (we got an HTTP error, not a network
         // error, which is why we are here rather than in the branch above).
@@ -6405,19 +6430,22 @@ const auth = program
 auth
   .command("login")
   .description("Log in with your online account (device flow)")
-  .action(async () => {
+  .option("--project <dir>", "Project to link (defaults to the current directory)")
+  .action(async (opts: { project?: string }) => {
     capture("command_run", { surface: "cli", command: "auth login" });
     await flushTelemetry();
-    await login();
+    await login(opts.project);
   });
 
 auth
   .command("logout")
-  .description("Log out: remove the stored token and return to local mode")
-  .action(async () => {
+  .description("Log out: remove this project's credential and return to local mode")
+  .option("--project <dir>", "Project to unlink (defaults to the current directory)")
+  .option("--unlink", "Also remove the project's board pointer")
+  .action(async (opts: { project?: string; unlink?: boolean }) => {
     capture("command_run", { surface: "cli", command: "auth logout" });
     await flushTelemetry();
-    await logout();
+    await logout(opts.project, { unlink: opts.unlink });
   });
 
 auth

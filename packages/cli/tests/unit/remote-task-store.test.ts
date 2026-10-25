@@ -22,17 +22,18 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
-vi.mock("../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
-}));
+vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+vi.mock("../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 
-import * as tokenModule from "../../src/auth/token.js";
-import * as workspaceModule from "../../src/auth/workspace.js";
+import { resolveProjectAuth } from "../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "./helpers/mock-project-auth.js";
 import {
   remoteTaskStore,
   RemoteReadError,
@@ -135,8 +136,8 @@ function stubBoard(fake: FakeBoard, seen: string[] = []): string[] {
 }
 
 beforeEach(() => {
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+  vi.mocked(readProjectPointer).mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -304,7 +305,7 @@ describe("relationScope — relations without enumeration", () => {
 
 describe("fail-closed scope and auth", () => {
   it("no token refuses without touching the network", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     await expect(remoteTaskStore.listTasks(PROJECT)).rejects.toMatchObject({
@@ -474,7 +475,7 @@ describe("remote claim — one versioned POST, never list+PATCH", () => {
   });
 
   it("no token refuses without touching the network", async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth());
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     await expect(remoteTaskStore.claimNextTaskAtomic(PROJECT)).rejects.toMatchObject({

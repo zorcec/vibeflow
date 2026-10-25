@@ -46,6 +46,10 @@ packages/prototyping/.stryker-tmp/
 # Exception: the baked Glama MCP image sample is a build artifact, not the
 # repo's task store — the Dockerfile COPYs it to /project/.vibeflow.
 !docker/mcp-sample/.vibeflow/
+# Project-scoped auth (ADR-0005): credential material must never be
+# committed — the user-scoped store, or the retired global token, anywhere.
+credentials.json
+.vibeflow/token
 
 # Code intelligence index
 .gitnexus/

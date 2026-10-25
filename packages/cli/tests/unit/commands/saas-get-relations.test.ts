@@ -18,19 +18,14 @@ import {
 } from "../../../src/core/task-links.js";
 
 /**
- * Force online mode: `getMode()` answers "saas" whenever a token exists.
- * The temp HOME below holds no token file, so the mock is the only thing
- * standing between these tests and local mode.
+ * Force online mode (ADR-0005): each command-level run links its store
+ * for real — the board pointer in the store dir, the credential in the
+ * temp HOME — so `resolveProjectAuth` answers saas with no mocks. The
+ * pure formatter tests above need no auth at all.
  */
-const tokenCtl = vi.hoisted(() => ({ token: "test-token" as string | null }));
-vi.mock("../../../src/auth/token.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../../src/auth/token.js")>();
-  return {
-    ...actual,
-    readToken: () => Promise.resolve(tokenCtl.token),
-  };
-});
+import { writeProjectPointer } from "../../../src/auth/project-pointer.js";
+import { writeCredential } from "../../../src/auth/credentials.js";
+import { getApiUrl } from "../../../src/core/api-url.js";
 
 let createProgram: () => Command;
 const cleanups: Array<() => void> = [];
@@ -112,6 +107,13 @@ async function runGet(
     });
   process.exitCode = undefined;
   process.env.HOME = home;
+  // Link the store project for real under the temp HOME (ADR-0005).
+  // args[0] is the store dir for every command-level run below.
+  writeProjectPointer(args[0], { apiUrl: getApiUrl(), id: "board-1" });
+  await writeCredential(getApiUrl(), {
+    token: "test-token",
+    workspaceId: "board-1",
+  });
   try {
     const program = createProgram();
     await program.parseAsync(["tasks", ...args], { from: "user" });

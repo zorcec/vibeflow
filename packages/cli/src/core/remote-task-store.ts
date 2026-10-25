@@ -121,8 +121,8 @@ export class RemoteWriteNotRoutedError extends Error {
 }
 
 /** The board every request in one operation call carries. Empty means default. */
-async function resolveBoardOnce(): Promise<string | undefined> {
-  const boardId = await resolveBoardScope();
+async function resolveBoardOnce(projectDir?: string): Promise<string | undefined> {
+  const boardId = await resolveBoardScope(null, projectDir);
   return boardId ?? undefined;
 }
 
@@ -530,6 +530,7 @@ function toLocalComment(row: SaasComment): TaskComment {
 async function resolvePrefix(
   boardId: string | undefined,
   raw: string,
+  projectDir?: string,
 ): Promise<
   | { outcome: "resolved"; task: Task }
   | { outcome: "missing"; id: string }
@@ -540,7 +541,7 @@ async function resolvePrefix(
   // the very row the prefix names — and a `?sort=kanban&limit=K` page could
   // miss it too (the row may sit below the first page). Prefix resolution
   // always reads the whole board, never a narrowed or top-K page.
-  const board = await fetchSaasTasks(boardId, { hydrate: false });
+  const board = await fetchSaasTasks(boardId, { hydrate: false, projectDir });
   if (!board.ok) {
     throw toRemoteRefusal(board.error, "Check the backend is reachable and retry the read.");
   }
@@ -562,7 +563,7 @@ async function resolvePrefix(
     }
     return { outcome: "missing", id: raw };
   }
-  const detail = await fetchSaasTaskDetail(resolved.id);
+  const detail = await fetchSaasTaskDetail(resolved.id, projectDir);
   if (!detail.ok) {
     // Deleted between the listing read and the detail request — or a
     // read-after-write race where the listing carries a row detail does
@@ -665,7 +666,7 @@ class RemoteTaskStore implements TaskStore {
     _reads?: unknown,
     preFilter?: { status?: string; sort?: "kanban"; limit?: number; scope?: "roots"; children?: boolean },
   ): Promise<Task[]> {
-    const boardId = await resolveBoardOnce();
+    const boardId = await resolveBoardOnce(_projectDir);
     // Push the status only when predicate-equal (see
     // SERVER_PUSHABLE_STATUSES): the caller still filters/sorts/limits
     // client-side, so a narrowed fetch converges to the identical answer.
@@ -726,6 +727,7 @@ class RemoteTaskStore implements TaskStore {
     const topK = rootsTopK ?? peersTopK;
     const board = await fetchSaasTasks(boardId, {
       hydrate: false,
+      projectDir: _projectDir,
       ...(status !== undefined ? { status } : {}),
       ...(topK !== null ? { sort: "kanban" as const, limit: topK } : {}),
       ...(rootsTopK !== null ? { scope: "roots" as const } : {}),
@@ -750,6 +752,7 @@ class RemoteTaskStore implements TaskStore {
       const attemptFindings = reads?.length ?? 0;
       const full = await fetchSaasTasks(boardId, {
         hydrate: false,
+        projectDir: _projectDir,
         ...(status !== undefined ? { status } : {}),
       });
       if (!full.ok) {
@@ -767,11 +770,11 @@ class RemoteTaskStore implements TaskStore {
   }
 
   async resolveTask(_projectDir: string, idOrPrefix: string): Promise<TaskResolveOutcome> {
-    const boardId = await resolveBoardOnce();
+    const boardId = await resolveBoardOnce(_projectDir);
     // Detail-first: a full id costs exactly one request. A value that is
     // not an exact hit falls to the single-listing prefix rule — never a
     // board scan before the detail attempt.
-    const detail = await fetchSaasTaskDetail(idOrPrefix);
+    const detail = await fetchSaasTaskDetail(idOrPrefix, _projectDir);
     if (detail.ok) {
       // Ticket 38f085df: a 200 whose record does not validate is the
       // remote image of a corrupt local file — the `unreadable` outcome,
@@ -790,7 +793,7 @@ class RemoteTaskStore implements TaskStore {
     if (detail.error.code !== "TASK_NOT_FOUND") {
       throw toRemoteRefusal(detail.error, "Check the backend is reachable and retry the read.");
     }
-    const prefix = await resolvePrefix(boardId, idOrPrefix);
+    const prefix = await resolvePrefix(boardId, idOrPrefix, _projectDir);
     if (prefix.outcome === "missing") return { status: "missing", id: idOrPrefix };
     if (prefix.outcome === "unreadable") return { status: "unreadable", id: prefix.id };
     return { status: "found", id: prefix.task.id, task: prefix.task };
@@ -804,9 +807,9 @@ class RemoteTaskStore implements TaskStore {
    * exact, which is what the view's links need.
    */
   async relationScope(_projectDir: string, taskId: string): Promise<Task[]> {
-    const boardId = await resolveBoardOnce();
+    const boardId = await resolveBoardOnce(_projectDir);
     void boardId;
-    const detail = await fetchSaasTaskDetail(taskId);
+    const detail = await fetchSaasTaskDetail(taskId, _projectDir);
     if (!detail.ok) {
       throw toRemoteRefusal(detail.error, "Check the backend is reachable and retry the read.");
     }
@@ -869,7 +872,7 @@ class RemoteTaskStore implements TaskStore {
     _projectDir: string,
     input: TaskCreateInput,
   ): Promise<Task> {
-    const boardId = await resolveBoardOnce();
+    const boardId = await resolveBoardOnce(_projectDir);
     // Wire parity with the CLI's proven online `--add` body: title /
     // description / status / boardId / links only. Type/priority/tags/url
     // annotations have no online column on this path — the CLI drops them
@@ -883,6 +886,7 @@ class RemoteTaskStore implements TaskStore {
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(boardId !== undefined ? { boardId } : {}),
       ...(input.links !== undefined ? { links: input.links } : {}),
+      projectDir: _projectDir,
     });
     if (!created.ok) {
       throw toRemoteWriteRefusal(
@@ -935,7 +939,7 @@ class RemoteTaskStore implements TaskStore {
     // Identity is server-stamped: updates.author (claim/backfill) is a
     // local-column attribution the PATCH has no spelling for — dropped,
     // exactly like the CLI's online `--edit`, which never sends it.
-    const patched = await updateSaasTask(taskId, patch);
+    const patched = await updateSaasTask(taskId, patch, _projectDir);
     if (!patched.ok) {
       if (patched.error.code === "TASK_NOT_FOUND") return null;
       throw toRemoteWriteRefusal(
@@ -963,7 +967,7 @@ class RemoteTaskStore implements TaskStore {
     text: string,
   ): Promise<TaskComment> {
     void author;
-    const posted = await addSaasComment(taskId, text);
+    const posted = await addSaasComment(taskId, text, _projectDir);
     if (!posted.ok) {
       throw toRemoteWriteRefusal(
         posted.error,
@@ -994,7 +998,7 @@ class RemoteTaskStore implements TaskStore {
    * never a legacy fallback, never a list-then-PATCH.
    */
   async claimNextTaskAtomic(_p: string, opts?: ClaimOptions): Promise<Task | null> {
-    return this.runRemoteClaim(opts, false);
+    return this.runRemoteClaim(_p, opts, false);
   }
   /**
    * Remote preview through the same versioned endpoint with
@@ -1002,7 +1006,7 @@ class RemoteTaskStore implements TaskStore {
    * answer is the empty success (same as the local preview), never an error.
    */
   async previewClaim(_p: string, opts?: ClaimOptions): Promise<ClaimPreview | null> {
-    const task = await this.runRemoteClaim(opts, true);
+    const task = await this.runRemoteClaim(_p, opts, true);
     if (!task) return null;
     // The versioned preview answers the same record the live claim would
     // write: a claimed child carries its parent link, a root carries none —
@@ -1010,8 +1014,8 @@ class RemoteTaskStore implements TaskStore {
     const parentId = (task.links ?? []).find((l) => l.type === "parent")?.taskId ?? null;
     return { task, childClaim: parentId !== null, parentId };
   }
-  private async runRemoteClaim(opts: ClaimOptions | undefined, dryRun: boolean): Promise<Task | null> {
-    const boardId = await resolveBoardOnce();
+  private async runRemoteClaim(projectDir: string | undefined, opts: ClaimOptions | undefined, dryRun: boolean): Promise<Task | null> {
+    const boardId = await resolveBoardOnce(projectDir);
     const claimed = await claimSaasTask(
       boardId,
       buildAgentClaimRequest(
@@ -1023,6 +1027,7 @@ class RemoteTaskStore implements TaskStore {
         },
         boardId !== undefined ? { boardId } : undefined,
       ),
+      projectDir,
     );
     if (!claimed.ok) throw toRemoteClaimRefusal(claimed.error);
     const row = claimed.data.task;

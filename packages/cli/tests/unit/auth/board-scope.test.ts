@@ -34,11 +34,13 @@ function makeDeps(overrides: {
   };
 }
 
+const PROJ = "/test-project";
+
 describe("resolveBoardScope", () => {
   it("(a) explicit flag wins over saved board and is trimmed", async () => {
     const deps = makeDeps({ saved: { id: "saved-board" }, hasToken: false });
 
-    const result = await resolveBoardScope("  board-flag  ", deps);
+    const result = await resolveBoardScope("  board-flag  ", PROJ, deps);
 
     expect(result).toBe("board-flag");
     // The flag short-circuits: saved board, token, and board listing are
@@ -51,7 +53,7 @@ describe("resolveBoardScope", () => {
   it("(b) saved board is used when no flag is given", async () => {
     const deps = makeDeps({ saved: { id: "saved-1" } });
 
-    const result = await resolveBoardScope(null, deps);
+    const result = await resolveBoardScope(null, PROJ, deps);
 
     expect(result).toBe("saved-1");
     // Saved selection ends the resolution — no listing request.
@@ -60,13 +62,13 @@ describe("resolveBoardScope", () => {
 
   it("(c) auto-selects ONLY when the account has exactly one board", async () => {
     const single = makeDeps({ boards: [BOARD_A] });
-    expect(await resolveBoardScope(undefined, single)).toBe(BOARD_A.id);
+    expect(await resolveBoardScope(undefined, PROJ, single)).toBe(BOARD_A.id);
     expect(single.listBoards).toHaveBeenCalledTimes(1);
 
     // Zero boards is NOT an auto-selection either — there is nothing to
     // pick, so resolution falls through to the unscoped path (null).
     const empty = makeDeps({ boards: [] });
-    expect(await resolveBoardScope(undefined, empty)).toBeNull();
+    expect(await resolveBoardScope(undefined, PROJ, empty)).toBeNull();
   });
 
   it("(d) 2+ boards with no selection throws BoardScopeRequiredError listing BOTH ids", async () => {
@@ -74,7 +76,7 @@ describe("resolveBoardScope", () => {
 
     let caught: unknown = null;
     try {
-      await resolveBoardScope(null, deps);
+      await resolveBoardScope(null, PROJ, deps);
     } catch (err) {
       caught = err;
     }
@@ -94,7 +96,7 @@ describe("resolveBoardScope", () => {
   it("(e) no token and no saved board resolves to null (local mode unchanged)", async () => {
     const deps = makeDeps({ hasToken: false });
 
-    const result = await resolveBoardScope(null, deps);
+    const result = await resolveBoardScope(null, PROJ, deps);
 
     expect(result).toBeNull();
     // Without a token there is nothing to list — no listing attempt.

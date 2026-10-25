@@ -102,8 +102,7 @@ import {
 } from "../core/files.js";
 import { encryptAuthState } from "../core/auth.js";
 import { loadSettings, saveSettings } from "../core/settings.js";
-import { readToken } from "../auth/token.js";
-import { readWorkspace } from "../auth/workspace.js";
+import { resolveProjectAuth } from "../auth/project-auth.js";
 import { createTasksOneByOne } from "../auth/login.js";
 import { surfacePath } from "../core/api-url.js";
 import { appRouter } from "./trpc.js";
@@ -1334,8 +1333,9 @@ function registerMetaApis(
 
   // ── SaaS push: list available boards ───────────────────────────────────────
   // Used by the kanban OnlineModeOverlay "Push to board" button.
+  // Project-scoped (ADR-0005): this server's project credential only.
   app.get("/api/push/workspaces", async (_req, res) => {
-    const token = await readToken().catch(() => null);
+    const token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
       res.status(401).json({ error: "Not logged in" });
       return;
@@ -1375,7 +1375,7 @@ function registerMetaApis(
       workspaceId?: string;
       keepLocalFiles?: boolean;
     };
-    const token = await readToken().catch(() => null);
+    const token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
       res.status(401).json({ error: "Not logged in" });
       return;
@@ -1574,6 +1574,7 @@ export function watchKanbanBundleForReload(
 function registerKanbanRoute(
   app: express.Application,
   port: number,
+  projectDir: string,
   opts: { broadcast?: BroadcastFn; dev?: boolean } = {},
 ): FSWatcher | null {
   const dev = isKanbanDevMode(opts.dev);
@@ -1592,16 +1593,16 @@ function registerKanbanRoute(
     // The client bundle is inlined into this HTML at process start — a cached
     // copy would outlive a board restart and keep serving the old JavaScript.
     res.set("Cache-Control", "no-store");
-    const token = await readToken().catch(() => null);
-    if (!token) {
+    // Project-scoped (ADR-0005): this server's project credential only —
+    // a global login must never flip another project's board view.
+    const auth = await resolveProjectAuth(projectDir);
+    const token = auth.token;
+    if (!token || auth.mode !== "saas") {
       res
         .type("html")
         .send(getKanbanHtml({ port, cliVersion: CLI_VERSION, dev: devFlag }));
       return;
     }
-    const workspace = await readWorkspace().catch(() => null);
-
-    // Always fetch profile from API to determine admin status — never use cached email.
     let isAdmin = false;
     if (adminEmail) {
       try {
@@ -1623,8 +1624,8 @@ function registerKanbanRoute(
       port,
       cliVersion: CLI_VERSION,
       saasMode: true,
-      boardUrl: workspace?.url ?? `${apiUrl}/kanban`,
-      boardName: workspace?.name,
+      boardUrl: `${auth.apiUrl}/kanban`,
+      boardName: auth.workspaceId ?? undefined,
       isAdmin,
       dev: devFlag,
     };
@@ -1980,24 +1981,32 @@ async function serveApiOnly(
   installCliProcessErrorHandlers();
 
   // Check auth before registering any routes — online mode must never expose local task API.
+  // Project-scoped (ADR-0005): the pointer + credential of THIS project.
+  const auth =
+    options._testToken === undefined && options._testWorkspace === undefined
+      ? await resolveProjectAuth(projectDir)
+      : null;
   const token =
-    options._testToken === undefined
-      ? await readToken().catch(() => null)
-      : options._testToken;
-  const workspace =
+    options._testToken === undefined ? (auth?.token ?? null) : options._testToken;
+  const workspaceId =
     options._testWorkspace === undefined
-      ? token
-        ? await readWorkspace().catch(() => null)
-        : null
-      : options._testWorkspace;
-  const isOnline = !!(token && workspace);
+      ? (auth?.mode === "saas" ? (auth?.workspaceId ?? null) : null)
+      : ((options._testWorkspace as { id?: string } | null)?.id ?? null);
+  const isOnline = !!(token && workspaceId);
 
   const { app, httpServer, wss, broadcast } = createBaseServer();
 
-  // Derive SaaS base URL from workspace.url origin — validated against known production domains to prevent SSRF.
-  // Falls back to VIBEFLOW_API_URL env var for custom servers or testing.
+  // SaaS base URL: the linked apiUrl when online (ADR-0005), else the
+  // env override or localhost default for custom servers and testing.
+  // The `_testWorkspace` override keeps the old derivation from its url
+  // (SSRF-validated) — without it the override path cannot name a base.
   const saasApiUrl =
-    sanitizeWorkspaceOrigin(workspace?.url) ??
+    (isOnline ? auth?.apiUrl : null) ??
+    (isOnline
+      ? sanitizeWorkspaceOrigin(
+          (options._testWorkspace as { url?: string } | null)?.url,
+        )
+      : null) ??
     process.env.VIBEFLOW_API_URL ??
     "http://localhost:3000";
 
@@ -2076,7 +2085,7 @@ async function serveApiOnly(
   }
   // Returns the bundle reload watcher (null in prod) — closed with the
   // instance so no chokidar handle survives the server.
-  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
+  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, projectDir, {
     broadcast,
     dev: options.dev,
   });
@@ -2088,9 +2097,9 @@ async function serveApiOnly(
   registerInjectPage(
     app,
     serveUrls,
-    isOnline ? workspace?.id : undefined,
+    isOnline ? workspaceId : undefined,
     isOnline ? saasApiUrl : undefined,
-    !!token && !workspace,
+    !!token && !workspaceId,
   );
   // Board-server root: the bare `/` is otherwise Express's default 404, so
   // redirect EXACT `/` → `/kanban` (owner ruling on 34938eda). Express
@@ -2135,7 +2144,7 @@ async function serveApiOnly(
     const localGuide = buildIntegrationGuide({ url, localUrl });
     const guide = isOnline
       ? buildIntegrationGuide({ url, localUrl }, {
-          online: true, boardId: workspace!.id, overlayBaseUrl: saasApiUrl,
+          online: true, boardId: workspaceId!, overlayBaseUrl: saasApiUrl,
         })
       : localGuide;
     httpServer.listen(options.port, bindHost, () => {
@@ -2165,8 +2174,8 @@ async function serveApiOnly(
                 chalk.green("● Online") +
                 chalk.dim(" — connected to Vibeflow Online"),
               chalk.dim("  Board: ") +
-                chalk.white(workspace!.name ?? "your board"),
-              chalk.dim("  Web:   ") + chalk.cyan(workspace!.url),
+                chalk.white(workspaceId ?? "your board"),
+              chalk.dim("  Web:   ") + chalk.cyan(saasApiUrl),
               divider,
               chalk.dim("  Overlay script:  ") +
                 chalk.cyan(guide.overlayScriptUrl),
@@ -2398,7 +2407,7 @@ li{margin:8px 0}</style></head>
     broadcast,
   });
   // Dev mode (ticket 7e85c338) — same explicit opt-in as the API-only path.
-  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, {
+  const kanbanReloadWatcher = registerKanbanRoute(app, options.port, projectDir, {
     broadcast,
     dev: options.dev,
   });

@@ -18,12 +18,14 @@ import { tmpdir } from "node:os";
 import { writeConfig } from "../../../src/core/config.js";
 import { serveWithPort } from "../../helpers/serve-with-port.js";
 
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-  writeToken: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 
-import * as tokenModule from "../../../src/auth/token.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "../helpers/mock-project-auth.js";
 
 import type { ServeInstance } from "../../../src/server/server.js";
 
@@ -44,7 +46,7 @@ describe("server SaaS-proxy routes hit /api/v0 (never deleted legacy)", () => {
   const realFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
     tempDir = mkdtempSync(join(tmpdir(), "push-online-"));
     writeConfig(tempDir, { mode: "attach", port: 3700 });
     process.env.VIBEFLOW_API_URL = CLOUD;

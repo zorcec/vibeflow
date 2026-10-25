@@ -20,17 +20,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
-vi.mock("../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-}));
-vi.mock("../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
-}));
+vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
 
-import * as tokenModule from "../../src/auth/token.js";
-import * as workspaceModule from "../../src/auth/workspace.js";
+import { resolveProjectAuth } from "../../src/auth/project-auth.js";
+import { saasAuth } from "./helpers/mock-project-auth.js";
 import type { OperationContext } from "../../src/core/operations.js";
 import { commitTaskPathsOperation } from "../../src/core/operations.js";
 import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
@@ -109,8 +105,7 @@ function stubBoard(ids: string[]) {
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), "p5-git-saas-"));
   ctx = { projectDir, mode: "saas" };
-  vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-  vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+  vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
 });
 
 afterEach(() => {

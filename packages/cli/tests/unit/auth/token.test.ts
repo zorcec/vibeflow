@@ -1,62 +1,93 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-
-// Mock node:fs/promises before importing the module under test so that
-// TOKEN_PATH (set at module-load time) is irrelevant — we intercept all FS calls.
-vi.mock("node:fs/promises");
-
 import fs from "node:fs/promises";
-import { readToken, writeToken, deleteToken, getTokenPath } from "../../../src/auth/token.js";
+import os from "node:os";
+import path from "node:path";
 
-afterEach(() => vi.clearAllMocks());
+/**
+ * Retired machine-global token (ADR-0005): `~/.vibeflow/token` is NO
+ * LONGER READ — mode resolves per project from the repo pointer plus the
+ * user-scoped credential store. This suite pins the retirement:
+ * - the legacy path helper keeps its shape (the resolver still notices
+ *   a leftover file to print the one-line "ignored" notice);
+ * - `legacyTokenPresent` reports presence without ever treating the file
+ *   as a credential;
+ * - a global token is NOT used: a project with no pointer resolves
+ *   local even when the legacy file exists (red proof lives in
+ *   project-auth.test.ts; this is the token-side pin).
+ */
+import {
+  getLegacyTokenPath,
+  legacyTokenPresent,
+} from "../../../src/auth/token.js";
 
-describe("readToken", () => {
-  it("returns trimmed token on success", async () => {
-    vi.mocked(fs.readFile).mockResolvedValue("my-token\n" as never);
-    expect(await readToken()).toBe("my-token");
-  });
-
-  it("returns null when content is empty/whitespace-only", async () => {
-    vi.mocked(fs.readFile).mockResolvedValue("  " as never);
-    expect(await readToken()).toBeNull();
-  });
-
-  it("returns null when file does not exist", async () => {
-    vi.mocked(fs.readFile).mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
-    expect(await readToken()).toBeNull();
-  });
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
 });
 
-describe("writeToken", () => {
-  it("creates the .vibeflow directory and writes the token with mode 0o600", async () => {
-    vi.mocked(fs.mkdir).mockResolvedValue(undefined);
-    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+describe("getLegacyTokenPath", () => {
+  it("returns a path ending in .vibeflow/token", () => {
+    expect(getLegacyTokenPath()).toMatch(/\.vibeflow[\/\\]token$/);
+  });
 
-    await writeToken("secret-token");
-
-    expect(fs.mkdir).toHaveBeenCalledWith(expect.stringContaining(".vibeflow"), { recursive: true });
-    expect(fs.writeFile).toHaveBeenCalledWith(
-      expect.stringContaining("token"),
-      "secret-token",
-      { mode: 0o600 },
+  it("follows the active home directory", () => {
+    vi.spyOn(os, "homedir").mockReturnValue("/fake-home");
+    expect(getLegacyTokenPath()).toBe(
+      path.join("/fake-home", ".vibeflow", "token"),
     );
   });
 });
 
-describe("deleteToken", () => {
-  it("removes the token file", async () => {
-    vi.mocked(fs.unlink).mockResolvedValue(undefined);
-    await deleteToken();
-    expect(fs.unlink).toHaveBeenCalledWith(expect.stringContaining("token"));
+describe("legacyTokenPresent", () => {
+  it("returns false when no legacy file exists", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "vibeflow-legacy-"));
+    try {
+      vi.spyOn(os, "homedir").mockReturnValue(home);
+      expect(await legacyTokenPresent()).toBe(false);
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 
-  it("does not throw when file does not exist (idempotent)", async () => {
-    vi.mocked(fs.unlink).mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
-    await expect(deleteToken()).resolves.toBeUndefined();
+  it("returns true when a leftover global token file exists", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "vibeflow-legacy-"));
+    try {
+      await fs.mkdir(path.join(home, ".vibeflow"), { recursive: true });
+      await fs.writeFile(path.join(home, ".vibeflow", "token"), "tok", {
+        mode: 0o600,
+      });
+      vi.spyOn(os, "homedir").mockReturnValue(home);
+      expect(await legacyTokenPresent()).toBe(true);
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 });
 
-describe("getTokenPath", () => {
-  it("returns a path ending in .vibeflow/token", () => {
-    expect(getTokenPath()).toMatch(/\.vibeflow[\/\\]token$/);
+describe("a global token is not used", () => {
+  it("project with no pointer resolves local despite a legacy global token", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "vibeflow-legacy-"));
+    const projectDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "vibeflow-legacy-proj-"),
+    );
+    try {
+      await fs.mkdir(path.join(home, ".vibeflow"), { recursive: true });
+      await fs.writeFile(
+        path.join(home, ".vibeflow", "token"),
+        "global-token",
+        { mode: 0o600 },
+      );
+      vi.spyOn(os, "homedir").mockReturnValue(home);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const { resolveProjectAuth } = await import(
+        "../../../src/auth/project-auth.js"
+      );
+      const auth = await resolveProjectAuth(projectDir);
+      expect(auth.mode).toBe("local");
+      expect(auth.token).toBeNull();
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
   });
 });

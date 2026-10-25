@@ -2,9 +2,11 @@ import chalk from "chalk";
 import open from "open";
 import readline from "node:readline";
 import select from "@inquirer/select";
-import { writeToken, readToken } from "./token.js";
+import { writeCredential } from "./credentials.js";
 import { getDeviceName, getMachineId } from "./machine.js";
-import { writeWorkspace, type WorkspaceInfo } from "./workspace.js";
+import type { WorkspaceInfo } from "./workspace.js";
+import { resolveProjectAuth } from "./project-auth.js";
+import { readProjectPointer, writeProjectPointer } from "./project-pointer.js";
 import { writeGlobalSettings, type ProtoSettings } from "../core/settings.js";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -145,7 +147,11 @@ async function fetchAndApplySettings(
  */
 export async function maybeRefreshSettings(now: number = Date.now(), projectDir?: string): Promise<void> {
   try {
-    const token = await readToken();
+    // Project-scoped (ADR-0005): the pre-flight only runs for a known
+    // project, using that project's credential — never a global token.
+    const token = projectDir !== undefined
+      ? (await resolveProjectAuth(projectDir)).token
+      : null;
     // No token: no fetch and no state/lease creation (offline stays offline).
     if (!token) return;
     const apiUrl = getApiUrl();
@@ -365,7 +371,7 @@ function parseBoardsPage(
 async function fetchAndSelectWorkspace(
   apiUrl: string,
   token: string,
-): Promise<void> {
+): Promise<WorkspaceInfo | null> {
   try {
     const headers = { Authorization: `Bearer ${token}` };
     // Cloud-only paths: apiUrl is the getApiUrl() SaaS base → always "cloud".
@@ -389,7 +395,7 @@ async function fetchAndSelectWorkspace(
             `  Could not list boards (HTTP ${wsRes.status}) — no board selected. Run \`vibeflow auth login\` again, or \`vibeflow push --workspace <boardId>\`.`,
           ),
         );
-        return;
+        return null;
       }
       const page_ = parseBoardsPage(await wsRes.json(), apiUrl);
       picks.push(...page_.picks);
@@ -403,18 +409,21 @@ async function fetchAndSelectWorkspace(
           `  Create one in the web app (${apiUrl}), then run \`vibeflow auth login\` again to pick it.`,
         ),
       );
-      return;
+      return null;
     }
 
     const profile = profileRes.ok
       ? ((await profileRes.json()) as { email?: string })
       : null;
     const selected = await promptWorkspaceSelection(picks);
-    await writeWorkspace({ ...selected, email: profile?.email ?? null });
+    // Project-scoped (ADR-0005): the caller persists the board as the
+    // project's pointer plus the account credential — nothing global.
+    const withAccount = { ...selected, email: profile?.email ?? null };
     console.log(
       chalk.green(`  Board set: ${selected.icon ?? ""} ${selected.name}`),
     );
     console.log(chalk.dim(`  Open at: ${selected.url}`));
+    return withAccount;
   } catch (err) {
     // Non-critical — but silence is what made this a mystery: the user was
     // never asked to pick a board and only saw a 422 much later. Name the
@@ -427,6 +436,7 @@ async function fetchAndSelectWorkspace(
     console.log(
       chalk.dim("  Run `vibeflow auth login` again in an interactive terminal, or use `vibeflow push --workspace <boardId>`."),
     );
+    return null;
   }
 }
 
@@ -1493,7 +1503,32 @@ async function promptPushLocalTasks(
   });
 }
 
-export async function login(projectDir: string = resolve(".")): Promise<void> {
+/**
+ * Project-scoped login (ADR-0005): the device flow mints a credential
+ * that is stored user-scoped (`credentials.json`, keyed by apiUrl) while
+ * the selected board is written as the PROJECT's pointer
+ * (`<project>/.vibeflow/settings.json` → `workspace: { apiUrl, id }`).
+ * A resolvable project is required: outside one the command refuses
+ * loudly and writes nothing anywhere.
+ */
+export async function login(projectDir?: string): Promise<void> {
+  const dir = resolve(projectDir ?? ".");
+  if (!existsSync(dir)) {
+    console.error(chalk.red(`  Refusing: project not found: ${dir}.`));
+    console.log(chalk.dim("  cd into a project or pass --project <dir>."));
+    process.exitCode = ExitCode.AUTH;
+    return;
+  }
+  const isStore = existsSync(join(dir, PROTO_DIR, "settings.json")) || existsSync(join(dir, PROTO_DIR, TASKS_DIR));
+  const isRepo = existsSync(join(dir, ".git")) || existsSync(join(dir, ".vibeflow"));
+  if (!isStore && !isRepo) {
+    console.error(chalk.red(`  Refusing: ${dir} is not a project.`));
+    console.log(chalk.dim("  cd into a project or pass --project <dir>."));
+    console.log(chalk.dim('  To start a project here, run `vibeflow tasks --add --title "first task"` — that creates the .vibeflow/ store — or `git init`.'));
+    process.exitCode = ExitCode.AUTH;
+    return;
+  }
+  const resolvedDir = dir;
   const apiUrl = getApiUrl();
   console.log(chalk.cyan("  Initiating device login flow..."));
 
@@ -1599,20 +1634,34 @@ export async function login(projectDir: string = resolve(".")): Promise<void> {
 
     if ("token" in data) {
       const pat = data.token;
-      await writeToken(pat);
       console.log();
       console.log(
         chalk.green("  Logged in successfully. Now operating in online mode."),
       );
-      await Promise.all([
+      const [selected] = await Promise.all([
         fetchAndSelectWorkspace(apiUrl, pat),
-        fetchAndApplySettings(apiUrl, pat, projectDir),
+        fetchAndApplySettings(apiUrl, pat, resolvedDir),
       ]);
+      // Project-scoped persistence (ADR-0005): the PAT lands in the
+      // user-scoped store keyed by apiUrl; the selected board becomes
+      // THIS project's pointer. Nothing global is written.
+      await writeCredential(apiUrl, {
+        token: pat,
+        workspaceId: selected?.id,
+        account: selected?.email ?? null,
+      });
+      if (selected) {
+        writeProjectPointer(resolvedDir, { apiUrl, id: selected.id });
+      }
       // After login, ask if user wants to push local tasks
-      const { readWorkspace } = await import("./workspace.js");
-      const workspace = await readWorkspace();
-      if (workspace) {
-        await promptPushLocalTasks(projectDir, apiUrl, pat, workspace);
+      const pointer = readProjectPointer(resolvedDir);
+      if (pointer) {
+        await promptPushLocalTasks(resolvedDir, apiUrl, pat, {
+          id: pointer.id,
+          name: pointer.id,
+          url: apiUrl,
+          icon: null,
+        });
       }
       return;
     }

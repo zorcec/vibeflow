@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { brotliDecompressSync } from "node:zlib";
 
 // ── Mock all I/O dependencies before importing push ────────────────────────
-vi.mock("../../../src/auth/token.js", () => ({
-  readToken: vi.fn(),
-  writeToken: vi.fn(),
-}));
-vi.mock("../../../src/auth/workspace.js", () => ({
-  readWorkspace: vi.fn(),
-  writeWorkspace: vi.fn(),
-}));
+vi.mock("../../../src/auth/project-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-auth.js")>();
+  return { ...actual, resolveProjectAuth: vi.fn() };
+});
+vi.mock("../../../src/auth/project-pointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/auth/project-pointer.js")>();
+  return { ...actual, readProjectPointer: vi.fn() };
+});
 // Keep the real createTasksOneByOne() (the v0 import loop under test rides
 // through push); only the interactive login flow is stubbed out.
 vi.mock("../../../src/auth/login.js", async (importOriginal) => {
@@ -29,8 +29,9 @@ vi.mock("../../../src/core/files.js", () => ({
   getFilesDir: vi.fn(),
 }));
 
-import * as tokenModule from "../../../src/auth/token.js";
-import * as workspaceModule from "../../../src/auth/workspace.js";
+import { resolveProjectAuth } from "../../../src/auth/project-auth.js";
+import { readProjectPointer } from "../../../src/auth/project-pointer.js";
+import { saasAuth, localAuth, TEST_API_URL } from "../helpers/mock-project-auth.js";
 import * as loginModule from "../../../src/auth/login.js";
 import * as filesModule from "../../../src/core/files.js";
 import { push, formatBytes, renderProgressBar, uploadPushedFiles, collectImportInputs, formatPushHeadline, formatPushResultLines } from "../../../src/commands/push.js";
@@ -147,8 +148,8 @@ function stubLosslessImportServer() {
 
 describe("push — no local tasks", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue(null);
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -176,10 +177,39 @@ describe("push — authentication flow", () => {
     vi.clearAllMocks();
   });
 
-  it("triggers login flow when no token is stored", async () => {
-    vi.mocked(tokenModule.readToken)
-      .mockResolvedValueOnce(null) // initial check → no token
-      .mockResolvedValueOnce(null); // after login → still no token (login failed)
+  it("refuses without a pointer instead of starting login (ADR-0005)", async () => {
+    // No pointer: auto-push follows the pointer, so there is no board to
+    // push to — one line, no login attempt, nothing pushed anywhere.
+    vi.mocked(readProjectPointer).mockReturnValue(null);
+    vi.mocked(loginModule.login).mockResolvedValue(undefined);
+
+    const projectDir = makeTempProject();
+    createTaskFile(projectDir, {
+      id: "task-1",
+      title: "Test",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await push(projectDir, {});
+
+    expect(loginModule.login).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ tasks: 0 });
+    const notices = (result as { notices?: Array<{ code?: string }> }).notices ?? [];
+    expect(notices.some((n) => n.code === "NOT_LINKED")).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("not linked to a board"),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("triggers login flow when the pointer exists but no token is stored", async () => {
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
+    vi.mocked(resolveProjectAuth).mockResolvedValueOnce(localAuth()) // initial check → no token
+      .mockResolvedValueOnce(localAuth()); // after login → still no token (login failed)
     vi.mocked(loginModule.login).mockResolvedValue(undefined);
 
     const projectDir = makeTempProject();
@@ -200,9 +230,8 @@ describe("push — authentication flow", () => {
   });
 
   it("sets process.exitCode when login succeeds but token is still missing", async () => {
-    vi.mocked(tokenModule.readToken)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null); // still no token after login
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
+    vi.mocked(resolveProjectAuth).mockResolvedValueOnce(localAuth()).mockResolvedValueOnce(localAuth()); // still no token after login
     vi.mocked(loginModule.login).mockResolvedValue(undefined);
 
     const projectDir = makeTempProject();
@@ -226,14 +255,8 @@ describe("push — authentication flow", () => {
 
 describe("push — import API interaction", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -645,14 +668,8 @@ describe("push — import API interaction", () => {
 
 describe("push — two-phase link preservation", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -811,14 +828,8 @@ describe("push — two-phase link preservation", () => {
 
 describe("push — file upload (uploadTaskFiles)", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -972,14 +983,8 @@ describe("push — file upload (uploadTaskFiles)", () => {
 
 describe("push — upload compression (single-encode wire format)", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -1079,8 +1084,8 @@ describe("push — upload compression (single-encode wire format)", () => {
 
 describe("push — edge cases", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue(null);
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue(null);
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -1089,7 +1094,7 @@ describe("push — edge cases", () => {
     vi.clearAllMocks();
   });
 
-  it("uses workspaceId fallback when no saved workspace", async () => {
+  it("refuses with NOT_LINKED when no saved workspace (ADR-0005)", async () => {
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-nows",
@@ -1103,16 +1108,20 @@ describe("push — edge cases", () => {
 
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await push(projectDir, { keepLocalFiles: true });
+    const result = await push(projectDir, { keepLocalFiles: true });
 
-    // Board label should fall back to workspaceId from server
+    // No pointer → no push, said once: a project that declares nothing
+    // never reaches another project's board.
+    const notices = (result as { notices?: Array<{ code?: string }> }).notices ?? [];
+    expect(notices.some((n) => n.code === "NOT_LINKED")).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Board:"),
+      expect.stringContaining("not linked to a board"),
     );
     consoleSpy.mockRestore();
   });
 
   it("counts a bare 500 create response as skipped without failing", async () => {
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     const projectDir = makeTempProject();
     createTaskFile(projectDir, {
       id: "task-noerrfield",
@@ -1217,14 +1226,8 @@ describe("renderProgressBar", () => {
 
 describe("push — system-file flag round-trip", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
@@ -1320,14 +1323,8 @@ describe("push — system-file flag round-trip", () => {
 
 describe("push — tree-import path (bulk-429)", () => {
   beforeEach(() => {
-    vi.mocked(tokenModule.readToken).mockResolvedValue("test-token");
-    vi.mocked(workspaceModule.readWorkspace).mockResolvedValue({
-      id: "ws-1",
-      name: "My Board",
-      url: "http://localhost:3000",
-      icon: null,
-      email: null,
-    });
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    vi.mocked(readProjectPointer).mockReturnValue({ apiUrl: TEST_API_URL, id: "ws-1" });
     vi.mocked(filesModule.listFiles).mockReturnValue([]);
   });
 
