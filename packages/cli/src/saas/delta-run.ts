@@ -35,8 +35,19 @@ import { probeDeltaCapability, sendDeltaArchive } from "./delta-push";
  * its unit is worse than no budget.
  */
 export const DELTA_CHUNK_MAX_INPUT_BYTES = 10 * 1024 * 1024;
-/** Tasks per chunk, before the compressed-size cap is applied. */
-export const DELTA_CHUNK_MAX_TASKS = 200;
+/**
+ * Tasks per archive request, before the compressed-size cap is applied.
+ * WHAT: mirrors the server's `V0_IMPORT_MAX_TASKS` (= 100) enforced by
+ * `POST /api/v0/tasks/import/archive` — any chunk carrying more tasks is
+ * refused whole with 400 `BATCH_TOO_LARGE` (measured: a 123-task archive
+ * failed exactly this way). The chunker default (`chunkDeltaPlan`) is
+ * already 100; this constant must never exceed it.
+ * WHY hardcoded, not imported: no CLI-importable shared package exports
+ * `V0_IMPORT_MAX_TASKS` (checked `@vibeflow-tools/shared` — absent), so
+ * the server route above is the source of truth and this bound is synced
+ * to it manually. See the pinning test in `delta-run.test.ts`.
+ */
+export const DELTA_CHUNK_MAX_TASKS = 100;
 
 export interface DeltaRunResult {
   /** Tasks the server did not have, or had with different content. */
