@@ -25,9 +25,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIST_DIR = resolve(process.cwd(), "dist");
+// Module-anchored (ticket 8ac96ef9) — never process.cwd(), whose value
+// depends on where the invoker stands.
+const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
 const CLI_DIR = join(DIST_DIR, "cli");
 const ENTRY = join(DIST_DIR, "index.js");
 

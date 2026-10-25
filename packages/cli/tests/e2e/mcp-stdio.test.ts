@@ -16,8 +16,9 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-
-const CLI = join(process.cwd(), "dist", "index.js");
+// Module-anchored CLI entry + isolated env (ticket 8ac96ef9) — never
+// process.cwd(), never the operator's HOME.
+import { CLI_ENTRY as CLI, isolatedCliEnv } from "./spawn-isolated.js";
 /** Deadline per spawn — hitting it means "did not exit on EOF" (killed). */
 const DEADLINE_MS = 15_000;
 
@@ -65,11 +66,13 @@ function runMcp(
   opts: { cwd: string; eofDelayMs?: number },
 ): Promise<Exchange> {
   return new Promise((resolvePromise) => {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      HOME: home,
-      VIBEFLOW_TELEMETRY: "0",
-    };
+    // Isolated env (ticket 8ac96ef9) via the shared chokepoint: temp HOME,
+    // no GIT_*/redirect inheritance. The SKIP-guard deletes below are
+    // belt-and-braces — the builder already drops them unless explicit.
+    const env: NodeJS.ProcessEnv = isolatedCliEnv({
+      home,
+      cwd: opts.cwd,
+    });
     // A leaked introspection guard would make the spawn a silent no-op.
     delete env.VIBEFLOW_CLI_SKIP_PARSE;
     delete env.VIBEFLOW_CLI_SKIP_REFRESH;

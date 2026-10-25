@@ -100,6 +100,30 @@ const note = (m) => notes.push(m);
 const fail = (path, cliVal, mcpVal) =>
   failures.push({ path, cli: cliVal, mcp: mcpVal });
 
+// Isolated child env (ticket 8ac96ef9): temp HOME, no GIT_* inheritance
+// (hook context would hijack the child's cwd), no redirect inheritance
+// (VIBEFLOW_API_URL / VIBEFLOW_PROJECT_DIR would aim the child elsewhere),
+// ceiling pinned at the disposable root. Mirrors
+// packages/cli/tests/e2e/spawn-isolated.ts (this script is .mjs and cannot
+// import it); tests/unit/cli-spawn-guard.test.ts trips if this block regresses.
+function isolatedEnv(extra = {}) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key === "HOME") continue;
+    if (key.startsWith("GIT_")) continue;
+    if (
+      (key === "VIBEFLOW_API_URL" || key === "VIBEFLOW_PROJECT_DIR") &&
+      !(key in extra)
+    )
+      continue;
+    env[key] = value;
+  }
+  env.HOME = HOME;
+  env.VIBEFLOW_TELEMETRY = "0";
+  env.GIT_CEILING_DIRECTORIES = ROOT;
+  return { ...env, ...extra };
+}
+
 function runCliFn(cliArgs, { allowFail = false } = {}) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -108,7 +132,7 @@ function runCliFn(cliArgs, { allowFail = false } = {}) {
       {
         cwd: ROOT,
         timeout: 20000,
-        env: { ...process.env, HOME, VIBEFLOW_TELEMETRY: "0" },
+        env: isolatedEnv(),
       },
       (err, stdout, stderr) => {
         const code =
@@ -134,7 +158,7 @@ const cliJson = async (...cliArgs) => {
 // ── minimal MCP stdio client (newline-delimited JSON-RPC) ──
 function startMcp() {
   const child = spawn("node", [CLI, "mcp", "--project", ROOT], {
-    env: { ...process.env, HOME, VIBEFLOW_TELEMETRY: "0" },
+    env: isolatedEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   let buf = "";

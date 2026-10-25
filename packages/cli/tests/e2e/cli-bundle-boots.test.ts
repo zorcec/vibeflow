@@ -13,12 +13,24 @@
  * dead artifact. Build first:
  *   pnpm --filter @vibeflow-tools/cli run build
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { CLI_ENTRY, isolatedCliEnv } from "./spawn-isolated.js";
 
-const CLI_ENTRY = resolve(process.cwd(), "dist/cli/index.js");
+// Isolated HOME (ticket 8ac96ef9): even `--version` merges the
+// owner-global ~/.vibeflow/settings.json, so the child gets a temp HOME.
+let home!: string;
+
+beforeAll(() => {
+  home = mkdtempSync(join(tmpdir(), "cli-bundle-boots-home-"));
+});
+
+afterAll(() => {
+  rmSync(home, { recursive: true, force: true });
+});
 
 function runCli(args: string[]): { stdout: string; stderr: string } {
   let stdout = "";
@@ -27,12 +39,8 @@ function runCli(args: string[]): { stdout: string; stderr: string } {
     stdout = execFileSync(process.execPath, [CLI_ENTRY, ...args], {
       encoding: "utf-8",
       timeout: 60_000,
-      env: {
-        ...process.env,
-        // No network, no telemetry, no real HOME merge in the guard.
-        VIBEFLOW_TELEMETRY: "0",
-        VIBEFLOW_DISABLE_TELEMETRY: "1",
-      },
+      cwd: tmpdir(),
+      env: isolatedCliEnv({ home, cwd: tmpdir() }),
     });
   } catch (err) {
     const e = err as {

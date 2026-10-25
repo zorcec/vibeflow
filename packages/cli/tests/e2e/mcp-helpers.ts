@@ -14,13 +14,22 @@
  */
 
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { getFreePort } from "../ports.js";
 import { serveWithPort } from "../helpers/serve-with-port.js";
 import { expect } from "vitest";
+import {
+  CLI_ENTRY,
+  isolatedCliEnv,
+} from "./spawn-isolated.js";
+
+// Single chokepoint for isolated CLI spawns (ticket 8ac96ef9) — the env
+// builder, entry resolution, and guarantees live in ./spawn-isolated.js.
+// This module keeps its historic names as a compat layer so existing import
+// sites keep working; new code should import ./spawn-isolated.js directly.
+export { CLI_ENTRY, isolatedCliEnv };
 
 // Suppress telemetry in every test process
 process.env.VIBEFLOW_TELEMETRY = "0";
@@ -177,21 +186,20 @@ export { stopMcpForTests, getSessionCount };
 // ── HOME-isolated spawn helpers ──────────────────────────────────────────────
 
 /**
- * The CLI under test. `VIBEFLOW_E2E_CLI` points the whole e2e suite at a
- * different build — used by `test:coverage:e2e`, which needs the
- * sourcemapped, unminified coverage build (`.coverage-cli/`) so the counters
- * `NODE_V8_COVERAGE` collects can be mapped back to `src/**`. Unset in normal
- * runs, the suite exercises the shipped `dist/index.js` exactly as before.
+ * The CLI under test — re-exported from the isolated-spawn chokepoint
+ * (`./spawn-isolated.js`), which also documents the `VIBEFLOW_E2E_CLI`
+ * override and the module-anchored (never `process.cwd()`) resolution.
  */
-const CLI_PATH =
-  process.env.VIBEFLOW_E2E_CLI ??
-  // Never process.cwd(): the invoker cwd differs from the package root
-  // whenever a spec runs by absolute path from the repo root or /tmp.
-  // Anchor at the module location (tests/e2e → packages/cli/dist).
-  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "index.js");
+const CLI_PATH = CLI_ENTRY;
 
+/**
+ * Compat wrapper: historic `(tmpHome) => env` signature, now with the full
+ * isolation pins (no `GIT_*` inheritance, no redirect inheritance,
+ * `GIT_CEILING_DIRECTORIES`). Prefer `isolatedCliEnv({ home, cwd, env })`
+ * directly — it also pins the ceiling at the spawn cwd.
+ */
 export function isolatedEnv(tmpHome: string): NodeJS.ProcessEnv {
-  return { ...process.env, HOME: tmpHome, VIBEFLOW_TELEMETRY: "0" };
+  return isolatedCliEnv({ home: tmpHome });
 }
 
 export async function runCli(
@@ -219,7 +227,7 @@ export async function runCli(
         cwd: opts.cwd,
         encoding: "utf-8",
         timeout: opts.timeoutMs ?? 15_000,
-        env: { ...isolatedEnv(opts.home), ...(opts.env ?? {}) },
+        env: isolatedCliEnv({ home: opts.home, cwd: opts.cwd, env: opts.env }),
       },
       (err, stdout, stderr) => {
         const code =
@@ -256,7 +264,7 @@ export function spawnApiServer(opts: {
   if (opts.host) args.push("--host", opts.host);
   const child = spawn("node", args, {
     cwd: opts.cwd,
-    env: isolatedEnv(opts.home),
+    env: isolatedCliEnv({ home: opts.home, cwd: opts.cwd }),
   });
   const mcpUrl = `http://127.0.0.1:${opts.port}/api/mcp`;
   const waitReady = new Promise<void>((resolve, reject) => {
@@ -338,7 +346,7 @@ export function spawnCli(args: string[], opts: {
   return new Promise((resolve) => {
     const child = spawn("node", [CLI_PATH, ...args], {
       cwd: opts.cwd,
-      env: { ...isolatedEnv(opts.home), ...(opts.env ?? {}) },
+      env: isolatedCliEnv({ home: opts.home, cwd: opts.cwd, env: opts.env }),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -357,15 +365,31 @@ export function spawnCli(args: string[], opts: {
   });
 }
 
+/**
+ * Seed a git identity in a scratch repo. Strips inherited `GIT_*` (hook
+ * context would otherwise aim these at the OUTER repository) via the same
+ * sweep the CLI-child env uses.
+ */
 export function seedGitUser(projectDir: string): void {
-  const { execSync } = require("node:child_process");
-  execSync(
-    "git init && git config user.name 'E2E User' && git config user.email 'e2e@test.local'",
-    {
-      cwd: projectDir,
-      stdio: "ignore",
-    },
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith("GIT_")) env[key] = value;
+  }
+  execFileSync(
+    "git",
+    ["init"],
+    { cwd: projectDir, stdio: "ignore", env },
   );
+  execFileSync("git", ["config", "user.name", "E2E User"], {
+    cwd: projectDir,
+    stdio: "ignore",
+    env,
+  });
+  execFileSync("git", ["config", "user.email", "e2e@test.local"], {
+    cwd: projectDir,
+    stdio: "ignore",
+    env,
+  });
 }
 
 export type { expect };

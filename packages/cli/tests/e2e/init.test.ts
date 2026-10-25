@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -11,16 +10,50 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { runCliIsolatedSync } from "./spawn-isolated.js";
 import { ensureTaskDirs } from "../../src/core/tasks.js";
 import { writeConfig } from "../../src/core/config.js";
 import { PROTO_DIR, FILES_DIR } from "../../src/core/types.js";
 
-const CLI = join(process.cwd(), "dist", "index.js");
+// Isolated HOME (ticket 8ac96ef9): every CLI spawn runs with a temp HOME so
+// the child can never read or write the operator's real ~/.vibeflow.
+// Assigned in every describe's beforeEach below, before any test runs.
+let cliHome!: string;
+
 const run = (args: string, cwd?: string) =>
-  execSync(`node ${CLI} ${args}`, {
-    encoding: "utf-8",
+  runCliIsolatedSync(splitArgs(args), {
     cwd: cwd ?? process.cwd(),
+    home: cliHome,
   });
+
+/**
+ * Split a command line the way the old `execSync(string)` shell did for the
+ * inputs this file uses: double-quoted segments stay one token (titles and
+ * comments contain spaces), quotes are stripped, no other shell
+ * interpretation (expansion, escapes) is performed. Keeps every existing
+ * `run(` call site unchanged while removing the shell entirely.
+ */
+function splitArgs(cmd: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (const ch of cmd) {
+    if (ch === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (ch === " " && !quoted) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 
 /** Fast setup helper — directly creates the .proto structure without the CLI. */
 function initProtoDir(dir: string): void {
@@ -44,11 +77,13 @@ describe("proto tasks (e2e)", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-e2e-tasks-"));
+    cliHome = mkdtempSync(join(tmpdir(), "proto-e2e-home-"));
     initProtoDir(tempDir);
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(cliHome, { recursive: true, force: true });
   });
 
   it("shows 'No tasks found' for empty task dir", () => {
@@ -872,6 +907,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-e2e-comment-normalize-"));
+    cliHome = mkdtempSync(join(tmpdir(), "proto-e2e-home-"));
     initProtoDir(tempDir);
     // Disable auto-commit and auto-comment so --set-status review doesn't try git operations
     writeFileSync(
@@ -883,6 +919,7 @@ describe("proto tasks --comment normalization (e2e)", () => {
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(cliHome, { recursive: true, force: true });
   });
 
   function createTask(title: string): string {

@@ -26,10 +26,13 @@ import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { spawn } from "node:child_process";
 import { seedTask, isolatedEnv } from "./mcp-helpers.js";
+// Module-anchored CLI entry (ticket 8ac96ef9) — never process.cwd().
+// The env still comes from the isolated chokepoint (isolatedEnv delegates
+// to isolatedCliEnv); only the entry constant moved.
+import { CLI_ENTRY as CLI_PATH } from "./spawn-isolated.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
-const CLI_PATH = process.env.VIBEFLOW_E2E_CLI ?? join(process.cwd(), "dist", "index.js");
 const TOKEN = "e2e-online-token";
 
 const cleanups: Array<() => void> = [];

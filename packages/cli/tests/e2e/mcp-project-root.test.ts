@@ -15,8 +15,10 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { runCli, getFreePort } from "./mcp-helpers.js";
-
-const CLI = join(process.cwd(), "dist", "index.js");
+// Module-anchored CLI entry (ticket 8ac96ef9) — never process.cwd().
+// A long-lived server cannot use spawnCliIsolated (which resolves on exit),
+// so the env is built by isolatedCliEnv — the same chokepoint.
+import { CLI_ENTRY as CLI, isolatedCliEnv } from "./spawn-isolated.js";
 
 const tempDirs: string[] = [];
 const children: ChildProcess[] = [];
@@ -38,7 +40,7 @@ function spawnCli(
 ): ChildProcess {
   const child = spawn("node", [CLI, ...args], {
     cwd: opts.cwd,
-    env: { ...process.env, HOME: opts.home, VIBEFLOW_TELEMETRY: "0" },
+    env: isolatedCliEnv({ home: opts.home, cwd: opts.cwd }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(child);

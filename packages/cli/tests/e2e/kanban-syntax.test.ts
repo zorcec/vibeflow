@@ -1,8 +1,10 @@
 import { test, expect, describe } from 'vitest';
 import { spawn } from 'child_process';
-import { resolve } from 'path';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { getKanbanHtml } from '../../src/server/kanban-template';
+import { CLI_ENTRY, isolatedCliEnv } from './spawn-isolated.js';
 
 // ── Static kanban template checks (no server needed) ────────────────────────
 
@@ -55,12 +57,19 @@ describe('kanban template — static checks', () => {
 
 test('kanban HTML contains only valid JavaScript', async () => {
   const port = 3098;
+  // Isolated HOME + temp cwd (ticket 8ac96ef9): this spawn once inherited
+  // the operator's real HOME, and its logout path deleted
+  // ~/.vibeflow/token. A long-lived server cannot use spawnCliIsolated
+  // (which resolves on exit), so the env is built by isolatedCliEnv — the
+  // same chokepoint — with a temp HOME and a temp cwd.
+  const home = mkdtempSync(join(tmpdir(), 'kanban-syntax-home-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'kanban-syntax-cwd-'));
   // W1: the CLI validates the root before serving (git repo or .vibeflow
-  // store). This spawn runs from the package dir, which has no .git — seed
-  // the store marker; the old serve() created it as a side effect anyway.
-  mkdirSync('.vibeflow', { recursive: true });
-  const serverProcess = spawn('node', [resolve('dist/cli/index.js'), 'serve', '--port', String(port)], {
-    cwd: process.cwd(),
+  // store). Seed the store marker in the spawn cwd.
+  mkdirSync(join(cwd, '.vibeflow'), { recursive: true });
+  const serverProcess = spawn(process.execPath, [CLI_ENTRY, 'serve', '--port', String(port)], {
+    cwd,
+    env: isolatedCliEnv({ home, cwd }),
     stdio: 'ignore',
   });
 
@@ -107,5 +116,7 @@ test('kanban HTML contains only valid JavaScript', async () => {
   } finally {
     serverProcess.kill();
     await new Promise(resolve => setTimeout(resolve, 100));
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
   }
 });

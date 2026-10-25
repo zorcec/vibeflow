@@ -1,14 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { runCliIsolatedSync } from "./spawn-isolated.js";
 
-const CLI = join(process.cwd(), "dist", "index.js");
+// Isolated HOME (ticket 8ac96ef9): every CLI spawn runs with a temp HOME so
+// the child can never read or write the operator's real ~/.vibeflow.
+let cliHome!: string;
+
 const run = (args: string) => {
   try {
     return {
-      stdout: execSync(`node ${CLI} ${args}`, { encoding: "utf-8" }),
+      stdout: runCliIsolatedSync(args.split(" "), {
+        cwd: process.cwd(),
+        home: cliHome,
+      }),
       exitCode: 0,
     };
   } catch (err: unknown) {
@@ -25,10 +31,12 @@ describe("removed validate command (e2e)", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "proto-e2e-validate-"));
+    cliHome = mkdtempSync(join(tmpdir(), "proto-e2e-validate-home-"));
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(cliHome, { recursive: true, force: true });
   });
 
   it("returns unknown command for validate", () => {

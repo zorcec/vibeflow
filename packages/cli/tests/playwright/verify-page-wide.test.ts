@@ -48,12 +48,12 @@ import { RELEVANT_STYLES } from "../../src/core/page-selector.js";
 import { capturePageWideElements, MAX_ELEMENTS } from "../../src/commands/verify.js";
 import type { DomSnapshot } from "../../src/core/verification-types.js";
 import { getFreePort } from "../ports.js";
+// Module-anchored CLI entry (ticket 8ac96ef9) — never process.cwd().
+// The child env is built by isolatedCliEnv (same chokepoint) plus the
+// Playwright browser cache it needs to drive chromium.
+import { CLI_ENTRY as CLI, isolatedCliEnv } from "../e2e/spawn-isolated.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
-
-/** The CLI under test — the shipped dist bundle, unless a coverage run points elsewhere. */
-const CLI =
-  process.env.VIBEFLOW_E2E_CLI ?? join(process.cwd(), "dist", "index.js");
 
 /** The card title at baseline-capture time. */
 const BEFORE_TITLE = "Card title as captured in the baseline";
@@ -121,9 +121,9 @@ function runCli(
         encoding: "utf-8",
         timeout: timeoutMs,
         env: {
-          ...process.env,
-          HOME: home,
-          VIBEFLOW_TELEMETRY: "0",
+          // Isolated env (ticket 8ac96ef9) via the shared chokepoint, plus
+          // the Playwright browser cache the child needs to drive chromium.
+          ...isolatedCliEnv({ home, cwd: tempDir }),
           PLAYWRIGHT_BROWSERS_PATH: BROWSERS_PATH,
         },
       },
