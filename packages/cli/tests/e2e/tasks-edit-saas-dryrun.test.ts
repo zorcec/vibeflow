@@ -13,25 +13,18 @@
  * fail (the fake server records 1 PATCH); with the guard restored they pass.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { spawnCli } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 
 const cleanups: Array<() => void> = [];
 function freshDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
-}
-
-/** A home directory that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("saas-dryrun-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 type RecordedRequest = { method: string; url: string; body: string };
@@ -143,8 +136,9 @@ afterEach(() => {
 describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
   it("--dry-run (JSON) sends no PATCH/POST and previews with dryRun:true", async () => {
     const store = freshDir("saas-dryrun-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -186,8 +180,9 @@ describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
 
   it("--dry-run (human) sends no PATCH/POST and prints a [dry-run] preview", async () => {
     const store = freshDir("saas-dryrun-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -211,8 +206,9 @@ describe("tasks --edit --dry-run in SaaS mode never mutates", () => {
 
   it("a real run still PATCHes exactly once", async () => {
     const store = freshDir("saas-dryrun-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -248,8 +244,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("--set-verify pass PATCHes verified:true", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -277,8 +274,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("--set-verify fail PATCHes verified:false", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -300,8 +298,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("--set-verify cannot PATCHes verified:null and records the reason as a comment", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -335,8 +334,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("no --set-verify leaves the remote verdict untouched (key absent)", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -358,8 +358,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("claiming (in-progress, no verdict) clears the remote verdict", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [
@@ -384,8 +385,9 @@ describe("tasks --edit --set-verify in SaaS mode reaches the backend", () => {
 
   it("--dry-run with --set-verify previews verified and sends no PATCH", async () => {
     const store = freshDir("saas-verify-store-");
-    const home = saasHome();
+    const home = freshDir("saas-dryrun-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       [

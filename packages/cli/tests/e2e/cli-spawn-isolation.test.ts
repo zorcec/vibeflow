@@ -146,7 +146,10 @@ describe("isolatedCliEnv — the env builder", () => {
 describe("spawnCliIsolated — poisoned-parent spawn", () => {
   it("never sees a poisoned HOME: stays local even with a fake token next door", async () => {
     // Poison the parent the way a logged-in operator's box looks: a HOME
-    // carrying a token (which flips getMode() to saas) plus junk redirects.
+    // carrying a leftover legacy token (ignored since ADR-0005 — SaaS mode
+    // now needs the project pointer plus credentials.json, neither of which
+    // the child inherits) plus junk redirects. The inventory assertions
+    // below are the teeth: a HOME leak would write operator-adjacent state.
     const poisonHome = freshDir("poison-home-");
     mkdirSync(join(poisonHome, ".vibeflow"), { recursive: true });
     writeFileSync(join(poisonHome, ".vibeflow", "token"), "fake-operator-token");

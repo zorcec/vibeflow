@@ -24,11 +24,12 @@
  * push test fails (the deleted id travels in the push set again).
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
 import { spawnCli, seedTask } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 import { listTasks } from "../../src/core/tasks.js";
 
 const cleanups: Array<() => void> = [];
@@ -41,14 +42,6 @@ function freshDir(prefix: string): string {
 /** A home WITHOUT a token file, so the CLI takes the local branch. */
 function localHome(): string {
   return freshDir("delete-local-home-");
-}
-
-/** A home that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("delete-saas-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 afterEach(() => {
@@ -424,8 +417,9 @@ async function startFakeBackend(opts?: { pageSize?: number }): Promise<{
 describe("tasks --delete in SaaS mode", () => {
   it("without --yes previews and deletes nothing; with --yes it DELETEs", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
 
     const preview = await spawnCli(["tasks", store, "--delete", "s1"], {
@@ -456,8 +450,9 @@ describe("tasks --delete in SaaS mode", () => {
 
   it("--yes --dry-run deletes nothing: exit 0, dryRun payload, no DELETE sent", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
 
     const r = await spawnCli(
@@ -478,8 +473,9 @@ describe("tasks --delete in SaaS mode", () => {
 
   it("a parent delete warns of the cascade, deletes the cone, and reports deletedIds", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
 
     // The preview names the cascade and deletes nothing.
@@ -515,8 +511,9 @@ describe("tasks --delete in SaaS mode", () => {
 
   it("refuses an empty id cleanly and sends no DELETE", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
 
     const r = await spawnCli(["tasks", store, "--delete", "", "--yes", "--json"], {
@@ -537,8 +534,9 @@ describe("tasks --delete in SaaS mode", () => {
 
   it("refuses unknown and ambiguous ids before any DELETE", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
 
     const unknown = await spawnCli(["tasks", store, "--delete", "ghost", "--yes", "--json"], {
@@ -575,8 +573,9 @@ describe("tasks --delete in SaaS mode", () => {
     // (pageSize 1) — past the old cap — so a half-read board would delete
     // the parent without ever naming the child.
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, deletes, tasks } = await startFakeBackend({ pageSize: 1 });
+    setupSaaSMode({ home, store, apiUrl: url });
     // Widen the board: the default 5 stay on pages 1-5; 50 fillers push
     // the reparented child c1 to page 56 by re-inserting it last.
     const child = tasks.get("c1")!;
@@ -616,8 +615,9 @@ describe("tasks --delete in SaaS mode", () => {
 
   it("an online delete drops the local record so a later push cannot recreate it", async () => {
     const store = freshDir("delete-saas-store-");
-    const home = saasHome();
+    const home = freshDir("delete-saas-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
     const env = { VIBEFLOW_API_URL: url };
     // The same ids live in BOTH stores: the fake board carries s1/s2 and
     // local rows with the same ids are seeded beside them. s2 is the

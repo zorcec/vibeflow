@@ -27,25 +27,18 @@
  * fail (INVALID_LINKS instead of TASK_NOT_FOUND, and a POST/PATCH is sent).
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { spawnCli } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 
 const cleanups: Array<() => void> = [];
 function freshDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
-}
-
-/** A home directory that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("saas-parent-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 type RecordedRequest = { method: string; url: string; body: string };
@@ -222,8 +215,9 @@ function postBodies(requests: RecordedRequest[]): unknown[] {
 describe("tasks --add --parent in SaaS mode is honoured", () => {
   it("--add --parent POSTs the parent link and the child reads back linked", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41aa01", "--json"],
@@ -248,8 +242,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
 
   it("--add --parent with a dangling target is refused TASK_NOT_FOUND before any POST", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Orphan", "--parent", "ghost", "--json"],
@@ -270,8 +265,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
 
   it("--add --parent resolves a unique prefix to the full id", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Kid", "--parent", "3b8f9d12", "--json"],
@@ -289,8 +285,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
 
   it("--add --parent refuses an ambiguous prefix, naming the candidates", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41", "--json"],
@@ -312,8 +309,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
 
   it("--add --parent --dry-run previews the link and sends no POST", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Kid", "--parent", "9f2c7a41aa", "--dry-run", "--json"],
@@ -335,8 +333,9 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
 describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () => {
   it("--set-parent swaps the parent and preserves relates links", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41bb", "--json"],
@@ -354,8 +353,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--no-parent clears the parent and keeps relates links", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--no-parent", "--json"],
@@ -367,8 +367,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--set-parent with a dangling target is refused TASK_NOT_FOUND and sends no PATCH", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "ghost", "--json"],
@@ -394,8 +395,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--set-parent resolves a unique prefix to the full id", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     // "9f2c7a41" is ambiguous (aa01, bb02) but "9f2c7a41bb" resolves uniquely.
     const r = await spawnCli(
@@ -411,8 +413,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--set-parent refuses an ambiguous prefix, naming the candidates", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41", "--json"],
@@ -437,8 +440,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--relates resolves a unique prefix and preserves the other links", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     // 9f2c7a41aa01 already parents the child; adding it as relates is a distinct pair.
     const r = await spawnCli(
@@ -466,8 +470,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--unrelates removes exactly the named pair and keeps the rest", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, tasks } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--unrelates", "7d1e0b55", "--json"],
@@ -481,8 +486,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 
   it("--set-parent --dry-run previews the merged links and sends no PATCH", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "3b8f9d12dd04", "--set-parent", "9f2c7a41bb", "--dry-run", "--json"],
@@ -507,8 +513,9 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
 describe("tasks list in SaaS mode hides children by default", () => {
   it("roots exclude the child and hiddenChildren names it; --children includes it", async () => {
     const store = freshDir("saas-parent-store-");
-    const home = saasHome();
+    const home = freshDir("saas-parent-home-");
     const { url } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
 
     const roots = await spawnCli(["tasks", store, "--json", "--limit", "0"], {
       cwd: store,

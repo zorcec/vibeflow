@@ -43,6 +43,7 @@ import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { execFileSync } from "node:child_process";
 import { spawnCli } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 
 const cleanups: Array<() => void> = [];
@@ -50,14 +51,6 @@ function freshDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
-}
-
-/** A home directory that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("write-fx-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 type RecordedRequest = { method: string; url: string; body: string };
@@ -215,8 +208,9 @@ afterEach(() => {
 describe("online write effects (characterization)", () => {
   it("edit --title + --comment: one PATCH, one awaited comment POST, ok:true, exit 0", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -245,8 +239,9 @@ describe("online write effects (characterization)", () => {
 
   it("a failed comment POST after a landed PATCH is E_COMMENT_SAVE (exit 1), and the PATCH is kept", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend({ failComment: true });
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -274,8 +269,9 @@ describe("online write effects (characterization)", () => {
 
   it("--set-verify cannot PATCHes verified:null and records the reason as a comment", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -297,8 +293,9 @@ describe("online write effects (characterization)", () => {
 
   it("a server warning rides the payload as a bare `warning` string, not a notice", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend({ warning: "already claimed by X" });
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -333,8 +330,9 @@ describe("online write effects (characterization)", () => {
 
   it("online --add sends no `author` member; the task is the server view", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Online created", "--json"],
@@ -366,8 +364,9 @@ describe("online write effects (characterization)", () => {
       join(store, ".vibeflow", "settings.json"),
       JSON.stringify({ autoCommit: true, autoPush: false }),
     );
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
     const commitsBefore = git(store, ["rev-list", "--count", "HEAD"]).trim();
 
     const r = await spawnCli(
@@ -394,8 +393,9 @@ describe("online write effects (characterization)", () => {
 
   it("FLIP: standalone --set-verify on a remote Research task with no local clone is NOT refused today", async () => {
     const store = freshDir("write-fx-store-");
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     // FLIP NOTE (efcd6992 step 5): the preflight must run over the
     // AUTHORITATIVE (remote) task, so this call must refuse with
@@ -421,8 +421,9 @@ describe("online write effects (characterization)", () => {
       join(store, ".vibeflow", "settings.json"),
       JSON.stringify({ autoCommit: false, autoPush: false }),
     );
-    const home = saasHome();
+    const home = freshDir("write-fx-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     // FLIP NOTE (efcd6992 step 5): the gate must run over the AUTHORITATIVE
     // (remote) task, so this must refuse (VERIFY_REQUIRED) before any PATCH.

@@ -16,25 +16,18 @@
  * with the probe restored it passes.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { spawnCli } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 
 const cleanups: Array<() => void> = [];
 function freshDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
-}
-
-/** A home directory that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("saas-nolist-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 type RecordedRequest = { method: string; url: string; body: string };
@@ -142,8 +135,9 @@ afterEach(() => {
 describe("tasks --edit in SaaS mode skips the board listing for a full id", () => {
   it("exact id performs ZERO list calls and PATCHes once", async () => {
     const store = freshDir("saas-nolist-store-");
-    const home = saasHome();
+    const home = freshDir("saas-nolist-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -170,8 +164,9 @@ describe("tasks --edit in SaaS mode skips the board listing for a full id", () =
 
   it("unique prefix performs exactly ONE listing and PATCHes once", async () => {
     const store = freshDir("saas-nolist-store-");
-    const home = saasHome();
+    const home = freshDir("saas-nolist-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [
@@ -198,8 +193,9 @@ describe("tasks --edit in SaaS mode skips the board listing for a full id", () =
 
   it("ambiguous prefix fails with E_AMBIGUOUS and does not PATCH", async () => {
     const store = freshDir("saas-nolist-store-");
-    const home = saasHome();
+    const home = freshDir("saas-nolist-home-");
     const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
 
     const r = await spawnCli(
       [

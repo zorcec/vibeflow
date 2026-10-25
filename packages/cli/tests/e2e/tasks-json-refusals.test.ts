@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { spawnCli, getFreePort } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 
 const cleanups: Array<() => void> = [];
 
@@ -106,14 +107,6 @@ function writeRawTask(
     shape.pretty ? JSON.stringify(task, null, 2) : JSON.stringify(task),
     "utf-8",
   );
-}
-
-/** A home directory that makes the CLI take the online (SaaS) branch. */
-function saasHome(): string {
-  const home = freshDir("json-refusal-saas-home-");
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(join(home, ".vibeflow", "token"), "test-token", "utf-8");
-  return home;
 }
 
 type CliResult = { stdout: string; stderr: string; code: number | null };
@@ -494,11 +487,13 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
 
   it("E_BACKEND_UNAVAILABLE (retryable) — listing with an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(["tasks", store, "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: await deadApiUrl() },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: true,
@@ -509,7 +504,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
 
   it("E_BACKEND_UNAVAILABLE (not retryable) — a host that answers 500", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
     const server: Server = createServer((_req, res) => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "boom" }));
@@ -519,11 +514,13 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     );
     cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
     const { port } = server.address() as { port: number };
+    const apiUrl = `http://127.0.0.1:${port}`;
+    setupSaaSMode({ home, store, apiUrl });
 
     const r = await spawnCli(["tasks", store, "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: `http://127.0.0.1:${port}` },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: false });
   });
@@ -543,17 +540,20 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
   }
 
   it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 401", async () => {
-    // SaaS mode is selected BECAUSE a token file exists, so the client's
-    // literal NOT_AUTHENTICATED (no token at all) is the rare case. What
+    // SaaS mode is selected BECAUSE the project pointer + credential exist
+    // (ADR-0005), so the client's literal NOT_AUTHENTICATED (no token at
+    // all) is the rare case. What
     // really happens is an expired or revoked token rejected with 401/403 —
     // which used to be labelled E_BACKEND_UNAVAILABLE, i.e. "the backend is
     // down, maybe retry", for a session retrying cannot fix.
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await statusUrl(401);
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(["tasks", store, "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: await statusUrl(401) },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
       retryable: false,
@@ -563,11 +563,13 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
 
   it("E_NOT_AUTHENTICATED (not retryable) — a host that answers 403", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await statusUrl(403);
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(["tasks", store, "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: await statusUrl(403) },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     const envelope = expectRefusal(r, "E_NOT_AUTHENTICATED", {
       retryable: false,
@@ -577,42 +579,50 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
 
   it("E_NOT_AUTHENTICATED — --edit against a host that answers 401", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await statusUrl(401);
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(
       ["tasks", store, "--edit", "abcd1234", "--set-status", "in-progress", "--json"],
-      { cwd: store, home, env: { VIBEFLOW_API_URL: await statusUrl(401) } },
+      { cwd: store, home, env: { VIBEFLOW_API_URL: apiUrl } },
     );
     expectRefusal(r, "E_NOT_AUTHENTICATED", { retryable: false });
   });
 
   it("E_BACKEND_UNAVAILABLE — --get against an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(["tasks", store, "--get", "abcd1234", "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: await deadApiUrl() },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
 
   it("E_BACKEND_UNAVAILABLE — --next against an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(["tasks", store, "--next", "--json"], {
       cwd: store,
       home,
-      env: { VIBEFLOW_API_URL: await deadApiUrl() },
+      env: { VIBEFLOW_API_URL: apiUrl },
     });
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
 
   it("E_BACKEND_UNAVAILABLE — --add against an unreachable host", async () => {
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Online task", "--json"],
-      { cwd: store, home, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
+      { cwd: store, home, env: { VIBEFLOW_API_URL: apiUrl } },
     );
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: true,
@@ -629,7 +639,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     // future occurrence must name the status, the path and the first
     // bytes on the CLI side.
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
     const server: Server = createServer((_req, res) => {
       res.writeHead(502, { "Content-Type": "text/html" });
       res.end("<html><body>Bad Gateway</body></html>");
@@ -639,10 +649,12 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     );
     cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
     const { port } = server.address() as { port: number };
+    const apiUrl = `http://127.0.0.1:${port}`;
+    setupSaaSMode({ home, store, apiUrl });
 
     const r = await spawnCli(
       ["tasks", store, "--add", "--title", "Online task", "--json"],
-      { cwd: store, home, env: { VIBEFLOW_API_URL: `http://127.0.0.1:${port}` } },
+      { cwd: store, home, env: { VIBEFLOW_API_URL: apiUrl } },
     );
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: false,
@@ -656,7 +668,9 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     const store = freshDir("json-refusal-saas-store-");
     const home = freshDir("json-refusal-home-");
     const id = await addTask(store, home, "Local copy");
-    const online = saasHome();
+    const online = freshDir("json-refusal-saas-home-");
+    const editApiUrl = await deadApiUrl();
+    setupSaaSMode({ home: online, store, apiUrl: editApiUrl });
 
     const r = await spawnCli(
       [
@@ -668,7 +682,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
         "in-progress",
         "--json",
       ],
-      { cwd: store, home: online, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
+      { cwd: store, home: online, env: { VIBEFLOW_API_URL: editApiUrl } },
     );
     const envelope = expectRefusal(r, "E_BACKEND_UNAVAILABLE", {
       retryable: true,
@@ -692,7 +706,9 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     // any fetch, so E_BACKEND_UNAVAILABLE proves the gate is gone. The
     // honoured happy path (links POST) is pinned in tasks-saas-parent.test.ts.
     const store = freshDir("json-refusal-saas-store-");
-    const home = saasHome();
+    const home = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home, store, apiUrl });
     const r = await spawnCli(
       [
         "tasks",
@@ -704,7 +720,7 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
         "abcd1234",
         "--json",
       ],
-      { cwd: store, home, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
+      { cwd: store, home, env: { VIBEFLOW_API_URL: apiUrl } },
     );
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
@@ -714,11 +730,13 @@ describe("tasks --json online (SaaS) refusals carry a code", () => {
     // the board first, so a dead host fails on the read with
     // E_BACKEND_UNAVAILABLE instead of the old E_USAGE refusal.
     const store = freshDir("json-refusal-saas-store-");
-    const online = saasHome();
+    const online = freshDir("json-refusal-saas-home-");
+    const apiUrl = await deadApiUrl();
+    setupSaaSMode({ home: online, store, apiUrl });
 
     const r = await spawnCli(
       ["tasks", store, "--edit", "sometaskid", "--set-parent", "abcd1234", "--json"],
-      { cwd: store, home: online, env: { VIBEFLOW_API_URL: await deadApiUrl() } },
+      { cwd: store, home: online, env: { VIBEFLOW_API_URL: apiUrl } },
     );
     expectRefusal(r, "E_BACKEND_UNAVAILABLE", { retryable: true });
   });
