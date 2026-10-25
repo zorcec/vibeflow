@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { spawn } from "node:child_process";
 import { seedTask, isolatedEnv } from "./mcp-helpers.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 // Module-anchored CLI entry (ticket 8ac96ef9) — never process.cwd().
 // The env still comes from the isolated chokepoint (isolatedEnv delegates
 // to isolatedCliEnv); only the entry constant moved.
@@ -49,27 +50,6 @@ function freshDir(prefix: string): string {
 /** A HOME directory for the CLI run — empty (offline) by default. */
 function cliHome(): string {
   return freshDir("online-flow-home-");
-}
-
-/**
- * Seed the user-scoped credential store (ADR-0005) exactly as a previous
- * login left it: `~/.vibeflow/credentials.json` keyed by the API base.
- */
-function seedCredential(home: string, apiUrl: string, token: string, workspaceId?: string): void {
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  writeFileSync(
-    join(home, ".vibeflow", "credentials.json"),
-    JSON.stringify({ [apiUrl]: { token, ...(workspaceId !== undefined ? { workspaceId } : {}), account: "e2e@example.com", updatedAt: new Date().toISOString() } }),
-    "utf-8",
-  );
-}
-
-/** Project-side board pointer (ADR-0005): `<project>/.vibeflow/settings.json`. */
-function seedPointer(store: string, apiUrl: string, boardId: string): void {
-  mkdirSync(join(store, ".vibeflow"), { recursive: true });
-  const path = join(store, ".vibeflow", "settings.json");
-  const prev = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>) : {};
-  writeFileSync(path, JSON.stringify({ ...prev, workspace: { apiUrl, id: boardId } }), "utf-8");
 }
 
 function readCredentialEntry(home: string, apiUrl: string): Record<string, unknown> | null {
@@ -307,8 +287,7 @@ describe("online auth flow: login → push → create → retrieve in great deta
     const { url } = await startStub();
     // Bind a board (project pointer) plus the user-scoped credential so
     // the status has a link to show.
-    seedPointer(store, url, "board-e2e");
-    seedCredential(home, url, TOKEN, "board-e2e");
+    setupSaaSMode({ home, store, apiUrl: url, token: TOKEN, workspaceId: "board-e2e" });
     const env = { VIBEFLOW_API_URL: url };
 
     for (const args of [["auth", "status"], ["auth"]]) {
@@ -330,8 +309,7 @@ describe("online auth flow: login → push → create → retrieve in great deta
     const home = cliHome();
     const { url } = await startStub();
     const env = { VIBEFLOW_API_URL: url };
-    seedPointer(store, url, "board-e2e");
-    seedCredential(home, url, TOKEN, "board-e2e");
+    setupSaaSMode({ home, store, apiUrl: url, token: TOKEN, workspaceId: "board-e2e" });
 
     const logoutRes = await spawnCliStdin(["logout"], { cwd: store, home, env });
     expect(logoutRes.code).toBe(0);
@@ -354,8 +332,7 @@ describe("online refusals and the empty-boards guidance", () => {
     const store = freshDir("online-flow-badtoken-");
     const home = cliHome();
     const { url } = await startStub();
-    seedPointer(store, url, "board-e2e");
-    seedCredential(home, url, "wrong-token", "board-e2e");
+    setupSaaSMode({ home, store, apiUrl: url, token: "wrong-token", workspaceId: "board-e2e" });
 
     const r = await spawnCliStdin(["tasks", store, "--get", "t-created-1", "--json"], {
       cwd: store,

@@ -28,6 +28,7 @@ import { spawn } from "node:child_process";
 // isolatedCliEnv — never the operator's real HOME.
 import { CLI_ENTRY as CLI_PATH } from "./spawn-isolated.js";
 import { isolatedCliEnv } from "./spawn-isolated.js";
+import { setupSaaSMode } from "../helpers/saas-auth.js";
 
 process.env.VIBEFLOW_TELEMETRY = "0";
 
@@ -212,18 +213,14 @@ describe("device login against the reuse shape (ticket 64204dec)", () => {
     const home = freshDir("reuse-home-");
     const stub = await startReuseStub();
     // Seed the user-scoped store exactly as a previous login left it.
-    mkdirSync(join(home, ".vibeflow"), { recursive: true });
-    writeFileSync(
-      join(home, ".vibeflow", "credentials.json"),
-      JSON.stringify({
-        [stub.url]: {
-          token: LIVE_TOKEN,
-          workspaceId: BOARD.id,
-          account: "reuse@example.com",
-          updatedAt: new Date().toISOString(),
-        },
-      }),
-    );
+    setupSaaSMode({
+      home,
+      store,
+      apiUrl: stub.url,
+      token: LIVE_TOKEN,
+      workspaceId: BOARD.id,
+      account: "reuse@example.com",
+    });
 
     const r = await spawnLogin(store, home, stub.url);
 
