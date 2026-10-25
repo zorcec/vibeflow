@@ -46,14 +46,37 @@ function freshDir(prefix: string): string {
   return dir;
 }
 
-/** A HOME directory for the CLI run — without a token (offline) by default. */
-function cliHome(withToken: boolean): string {
-  const home = freshDir("online-flow-home-");
-  if (withToken) {
-    mkdirSync(join(home, ".vibeflow"), { recursive: true });
-    writeFileSync(join(home, ".vibeflow", "token"), TOKEN, "utf-8");
-  }
-  return home;
+/** A HOME directory for the CLI run — empty (offline) by default. */
+function cliHome(): string {
+  return freshDir("online-flow-home-");
+}
+
+/**
+ * Seed the user-scoped credential store (ADR-0005) exactly as a previous
+ * login left it: `~/.vibeflow/credentials.json` keyed by the API base.
+ */
+function seedCredential(home: string, apiUrl: string, token: string, workspaceId?: string): void {
+  mkdirSync(join(home, ".vibeflow"), { recursive: true });
+  writeFileSync(
+    join(home, ".vibeflow", "credentials.json"),
+    JSON.stringify({ [apiUrl]: { token, ...(workspaceId !== undefined ? { workspaceId } : {}), account: "e2e@example.com", updatedAt: new Date().toISOString() } }),
+    "utf-8",
+  );
+}
+
+/** Project-side board pointer (ADR-0005): `<project>/.vibeflow/settings.json`. */
+function seedPointer(store: string, apiUrl: string, boardId: string): void {
+  mkdirSync(join(store, ".vibeflow"), { recursive: true });
+  const path = join(store, ".vibeflow", "settings.json");
+  const prev = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>) : {};
+  writeFileSync(path, JSON.stringify({ ...prev, workspace: { apiUrl, id: boardId } }), "utf-8");
+}
+
+function readCredentialEntry(home: string, apiUrl: string): Record<string, unknown> | null {
+  const path = join(home, ".vibeflow", "credentials.json");
+  if (!existsSync(path)) return null;
+  const all = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  return (all[apiUrl] as Record<string, unknown> | undefined) ?? null;
 }
 
 function spawnCliStdin(
@@ -220,7 +243,7 @@ describe("online auth flow: login → push → create → retrieve in great deta
   it("logs in against the v0 boards envelope, pushes a local task, creates one, and retrieves it with comments and hydrated files", async () => {
     const store = freshDir("online-flow-store-");
     seedTask(store, { id: "local-1", title: "Local seed", status: "todo" });
-    const home = cliHome(false);
+    const home = cliHome();
     const { url, requests } = await startStub();
     const env = { VIBEFLOW_API_URL: url };
 
@@ -230,13 +253,13 @@ describe("online auth flow: login → push → create → retrieve in great deta
     expect(loginRes.stdout).toContain("Logged in successfully. Now operating in online mode.");
     expect(loginRes.stdout).toContain("E2E Board");
     expect(loginRes.stdout).not.toContain("No boards found");
-    expect(readFileSync(join(home, ".vibeflow", "token"), "utf-8")).toBe(TOKEN);
-    const workspace = JSON.parse(readFileSync(join(home, ".vibeflow", "workspace"), "utf-8")) as {
-      id: string;
-      email: string | null;
+    // Project-scoped persistence (ADR-0005): the PAT lands user-scoped
+    // keyed by apiUrl, the board becomes THIS project's pointer.
+    expect(readCredentialEntry(home, url)?.token).toBe(TOKEN);
+    const pointer = JSON.parse(readFileSync(join(store, ".vibeflow", "settings.json"), "utf-8")) as {
+      workspace?: { apiUrl: string; id: string };
     };
-    expect(workspace.id).toBe("board-e2e");
-    expect(workspace.email).toBe("e2e@example.com");
+    expect(pointer.workspace?.id).toBe("board-e2e");
 
     // 2. push the seeded local task
     const pushRes = await spawnCliStdin(["push", store, "--keep-local-files"], { cwd: store, home, env });
@@ -280,15 +303,12 @@ describe("online auth flow: login → push → create → retrieve in great deta
 
   it("auth status shows mode and account, never secret values", async () => {
     const store = freshDir("online-flow-status-");
-    const home = cliHome(true);
-    // Bind a board so the status has an account to show.
-    mkdirSync(join(home, ".vibeflow"), { recursive: true });
-    writeFileSync(
-      join(home, ".vibeflow", "workspace"),
-      JSON.stringify({ id: "board-e2e", name: "E2E Board", icon: null, url: "http://127.0.0.1/e2e", email: "e2e@example.com" }),
-      "utf-8",
-    );
+    const home = cliHome();
     const { url } = await startStub();
+    // Bind a board (project pointer) plus the user-scoped credential so
+    // the status has a link to show.
+    seedPointer(store, url, "board-e2e");
+    seedCredential(home, url, TOKEN, "board-e2e");
     const env = { VIBEFLOW_API_URL: url };
 
     for (const args of [["auth", "status"], ["auth"]]) {
@@ -296,8 +316,10 @@ describe("online auth flow: login → push → create → retrieve in great deta
       expect(r.code).toBe(0);
       expect(r.stdout).toContain("Online");
       expect(r.stdout).toContain("(online mode)");
-      expect(r.stdout).toContain("E2E Board");
-      expect(r.stdout).toContain("e2e@example.com");
+      // Project-scoped status (ADR-0005): board id + API base, never the
+      // board name/email from the retired global workspace file, never secrets.
+      expect(r.stdout).toContain("board-e2e");
+      expect(r.stdout).toContain(url);
       expect(r.stdout).not.toContain(TOKEN);
       expect(r.stdout).not.toContain("SaaS");
     }
@@ -305,32 +327,35 @@ describe("online auth flow: login → push → create → retrieve in great deta
 
   it("keeps bare login/logout working as deprecated aliases with a redirect notice", async () => {
     const store = freshDir("online-flow-deprecated-");
-    const home = cliHome(true);
+    const home = cliHome();
     const { url } = await startStub();
     const env = { VIBEFLOW_API_URL: url };
+    seedPointer(store, url, "board-e2e");
+    seedCredential(home, url, TOKEN, "board-e2e");
 
     const logoutRes = await spawnCliStdin(["logout"], { cwd: store, home, env });
     expect(logoutRes.code).toBe(0);
     expect(logoutRes.stdout).toContain("deprecated");
     expect(logoutRes.stdout).toContain("vibeflow auth logout");
-    expect(existsSync(join(home, ".vibeflow", "token"))).toBe(false);
+    // Project-scoped logout removes the credential for the project's API.
+    expect(readCredentialEntry(home, url)).toBeNull();
 
     const loginRes = await spawnCliStdin(["login"], { cwd: store, home, env, stdin: "n\n" });
     expect(loginRes.code).toBe(0);
     expect(loginRes.stdout).toContain("deprecated");
     expect(loginRes.stdout).toContain("vibeflow auth login");
     expect(loginRes.stdout).toContain("Logged in successfully. Now operating in online mode.");
-    expect(readFileSync(join(home, ".vibeflow", "token"), "utf-8")).toBe(TOKEN);
+    expect(readCredentialEntry(home, url)?.token).toBe(TOKEN);
   }, 60_000);
 });
 
 describe("online refusals and the empty-boards guidance", () => {
   it("a wrong stored token is refused, proving the Bearer header is checked", async () => {
     const store = freshDir("online-flow-badtoken-");
-    const home = cliHome(false);
-    mkdirSync(join(home, ".vibeflow"), { recursive: true });
-    writeFileSync(join(home, ".vibeflow", "token"), "wrong-token", "utf-8");
+    const home = cliHome();
     const { url } = await startStub();
+    seedPointer(store, url, "board-e2e");
+    seedCredential(home, url, "wrong-token", "board-e2e");
 
     const r = await spawnCliStdin(["tasks", store, "--get", "t-created-1", "--json"], {
       cwd: store,
@@ -347,7 +372,10 @@ describe("online refusals and the empty-boards guidance", () => {
 
   it("an account with no boards gets next-step guidance and no workspace binding", async () => {
     const store = freshDir("online-flow-empty-");
-    const home = cliHome(false);
+    // A resolvable project (ADR-0005): the CLI refuses outside one.
+    mkdirSync(join(store, ".vibeflow"), { recursive: true });
+    writeFileSync(join(store, ".vibeflow", "settings.json"), "{}");
+    const home = cliHome();
     const { url } = await startStub({ boards: [] });
 
     const r = await spawnCliStdin(["login"], {
@@ -360,8 +388,12 @@ describe("online refusals and the empty-boards guidance", () => {
     expect(r.stdout).toContain("Logged in successfully. Now operating in online mode.");
     expect(r.stdout).toContain("No boards found on this account yet.");
     expect(r.stdout).toContain("vibeflow auth login");
-    // Login itself succeeded (token stored), but nothing was bound.
-    expect(readFileSync(join(home, ".vibeflow", "token"), "utf-8")).toBe(TOKEN);
-    expect(existsSync(join(home, ".vibeflow", "workspace"))).toBe(false);
+    // Login itself succeeded (PAT stored), but nothing was bound: no
+    // project pointer, no workspace on the credential.
+    expect(readCredentialEntry(home, url)?.token).toBe(TOKEN);
+    expect(readCredentialEntry(home, url)?.workspaceId).toBeUndefined();
+    expect(
+      (JSON.parse(readFileSync(join(store, ".vibeflow", "settings.json"), "utf-8")) as Record<string, unknown>).workspace,
+    ).toBeUndefined();
   }, 60_000);
 });
