@@ -18,6 +18,8 @@ import { formatDate } from "../../utils";
 import { ConfirmModal } from "../ConfirmModal";
 import { TagInput } from "./TagInput";
 import { CopyIdButton } from "../CopyIdButton";
+import { resolveAttribution } from "../../attribution";
+import { AttributionName } from "./AttributionBadge";
 
 interface Props {
   task: Task | null;
@@ -379,7 +381,17 @@ export function TaskDetailsTab({
             </span>
           </MetaTile>
           <MetaTile label="Author" id="dp-author">
-            {task.authorName ?? task.author ?? "—"}
+            {/* Attribution (0b7c45c5): the human behind the task. Both
+                fields travel as DISPLAY-name candidates only — unlike the
+                comment vocabulary, `tasks.author` is free text and 'agent'
+                there proves nothing, so it must never badge. Task-level
+                agent-involvement is not stored anywhere; old and
+                agent-created rows honestly render unbadged. */}
+            <AttributionName
+              attribution={resolveAttribution({
+                authorName: task.authorName ?? task.author,
+              })}
+            />
           </MetaTile>
           {(task.commit || task.commits?.length) && (
             <CommitTile task={task} githubUrl={githubUrl} />

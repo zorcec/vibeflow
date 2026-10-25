@@ -116,7 +116,10 @@ describe("Assignee badge initials (297e71fb)", () => {
       makeTask({ assigneeName: "  ana   maria  " }),
       inProgressCol,
     );
-    expect(visiblePill("  ana   maria  ")).toHaveTextContent("AM");
+    // Attribution (0b7c45c5) resolves the pill title through the shared
+    // rule, which trims — the lookup uses the resolved human, initials
+    // still read from the trimmed words.
+    expect(visiblePill("ana   maria")).toHaveTextContent("AM");
   });
 
   it("handles unicode names", () => {

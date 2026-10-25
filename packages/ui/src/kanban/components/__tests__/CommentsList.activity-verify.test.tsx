@@ -125,11 +125,15 @@ describe("activity verify entries", () => {
     expect(entry).not.toBeNull();
     const text = entry!.textContent ?? "";
     // Header first: who said it, then the verdict badge…
-    expect(text).toContain("\u{1F916} Agent");
+    // Attribution (0b7c45c5): the fixture carries no joined human name, so
+    // the viewer fallback ('You' — renderFeed passes no gitUserName) names
+    // the human and the badge marks the agent surface. Order is unchanged.
+    expect(text).toContain("\u{1F464} You");
+    expect(text).toContain("\u{1F916}");
     expect(text).toContain("\u26a0 Cannot verify");
     // …then the detail, with the verdict prefix NOT repeated in the body.
     expect(text).toContain(longReason);
-    expect(text.indexOf("\u{1F916} Agent")).toBeLessThan(text.indexOf("\u26a0 Cannot verify"));
+    expect(text.indexOf("\u{1F916}")).toBeLessThan(text.indexOf("\u26a0 Cannot verify"));
     expect(text.indexOf("\u26a0 Cannot verify")).toBeLessThan(text.indexOf(longReason));
   });
 

@@ -108,6 +108,12 @@ export function mergeTaskFromPayload(
     assigneeName: incoming.assigneeName
       ? String(incoming.assigneeName)
       : existing?.assigneeName,
+    // Ephemeral agent-involvement flag (0b7c45c5): carried through live
+    // patches like other per-user state, never stored — absent stays absent.
+    assigneeIsAgent:
+      typeof incoming.assigneeIsAgent === "boolean"
+        ? incoming.assigneeIsAgent
+        : existing?.assigneeIsAgent,
     annotatedElementText: incoming.annotatedElementText
       ? String(incoming.annotatedElementText)
       : existing?.annotatedElementText,

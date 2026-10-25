@@ -120,6 +120,25 @@ export {
 export { FilePreviewModal } from "./components/FilePreviewModal";
 export { ModalBase } from "./components/ModalBase";
 
+// Shared authorship attribution (ticket 0b7c45c5) — the ONE rule every
+// surface reads: the human behind the row, with an agent badge when an
+// agent surface wrote it. Exported once here; no local conditionals.
+export {
+  resolveAttribution,
+  attributionGroupKey,
+  isAgentVocabulary,
+  AGENT_COMMENT_AUTHOR,
+  API_COMMENT_AUTHOR,
+  AGENT_ACTOR_MARKER,
+  API_ACTOR_MARKER,
+} from "./attribution";
+export type {
+  AttributionKind,
+  AttributionSource,
+  ResolvedAttribution,
+} from "./attribution";
+export { AgentBadge, AttributionName } from "./components/shared/AttributionBadge";
+
 // Shared sub-components
 export { HeaderActionButton } from "./components/shared/HeaderActionButton";
 export { TaskDetailsTab } from "./components/shared/TaskDetailsTab";

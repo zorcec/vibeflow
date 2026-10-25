@@ -21,6 +21,8 @@ import { RecursiveChildrenTree } from "./RecursiveChildrenTree";
 import ChildPopover from "./ChildPopover";
 import { displayedVerifyState } from "./VerifyIndicator";
 import { presenceAreaLabel, presenceChipFill, presenceInitials } from "./shared/presence";
+import { resolveAttribution } from "../attribution";
+import { AgentBadge } from "./shared/AttributionBadge";
 import { LeadingSlot } from "./TaskCardLeadingSlot";
 
 interface Props {
@@ -850,6 +852,11 @@ export const TaskCard = React.memo(function TaskCard({
                                           ? task.assigneeName
                                           : undefined
                               }
+                              assigneeIsAgent={
+                                    isInProgress
+                                          ? task.assigneeIsAgent
+                                          : undefined
+                              }
                               tags={task.tags}
                         />
                         <div style={SPACER_STYLE} />
@@ -1144,6 +1151,8 @@ interface BadgeClusterProps {
       type?: Task["type"];
       priority?: Task["priority"];
       assigneeName?: string | null;
+      /** Agent-involvement flag (0b7c45c5): assignee claimed through an agent surface. Absent = unknown = unbadged. */
+      assigneeIsAgent?: boolean;
       tags?: string[];
 }
 
@@ -1164,6 +1173,7 @@ export function BadgeCluster({
       type,
       priority,
       assigneeName,
+      assigneeIsAgent,
       tags,
 }: BadgeClusterProps) {
       const badges: CardBadge[] = React.useMemo(() => {
@@ -1189,13 +1199,22 @@ export function BadgeCluster({
                   // and in the cluster `label` (overflow tooltip +
                   // screen-reader name), mirroring the presence pattern where
                   // the circles carry initials and the sentence stays readable.
+                  // Attribution (0b7c45c5): the pill names the HUMAN behind
+                  // the claim; an agent claim adds the shared badge. The
+                  // human/unknown split reads through resolveAttribution so
+                  // the card agrees with the feed for the same record.
+                  const assigneeAttribution = resolveAttribution({ author: assigneeName, agent: assigneeIsAgent });
+                  const assigneeHuman = assigneeAttribution.human;
                   list.push({
                         key: "assignee",
-                        label: assigneeName,
+                        label: assigneeHuman ?? assigneeName,
                         node: (
                               <span
-                                    title={assigneeName}
+                                    title={assigneeHuman ?? assigneeName}
                                     style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 2,
                                           fontSize: 10,
                                           fontWeight: 600,
                                           padding: "1px 6px",
@@ -1207,7 +1226,10 @@ export function BadgeCluster({
                                           flexShrink: 0,
                                     }}
                               >
-                                    {presenceInitials(assigneeName)}
+                                    {presenceInitials(assigneeHuman ?? assigneeName)}
+                                    {assigneeAttribution.isAgent && assigneeHuman !== null && (
+                                          <AgentBadge human={assigneeHuman} />
+                                    )}
                               </span>
                         ),
                   });

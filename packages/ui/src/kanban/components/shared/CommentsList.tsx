@@ -5,6 +5,8 @@ import { MarkdownPreview } from './MarkdownPreview';
 import { AutoExpandTextarea } from './AutoExpandTextarea';
 import { ConfirmModal } from '../ConfirmModal';
 import { formatDate } from '../../utils';
+import { resolveAttribution, attributionGroupKey, AGENT_ACTOR_MARKER, type ResolvedAttribution } from '../../attribution';
+import { AttributionName } from './AttributionBadge';
 import { FileItem } from './FileItem';
 import { Paperclip, Trash2 } from "lucide-react";
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
@@ -20,6 +22,8 @@ interface ChangeActivityItem {
   added?: string[];
   removed?: string[];
   actor: string;
+  /** Agent-involvement flag (0b7c45c5): set where the actor is known, never inferred. Absent = unknown = unbadged. */
+  agent?: boolean;
   source?: 'cli' | 'web';
   /** Status key the transition landed in — the verdict lane gate reads it. */
   toStatus?: TaskStatus;
@@ -51,13 +55,15 @@ interface LifecycleActivityItem {
 export type ActivityItem = FileActivityItem | CommentActivityItem | LifecycleActivityItem | ChangeActivityItem;
 
 /**
- * Change-row actor label (9314e404). Agent/CLI moves arrive with the
- * '🤖 Agent' marker as the actor (the agent borrows the human's credential,
- * so the id alone would render as the owner) — it already carries its glyph
- * and must not gain a second 👤 prefix.
+ * Change-row actor label (9314e404, 0b7c45c5). Agent/CLI moves arrive with
+ * the '🤖 Agent' marker as the actor (the agent borrows the human's
+ * credential, so the id alone would render as the owner) — it already
+ * carries its glyph and must not gain a second 👤 prefix. Since 0b7c45c5
+ * the label reads through the shared attribution rule: a resolved human
+ * with the agent badge, the bare marker only when the human is unknown.
  */
-function changeActorLabel(actor: string): string {
-  return actor === '🤖 Agent' ? actor : `👤 ${actor}`;
+function changeActorLabel(actor: string, agent?: boolean): React.ReactNode {
+  return <AttributionName attribution={resolveAttribution({ author: actor, agent })} />;
 }
 
 /** Minimalistic source indicator (CLI terminal icon) */
@@ -73,6 +79,8 @@ function SourceBadge({ source }: { source?: 'cli' | 'web' }) {
 /** Groups of consecutive activity items by the same author */
 interface ActivityGroup {
   author: string | null;  // null means no author (solo item, no header)
+  /** Rendered attribution for the header — follows the same rule as every row. */
+  attribution: ResolvedAttribution | null;
   newestSortKey: string;
   oldestSortKey: string;
   items: ActivityItem[];
@@ -93,11 +101,12 @@ interface ActivityGroup {
  * bug). Human rows ('user'/legacy) keep the exact old behavior.
  */
 export function commentDisplayName(c: Comment, viewer: string): string {
-  if (c.author === 'agent') return '🤖 Agent';
-  if (c.author === 'API') return 'API';
-  if (c.authorName) return c.authorName;
-  if (c.author && c.author !== 'user' && c.author !== 'agent') return c.author;
-  return viewer;
+  // Kept as a string helper for out-of-tree importers; the feed itself
+  // renders <AttributionName/>. Same precedence as resolveAttribution.
+  const a = resolveAttribution({ author: c.author, authorName: c.authorName, viewer });
+  if (a.kind === 'api') return 'API';
+  if (a.kind === 'agent') return a.human ?? AGENT_ACTOR_MARKER;
+  return a.human ?? 'Unknown';
 }
 
 /** Extract the groupable author key from an activity item, or null for solo items */
@@ -106,9 +115,24 @@ function getItemAuthor(item: ActivityItem, gitUserName: string): string | null {
   if (item.kind === 'comment') {
     const c = item.comment;
     if (c.type === 'system') return null;
-    return c.author === 'agent' ? '🤖 Agent' : commentDisplayName(c, gitUserName);
+    return attributionGroupKey(resolveAttribution({ author: c.author, authorName: c.authorName, viewer: gitUserName }));
   }
-  if (item.kind === 'change') return item.actor;
+  if (item.kind === 'change') return attributionGroupKey(resolveAttribution({ author: item.actor, agent: item.agent }));
+  return null; // files: solo
+}
+
+/** Attribution for one activity item's group header (null = solo, no header). */
+function getItemAttribution(item: ActivityItem, gitUserName: string): ResolvedAttribution | null {
+  if (item.kind === 'lifecycle') {
+    if (!item.author) return null;
+    return resolveAttribution({ author: item.author });
+  }
+  if (item.kind === 'comment') {
+    const c = item.comment;
+    if (c.type === 'system') return null;
+    return resolveAttribution({ author: c.author, authorName: c.authorName, viewer: gitUserName });
+  }
+  if (item.kind === 'change') return resolveAttribution({ author: item.actor, agent: item.agent });
   return null; // files: solo
 }
 
@@ -154,7 +178,7 @@ function buildGroups(activity: ActivityItem[], gitUserName: string): ActivityGro
       if (item.sortKey > last.newestSortKey) last.newestSortKey = item.sortKey;
       if (item.sortKey < last.oldestSortKey) last.oldestSortKey = item.sortKey;
     } else {
-      groups.push({ author, newestSortKey: item.sortKey, oldestSortKey: item.sortKey, items: [item] });
+      groups.push({ author, attribution: author ? getItemAttribution(item, gitUserName) : null, newestSortKey: item.sortKey, oldestSortKey: item.sortKey, items: [item] });
     }
   }
   return groups;
@@ -168,6 +192,8 @@ export interface LocalChange {
   added?: string[];
   removed?: string[];
   actor: string;
+  /** Agent-involvement flag (0b7c45c5): set where the actor is known, never inferred. Absent = unknown = unbadged. */
+  agent?: boolean;
   timestamp: string;
   source?: 'cli' | 'web';
   /** Status key the transition landed in — the verdict lane gate reads it. */
@@ -358,7 +384,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
       return { kind: 'file' as const, sortKey: f.createdAt ?? '9999', file: f, url: fileUrl };
     });
     const changeItems: ActivityItem[] = localChanges.map(c => ({
-      kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, source: c.source,
+      kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, agent: c.agent, source: c.source,
       toStatus: c.toStatus, verified: c.verified,
     }));
     return [...items, ...commentItems, ...fileItems, ...changeItems].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
@@ -542,7 +568,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
         const isGrouped = group.author !== null && group.items.length > 1;
         // Show group header only for multi-item groups; single items render their own inline header
         const showGroupHeader = isGrouped;
-        const isAgent = group.author === '🤖 Agent';
+        const isAgent = group.attribution?.isAgent === true;
 
         return (
           <div key={activityGroupKey(group)} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -550,7 +576,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
             {showGroupHeader && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0 2px', marginTop: 4 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: isAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)', flexShrink: 0 }}>
-                  {group.author}
+                  {group.attribution ? <AttributionName attribution={group.attribution} /> : group.author}
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--t-text-body)', flexShrink: 0 }}>
                   {`${formatDate(group.oldestSortKey)} – ${formatDate(group.newestSortKey)}`}
@@ -686,7 +712,7 @@ function renderActivityItem(
           style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {!isGrouped && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t-accent-soft)', flexShrink: 0 }}>{changeActorLabel(item.actor)}</span>}
+            {!isGrouped && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t-accent-soft)', flexShrink: 0 }}>{changeActorLabel(item.actor, item.agent)}</span>}
             {!isGrouped && <SourceBadge source={item.source} />}
             <span style={{ ...VERIFY_BADGE_BASE, ...VERIFY_BADGE_STYLE[verdict] }}>{VERIFY_BADGE_LABEL[verdict]}</span>
             {!isGrouped && (
@@ -721,7 +747,7 @@ function renderActivityItem(
         <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>{changeActorLabel(item.actor)}</span>}
+            {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>{changeActorLabel(item.actor, item.agent)}</span>}
             {!isGrouped && <SourceBadge source={item.source} />}
             <span style={{ fontSize: 11, color: 'var(--t-text-muted)' }}>
               changed <strong style={{ color: 'var(--t-text)' }}>{item.field}</strong>
@@ -767,7 +793,10 @@ function renderActivityItem(
   }
 
   const c = item.comment;
-  const isAgent = c.author === 'agent';
+  // Single attribution rule (0b7c45c5): the human, with the agent badge.
+  // `commentDisplayName` below is the same precedence as a string.
+  const commentAttribution = resolveAttribution({ author: c.author, authorName: c.authorName, viewer: gitUserName });
+  const isAgent = commentAttribution.isAgent;
   const isSystem = c.type === 'system';
   const isDeleted = c.deleted === true;
   // isOwnComment is undefined in CLI/local mode (no server context) — allow edit in that case for backward compat.
@@ -788,7 +817,8 @@ function renderActivityItem(
       // holds the long reason with comfortable line length and line-height, and
       // the ⚠ marker lives in the badge — aligned to the first line by
       // construction instead of floating beside a wrapped paragraph.
-      const cannotAuthorIsAgent = c.author === 'agent';
+      const cannotAttribution = resolveAttribution({ author: c.author, authorName: c.authorName, viewer: gitUserName });
+      const cannotAuthorIsAgent = cannotAttribution.isAgent;
       return (
         <div
           key={itemKey}
@@ -799,7 +829,7 @@ function renderActivityItem(
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {!isGrouped && (
               <span style={{ fontSize: 12, fontWeight: 600, color: cannotAuthorIsAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)', flexShrink: 0 }}>
-                {cannotAuthorIsAgent ? '🤖 Agent' : `👤 ${commentDisplayName(c, gitUserName)}`}
+                <AttributionName attribution={cannotAttribution} />
               </span>
             )}
             {!isGrouped && <SourceBadge source={c.source} />}
@@ -843,7 +873,7 @@ function renderActivityItem(
         <div className="flex items-center justify-between gap-1.5 text-xs mb-0.5">
           <div className="flex items-center gap-1.5">
             <span style={{ color: isDeleted ? 'var(--t-text-body)' : (isAgent ? 'var(--t-secondary)' : 'var(--t-accent-soft)') }}>
-              {isAgent ? '🤖 Agent' : `👤 ${commentDisplayName(c, gitUserName)}`}
+              <AttributionName attribution={commentAttribution} />
             </span>
             <SourceBadge source={c.source} />
             <span style={{ color: 'var(--t-text-body)' }}>

@@ -55,6 +55,8 @@ export interface Task {
   verified?: boolean;
   /** Links to other tasks (parent, relates, blocks). */
   links?: TaskLink[];
+  /** True when the current assignee claimed through an agent surface (ephemeral: live patch only, never stored — unknown rows stay unbadged). */
+  assigneeIsAgent?: boolean;
   /** User IDs who have opened this task (persistent read state). */
   openedBy?: string[];
   /** User IDs who expanded this card's children inline (persistent UI state). */
