@@ -168,6 +168,17 @@ describe("mergePullRecord — additive, local-wins", () => {
     expect(changed).toBe(false);
   });
 
+  // Ticket c0557b6c: `projectDir` is request metadata the create path
+  // leaked into the mirrored row — never record data, so the merge drops
+  // it instead of re-poisoning the local record normalize just healed.
+  it("never imports projectDir", () => {
+    const local = { id: "a", title: "T" };
+    const remote = { id: "a", title: "T", projectDir: "." };
+    const { merged, changed } = mergePullRecord(local, remote, true);
+    expect("projectDir" in merged).toBe(false);
+    expect(changed).toBe(false);
+  });
+
   it("keeps the local sortKey on an existing task, even with --prefer-remote off the table", () => {
     const local = { id: "a", sortKey: "0000000001000000" };
     const remote = { id: "a", sortKey: "0000000009000000" };
@@ -349,6 +360,23 @@ describe("applyPullEntries — the store merge", () => {
     expect(summary.merged).toBe(0);
     expect(summary.added).toBe(0);
     expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  // Ticket c0557b6c: a brand-new task takes the remote record verbatim
+  // (no merge), so transport-only keys must be stripped at construction —
+  // otherwise a legacy poisoned server row re-poisons every pull after
+  // `normalize --apply` strips it.
+  it("strips projectDir when writing brand-new tasks", () => {
+    const record = taskRecord("new-projdir", { projectDir: "." });
+    const summary = applyPullEntries(
+      projectDir,
+      stagingFor([{ clientId: "new-projdir", record }]),
+      {},
+    );
+    expect(summary.added).toBe(1);
+    const stored = readStoredTask("new-projdir");
+    expect("projectDir" in stored).toBe(false);
+    expect(stored.title).toBe("Task new-projdir");
   });
 
   it("writes new tasks into date subdirs with the remote sortKey verbatim", () => {

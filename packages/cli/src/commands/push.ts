@@ -2,7 +2,7 @@ import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.
 import chalk from "chalk";
 import { unlinkSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { planTaskStoreNormalize, prepareTaskRecordsForPush } from "../core/tasks.js";
+import { listTasks, prepareTaskRecordsForPush } from "../core/tasks.js";
 import { listFiles, getFilesDir } from "../core/files.js";
 import { resolveProjectAuth } from "../auth/project-auth.js";
 import { readProjectPointer } from "../auth/project-pointer.js";
@@ -1346,8 +1346,13 @@ export async function push(dir: string, opts: Parameters<typeof pushImpl>[2]): P
   } catch (err) {
     if (err instanceof Error && err.message.includes("push preflight failed")) {
       try {
-        const quarantined = planTaskStoreNormalize(resolve(dir)).quarantined;
-        for (const notice of taskReadNotices(quarantined)) console.error(notice.message);
+        // Read-based (ticket c0557b6c): the abort fires for whatever the
+        // READ quarantines — including unknown-root-key records normalize
+        // could repair but hasn't yet — so the warning follows the read
+        // boundary, not the normalize plan.
+        const abortedReads: TaskReadFinding[] = [];
+        listTasks(resolve(dir), abortedReads);
+        for (const notice of taskReadNotices(abortedReads.filter((read) => read.quarantined))) console.error(notice.message);
       } catch {
         /* the warning is best-effort; the original error is the verdict */
       }

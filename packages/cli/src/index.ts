@@ -1724,6 +1724,12 @@ program
           }
           const normalized = normalizeResult.data;
           const normalizeNotices = normalized.notices;
+          // Ticket c0557b6c: "already normalized" must never coexist with
+          // quarantined records — name them and the repair path instead.
+          const blockedIds = [
+            ...normalized.quarantined.map((q) => q.id),
+            ...normalized.unreadable,
+          ];
           if (normalized.dryRun) {
             if (opts.json) {
               outputEnvelope({
@@ -1739,9 +1745,22 @@ program
                 },
               });
             } else if (normalized.plans.length === 0) {
-              console.log(
-                chalk.green("✓ Store already normalized: 0 changes."),
-              );
+              if (blockedIds.length === 0) {
+                console.log(
+                  chalk.green("✓ Store already normalized: 0 changes."),
+                );
+              } else {
+                console.log(
+                  chalk.yellow(
+                    `  No normalizable changes; ${blockedIds.length} record(s)/file(s) still need attention: ${blockedIds.join(", ")}.`,
+                  ),
+                );
+                console.log(
+                  chalk.dim(
+                    "  --apply strips unknown root keys where possible; anything still quarantined needs hand repair (see notices above).",
+                  ),
+                );
+              }
             } else {
               console.log(
                 chalk.yellow(
@@ -1780,9 +1799,17 @@ program
               },
             });
           } else if (normalized.plans.length === 0) {
-            console.log(
-              chalk.green("✓ Store already normalized: 0 changes."),
-            );
+            if (blockedIds.length === 0) {
+              console.log(
+                chalk.green("✓ Store already normalized: 0 changes."),
+              );
+            } else {
+              console.log(
+                chalk.yellow(
+                  `  Normalized 0 task(s); ${blockedIds.length} record(s)/file(s) remain quarantined: ${blockedIds.join(", ")} — not auto-repairable, repair by hand (see notices above).`,
+                ),
+              );
+            }
           } else {
             console.log(
               chalk.green(

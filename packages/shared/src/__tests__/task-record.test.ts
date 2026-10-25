@@ -4,6 +4,7 @@ import {
   PERSISTED_COMMENT_TEXT_MAX,
   TASK_RECORD_SCHEMA_VERSION,
   parseTaskRecord,
+  stripUnknownRootKeys,
   toCanonicalBytes,
   validateRecordDomain,
   type TaskRecord,
@@ -213,6 +214,26 @@ describe("parseTaskRecord", () => {
     const issues = validateRecordDomain(input);
     expect(issues.some((i) => i.code === "domain_undefined")).toBe(true);
     expect(parseTaskRecord(input).ok).toBe(false);
+  });
+
+  describe("stripUnknownRootKeys (ticket c0557b6c)", () => {
+    it("strips a leaked transport key and reports it", () => {
+      const out = stripUnknownRootKeys({ ...base, projectDir: "." });
+      expect(out).not.toBeNull();
+      expect(out!.removed).toEqual([{ key: "projectDir", value: "." }]);
+      expect("projectDir" in out!.stripped).toBe(false);
+      expect(out!.stripped.title).toBe("Hello");
+    });
+
+    it("returns null when every key is known", () => {
+      expect(stripUnknownRootKeys({ ...base })).toBeNull();
+    });
+
+    it("returns null for non-objects", () => {
+      expect(stripUnknownRootKeys(null)).toBeNull();
+      expect(stripUnknownRootKeys("x")).toBeNull();
+      expect(stripUnknownRootKeys([1])).toBeNull();
+    });
   });
 
   it("toCanonicalBytes sorts keys, pretty-prints and ends with a newline", () => {

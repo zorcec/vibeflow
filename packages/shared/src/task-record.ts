@@ -430,6 +430,35 @@ export function validateRecordDomain(value: unknown): RecordIssue[] {
   return issues;
 }
 
+/**
+ * Strip unknown ROOT keys from a parsed-record copy (ticket c0557b6c).
+ *
+ * A writer leaked request-scoped metadata (`projectDir: "."`) into the
+ * POST body the server mirrors verbatim as the stored `record`, so the row
+ * fails the strict schema on pull while carrying no deliberate data. Strict
+ * parsing stays strict — this never makes an unknown key VALID — it only
+ * computes the explicit, reportable repair `tasks --normalize --apply`
+ * offers: the removed keys plus the stripped copy, or null when there is
+ * nothing to strip. Callers re-validate the copy; a record with any OTHER
+ * defect stays quarantined. Root keys only: nested unknown keys (inside
+ * comments/files/links items) are never stripped here.
+ */
+export function stripUnknownRootKeys(input: unknown): {
+  stripped: Record<string, unknown>;
+  removed: Array<{ key: string; value: unknown }>;
+} | null {
+  if (!isPlainObject(input)) return null;
+  const known = new Set(Object.keys(TaskRecordSchema.shape));
+  const removed: Array<{ key: string; value: unknown }> = [];
+  for (const key of Object.keys(input)) {
+    if (!known.has(key)) removed.push({ key, value: input[key] });
+  }
+  if (removed.length === 0) return null;
+  const stripped: Record<string, unknown> = { ...input };
+  for (const { key } of removed) delete stripped[key];
+  return { stripped, removed };
+}
+
 function zodIssuesToRecordIssues(err: z.ZodError): RecordIssue[] {
   return err.issues.map((i) => ({
     path: i.path

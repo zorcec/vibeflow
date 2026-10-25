@@ -14,8 +14,9 @@
  * Contracts (each mirrors the inline branch it replaces, byte-for-byte on
  * every pinned envelope):
  *
- * normalizeTaskStore — closed repairs share the read boundary;
- * unknown/conflicting data remains quarantined. Dry-run by default,
+ * normalizeTaskStore — closed repairs share the read boundary; conflicting
+ * data remains quarantined, while unknown ROOT keys are an explicit named
+ * strip repair (ticket c0557b6c). Dry-run by default,
  * explicit `apply` heals. `dryRun` OVERRIDES `apply`: a preview never
  * writes, even when both flags ride together (the one deliberate flip off
  * the inline branch, which wrote through `--apply --dry-run` — no pin

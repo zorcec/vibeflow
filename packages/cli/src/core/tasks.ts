@@ -31,7 +31,7 @@ import {
   type TaskChildrenIndex,
 } from "./task-children-index.js";
 import { selectClaimCandidate } from "./claim-eligibility.js";
-import { inspectLocalTaskRecord, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
+import { inspectLocalTaskRecord, repairUnknownRootKeys, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
 export { taskReadNotices } from "./task-record-read.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
 
@@ -474,8 +474,11 @@ function normalizeTask(raw: Record<string, unknown>): Task {
 
 // ── Store maintenance: `tasks --normalize` ─────────────────────────────────
 // The SAME closed repair rules feed read candidates and explicit disk repair.
-// Unknown fields, conflicting aliases, future versions and corrupt JSON remain
-// quarantined: normalisation is not permission to discard deliberate data.
+// Conflicting aliases, future versions and corrupt JSON remain quarantined:
+// normalisation is not permission to discard deliberate data. The ONE
+// exception is unknown ROOT keys (ticket c0557b6c): leak-metadata with no
+// deliberate reading, stripped + reported as an explicit named repair —
+// never silently, never for nested keys, and reads keep quarantining.
 export type TaskNormalizeFieldChange = TaskRecordFinding;
 
 export interface TaskNormalizePlan {
@@ -524,7 +527,16 @@ export function planTaskStoreNormalize(projectDir: string): TaskNormalizeReport 
     const read = inspectLocalTaskRecord(raw);
     const id = taskFileId(filePath, raw);
     if (!read.record) {
-      quarantined.push({ id, quarantined: true, findings: read.findings, issues: read.issues });
+      // Ticket c0557b6c: a quarantined record whose ONLY barrier is unknown
+      // root keys is explicitly repairable — plan the strip + report. Any
+      // other defect (syntax already excluded above; future versions,
+      // nested unknown keys, domain violations) stays quarantined.
+      const repaired = repairUnknownRootKeys(raw);
+      if (repaired) {
+        changes.push({ id, filePath, changes: repaired.findings });
+      } else {
+        quarantined.push({ id, quarantined: true, findings: read.findings, issues: read.issues });
+      }
     } else if (read.findings.length > 0) {
       changes.push({ id, filePath, changes: read.findings });
     }
@@ -549,14 +561,25 @@ export function applyTaskStoreNormalize(projectDir: string): {
     try {
       withFileLockSync(taskLockPath(projectDir, item.id), () => {
         const text = readFileSync(item.filePath, "utf-8");
-        const read = inspectLocalTaskRecord(JSON.parse(text) as unknown);
-        if (!read.record) { unwritten.push(item.id); return; }
-        if (read.findings.length === 0) return;
-        const next = JSON.stringify(read.record, null, 2) + (text.endsWith("\n") ? "\n" : "");
+        const raw = JSON.parse(text) as unknown;
+        const read = inspectLocalTaskRecord(raw);
+        // A strip plan re-reads the ORIGINAL bytes (key still present), so
+        // the plain read quarantines again — run the same explicit repair
+        // the planner ran before declaring the write impossible.
+        let record = read.record;
+        let findings = read.findings;
+        if (!record) {
+          const repaired = repairUnknownRootKeys(raw);
+          if (!repaired) { unwritten.push(item.id); return; }
+          record = repaired.record;
+          findings = repaired.findings;
+        }
+        if (findings.length === 0) return;
+        const next = JSON.stringify(record, null, 2) + (text.endsWith("\n") ? "\n" : "");
         const tmp = item.filePath + ".tmp";
         writeFileSync(tmp, next, "utf-8");
         renameSync(tmp, item.filePath);
-        applied.push({ ...item, changes: read.findings });
+        applied.push({ ...item, changes: findings });
       });
     } catch { unwritten.push(item.id); }
   }

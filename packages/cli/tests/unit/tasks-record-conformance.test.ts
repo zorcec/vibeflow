@@ -161,8 +161,33 @@ describe("read repair versus quarantine", () => {
     expect(readTaskRecordFile(path).canonical).toEqual(read.canonical);
   });
 
+  // Ticket c0557b6c: the unknown-ROOT-key case left this loop — the read
+  // still quarantines (pinned below), but normalize now offers the explicit
+  // strip repair instead of leaving it quarantined forever.
+  it("quarantines unknown root key on read, repairs it on normalize --apply", async () => {
+    const path = write({ ...base, localOnly: "deliberate" });
+    const before = readFileSync(path, "utf8");
+    // The read boundary never goes permissive: excluded until repaired.
+    expect(readTaskRecordFile(path).record).toBeNull();
+    await expect(addComment(dir, "task", "agent", "must not replace the record")).rejects.toThrow("unreadable/quarantined");
+    const reads: TaskReadFinding[] = [];
+    expect(listTasks(dir, reads)).toEqual([]);
+    expect(taskReadNotices(reads)).toEqual([{ code: "TASK_RECORD_QUARANTINED", message: expect.stringContaining("1 task record(s)") }]);
+    // ...but the record is no longer stuck: normalize plans the strip.
+    const planned = planTaskStoreNormalize(dir);
+    expect(planned.quarantined).toEqual([]);
+    expect(planned.changes).toHaveLength(1);
+    expect(planned.changes[0]!.changes.some((c) => c.rule === "strip-unknown-root-key" && c.field === "localOnly")).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe(before);
+    // --apply heals with the one named change; the disk bytes change only
+    // by the key removal, and the record rejoins the listing.
+    expect(applyTaskStoreNormalize(dir).applied).toHaveLength(1);
+    expect("localOnly" in JSON.parse(readFileSync(path, "utf8"))).toBe(false);
+    expect(listTasks(dir).map((t) => t.id)).toEqual(["task"]);
+    expect(planTaskStoreNormalize(dir).changes).toEqual([]);
+  });
+
   for (const [name, extra] of [
-    ["unknown root key", { localOnly: "deliberate" }],
     ["unknown nested key", { links: [{ taskId: "x", type: "parent", note: "deliberate" }] }],
     ["future schema", { schemaVersion: 2, type: "[object Object]" }],
     ["alias conflict", { comments: [{ id: "c", author: "user", text: "one", content: "two", createdAt: base.created }] }],
@@ -204,7 +229,17 @@ describe("read repair versus quarantine", () => {
       { code: "TASK_RECORD_QUARANTINED", message: "1 task record(s) quarantined (excluded from listing/merge/push): bad. Not auto-repairable: bad: <root>: Unrecognized key(s) in object: 'unknownKey'. Run tasks --normalize for repair details." },
     ]);
     expect(planTaskStoreNormalize(dir).unreadable).toEqual([]);
-    expect(planTaskStoreNormalize(dir).quarantined.map((r) => r.id)).toEqual(["bad"]);
+    // Ticket c0557b6c: the read still quarantines `bad`, but normalize now
+    // offers the explicit strip repair — so the plan carries it as a change
+    // (nothing remains quarantined), not as a quarantine.
+    expect(planTaskStoreNormalize(dir).quarantined).toEqual([]);
+    const planned = planTaskStoreNormalize(dir).changes;
+    expect(planned.map((c) => c.id)).toEqual(["bad", "repair"]);
+    expect(
+      planned
+        .find((c) => c.id === "bad")!
+        .changes.some((c) => c.rule === "strip-unknown-root-key" && c.field === "unknownKey"),
+    ).toBe(true);
   });
 
   it("missing title/created are rejected without inventing required data", () => {

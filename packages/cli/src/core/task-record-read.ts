@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   parseTaskRecord,
+  stripUnknownRootKeys,
   ISO_8601_UTC_RE,
   type RecordIssue,
   type TaskRecord,
@@ -128,6 +129,41 @@ export function inspectLocalTaskRecord(input: unknown): LocalTaskRecordRead {
   return parsed.ok
     ? { record, canonical: parsed.record, findings, issues: [] }
     : { record: null, canonical: null, findings, issues: parsed.issues };
+}
+
+/**
+ * Explicit repair for `tasks --normalize` ONLY (ticket c0557b6c).
+ *
+ * Strict parsing stays strict: this never makes an unknown key valid and is
+ * never consulted by listing/merge/push (those keep quarantining). It
+ * answers one question — "does this quarantined record become valid if
+ * its unknown ROOT keys are dropped?" — so normalize can strip + report
+ * them as a named, `--apply`-gated repair instead of claiming "already
+ * normalized" while the record stays excluded. Returns null when there is
+ * nothing to strip or the stripped copy still does not parse (corrupt JSON
+ * never reaches here as an object; future versions, nested unknown keys
+ * and any other defect keep quarantining).
+ */
+export function repairUnknownRootKeys(input: unknown): {
+  record: Record<string, unknown>;
+  findings: TaskRecordFinding[];
+} | null {
+  const stripped = stripUnknownRootKeys(input);
+  if (!stripped) return null;
+  const reread = inspectLocalTaskRecord(stripped.stripped);
+  if (!reread.record) return null;
+  return {
+    record: reread.record,
+    findings: [
+      ...stripped.removed.map(({ key, value }) => ({
+        rule: "strip-unknown-root-key",
+        field: key,
+        before: value,
+        after: "absent" as unknown,
+      })),
+      ...reread.findings,
+    ],
+  };
 }
 
 export interface TaskStoreNotice { code: string; message: string }

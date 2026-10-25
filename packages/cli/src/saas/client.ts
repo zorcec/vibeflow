@@ -1515,7 +1515,13 @@ export async function createSaasTask(params: {
    */
   projectDir?: string;
 }): Promise<SaasResult<SaasTask>> {
-  const headers = await getBearerHeaders(params.projectDir);
+  // `projectDir` scopes the request (token + board headers) — it is request
+  // metadata, never record data, so it rides the headers ONLY. The server
+  // mirrors the POST body verbatim as the stored `record`, and a leaked key
+  // (`projectDir: "."`) quarantines the row on every pull while the strict
+  // schema keeps rejecting it (ticket c0557b6c).
+  const { projectDir, ...createBody } = params;
+  const headers = await getBearerHeaders(projectDir);
   if (!headers)
     return {
       ok: false,
@@ -1531,7 +1537,7 @@ export async function createSaasTask(params: {
     const res = await fetchWithTimeout(`${getApiUrl()}${createPath}`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(params),
+      body: JSON.stringify(createBody),
     }, { phase: "POST (task-create)" });
     if (!res.ok) {
       // The HTTP status is already known here: a deadline while reading

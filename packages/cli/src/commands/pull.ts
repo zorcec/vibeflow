@@ -26,8 +26,8 @@
  *   writes nothing — the store stays byte-identical.
  */
 
-import { taskReadNotices } from "../core/task-record-read.js";
-import { planTaskStoreNormalize } from "../core/tasks.js";
+import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
+import { listTasks } from "../core/tasks.js";
 import chalk from "chalk";
 import { resolve } from "node:path";
 import { resolveProjectAuth } from "../auth/project-auth.js";
@@ -360,8 +360,14 @@ export async function pull(
   // (taskReadNotices), on stderr in every mode so --json cannot swallow it,
   // and in the --json envelope + result notices. A warning is not a failure:
   // the exit code stays 0 on a successful run.
+  // Read-based (ticket c0557b6c): the merge skips whatever the READ
+  // quarantines — including unknown-root-key records normalize could
+  // repair but hasn't yet — so the warning must follow the read boundary,
+  // not the normalize plan (which now offers them as strip repairs).
+  const recordReads: TaskReadFinding[] = [];
+  listTasks(targetDir, recordReads);
   const recordNotices = taskReadNotices(
-    planTaskStoreNormalize(targetDir).quarantined,
+    recordReads.filter((read) => read.quarantined),
   );
   if (opts.silent !== true) {
     for (const notice of recordNotices) console.error(notice.message);

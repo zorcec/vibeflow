@@ -191,8 +191,15 @@ export function emptyPullSummary(): PullMergeSummary {
 
 // ── Record merge (pure, unit-tested) ───────────────────────────────────────
 
-/** Keys that must never travel from the archive into the local record. */
-const PULL_IGNORED_KEYS = new Set(["filePath", "authStateEnc"]);
+/**
+ * Keys that must never travel from the archive into the local record.
+ * `projectDir` is request-scoping metadata, never record data: a writer
+ * leaked it into the POST body the server mirrors verbatim as the stored
+ * row, and pulling it back quarantines the record (ticket c0557b6c).
+ * Dropping it here also stops the normalize-strip → pull-re-add ping-pong
+ * against a legacy poisoned server row.
+ */
+const PULL_IGNORED_KEYS = new Set(["filePath", "authStateEnc", "projectDir"]);
 
 function deepEqual(a: unknown, b: unknown): boolean {
   return canonicalJson(a) === canonicalJson(b);
@@ -684,6 +691,11 @@ export function applyPullEntries(
   for (const task of staging.tasks) {
     const clientId = task.clientId;
     const remoteRecord: Record<string, unknown> = { ...task.record, id: clientId };
+    // Transport-only keys must not enter the local record on EITHER path:
+    // the merge below filters them, but a brand-new task takes the remote
+    // record verbatim — without this a legacy poisoned row re-poisons every
+    // pull after `normalize --apply` strips it (ticket c0557b6c).
+    for (const key of PULL_IGNORED_KEYS) delete remoteRecord[key];
     const existingPath = findTaskFilePath(projectDir, clientId);
     if (existingPath === null) {
       const record: Record<string, unknown> = { ...remoteRecord };

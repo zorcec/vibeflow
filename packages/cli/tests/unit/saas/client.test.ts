@@ -1170,6 +1170,18 @@ describe("createSaasTask", () => {
     expect(body.description).toBe("Test desc");
   });
 
+  // Ticket c0557b6c: `projectDir` scopes the request (headers only). The
+  // server mirrors the POST body verbatim as the stored `record`, so a
+  // leaked key quarantines the row on every pull.
+  it("never sends projectDir in the POST body", async () => {
+    mockFetch(SAMPLE_TASK);
+    await createSaasTask({ projectDir: "/test-project", title: "New Task" });
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse((fetchCall[1] as RequestInit).body as string);
+    expect("projectDir" in body).toBe(false);
+    expect(body.title).toBe("New Task");
+  });
+
   it("requests tasks from correct URL", async () => {
     mockFetch(SAMPLE_TASK);
     await createSaasTask({ projectDir: "/test-project", title: "New Task" });

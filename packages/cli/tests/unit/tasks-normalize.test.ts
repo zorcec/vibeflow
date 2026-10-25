@@ -23,6 +23,7 @@ import { hashTaskRecord } from "@vibeflow-tools/shared/delta-hash";
 import {
   readTaskFile,
   updateTask,
+  listTasks,
   planTaskStoreNormalize,
   applyTaskStoreNormalize,
   normalizeTaskTypeValue,
@@ -390,5 +391,120 @@ describe("planTaskStoreNormalize / applyTaskStoreNormalize", () => {
     const second = applyTaskStoreNormalize(tempDir);
     expect(second.applied).toEqual([]);
     expect(second.unwritten).toEqual([]);
+  });
+});
+
+describe("unknown root keys (ticket c0557b6c)", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "proto-unknown-root-"));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const poisoned = (id: string, extra: Record<string, unknown> = {}): string =>
+    writeRawTask(tempDir, "2026-03-25", {
+      ...cleanRaw(id),
+      projectDir: ".",
+      ...extra,
+    });
+
+  const storedPath = (id: string): string =>
+    join(tempDir, ".vibeflow", "tasks", "2026-03-25", `${id}.json`);
+
+  it("plans the strip and reports it while the strict read still quarantines", () => {
+    poisoned("poisoned-strip-000000000001");
+    // Strict parsing stays strict: the record is excluded until repaired.
+    expect(readTaskFile(storedPath("poisoned-strip-000000000001"))).toBeNull();
+    expect(
+      listTasks(tempDir).some((t) => t.id === "poisoned-strip-000000000001"),
+    ).toBe(false);
+    // ...but normalize no longer claims "already normalized": the strip is
+    // a planned change, not a quarantine.
+    const report = planTaskStoreNormalize(tempDir);
+    expect(
+      report.quarantined.some((q) => q.id === "poisoned-strip-000000000001"),
+    ).toBe(false);
+    const plan = report.changes.find(
+      (c) => c.id === "poisoned-strip-000000000001",
+    );
+    expect(plan).toBeDefined();
+    expect(
+      plan!.changes.some(
+        (c) =>
+          c.rule === "strip-unknown-root-key" &&
+          c.field === "projectDir" &&
+          c.after === "absent",
+      ),
+    ).toBe(true);
+  });
+
+  it("--apply strips the key and the record rejoins the listing", () => {
+    const filePath = poisoned("poisoned-heal-000000000001");
+    const first = applyTaskStoreNormalize(tempDir);
+    expect(first.applied.map((p) => p.id)).toContain(
+      "poisoned-heal-000000000001",
+    );
+    expect(first.unwritten).toEqual([]);
+    const raw = JSON.parse(readFileSync(filePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    expect("projectDir" in raw).toBe(false);
+    expect(
+      listTasks(tempDir).some((t) => t.id === "poisoned-heal-000000000001"),
+    ).toBe(true);
+    // Idempotent: the second run plans and writes zero changes.
+    expect(planTaskStoreNormalize(tempDir).changes).toEqual([]);
+    expect(applyTaskStoreNormalize(tempDir).applied).toEqual([]);
+  });
+
+  it("malformed JSON stays unreadable, never repaired (strictness preserved)", () => {
+    const dir = join(tempDir, ".vibeflow", "tasks", "2026-03-25");
+    mkdirSync(dir, { recursive: true });
+    const filePath = join(dir, "broken-syntax-0000000001.json");
+    writeFileSync(filePath, "{ not json", "utf-8");
+    const report = planTaskStoreNormalize(tempDir);
+    expect(report.changes).toEqual([]);
+    expect(report.unreadable).toContain(filePath);
+    const result = applyTaskStoreNormalize(tempDir);
+    expect(result.applied).toEqual([]);
+    expect(readFileSync(filePath, "utf-8")).toBe("{ not json");
+  });
+
+  it("an unknown key plus another defect stays quarantined with no strip plan", () => {
+    poisoned("poisoned-fatal-0000000001", { status: "bogus" });
+    const report = planTaskStoreNormalize(tempDir);
+    expect(
+      report.changes.some((c) => c.id === "poisoned-fatal-0000000001"),
+    ).toBe(false);
+    expect(
+      report.quarantined.some((q) => q.id === "poisoned-fatal-0000000001"),
+    ).toBe(true);
+  });
+
+  it("a nested unknown key stays quarantined with no strip plan", () => {
+    writeRawTask(tempDir, "2026-03-25", {
+      ...cleanRaw("poisoned-nested-000000001"),
+      comments: [
+        {
+          id: "c1",
+          author: "user",
+          text: "hi",
+          createdAt: "2026-03-25T10:00:00.000Z",
+          extraNested: true,
+        },
+      ],
+    });
+    const report = planTaskStoreNormalize(tempDir);
+    expect(
+      report.changes.some((c) => c.id === "poisoned-nested-000000001"),
+    ).toBe(false);
+    expect(
+      report.quarantined.some((q) => q.id === "poisoned-nested-000000001"),
+    ).toBe(true);
   });
 });
