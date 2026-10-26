@@ -7,6 +7,8 @@ interface Props {
   open: boolean;
   name: string;
   url: string;
+  /** Headers used to scope file requests to the active board. */
+  headers?: HeadersInit;
   onClose: () => void;
 }
 
@@ -111,7 +113,14 @@ function JsonLine({ tokens }: { tokens: TokenizedLine }) {
   );
 }
 
-export function FilePreviewModal({ open, name, url, onClose }: Props) {
+export function FilePreviewModal({
+  open,
+  name,
+  url,
+  headers,
+  onClose,
+}: Props) {
+  const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
   const [mdContent, setMdContent] = React.useState<string | null>(null);
   const [jsonLines, setJsonLines] = React.useState<TokenizedLine[] | null>(
     null,
@@ -121,45 +130,53 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
 
   React.useEffect(() => {
     if (!open || !url) return;
+
+    let active = true;
+    let objectUrl: string | null = null;
+    setBlobUrl(null);
     setJsonError(false);
-    if (isMarkdown(name)) {
-      setLoading(true);
-      setMdContent(null);
-      fetch(url)
-        .then((r) => r.text())
-        .then((text) => {
-          setMdContent(text);
-          setLoading(false);
-        })
-        .catch(() => {
-          setMdContent("Error loading file.");
-          setLoading(false);
+    setMdContent(null);
+    setJsonLines(null);
+    setLoading(true);
+
+    fetch(url, { headers })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`File request failed: ${response.status}`);
+        const bytes = await response.arrayBuffer();
+        const blob = new Blob([bytes], {
+          type: response.headers.get("content-type") || "application/octet-stream",
         });
-    } else if (isJson(name)) {
-      setLoading(true);
-      setJsonLines(null);
-      fetch(url)
-        .then((r) => r.text())
-        .then((text) => {
-          try {
-            const parsed = JSON.parse(text);
-            const formatted = JSON.stringify(parsed, null, 2);
-            const lines = formatted.split("\n").map(tokenizeLine);
-            setJsonLines(lines);
-          } catch {
-            setJsonError(true);
+        objectUrl = URL.createObjectURL(blob);
+        if (active) setBlobUrl(objectUrl);
+
+        if (isMarkdown(name) || isJson(name)) {
+          const text = new TextDecoder().decode(bytes);
+          if (isMarkdown(name)) {
+            setMdContent(text);
+          } else {
+            try {
+              const parsed = JSON.parse(text);
+              setJsonLines(JSON.stringify(parsed, null, 2).split("\n").map(tokenizeLine));
+            } catch {
+              setJsonError(true);
+            }
           }
-          setLoading(false);
-        })
-        .catch(() => {
-          setJsonError(true);
-          setLoading(false);
-        });
-    } else {
-      setMdContent(null);
-      setJsonLines(null);
-    }
-  }, [open, name, url]);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        if (isMarkdown(name)) setMdContent("Error loading file.");
+        if (isJson(name)) setJsonError(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [open, name, url, headers]);
 
   return (
     <ModalBase
@@ -174,7 +191,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       headerActions={
         <>
           <a
-            href={url}
+            href={blobUrl ?? undefined}
             download={name}
             className="kb-icon-btn transition-colors p-1.5 rounded-md"
             title="Download"
@@ -194,7 +211,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
       footer={
         <>
           <a
-            href={url}
+            href={blobUrl ?? undefined}
             download={name}
             className="kb-btn-ghost flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
           >
@@ -227,7 +244,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
             }}
           >
             <img
-              src={url}
+              src={blobUrl ?? undefined}
               alt={name}
               style={{
                 maxWidth: "100%",
@@ -292,7 +309,7 @@ export function FilePreviewModal({ open, name, url, onClose }: Props) {
             <FileText className="w-10 h-10 opacity-40" />
             <p className="text-sm">Preview not available for this file type.</p>
             <a
-              href={url}
+              href={blobUrl ?? undefined}
               download={name}
               className="kb-violet-link flex items-center gap-1.5 hover:underline text-sm transition-colors"
             >
