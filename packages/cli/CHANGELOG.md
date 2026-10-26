@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.24.0
+
+### Minor Changes
+
+- d4d68db: Auth is now project-scoped: `vibeflow login` stores the credential user-scoped (keyed by API host) and links the board to the current project instead of the whole machine, and every command resolves that project's own pointer. No data migration — local stores are untouched; run `vibeflow login` once per project to link it (a leftover machine-global token is ignored with a one-line notice).
+
+### Patch Changes
+
+- 04d0009: Fixed delta push failing with `400 BATCH_TOO_LARGE` on any push of more than 100 changed tasks: the delta chunker allowed 200 tasks per archive request while the server's `POST /api/v0/tasks/import/archive` caps at `V0_IMPORT_MAX_TASKS` (= 100). `DELTA_CHUNK_MAX_TASKS` is now 100, so a 123-task push travels as 100+23 instead of one refused request.
+- 9fde4fe: Fixed `vibeflow auth login` failing with "Device code expired" when this machine already has a token: the CLI now answers the login server's reuse signal — adopting the existing stored token when one is present, or rotating to a fresh token when none is — and fails loudly on unknown login responses instead of hanging until expiry.
+- 6f953e2: Fixed auth resolution falsely unlinking a valid project when one account has boards in two projects: `resolveProjectAuth` treated the credential store's single `workspaceId` per host as a hard match, so a second login (naming the other board) flipped the first project to "Not logged in" even though the account-scoped token was valid for both boards. The project pointer now picks the board and the credential only proves identity — a `workspaceId` mismatch still resolves online on the pointer's board. The device-login adopt path likewise keeps an existing project pointer as-is instead of silently re-pointing it to whatever board last won the shared credential store (only a pointer-less project adopts the credential's board).
+- 608633b: Fix `tasks --tag` matching nothing on a shared board though the board sends tags. The CLI's server->task mapping dropped the `tags` every board row already carries, so the filter read an absent field for shared boards while local boards read the record — the same command answered differently depending on where the board lives. The mapping now carries tags exactly where the local path puts them (same verbatim rule: every non-empty string, no trim/lowercase/dedupe), and the existing filter keeps doing its one job in both cases — no second tag-specific path.
+- f0f0f9f: Fixed task records with a leaked `projectDir` root key quarantining on every pull while `tasks --normalize` claimed "already normalized: 0 changes". The writer was `createSaasTask`: it sent `projectDir` (request-scoping metadata, headers-only) inside the POST body the server mirrors verbatim as the stored record. The body no longer carries it; pull strips the key on both the merge and brand-new-task paths so a legacy poisoned server row cannot re-poison the store; and `tasks --normalize --apply` now heals unknown-root-key records with an explicit reported `strip-unknown-root-key` repair instead of leaving them quarantined forever. Strict parsing is unchanged — malformed JSON, nested unknown keys, future versions and every other defect still quarantine — and the empty-normalize message now names any remaining quarantined records instead of claiming a clean store.
+
 ## 0.23.0
 
 ### Minor Changes

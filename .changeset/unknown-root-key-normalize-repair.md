@@ -1,4 +1,0 @@
-"@vibeflow-tools/cli": patch
----
-
-Fixed task records with a leaked `projectDir` root key quarantining on every pull while `tasks --normalize` claimed "already normalized: 0 changes". The writer was `createSaasTask`: it sent `projectDir` (request-scoping metadata, headers-only) inside the POST body the server mirrors verbatim as the stored record. The body no longer carries it; pull strips the key on both the merge and brand-new-task paths so a legacy poisoned server row cannot re-poison the store; and `tasks --normalize --apply` now heals unknown-root-key records with an explicit reported `strip-unknown-root-key` repair instead of leaving them quarantined forever. Strict parsing is unchanged — malformed JSON, nested unknown keys, future versions and every other defect still quarantine — and the empty-normalize message now names any remaining quarantined records instead of claiming a clean store.
