@@ -238,6 +238,62 @@ describe("Kanban board", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it("mobile kanban reflows controls and keeps task actions reachable at phone widths", async () => {
+    const response = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Mobile layout task",
+        description: "Check editing and status actions on mobile",
+        selector: "/",
+        status: "todo",
+      }),
+    });
+    const result = (await response.json()) as { success: boolean; task?: { id: string } };
+    expect(result.success).toBe(true);
+    const taskId = result.task?.id;
+    expect(taskId).toBeTruthy();
+
+    for (const width of [360, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.reload();
+      await page.waitForSelector(`#kanban-list-view [data-task-id="${taskId}"]`);
+      const pageWidth = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+      }));
+      expect(pageWidth.document).toBeLessThanOrEqual(pageWidth.viewport);
+      expect(await page.locator("#global-search").isVisible()).toBe(true);
+      expect(await page.getByRole("button", { name: "Open board menu" }).isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Open board menu" }).click();
+      expect(await page.getByRole("menuitem", { name: "Settings" }).isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Open board menu" }).click();
+
+      const status = page.locator(`#kanban-list-view [data-task-id="${taskId}"] select`);
+      await status.selectOption("review");
+      await page.waitForFunction(async (id) => {
+        const response = await fetch(`/api/tasks/${id}`);
+        const value = await response.json();
+        return value.task?.status === "review";
+      }, taskId);
+      await page.locator(`#kanban-list-view [data-task-id="${taskId}"]`).click();
+      await page.waitForSelector("#detail-panel.open #dp-title");
+      const panelWidth = await page.locator("#detail-panel-container").evaluate((element) => element.getBoundingClientRect().width);
+      expect(panelWidth).toBeLessThanOrEqual(width);
+      await closePanelIfOpen(page);
+    }
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.reload();
+    const desktop = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+    }));
+    expect(desktop.document).toBeLessThanOrEqual(desktop.viewport);
+    expect(await page.isVisible("#header-shortcuts-hint")).toBe(true);
+    expect(await page.isVisible("#btn-settings")).toBe(true);
+  });
+
   // ── Basic kanban renders ───────────────────────────────────────────────────
   it("renders the kanban board with column headers", async () => {
     const hasBoard = await page.isVisible("#kanban-board");
