@@ -266,7 +266,7 @@ describe("Kanban board", () => {
       expect(await page.locator("#global-search").isVisible()).toBe(true);
       expect(await page.getByRole("button", { name: "Open board menu" }).isVisible()).toBe(true);
       await page.getByRole("button", { name: "Open board menu" }).click();
-      expect(await page.getByRole("menuitem", { name: "Settings" }).isVisible()).toBe(true);
+      expect(await page.locator("#btn-settings").isVisible()).toBe(true);
       await page.getByRole("button", { name: "Open board menu" }).click();
 
       const status = page.locator(`#kanban-list-view [data-task-id="${taskId}"] select`);

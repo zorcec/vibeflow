@@ -381,7 +381,10 @@ export function Header({
 
       {/* Actions */}
       <div className="kb-header-actions flex items-center gap-2 flex-shrink-0">
-        <div className="kb-header-desktop-actions flex items-center gap-2">
+        <div
+          className={`${mobileMenuOpen ? "kb-mobile-menu" : "kb-header-desktop-actions"} flex items-center gap-2`}
+          aria-label={mobileMenuOpen ? "Board actions" : undefined}
+        >
           {extraActions}
           <HeaderActionButton
             id="header-shortcuts-hint"
@@ -401,17 +404,11 @@ export function Header({
           className="kb-mobile-menu-trigger"
           aria-label="Open board menu"
           aria-expanded={mobileMenuOpen}
+          aria-controls="kb-header-actions-menu"
           onClick={() => setMobileMenuOpen((open) => !open)}
         >
           <Menu className="w-4 h-4" />
         </button>
-        {mobileMenuOpen && (
-          <div className="kb-mobile-menu" role="menu">
-            {extraActions}
-            <button type="button" role="menuitem" onClick={() => { setMobileMenuOpen(false); setShortcutsOpen(true); }}>Keyboard shortcuts</button>
-            <button type="button" role="menuitem" onClick={() => { setMobileMenuOpen(false); onSettings(); }}>Settings</button>
-          </div>
-        )}
 
       </div>
 

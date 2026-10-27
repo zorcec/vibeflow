@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, within } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,7 @@ function renderHeader() {
       taskSummary="1 open"
       onSearchChange={vi.fn()}
       onSettings={vi.fn()}
-      extraActions={<button role="menuitem">Overview</button>}
+      extraActions={<button id="overview-btn">Overview</button>}
     />,
   );
 }
@@ -30,10 +30,10 @@ describe("shared mobile header and filter reflow", () => {
     const view = renderHeader();
     expect(view.getByRole("textbox", { name: "Search tasks" })).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: "Open board menu" }));
-    const menu = view.getByRole("menu");
+    const menu = view.getByLabelText("Board actions");
     expect(menu).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: "Overview" })).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeTruthy();
+    expect(menu.querySelector("#overview-btn")).toBeTruthy();
+    expect(menu.querySelector("#btn-settings")).toBeTruthy();
   });
 
   it("keeps status, filter, and view controls in a wrapping narrow layout", () => {
