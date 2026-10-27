@@ -194,6 +194,16 @@ describe("paste processing state (existing task)", () => {
     expect(document.querySelector(".file-pending")).toBeNull();
   });
 
+  it("uploads a selected non-image file larger than 5 MiB", async () => {
+    const api = baseApi();
+    renderFilesPanel(makeTask(), api);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.bin", { type: "application/octet-stream" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(api.uploadFile).toHaveBeenCalledWith("t1", file));
+  });
+
   it("a pasted non-image file gets the same tracked treatment", async () => {
     const api = baseApi();
     let uploaded: File | null = null;

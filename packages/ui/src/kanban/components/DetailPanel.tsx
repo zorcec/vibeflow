@@ -276,8 +276,6 @@ interface Props {
   onDetach?: (taskId: string) => void;
 }
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — must match server limit
-
 export function DetailPanel({
   open,
   task,
@@ -1046,9 +1044,6 @@ export function DetailPanel({
         name: file.name,
         image: file.type.startsWith("image/"),
         produce: async () => {
-          if (!file.type.startsWith("image/") && file.size > MAX_UPLOAD_BYTES) {
-            throw new Error("exceeds the 5 MB limit and was skipped");
-          }
           let toUpload: File;
           if (file.type.startsWith("image/")) {
             // Shared ingest matrix: PNG→lossless WebP, >1920→1920+q80 WebP,
