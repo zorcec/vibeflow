@@ -336,7 +336,7 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
         size: stat.size,
         url: `/api/tasks/${taskId}/files/${encodeURIComponent(ref.name)}`,
         linkedPath: ref.linkedPath,
-        createdAt: stat.mtime.toISOString(),
+        createdAt: ref.addedAt,
         ...(ref.system === true ? { system: true } : {}),
       });
       continue;
@@ -349,7 +349,7 @@ export function listFiles(projectDir: string, taskId: string): FileInfo[] {
         name: ref.name,
         size: stat.size,
         url: `/api/tasks/${taskId}/files/${encodeURIComponent(ref.name)}`,
-        createdAt: stat.mtime.toISOString(),
+        createdAt: ref.addedAt,
         ...(ref.system === true ? { system: true } : {}),
       });
     }

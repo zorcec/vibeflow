@@ -18,7 +18,7 @@ import {
   getFileCount,
   getFilesDir,
 } from "../../src/core/files.js";
-import { createTask } from "../../src/core/tasks.js";
+import { createTask, findTaskFilePath } from "../../src/core/tasks.js";
 
 describe("files core", () => {
   let tempDir: string;
@@ -139,6 +139,37 @@ describe("files with task JSON (ref-based paths)", () => {
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("listFiles uses persisted attachment time rather than filesystem mtime", () => {
+    const task = createTask(tempDir, { title: "Timestamped ref", description: "" });
+    const filesDir = getFilesDir(tempDir, task.id);
+    ensureFilesDir(tempDir, task.id);
+    writeFileSync(join(filesDir, "timestamp.txt"), "body");
+    const attachedAt = "2024-02-03T04:05:06.000Z";
+    const taskPath = findTaskFilePath(tempDir, task.id)!;
+    const stored = JSON.parse(readFileSync(taskPath, "utf8"));
+    stored.files = [{ name: "timestamp.txt", addedAt: attachedAt }];
+    writeFileSync(taskPath, JSON.stringify(stored, null, 2));
+
+    expect(listFiles(tempDir, task.id)[0]?.createdAt).toBe(attachedAt);
+  });
+
+  it("uses normalized current-time fallback for legacy refs without addedAt", () => {
+    const task = createTask(tempDir, { title: "Legacy ref", description: "" });
+    const filesDir = getFilesDir(tempDir, task.id);
+    ensureFilesDir(tempDir, task.id);
+    writeFileSync(join(filesDir, "legacy.txt"), "body");
+    const taskPath = findTaskFilePath(tempDir, task.id)!;
+    const stored = JSON.parse(readFileSync(taskPath, "utf8"));
+    stored.files = [{ name: "legacy.txt" }];
+    writeFileSync(taskPath, JSON.stringify(stored, null, 2));
+
+    const beforeRead = Date.now();
+    const listed = listFiles(tempDir, task.id);
+    const afterRead = Date.now();
+    expect(Date.parse(listed[0]!.createdAt!)).toBeGreaterThanOrEqual(beforeRead);
+    expect(Date.parse(listed[0]!.createdAt!)).toBeLessThanOrEqual(afterRead);
   });
 
   it("listFiles returns uploaded file via ref in task JSON (covers lines 109-118)", () => {
