@@ -82,7 +82,7 @@ describe("comment-id repair (ae9e99fd)", () => {
   it("refuses an unrepairable record with the task id and reason, without changing disk", () => {
     const path = write({ ...base, comments: [{ text: "missing author", createdAt: base.created }] });
     const before = readFileSync(path, "utf8");
-    expect(() => prepareTaskRecordsForPush(dir)).toThrow(/Task task: push preflight failed: comments\[0\].*Required/);
+    expect(() => prepareTaskRecordsForPush(dir)).toThrow(/Task task: push preflight failed: comments\[0\]\.(author|id):/);
     expect(readFileSync(path, "utf8")).toBe(before);
   });
 

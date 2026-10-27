@@ -36,11 +36,10 @@ import { fileURLToPath } from "node:url";
 export const CAMO_LIMIT_BYTES = 5_242_880;
 /** Stay well clear of the hard limit — prefer warning long before an asset fails. */
 export const ASSET_WARN_BYTES = 2_097_152;
-/** npm pack budgets: the shipped CLI is ~3.6 MB unpacked today. */
-export const PACK_UNPACKED_BUDGET_BYTES = 8 * 1024 * 1024;
-// The bundled CLI entrypoint is 3,313,182 bytes in the current artifact; keep a 3.5 MiB ceiling
-// so the guard permits it while still catching accidental large-file growth.
-export const PACK_SINGLE_FILE_BUDGET_BYTES = 3.5 * 1024 * 1024;
+/** npm pack budgets reflect the measured 0.24.1 CLI artifact and allow modest feature growth. */
+export const PACK_UNPACKED_BUDGET_BYTES = 10 * 1024 * 1024;
+/** Shared client/CLI chunk currently measures ~4.1 MiB; 5 MiB still catches accidental bundle growth. */
+export const PACK_SINGLE_FILE_BUDGET_BYTES = 5 * 1024 * 1024;
 /** Media in the tarball is always a mistake — the README links the deployed copies. */
 const PACK_FORBIDDEN_MEDIA_RX = /\.(gif|mp4|webm|mov|avi|psd)$/i;
 

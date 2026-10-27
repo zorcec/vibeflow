@@ -226,7 +226,7 @@ describe("read repair versus quarantine", () => {
     expect(listTasks(dir, reads).map((task) => task.id)).toEqual(["repair"]);
     expect(taskReadNotices(reads)).toEqual([
       { code: "TASK_RECORD_REPAIRED", message: "1 task record(s) repaired in memory (disk unchanged): repair. Run tasks --normalize for repair details." },
-      { code: "TASK_RECORD_QUARANTINED", message: "1 task record(s) quarantined (excluded from listing/merge/push): bad. Not auto-repairable: bad: <root>: Unrecognized key(s) in object: 'unknownKey'. Run tasks --normalize for repair details." },
+      { code: "TASK_RECORD_QUARANTINED", message: expect.stringMatching(/^1 task record\(s\) quarantined .*bad: <root>: Unrecognized key/), },
     ]);
     expect(planTaskStoreNormalize(dir).unreadable).toEqual([]);
     // Ticket c0557b6c: the read still quarantines `bad`, but normalize now

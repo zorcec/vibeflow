@@ -178,12 +178,22 @@ describe("check-readme-assets — package size guard", () => {
     expect(json.pack.errors.join(" ")).toContain("budget");
   });
 
+  it("pins intended package size ceilings while allowing measured bundle growth", async () => {
+    const pack = writePack("pack-allowed-size.json", {
+      size: 2_000_000,
+      unpackedSize: 9_120_186,
+      entryCount: 1,
+      files: [{ path: "dist/chunk-large.js", size: 4_273_452 }],
+    });
+    expect((await runScript(["--readme", README, "--pack-json", pack, "--json"])).status).toBe(0);
+  });
+
   it("fails when a single shipped file grows past its budget", async () => {
     const pack = writePack("pack-fat-file.json", {
       size: 2_000_000,
       unpackedSize: 4_000_000,
       entryCount: 1,
-      files: [{ path: "dist/chunk-huge.js", size: 4_500_000 }],
+      files: [{ path: "dist/chunk-huge.js", size: 5_300_000 }],
     });
     const { status, json } = await runScript(["--readme", README, "--pack-json", pack, "--json"]);
     expect(status).toBe(1);

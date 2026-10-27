@@ -24,6 +24,11 @@ overrides:
   # floor is the highest patched version across every open advisory for the
   # package, so one entry clears all of them.
   "qs": ">=6.16.0"
+  # Patched releases for Express 4 and 5 body-parser lines.
+  "body-parser@1": "1.20.9"
+  "body-parser@2": "2.4.0"
+  "express@4>body-parser": "1.20.9"
+  "undici": "7.30.1"
   # esbuild 0.28.1 fixes GHSA on the tsup > bundle-require chain. Build-time
   # only and low severity, but it is a one-line floor.
   "esbuild": ">=0.28.1"
