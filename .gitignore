@@ -56,3 +56,5 @@ credentials.json
 .code-review-graph/
 .coverage-cli/
 .coverage-e2e/
+
+secrets.env
