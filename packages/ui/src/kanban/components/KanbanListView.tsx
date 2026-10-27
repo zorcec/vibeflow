@@ -62,6 +62,7 @@ interface Props {
   onOpenPanel: (task: Task, tab?: "details" | "comments" | "files") => void;
   onAddTask: (status: TaskStatus) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
+  onChangeStatus?: (taskId: string, newStatus: TaskStatus) => void;
   mobile?: boolean;
 }
 
@@ -124,6 +125,7 @@ export function KanbanListView({
   onOpenPanel,
   onAddTask,
   onDrop,
+  onChangeStatus,
   mobile = false,
 }: Props) {
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
@@ -138,6 +140,14 @@ export function KanbanListView({
       done: mobile,
     },
   );
+  const previousMobile = React.useRef(mobile);
+  React.useEffect(() => {
+    if (mobile && !previousMobile.current) {
+      setCollapsed((previous) => ({ ...previous, done: true }));
+    }
+    previousMobile.current = mobile;
+  }, [mobile]);
+
   // 46e05c7b: single shared predicate — board, list, and header count agree.
   const filtered = filterTasksByQuery(tasks, searchQuery);
 
@@ -342,6 +352,8 @@ export function KanbanListView({
                       task={task}
                       liveActivity={liveActivities?.get(task.id)}
                       onOpen={onOpenPanel}
+                      mobile={mobile}
+                      onChangeStatus={onChangeStatus}
                       onDragStart={(taskId) => setDragTaskId(taskId)}
                       dragOver={dragOverRowId === task.id}
                       onDragOver={() => setDragOverRowId(task.id)}
@@ -382,6 +394,8 @@ interface RowProps {
   task: Task;
   liveActivity?: LiveActivity;
   onOpen: (task: Task, tab?: "details" | "comments" | "files") => void;
+  mobile: boolean;
+  onChangeStatus?: (taskId: string, newStatus: TaskStatus) => void;
   onDragStart: (taskId: string) => void;
   dragOver: boolean;
   onDragOver: () => void;
@@ -393,6 +407,8 @@ function ListRow({
   task,
   liveActivity,
   onOpen,
+  mobile,
+  onChangeStatus,
   onDragStart,
   dragOver,
   onDragOver,
@@ -508,6 +524,20 @@ function ListRow({
           </div>
         )}
       </div>
+
+      {mobile && onChangeStatus && (
+        <select
+          aria-label={`Change status for ${task.title}`}
+          value={task.status}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => onChangeStatus(task.id, event.target.value as TaskStatus)}
+          style={{ maxWidth: 110, fontSize: 11 }}
+        >
+          {(["review", "in-progress", "todo", "backlog", "done"] as TaskStatus[]).map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+      )}
 
       {/* Comment count */}
       <button

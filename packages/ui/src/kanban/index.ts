@@ -23,7 +23,11 @@ export type {
 } from "./types";
 
 // Responsive view state
-export { MOBILE_VIEWPORT_MAX_WIDTH, resolveResponsiveView } from "./viewState";
+export {
+  MOBILE_VIEWPORT_MAX_WIDTH,
+  resolveMobileOverrideAfterResize,
+  resolveResponsiveView,
+} from "./viewState";
 
 // Kanban shared utilities
 export {

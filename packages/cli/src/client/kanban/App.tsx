@@ -29,6 +29,7 @@ import {
   matchesTaskTypeFilter,
   useDebouncedValue,
   resolveResponsiveView,
+  resolveMobileOverrideAfterResize,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -347,6 +348,7 @@ function BoardApp() {
   });
   const [viewMode, setViewMode] = React.useState<ViewMode>("board");
   const [mobileWidth, setMobileWidth] = React.useState(() => window.innerWidth);
+  const mobileWidthRef = React.useRef(mobileWidth);
   const [mobileViewOverride, setMobileViewOverride] = React.useState<ViewMode | null>(null);
   const isMobile = mobileWidth <= 767;
   const effectiveViewMode = resolveResponsiveView(viewMode, mobileWidth, mobileViewOverride);
@@ -1444,7 +1446,14 @@ function BoardApp() {
   const MIN_BOARD_BAND_PX = 280;
 
   React.useEffect(() => {
-    const updateMobileWidth = () => setMobileWidth(window.innerWidth);
+    const updateMobileWidth = () => {
+      const nextWidth = window.innerWidth;
+      setMobileViewOverride((override) =>
+        resolveMobileOverrideAfterResize(mobileWidthRef.current, nextWidth, override),
+      );
+      mobileWidthRef.current = nextWidth;
+      setMobileWidth(nextWidth);
+    };
     window.addEventListener("resize", updateMobileWidth);
     return () => window.removeEventListener("resize", updateMobileWidth);
   }, []);
@@ -1743,6 +1752,7 @@ function BoardApp() {
             onOpenPanel={(task, tab) => openPanel(task, tab)}
             onAddTask={(status) => openPanel(null, "details", status)}
             onDrop={(taskId, status) => patchTask(taskId, { status })}
+            onChangeStatus={(taskId, status) => patchTask(taskId, { status })}
           />
         ) : (
           <KanbanBoard
