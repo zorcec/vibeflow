@@ -6,6 +6,7 @@ import {
   writeFileSync,
   readFileSync,
   readdirSync,
+  utimesSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,7 +19,10 @@ import {
   getFileCount,
   getFilesDir,
 } from "../../src/core/files.js";
-import { createTask, findTaskFilePath } from "../../src/core/tasks.js";
+import {
+  createTask,
+  findTaskFilePath,
+} from "../../src/core/tasks.js";
 
 describe("files core", () => {
   let tempDir: string;
@@ -155,21 +159,17 @@ describe("files with task JSON (ref-based paths)", () => {
     expect(listFiles(tempDir, task.id)[0]?.createdAt).toBe(attachedAt);
   });
 
-  it("uses normalized current-time fallback for legacy refs without addedAt", () => {
-    const task = createTask(tempDir, { title: "Legacy ref", description: "" });
+  it("preserves filesystem mtime for legacy disk files without task refs", () => {
+    const task = createTask(tempDir, { title: "Legacy file", description: "" });
     const filesDir = getFilesDir(tempDir, task.id);
     ensureFilesDir(tempDir, task.id);
-    writeFileSync(join(filesDir, "legacy.txt"), "body");
-    const taskPath = findTaskFilePath(tempDir, task.id)!;
-    const stored = JSON.parse(readFileSync(taskPath, "utf8"));
-    stored.files = [{ name: "legacy.txt" }];
-    writeFileSync(taskPath, JSON.stringify(stored, null, 2));
+    const legacyPath = join(filesDir, "legacy.txt");
+    writeFileSync(legacyPath, "body");
+    const oldMtime = new Date("2000-01-01T00:00:00.000Z");
+    utimesSync(legacyPath, oldMtime, oldMtime);
 
-    const beforeRead = Date.now();
     const listed = listFiles(tempDir, task.id);
-    const afterRead = Date.now();
-    expect(Date.parse(listed[0]!.createdAt!)).toBeGreaterThanOrEqual(beforeRead);
-    expect(Date.parse(listed[0]!.createdAt!)).toBeLessThanOrEqual(afterRead);
+    expect(listed[0]!.createdAt).toBe(oldMtime.toISOString());
   });
 
   it("listFiles returns uploaded file via ref in task JSON (covers lines 109-118)", () => {
