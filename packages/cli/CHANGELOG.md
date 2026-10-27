@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.1
+
+### Patch Changes
+
+- 7c5b3ad: Scope file previews and downloads to the active board when loading file bytes.
+- 97ecaa3: Update bundled dependencies to address security vulnerabilities.
+
 ## 0.24.0
 
 ### Minor Changes
