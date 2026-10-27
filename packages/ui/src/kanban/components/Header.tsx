@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, Settings, X, ChevronRight } from "lucide-react";
+import { Search, Settings, X, ChevronRight, Menu } from "lucide-react";
 import { VibeflowIcon } from "../../VibeflowIcon";
 import { HeaderActionButton } from "./shared/HeaderActionButton";
 import { getTagColors } from "../tag-colors";
@@ -38,6 +38,7 @@ export function Header({
   taskSummary,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [dropdownIdx, setDropdownIdx] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
@@ -105,9 +106,9 @@ export function Header({
   const hasContent = searchQuery || activeFilterTags.length > 0;
 
   return (
-    <header className="px-5 py-3 flex items-center gap-3 border-b kb-header-border flex-shrink-0">
+    <header className="kb-header px-5 py-3 flex items-center gap-3 border-b kb-header-border flex-shrink-0">
       {/* Project identity */}
-      <div className="flex items-center gap-3 flex-shrink-0">
+      <div className="kb-header-identity flex items-center gap-3 flex-shrink-0">
         {backHref && (
           <>
             <a
@@ -190,7 +191,7 @@ export function Header({
       </div>
 
       {/* Token search + # tag picker */}
-      <div className="flex-1 flex justify-center px-4">
+      <div className="kb-header-search flex-1 flex justify-center px-4">
         <div className="relative w-full max-w-sm">
           {/* Token input container */}
           <div
@@ -249,6 +250,7 @@ export function Header({
             <input
               ref={inputRef}
               id="global-search"
+              aria-label="Search tasks"
               type="text"
               placeholder={
                 activeFilterTags.length === 0
@@ -378,22 +380,39 @@ export function Header({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        {extraActions}
+      <div className="kb-header-actions flex items-center gap-2 flex-shrink-0">
+        <div className="kb-header-desktop-actions flex items-center gap-2">
+          {extraActions}
+          <HeaderActionButton
+            id="header-shortcuts-hint"
+            title="Click to see keyboard shortcuts"
+            onClick={() => setShortcutsOpen(true)}
+            label="? shortcuts"
+          />
+          <HeaderActionButton
+            id="btn-settings"
+            title="Settings"
+            onClick={onSettings}
+            icon={<Settings className="w-3.5 h-3.5" />}
+          />
+        </div>
+        <button
+          type="button"
+          className="kb-mobile-menu-trigger"
+          aria-label="Open board menu"
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+        {mobileMenuOpen && (
+          <div className="kb-mobile-menu" role="menu">
+            {extraActions}
+            <button type="button" role="menuitem" onClick={() => { setMobileMenuOpen(false); setShortcutsOpen(true); }}>Keyboard shortcuts</button>
+            <button type="button" role="menuitem" onClick={() => { setMobileMenuOpen(false); onSettings(); }}>Settings</button>
+          </div>
+        )}
 
-        <HeaderActionButton
-          id="header-shortcuts-hint"
-          title="Click to see keyboard shortcuts"
-          onClick={() => setShortcutsOpen(true)}
-          label="? shortcuts"
-        />
-
-        <HeaderActionButton
-          id="btn-settings"
-          title="Settings"
-          onClick={onSettings}
-          icon={<Settings className="w-3.5 h-3.5" />}
-        />
       </div>
 
       {/* Keyboard Shortcuts modal */}

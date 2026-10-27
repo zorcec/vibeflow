@@ -1779,7 +1779,8 @@ function BoardApp() {
           <div
             id="detail-panel-container"
             style={{
-              width: panelFullscreen ? undefined : panelWidth,
+              width: panelFullscreen ? undefined : Math.min(panelWidth, viewportWidth),
+              maxWidth: "100vw",
               zIndex: panelFullscreen ? 40 : isResizingPanel ? 30 : 10,
             }}
             className={

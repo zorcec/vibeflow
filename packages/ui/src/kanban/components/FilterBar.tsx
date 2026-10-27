@@ -173,6 +173,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
   return (
     <div
       data-testid="filter-bar"
+      className="kb-filter-bar"
       style={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px',
         background: 'var(--t-surface)', borderBottom: '1px solid var(--t-border)', flexShrink: 0,
@@ -180,7 +181,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       onClick={() => { setTypeOpen(false); setUserOpen(false); setTagOpen(false); }}
     >
       {/* Status filter pills */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <div className="kb-status-filters" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         {STATUS_FILTERS.map(sf => {
           const isActive = filter.status === sf.id;
           const count = sf.id !== 'all' ? countByStatus(sf.id as TaskStatus) : null;

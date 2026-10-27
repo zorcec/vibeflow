@@ -1958,3 +1958,104 @@ body.proto-resizing-panel {
   animation: none;
  }
 }
+
+/* Narrow viewport shared kanban reflow. Desktop layout remains unchanged. */
+.kb-mobile-menu-trigger,
+.kb-mobile-menu {
+  display: none;
+}
+@media (max-width: 767px) {
+  .kb-header {
+    padding: 8px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  .kb-header-identity {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 8px;
+  }
+  .kb-header-identity > div:last-child {
+    min-width: 0;
+  }
+  #header-project-name {
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .kb-header-search {
+    order: 3;
+    flex: 1 0 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  .kb-header-actions {
+    position: relative;
+    margin-left: auto;
+  }
+  .kb-header-desktop-actions {
+    display: none !important;
+  }
+  .kb-mobile-menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--t-border);
+    border-radius: 8px;
+    color: var(--t-text-muted);
+    background: var(--t-card);
+  }
+  .kb-mobile-menu {
+    position: absolute;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 180px;
+    padding: 8px;
+    border: 1px solid var(--t-border-strong);
+    border-radius: 10px;
+    background: var(--t-card);
+    box-shadow: var(--t-shadow-lg);
+  }
+  .kb-mobile-menu button,
+  .kb-mobile-menu .kb-action-btn {
+    width: 100%;
+    min-height: 36px;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .kb-filter-bar {
+    flex-wrap: wrap;
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    min-width: 0;
+  }
+  .kb-status-filters {
+    flex: 1 0 100%;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .kb-status-filters > button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .kb-filter-bar > div[style*="flex: 1"] {
+    display: none;
+  }
+  .kb-filter-bar > div[style*="position: relative"] {
+    flex: 0 0 auto;
+  }
+  #kanban-list-view {
+    padding: 12px 8px !important;
+    min-width: 0;
+  }
+}
