@@ -28,6 +28,7 @@ import {
   filterTasksByQuery,
   matchesTaskTypeFilter,
   useDebouncedValue,
+  resolveResponsiveView,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
@@ -345,6 +346,10 @@ function BoardApp() {
     tab: "details",
   });
   const [viewMode, setViewMode] = React.useState<ViewMode>("board");
+  const [mobileWidth, setMobileWidth] = React.useState(() => window.innerWidth);
+  const [mobileViewOverride, setMobileViewOverride] = React.useState<ViewMode | null>(null);
+  const isMobile = mobileWidth <= 767;
+  const effectiveViewMode = resolveResponsiveView(viewMode, mobileWidth, mobileViewOverride);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [whatsNew, setWhatsNew] = React.useState<{
     open: boolean;
@@ -1438,6 +1443,12 @@ function BoardApp() {
    *  0-width board would only make the board's own scrollbar misbehave. */
   const MIN_BOARD_BAND_PX = 280;
 
+  React.useEffect(() => {
+    const updateMobileWidth = () => setMobileWidth(window.innerWidth);
+    window.addEventListener("resize", updateMobileWidth);
+    return () => window.removeEventListener("resize", updateMobileWidth);
+  }, []);
+
   // Window width drives how much of the board the panel leaves visible, and a
   // window resize while the panel is open is exactly when a card can slip under
   // it — so the value the inset and the scroll effect read has to be live.
@@ -1706,12 +1717,16 @@ function BoardApp() {
         onRemoveTagFromAll={handleRemoveTagFromAll}
         tasks={tasks}
         filter={filterState}
-        view={viewMode}
+        view={effectiveViewMode}
         onFilter={setFilterState}
         onViewChange={(mode) => {
-          setViewMode(mode);
-          void api.saveSettings({ ...appSettings, viewMode: mode });
-          setAppSettings((prev) => ({ ...prev, viewMode: mode }));
+          if (isMobile) {
+            setMobileViewOverride(mode);
+          } else {
+            setViewMode(mode);
+            void api.saveSettings({ ...appSettings, viewMode: mode });
+            setAppSettings((prev) => ({ ...prev, viewMode: mode }));
+          }
         }}
       />
 
@@ -1719,9 +1734,10 @@ function BoardApp() {
         className="flex flex-1 overflow-hidden"
         style={{ minHeight: 0, position: "relative" }}
       >
-        {viewMode === "list" ? (
+        {effectiveViewMode === "list" ? (
           <KanbanListView
             tasks={filteredTasks}
+            mobile={isMobile}
             searchQuery={searchQuery}
             isLoading={isLoading}
             onOpenPanel={(task, tab) => openPanel(task, tab)}
@@ -1734,7 +1750,7 @@ function BoardApp() {
             visibleCols={visibleCols}
             searchQuery={searchQuery}
             isLoading={isLoading}
-            compact={viewMode === "compact"}
+            compact={effectiveViewMode === "compact"}
             onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
             onDrop={handleColumnDrop}
             onReorder={handleReorder}

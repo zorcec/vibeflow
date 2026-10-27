@@ -22,6 +22,9 @@ export type {
   DescriptionDocBinding,
 } from "./types";
 
+// Responsive view state
+export { MOBILE_VIEWPORT_MAX_WIDTH, resolveResponsiveView } from "./viewState";
+
 // Kanban shared utilities
 export {
   mergeTaskFromPayload,

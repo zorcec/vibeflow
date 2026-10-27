@@ -62,6 +62,7 @@ interface Props {
   onOpenPanel: (task: Task, tab?: "details" | "comments" | "files") => void;
   onAddTask: (status: TaskStatus) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
+  mobile?: boolean;
 }
 
 function SkeletonListRow() {
@@ -123,6 +124,7 @@ export function KanbanListView({
   onOpenPanel,
   onAddTask,
   onDrop,
+  mobile = false,
 }: Props) {
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState<TaskStatus | null>(null);
@@ -133,7 +135,7 @@ export function KanbanListView({
       todo: false,
       "in-progress": false,
       review: false,
-      done: false,
+      done: mobile,
     },
   );
   // 46e05c7b: single shared predicate — board, list, and header count agree.
@@ -146,13 +148,16 @@ export function KanbanListView({
     // board. A child's verify verdict shows on its child row in the board's tree.
     const { standalone } = groupTasksByRoot(filtered);
     const map = new Map<TaskStatus, Task[]>();
-    for (const s of STATUS_ORDER) map.set(s, []);
+    const statusOrder = mobile
+      ? (["review", "in-progress", "todo", "backlog", "done"] as TaskStatus[])
+      : STATUS_ORDER;
+    for (const s of statusOrder) map.set(s, []);
     for (const t of standalone) {
       const bucket = map.get(t.status) ?? [];
       bucket.push(t);
     }
     return map;
-  }, [filtered]);
+  }, [filtered, mobile]);
 
   return (
     <div
@@ -160,7 +165,7 @@ export function KanbanListView({
       style={{ flex: 1, overflowY: "auto", padding: "16px 24px", minHeight: 0 }}
     >
       {isLoading
-        ? STATUS_ORDER.slice(0, 3).map((status) => {
+        ? (mobile ? ["review", "in-progress", "todo"] as TaskStatus[] : STATUS_ORDER.slice(0, 3)).map((status) => {
             const sc = STATUS_COLORS[status];
             return (
               <div key={status} style={{ marginBottom: 24 }}>
@@ -211,7 +216,10 @@ export function KanbanListView({
               </div>
             );
           })
-        : STATUS_ORDER.map((status) => {
+        : (mobile
+            ? (["review", "in-progress", "todo", "backlog", "done"] as TaskStatus[])
+            : STATUS_ORDER
+          ).map((status) => {
             const group = grouped.get(status) ?? [];
             if (group.length === 0) return null;
             const sc = STATUS_COLORS[status];
@@ -249,6 +257,8 @@ export function KanbanListView({
                   <button
                     type="button"
                     title={collapsed[status] ? "Expand" : "Collapse"}
+                    aria-label={`${collapsed[status] ? "Expand" : "Collapse"} ${status}`}
+                    aria-expanded={!collapsed[status]}
                     onClick={(e) => {
                       e.stopPropagation();
                       setCollapsed((prev) => ({
