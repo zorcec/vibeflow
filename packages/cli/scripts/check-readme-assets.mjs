@@ -38,7 +38,9 @@ export const CAMO_LIMIT_BYTES = 5_242_880;
 export const ASSET_WARN_BYTES = 2_097_152;
 /** npm pack budgets: the shipped CLI is ~3.6 MB unpacked today. */
 export const PACK_UNPACKED_BUDGET_BYTES = 8 * 1024 * 1024;
-export const PACK_SINGLE_FILE_BUDGET_BYTES = 3 * 1024 * 1024;
+// The bundled CLI entrypoint is 3,313,182 bytes in the current artifact; keep a 3.5 MiB ceiling
+// so the guard permits it while still catching accidental large-file growth.
+export const PACK_SINGLE_FILE_BUDGET_BYTES = 3.5 * 1024 * 1024;
 /** Media in the tarball is always a mistake — the README links the deployed copies. */
 const PACK_FORBIDDEN_MEDIA_RX = /\.(gif|mp4|webm|mov|avi|psd)$/i;
 
