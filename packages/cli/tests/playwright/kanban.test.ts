@@ -278,6 +278,14 @@ describe("Kanban board", () => {
       }, taskId);
       await page.locator(`#kanban-list-view [data-task-id="${taskId}"]`).click();
       await page.waitForSelector("#detail-panel.open #dp-title");
+      const title = page.locator("#dp-title");
+      await title.fill("Edited mobile layout task");
+      await title.press("Tab");
+      await page.waitForFunction(async (id) => {
+        const response = await fetch(`/api/tasks/${id}`);
+        const value = await response.json();
+        return value.task?.title === "Edited mobile layout task";
+      }, taskId);
       const panelWidth = await page.locator("#detail-panel-container").evaluate((element) => element.getBoundingClientRect().width);
       expect(panelWidth).toBeLessThanOrEqual(width);
       await closePanelIfOpen(page);
