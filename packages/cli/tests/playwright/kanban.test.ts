@@ -322,14 +322,40 @@ describe("Kanban board", () => {
     expect(colCount).toBe(5);
   });
 
-  it("shows empty-column placeholders when no tasks are present", async () => {
-    const placeholderCount = await page.evaluate(
-      () =>
-        [
-          ...document.querySelectorAll("[data-column-id] .column-scroll div"),
-        ].filter((el) => /No tasks in/i.test(el.textContent || "")).length,
+  it("shows a placeholder in each empty column, but not a populated column", async () => {
+    // Earlier tests share this board and may have added tasks. Wait for every
+    // lane to finish loading, then check the actual empty/populated contract.
+    await page.waitForFunction(
+      () => {
+        const columns = [...document.querySelectorAll("[data-column-id]")];
+        return columns.length === 5 && columns.every((column) => {
+          const scroll = column.querySelector(".column-scroll");
+          return scroll && (
+            scroll.querySelector("article.task-card") ||
+            [...scroll.children].some((child) => /^No tasks in /i.test(child.textContent?.trim() ?? ""))
+          );
+        });
+      },
+      undefined,
+      { timeout: 5_000 },
     );
-    expect(placeholderCount).toBeGreaterThanOrEqual(5);
+
+    const lanes = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-column-id]")].map((column) => {
+        const scroll = column.querySelector(".column-scroll")!;
+        return {
+          hasTask: !!scroll.querySelector("article.task-card"),
+          hasPlaceholder: [...scroll.children].some((child) =>
+            /^No tasks in /i.test(child.textContent?.trim() ?? ""),
+          ),
+        };
+      }),
+    );
+    expect(lanes).toHaveLength(5);
+    expect(lanes.some((lane) => !lane.hasTask)).toBe(true);
+    for (const lane of lanes) {
+      expect(lane.hasPlaceholder).toBe(!lane.hasTask);
+    }
   });
 
   it("shows a visible keyboard shortcuts hint in the header", async () => {
