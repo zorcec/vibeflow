@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import type { Command } from "commander";
 import {
   hasSaasDetailRelations,
@@ -107,6 +107,12 @@ async function runGet(
     });
   process.exitCode = undefined;
   process.env.HOME = home;
+  // os.homedir() is FROZEN in the threads pool (global-hermetic-home):
+  // setting process.env.HOME does not move it, so the credential must be
+  // steered through a spy — otherwise writeCredential lands in the
+  // SHARED hermetic HOME and flips every other worker's cwd `status`
+  // to online mode for the rest of the run. Restored in finally.
+  const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(home);
   // Link the store project for real under the temp HOME (ADR-0005).
   // args[0] is the store dir for every command-level run below.
   writeProjectPointer(args[0], { apiUrl: getApiUrl(), id: "board-1" });
@@ -121,6 +127,7 @@ async function runGet(
     return { stdout, stderr, exitCode: process.exitCode, logged };
   } finally {
     logSpy.mockRestore();
+    homeSpy.mockRestore();
     (process.stdout.write as unknown) = previous.stdout;
     (process.stderr.write as unknown) = previous.stderr;
     process.exitCode = previous.exitCode;

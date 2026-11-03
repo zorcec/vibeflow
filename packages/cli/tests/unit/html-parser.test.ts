@@ -5,6 +5,7 @@ import {
   hasExternalDependencies,
   isValidHtml,
   getElementContent,
+  findHtmlFiles,
 } from "../../src/core/html-parser.js";
 
 describe("extractProtoIds", () => {
@@ -161,5 +162,40 @@ describe("getElementContent", () => {
     const content = getElementContent(html, "inner");
     expect(content).toContain("inner");
     expect(content).toContain("Text");
+  });
+});
+
+describe("findHtmlFiles", () => {
+  it("returns the path itself when given a file, not a directory", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const base = mkdtempSync(join(tmpdir(), "html-files-"));
+    try {
+      const file = join(base, "page.html");
+      writeFileSync(file, "<p>x</p>");
+      expect(findHtmlFiles(file)).toEqual([file]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("lists only .html files in a directory, sorted", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const base = mkdtempSync(join(tmpdir(), "html-files-"));
+    try {
+      writeFileSync(join(base, "b.html"), "<p>b</p>");
+      writeFileSync(join(base, "a.HTML"), "<p>a</p>");
+      writeFileSync(join(base, "notes.txt"), "nope");
+      // Uppercase extensions are matched case-insensitively, sorted by name.
+      expect(findHtmlFiles(base)).toEqual([
+        join(base, "a.HTML"),
+        join(base, "b.html"),
+      ]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

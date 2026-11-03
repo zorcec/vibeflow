@@ -96,4 +96,14 @@ describe("checkTaskStore", () => {
     const base = store({ "clean.json": CLEAN, "x.auth.json": "not json {{{" });
     expect(checkTaskStore(base).ok).toBe(true);
   });
+
+  it("a tasks path that is a file, not a directory, is not an offense", () => {
+    const base = mkdtempSync(join(tmpdir(), "store-check-file-"));
+    cleanups.push(() => rmSync(base, { recursive: true, force: true }));
+    // Corrupt layout: .vibeflow/tasks exists but readdir cannot read it.
+    // The check never throws — it reports ok with zero checked.
+    mkdirSync(join(base, ".vibeflow"), { recursive: true });
+    writeFileSync(join(base, ".vibeflow", "tasks"), "not a directory");
+    expect(checkTaskStore(base)).toEqual({ ok: true, checked: 0, offenders: [] });
+  });
 });

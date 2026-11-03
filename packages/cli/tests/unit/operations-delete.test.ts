@@ -161,3 +161,46 @@ describe("deleteTaskOperation (local mode)", () => {
     expect(taskExists("t2")).toBe(true);
   });
 });
+
+describe("deleteTaskOperation read failures (local mode)", () => {
+  it("a remote refusal from the read port travels verbatim", async () => {
+    seedTask(baseTask("t1"));
+    const { RemoteReadError } = await import(
+      "../../src/core/remote-task-store.js"
+    );
+    const { localTaskStore } = await import("../../src/core/task-store.js");
+    const remoteStore = Object.create(localTaskStore);
+    remoteStore.listTasks = async () => {
+      throw new RemoteReadError("SAAS_OFFLINE", "board unreachable", {
+        retryable: true,
+      });
+    };
+    const r = await deleteTaskOperation(
+      { projectDir, mode: "local", store: remoteStore },
+      { id: "t1", confirmed: true },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("SAAS_OFFLINE");
+      expect(r.error.message).toContain("board unreachable");
+      expect(r.error.retryable).toBe(true);
+    }
+    expect(taskExists("t1")).toBe(true);
+  });
+
+  it("a store read throw is DELETE_READ_ERROR, never a silent ok", async () => {
+    seedTask(baseTask("t1"));
+    const { localTaskStore } = await import("../../src/core/task-store.js");
+    const brokenStore = Object.create(localTaskStore);
+    brokenStore.listTasks = async () => {
+      throw new Error("disk gone");
+    };
+    const r = await deleteTaskOperation(
+      { projectDir, mode: "local", store: brokenStore },
+      { id: "t1", confirmed: true },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("DELETE_READ_ERROR");
+    expect(taskExists("t1")).toBe(true);
+  });
+});

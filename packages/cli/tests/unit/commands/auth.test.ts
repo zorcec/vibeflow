@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, utimesSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { clearAuthState, listAuthStateFiles } from "../../../src/commands/auth.js";
@@ -137,5 +137,21 @@ describe("listAuthStateFiles", () => {
     // Without the clamp this floors to "-1m" and fails the age format
     expect(files[0].age).toBe("0m");
     expect(files[0].age).toMatch(/^\d+[mhd]$/);
+  });
+
+  it("reports age unknown for an unreadable entry instead of throwing", () => {
+    const protoDir = join(tempDir, PROTO_DIR);
+    mkdirSync(protoDir, { recursive: true });
+    // A dangling symlink is listed by readdir but statSync throws —
+    // the row survives with an unknown age (a crash here would break
+    // `auth --list` on any half-cleaned state dir).
+    symlinkSync(
+      join(protoDir, "does-not-exist.enc"),
+      join(protoDir, "auth-state.ghost.enc"),
+    );
+    const files = listAuthStateFiles(tempDir);
+    expect(files).toHaveLength(1);
+    expect(files[0].taskId).toBe("ghost");
+    expect(files[0].age).toBe("unknown");
   });
 });

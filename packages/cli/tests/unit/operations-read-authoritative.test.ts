@@ -19,9 +19,9 @@
  * always) returns the sentinel where remote rows are asserted → red.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 
 vi.mock("../../src/auth/project-auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/auth/project-auth.js")>();
@@ -48,6 +48,8 @@ import {
 import { manifest } from "../../src/mcp/manifest.js";
 import { localTaskStore } from "../../src/core/task-store.js";
 import type { OperationContext } from "../../src/core/operations.js";
+
+const cleanups: Array<() => void> = [];
 
 const SENTINEL_TITLE = "STALE-LOCAL-SENTINEL-d7b9dc13";
 
@@ -132,6 +134,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  for (const fn of cleanups.splice(0)) fn();
 });
 
 describe("saas-mode operations read the remote board, never the stale local copy", () => {
@@ -170,12 +173,20 @@ describe("saas-mode operations read the remote board, never the stale local copy
     // cache (which calls the module-local resolver, not the
     // `resolveProjectAuth` mock above) — so the seed project is linked
     // for real: the pointer mock names board-1, the credential is a real
-    // file under the hermetic temp HOME, and the cache is dropped. The
-    // CLI surface in this file keeps steering through the mock.
+    // file in THIS test's isolated home (os.homedir() is frozen in the
+    // threads pool, so process.env.HOME cannot steer it — a spy is
+    // required, otherwise the write lands in the SHARED hermetic HOME
+    // and flips every other worker's cwd `status` to online mode),
+    // and the cache is dropped. The CLI surface in this file keeps
+    // steering through the mock.
     vi.mocked(readProjectPointer).mockReturnValue({
       apiUrl: getApiUrl(),
       id: "board-1",
     });
+    const credHome = mkdtempSync(join(tmpdir(), "authoritative-cred-"));
+    mkdirSync(credHome, { recursive: true });
+    cleanups.push(() => rmSync(credHome, { recursive: true, force: true }));
+    vi.spyOn(os, "homedir").mockReturnValue(credHome);
     const { writeCredential } = await import("../../src/auth/credentials.js");
     await writeCredential(getApiUrl(), { token: "test-token" });
     dropProjectAuthCache(projectDir);
