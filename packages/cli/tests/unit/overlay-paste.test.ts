@@ -235,4 +235,44 @@ describe("uploadTaskFile", () => {
       PNG_BYTES,
     );
   });
+
+  it("surfaces a rejected upload response with server error detail (413)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 413,
+        json: async () => ({ error: "File too large" }),
+      })),
+    );
+    await expect(
+      uploadTaskFile("http://localhost:3933/api/tasks", "task-1", pngFile()),
+    ).rejects.toThrow("File too large");
+  });
+
+  it("falls back to the HTTP status when the error body is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 413,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      })),
+    );
+    await expect(
+      uploadTaskFile("http://localhost:3933/api/tasks", "task-1", pngFile()),
+    ).rejects.toThrow("HTTP 413");
+  });
+
+  it("propagates a network failure instead of resolving as success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+    await expect(
+      uploadTaskFile("http://localhost:3933/api/tasks", "task-1", pngFile()),
+    ).rejects.toThrow("Failed to fetch");
+  });
 });

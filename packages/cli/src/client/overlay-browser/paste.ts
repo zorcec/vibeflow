@@ -147,6 +147,11 @@ export function taskFileUploadUrl(
 /**
  * Raw-octet-stream file upload, byte-for-byte the kanban `api.uploadFile`
  * contract (`POST /api/tasks/:id/files/:name`, no multipart envelope).
+ *
+ * Parity with the kanban client (and the web adapter): a rejected upload
+ * must throw with the server error detail so callers land it in the
+ * visible paste-error UI (`pasteFailureMessage`) instead of resolving
+ * as if the paste had attached.
  */
 export async function uploadTaskFile(
   apiUrl: string,
@@ -154,11 +159,27 @@ export async function uploadTaskFile(
   file: File,
 ): Promise<void> {
   const buf = await file.arrayBuffer();
-  await fetch(taskFileUploadUrl(apiUrl, taskId, file.name), {
+  // SAFETY: apiUrl is the build-time local CLI server constant (same as
+  // submitTask/uploadFile in overlay-browser/api.ts), taskId/filename are
+  // encoded by taskFileUploadUrl — same contract as kanban api.uploadFile.
+  // pi-lens-ignore: ts-ssrf
+  const r = await fetch(taskFileUploadUrl(apiUrl, taskId, file.name), {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: buf,
   });
+  if (!r.ok) {
+    let detail = `HTTP ${r.status}`;
+    try {
+      const body = (await r.json()) as { error?: unknown };
+      if (typeof body.error === "string" && body.error.trim())
+        detail = body.error;
+    } catch {
+      // Keep the HTTP status when the error response is not JSON
+      // (e.g. the 413 body-parser limit page).
+    }
+    throw new Error(detail);
+  }
 }
 
 /**
