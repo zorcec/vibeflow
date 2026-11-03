@@ -17,6 +17,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 import { spawnCli } from "./mcp-helpers.js";
 
 const cleanups: Array<() => void> = [];
@@ -30,7 +31,10 @@ function freshDir(prefix: string): string {
 function seedGitUser(projectDir: string, name: string, email: string): void {
   execSync(
     `git init && git config user.name '${name}' && git config user.email '${email}'`,
-    { cwd: projectDir, stdio: "ignore" },
+    // Scope fixture writes to the temp dir: under a git hook in a linked
+    // worktree an inherited GIT_DIR would redirect `git config` into the
+    // enclosing repo (ticket e138e51d user.* pollution).
+    { cwd: projectDir, stdio: "ignore", env: gitEnvWithCleanLocation() },
   );
 }
 

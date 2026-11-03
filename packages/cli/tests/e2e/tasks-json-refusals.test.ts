@@ -24,6 +24,7 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 import { createServer, type Server } from "node:http";
 import { spawnCli, getFreePort } from "./mcp-helpers.js";
 import { setupSaaSMode } from "../helpers/saas-auth.js";
@@ -43,6 +44,10 @@ function seedGitUser(projectDir: string): void {
   execSync("git init && git config user.name 'E2E User' && git config user.email 'e2e@test.local'", {
     cwd: projectDir,
     stdio: "ignore",
+    // Scope fixture writes to the temp dir: under a git hook in a linked
+    // worktree an inherited GIT_DIR would redirect `git config` into the
+    // enclosing repo (ticket e138e51d user.* pollution).
+    env: gitEnvWithCleanLocation(),
   });
 }
 

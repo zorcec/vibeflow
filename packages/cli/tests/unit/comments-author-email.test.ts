@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { addComment } from "../../src/core/comments.js";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 
 // A comment created through the CLI carries the project repo's git
 // user.email as `authorEmail` — the local-record side of lossless
@@ -11,7 +12,10 @@ import { addComment } from "../../src/core/comments.js";
 // web-originated comments never get an email.
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+  // Scope fixture writes to the temp dir: under a git hook in a linked
+  // worktree an inherited GIT_DIR would redirect `git init`/`git config`
+  // into the enclosing repo (ticket e138e51d worktree-config pollution).
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], env: gitEnvWithCleanLocation() }).trim();
 }
 
 describe("comment authorEmail capture", () => {
