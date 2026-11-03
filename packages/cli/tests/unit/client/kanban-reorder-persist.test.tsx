@@ -302,4 +302,73 @@ describe("Kanban card reorder persists normalization patches", () => {
       .map((t) => t.id);
     expect(persisted).toEqual(["b", "c", "a"]);
   });
+
+  // Ticket kpz9cb70bwl01618euozs368: a BACKLOG child row dropped onto a
+  // card edge in another lane must arrive as a ROOT there — status moved
+  // AND the parent link unlinked (the exact inverse of create-child). The
+  // card-edge path calls onReorder, which used to persist only
+  // {status, sortKey}: the card rendered in the new lane while staying
+  // attached to the old parent's tree ("state changes but child stays
+  // attached to the parent").
+  it("a child dropped on another lane's card edge becomes a root there (parent link gone, status moved)", async () => {
+    serverTasks = [
+      {
+        id: "p",
+        title: "P",
+        status: "backlog",
+        sortKey: "0000000002000000",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "x",
+        title: "X",
+        status: "backlog",
+        sortKey: "0000000003000000",
+        updatedAt: "2026-01-02T00:00:00Z",
+        links: [{ taskId: "p", type: "parent" }],
+      },
+      {
+        id: "b",
+        title: "B",
+        status: "todo",
+        sortKey: "0000000004000000",
+        updatedAt: "2026-01-03T00:00:00Z",
+      },
+    ];
+    mockApi();
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    await renderApp();
+
+    // x is parented, so its drag source is the nested tree row.
+    const row = container.querySelector(
+      '[data-role="child-link-row"][data-task-id="x"]',
+    ) as HTMLElement | null;
+    expect(row).not.toBeNull();
+    // b is the only root card in the todo lane — drop x on its edge.
+    const wrapperB = mustCard("b").parentElement as HTMLElement;
+    const todoColumn = container.querySelector(
+      '[data-column-id="todo"]',
+    ) as HTMLElement;
+    expect(todoColumn).not.toBeNull();
+
+    await act(async () => {
+      dispatchDrag(row!, "dragstart", { dataTransfer: dataTransfer() });
+    });
+    await act(async () => {
+      dispatchDrag(wrapperB, "dragover", { clientY: 39 });
+    });
+    await act(async () => {
+      dispatchDrag(todoColumn, "drop");
+    });
+    await flush();
+    await flush();
+
+    const x = serverTasks.find((t) => t.id === "x")!;
+    expect(x.status).toBe("todo");
+    expect(
+      (x.links ?? []).some((l) => l?.type === "parent"),
+    ).toBe(false);
+    // And it renders as a root card in the new lane, not just in the tree.
+    expect(card("x")).not.toBeNull();
+  });
 });

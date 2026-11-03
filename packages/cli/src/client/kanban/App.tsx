@@ -1300,6 +1300,16 @@ function BoardApp() {
     afterId: string | null,
     explicitSortKey?: string,
   ) {
+    // Drag-out to root: onReorder positions among the column's standalone
+    // cards, so a parented task dropped here leaves its parent behind — the
+    // exact inverse of create-child (status/sortKey move AND parent unlink).
+    // Without the unlink the card renders in the new lane while staying
+    // attached to the old parent's tree (ticket kpz9cb70bwl01618euozs368).
+    const draggedTask = tasksRef.current.find((t) => t.id === taskId);
+    const draggedLinks = draggedTask?.links ?? [];
+    const dragOutLinks = draggedLinks.some((l) => l?.type === "parent")
+      ? draggedLinks.filter((l) => l?.type !== "parent")
+      : null;
     const colTasks = tasksRef.current
       .filter((t) => t.status === newStatus)
       .sort(compareTaskOrder);
@@ -1320,7 +1330,11 @@ function BoardApp() {
       const patches = new Map<string, Partial<Task>>();
       for (const { id, sortKey } of normalizationPatches)
         patches.set(id, { sortKey });
-      patches.set(taskId, { status: newStatus, sortKey: newSortKey });
+      patches.set(taskId, {
+        status: newStatus,
+        sortKey: newSortKey,
+        ...(dragOutLinks ? { links: dragOutLinks } : null),
+      });
 
       // Cascade done status: when a parent is moved to done, all
       // descendants are also marked done so the subtree completes together.
@@ -1345,7 +1359,11 @@ function BoardApp() {
     // silently discarded. The cascade-done path below needs no extra writes:
     // the server marks descendants done off the dragged task's status.
     try {
-      await api.updateTask(taskId, { status: newStatus, sortKey: newSortKey });
+      await api.updateTask(taskId, {
+        status: newStatus,
+        sortKey: newSortKey,
+        ...(dragOutLinks ? { links: dragOutLinks } : null),
+      });
       for (const patch of normalizationPatches)
         await api.updateTask(patch.id, { sortKey: patch.sortKey });
     } catch {
@@ -1773,7 +1791,7 @@ function BoardApp() {
             isLoading={isLoading}
             onOpenPanel={(task, tab) => openPanel(task, tab)}
             onAddTask={(status) => openPanel(null, "details", status)}
-            onDrop={(taskId, status) => patchTask(taskId, { status })}
+            onDrop={handleColumnDrop}
             onChangeStatus={(taskId, status) => patchTask(taskId, { status })}
           />
         ) : (
