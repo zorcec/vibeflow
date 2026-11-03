@@ -46,9 +46,17 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import type { Command } from "commander";
+import { gitEnvWithCleanLocation } from "../../src/core/git-env.js";
 
 let createProgram: () => Command;
 const cleanups: Array<() => void> = [];
+
+// Scope every fixture `git` call below to its temp dir: under a git hook in
+// a linked worktree an inherited GIT_DIR would redirect `git init`/`git
+// config`/`git commit` into the enclosing repo (ticket e138e51d
+// worktree-config pollution). `cwd` alone does not protect — only a clean
+// location env makes git resolve the repo from `cwd`.
+const gitEnv = gitEnvWithCleanLocation();
 
 beforeAll(async () => {
   process.env.VIBEFLOW_TELEMETRY = "0";
@@ -979,7 +987,7 @@ describe("top-level info commands (in-process commander tree)", () => {
     mkdirSync(dir, { recursive: true });
     mkdirSync(home, { recursive: true });
     writeFileSync(join(dir, "aaa00001.json"), taskJson("aaa00001"), "utf-8");
-    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store });
+    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store, env: gitEnv });
     const before = JSON.stringify(readStore(store));
     const r = await runCli(["authors", "link", store, "--dry-run"], home);
     expect(r.exitCode ?? 0).toBe(0);
@@ -1136,8 +1144,8 @@ describe("tasks commit success in a git repo (in-process)", () => {
     mkdirSync(dir, { recursive: true });
     mkdirSync(home, { recursive: true });
     writeFileSync(join(dir, "aaa00001.json"), taskJson("aaa00001"), "utf-8");
-    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store });
-    const head = execSync("git rev-parse HEAD", { cwd: store }).toString().trim();
+    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store, env: gitEnv });
+    const head = execSync("git rev-parse HEAD", { cwd: store, env: gitEnv }).toString().trim();
     // No working-tree changes: the never-dead-end contract links HEAD
     // (a new commit here would fail without git identity configured).
     const r = await runCli(
@@ -1508,8 +1516,8 @@ describe("tasks human-mode twins continued (in-process commander tree)", () => {
     mkdirSync(dir, { recursive: true });
     mkdirSync(home, { recursive: true });
     writeFileSync(join(dir, "aaa00001.json"), taskJson("aaa00001"), "utf-8");
-    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store });
-    const head = execSync("git rev-parse HEAD", { cwd: store }).toString().trim();
+    execSync("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", { cwd: store, env: gitEnv });
+    const head = execSync("git rev-parse HEAD", { cwd: store, env: gitEnv }).toString().trim();
     const r = await runCli(
       ["tasks", store, "--commit", "--task", "aaa00001", "--message", "scoped work"],
       home,
@@ -1531,12 +1539,12 @@ describe("tasks human-mode twins continued (in-process commander tree)", () => {
     mkdirSync(dir, { recursive: true });
     mkdirSync(home, { recursive: true });
     writeFileSync(join(dir, "aaa00001.json"), taskJson("aaa00001"), "utf-8");
-    execSync("git init -q && git add -A && git -c user.email=author@example.com -c user.name=Author commit -qm init", { cwd: store });
-    const head = execSync("git rev-parse HEAD", { cwd: store }).toString().trim();
+    execSync("git init -q && git add -A && git -c user.email=author@example.com -c user.name=Author commit -qm init", { cwd: store, env: gitEnv });
+    const head = execSync("git rev-parse HEAD", { cwd: store, env: gitEnv }).toString().trim();
     // Self-consistent oracle: whatever identity the fixture commit landed
     // with (the -c flags above, or ambient git config when those lose),
     // authors link must resolve exactly that author through git.
-    const expectedEmail = execSync("git log -1 --format=%ae HEAD", { cwd: store }).toString().trim();
+    const expectedEmail = execSync("git log -1 --format=%ae HEAD", { cwd: store, env: gitEnv }).toString().trim();
     expect(expectedEmail).toMatch(/@/);
     const c = await runCli(
       ["tasks", store, "--commit", "--task", "aaa00001", "--message", "scoped work", "--json"],
@@ -1570,7 +1578,7 @@ describe("tasks auto-commit and next dry-run (in-process commander tree)", () =>
     mkdirSync(dir, { recursive: true });
     mkdirSync(home, { recursive: true });
     writeFileSync(join(dir, "aaa00001.json"), taskJson("aaa00001"), "utf-8");
-    execSync("git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -qm init", { cwd: store });
+    execSync("git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -qm init", { cwd: store, env: gitEnv });
     const { saveSettings } = await import("../../src/core/settings.js");
     saveSettings(store, { autoCommit: true, autoPush: true });
     let r = await runCli(

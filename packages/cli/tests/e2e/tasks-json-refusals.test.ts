@@ -792,6 +792,10 @@ describe("tasks --json partial success is a notice, not a refusal", () => {
     // And the commit really happened: message plus [vibeflow:<id>] tag on HEAD.
     const log = execSync("git log -1 --format=%B", {
       cwd: store,
+      // Scope the read to the temp dir: under a git hook in a linked
+      // worktree an inherited GIT_DIR would resolve HEAD in the enclosing
+      // repo instead (ticket e138e51d).
+      env: gitEnvWithCleanLocation(),
       stdio: ["ignore", "pipe", "ignore"],
     }).toString();
     expect(log).toContain("feat: work");
@@ -1041,6 +1045,10 @@ describe("tasks --json stdout is empty or one JSON document — always", () => {
     // the auto-push it is named for.
     execSync('git commit -q --allow-empty -m "init"', {
       cwd: store,
+      // Scope the fixture commit to the temp dir: under a git hook in a
+      // linked worktree an inherited GIT_DIR would land this commit in the
+      // enclosing repo (ticket e138e51d).
+      env: gitEnvWithCleanLocation(),
       stdio: "ignore",
     });
     writeSettings(store, { autoCommit: true, autoPush: true });
