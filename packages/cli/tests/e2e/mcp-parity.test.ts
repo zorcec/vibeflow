@@ -103,6 +103,7 @@ describe("MCP-from-manifest parity", () => {
       claim_next_task: { dryRun: "yes" },
       add_comment: { id: 123, comment: "x" },
       attach_file: { id: 123, filename: "a.md", contentB64: "aGk=" },
+      get_file: { id: 123, filename: "a.md" },
       verify_task: { id: 123, url: "http://ok" },
       // `port` is a bounded integer in the manifest; a string must be refused
       // rather than coerced into a NaN bind.

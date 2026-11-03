@@ -134,6 +134,20 @@ const REACHABLE_REFUSALS: Array<
     }),
     code: "TASK_NOT_FOUND",
   },
+  {
+    // The read mirror of attach_file's orphan-file defect: used to have no
+    // download path at all, so a missing task could never be refused — the
+    // existence check runs before any read, same as every other id-bearing
+    // tool.
+    group: "existence",
+    label: "get_file",
+    tool: "get_file",
+    input: () => ({
+      id: IMPOSSIBLE_ID,
+      filename: "screenshot.png",
+    }),
+    code: "TASK_NOT_FOUND",
+  },
   // export_prompt row REMOVED (ticket 53b622fc, BREAKING): the tool is gone.
   {
     // `verify_task` resolves through the CLI verify engine, which has its own

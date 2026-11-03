@@ -4,7 +4,7 @@
 - Date: 2026-10-25
 - Governed: `packages/cli/src/core/remote-task-store.ts`
 - Governed: `packages/cli/src/saas/pull-archive.ts`
-- Reviewed: 2026-10-25
+- Reviewed: 2026-11-03
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 
 ## Background
