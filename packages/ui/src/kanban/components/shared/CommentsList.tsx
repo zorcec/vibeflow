@@ -356,12 +356,13 @@ interface Props {
   onDelete: (comment: Comment) => Promise<void>;
   onDeleteFile?: (f: FileEntry) => Promise<void>;
   onFilePreview?: (name: string, url: string) => void;
+  onFileDownload?: (name: string, url: string) => void;
   /** Hover-card lookup for task refs in comment previews. Without it the
       preview falls back to the legacy `GET /api/tasks/:id` hover fetch. */
   taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
-export function CommentsList({ comments, files = [], localChanges = [], loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, taskLookup }: Props) {
+export function CommentsList({ comments, files = [], localChanges = [], loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -596,7 +597,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
                   : flashedKeys.has(itemKey)
                     ? 'activity-flash'
                     : '';
-                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, taskLookup);
+                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup);
               })}
             </div>
           </div>
@@ -676,6 +677,7 @@ function renderActivityItem(
   onRequestDelete: (comment: Comment) => void,
   onRequestDeleteFile: ((f: FileEntry) => void) | null,
   onFilePreview?: (name: string, url: string) => void,
+  onFileDownload?: (name: string, url: string) => void,
   taskLookup?: (id: string) => { title: string; status: string } | undefined,
 ): React.ReactNode {
   if (item.kind === 'lifecycle') {
@@ -786,6 +788,7 @@ function renderActivityItem(
         url={url}
         variant="compact"
         onPreview={onFilePreview ? (f, u) => onFilePreview(f.name, u) : undefined}
+        onDownload={onFileDownload ? (f, u) => onFileDownload(f.name, u) : undefined}
         onDelete={onRequestDeleteFile ? (f) => { onRequestDeleteFile(f); return Promise.resolve(); } : undefined}
         />
       </div>

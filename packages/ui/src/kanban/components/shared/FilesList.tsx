@@ -64,6 +64,7 @@ interface Props {
   /** Kept for caller compatibility; grouping no longer consults it. */
   taskId?: string;
   onPreview: (f: FileEntry) => void;
+  onDownload?: (f: FileEntry) => void;
   onDelete?: (f: FileEntry) => Promise<void>;
   /**
    * Files currently being processed/uploaded (paste → wasm transform →
@@ -81,6 +82,7 @@ export function FilesList({
   error,
   baseUrl,
   onPreview,
+  onDownload,
   onDelete,
   pendingFiles = [],
 }: Props) {
@@ -174,6 +176,7 @@ export function FilesList({
         url={url}
         variant="normal"
         onPreview={(file) => onPreview(file)}
+        onDownload={onDownload ? (file) => onDownload(file) : undefined}
         onDelete={
           onDelete
             ? (file) => {

@@ -228,6 +228,7 @@ interface Props {
   onDelete: (taskId: string) => void;
   onPatch: (taskId: string, patch: Partial<Task>) => void;
   onFilePreview: (name: string, url: string) => void;
+  onFileDownload?: (name: string, url: string) => void;
   onActivityChange?: (
     taskId: string | null,
     state: "viewing" | "editing",
@@ -293,6 +294,7 @@ export function DetailPanel({
   onDelete,
   onPatch,
   onFilePreview,
+  onFileDownload,
   onActivityChange,
   externalLocalChanges = [],
   presence = [],
@@ -1932,6 +1934,7 @@ export function DetailPanel({
               onDelete={handleDeleteComment}
               onDeleteFile={handleDeleteFile}
               onFilePreview={onFilePreview}
+              onFileDownload={onFileDownload}
               taskLookup={taskLookup}
             />
           </div>
@@ -1956,6 +1959,14 @@ export function DetailPanel({
                     ? `${baseUrl}/api/tasks/${task?.id}/files/${encodeURIComponent(f.name)}`
                     : `${baseUrl}${f.url}`,
                 )
+              }
+              onDownload={onFileDownload ? (f) =>
+                onFileDownload(
+                  f.name,
+                  f.linkedPath
+                    ? `${baseUrl}/api/tasks/${task?.id}/files/${encodeURIComponent(f.name)}`
+                    : `${baseUrl}${f.url}`,
+                ) : undefined
               }
               onDelete={handleDeleteFile}
             />

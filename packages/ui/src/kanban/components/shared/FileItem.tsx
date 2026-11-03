@@ -26,10 +26,11 @@ interface FileItemProps {
   /** 'normal' = full-size card with size label (Files tab). 'compact' = minimal row (Activities pane). */
   variant: 'normal' | 'compact';
   onPreview?: (f: FileEntry, url: string) => void;
+  onDownload?: (f: FileEntry, url: string) => void;
   onDelete?: (f: FileEntry) => Promise<void> | void;
 }
 
-export function FileItem({ file: f, url, variant, onPreview, onDelete }: FileItemProps) {
+export function FileItem({ file: f, url, variant, onPreview, onDownload, onDelete }: FileItemProps) {
   const canPreview = isPreviewable(f);
   const isHtml = isHtmlFile(f);
 
@@ -69,13 +70,21 @@ export function FileItem({ file: f, url, variant, onPreview, onDelete }: FileIte
               title={isHtml ? 'Open in new tab' : 'Preview'}
             >{isHtml ? '↗' : '👁'}</button>
           )}
-          <a
-            href={url}
-            download={f.name}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)', textDecoration: 'none' }}
-            title="Download"
-            onClick={(e) => e.stopPropagation()}
-          >↓</a>
+          {onDownload ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDownload(f, url); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)' }}
+              title="Download"
+            >↓</button>
+          ) : (
+            <a
+              href={url}
+              download={f.name}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)', textDecoration: 'none' }}
+              title="Download"
+              onClick={(e) => e.stopPropagation()}
+            >↓</a>
+          )}
           {onDelete && (
             <button
               onClick={() => void onDelete(f)}
@@ -113,13 +122,21 @@ export function FileItem({ file: f, url, variant, onPreview, onDelete }: FileIte
             title={isHtml ? 'Open in new tab' : 'Preview'}
           >{isHtml ? '↗' : '👁'}</button>
         )}
-        <a
-          href={url}
-          download={f.name}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)', textDecoration: 'none' }}
-          title="Download"
-          onClick={(e) => e.stopPropagation()}
-        >↓</a>
+        {onDownload ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDownload(f, url); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)' }}
+            title="Download"
+          >↓</button>
+        ) : (
+          <a
+            href={url}
+            download={f.name}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: 4, fontSize: 11, color: 'var(--t-text-muted)', textDecoration: 'none' }}
+            title="Download"
+            onClick={(e) => e.stopPropagation()}
+          >↓</a>
+        )}
         {onDelete && (
           <button
             onClick={() => void onDelete(f)}
