@@ -285,11 +285,13 @@ vibeflow mcp --project /path/to/project
 | `claim_next_task` | Claim the highest-priority root task in `todo` as `in-progress` |
 | `add_comment` | Comment on a task |
 | `attach_file` | Attach a file (base64); a `.md` satisfies the research-report gate |
+| `get_file` | Download a file attached to a task (base64) |
+| `pull` | Pull the online board into the local task store (additive, never deletes) |
 | `verify_task` | Run visual verification for an annotated task |
 | `start_kanban` | Start the local Kanban board server and return its URLs |
 | `get_integration_guide` | The overlay/bookmarklet integration instructions |
 
-The published package exposes every tool listed above. `server.json` records that count as `toolsAtPinnedVersion`, and `sync-server-manifest.mjs` checks it against `packages/cli/src/mcp/manifest.ts` on every release — a mismatch warns loudly rather than shipping a number nobody verified.
+The published package exposes every tool listed above. `server.json` records that count as `toolsAtPinnedVersion` for the pinned release. The table itself is generated from the code: `packages/cli/tool-catalog.json` is projected from `packages/cli/src/mcp/manifest.ts` (drift test `tests/unit/mcp/tool-catalog.test.ts` fails if they disagree), and `pnpm check:docs` fails if this table's rows drift from the catalog — never add a tool row by hand.
 
 ### Authentication
 

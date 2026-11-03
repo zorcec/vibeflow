@@ -4,7 +4,7 @@
 - Date: 2026-10-25
 - Governed: `.husky/pre-commit`
 - Governed: `scripts/release-cli.mjs`
-- Reviewed: 2026-10-25
+- Reviewed: 2026-11-03
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 
 ## Background
