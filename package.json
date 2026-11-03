@@ -23,6 +23,8 @@
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
     "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
+    "lint:ai": "eslint --config eslint.config.ai-warn.mjs \"packages/*/src/**/*.{ts,tsx}\" \"packages/*/tests/**/*.{ts,tsx}\"",
+    "lint:knip": "knip --no-exit-code",
     "lint": "pnpm run lint:symbols && pnpm -r run lint",
     "scan:secrets": "gitleaks detect --source . --staged --verbose",
     "scan:secrets:full": "gitleaks detect --source . --verbose",
@@ -40,7 +42,9 @@
     "@changesets/cli": "^2.31.1",
     "esbuild": "^0.28.1",
     "eslint": "^10.12.0",
+    "eslint-plugin-import-x": "^4.17.1",
     "husky": "^9.1.7",
+    "knip": "^6.44.1",
     "typescript-eslint": "^8.71.1"
   }
 }
