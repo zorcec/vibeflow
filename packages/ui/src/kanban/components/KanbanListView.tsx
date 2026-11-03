@@ -531,7 +531,18 @@ function ListRow({
           value={task.status}
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => onChangeStatus(task.id, event.target.value as TaskStatus)}
-          style={{ maxWidth: 110, fontSize: 11 }}
+          // Status select must carry theme tokens: an unstyled native select uses
+          // the UA default (rgb(239,239,239) light box) and pops white on dark
+          // themes. Same --t-input/--t-text/--t-border trio as dp-title-field.
+          // Owner-reported, ticket sgj3bggkhovwphrnq5gdmi26 (2026-11-03).
+          style={{
+            maxWidth: 110,
+            fontSize: 11,
+            background: "var(--t-input)",
+            color: "var(--t-text)",
+            border: "1px solid var(--t-border)",
+            borderRadius: 6,
+          }}
         >
           {(["review", "in-progress", "todo", "backlog", "done"] as TaskStatus[]).map((status) => (
             <option key={status} value={status}>{status}</option>

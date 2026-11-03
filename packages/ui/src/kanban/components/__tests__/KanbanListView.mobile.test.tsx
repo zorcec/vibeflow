@@ -38,4 +38,19 @@ describe("KanbanListView mobile transitions", () => {
     view.rerender(<KanbanListView {...props} />);
     expect(view.queryByRole("combobox", { name: "Change status for Done item" })).toBeNull();
   });
+
+  it("styles the mobile status select with theme tokens, not the UA default", () => {
+    // Regression (ticket sgj3bggkhovwphrnq5gdmi26): the unstyled native select
+    // painted the UA default rgb(239,239,239) on every theme — a white box on
+    // dark boards. The select must carry --t-input/--t-text like other inputs.
+    const view = render(<KanbanListView {...props} mobile />);
+    fireEvent.click(view.getByRole("button", { name: "Expand done" }));
+    const status = view.getByRole("combobox", {
+      name: "Change status for Done item",
+    });
+    const inline = status.getAttribute("style") ?? "";
+    expect(inline).toContain("var(--t-input)");
+    expect(inline).toContain("var(--t-text)");
+    expect(inline).not.toContain("239, 239, 239");
+  });
 });
