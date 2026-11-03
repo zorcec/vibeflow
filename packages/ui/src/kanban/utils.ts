@@ -169,6 +169,29 @@ export function compareTaskOrder(
   );
 }
 
+/**
+ * Comparator for the Done lane/group: most-recently-modified first by
+ * updatedAt desc (falling back to createdAt desc). SortKeys reflect manual
+ * drag order, not recency, so the Done group ignores them — the ticket
+ * (e35p3cfeofp3zoivi7og8ivq) wants recently closed/modified items on top.
+ * Pass directly to Array.sort(). Null-entry safe via ?? "" (missing dates
+ * sort last). ADR-free: display-only, no store writes.
+ */
+export function compareDoneOrder(
+  a: {
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  },
+  b: {
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  },
+): number {
+  return (b.updatedAt ?? b.createdAt ?? "").localeCompare(
+    a.updatedAt ?? a.createdAt ?? "",
+  );
+}
+
 export interface ReorderPatch {
   id: string;
   sortKey: string;

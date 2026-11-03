@@ -14,7 +14,7 @@ import {
   dragSession,
 } from "../task-links";
 import type { DropIntent } from "../task-links";
-import { compareTaskOrder } from "../utils";
+import { compareTaskOrder, compareDoneOrder } from "../utils";
 import { filterTasksByQuery } from "../search";
 
 const COLUMNS: Column[] = [
@@ -983,9 +983,13 @@ export function KanbanBoard({
             ? 0
             : (childCountByStatus.get(col.id) ?? 0);
 
-          // Done column: show latest modified tasks first (reverse order)
+          // Done column: most-recently-modified first (e35p3cfeofp3zoivi7og8ivq).
+          // sortKey order reflects manual drags, not recency, so sort the
+          // done lane by updatedAt desc; other lanes keep compareTaskOrder.
           const displayTasks =
-            col.id === "done" ? [...colTasks].reverse() : colTasks;
+            col.id === "done"
+              ? [...colTasks].sort(compareDoneOrder)
+              : colTasks;
 
           return (
             <KanbanColumn

@@ -2,6 +2,7 @@ import React from "react";
 import { MessageCircle, Paperclip, Flag } from "lucide-react";
 import type { Task, TaskStatus, LiveActivity } from "../types";
 import { groupTasksByRoot } from "../task-links";
+import { compareDoneOrder } from "../utils";
 import { filterTasksByQuery } from "../search";
 import { LiveActivityBadge } from "./TaskCard";
 import { TASK_TYPE_ICONS } from "../../task-types";
@@ -166,6 +167,9 @@ export function KanbanListView({
       const bucket = map.get(t.status) ?? [];
       bucket.push(t);
     }
+    // Done group: most-recently-modified first (e35p3cfeofp3zoivi7og8ivq).
+    // Other groups keep insertion order; no pagination/cap change here.
+    map.get("done")?.sort(compareDoneOrder);
     return map;
   }, [filtered, mobile]);
 

@@ -63,6 +63,7 @@ export {
   generateSortKeyBetween,
   initialSortKeys,
   compareTaskOrder,
+  compareDoneOrder,
   computeReorder,
   maxSortKey,
   computeBackfillPlan, // one-time sortKey backfill planner (see docs/plans/sortkey-fix.md)

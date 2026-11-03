@@ -171,6 +171,10 @@ describe("done lane stays a working drop target with hint lifecycle", () => {
     id: `done-${i}`,
     title: `Done task ${i}`,
     status: "done" as const,
+    // Distinct recency: done-11 is newest, so it renders first under the
+    // done-lane recency sort (e35p3cfeofp3zoivi7og8ivq) and stays visible
+    // under the DONE_LIMIT=10 fallback cap in jsdom (clientHeight 0).
+    updatedAt: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(),
   }));
 
   function renderBoard(handlers: {
