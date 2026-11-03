@@ -122,16 +122,15 @@ export function boardColumnWidth(
 }
 
 /**
- * Done count-chip text (ticket mqd8syq9): `showing X of N`. X is the done
- * tasks actually held (it grows as more pages load); N is the server-known
- * total from the single `doneTotal` count source. `shown` clamps to `total`
- * so a transient overshoot (optimistic pins, realtime overlay) never reads
- * `showing 53 of 52`. One formatter so the board, hosts, and tests share
- * the exact wording.
+ * Done overflow remainder (ticket d2zka3bd): how many done tasks are NOT
+ * on screen — `N = total − rendered`, where `rendered` is the cards actually
+ * visible in the lane (fit-capped) and `total` is the server-known done
+ * total. Clamps a transient overshoot (optimistic pins, realtime overlay)
+ * to 0 so the lane never reads a negative remainder. The lane renders this
+ * as its single bottom line (`+N more`); there is no `shown X of N` line.
  */
-export function doneCountChipText(shown: number, total: number): string {
-  const safeShown = Math.max(0, Math.min(shown, total));
-  return `showing ${safeShown} of ${total}`;
+export function doneHiddenCount(rendered: number, total: number): number {
+  return Math.max(0, total - rendered);
 }
 
 /** Space the fit count must keep free below the last card: the chip, its
@@ -367,17 +366,17 @@ interface Props {
    */
   columnFooter?: (status: TaskStatus) => React.ReactNode;
   /**
-   * Server-known total for the DONE column (ticket mqd8syq9, UI half).
+   * Server-known total for the DONE column (tickets mqd8syq9, d2zka3bd).
    * The host fetches it ONCE — it already arrives on the done list response,
    * so the host reuses that number — and passes it here. The Done header
-   * (`Done - N`) and the bottom count chip (`showing X of N`) BOTH read this
-   * one prop, so the two numbers can never come from two queries. X (shown)
-   * is the done tasks actually held in `tasks` and grows as more pages load;
-   * N does not change for the same response. Null/undefined (e.g. surfaces
-   * that hold every task locally) keeps the legacy header (`Done · N`) and
-   * no chip — byte-identical to before. Hosts that pass this should stop
-   * injecting a done footer via `columnFooter` — the built-in chip below
-   * replaces it (it renders after any injected footer, at the very bottom).
+   * (`Done · N`) and the single bottom line (`+N more`, N = total − rendered)
+   * BOTH read this one prop, so the two numbers can never come from two
+   * queries. N does not change for the same response. Null/undefined (e.g.
+   * surfaces that hold every task locally) keeps the legacy header
+   * (`Done · N`, N = held tasks) and the fit-only `+N more` chip —
+   * byte-identical to before. Hosts that pass this must not inject a done
+   * footer via `columnFooter` — the built-in bottom line below replaces it
+   * (it renders after any injected footer, at the very bottom).
    */
   doneTotal?: number | null;
   /**
@@ -1135,12 +1134,12 @@ interface ColumnProps {
       card / overflow chip). Null/undefined renders nothing. */
   footer?: React.ReactNode;
   /**
-   * Server-known Done total (ticket mqd8syq9, UI half) — forwarded from the
-   * board's `doneTotal` prop. When a finite number, the Done header reads
-   * `Done - N` (replacing the `Done · shown` count and the separate nested
-   * hint for this column) and the dotted count chip (`showing X of N`) is
-   * rendered after `footer`, at the very bottom of the scroll area. Both
-   * read this ONE prop — never a second query. Absent keeps legacy output.
+    * Server-known Done total (tickets mqd8syq9, d2zka3bd) — forwarded from
+   * the board's `doneTotal` prop. When a finite number, the Done header
+   * reads `Done · N` (replacing the `Done · shown` count and the separate
+   * nested hint for this column) and the bottom line reads `+N more` with
+   * N = total − rendered-on-screen. Both read this ONE prop — never a
+   * second query. Absent keeps legacy output.
    */
   doneTotal?: number | null;
 }
@@ -1175,11 +1174,11 @@ function KanbanColumn({
   footer,
   doneTotal,
 }: ColumnProps) {
-  // Ticket mqd8syq9 (UI half): the single count source for the Done column.
-  // Header (`Done - N`) and footer chip (`showing X of N`) both derive from
-  // this one number — the host fetches it once (it arrives on the done list
-  // response) and shares it. X is the done tasks actually held and grows as
-  // more pages load; N never changes for the same response.
+  // Tickets mqd8syq9 + d2zka3bd: the single count source for the Done
+  // column. Header (`Done · N`) and bottom line (`+N more`, N = total −
+  // rendered) both derive from this one number — the host fetches it once
+  // (it arrives on the done list response) and shares it. N never changes
+  // for the same response.
   const doneTotalKnown =
     col.id === "done" &&
     typeof doneTotal === "number" &&
@@ -1256,7 +1255,12 @@ function KanbanColumn({
   // Owner rule: only the done lane fits to screen; every other lane renders
   // all tasks with normal scrolling.
   const visibleTasks = isDone ? tasks.slice(0, fitCount) : tasks;
-  const overflow = tasks.length - visibleTasks.length;
+  // Ticket d2zka3bd: the bottom line counts what is NOT on screen against
+  // the server-known total (N = total − rendered cards), not just the fit
+  // cut — so a capped lane reads `+1946 more`, never a `shown X of N` line.
+  const overflow = doneTotalKnown
+    ? doneHiddenCount(visibleTasks.length, doneTotal as number)
+    : tasks.length - visibleTasks.length;
 
   return (
     <section
@@ -1313,7 +1317,7 @@ function KanbanColumn({
           }}
         >
           {doneTotalKnown
-            ? `${col.label} - ${doneTotal}`
+            ? `${col.label} · ${doneTotal}`
             : (<>{col.label}{isLoading ? "" : ` · ${tasks.length}`}</>)}
         </span>
         {!doneTotalKnown && !isLoading && nestedCount > 0 ? (
@@ -1525,28 +1529,6 @@ function KanbanColumn({
             inside the scroll area, after the last card / overflow chip —
             never above the board. Null renders nothing. */}
         {footer ?? null}
-        {/* Ticket mqd8syq9: Done count chip — the dotted line at the very
-            bottom of the Done column. Renders only while the single count
-            source (`doneTotal`) is known and the column is not loading
-            (the shown count is meaningless during skeletons). */}
-        {doneTotalKnown && !isLoading ? (
-          <span
-            data-testid="done-count-chip"
-            aria-live="polite"
-            style={{
-              fontSize: 11,
-              color: "var(--t-text-faint)",
-              textAlign: "center",
-              padding: "6px 10px",
-              border: "1px dotted var(--t-border-faint)",
-              borderRadius: 10,
-              background: "transparent",
-              display: "block",
-            }}
-          >
-            {doneCountChipText(tasks.length, doneTotal as number)}
-          </span>
-        ) : null}
       </div>
     </section>
   );

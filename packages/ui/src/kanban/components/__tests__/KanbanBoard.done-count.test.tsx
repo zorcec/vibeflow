@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { KanbanBoard, doneCountChipText } from "../KanbanBoard";
+import { KanbanBoard, doneHiddenCount } from "../KanbanBoard";
 import type { Task, TaskStatus } from "../../types";
 
 beforeAll(() => {
@@ -10,7 +10,7 @@ beforeAll(() => {
     class {
       observe() {}
       unobserve() {}
-      disconnect() {}
+      disconnect() {};
     };
 });
 
@@ -49,45 +49,50 @@ function headerText(container: HTMLElement, colId: string): string {
   return el!.textContent ?? "";
 }
 
-function countChip(container: HTMLElement): HTMLElement | null {
-  return container.querySelector('[data-testid="done-count-chip"]');
+/** The single bottom line of the done lane (`+N more`), if rendered. */
+function moreChip(container: HTMLElement): HTMLElement | null {
+  return container.querySelector(
+    '[data-column-id="done"] [data-fit-chip]',
+  );
 }
 
-describe("KanbanBoard done counts — one query for both (mqd8syq9)", () => {
-  it("header shows `Done - N` from the single count source", () => {
+// jsdom has no layout, so the done lane falls back to the unmeasured cap
+// (DONE_LIMIT = 10): every task up to 10 renders, the rest is remainder.
+describe("KanbanBoard done counts — header total + `+N more` (d2zka3bd)", () => {
+  it("header shows the TOTAL (`Done · N`) from the single count source", () => {
     const { container } = renderBoard(
       [
         makeTask("d1", "Done one", "done"),
         makeTask("d2", "Done two", "done"),
         makeTask("t1", "Todo one", "todo"),
       ],
-      1775,
+      1956,
     );
-    expect(headerText(container, "done")).toBe("Done - 1775");
+    expect(headerText(container, "done")).toBe("Done · 1956");
     // Other columns keep their own rendering.
     expect(headerText(container, "todo")).toBe("Todo · 1");
   });
 
-  it("footer chip shows `showing X of N`", () => {
+  it("bottom line shows `+N more` with N = total − rendered", () => {
     const { container } = renderBoard(
       [
         makeTask("d1", "Done one", "done"),
         makeTask("d2", "Done two", "done"),
       ],
-      1775,
+      1956,
     );
-    const chip = countChip(container)!;
+    const chip = moreChip(container)!;
     expect(chip).toBeInTheDocument();
-    expect(chip).toHaveTextContent("showing 2 of 1775");
+    expect(chip).toHaveTextContent("+1954 more");
   });
 
-  it("a page action changes shown (X) and leaves total (N)", () => {
+  it("a page action shrinks the remainder and leaves the total", () => {
     const tasks = [
       makeTask("d1", "Done one", "done"),
       makeTask("d2", "Done two", "done"),
     ];
-    const { container, rerender } = renderBoard(tasks, 1775);
-    expect(countChip(container)).toHaveTextContent("showing 2 of 1775");
+    const { container, rerender } = renderBoard(tasks, 1956);
+    expect(moreChip(container)).toHaveTextContent("+1954 more");
     rerender(
       <KanbanBoard
         tasks={[...tasks, makeTask("d3", "Done three", "done")]}
@@ -95,19 +100,19 @@ describe("KanbanBoard done counts — one query for both (mqd8syq9)", () => {
         searchQuery=""
         onOpenPanel={vi.fn()}
         onDrop={vi.fn()}
-        doneTotal={1775}
+        doneTotal={1956}
       />,
     );
-    // Shown grew with the newly loaded page; the total did not change.
-    expect(countChip(container)).toHaveTextContent("showing 3 of 1775");
-    expect(headerText(container, "done")).toBe("Done - 1775");
+    // One more card on screen; the total did not change.
+    expect(moreChip(container)).toHaveTextContent("+1953 more");
+    expect(headerText(container, "done")).toBe("Done · 1956");
   });
 
-  it("header and footer derive from exactly one count source", () => {
+  it("header and bottom line derive from exactly one count source", () => {
     const tasks = [makeTask("d1", "Done one", "done")];
-    const { container, rerender } = renderBoard(tasks, 1775);
-    expect(headerText(container, "done")).toBe("Done - 1775");
-    expect(countChip(container)).toHaveTextContent("showing 1 of 1775");
+    const { container, rerender } = renderBoard(tasks, 1956);
+    expect(headerText(container, "done")).toBe("Done · 1956");
+    expect(moreChip(container)).toHaveTextContent("+1955 more");
     // Changing ONLY the single source moves both numbers together — no
     // second query, fetch, or prop feeds either of them.
     rerender(
@@ -117,20 +122,41 @@ describe("KanbanBoard done counts — one query for both (mqd8syq9)", () => {
         searchQuery=""
         onOpenPanel={vi.fn()}
         onDrop={vi.fn()}
-        doneTotal={1776}
+        doneTotal={1957}
       />,
     );
-    expect(headerText(container, "done")).toBe("Done - 1776");
-    expect(countChip(container)).toHaveTextContent("showing 1 of 1776");
+    expect(headerText(container, "done")).toBe("Done · 1957");
+    expect(moreChip(container)).toHaveTextContent("+1956 more");
   });
 
-  it("without doneTotal the legacy header renders and no chip appears", () => {
+  it("no bottom line when everything fits (remainder is zero)", () => {
+    const { container } = renderBoard(
+      [makeTask("d1", "Done one", "done")],
+      1,
+    );
+    expect(headerText(container, "done")).toBe("Done · 1");
+    expect(moreChip(container)).toBeNull();
+  });
+
+  it("no `shown X of N` duplicate line anywhere in the done lane", () => {
+    const { container } = renderBoard(
+      [makeTask("d1", "Done one", "done")],
+      1956,
+    );
+    const lane = container.querySelector('[data-column-id="done"]')!;
+    expect(lane.textContent).not.toMatch(/shown/i);
+    expect(
+      container.querySelector('[data-testid="done-count-chip"]'),
+    ).toBeNull();
+  });
+
+  it("without doneTotal the legacy header renders and fit-only chip stays", () => {
     const { container } = renderBoard([
       makeTask("d1", "Done one", "done"),
       makeTask("d2", "Done two", "done"),
     ]);
     expect(headerText(container, "done")).toBe("Done · 2");
-    expect(countChip(container)).toBeNull();
+    expect(moreChip(container)).toBeNull();
   });
 
   it("the separate nested hint is removed for Done while the total is known", () => {
@@ -138,8 +164,8 @@ describe("KanbanBoard done counts — one query for both (mqd8syq9)", () => {
     const child = makeTask("c1", "Nested child", "todo", [
       { taskId: "p1", type: "parent" },
     ]);
-    const { container } = renderBoard([parent, child], 1775);
-    expect(headerText(container, "done")).toBe("Done - 1775");
+    const { container } = renderBoard([parent, child], 1956);
+    expect(headerText(container, "done")).toBe("Done · 1956");
     expect(
       container.querySelector('[data-column-id="done"] [data-role="nested-hint"]'),
     ).toBeNull();
@@ -150,26 +176,26 @@ describe("KanbanBoard done counts — one query for both (mqd8syq9)", () => {
     ).toBeNull();
   });
 
-  it("the count chip is the last child of the done scroll area", () => {
+  it("the `+N more` line is the last child of the done scroll area", () => {
     const { container } = renderBoard(
       [makeTask("d1", "Done one", "done")],
-      1775,
+      1956,
     );
     const scroll = container.querySelector(
       '[data-column-id="done"] .column-scroll',
     )!;
-    expect(scroll.lastElementChild?.getAttribute("data-testid")).toBe(
-      "done-count-chip",
-    );
+    expect(scroll.lastElementChild?.hasAttribute("data-fit-chip")).toBe(true);
   });
 });
 
-describe("doneCountChipText (mqd8syq9)", () => {
-  it("formats `showing X of N`", () => {
-    expect(doneCountChipText(52, 1775)).toBe("showing 52 of 1775");
+describe("doneHiddenCount (d2zka3bd)", () => {
+  it("returns total − rendered", () => {
+    expect(doneHiddenCount(52, 1956)).toBe(1904);
+    expect(doneHiddenCount(0, 1956)).toBe(1956);
   });
 
-  it("clamps a transient overshoot so the chip never reads X > N", () => {
-    expect(doneCountChipText(53, 52)).toBe("showing 52 of 52");
+  it("clamps a transient overshoot to zero, never negative", () => {
+    expect(doneHiddenCount(53, 52)).toBe(0);
+    expect(doneHiddenCount(1956, 1956)).toBe(0);
   });
 });
