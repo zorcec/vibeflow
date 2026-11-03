@@ -166,11 +166,29 @@ export const api: KanbanApi & KanbanReadStateApi = {
 
   async uploadFile(taskId: string, file: File): Promise<void> {
     const buf = await file.arrayBuffer();
-    await fetch(`${API}/${taskId}/files/${encodeURIComponent(file.name)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: buf,
-    });
+    const r = await fetch(
+      `${API}/${taskId}/files/${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: buf,
+      },
+    );
+    // Parity with the web adapter: a rejected upload must throw with the
+    // server error detail so the detail panel lands it in the visible
+    // upload-error box instead of showing the chip as success.
+    if (!r.ok) {
+      let detail = `HTTP ${r.status}`;
+      try {
+        const body = (await r.json()) as { error?: unknown };
+        if (typeof body.error === "string" && body.error.trim())
+          detail = body.error;
+      } catch {
+        // Keep the HTTP status when the error response is not JSON
+        // (e.g. the 413 body-parser limit page).
+      }
+      throw new Error(detail);
+    }
   },
 
   async deleteFile(taskId: string, filename: string): Promise<void> {
