@@ -151,6 +151,11 @@ describe("What's New changelog modal", () => {
 
   it("header Changelog button opens the full changelog without an update", async () => {
     const { context, page, guard } = await openBoard(null);
+    // Fresh empty board: the first-run tour (eajggnmjdyq226kzfn7yk3mw)
+    // opens settings first — dismiss it, then use the header button.
+    await page.waitForSelector("#settings-modal", { timeout: 5_000 });
+    await page.click("#settings-cancel");
+    await page.waitForSelector("#settings-modal", { state: "detached" });
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     const text = await modalText(page);
@@ -166,6 +171,11 @@ describe("What's New changelog modal", () => {
     // The 0.15.0 changelog entry carries a ### Highlights subsection, so the
     // region renders. Tagged rendering is also covered by SSR unit tests.
     const { context, page, guard } = await openBoard(null);
+    // Fresh empty board: dismiss the first-run settings tour first
+    // (ticket eajggnmjdyq226kzfn7yk3mw) before opening the changelog.
+    await page.waitForSelector("#settings-modal", { timeout: 5_000 });
+    await page.click("#settings-cancel");
+    await page.waitForSelector("#settings-modal", { state: "detached" });
     await page.click("#changelog-btn");
     await page.waitForSelector("#whats-new-modal", { timeout: 5_000 });
     expect(await page.locator('[data-role="highlights-region"]').count()).toBe(

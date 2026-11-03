@@ -27,6 +27,8 @@ import {
   verifyFoldedIntoStatusMove,
   filterTasksByQuery,
   matchesTaskTypeFilter,
+  shouldAutoOpenSettings,
+  markOnboarded,
   useDebouncedValue,
   resolveResponsiveView,
   resolveMobileOverrideAfterResize,
@@ -477,10 +479,30 @@ function BoardApp() {
     };
   }, []);
 
-
   React.useEffect(() => {
     applyInitialTheme();
   }, []);
+
+  // First-run tour (ticket eajggnmjdyq226kzfn7yk3mw): a fresh board with
+  // no tasks opens settings automatically so the review-gate defaults
+  // (verification verdict + comment on review) are seen, not silent. The
+  // flag is written on the auto-open itself — later visits never re-open.
+  // No local-vs-online sections exist in this (public) settings modal;
+  // that split lives in the private repo, so it is noted, not built, here.
+  React.useEffect(() => {
+    if (
+      shouldAutoOpenSettings(window.localStorage, {
+        isLoading,
+        taskCount: tasks.length,
+        settingsOpen,
+      })
+    ) {
+      markOnboarded(window.localStorage);
+      setSettingsOpen(true);
+    }
+    // Keyed on the load finishing + task count + open state: after the
+    // first auto-open the flag is set, so later runs stay closed.
+  }, [isLoading, tasks.length, settingsOpen]);
 
   // Allow #task-<id> deep-links from markdown references in comments/descriptions.
   // Only full 30-char hex task IDs are supported (short 8-char prefixes removed).

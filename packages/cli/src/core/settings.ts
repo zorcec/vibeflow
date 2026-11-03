@@ -63,7 +63,18 @@ export function writeGlobalSettings(settings: ProtoSettings): void {
   renameSync(tmp, target);
 }
 
-export function loadSettings(projectDir: string): ProtoSettings {
+/**
+ * Ticket eajggnmjdyq226kzfn7yk3mw: review-gate defaults. A fresh board
+ * requires a verification verdict AND a comment on review; both are
+ * opt-out (explicit false wins), never opt-in.
+ */
+const REVIEW_GATE_DEFAULTS: ProtoSettings = {
+  requireVerifyBeforeReview: true,
+  autoComment: true,
+};
+
+/** Global + local merge with NO defaults applied (the write path). */
+function readRawSettings(projectDir: string): ProtoSettings {
   const global = readGlobalSettings();
   const settingsPath = getSettingsPath(projectDir);
   if (!existsSync(settingsPath)) return global;
@@ -78,6 +89,17 @@ export function loadSettings(projectDir: string): ProtoSettings {
   }
 }
 
+export function loadSettings(projectDir: string): ProtoSettings {
+  // Ticket eajggnmjdyq226kzfn7yk3mw: the review-gate defaults are ON.
+  // Comment-on-review was already unconditional (review-decision Gate 1
+  // ignores the flag); the verify verdict is opt-OUT now: an explicit
+  // false (global or local) still disables it, only an absent key
+  // inherits true. The first-run kanban settings modal surfaces this
+  // visibly, so the default is never flipped silently.
+  const merged = readRawSettings(projectDir);
+  return { ...REVIEW_GATE_DEFAULTS, ...merged };
+}
+
 export function saveSettings(
   projectDir: string,
   settings: ProtoSettings,
@@ -85,7 +107,10 @@ export function saveSettings(
   const protoDir = join(projectDir, PROTO_DIR);
   if (!existsSync(protoDir)) mkdirSync(protoDir, { recursive: true });
   const settingsPath = getSettingsPath(projectDir);
-  const existing = loadSettings(projectDir);
+  // Raw merge WITHOUT the review-gate defaults: persisting must never
+  // snapshot an implicit default into settings.json — only loadSettings
+  // (the read path) applies REVIEW_GATE_DEFAULTS.
+  const existing = readRawSettings(projectDir);
   const merged = { ...existing, ...settings };
   const tmp = uniqueSettingsTmp(settingsPath);
   writeFileSync(tmp, JSON.stringify(merged, null, 2), "utf-8");

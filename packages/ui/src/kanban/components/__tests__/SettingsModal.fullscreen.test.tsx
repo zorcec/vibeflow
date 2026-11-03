@@ -72,9 +72,23 @@ describe("settings fullscreen checkbox removed (04dbd2df0e2ab8e60643b175f3730c)"
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onSave.mock.calls[0][1]).toMatchObject({
       autoCommit: false,
-      autoComment: false,
+      // Ticket eajggnmjdyq226kzfn7yk3mw: the review-gate defaults are ON —
+      // an unset key inherits true, only an explicit false opts out.
+      autoComment: true,
       autoPush: false,
       createBranch: false,
+      requireVerifyBeforeReview: true,
+    });
+  });
+
+  it("an explicit false still opts out of the review-gate defaults", () => {
+    const { onSave } = renderModal({
+      autoComment: false,
+      requireVerifyBeforeReview: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onSave.mock.calls[0][1]).toMatchObject({
+      autoComment: false,
       requireVerifyBeforeReview: false,
     });
   });

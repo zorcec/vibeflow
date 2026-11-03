@@ -30,26 +30,49 @@ describe("settings", () => {
   });
 
   describe("loadSettings", () => {
-    it("returns empty object when .vibeflow dir does not exist", () => {
-      expect(loadSettings(projectDir)).toEqual({});
+    // Ticket eajggnmjdyq226kzfn7yk3mw: fresh boards inherit the review-gate
+    // defaults (verify verdict + comment on review = ON). Explicit false
+    // still wins — only absent keys inherit.
+    const REVIEW_DEFAULTS = {
+      requireVerifyBeforeReview: true,
+      autoComment: true,
+    };
+
+    it("returns review-gate defaults when .vibeflow dir does not exist", () => {
+      expect(loadSettings(projectDir)).toEqual(REVIEW_DEFAULTS);
     });
 
-    it("returns empty object when settings.json does not exist", () => {
+    it("returns review-gate defaults when settings.json does not exist", () => {
       mkdirSync(join(projectDir, ".vibeflow"));
-      expect(loadSettings(projectDir)).toEqual({});
+      expect(loadSettings(projectDir)).toEqual(REVIEW_DEFAULTS);
     });
 
-    it("returns empty object when settings.json is invalid JSON", () => {
+    it("returns review-gate defaults when settings.json is invalid JSON", () => {
       mkdirSync(join(projectDir, ".vibeflow"));
       writeFileSync(join(projectDir, ".vibeflow", "settings.json"), "not-json", "utf-8");
-      expect(loadSettings(projectDir)).toEqual({});
+      expect(loadSettings(projectDir)).toEqual(REVIEW_DEFAULTS);
     });
 
-    it("returns parsed settings from existing file", () => {
+    it("explicit false opts out of the review-gate defaults", () => {
+      mkdirSync(join(projectDir, ".vibeflow"));
+      writeFileSync(
+        join(projectDir, ".vibeflow", "settings.json"),
+        JSON.stringify({ requireVerifyBeforeReview: false, autoComment: false }),
+        "utf-8",
+      );
+      const loaded = loadSettings(projectDir);
+      expect(loaded.requireVerifyBeforeReview).toBe(false);
+      expect(loaded.autoComment).toBe(false);
+    });
+
+    it("returns parsed settings from existing file (over review-gate defaults)", () => {
       mkdirSync(join(projectDir, ".vibeflow"));
       const settings = { autoCommit: true, autoComment: false, viewMode: "board" as const };
       writeFileSync(join(projectDir, ".vibeflow", "settings.json"), JSON.stringify(settings), "utf-8");
-      expect(loadSettings(projectDir)).toEqual(settings);
+      expect(loadSettings(projectDir)).toEqual({
+        requireVerifyBeforeReview: true,
+        ...settings,
+      });
     });
 
     it("merges global settings with local project settings", () => {
@@ -62,10 +85,12 @@ describe("settings", () => {
 
       const result = loadSettings(projectDir);
 
-      // Local settings should be merged with global
+      // Local settings should be merged with global (plus review defaults).
       expect(result.autoCommit).toBe(true);
       expect(result.panelWidth).toBe(300);
       expect(result.viewMode).toBe("list");
+      expect(result.requireVerifyBeforeReview).toBe(true);
+      expect(result.autoComment).toBe(true);
     });
 
     it("local settings override global settings for the same key", () => {
@@ -102,7 +127,14 @@ describe("settings", () => {
     it("creates .vibeflow dir and saves settings when dir does not exist", () => {
       const result = saveSettings(projectDir, { autoCommit: true });
       expect(result.autoCommit).toBe(true);
-      expect(loadSettings(projectDir)).toEqual({ autoCommit: true });
+      // saveSettings returns the raw merge (no implicit defaults written);
+      // the read path layers the review-gate defaults on top.
+      expect(result).toEqual({ autoCommit: true });
+      expect(loadSettings(projectDir)).toEqual({
+        requireVerifyBeforeReview: true,
+        autoComment: true,
+        autoCommit: true,
+      });
     });
 
     it("merges with existing settings rather than overwriting", () => {
@@ -136,7 +168,11 @@ describe("settings", () => {
       };
       const result = saveSettings(projectDir, settings);
       expect(result).toEqual(settings);
-      expect(loadSettings(projectDir)).toEqual(settings);
+      // The file holds exactly what was saved; the read path adds defaults.
+      expect(loadSettings(projectDir)).toEqual({
+        requireVerifyBeforeReview: true,
+        ...settings,
+      });
     });
 
     it("panelFullscreen round-trips through save/load (cba0ade6)", () => {

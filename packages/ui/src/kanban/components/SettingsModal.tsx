@@ -99,14 +99,18 @@ export function SettingsModal({
     settings.autoCommit ?? false,
   );
   const [autoComment, setAutoComment] = React.useState(
-    settings.autoComment ?? false,
+    // Ticket eajggnmjdyq226kzfn7yk3mw: comment-on-review defaults ON;
+    // an explicit saved false still wins (only absent keys inherit).
+    settings.autoComment ?? true,
   );
   const [autoPush, setAutoPush] = React.useState(settings.autoPush ?? false);
   const [createBranch, setCreateBranch] = React.useState(
     settings.createBranch ?? false,
   );
   const [requireVerifyBeforeReview, setRequireVerifyBeforeReview] =
-    React.useState(settings.requireVerifyBeforeReview ?? false);
+    // Ticket eajggnmjdyq226kzfn7yk3mw: verify-before-review defaults ON;
+    // an explicit saved false still wins (only absent keys inherit).
+    React.useState(settings.requireVerifyBeforeReview ?? true);
 
   // One appearance session per open: the slot's opening snapshot and staged
   // preview must never survive into the next time the modal opens. Adjusting
@@ -151,10 +155,10 @@ export function SettingsModal({
     });
     setColState(m);
     setAutoCommit(settings.autoCommit ?? false);
-    setAutoComment(settings.autoComment ?? false);
+    setAutoComment(settings.autoComment ?? true);
     setAutoPush(settings.autoPush ?? false);
     setCreateBranch(settings.createBranch ?? false);
-    setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? false);
+    setRequireVerifyBeforeReview(settings.requireVerifyBeforeReview ?? true);
     // Reset to the FIRST tab (Enforcement) on a genuine open, not on every
     // live prop change — otherwise the tab strip says one thing and the
     // pane another mid-interaction.

@@ -119,6 +119,14 @@ export { FilterBar } from "./components/FilterBar";
 export type { FilterState } from "./components/FilterBar";
 export { SettingsModal } from "./components/SettingsModal";
 export type { AppearanceSlotHandle } from "./components/SettingsModal";
+// First-run onboarding (ticket eajggnmjdyq226kzfn7yk3mw): the empty-board
+// settings tour — DOM-free decision + storage key, tested without a browser.
+export {
+  KANBAN_ONBOARDED_KEY,
+  markOnboarded,
+  shouldAutoOpenSettings,
+} from "./first-run";
+export type { OnboardedStorage, FirstRunState } from "./first-run";
 export { ConfirmModal } from "./components/ConfirmModal";
 export {
   DeleteConfirmDialog,
