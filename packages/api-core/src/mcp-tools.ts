@@ -597,7 +597,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "get_file",
     title: "Get file",
     description:
-      "Download a file attached to a task, returned as base64. Give the task `id` plus the attached `filename` (either mode) or the online `fileId` (remote mode only). Read-only; changes nothing. Use it to read back an attachment the file list only names — the remote list carries no bytes, so this is how an agent actually sees the content.",
+      "Download a file attached to a task, returned as base64 with its filename, content type and size. Give the task `id` plus the attached `filename` (either mode) or the online `fileId` (remote mode only). Read-only; changes nothing. Use it to read back an attachment the file list only names — the remote list carries no bytes, so this is how an agent actually sees the content.",
     cliRef: {
       command: "tasks",
       flags: ["--get", "--get-file", "--out"],
@@ -644,6 +644,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
         "--url",
         "--selector",
         "--sort-key",
+        "--fields",
       ],
     },
     category: "task-write",
@@ -678,6 +679,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
         "--blocks",
         "--unrelates",
         "--unblocks",
+        "--fields",
       ],
     },
     category: "task-mutate",
@@ -693,7 +695,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "claim_next_task",
     title: "Claim next task",
     description:
-      "Claim the highest-priority todo task and set it to in-progress: the returned object IS the claimed task. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child and says so explicitly (a CHILD_CLAIM notice naming the parent), so todo work parented under a non-todo parent is never invisible. Optional type/user/tag filters narrow the pool (tags every-match); pass dryRun to preview the claim without moving the task. An empty board — or a valid filter matching nothing — is a SUCCESS with a `null` result, the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. Use it to pull the next unit of work; use list_tasks to browse without claiming, and get_task to inspect a task you already hold.",
+      "Claim the highest-priority todo task and set it to in-progress: the returned object IS the claimed task. Roots first: a todo ROOT is claimed before any child — the root is the unit of work, so work through its children after claiming it. When no todo root is claimable, falls back to the highest-priority matching todo child of live work (parent chain todo/in-progress/review) and says so explicitly (a CHILD_CLAIM notice naming the parent); children of backlog/done parents are refused, never sliced off. Optional type/user/tag filters narrow the pool (tags every-match); pass dryRun to preview the claim without moving the task. An empty board — or a valid filter matching nothing — is a SUCCESS with a `null` result, the same as 'vibeflow tasks --next --json' reporting `task:null` with exit 0. Use it to pull the next unit of work; use list_tasks to browse without claiming, and get_task to inspect a task you already hold.",
     cliRef: {
       command: "tasks",
       flags: ["--next", "--type", "--tag"],
@@ -741,7 +743,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
       // Naming only --report-file made `id` look like an MCP-only field, which
       // is what G5 caught: the report upload is an EDIT of a named task that
       // moves to review, not a standalone flag.
-      flags: ["--edit", "--set-status", "--report-file"],
+      flags: ["--edit", "--set-status", "--report-file", "--attach"],
     },
     category: "task-write",
     annotations: {
@@ -774,10 +776,10 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "pull",
     title: "Pull board",
     description:
-      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default; pass preferRemote to let the remote value win instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull (added/merged/unchanged counts) without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
+      "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default, except `status`, which follows the remote record (the board is truth for workflow state) unless preferLocal restores local-wins for it; pass preferRemote to let the remote value win on every conflicting field instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",
     cliRef: {
       command: "pull",
-      flags: ["--board", "--out", "--prefer-remote", "--dry-run"],
+      flags: ["--board", "--out", "--prefer-remote", "--prefer-local", "--dry-run"],
     },
     category: "task-write",
     annotations: {
