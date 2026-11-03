@@ -1,5 +1,12 @@
 # @vibeflow-tools/ui
 
+## 0.5.2
+
+### Patch Changes
+
+- 132e6af: Theme the mobile list view's status dropdown so it follows the board's dark/light colors instead of the browser's default white control.
+- 9bfd8f5: Allow attachment upload limits to be enforced authoritatively by the server instead of the shared UI's stale fixed limit.
+
 ## 0.5.1
 
 ### Patch Changes

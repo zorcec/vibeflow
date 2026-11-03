@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.24.2
+
+### Patch Changes
+
+- deb07f7: Default narrow public kanban views to the mobile list without replacing the saved desktop view, and order mobile status groups for phone workflows.
+- 132e6af: Theme the mobile list view's status dropdown so it follows the board's dark/light colors instead of the browser's default white control.
+- 481663c: Preserve attachment-added timestamps when listing task files, with a filesystem timestamp fallback for legacy refs.
+
 ## 0.24.1
 
 ### Patch Changes
