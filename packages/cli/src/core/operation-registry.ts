@@ -198,6 +198,17 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     reason:
       "Partial counterpart only: the tool reports project identity while status/auth status add account/counts and human text.",
   },
+  getFile: {
+    id: "getFile",
+    mode: "both",
+    requirement: "selected-board",
+    mapping: "intentionally-different",
+    cli: ["tasks --get", "tasks --get-file", "tasks --out"],
+    mcpTools: ["get_file"],
+    operationFn: "getFile",
+    reason:
+      "Same bytes, opposite direction by surface: the CLI writes the download to disk (--out, default ./<name>), MCP returns contentB64 — the same split as attach_file (path in, bytes out) mirrored. Name/size guards shared with attach.",
+  },
   getTask: {
     id: "getTask",
     mode: "both",
@@ -494,6 +505,8 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "tasks --description": "updateTask",
   "tasks --fields": "listTasks",
   "tasks --get": "getTask",
+  "tasks --get-file": "getFile",
+  "tasks --out": "getFile",
   "tasks --limit": "listTasks",
   "tasks --message": "commitTaskPathsOperation",
   "tasks --move": "attachFile",

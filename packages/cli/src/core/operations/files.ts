@@ -26,7 +26,10 @@ import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveOperationPorts } from "../task-store.js";
 import { resolveReadPorts } from "../operation-context.js";
 import { attachDuplicateRefusal } from "../attach.js";
-import type { AttachFileInputType } from "@vibeflow-tools/api-core";
+import type {
+  AttachFileInputType,
+  GetFileInputType,
+} from "@vibeflow-tools/api-core";
 
 /**
  * WHAT/WHY (ticket b2e56212, change 3): a `fields` projection used to omit
@@ -323,6 +326,188 @@ export async function attachStandalone(
         message: err instanceof Error ? err.message : "Failed to attach file",
         suggestion:
           "The file was NOT written — confirm the task exists (get_task), the filename is not an executable type (.exe/.dll/.ps1 and siblings are refused; zip it first), and the payload is under the size limit, then resend",
+      },
+    };
+  }
+}
+
+/**
+ * Wire shape of a downloaded attachment: the mirror of the upload path —
+ * where `attach_file` takes `filename` + `contentB64` in, `get_file` returns
+ * them back out with the size and the detected content type attached.
+ */
+export interface GetFileData {
+  /** Bare attached filename the bytes were stored under. */
+  filename: string;
+  /** Detected content type (by extension; `application/octet-stream` when unknown). */
+  mimeType: string;
+  /** Byte size of the decoded content. */
+  size: number;
+  /** File content, base64-encoded. */
+  contentB64: string;
+}
+
+/** Extension → content type for downloaded attachments. */
+const GET_FILE_MIME_TYPES: Record<string, string> = {
+  ".md": "text/markdown",
+  ".txt": "text/plain",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".xml": "application/xml",
+  ".csv": "text/csv",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".zip": "application/zip",
+};
+
+/** Content type by filename extension; `application/octet-stream` when unknown. */
+export function mimeTypeForGetFile(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  const ext = dot === -1 ? "" : filename.slice(dot).toLowerCase();
+  return GET_FILE_MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+/**
+ * The `get_file` read: download one attachment's bytes as base64.
+ *
+ * Mirror of `attachStandalone`'s gates: the task must exist (same shared
+ * id rule), the name passes the same `refuseRawAttachFilename` policy
+ * (separators/traversal/control bytes are refusals, never sanitised), and
+ * the decoded bytes pass the same `MAX_FILE_SIZE` cap — a read must refuse
+ * the same bytes a write would never have stored.
+ *
+ * Local reads the stored bytes through the artifacts port (the same
+ * `getFilePath` the download routes and the verify engine read through);
+ * remote downloads through the board it resolved against (`saas` without
+ * an injected store), listing the task's files to resolve a bare name to
+ * its online file id, then fetching the bytes — so the stripped FileInfo
+ * rows the remote adapter returns (size 0, empty url) never block an agent
+ * that actually needs the content.
+ */
+export async function getFile(
+  ctx: OperationContext,
+  input: GetFileInputType,
+): Promise<OperationResult<GetFileData>> {
+  try {
+    const resolved = await resolveTaskOrRefusal(ctx, input.id);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+
+    const rawName =
+      typeof input.filename === "string" && input.filename.length > 0
+        ? input.filename
+        : null;
+    const fileId =
+      typeof input.fileId === "string" && input.fileId.length > 0
+        ? input.fileId
+        : null;
+    if (rawName === null && fileId === null) {
+      return {
+        ok: false,
+        error: {
+          code: "E_USAGE",
+          message: "get_file needs a filename or a fileId — pass the attached filename, or the online file id from the task's file list",
+          suggestion:
+            "Read the task's file list first (get_task shows attached files), then name one with filename (either mode) or fileId (remote mode).",
+        },
+      };
+    }
+
+    if (rawName !== null) {
+      const { refuseRawAttachFilename } = await import("../attach.js");
+      const rawRefusal = refuseRawAttachFilename(rawName, 0);
+      if (rawRefusal) return { ok: false, error: rawRefusal };
+    }
+
+    const remote = ctx.mode === "saas" && !ctx.store;
+    let filename: string;
+    let bytes: Buffer;
+    let mimeType: string | undefined;
+    if (remote) {
+      const { downloadSaasFile } = await import("../../saas/client.js");
+      const { toRemoteReadRefusal } = await import("../remote-task-store.js");
+      const downloaded = await downloadSaasFile(
+        resolved.id,
+        (fileId ?? rawName) as string,
+        ctx.projectDir,
+      );
+      if (!downloaded.ok) {
+        throw toRemoteReadRefusal(
+          downloaded.error,
+          "The file was NOT downloaded — fix what the message names and resend.",
+        );
+      }
+      filename = downloaded.data.name;
+      bytes = Buffer.from(downloaded.data.bytes);
+      mimeType = downloaded.data.mimeType;
+    } else {
+      const { basename } = await import("node:path");
+      const { readFileSync } = await import("node:fs");
+      const safe = basename((rawName ?? fileId) as string);
+      const { artifacts } = resolveReadPorts(ctx);
+      const absPath = artifacts.getFilePath(
+        ctx.projectDir,
+        resolved.id,
+        safe,
+      );
+      if (absPath === null) {
+        return {
+          ok: false,
+          error: {
+            code: "FILE_NOT_FOUND",
+            message: `File "${safe}" is not attached to task ${resolved.id}`,
+            suggestion:
+              "Read the task's file list first (get_task shows attached files), then name one exactly — attachments are matched by bare filename.",
+          },
+        };
+      }
+      filename = safe;
+      bytes = readFileSync(absPath);
+    }
+
+    // Size/name policy through the ONE shared attach gate (core/attach.ts
+    // wraps MAX_FILE_SIZE + validateFilename — the same limit the write
+    // path, the MCP attach tool and the delta planner refuse): the check-5
+    // boundary forbids operation modules from importing core/files.js for
+    // values, so this resolves through the attach module like every other
+    // attach gate instead.
+    const { refuseRawAttachFilename } = await import("../attach.js");
+    const sizeRefusal = refuseRawAttachFilename(filename, bytes.length);
+    if (sizeRefusal) return { ok: false, error: sizeRefusal };
+
+    return {
+      ok: true,
+      data: {
+        filename,
+        mimeType: mimeType ?? mimeTypeForGetFile(filename),
+        size: bytes.length,
+        contentB64: bytes.toString("base64"),
+      },
+    };
+  } catch (err) {
+    const { isRemoteReadError } = await import("../remote-task-store.js");
+    if (isRemoteReadError(err)) {
+      return {
+        ok: false,
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.suggestion ? { suggestion: err.suggestion } : {}),
+          ...(err.retryable !== undefined ? { retryable: err.retryable } : {}),
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: "GET_FILE_ERROR",
+        message: err instanceof Error ? err.message : "Failed to read file",
+        suggestion:
+          "Confirm the task exists (get_task), the filename matches an attachment exactly, and the file is not an executable type or over the size limit, then resend",
       },
     };
   }

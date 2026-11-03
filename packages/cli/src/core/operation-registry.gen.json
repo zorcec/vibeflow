@@ -10,11 +10,16 @@
       "positionals": []
     },
     "auth login": {
-      "flags": [],
+      "flags": [
+        "--project"
+      ],
       "positionals": []
     },
     "auth logout": {
-      "flags": [],
+      "flags": [
+        "--project",
+        "--unlink"
+      ],
       "positionals": []
     },
     "auth status": {
@@ -137,6 +142,7 @@
         "--edit",
         "--fields",
         "--get",
+        "--get-file",
         "--json",
         "--limit",
         "--message",
@@ -144,6 +150,7 @@
         "--next",
         "--no-parent",
         "--normalize",
+        "--out",
         "--parent",
         "--priority",
         "--reindex-sort-keys",
@@ -263,6 +270,19 @@
         "title",
         "type",
         "url"
+      ]
+    },
+    "get_file": {
+      "cliCommand": "tasks",
+      "cliFlags": [
+        "--get",
+        "--get-file",
+        "--out"
+      ],
+      "inputFields": [
+        "fileId",
+        "filename",
+        "id"
       ]
     },
     "get_integration_guide": {
@@ -514,6 +534,20 @@
       ],
       "operationFn": "getChangelog",
       "requirement": "none"
+    },
+    "getFile": {
+      "mapping": "intentionally-different",
+      "mcpTools": [
+        "get_file"
+      ],
+      "mode": "both",
+      "cli": [
+        "tasks --get",
+        "tasks --get-file",
+        "tasks --out"
+      ],
+      "operationFn": "getFile",
+      "requirement": "selected-board"
     },
     "getIntegrationGuide": {
       "mapping": "one-to-one",
@@ -843,12 +877,14 @@
     "tasks --description": "updateTask",
     "tasks --fields": "listTasks",
     "tasks --get": "getTask",
+    "tasks --get-file": "getFile",
     "tasks --limit": "listTasks",
     "tasks --message": "commitTaskPathsOperation",
     "tasks --move": "attachFile",
     "tasks --next": "claimNextTask",
     "tasks --no-parent": "updateTask",
     "tasks --normalize": "normalizeTaskStore",
+    "tasks --out": "getFile",
     "tasks --parent": "createTask",
     "tasks --priority": "createTask",
     "tasks --reindex-sort-keys": "reindexTaskSortKeys",

@@ -49,13 +49,14 @@ describe("MCP-from-manifest parity", () => {
     await env.cleanup();
   });
 
-  it("1: names parity — tools/list === manifest, exactly 12, no extras", () => {
+  it("1: names parity — tools/list === manifest, exactly 13, no extras", () => {
     const listed = tools.map((t) => t.name).sort();
     const manifestNames = manifest.map((m) => m.name).sort();
     expect(listed).toEqual(manifestNames);
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // Then `pull` was added (board -> local additive sync), back to 12.
-    expect(tools.length).toBe(12);
+    // Then `get_file` (attachment download, mirror of attach_file), now 13.
+    expect(tools.length).toBe(13);
   });
 
   it("1b: push_tasks is absent from tools/list (hidden CLI push, no MCP tool)", () => {

@@ -1337,6 +1337,160 @@ export async function uploadSaasFile(
 }
 
 /**
+ * One downloaded attachment: the stored filename, the raw bytes, and the
+ * content type the server reported (when it reported one).
+ */
+export interface SaasDownloadedFile {
+  name: string;
+  bytes: Uint8Array;
+  mimeType?: string;
+}
+
+/** One row of the task-files collection (`GET /api/v0/tasks/:id/files`). */
+interface SaasFileListRow {
+  id?: unknown;
+  fileId?: unknown;
+  name?: unknown;
+  mimeType?: unknown;
+  url?: unknown;
+}
+
+/**
+ * Download one file's bytes from a task in the SaaS (online get_file).
+ * Two requests, both Bearer-autenticated through the project's own
+ * credential (the same `getBearerHeaders` every other v0 call reuses —
+ * the board scope rides `X-Vibeflow-Scope`, and the download endpoints
+ * are gated by the `files:read` scope server-side): first the task-files
+ * collection to resolve a bare `nameOrId` to the online file id, then the
+ * file download itself, read as raw bytes (never decoded as text —
+ * binary attachments must round-trip byte-identical).
+ *
+ * A list row that names no file id downloads by name: the download keeps
+ * the (task, name) addressing the local store uses, so either spelling
+ * reaches the same bytes. A 404 on either request answers
+ * `FILE_NOT_FOUND` (unknown file) or `TASK_NOT_FOUND` (unknown task);
+ * other HTTP refusals carry status + path, transport failures the
+ * network message.
+ */
+export async function downloadSaasFile(
+  taskId: string,
+  nameOrId: string,
+  projectDir?: string,
+): Promise<SaasResult<SaasDownloadedFile>> {
+  const headers = await getBearerHeaders(projectDir);
+  if (!headers)
+    return {
+      ok: false,
+      error: { code: "NOT_AUTHENTICATED", message: "Not logged in" },
+    };
+
+  const apiUrl = getApiUrl();
+  const listPath = surfacePath(
+    "cloud",
+    `/api/cli/tasks/${encodeURIComponent(taskId)}/files`,
+  );
+  try {
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), listPath a constant-mapped path
+    const listRes = await fetchWithTimeout(`${apiUrl}${listPath}`, { headers }, { phase: "board-resolution" });
+    if (listRes.status === 404) {
+      return {
+        ok: false,
+        error: {
+          code: "TASK_NOT_FOUND",
+          message: `Task not found: ${taskId}`,
+          status: 404,
+          path: listPath,
+        },
+      };
+    }
+    if (!listRes.ok) {
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: `HTTP ${listRes.status}`,
+          status: listRes.status,
+          path: listPath,
+        },
+      };
+    }
+    const listBody = (await listRes.json().catch(parseFallback({}))) as {
+      files?: unknown;
+    };
+    const rows = Array.isArray(listBody.files)
+      ? (listBody.files as SaasFileListRow[])
+      : [];
+    const match = rows.find((row) => {
+      if (typeof row !== "object" || row === null) return false;
+      return row.name === nameOrId || row.id === nameOrId || row.fileId === nameOrId;
+    });
+    if (!match) {
+      return {
+        ok: false,
+        error: {
+          code: "FILE_NOT_FOUND",
+          message: `File "${nameOrId}" is not attached to task ${taskId}`,
+          status: 404,
+          path: listPath,
+        },
+      };
+    }
+    const matched = match as SaasFileListRow;
+    const name = typeof matched.name === "string" ? matched.name : nameOrId;
+    const remoteId =
+      typeof matched.id === "string"
+        ? matched.id
+        : typeof matched.fileId === "string"
+          ? matched.fileId
+          : name;
+    const downloadPath = `${listPath}/${encodeURIComponent(remoteId)}`;
+    // pi-lens-ignore: ts-ssrf — apiUrl is getApiUrl(), downloadPath extends the constant-mapped listPath
+    const dlRes = await fetchWithTimeout(`${apiUrl}${downloadPath}`, { headers }, { phase: "board-resolution" });
+    if (dlRes.status === 404) {
+      return {
+        ok: false,
+        error: {
+          code: "FILE_NOT_FOUND",
+          message: `File "${name}" is not attached to task ${taskId}`,
+          status: 404,
+          path: downloadPath,
+        },
+      };
+    }
+    if (!dlRes.ok) {
+      return {
+        ok: false,
+        error: {
+          code: "HTTP_ERROR",
+          message: `HTTP ${dlRes.status}`,
+          status: dlRes.status,
+          path: downloadPath,
+        },
+      };
+    }
+    const bytes = new Uint8Array(await dlRes.arrayBuffer());
+    const contentType = dlRes.headers.get("content-type")?.split(";")[0]?.trim();
+    const rowMime = typeof matched.mimeType === "string" ? matched.mimeType : undefined;
+    return {
+      ok: true,
+      data: {
+        name,
+        bytes,
+        ...(contentType ? { mimeType: contentType } : rowMime ? { mimeType: rowMime } : {}),
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
  * Add a comment to a task in the SaaS.
  * Returns the created comment or null on failure / not authenticated.
  */

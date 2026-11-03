@@ -91,7 +91,7 @@ import {
 } from "./saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
-import { readFileSync, existsSync, statSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
 import { capture, flushTelemetry } from "./telemetry.js";
@@ -1172,6 +1172,14 @@ program
     "Get full details of a single task by ID (supports partial ID prefix)",
   )
   .option(
+    "--get-file <selector...>",
+    "Download one file attached to a task: `tasks --get-file <id> <name>` writes the bytes to disk (use --out to choose where; default ./<filename>). The task id accepts a partial prefix; the name must match an attachment exactly. Use --json for the download report without the human text",
+  )
+  .option(
+    "--out <path>",
+    "Destination path for the --get-file download (defaults to ./<filename> in the current directory)",
+  )
+  .option(
     "--delete <task-id>",
     "Delete a task by ID (supports partial ID prefix; refused without --yes; --yes --dry-run only previews, deleting nothing). A LOCAL parent with children is refused — delete the children first. The ONLINE delete cascades: descendants go with the parent (named in the preview) and matching local records are dropped so push cannot recreate them",
   )
@@ -1321,6 +1329,8 @@ program
         // dry-run by default, --apply writes.
         normalize?: boolean;
         apply?: boolean;
+        getFile?: string[];
+        out?: string;
       },
     ) => {
       async function runTasks() {
@@ -1333,7 +1343,9 @@ program
               ? "next"
               : opts.attach !== undefined
                 ? "attach"
-                : opts.edit
+                : opts.getFile !== undefined
+                  ? "get-file"
+                  : opts.edit
                   ? "edit"
                   : opts.get
                     ? "get"
@@ -1434,6 +1446,7 @@ program
           (opts.add ||
             opts.edit !== undefined ||
             opts.get ||
+            opts.getFile !== undefined ||
             opts.next ||
             opts.commit ||
             opts.delete !== undefined ||
@@ -1443,7 +1456,47 @@ program
           outputEnvelope({ ok: false,
             code: "E_USAGE",
             message:
-              "--attach cannot be combined with --add/--edit/--get/--next/--commit/--delete/--reindex-sort-keys/--normalize",
+              "--attach cannot be combined with --add/--edit/--get/--get-file/--next/--commit/--delete/--reindex-sort-keys/--normalize",
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --get-file is exclusive (standalone download mode) ──────────
+        // Downloading while also adding/editing/reading/deleting would leave
+        // the two modes disagreeing about which task is addressed, so the
+        // combination is refused before anything is resolved.
+        if (
+          opts.getFile !== undefined &&
+          (opts.add ||
+            opts.edit !== undefined ||
+            opts.get ||
+            opts.next ||
+            opts.commit ||
+            opts.delete !== undefined ||
+            opts.reindexSortKeys ||
+            opts.normalize)
+        ) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message:
+              "--get-file cannot be combined with --add/--edit/--get/--next/--commit/--delete/--reindex-sort-keys/--normalize",
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.USAGE;
+          return;
+        }
+
+        // ── --out requires --get-file ──────────────────────────────────
+        // --out names no file itself; without --get-file there is nothing to
+        // download, so it is refused rather than silently accepted and ignored.
+        if (opts.out !== undefined && opts.getFile === undefined) {
+          outputEnvelope({ ok: false,
+            code: "E_USAGE",
+            message: "--out is only valid with --get-file <id> <name>",
+            suggestion:
+              'Example: vibeflow tasks --get-file <id> notes.md --out /tmp/notes.md',
             json: opts.json,
           });
           process.exitCode = ExitCode.USAGE;
@@ -3657,6 +3710,106 @@ program
             );
             console.log(
               chalk.dim(`  file id: ${attached.fileId ?? attached.name}`),
+            );
+          }
+          return;
+        }
+
+        // ── Download mode ──────────────────────────────────────────────
+        // `tasks --get-file <id> <name> [--out <path>]`: read one attached
+        // file's bytes back out without touching any task field. The task id
+        // accepts a partial prefix (the ONE shared rule); the name must
+        // match an attachment exactly. Every effect — id resolution, name
+        // gates, the local read / online download, the size cap — runs in
+        // the shared `getFile` operation (core/operations/files.ts), so the
+        // CLI and MCP `get_file` cannot disagree on what a download means.
+        // The CLI writes the bytes to disk (--out, default ./<filename>);
+        // MCP returns the same bytes as contentB64.
+        if (opts.getFile !== undefined) {
+          const selector = Array.isArray(opts.getFile)
+            ? opts.getFile
+            : [opts.getFile];
+          if (selector.length !== 2 || !selector[0]?.trim() || !selector[1]?.trim()) {
+            outputEnvelope({ ok: false,
+              code: "E_USAGE",
+              message: "--get-file needs a task id and a filename: --get-file <id> <name>",
+              suggestion:
+                'Example: vibeflow tasks --get-file <id> notes.md --out /tmp/notes.md',
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          const [getFileId, getFileName] = selector as [string, string];
+          const getFileMode = await getMode(dir);
+          const getFileOpCtx: OperationContext = {
+            projectDir: resolve(dir),
+            mode: getFileMode === "saas" ? "saas" : "local",
+          };
+          const downloaded = await operations.getFile(getFileOpCtx, {
+            id: getFileId.trim(),
+            filename: getFileName.trim(),
+          });
+          if (!downloaded.ok) {
+            const getFileErr = downloaded.error;
+            outputEnvelope({
+              ok: false,
+              code: getFileErr.code,
+              message: getFileErr.message,
+              suggestion: getFileErr.suggestion,
+              json: opts.json,
+            });
+            // Caller errors (bad id, bad name, oversize) are USAGE; a
+            // missing task or file is NOT_FOUND; anything else (dead
+            // backend, rejected token, failed write) is GENERAL.
+            process.exitCode =
+              getFileErr.code === "TASK_NOT_FOUND" ||
+              getFileErr.code === "E_NOT_FOUND" ||
+              getFileErr.code === "FILE_NOT_FOUND"
+                ? ExitCode.NOT_FOUND
+                : getFileErr.code === "E_AMBIGUOUS" ||
+                    getFileErr.code === "E_USAGE" ||
+                    getFileErr.code === "E_FILE_TOO_LARGE" ||
+                    getFileErr.code === "INVALID_FILENAME" ||
+                    getFileErr.code === "UNSUPPORTED_FILE_TYPE"
+                  ? ExitCode.USAGE
+                  : ExitCode.GENERAL;
+            return;
+          }
+          const file = downloaded.data!;
+          const { basename } = await import("node:path");
+          const dest = opts.out !== undefined
+            ? resolve(process.cwd(), opts.out)
+            : resolve(process.cwd(), basename(file.filename));
+          try {
+            writeFileSync(dest, Buffer.from(file.contentB64, "base64"));
+          } catch (err) {
+            outputEnvelope({ ok: false,
+              code: "E_WRITE_FAILED",
+              message: `Could not write download to ${dest}: ${err instanceof Error ? err.message : String(err)}`,
+              suggestion: "Pick a writable --out path and retry — the download itself succeeded.",
+              json: opts.json,
+            });
+            process.exitCode = ExitCode.GENERAL;
+            return;
+          }
+          if (opts.json) {
+            outputEnvelope({
+              ok: true,
+              json: opts.json,
+              payload: {
+                taskId: getFileId.trim(),
+                filename: file.filename,
+                mimeType: file.mimeType,
+                size: file.size,
+                out: dest,
+              },
+            });
+          } else {
+            console.log(
+              chalk.green(
+                `✓ Downloaded ${file.filename} (${file.size} bytes) to ${dest}`,
+              ),
             );
           }
           return;

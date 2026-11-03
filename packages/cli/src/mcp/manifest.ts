@@ -17,6 +17,7 @@ import {
   ClaimNextTaskInput,
   AddCommentInput,
   AttachFileInput,
+  GetFileInput,
   VerifyTaskInput,
   PullInput,
   StartKanbanInput,
@@ -29,6 +30,7 @@ import {
   claimNextTask,
   addComment,
   attachFile,
+  getFile,
   verifyTaskOp,
   pullFromBoard,
   startKanban,
@@ -157,6 +159,10 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "surgical link removal of type blocks; update_task declares the capability as `removeLinks` — same field as tasks --unrelates, see mcpOnlyFields.update_task.removeLinks",
     "tasks --attach":
       "the CLI reads the bytes from a path on disk; attach_file takes filename+contentB64 instead because an MCP client may not share this filesystem, so no input field is spelled attach — see mcpOnlyFields.attach_file.filename",
+    "tasks --get-file":
+      "the CLI takes the task id and filename as one `--get-file <id> <name>` pair and writes the bytes to disk; get_file takes id+filename/fileId and returns contentB64 instead because an MCP client may not share this filesystem, so no input field is spelled get-file — see mcpOnlyFields.get_file.filename",
+    "tasks --out":
+      "destination path for the downloaded bytes on disk; get_file returns the bytes as contentB64 instead because an MCP client may not share this filesystem, so no input field is spelled out",
     // Destructive local operations: MCP has no delete tool by design, so
     // these flags have no tool to own them. Classified rather than mapped.
     "tasks --delete":
@@ -280,6 +286,10 @@ export const mcpOnlyFields: Record<string, string> = {
     "target filename. The CLI takes a path on disk via --report-file and reads the file itself; MCP takes the bytes and the name, because a client may not share a filesystem.",
   "attach_file.contentB64":
     "base64 file content — the same reason as attach_file.filename: an MCP client is frequently not on this machine, so the CLI's read-the-path-from-disk model does not apply.",
+  "get_file.filename":
+    "target filename to download. The CLI takes it as the second half of `--get-file <id> <name>` and writes the bytes to disk; get_file returns the bytes as contentB64, because a client may not share a filesystem.",
+  "get_file.fileId":
+    "online file id from the board's file list (remote mode only — the local store addresses files by name, and the CLI names them by name too). No CLI flag spells it because the CLI never addresses a download by file id.",
   "verify_task.timeoutMs":
     "per-call verification timeout, and the CLI equivalent DOES exist: `vibeflow verify <task-id> --timeout <ms>` bounds one run with the same unit (milliseconds), the same 1000-300000 range and the same 60000 default, through the same AbortSignal the engine already honours. The field is MCP-only in NAME and SHAPE (a camelCase input field with a default vs a `--timeout` flag that also defaults), not in capability. Kept because the dashed form G5 looks for is `--timeout-ms`, which is not a flag anyone types.",
 };
@@ -499,6 +509,31 @@ export const manifest: ToolManifest[] = [
     schema: AttachFileInput.strict(),
     run: (ctx, input) =>
       attachFile(ctx, input as z.infer<typeof AttachFileInput>),
+  },
+  {
+    name: "get_file",
+    title: "Get file",
+    description:
+      "Download a file attached to a task, returned as base64 with its filename, content type and size. Give the task `id` plus the attached `filename` (either mode) or the online `fileId` (remote mode only). Read-only; changes nothing. Use it to read back an attachment the file list only names — the remote list carries no bytes, so this is how an agent actually sees the content.",
+    cliRef: {
+      command: "tasks",
+      // The CLI form is `tasks --get-file <id> <name> [--out <path>]`:
+      // the bytes land on disk, while get_file returns them as base64
+      // because an MCP client may not share this filesystem — the same
+      // reason attach_file takes contentB64 instead of a path.
+      flags: ["--get", "--get-file", "--out"],
+    },
+    category: "task-read",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    input: GetFileInput.shape,
+    schema: GetFileInput.strict(),
+    run: (ctx, input) =>
+      getFile(ctx, input as z.infer<typeof GetFileInput>),
   },
   // REMOVED (ticket 53b622fc): export_prompt was deleted here — the
   // whole-board prompt exporter. Its single-task read is covered by

@@ -150,6 +150,8 @@ import {
   type ClaimNextTaskInputType,
   CreateTaskInput,
   type CreateTaskInputType,
+  GetFileInput,
+  type GetFileInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
   GetProjectInput,
@@ -176,6 +178,8 @@ export {
   type ClaimNextTaskInputType,
   CreateTaskInput,
   type CreateTaskInputType,
+  GetFileInput,
+  type GetFileInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
   GetProjectInput,
@@ -446,9 +450,11 @@ export {
 export {
   attachFile,
   attachStandalone,
+  getFile,
   type AttachSourceInput,
   type AttachStandaloneInput,
   type AttachStandaloneData,
+  type GetFileData,
 } from "./operations/files.js";
 export {
   commitTaskPathsOperation,

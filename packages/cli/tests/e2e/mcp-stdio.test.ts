@@ -181,14 +181,15 @@ describe("stdio transport (W4)", () => {
     expect(init!.result.serverInfo.name).toBe("vibeflow");
   });
 
-  it("stdio: tools/list returns 12 tools", async () => {
+  it("stdio: tools/list returns 13 tools", async () => {
     const run = await standardSession();
     const list = parseFrames(run.stdout).find((f) => f.id === 2);
     expect(list, "no tools/list response").toBeTruthy();
     const names = list!.result.tools.map((t: { name: string }) => t.name);
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // Then `pull` was added (board -> local additive sync), back to 12.
-    expect(names.length).toBe(12);
+    // Then `get_file` (attachment download, mirror of attach_file), now 13.
+    expect(names.length).toBe(13);
     expect(names).toContain("get_project");
     expect(names).toContain("pull");
   });

@@ -32,13 +32,15 @@ describe("MCP manifest single source", () => {
     ).not.toContain("pull");
   });
 
-  it("has exactly 12 tools", () => {
+  it("has exactly 13 tools", () => {
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
-    // Then `pull` was added (board -> local additive sync), back to 12. The
+    // Then `pull` was added (board -> local additive sync), back to 12. Then
+    // `get_file` was added (ticket q2xx837y1ji49vwgq6504rt1: download an
+    // attachment's bytes — the read mirror of attach_file), now 13. The
     // count is pinned deliberately: a tool appearing or vanishing without a
-    // decision should break this file, and drift.test.ts names `pull` as the
-    // twelfth so the two cannot disagree.
-    expect(manifest.length).toBe(12);
+    // decision should break this file, and drift.test.ts names every tool so
+    // the two cannot disagree.
+    expect(manifest.length).toBe(13);
   });
 
   it("export_prompt is absent (removed, ticket 53b622fc)", () => {

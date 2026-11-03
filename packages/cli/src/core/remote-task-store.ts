@@ -195,6 +195,28 @@ function toRemoteRefusal(
  * not a blind retry — it is a new, deliberate write.
  */
 /**
+ * Read-side refusal mapping for remote byte reads (ticket q2xx837y1ji49vwgq6504rt1:
+ * `get_file` downloads attachment bytes, so a failed download refuses through
+ * the same fail-closed ladder as every other remote read — never a local fallback).
+ */
+export function toRemoteReadRefusal(
+  error: { code: string; message: string; status?: number; path?: string },
+  fallbackSuggestion: string,
+): RemoteReadError {
+  // A structured server refusal about the INPUT (unknown task, unknown
+  // file) is a fact, not a transport failure — it keeps its own code
+  // verbatim, the same passthrough the write side applies. Only the
+  // unshaped remainder falls back to the E_BACKEND_UNAVAILABLE ladder.
+  if (error.code === "FILE_NOT_FOUND" || error.code === "TASK_NOT_FOUND") {
+    return new RemoteReadError(error.code, error.message, {
+      suggestion: fallbackSuggestion,
+      retryable: false,
+    });
+  }
+  return toRemoteRefusal(error, fallbackSuggestion);
+}
+
+/**
  * Write-side refusal mapping, shared with the update operation's report
  * lifecycle (ticket efcd6992, P4 step 5): a structured server refusal
  * keeps its own code verbatim; anything else falls back to the read-side

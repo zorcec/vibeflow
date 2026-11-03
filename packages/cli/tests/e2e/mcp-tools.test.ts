@@ -1,5 +1,5 @@
 /**
- * MCP e2e — all 12 tools happy path over HTTP (spec §2.2).
+ * MCP e2e — all 13 tools happy path over HTTP (spec §2.2).
  *
  * Common contract per call: HTTP 200, JSON-RPC 2.0, content[0].text is
  * a string that JSON.parse succeeds. On-disk effects verified via
@@ -341,6 +341,45 @@ describe("MCP tools happy paths", () => {
     const disk = JSON.parse(readFileSync(taskFile!, "utf-8"));
     expect(disk.files.length).toBeGreaterThanOrEqual(1);
     expect(disk.files[0].name).toBe("report.md");
+  });
+
+  // ── 10b. get_file — attach then download round-trips the bytes ────────
+
+  it("10b: get_file — returns the attached bytes as base64", async () => {
+    const r = await callTool(client, "create_task", { title: "Download task" });
+    const p = await assertJsonTextContent(r);
+
+    const content = "# Download\nround-trip body";
+    await callTool(client, "attach_file", {
+      id: p.id,
+      filename: "notes.md",
+      contentB64: Buffer.from(content).toString("base64"),
+    });
+
+    const res = await callTool(client, "get_file", {
+      id: p.id,
+      filename: "notes.md",
+    });
+    const parsed = await assertJsonTextContent(res);
+    expect(parsed.filename).toBe("notes.md");
+    expect(parsed.mimeType).toBe("text/markdown");
+    expect(parsed.size).toBe(Buffer.byteLength(content));
+    expect(Buffer.from(parsed.contentB64, "base64").toString("utf-8")).toBe(
+      content,
+    );
+  });
+
+  it("10c: get_file — unknown filename refuses with FILE_NOT_FOUND", async () => {
+    const r = await callTool(client, "create_task", { title: "Missing file task" });
+    const p = await assertJsonTextContent(r);
+
+    const res = await callTool(client, "get_file", {
+      id: p.id,
+      filename: "ghost.md",
+    });
+    const parsed = await assertJsonTextContent(res);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe("FILE_NOT_FOUND");
   });
 
   // ── 11-12. REMOVED (ticket 53b622fc, BREAKING): export_prompt single/multi.

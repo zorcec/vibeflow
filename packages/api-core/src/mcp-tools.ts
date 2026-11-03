@@ -417,6 +417,30 @@ export const AttachFileInput = z.object({
 });
 export type AttachFileInputType = z.infer<typeof AttachFileInput>;
 
+export const GetFileInput = z.object({
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Task id — a full id, or any unique prefix of one, of the task the file is attached to. An id that matches nothing is refused with TASK_NOT_FOUND; nothing is read.",
+    ),
+  filename: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Bare attached filename to download (no directory part). Give this or fileId — at least one is required, and both naming the same file is fine.",
+    ),
+  fileId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Online file id from the board's file list (remote mode only — the local store addresses files by name). Give this or filename; a fileId that matches nothing is refused with FILE_NOT_FOUND.",
+    ),
+});
+export type GetFileInputType = z.infer<typeof GetFileInput>;
+
 export const VerifyTaskInput = z.object({
   id: z
     .string()
@@ -568,6 +592,24 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
       openWorldHint: false,
     },
     input: GetTaskInput.shape,
+  },
+  {
+    name: "get_file",
+    title: "Get file",
+    description:
+      "Download a file attached to a task, returned as base64. Give the task `id` plus the attached `filename` (either mode) or the online `fileId` (remote mode only). Read-only; changes nothing. Use it to read back an attachment the file list only names — the remote list carries no bytes, so this is how an agent actually sees the content.",
+    cliRef: {
+      command: "tasks",
+      flags: ["--get", "--get-file", "--out"],
+    },
+    category: "task-read",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    input: GetFileInput.shape,
   },
   {
     name: "get_project",

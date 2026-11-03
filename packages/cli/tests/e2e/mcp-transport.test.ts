@@ -82,7 +82,7 @@ describe("MCP transport/session lifecycle", () => {
     expect(res.status).toBe(200);
   });
 
-  it("4: tools/list returns exactly 12 tools", async () => {
+  it("4: tools/list returns exactly 13 tools", async () => {
     await initialize(client);
     const res = await listTools(client);
     expect(res.status).toBe(200);
@@ -90,7 +90,8 @@ describe("MCP transport/session lifecycle", () => {
     const tools = body.result.tools;
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // Then `pull` was added (board -> local additive sync), back to 12.
-    expect(tools.length).toBe(12);
+    // Then `get_file` (attachment download, mirror of attach_file), now 13.
+    expect(tools.length).toBe(13);
     for (const tool of tools) {
       expect(tool.name).toBeDefined();
       expect(tool.description).toBeDefined();
