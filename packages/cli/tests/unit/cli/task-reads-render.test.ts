@@ -157,6 +157,21 @@ describe("list envelopes", () => {
     ).toEqual({ id: "a", commentCount: 3, fileCount: 0 });
   });
 
+  it("remote payload echoes the listing order (search and non-search)", () => {
+    const searchPayload = remoteListJsonPayload(
+      { ...listResult([task("a")]), order: ["score:asc", "id:asc"] },
+      [],
+    );
+    expect(searchPayload.order).toEqual(["score:asc", "id:asc"]);
+    const listPayload = remoteListJsonPayload(listResult([task("a")]), []);
+    expect(listPayload.order).toEqual([
+      "status",
+      "priority",
+      "updated",
+      "id",
+    ]);
+  });
+
   it("remote payload keeps the legacy tasks + hiddenChildren envelope", () => {
     const payload = remoteListJsonPayload(
       { ...listResult([task("a"), task("b")]), hiddenChildren: 1 },
@@ -164,6 +179,7 @@ describe("list envelopes", () => {
     );
     expect(Object.keys(payload).sort()).toEqual([
       "hiddenChildren",
+      "order",
       "tasks",
     ]);
     expect((payload.tasks as Task[]).map((t) => t.id)).toEqual(["a", "b"]);

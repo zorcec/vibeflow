@@ -167,6 +167,11 @@ export function localListJsonPayload(
  * counts. The operation already pins `commentCount`/`fileCount` onto
  * projected rows from the REMOTE detail (never local sidecars); this
  * envelope passes the operation rows through untouched.
+ *
+ * Order echo: the `order` field mirrors the local envelope — a search
+ * answer is relevance-ranked (score, then id), and remote search rows are
+ * assembled the same way, so the order the operation applied must be
+ * echoed here rather than silently dropped.
  */
 export function remoteListJsonPayload(
   result: TaskListResult,
@@ -182,6 +187,7 @@ export function remoteListJsonPayload(
   return {
     tasks: projected,
     hiddenChildren: result.hiddenChildren,
+    order: result.order,
   };
 }
 

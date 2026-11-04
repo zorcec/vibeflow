@@ -5893,8 +5893,10 @@ program
             // REMOTE MODE (ticket 9bb350a7): the legacy `tasks` +
             // `hiddenChildren` envelope, assembled by the read renderer
             // from the operation result — the position vocabulary
-            // (offset/remaining/nextCursor/order) is a local-envelope
-            // concern and is never invented here. Rows are the mapped
+            // (offset/remaining/nextCursor) is a local-envelope concern
+            // and is never invented here, but `order` IS echoed: a search
+            // answer is relevance-ranked and the operation reports which
+            // order it applied. Rows are the mapped
             // remote records through the shared listing model, so an
             // unfiltered listing still hides children and `--children`
             // still reveals them.
