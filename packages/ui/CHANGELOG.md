@@ -1,5 +1,14 @@
 # @vibeflow-tools/ui
 
+## 0.5.3
+
+### Patch Changes
+
+- 997fe68: Done column counts (d2zka3bd): the header shows the server-known total (`Done · N`) and the single bottom line reads `+N more` with N = total − rendered-on-screen. The duplicate `showing X of N` dotted chip is removed; `doneCountChipText` is replaced by the `doneHiddenCount(rendered, total)` remainder helper.
+- 87b4e97: Done lane/group now sorts most-recently-modified first: the board done column and the list-view done group order by `updatedAt` desc (falling back to `createdAt`), ignoring manual drag `sortKey` order. Other lanes keep their existing order; no pagination or cap change.
+- 461723d: Add optional `onDownload`/`onFileDownload` download handlers to `FileItem`, `FilesList`, `CommentsList`, and `DetailPanel`. A bare `<a href download>` cannot send the `X-Vibeflow-Scope` header, so scoped file downloads failed closed; callers can now fetch with scope headers and trigger the save themselves. Behaviour is unchanged when the handler is absent.
+- 06810fa: First-run kanban onboarding: opening a board with no tasks auto-opens settings once (localStorage `vibeflow.kanban.onboarded`, never re-opens), and the review-gate defaults are now ON — a verification verdict and a comment are required on review unless explicitly opted out (`requireVerifyBeforeReview: false` / `autoComment: false` still win). Comment-on-review was already unconditional; the verify default is the behavior change, surfaced visibly by the auto-opened settings modal.
+
 ## 0.5.2
 
 ### Patch Changes

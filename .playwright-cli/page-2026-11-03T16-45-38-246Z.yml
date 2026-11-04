@@ -1,0 +1,124 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - img "Vibeflow" [ref=e6]
+        - generic [ref=e12]:
+          - heading "Vf-verify" [level=1] [ref=e14]
+          - paragraph [ref=e15]: 0 open · 0 in-progress · 0 in review
+      - generic [ref=e18]:
+        - img [ref=e19]
+        - textbox "Search tasks" [ref=e22]:
+          - /placeholder: "Search… or type #tag"
+      - generic [ref=e24]:
+        - button "Overview" [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: Overview
+        - button "Changelog" [ref=e27] [cursor=pointer]:
+          - generic [ref=e28]: Changelog
+        - button "? shortcuts" [ref=e29] [cursor=pointer]:
+          - generic [ref=e30]: "? shortcuts"
+        - button "Settings" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - button "All" [ref=e37] [cursor=pointer]
+        - button "Todo 0" [ref=e38] [cursor=pointer]:
+          - text: Todo
+          - generic [ref=e40]: "0"
+        - button "In Progress 0" [ref=e41] [cursor=pointer]:
+          - text: In Progress
+          - generic [ref=e43]: "0"
+        - button "Review 0" [ref=e44] [cursor=pointer]:
+          - text: Review
+          - generic [ref=e46]: "0"
+      - button "Tags" [ref=e48] [cursor=pointer]:
+        - img [ref=e49]
+        - text: Tags
+        - img [ref=e52]
+      - button "User" [ref=e55] [cursor=pointer]:
+        - img [ref=e56]
+        - text: User
+        - img [ref=e59]
+      - button "Type" [ref=e62] [cursor=pointer]:
+        - img [ref=e63]
+        - text: Type
+        - img [ref=e66]
+      - generic [ref=e68]:
+        - button "Board view" [ref=e69] [cursor=pointer]:
+          - img [ref=e70]
+        - button "Compact view" [ref=e75] [cursor=pointer]:
+          - img [ref=e76]
+        - button "List view" [ref=e78] [cursor=pointer]:
+          - img [ref=e79]
+    - main [ref=e81]:
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - generic [ref=e85]: Backlog · 0
+          - button "Add task to Backlog" [ref=e86] [cursor=pointer]:
+            - img [ref=e87]
+        - generic [ref=e89]: No tasks in backlog.
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - generic [ref=e93]: Todo · 0
+          - button "Add task to Todo" [ref=e94] [cursor=pointer]:
+            - img [ref=e95]
+        - generic [ref=e97]: No tasks in todo.
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e101]: In Progress · 0
+          - button "Add task to In Progress" [ref=e102] [cursor=pointer]:
+            - img [ref=e103]
+        - generic [ref=e105]: No tasks in in progress.
+      - generic [ref=e106]:
+        - generic [ref=e107]:
+          - generic [ref=e109]: Review · 0
+          - button "Add task to Review" [ref=e110] [cursor=pointer]:
+            - img [ref=e111]
+        - generic [ref=e113]: No tasks in review.
+      - generic [ref=e114]:
+        - generic [ref=e115]:
+          - generic [ref=e117]: Done · 0
+          - button "Add task to Done" [ref=e118] [cursor=pointer]:
+            - img [ref=e119]
+        - generic [ref=e121]: No tasks in done.
+  - generic [ref=e124]:
+    - generic [ref=e125]:
+      - img [ref=e127]
+      - generic [ref=e130]: Settings
+      - button [ref=e132] [cursor=pointer]:
+        - img [ref=e133]
+    - generic [ref=e136]:
+      - generic [ref=e137]:
+        - button "Enforcement" [ref=e138] [cursor=pointer]:
+          - img [ref=e139]
+          - text: Enforcement
+        - button "Board" [ref=e142] [cursor=pointer]:
+          - img [ref=e143]
+          - text: Board
+        - button "Theme" [ref=e145] [cursor=pointer]:
+          - img [ref=e146]
+          - text: Theme
+      - generic [ref=e152]:
+        - generic [ref=e153]:
+          - generic [ref=e154]: Require a verification verdict before review
+          - generic [ref=e155]: Tasks with a URL and selector need a --set-verify verdict (pass|fail|cannot) at review. Cleared when the task returns to in-progress.
+          - generic [ref=e160] [cursor=pointer]: "On"
+        - generic [ref=e161]:
+          - generic [ref=e162]: Require comment on review
+          - generic [ref=e163]: CLI enforces an implementation report when setting task status to review.
+          - generic [ref=e168] [cursor=pointer]: "On"
+        - generic [ref=e170]:
+          - generic [ref=e171]: Require branch per task
+          - generic [ref=e172]: CLI enforces a dedicated branch name when setting task status to review.
+          - generic [ref=e177] [cursor=pointer]: "Off"
+        - generic [ref=e178]:
+          - generic [ref=e179]: Auto-commit on review
+          - generic [ref=e180]: CLI automatically commits staged changes when setting task status to review.
+          - generic [ref=e185] [cursor=pointer]: "On"
+        - generic [ref=e186]:
+          - generic [ref=e187]: Auto-push after commit
+          - generic [ref=e188]: CLI pushes after auto-commit. Requires 'Auto-commit' to be ON.
+          - generic [ref=e193] [cursor=pointer]: "On"
+    - generic [ref=e195]:
+      - button "Cancel" [ref=e196] [cursor=pointer]
+      - button "Apply" [ref=e197] [cursor=pointer]

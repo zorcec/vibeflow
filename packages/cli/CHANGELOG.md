@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.25.0
+
+### Minor Changes
+
+- 4fab972: Add `get_file` download path (mirror of `attach_file`): MCP `vibeflow_get_file(id, filename|fileId)` returns `{filename, mimeType, size, contentB64}`, and `vibeflow tasks --get-file <id> <name> [--out path]` writes the bytes to disk. Local reads come from the task's files dir; remote mode downloads through the board's file endpoints, so agents can read attachment bytes the stripped file list never carries.
+
+### Patch Changes
+
+- 1fc8a46: Kanban: dropping a child row onto another lane's card edge now moves it there as a root item (parent link unlinked plus status/sortKey moved), matching the column-background drop. Previously the reorder path persisted only status/sortKey, so the card appeared in the new lane while staying attached to the old parent's tree. List-view section drops use the same drag-out path.
+- eddbb37: Fix CLI board `uploadFile` swallowing rejected uploads: check the upload POST response status and throw with the server error detail (parity with the web adapter), so the detail panel shows the upload-error box instead of a success chip.
+- 87b4e97: Done lane/group now sorts most-recently-modified first: the board done column and the list-view done group order by `updatedAt` desc (falling back to `createdAt`), ignoring manual drag `sortKey` order. Other lanes keep their existing order; no pagination or cap change.
+- 06810fa: First-run kanban onboarding: opening a board with no tasks auto-opens settings once (localStorage `vibeflow.kanban.onboarded`, never re-opens), and the review-gate defaults are now ON — a verification verdict and a comment are required on review unless explicitly opted out (`requireVerifyBeforeReview: false` / `autoComment: false` still win). Comment-on-review was already unconditional; the verify default is the behavior change, surfaced visibly by the auto-opened settings modal.
+- 1f1033b: Fix overlay paste `uploadTaskFile` swallowing rejected uploads: check the upload POST response status and throw with the server error detail (parity with the board `uploadFile` fix), so a failed overlay paste lands in the visible paste-error UI via `pasteFailureMessage` instead of resolving as success.
+- 9cf68a8: MCP tool docs are now generated from code (single source of truth): `packages/cli/tool-catalog.json` is projected from `packages/cli/src/mcp/manifest.ts` (13 tools, including `get_file` and `pull`), the root README tool table lists all 13, and `pnpm check:docs` fails when docs and catalog disagree.
+
 ## 0.24.2
 
 ### Patch Changes

@@ -1,0 +1,151 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - img "Vibeflow" [ref=e6]
+      - generic [ref=e12]:
+        - heading "Vf-verify" [level=1] [ref=e209]
+        - paragraph [ref=e15]: 1 open · 0 in-progress · 0 in review
+    - generic [ref=e19]:
+      - img [ref=e20]
+      - textbox "Search tasks" [ref=e23]:
+        - /placeholder: "Search… or type #tag"
+    - generic [ref=e25]:
+      - button "Overview" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: Overview
+      - button "Changelog" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: Changelog
+      - button "? shortcuts" [ref=e30] [cursor=pointer]:
+        - generic [ref=e31]: "? shortcuts"
+      - button "Settings" [ref=e32] [cursor=pointer]:
+        - img [ref=e33]
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - button "All" [ref=e38] [cursor=pointer]
+      - button "Todo 1" [ref=e210] [cursor=pointer]:
+        - text: Todo
+        - generic [ref=e41]: "1"
+      - button "In Progress 0" [ref=e42] [cursor=pointer]:
+        - text: In Progress
+        - generic [ref=e44]: "0"
+      - button "Review 0" [ref=e45] [cursor=pointer]:
+        - text: Review
+        - generic [ref=e47]: "0"
+    - button "Tags" [ref=e49] [cursor=pointer]:
+      - img [ref=e50]
+      - text: Tags
+      - img [ref=e53]
+    - button "User" [ref=e56] [cursor=pointer]:
+      - img [ref=e57]
+      - text: User
+      - img [ref=e60]
+    - button "Type" [ref=e63] [cursor=pointer]:
+      - img [ref=e64]
+      - text: Type
+      - img [ref=e67]
+    - generic [ref=e69]:
+      - button "Board view" [ref=e70] [cursor=pointer]:
+        - img [ref=e71]
+      - button "Compact view" [ref=e76] [cursor=pointer]:
+        - img [ref=e77]
+      - button "List view" [ref=e79] [cursor=pointer]:
+        - img [ref=e80]
+  - generic [ref=e81]:
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e86]: Backlog · 0
+          - button "Add task to Backlog" [ref=e87] [cursor=pointer]:
+            - img [ref=e88]
+        - generic [ref=e211]: No tasks in backlog.
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e111]: Todo · 1
+          - button "Add task to Todo" [ref=e112] [cursor=pointer]:
+            - img [ref=e113]
+        - article [ref=e213]:
+          - generic [ref=e214]:
+            - 'img "Status: Todo" [ref=e215]'
+            - generic [ref=e216]: verify probe task
+            - generic [ref=e217]:
+              - button "Move to In Progress" [ref=e218] [cursor=pointer]:
+                - img [ref=e219]
+              - button "Copy task id" [ref=e221] [cursor=pointer]:
+                - img [ref=e222]
+          - generic [ref=e225]:
+            - generic [ref=e227]:
+              - generic [ref=e228]: Task
+              - generic [ref=e229]: Medium
+            - button "Add comment" [ref=e230] [cursor=pointer]:
+              - img [ref=e231]
+            - button "1" [ref=e233] [cursor=pointer]:
+              - img [ref=e234]
+              - generic [ref=e237]: "1"
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - generic [ref=e136]: In Progress · 0
+          - button "Add task to In Progress" [ref=e137] [cursor=pointer]:
+            - img [ref=e138]
+        - generic [ref=e238]: No tasks in in progress.
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - generic [ref=e161]: Review · 0
+          - button "Add task to Review" [ref=e162] [cursor=pointer]:
+            - img [ref=e163]
+        - generic [ref=e239]: No tasks in review.
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - generic [ref=e186]: Done · 0
+          - button "Add task to Done" [ref=e187] [cursor=pointer]:
+            - img [ref=e188]
+        - generic [ref=e240]: No tasks in done.
+    - complementary [ref=e242]:
+      - generic [ref=e243]:
+        - generic [ref=e244]:
+          - generic [ref=e245]:
+            - 'button "Task type: Task. Activate to change the task type." [ref=e247] [cursor=pointer]':
+              - generic [ref=e248]: ☑
+              - generic [ref=e249]: Task
+            - textbox "Task title…" [ref=e250]: verify probe task
+          - button "Restore panel" [pressed] [ref=e251] [cursor=pointer]:
+            - img [ref=e252]
+          - button [ref=e257] [cursor=pointer]:
+            - img [ref=e258]
+        - generic [ref=e261]:
+          - generic [ref=e262]: Status
+          - button "backlog" [ref=e263] [cursor=pointer]
+          - button "todo" [ref=e264] [cursor=pointer]
+          - button "in-progress" [ref=e265] [cursor=pointer]
+          - button "review" [ref=e266] [cursor=pointer]
+          - button "done" [ref=e267] [cursor=pointer]
+      - generic [ref=e268]:
+        - button "Details" [ref=e269] [cursor=pointer]
+        - button "Activity" [ref=e270] [cursor=pointer]
+        - button "Files (1)" [active] [ref=e271] [cursor=pointer]:
+          - text: Files
+          - generic [ref=e272]: (1)
+      - generic [ref=e273]:
+        - generic [ref=e274]:
+          - generic [ref=e275]:
+            - text: 💡
+            - strong [ref=e276]: "Tip:"
+            - text: Paste screenshots or files anywhere in this panel — they attach automatically.
+          - button "Dismiss" [ref=e277] [cursor=pointer]:
+            - img [ref=e278]
+        - generic [ref=e319]:
+          - generic [ref=e321]:
+            - generic [ref=e322]: 📎
+            - generic [ref=e323]:
+              - paragraph [ref=e324] [cursor=pointer]: probe.txt
+              - paragraph [ref=e325]: 21 B
+            - generic [ref=e326]:
+              - link "↓" [ref=e327] [cursor=pointer]:
+                - /url: /api/tasks/981c2d49f7fa9aad7fd9aaa2c4790d/files/probe.txt
+              - button "✕" [ref=e328] [cursor=pointer]
+          - generic [ref=e329]:
+            - generic [ref=e330] [cursor=pointer]:
+              - img [ref=e331]
+              - text: Upload
+            - generic [ref=e334]: or paste image
+      - generic [ref=e316]:
+        - button "Delete" [ref=e317] [cursor=pointer]
+        - generic [ref=e318]: Changes are saved automatically
