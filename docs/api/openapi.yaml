@@ -43,6 +43,11 @@ paths:
             type: string
             enum:
               - roots
+        - name: q
+          in: query
+          description: "Fuzzy search over title, description, comments and tags (ticket mq8azbxthl824162fnr4at49): a token-bounded SQL prefilter in Postgres plus the shared in-process matcher as the single ranker (score, then id) — the same ids in the same order as `tasks --search`, MCP list_tasks and the board search box. Over-long queries truncate to 200 chars; `sort=kanban` cannot be combined with `q` (400 INVALID_SORT)."
+          schema:
+            type: string
         - name: limit
           in: query
           schema:

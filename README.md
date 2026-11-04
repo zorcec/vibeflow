@@ -277,7 +277,7 @@ vibeflow mcp --project /path/to/project
 
 | Tool | What it does |
 | ---- | ------------ |
-| `list_tasks` | List tasks with optional filters (root tasks only unless `children`) |
+| `list_tasks` | List or fuzzy-search tasks with optional filters (root tasks only unless `children`) |
 | `get_task` | One task by ID, with comments and files |
 | `get_project` | The resolved project this server is attached to — root, branch, mode |
 | `create_task` | Create a task, optionally annotated with a URL and selector |

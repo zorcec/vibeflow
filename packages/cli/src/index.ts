@@ -792,6 +792,7 @@ For coding agents — quick reference:
   vibeflow tasks                       List all tasks
   vibeflow tasks --status todo         Filter to open tasks
   vibeflow tasks --tag <tag>           Filter by tag (repeatable for AND)
+  vibeflow tasks --search <text>       Fuzzy search title/description/comments/tags
   vibeflow tasks --get <id>            Full task details
   vibeflow tasks --next                Pick highest-priority todo task (auto-claims)
   vibeflow tasks --edit <id> --set-status in-progress
@@ -1202,6 +1203,10 @@ program
     [] as string[],
   )
   .option(
+    "--search <text>",
+    "Fuzzy search over title, description, comments and tags (case-insensitive, typo-tolerant; every word must match). A search returns matching children like the other filters, ranked by relevance (score, then id). Locally ranked by the shared matcher; in remote mode narrows with ?q= and ranks the same way",
+  )
+  .option(
     "--report-file <path>",
     "Path to a local .md file to upload as the research report (use with --set-status review on Research tasks; file is uploaded and deleted locally)",
   )
@@ -1279,6 +1284,7 @@ program
         status?: string;
         type?: string;
         user?: string;
+        search?: string;
         edit?: string | boolean;
         add?: boolean;
         title?: string;
@@ -5823,6 +5829,10 @@ program
           type: opts.type as ListTasksInputType["type"],
           user: opts.user,
           tag: opts.tag,
+          // Fuzzy search (ticket mq8azbxthl824162fnr4at49): passed straight
+          // through — the operation validates the length via the schema and
+          // the shared model ranks; blank behaves like no search.
+          search: opts.search,
           children: opts.children,
         };
         // The operation takes the schema OUTPUT type (defaults applied):

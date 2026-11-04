@@ -13,6 +13,14 @@
  */
 import { z } from "zod";
 
+// Max search-query length (ticket mq8azbxthl824162fnr4at49). Duplicated —
+// NOT imported — from SEARCH_QUERY_MAX_LENGTH in @vibeflow-tools/shared:
+// api-core must stay dependency-free of shared (the private web consumes
+// api-core through a `file:` dep, and a `workspace:` edge here breaks its
+// install). Pinned equal by task-listing-search.test.ts — change both.
+// (Neither may drift from the web's SEARCH_TERM_MAX either: same number.)
+const SEARCH_QUERY_MAX_LENGTH = 200;
+
 // ── Task/link vocabulary (moved from CLI core/types.ts, P4a) ───────────────
 // The CLI re-exports these from `core/types.ts`, so existing importers do
 // not churn; this module is the single spelling.
@@ -76,6 +84,22 @@ export const ListTasksInput = z.object({
   tag: z.array(z.string()).optional().describe(
     "Every listed tag must be present on the task (AND, not OR). Combines with the other filters.",
   ),
+  // Fuzzy full-text search (ticket mq8azbxthl824162fnr4at49): the same
+  // shared matcher (`rankFuzzySearch` in @vibeflow-tools/shared) every
+  // surface ranks by — CLI local + remote, MCP, web tRPC + v0 — so one
+  // query returns the same ids in the same order everywhere. Scope is
+  // title + description + comments + tags (case-insensitive,
+  // typo-tolerant subsequence; every whitespace-separated token must
+  // match). A search query ALWAYS includes matching children, exactly
+  // like the other filters. Ranked by relevance (score, then id) — the
+  // `order` echo names it — not by the listing order.
+  search: z
+    .string()
+    .max(SEARCH_QUERY_MAX_LENGTH)
+    .optional()
+    .describe(
+      "Fuzzy search over title, description, comments and tags (case-insensitive, typo-tolerant; every word must match). A search always includes matching children. Results rank by relevance (score, then id), named in the `order` echo. Combines with the other filters.",
+    ),
   // DESCRIBED, not just typed: `tools/list` is the ONLY place a client can
   // read this before the SDK's input validation refuses the call with
   // `MCP error -32602: … at limit`, which is raised before any handler runs and
@@ -552,7 +576,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
     name: "list_tasks",
     title: "List tasks",
     description:
-      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag): an explicit search returning EVERY match, children included. Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted. Use it to browse or search the board; use get_task when you already hold an id, and claim_next_task when you want the next unit of work claimed rather than just listed.",
+      "List tasks with optional filters — the same listing as `vibeflow tasks` (same filters, same scope, same order). Unfiltered: ROOT tasks only (a child belongs to its parent's card — set children:true to include them). Filtered (status/type/user/tag/search): an explicit search returning EVERY match, children included. `search` is a fuzzy relevance search over title, description, comments and tags (same shared matcher as `vibeflow tasks --search`, ranked by score then id, named in the `order` echo). Counts are labelled by scope: totalMatching (every match), totalRoots (matching roots), hiddenChildren (matches omitted by root-only scope), returned (rows in `tasks`), limit (echoed RESOLVED — 0 is not supported and falls back to the default of 20, named in `limitNotice`; there is no unbounded mode, page with nextCursor or CLI --all for everything), truncated + hint (present only when the limit cut rows). Position: offset (0-based index of the first returned row), remaining (rows in THIS query's scope NOT in this response — totalRoots-based when root-only, totalMatching-based otherwise, so offset + returned + remaining always equals the scope size; 0 means exhausted), nextCursor (opaque continuation, null exactly when exhausted), order (the effective sort applied, so a continuation is stable). Projected rows (fields) always carry commentCount/fileCount even when the arrays are omitted. Use it to browse or search the board; use get_task when you already hold an id, and claim_next_task when you want the next unit of work claimed rather than just listed.",
     cliRef: {
       command: "tasks",
       flags: [

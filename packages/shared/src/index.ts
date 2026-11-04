@@ -41,6 +41,18 @@ export {
 } from "./schemas";
 export type { SaasTaskStatus } from "./schemas";
 
+// Shared fuzzy search (one ranker for CLI/MCP/web/v0 — ticket mq8azbxthl824162fnr4at49).
+// Node-free: safe for the CLI browser overlay bundle.
+export {
+  SEARCH_QUERY_MAX_LENGTH,
+  SEARCH_PREFETCH_CAP,
+  SEARCH_ORDER,
+  tokenizeSearchQuery,
+  fuzzyScoreTokens,
+  rankFuzzySearch,
+} from "./fuzzy-search";
+export type { FuzzyHaystack, FuzzyHit } from "./fuzzy-search";
+
 // Utils
 export {
   generateId,

@@ -227,20 +227,34 @@ export async function listTasks(
       !hasServerIneligibleFilter &&
       input.status === undefined &&
       input.children !== true;
-    const offerRootsTopK = isUnfilteredRootOnly && limitForTopK !== null;
+    // Fuzzy search (ticket mq8azbxthl824162fnr4at49): a non-blank search
+    // ranks by relevance (score, then id), never by the kanban order — so
+    // a search NEVER takes the kanban top-K page even when the other
+    // conditions hold: kanban-top-K of the matches is not a prefix of
+    // relevance-top-K, and the page would silently lose rows. `q` below is
+    // only ever a SET-narrowing hint (like `status`): the server prefilters
+    // (bounded, indexed) and the client STILL applies the full query, so a
+    // server that ignores `q` converges to the same answer via the full
+    // scan. `--all --search` likewise pages to exhaust.
+    const hasSearch =
+      input.search !== undefined && input.search.trim() !== "";
+    const offerRootsTopK =
+      isUnfilteredRootOnly && limitForTopK !== null && !hasSearch;
     const offerPeersTopK =
       !offerRootsTopK &&
       !hasServerIneligibleFilter &&
       limitForTopK !== null &&
-      scopeIncludesChildren;
+      scopeIncludesChildren &&
+      !hasSearch;
     const offerTopK = offerRootsTopK || offerPeersTopK;
     const result = queryTaskList(
       await store.listTasks(
         ctx.projectDir,
         reads,
-        input.status !== undefined || offerTopK
+        input.status !== undefined || offerTopK || hasSearch
           ? {
               ...(input.status !== undefined ? { status: input.status } : {}),
+              ...(hasSearch ? { q: input.search as string } : {}),
               ...(offerTopK
                 ? {
                     sort: "kanban" as const,
@@ -257,6 +271,7 @@ export async function listTasks(
         type: input.type,
         user: input.user,
         tag: input.tag,
+        search: input.search,
         children: input.children,
         limit: input.limit,
       },
@@ -312,6 +327,8 @@ export interface ListAllTasksInput {
   type?: string;
   user?: string;
   tag?: string[];
+  /** Same shared fuzzy search as listTasks (ticket mq8azbxthl824162fnr4at49). */
+  search?: string;
   children?: boolean;
   fields?: string[];
   pageSize?: number;
@@ -335,17 +352,25 @@ export async function listAllTasksForCli(
     // `--all` needs every matching row, not the first page — a row cap
     // would silently truncate the assembled set. Unbounded overall, bounded
     // per request via the paged full scan.
+    const hasSearch =
+      input.search !== undefined && input.search.trim() !== "";
     const result = queryAllTasks(
       await store.listTasks(
         ctx.projectDir,
         reads,
-        input.status !== undefined ? { status: input.status } : undefined,
+        input.status !== undefined || hasSearch
+          ? {
+              ...(input.status !== undefined ? { status: input.status } : {}),
+              ...(hasSearch ? { q: input.search as string } : {}),
+            }
+          : undefined,
       ),
       {
         status: input.status,
         type: input.type,
         user: input.user,
         tag: input.tag,
+        search: input.search,
         children: input.children,
         pageSize: input.pageSize,
       },

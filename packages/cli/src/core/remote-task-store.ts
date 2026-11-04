@@ -686,7 +686,7 @@ class RemoteTaskStore implements TaskStore {
   async listTasks(
     _projectDir?: string,
     _reads?: unknown,
-    preFilter?: { status?: string; sort?: "kanban"; limit?: number; scope?: "roots"; children?: boolean },
+    preFilter?: { status?: string; sort?: "kanban"; limit?: number; scope?: "roots"; children?: boolean; q?: string },
   ): Promise<Task[]> {
     const boardId = await resolveBoardOnce(_projectDir);
     // Push the status only when predicate-equal (see
@@ -747,10 +747,18 @@ class RemoteTaskStore implements TaskStore {
         ? (preFilter.limit as number)
         : null;
     const topK = rootsTopK ?? peersTopK;
+    // Fuzzy search (ticket mq8azbxthl824162fnr4at49): `q` narrows the fetch
+    // (server prefilters, bounded + indexed) but NEVER takes the top-K
+    // page — relevance order has no kanban spelling (see operations/tasks).
+    const q =
+      preFilter?.q !== undefined && preFilter.q.trim() !== ""
+        ? preFilter.q
+        : undefined;
     const board = await fetchSaasTasks(boardId, {
       hydrate: false,
       projectDir: _projectDir,
       ...(status !== undefined ? { status } : {}),
+      ...(q !== undefined ? { q } : {}),
       ...(topK !== null ? { sort: "kanban" as const, limit: topK } : {}),
       ...(rootsTopK !== null ? { scope: "roots" as const } : {}),
     });

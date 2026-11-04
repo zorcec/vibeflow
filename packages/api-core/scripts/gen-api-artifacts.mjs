@@ -460,6 +460,13 @@ export function buildOpenApiDocument(contract, examples = loadExamples()) {
             "Scope contract for the page (ticket 05076246, LANE Z): `roots` restricts the page AND the total to root tasks (a task whose own links carry no parent edge — the server image of the client's root-only filter). Absent = every board row, unchanged. Any other value is 400 INVALID_SCOPE, never a silent fallback.",
           schema: { type: "string", enum: ["roots"] },
         },
+        {
+          name: "q",
+          in: "query",
+          description:
+            "Fuzzy search over title, description, comments and tags (ticket mq8azbxthl824162fnr4at49): a token-bounded SQL prefilter in Postgres plus the shared in-process matcher as the single ranker (score, then id) — the same ids in the same order as `tasks --search`, MCP list_tasks and the board search box. Over-long queries truncate to 200 chars; `sort=kanban` cannot be combined with `q` (400 INVALID_SORT).",
+          schema: { type: "string" },
+        },
         { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
         { name: "cursor", in: "query", schema: { type: "string" } },
       );

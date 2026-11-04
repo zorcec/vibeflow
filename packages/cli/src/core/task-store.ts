@@ -126,6 +126,12 @@ export interface TaskStore {
       scope?: "roots";
       /** True when the caller's scope includes children. */
       children?: boolean;
+      /**
+       * Fuzzy search text (ticket mq8azbxthl824162fnr4at49): forwarded as
+       * `?q=` where the server speaks it. A SET-narrowing hint only — the
+       * caller still runs the full query (shared matcher) over the result.
+       */
+      q?: string;
     },
   ): Promise<Task[]>;
   /**

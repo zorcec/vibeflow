@@ -440,6 +440,54 @@ describe("fetchSaasTasks — status narrowing (LANE Q step 2)", () => {
   });
 });
 
+describe("fetchSaasTasks — q narrowing (ticket mq8azbxthl824162fnr4at49)", () => {
+  it("forwards q on every page of the full scan, never as a top-K page", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ items: [{ ...SAMPLE_TASK }], nextCursor: null }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks("b-1", {
+      projectDir: "/test-project",
+      q: "widget export",
+    });
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    const params = new URL(seen[0]).searchParams;
+    expect(params.get("q")).toBe("widget export");
+    // A search never takes the kanban top-K page (relevance order has no
+    // kanban spelling): no sort=kanban alongside q.
+    expect(params.get("sort")).toBeNull();
+  });
+
+  it("sends no q param when no search is given", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        seen.push(url);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ items: [{ ...SAMPLE_TASK }], nextCursor: null }),
+        });
+      }),
+    );
+    const result = await fetchSaasTasks("b-1", { projectDir: "/test-project" });
+    expect(result.ok).toBe(true);
+    for (const url of seen) {
+      expect(new URL(url).searchParams.has("q")).toBe(false);
+    }
+  });
+});
+
 describe("updateSaasTask", () => {
   it("returns updated task on success", async () => {
     mockFetch(SAMPLE_TASK);

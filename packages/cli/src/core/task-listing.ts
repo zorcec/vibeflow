@@ -6,7 +6,7 @@
  *
  * Semantics are the CLI's (the reference surface):
  * - filters: status exact, type case-insensitive, user trim+case-insensitive,
- *   tag every-match;
+ *   tag every-match, search fuzzy (shared matcher, relevance-ranked);
  * - scope: root-only by default, BUT a filtered query (status/type/user/tag)
  *   is an explicit search and includes children, so a matching task can never
  *   be invisible because its parent did not match. `--children`/`children:true`
@@ -23,6 +23,11 @@ import type { Task } from "./types.js";
 import { isChildTask } from "./tasks.js";
 import { getPriorityRank } from "./types.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
+import {
+  SEARCH_ORDER,
+  rankFuzzySearch,
+  tokenizeSearchQuery,
+} from "@vibeflow-tools/shared";
 
 /**
  * Resolve a raw CLI `--limit` string to an effective limit. A missing flag
@@ -94,6 +99,14 @@ export interface TaskListQuery {
   type?: string;
   user?: string;
   tag?: string[];
+  /**
+   * Fuzzy search over title + description + comments + tags, ranked by
+   * the shared matcher (ticket mq8azbxthl824162fnr4at49 — same ids, same
+   * order on CLI/MCP/web/v0). A non-blank search is a filtered query:
+   * it includes children and reports SEARCH_ORDER, not the listing
+   * order. Blank/undefined = no search (legacy listing untouched).
+   */
+  search?: string;
   /** Include children in the unfiltered listing (CLI --children). */
   children?: boolean;
   /**
@@ -250,16 +263,41 @@ export function queryTaskList<T extends Task>(
     );
   }
 
+  // Fuzzy search (ticket mq8azbxthl824162fnr4at49): the shared matcher is
+  // the ranker — title + description + comments + tags, same algorithm on
+  // every surface. Runs AFTER the exact filters (status/type/user/tag
+  // narrow the candidate set; the matcher ranks what is left), so combined
+  // queries compose instead of conflicting.
+  const searchTokens = tokenizeSearchQuery(query.search ?? "");
+  if (searchTokens.length > 0) {
+    const ids = new Set(
+      rankFuzzySearch(
+        query.search as string,
+        filtered,
+        (t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          tags: t.tags,
+          comments: (t.comments ?? []).map((c) => c.text),
+        }),
+      ).map((h) => h.id),
+    );
+    filtered = filtered.filter((t) => ids.has(t.id));
+  }
+
   const totalMatching = filtered.length;
   const totalRoots = filtered.filter((t) => !isChildTask(t)).length;
 
   // Root-only is the default (board parity), but a filtered query is an
   // explicit search: it returns EVERY matching task, children included.
+  // A fuzzy search is a filtered query too (it names what to return).
   const hasSearchFilter = Boolean(
     query.status ||
       query.type ||
       (query.user && normalizeFilterValue(query.user)) ||
-      (query.tag && query.tag.length > 0),
+      (query.tag && query.tag.length > 0) ||
+      searchTokens.length > 0,
   );
   const includeChildren = Boolean(query.children) || hasSearchFilter;
   const hiddenChildren = includeChildren
@@ -269,7 +307,24 @@ export function queryTaskList<T extends Task>(
     ? filtered
     : filtered.filter((t) => !isChildTask(t));
 
-  const sorted = sortTasksForListing(scoped);
+  // A search answer is relevance-ranked (score, then id — SEARCH_ORDER),
+  // never the listing order: the rank must be identical on every surface
+  // (parity > SQL-native ordering), and the listing order differs per
+  // surface. Non-search listings keep the historical board order.
+  const isSearch = searchTokens.length > 0;
+  const sorted = isSearch
+    ? rankFuzzySearch(
+        query.search as string,
+        scoped,
+        (t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          tags: t.tags,
+          comments: (t.comments ?? []).map((c) => c.text),
+        }),
+      ).map((h) => h.item)
+    : sortTasksForListing(scoped);
 
   // Ticket b2e56212: NO unbounded mode. A positive limit slices; anything
   // else (0 included, NaN included, omitted) resolves to DEFAULT_LIST_LIMIT
@@ -331,7 +386,10 @@ export function queryTaskList<T extends Task>(
     offset,
     remaining,
     nextCursor,
-    order: [...LIST_ORDER],
+    // A search page echoes the relevance rank it was actually sorted by
+    // (SEARCH_ORDER), so a continuation is stable AND the caller can see
+    // the page is relevance-ranked, not listing-ordered.
+    order: isSearch ? [...SEARCH_ORDER] : [...LIST_ORDER],
   };
 }
 
@@ -381,6 +439,8 @@ export function queryAllTasks<T extends Task>(
     offset: 0,
     remaining: 0,
     nextCursor: null,
-    order: [...LIST_ORDER],
+    // Keep the page's order echo (a search assembles relevance-ranked
+    // rows — re-labelling them with the listing order would lie).
+    order: [...base.order],
   };
 }

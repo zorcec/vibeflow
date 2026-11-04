@@ -448,6 +448,15 @@ export async function fetchSaasTasks(
      */
     scope?: V0TaskListScope;
     /**
+     * Fuzzy search text (ticket mq8azbxthl824162fnr4at49): forwarded as
+     * `?q=` — a SET-narrowing hint like `status` (restricts WHICH rows
+     * match, never how many come back). The caller still runs the full
+     * query client-side, so an old server that ignores `q` converges to
+     * the same answer via the full scan. Never combined with the top-K
+     * page (relevance order has no kanban spelling).
+     */
+    q?: string;
+    /**
      * Project the request is scoped to (ADR-0005): token + board scope
      * come from this project's resolution. Absent → NOT_AUTHENTICATED
      * (fail-closed, never a global credential).
@@ -528,6 +537,12 @@ export async function fetchSaasTasks(
       // set the unfiltered read would filter down to. Never a row cap.
       if (opts?.status !== undefined && opts.status !== "") {
         url.searchParams.set("status", opts.status);
+      }
+      // Fuzzy search narrowing (ticket mq8azbxthl824162fnr4at49): `q`
+      // restricts WHICH rows match like `status` does — the caller still
+      // pages to exhaustion and ranks client-side with the shared matcher.
+      if (opts?.q !== undefined && opts.q.trim() !== "") {
+        url.searchParams.set("q", opts.q);
       }
       if (cursor) url.searchParams.set("cursor", cursor);
       // pi-lens-ignore: ts-ssrf — url is getApiUrl() + constant surface path
