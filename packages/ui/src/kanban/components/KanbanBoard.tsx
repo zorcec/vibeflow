@@ -339,6 +339,11 @@ interface Props {
   ) => void;
   /** Link a task as a child of another task (optimistic PATCH). */
   onLinkChild?: (draggedId: string, parentId: string) => void;
+  /** Unlink a child from its parent (removes the parent link, never deletes).
+   * Forwarded to each card's inline children tree — without a host this
+   * prop the tree renders no Unlink button (ticket ppydm810). Absent keeps
+   * every card byte-identical to before. */
+  onDetach?: (taskId: string) => void;
   /** Sibling reorder inside one parent (tree-row intent, same parent). */
   onTreeReorder?: (
     draggedId: string,
@@ -402,6 +407,7 @@ export function KanbanBoard({
   onDrop,
   onReorder,
   onLinkChild,
+  onDetach,
   onTreeReorder,
   onTreeReparent,
   currentUserId,
@@ -1039,6 +1045,7 @@ export function KanbanBoard({
               onTreeRowDragStart={handleTreeRowDragStart}
               currentUserId={currentUserId}
               onToggleExpanded={onToggleExpanded}
+              onDetach={onDetach}
               footer={columnFooter?.(col.id) ?? null}
               doneTotal={doneTotal}
             />
@@ -1130,6 +1137,8 @@ interface ColumnProps {
   currentUserId?: string;
   /** Persists a card's expand/collapse choice for the current user. */
   onToggleExpanded?: (taskId: string, expanded: boolean) => void;
+  /** Unlink a child from its parent — forwarded from the board into each card. */
+  onDetach?: (taskId: string) => void;
   /** Optional footer rendered LAST inside `.column-scroll` (after the last
       card / overflow chip). Null/undefined renders nothing. */
   footer?: React.ReactNode;
@@ -1171,6 +1180,7 @@ function KanbanColumn({
   isDragging,
   currentUserId,
   onToggleExpanded,
+  onDetach,
   footer,
   doneTotal,
 }: ColumnProps) {
@@ -1464,6 +1474,7 @@ function KanbanColumn({
                     treeIntent={treeIntent}
                     onTreeIntent={onTreeIntent}
                     onTreeRowDragStart={onTreeRowDragStart}
+                    onDetach={onDetach}
                     currentUserId={currentUserId}
                     onToggleExpanded={onToggleExpanded}
                     reserveLeadingSlot={reserveLeadingSlot}

@@ -64,6 +64,12 @@ interface Props {
   onAddTask: (status: TaskStatus) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
   onChangeStatus?: (taskId: string, newStatus: TaskStatus) => void;
+  /** Unlink a child from its parent (removes the parent link, never deletes).
+   * List rows are standalone roots by owner decision, so this surfaces only
+   * on the rare row that still carries a parent link — a hover Unlink action
+   * calling onDetach with the ROW's own id. Absent renders no button
+   * (ticket ppydm810). */
+  onDetach?: (taskId: string) => void;
   mobile?: boolean;
 }
 
@@ -127,6 +133,7 @@ export function KanbanListView({
   onAddTask,
   onDrop,
   onChangeStatus,
+  onDetach,
   mobile = false,
 }: Props) {
   const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
@@ -371,6 +378,7 @@ export function KanbanListView({
                         setDragTaskId(null);
                         setDragOverRowId(null);
                       }}
+                      onDetach={onDetach}
                     />
                   ))}
                 </div>
@@ -405,6 +413,7 @@ interface RowProps {
   onDragOver: () => void;
   onDragLeave: () => void;
   onDropToStatus: () => void;
+  onDetach?: (taskId: string) => void;
 }
 
 function ListRow({
@@ -418,6 +427,7 @@ function ListRow({
   onDragOver,
   onDragLeave,
   onDropToStatus,
+  onDetach,
 }: RowProps) {
   const [hovered, setHovered] = React.useState(false);
   const typeIcon = TYPE_ICONS[task.type ?? "Task"] ?? "☑";
@@ -602,6 +612,40 @@ function ListRow({
         >
           <Paperclip className="w-3 h-3" />
           <span>{fileCount}</span>
+        </button>
+      )}
+
+      {/* Unlink from parent — only rows that still carry a parent link
+          (list rows are standalone roots by owner decision, so this is rare)
+          and only when the host wires onDetach. Direct call, same contract
+          as the card inline tree (ticket ppydm810). */}
+      {onDetach && (task.links ?? []).some((l) => l?.type === "parent") && (
+        <button
+          type="button"
+          title="Unlink from parent"
+          aria-label={`Unlink task ${task.title} from parent`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDetach(task.id);
+          }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            fontSize: 11,
+            color: "var(--t-text-faint)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "0 2px",
+            flexShrink: 0,
+            // Same reveal contract as the card inline tree (ChildRow):
+            // the button stays in the tree (queryable) and fades in on
+            // hover instead of mounting/unmounting.
+            opacity: hovered ? 1 : 0,
+            pointerEvents: hovered ? "auto" : "none",
+          }}
+        >
+          Unlink
         </button>
       )}
 
