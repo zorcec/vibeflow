@@ -146,7 +146,9 @@ with `beforeGateRefusal` and a non-zero exit).
 Bounds: 2 s per-invocation deadline (`HOOK_INVOCATION_TIMEOUT_MS`, detached-group
 SIGKILL), 1 MiB stdout/stderr caps (`HOOK_MAX_OUTPUT_BYTES`), child env
 allowlist `PATH` + `HOME` + `VIBEFLOW_IN_HOOK` only, reentrancy guard
-(`VIBEFLOW_IN_HOOK=1` disables nested hooks, not nested writes), stdout purity
+(`VIBEFLOW_IN_HOOK=1` disables nested hooks, not nested writes),
+`VIBEFLOW_HOOK_RUNTIME` (absolute path to the shipped `hook-runtime.mjs`
+utility — see below), stdout purity
 (the runner never writes parent stdout), `VIBEFLOW_HOOKS=0` kill switch.
 
 `--no-verify` skips the gate LOUDLY on the 4 gated CLI commands (`tasks`,
@@ -164,8 +166,11 @@ boundary's null-activity rule never double-fires for it.
 - `console.log` is safe in every mode: `console.log/info/warn/debug` is rerouted to stderr child-side (stdio preloads the packaged `hook-console-guard.mjs` via `node --import`; module/TS get the same patch at the top of `hook-loader.mjs`), so chatter lands on stderr with the `hook <tool>:` prefix and stdout keeps exactly one JSON document. Raw `process.stdout.write` pollution is still rejected (`HOOK_BAD_OUTPUT` after, `HOOK_BEFORE_MALFORMED` before). `console.error` already wrote stderr and is untouched; byte caps and fail policies are unchanged.
 - `.hook.ts` / `.hook.mts` — TypeScript module mode: same loader, type-stripped on import. Erasable syntax only (annotations + `import type` erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses loudly (after skips `HOOK_TS_UNSUPPORTED`, before blocks `HOOK_BEFORE_TS_UNSUPPORTED`).
 
-Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks`
-— no runtime API; `src/hooks.ts`, parity-pinned with `envelope.ts`):
+Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks`;
+`src/hooks.ts`, parity-pinned with `envelope.ts`) plus ONE runtime utility
+(`@vibeflow-tools/cli/hooks/runtime` → `dist/hooks/hook-runtime.mjs` —
+`readEnvelope()` / `reply()` / `log()`, so authors drop the hand-rolled
+stdin boilerplate; no templating, no expression evaluation):
 
 ```js
 // .vibeflow-hooks/tasks.after.hook.mjs
@@ -207,8 +212,10 @@ file that symlinks out is refused as `HOOK_SHIPPED_ESCAPED`).
 
 ## Secrets + config files
 
-The child env carries ONLY `PATH`, `HOME`, `VIBEFLOW_IN_HOOK` — never the
-operator's env, never any token. A hook that needs configuration reads a
+The child env carries ONLY `PATH`, `HOME`, `VIBEFLOW_IN_HOOK`, and
+`VIBEFLOW_HOOK_RUNTIME` (absolute path to the shipped runtime utility, so
+hooks resolve it under npx/global installs where package-name imports do
+not) — never the operator's env, never any token. A hook that needs configuration reads a
 hook-owned JSON file (see `docs/hooks-examples/verify.after.mjs`, which
 reads `.vibeflow-hooks/verify.after.config.json` with a `$HOME` fallback —
 `chmod 600`, it may hold a secret). NEVER put a token near hooks: they never

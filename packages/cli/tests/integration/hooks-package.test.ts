@@ -146,12 +146,20 @@ afterAll(() => {
 });
 
 describe("hooks-package", () => {
-  it("tarball ships the loader (both layouts) + hooks.d.ts + dist/hooks/defaults and no src/", () => {
+  it("tarball ships the loader+guard (both layouts) + runtime utility + hooks.d.ts + dist/hooks/defaults and no src/", () => {
     const out = sh("npm", ["pack", "--dry-run", "--json"], CLI_ROOT);
     const [summary] = JSON.parse(out) as Array<{ files: Array<{ path: string }> }>;
     const paths = summary.files.map((f) => f.path);
     expect(paths).toContain("dist/hook-loader.mjs");
     expect(paths).toContain("dist/cli/hook-loader.mjs");
+    // Console guard (owner ticket c478fd86 item 2): preloaded via
+    // `node --import` in stdio mode, next to BOTH loader copies.
+    expect(paths).toContain("dist/hook-console-guard.mjs");
+    expect(paths).toContain("dist/cli/hook-console-guard.mjs");
+    // Runtime utility (owner ticket c478fd86 item 3): resolved via the
+    // single VIBEFLOW_HOOK_RUNTIME env var + the ./hooks/runtime export.
+    expect(paths).toContain("dist/hooks/hook-runtime.mjs");
+    expect(paths).toContain("dist/hooks/hook-runtime.d.ts");
     expect(paths).toContain("dist/hooks.d.ts");
     // In-package shipped defaults (ADR-0007 D10): exactly the 9
     // activity-bearing after files + VERSION, read in place. Marker:

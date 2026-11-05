@@ -7,11 +7,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import {
   HOOK_GUARD_ENV,
   HOOK_INVOCATION_TIMEOUT_MS,
   HOOK_MAX_OUTPUT_BYTES,
+  HOOK_RUNTIME_ENV,
   parseAfterHookOutput,
+  resolveHookRuntimeEntry,
   runAfterHook,
 } from "../../../src/core/hooks/runner.js";
 
@@ -255,8 +258,14 @@ describe("runAfterHook", () => {
     expect(childEnv[HOOK_GUARD_ENV]).toBe("1");
     expect(typeof childEnv["PATH"]).toBe("string");
     expect(typeof childEnv["HOME"]).toBe("string");
+    // Owner ticket c478fd86: the allowlist gains exactly one entry — the
+    // absolute path to the shipped runtime utility (resolves in this tree
+    // to src/core/hooks/hook-runtime.mjs, in dist to hooks/hook-runtime.mjs).
+    expect(typeof childEnv[HOOK_RUNTIME_ENV]).toBe("string");
+    expect(childEnv[HOOK_RUNTIME_ENV]).toMatch(/hook-runtime\.mjs$/);
+    expect(existsSync(childEnv[HOOK_RUNTIME_ENV] as string)).toBe(true);
     expect(Object.keys(childEnv).sort()).toEqual(
-      ["HOME", "PATH", HOOK_GUARD_ENV].sort(),
+      ["HOME", "PATH", HOOK_GUARD_ENV, HOOK_RUNTIME_ENV].sort(),
     );
   });
 
@@ -523,7 +532,9 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
     const childEnv = JSON.parse(result.instructions ?? "{}") as Record<string, string>;
     expect(childEnv["SECRET_SHOULD_NOT_LEAK"]).toBeUndefined();
     expect(childEnv[HOOK_GUARD_ENV]).toBe("1");
-    expect(Object.keys(childEnv).sort()).toEqual(["HOME", "PATH", HOOK_GUARD_ENV].sort());
+    expect(Object.keys(childEnv).sort()).toEqual(
+      ["HOME", "PATH", HOOK_GUARD_ENV, HOOK_RUNTIME_ENV].sort(),
+    );
   });
 });
 

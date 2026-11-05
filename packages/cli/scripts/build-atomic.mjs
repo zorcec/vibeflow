@@ -203,6 +203,17 @@ for (const [src, dest] of [
   };
   copyTree(srcDefaults, destDefaults);
 }
+// Shipped hook runtime utility (owner ticket c478fd86): `hook-runtime.mjs`
+// + `hook-runtime.d.ts` ship as `dist/hooks/`, resolved by hooks via the
+// single `VIBEFLOW_HOOK_RUNTIME` env var the runner injects (absolute path,
+// so npx/global installs work) and via the `./hooks/runtime` subpath
+// export where the CLI package is installed.
+for (const name of ["hook-runtime.mjs", "hook-runtime.d.ts"]) {
+  copyFileSync(
+    resolve(cliRoot, "src", "core", "hooks", name),
+    resolve(stagingDir, "hooks", name),
+  );
+}
 // Public module-hook authoring types for the `./hooks` subpath (types
 // only, ADR-0006 Stage 1.5). Copied here — not in tsup onSuccess —
 // because the DTS pass emits `cli/hooks.d.ts` after that hook runs.

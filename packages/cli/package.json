@@ -23,6 +23,8 @@
     "dist/index.js",
     "dist/index.d.ts",
     "dist/hook-loader.mjs",
+    "dist/cli/hook-console-guard.mjs",
+    "dist/hook-console-guard.mjs",
     "dist/hooks/",
     "dist/cli/hook-loader.mjs",
     "dist/hooks.d.ts",
@@ -44,7 +46,11 @@
       "types": "./dist/hooks.d.ts"
     },
     "./openapi.json": "./dist/openapi.json",
-    "./openapi.yaml": "./dist/openapi.yaml"
+    "./openapi.yaml": "./dist/openapi.yaml",
+    "./hooks/runtime": {
+      "types": "./dist/hooks/hook-runtime.d.ts",
+      "default": "./dist/hooks/hook-runtime.mjs"
+    }
   },
   "scripts": {
     "prebuild": "node scripts/gen-overlay-css.mjs && node scripts/embed-swagger-ui.mjs",

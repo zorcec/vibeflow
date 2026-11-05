@@ -33,8 +33,9 @@
  *   line — never a throw, never a blocked write.
  * - Stdout/stderr BYTE LIMITS (1 MiB each): a hook that floods output is
  *   truncated and treated as a failure, not buffered into OOM.
- * - Child env allowlist: PATH + HOME + VIBEFLOW_IN_HOOK only — never the
- *   API token (`auth/token.ts`, `auth/project-auth`).
+ * - Child env allowlist: PATH + HOME + VIBEFLOW_IN_HOOK +
+ *   VIBEFLOW_HOOK_RUNTIME (abs path to the shipped runtime utility)
+ *   only — never the API token (`auth/token.ts`, `auth/project-auth`).
  * - Reentrancy guard: the child runs with `VIBEFLOW_IN_HOOK=1`; when that
  *   var is already set the runner returns `{ran:false}` WITHOUT spawning,
  *   so a hook shelling out to `vibeflow tasks --edit` cannot recurse. The
@@ -59,12 +60,24 @@
  * with `HOOK_BEFORE_FAILED` — never a silent pass.
  */
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HookMode } from "./discover.js";
 
 export const HOOK_INVOCATION_TIMEOUT_MS = 2000;
 export const HOOK_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const HOOK_GUARD_ENV = "VIBEFLOW_IN_HOOK";
+/**
+ * ONE runner-injected env var naming the shipped runtime utility
+ * (owner ticket c478fd86): `VIBEFLOW_HOOK_RUNTIME=<abs path to
+ * dist/hooks/hook-runtime.mjs>`. An absolute path — not a package-name
+ * import — so it resolves under npx/global installs where the hook
+ * file's own resolution cannot see the CLI package. Where the project
+ * HAS the CLI installed, `@vibeflow-tools/cli/hooks/runtime` names the
+ * same file. Joins the PATH+HOME+guard allowlist below — never a token.
+ */
+export const HOOK_RUNTIME_ENV = "VIBEFLOW_HOOK_RUNTIME";
 
 /**
  * TypeScript hook support (Stage 4, ADR-0006): the ACTUAL runtime
@@ -118,6 +131,9 @@ export interface RunAfterHookOptions {
    *  executing bundle (same directory as the loader) — never PATH/cwd.
    *  Only used in stdio mode, as the `--import` preload. */
   guardEntry?: string;
+  /** Absolute runtime-utility entry override (per-invocation test seam only).
+   *  Defaults to {@link resolveHookRuntimeEntry} — never PATH/cwd. */
+  runtimeEntry?: string;
 }
 
 /**
@@ -141,6 +157,28 @@ export function resolveLoaderEntry(): string {
  */
 export function resolveGuardEntry(): string {
   return fileURLToPath(new URL("./hook-console-guard.mjs", import.meta.url));
+}
+
+/**
+ * Runtime-utility location: the `hook-runtime.mjs` shipped as
+ * `dist/hooks/hook-runtime.mjs` (owner ticket c478fd86). The loader
+ * sits at `<root>/hook-loader.mjs` or `<root>/cli/hook-loader.mjs`, so
+ * the utility is `<loaderDir>/hooks/` or `<loaderDir>/../hooks/`; in
+ * the `src/` tree under test it is a sibling of this module. The first
+ * layout that exists on disk wins — all three name the same shipped
+ * file, never a source-tree path in production, never PATH/cwd.
+ */
+export function resolveHookRuntimeEntry(
+  loaderEntry: string = resolveLoaderEntry(),
+): string {
+  const dir = dirname(loaderEntry);
+  // Basename "hooks" => src tree, where the utility is a module sibling.
+  if (basename(dir) === "hooks" && existsSync(join(dir, "hook-runtime.mjs"))) {
+    return join(dir, "hook-runtime.mjs");
+  }
+  const nested = join(dir, "hooks", "hook-runtime.mjs");
+  if (existsSync(nested)) return nested;
+  return join(dir, "..", "hooks", "hook-runtime.mjs");
 }
 
 /**
@@ -182,6 +220,7 @@ function childEnv(opts: RunAfterHookOptions, parent: NodeJS.ProcessEnv): NodeJS.
     PATH: opts.PATH ?? parent.PATH ?? "",
     HOME: opts.HOME ?? parent.HOME ?? "",
     [HOOK_GUARD_ENV]: "1",
+    [HOOK_RUNTIME_ENV]: opts.runtimeEntry ?? resolveHookRuntimeEntry(),
   };
 }
 

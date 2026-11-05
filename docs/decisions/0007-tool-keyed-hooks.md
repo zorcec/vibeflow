@@ -20,7 +20,7 @@ ADR-0006 keyed hooks by internal event (`after-task.update.mjs`) and materialise
 5. **Precedence + replace-not-merge unchanged** (project > global > shipped, first hit wins, conflicts refuse).
 6. **Defaults ship in the package, read in place** at `dist/hooks/defaults/`, trusted without prompting, upgraded by `npm/pnpm update`, never materialised into `$HOME`, and shipped iff the tool covers an activity (no before defaults).
 7. **Trust is code execution, not a sandbox** — unchanged, plus: the shipped root is derived from the running bundle and containment is compared against that same realpath, which is what makes npm/pnpm/npx layouts safe without any path allowlist.
-8. **Failure policies, bounds, env allowlist, stdout purity, bypass audit unchanged**; the vocabulary is `before`/`after` in names, phases and codes. `console.log/info/warn/debug` is rerouted to child stderr (stdio preloads `hook-console-guard.mjs` via `node --import`, module/TS get the loader-top patch) — the stdout contract is unchanged, now enforced: chatter can never become an instruction, raw `process.stdout.write` pollution still fails the same way.
+8. **Failure policies, bounds, env allowlist, stdout purity, bypass audit unchanged**; the vocabulary is `before`/`after` in names, phases and codes. `console.log/info/warn/debug` is rerouted to child stderr (stdio preloads `hook-console-guard.mjs` via `node --import`, module/TS get the loader-top patch) — the stdout contract is unchanged, now enforced: chatter can never become an instruction, raw `process.stdout.write` pollution still fails the same way. The child env allowlist gains exactly one entry: `VIBEFLOW_HOOK_RUNTIME` (absolute path to `dist/hooks/hook-runtime.mjs`, injected by the runner — item 3 of the same ticket; still never a token).
 9. **Before is for writes:** `.before` is supported only for gateable tools; a `.before` file for a read/container tool is refused loudly, never silently ignored.
 10. Test hermeticity: `VIBEFLOW_HOOKS=0` (unchanged). Adding a 9th activity, replacing the registry with per-call logic, or re-introducing a `$HOME` defaults copy must revisit this ADR in the same commit.
 
@@ -37,5 +37,6 @@ Renaming a hook file away from `<tool>.<phase>`, gating a read, executing hooks 
 - Pins: `packages/cli/tests/unit/hooks/packaged-defaults.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/emit.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/before-gate.test.ts`
+- Pins: `packages/cli/tests/unit/hooks/hook-runtime.test.ts`
 - Pins: `packages/cli/tests/integration/hooks-package.test.ts`
 - Pins: `packages/cli/tests/e2e/hooks-tool-keys.test.ts`
