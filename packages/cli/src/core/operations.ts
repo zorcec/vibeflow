@@ -86,12 +86,21 @@ export type OperationResult<T> =
        * this file keeps the name it always had.
        */
       steps?: OperationNotice[];
+      /**
+       * After-hook instructions (Stage 1, ADR-0006): 0..n strings the
+       * owning operation's after-hook returned. Carried here so the CLI
+       * renderers (human stderr + `--json` payload) and the local MCP
+       * serialization (`successPayload`) all read one field. Absent (not
+       * empty) when no hook ran — one parser, no shape change.
+       */
+      instructions?: string[];
     }
   | {
       ok: false;
       data?: never;
       error: OperationError;
       steps?: OperationNotice[];
+      instructions?: string[];
     };
 
 // ── Task resolution (the one existence check) ─────────────────────────────

@@ -157,6 +157,7 @@ sh(
   stagingEnv,
 );
 sh(`node ${resolve(cliRoot, "scripts", "gen-kanban-css.mjs")}`, stagingEnv);
+sh(`node ${resolve(cliRoot, "scripts", "gen-hook-defaults.mjs")}`, stagingEnv);
 sh(`node ${resolve(cliRoot, "scripts", "gen-codec-assets.mjs")}`, stagingEnv);
 sh(`node ${resolve(cliRoot, "scripts", "embed-swagger-ui.mjs")}`, stagingEnv);
 sh(

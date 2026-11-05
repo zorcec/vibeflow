@@ -42,6 +42,7 @@ import { readProjectPointer } from "../../auth/project-pointer.js";
 import { fetchSaasTasks, toCliStatus } from "../../saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "../../saas/failure.js";
 import { isRemoteReadError } from "../remote-task-store.js";
+import { createHookScope, emitAfterHook } from "../hooks/emit.js";
 
 /** One row of the delete plan: enough to resolve, warn, and render. */
 export interface DeletePlanRow {
@@ -78,6 +79,8 @@ export interface DeleteTaskData {
   /** Root first, then the online cone (local: exactly `[id]`). */
   deletedIds: string[];
   title: string;
+  /** After-hook instructions (Stage 1, ADR-0006) — absent when no hook ran. */
+  instructions?: string[];
 }
 
 /** The operation error, carrying the human preview beside the envelope. */
@@ -337,7 +340,27 @@ export async function deleteTaskOperation(
         /* absent or raced — the remote delete already landed */
       }
     }
-    return { ok: true, data: { dryRun: false, id, deletedIds, title } };
+    // After-hook (Stage 1, ADR-0006): the delete is confirmed (remote
+    // landed; local drops are best-effort cleanup of the same effect).
+    // childCount excludes the root itself.
+    const onlineInstructions = await emitAfterHook(
+      ctx,
+      createHookScope(),
+      "task.delete",
+      { taskId: id, childCount: Math.max(0, deletedIds.length - 1) },
+    );
+    return {
+      ok: true,
+      data: {
+        dryRun: false,
+        id,
+        deletedIds,
+        title,
+        ...(onlineInstructions.length > 0
+          ? { instructions: onlineInstructions }
+          : {}),
+      },
+    };
   }
 
   const removed = await localTaskStore.deleteTask(ctx.projectDir, id);
@@ -353,6 +376,24 @@ export async function deleteTaskOperation(
       },
     };
   }
-  return { ok: true, data: { dryRun: false, id, deletedIds: [id], title } };
+  // After-hook (Stage 1, ADR-0006): local delete confirmed.
+  const localInstructions = await emitAfterHook(
+    ctx,
+    createHookScope(),
+    "task.delete",
+    { taskId: id, childCount: 0 },
+  );
+  return {
+    ok: true,
+    data: {
+      dryRun: false,
+      id,
+      deletedIds: [id],
+      title,
+      ...(localInstructions.length > 0
+        ? { instructions: localInstructions }
+        : {}),
+    },
+  };
 }
 

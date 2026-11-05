@@ -17,6 +17,7 @@ import { runDeltaPush } from "../saas/delta-run.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
+import { createHookScope, emitAfterHook } from "../core/hooks/emit.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
 import {
   fetchWithTimeout,
@@ -279,6 +280,8 @@ export interface PushResult {
    * objects the CLI emits.
    */
   notices: OperationNotice[];
+  /** After-hook instructions (Stage 1, ADR-0006) — absent when no hook ran. */
+  instructions?: string[];
 }
 
 /**
@@ -1297,6 +1300,19 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // Ticket 74d9c46f: record diagnostics ride along too, so a warning is
   // never lost under --json (stderr stays human-only here; the envelope
   // carries the same notices the result returns). Absent when clean.
+  // After-hook (Stage 1, ADR-0006): computed BEFORE the --json envelope so
+  // the instructions ride the same single document (never a second print).
+  // A push that landed tasks is a confirmed durable effect; zero-task
+  // pushes are no-ops with no after-emission.
+  const pushedCountForJson = result.imported + result.existing;
+  const pushInstructionsForJson =
+    pushedCountForJson > 0
+      ? await emitPushHook(projectDir, {
+          taskCount: pushedCountForJson,
+          chunkCount: result.attempted,
+          transport: "remote",
+        })
+      : [];
   if (opts.json === true) {
     const recordNotices = taskReadNotices(reads);
     console.log(JSON.stringify({
@@ -1316,12 +1332,42 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       skippedTasks,
       tasksMissingCommitAuthorEmail,
       ...(recordNotices.length > 0 ? { notices: recordNotices } : {}),
+      ...(pushInstructionsForJson.length > 0
+        ? { instructions: pushInstructionsForJson }
+        : {}),
     }));
   }
+  // After-hook dispatch for push (Stage 1, ADR-0006): push is not a store
+  // method, so the command is the event-owning site (shared dispatch
+  // helper in core/hooks/emit.ts).
+  async function emitPushHook(
+    hookProjectDir: string,
+    payload: { taskCount: number; chunkCount: number; transport: string },
+  ): Promise<string[]> {
+    return emitAfterHook(
+      { projectDir: hookProjectDir, mode: "saas" },
+      createHookScope(),
+      "push",
+      payload,
+    );
+  }
+
   // `tasks` is the push count (ticket dec52322 reported `deleted` here, so a
   // normal push — which now never deletes — always claimed 0).
-  const pushedCount = result.imported + result.existing;
-  return { dryRun: false, tasks: pushedCount, files: liveFileCount, board: boardLabel, tasksMissingCommitAuthorEmail, notices };
+  // Reuses the pre-envelope emit above: one invocation, one scope, one run.
+  const pushedCount = pushedCountForJson;
+  const pushInstructions = pushInstructionsForJson;
+  return {
+    dryRun: false,
+    tasks: pushedCount,
+    files: liveFileCount,
+    board: boardLabel,
+    tasksMissingCommitAuthorEmail,
+    notices,
+    ...(pushInstructions.length > 0
+      ? { instructions: pushInstructions }
+      : {}),
+  };
 }
 
 

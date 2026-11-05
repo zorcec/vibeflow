@@ -14,6 +14,7 @@ import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveWritePorts } from "../operation-context.js";
 import { isRemoteReadError } from "../remote-task-store.js";
+import { createHookScope, emitAfterHook } from "../hooks/emit.js";
 import type { AddCommentInputType } from "@vibeflow-tools/api-core";
 
 export async function addComment(
@@ -54,7 +55,23 @@ export async function addComment(
       input.author,
       input.comment,
     );
-    return { ok: true, data: comment };
+    // After-hook (Stage 1, ADR-0006): this operation is user-invoked, so
+    // every confirmed comment emits. System comments (verify notes,
+    // bypass-audit, `cannot` reasons) are written via the store directly
+    // and never pass through here — no hook cycle, by construction.
+    // (input.author is typed `"user" | "agent"`: a `system` author
+    // cannot arrive through this operation.)
+    const instructions = await emitAfterHook(
+      ctx,
+      createHookScope(),
+      "task.comment",
+      { taskId: resolved.id, commentId: comment.id },
+    );
+    return {
+      ok: true,
+      data: comment,
+      ...(instructions.length > 0 ? { instructions } : {}),
+    };
   } catch (err) {
     // A remote refusal travels VERBATIM (same rule as the task writes):
     // the code names the actual failure — never relabelled to a catch-all.

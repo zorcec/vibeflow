@@ -52,6 +52,7 @@ import type { TaskStore } from "../task-store.js";
 import type { VerifyTaskInputType } from "../operations.js";
 import type { VerifyResult } from "../../commands/verify.js";
 import type { EvidenceSet } from "../../commands/verify-tools.js";
+import { createHookScope, emitAfterHook } from "../hooks/emit.js";
 
 // ── Shared id resolution ─────────────────────────────────────────────────
 
@@ -219,7 +220,23 @@ export async function verifyTaskOp(
         signal: ac.signal,
       });
       await writeComment(ctx.projectDir, taskId, result);
-      return { ok: true, data: result };
+      // After-hook (Stage 1, ADR-0006): engine ran AND its system comment
+      // landed. The note is a generated system comment written via the
+      // store — never through an emitting call site — so it cannot cycle
+      // into task.comment. Dry-run and refusals return elsewhere: no emit.
+      const verifyInstructions = await emitAfterHook(
+        ctx,
+        createHookScope(),
+        "verify",
+        { taskId, verdict: result.verdict },
+      );
+      return {
+        ok: true,
+        data: result,
+        ...(verifyInstructions.length > 0
+          ? { instructions: verifyInstructions }
+          : {}),
+      };
     } catch (err) {
       const ve =
         err instanceof Error && "code" in err

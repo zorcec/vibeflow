@@ -42,6 +42,7 @@ import {
 } from "./core/operation-context.js";
 import * as operations from "./core/operations.js";
 import type { OperationContext } from "./core/operations.js";
+import { createHookScope, emitAfterHook } from "./core/hooks/emit.js";
 import type {
   ClaimNextTaskInputType,
   ListTasksInputType,
@@ -414,9 +415,35 @@ const normalizeFilterValue = (value: string): string =>
  * Human mode: success is a no-op (callers print their own human text);
  * failure writes the chalk message + suggestion to stderr.
  */
+
+/**
+ * After-hook instruction transport for CLI renderers (Stage 1, ADR-0006).
+ * `--json`: instructions ride the single success document as
+ * `instructions: string[]` (absent when no hook ran — never a second
+ * document, never stdout chatter). Human mode: dim stderr lines — stdout
+ * stays clean for piping, mirroring the hook runner's own stderr rule.
+ */
+function hookInstructionsField(
+  instructions: string[] | undefined,
+): { instructions: string[] } | Record<string, never> {
+  return instructions && instructions.length > 0 ? { instructions } : {};
+}
+
+function printHookInstructions(
+  instructions: string[] | undefined,
+  json: boolean | undefined,
+): void {
+  if (!instructions || instructions.length === 0 || json) return;
+  for (const line of instructions)
+    console.error(chalk.dim(`hook: ${line}`));
+}
 function outputEnvelope(
   opts:
-    | { ok: true; payload: Record<string, unknown>; json?: boolean }
+    | {
+        ok: true;
+        payload: Record<string, unknown>;
+        json?: boolean;
+      }
     | {
         ok: false;
         code: string;
@@ -424,6 +451,8 @@ function outputEnvelope(
         retryable?: boolean;
         suggestion?: string;
         json?: boolean;
+        /** After-hook instructions (Stage 1, ADR-0006) — partial effects only. */
+        instructions?: string[];
       },
 ): void {
   if (opts.ok) {
@@ -435,6 +464,9 @@ function outputEnvelope(
     return;
   }
   if (opts.json) {
+    // One structured failure channel: the instructions for a CONFIRMED
+    // partial effect (update persisted, comment failed) ride the same
+    // single document — never a second doc, never stdout (stderr here).
     const envelope = {
       ok: false,
       error: {
@@ -443,6 +475,9 @@ function outputEnvelope(
         retryable: opts.retryable ?? false,
         ...(opts.suggestion ? { suggestion: opts.suggestion } : {}),
       },
+      ...(opts.instructions && opts.instructions.length > 0
+        ? { instructions: opts.instructions }
+        : {}),
     };
     process.stderr.write(JSON.stringify(envelope) + "\n");
   } else {
@@ -2031,11 +2066,13 @@ program
                 deleted: true,
                 id: deleted.id,
                 deletedIds: deleted.deletedIds,
+                ...hookInstructionsField(deleted.instructions),
               },
             });
           } else {
             console.log(chalk.green(`✓ Task deleted: ${deleted.title}`));
             console.log(chalk.dim(`  id: ${deleted.id}`));
+            printHookInstructions(deleted.instructions, opts.json);
             if (deleteIsOnline && deleted.deletedIds.length > 1) {
               console.log(
                 chalk.yellow(
@@ -2489,6 +2526,7 @@ program
                   task: nextTask,
                   next_actions: nextSaasNextActions,
                   childClaim: nextSaasChildClaim,
+                  ...hookInstructionsField(nextSaasClaim.instructions),
                 },
               });
               return;
@@ -2507,6 +2545,7 @@ program
               createBranch: nextSettings.createBranch,
               requireVerifyBeforeReview: nextSettings.requireVerifyBeforeReview,
             });
+            printHookInstructions(nextSaasClaim.instructions, opts.json);
 
             // The claimed record arrives through the shared operation in the
             // local Task shape (mapped from the online row, status already
@@ -2783,6 +2822,10 @@ program
             if (nextClaimedParent) {
               nextLocalPayload.parent = nextClaimedParent;
             }
+            Object.assign(
+              nextLocalPayload,
+              hookInstructionsField(nextClaim.instructions),
+            );
             outputEnvelope({
               ok: true,
               json: opts.json,
@@ -2806,6 +2849,7 @@ program
             requireVerifyBeforeReview:
               nextLocalSettings.requireVerifyBeforeReview,
           });
+          printHookInstructions(nextClaim.instructions, opts.json);
 
           const config = readConfig(nextProjectDir);
           // Display details through the read ports (same authority the
@@ -3213,6 +3257,19 @@ program
             }
             const saasCreatedTask = saasCreated.data;
             const addNextActions = getNextActions("add", saasCreatedTask.id);
+            // After-hook (Stage 1, ADR-0006): online create confirmed.
+            const saasAddInstructions = await emitAfterHook(
+              { projectDir: resolve(dir), mode: "saas" },
+              createHookScope(),
+              "task.create",
+              {
+                task: {
+                  id: saasCreatedTask.id,
+                  title: saasCreatedTask.title,
+                  status: String(saasCreatedTask.status),
+                },
+              },
+            );
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -3220,6 +3277,7 @@ program
                 payload: {
                   task: saasCreatedTask,
                   next_actions: addNextActions,
+                  ...hookInstructionsField(saasAddInstructions),
                 },
               });
             } else {
@@ -3231,6 +3289,7 @@ program
                   `  id: ${saasCreatedTask.id} | status: ${toCliStatus(saasCreatedTask.status)}`,
                 ),
               );
+              printHookInstructions(saasAddInstructions, opts.json);
               printNextHint(addNextActions);
             }
             return;
@@ -3375,6 +3434,21 @@ program
           });
 
           const localAddNextActions = getNextActions("add", created.id);
+          // After-hook (Stage 1, ADR-0006): the legacy local add writes
+          // through core/tasks.ts directly, so the CLI handler is the
+          // event-owning site here (same shared helper the operations use).
+          const localAddInstructions = await emitAfterHook(
+            { projectDir, mode: "local" },
+            createHookScope(),
+            "task.create",
+            {
+              task: {
+                id: created.id,
+                title: created.title,
+                status: created.status,
+              },
+            },
+          );
           if (opts.json) {
             // --fields narrows the returned task (same selector the MCP
             // create_task `fields` takes; parity contract 83159002).
@@ -3394,6 +3468,7 @@ program
                   addFields,
                 ),
                 next_actions: localAddNextActions,
+                ...hookInstructionsField(localAddInstructions),
               },
             });
           } else {
@@ -3401,6 +3476,7 @@ program
             console.log(
               chalk.dim(`  id: ${created.id} | status: ${created.status}`),
             );
+            printHookInstructions(localAddInstructions, opts.json);
             printNextHint(localAddNextActions);
           }
           return;
@@ -4876,6 +4952,7 @@ program
             }
 
             let saasCommentError: string | undefined;
+            let saasWrittenCommentId: string | null = null;
             if (opts.comment?.trim()) {
               const commented = await addSaasComment(
                 editTargetId,
@@ -4883,6 +4960,7 @@ program
                 dir,
               );
               if (commented.ok) {
+                saasWrittenCommentId = commented.data.id;
                 if (!opts.json) console.log(chalk.dim("  comment: added"));
               } else {
                 saasCommentError = commented.error.message;
@@ -4938,6 +5016,34 @@ program
                   editTargetId,
                 )
               : [];
+            // After-hook (Stage 1, ADR-0006): online update confirmed.
+            // Partial paths (comment/verify-reason lost) refuse below but
+            // still carry the task.update instructions for the confirmed
+            // effect; the user comment (when written) adds task.comment in
+            // the same action scope. System notes never emit (no cycle).
+            const saasEditScope = createHookScope();
+            const saasEditUpdateInstructions = await emitAfterHook(
+              { projectDir: resolve(dir), mode: "saas" },
+              saasEditScope,
+              "task.update",
+              { taskId: editTargetId, changed: Object.keys(saasPatch) },
+            );
+            const saasEditCommentInstructions =
+              saasWrittenCommentId !== null
+                ? await emitAfterHook(
+                    { projectDir: resolve(dir), mode: "saas" },
+                    saasEditScope,
+                    "task.comment",
+                    {
+                      taskId: editTargetId,
+                      commentId: saasWrittenCommentId,
+                    },
+                  )
+                : [];
+            const saasEditInstructions = [
+              ...saasEditUpdateInstructions,
+              ...saasEditCommentInstructions,
+            ];
             if (opts.json) {
               // A comment is part of the TASK DATA: losing it leaves the
               // task genuinely incomplete, so this stays a refusal with a
@@ -4963,6 +5069,7 @@ program
                   message: saasLost.message,
                   suggestion: saasLost.suggestion,
                   json: opts.json,
+                  instructions: saasEditInstructions,
                 });
               } else {
                 outputEnvelope({
@@ -4979,6 +5086,7 @@ program
                       ? { warning: saasResultData.warning }
                       : {}),
                     ...noticeFields(editNotices),
+                    ...hookInstructionsField(saasEditInstructions),
                   },
                 });
               }
@@ -4991,6 +5099,7 @@ program
                   `  id: ${saasResultData.task.id} | status: ${toCliStatus(saasResultData.task.status)}`,
                 ),
               );
+              printHookInstructions(saasEditInstructions, opts.json);
               if (saasEditNextActions.length > 0)
                 printNextHint(saasEditNextActions);
             }
@@ -5480,14 +5589,16 @@ program
           // async and takes a task lock, so an un-awaited call is a floating
           // promise that races process exit and silently loses the comment.
           let commentError: string | undefined;
+          let localEditCommentId: string | null = null;
           if (opts.comment?.trim()) {
             try {
-              await addComment(
+              const localEditComment = await addComment(
                 resolve(dir),
                 resolvedTaskId,
                 "agent",
                 opts.comment.trim(),
               );
+              localEditCommentId = localEditComment.id;
             } catch (err) {
               commentError = err instanceof Error ? err.message : String(err);
             }
@@ -5570,6 +5681,34 @@ program
                 resolvedTaskId,
               )
             : [];
+          // After-hook (Stage 1, ADR-0006): legacy local edit writes
+          // through core/tasks.ts directly, so the CLI handler is the
+          // event-owning site (same shared helper the operations use).
+          // The update is confirmed (updated already written); partial
+          // paths (lostWrite) refuse below but still carry the task.update
+          // instructions for the confirmed effect. The user comment (when
+          // written) adds task.comment in the same action scope; the
+          // system `cannot` note never emits (no hook cycle).
+          const localEditScope = createHookScope();
+          const localEditUpdateInstructions = await emitAfterHook(
+            { projectDir: localProjectDir, mode: "local" },
+            localEditScope,
+            "task.update",
+            { taskId: resolvedTaskId, changed: Object.keys(updates) },
+          );
+          const localEditCommentInstructions =
+            localEditCommentId !== null
+              ? await emitAfterHook(
+                  { projectDir: localProjectDir, mode: "local" },
+                  localEditScope,
+                  "task.comment",
+                  { taskId: resolvedTaskId, commentId: localEditCommentId },
+                )
+              : [];
+          const localEditInstructions = [
+            ...localEditUpdateInstructions,
+            ...localEditCommentInstructions,
+          ];
           // The success envelope is written AFTER the auto-commit below, so a
           // commit that did not happen rides the same payload as a `notices`
           // entry instead of being a second document — and the exit code stays
@@ -5596,6 +5735,7 @@ program
               // The verdict the store now holds — see verifyOutcome above.
               if (verifyOutcome)
                 console.log(chalk.dim(`  ${verifyOutcome}`));
+              printHookInstructions(localEditInstructions, opts.json);
               if (localEditNextActions.length > 0)
                 printNextHint(localEditNextActions);
             }
@@ -5608,6 +5748,7 @@ program
                 message: lostWrite.message,
                 suggestion: lostWrite.suggestion,
                 json: opts.json,
+                instructions: localEditInstructions,
               });
             }
             process.exitCode = ExitCode.GENERAL;
@@ -5750,6 +5891,7 @@ program
                   : {}),
                 next_actions: localEditNextActions,
                 ...noticeFields(editNotices),
+                ...hookInstructionsField(localEditInstructions),
               },
             });
           }
@@ -6411,7 +6553,10 @@ program
       opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
-      await push(dir, opts);
+      const pushResult = await push(dir, opts);
+      // After-hook instructions (Stage 1, ADR-0006): --json already rides
+      // the single push document; human mode gets dim stderr lines.
+      printHookInstructions(pushResult?.instructions, opts.json);
       await flushTelemetry();
     },
   );
@@ -6452,7 +6597,10 @@ program
       opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "pull" });
-      await pull(dir, opts);
+      const pullResult = await pull(dir, opts);
+      // After-hook instructions (Stage 1, ADR-0006): --json already rides
+      // the single pull document; human mode gets dim stderr lines.
+      printHookInstructions(pullResult?.instructions, opts.json);
       await flushTelemetry();
     },
   );

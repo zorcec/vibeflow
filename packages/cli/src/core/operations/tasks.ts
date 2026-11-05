@@ -26,6 +26,7 @@ import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { localTaskStore } from "../task-store.js";
 import { isRemoteReadError } from "../remote-task-store.js";
+import { createHookScope, emitAfterHook } from "../hooks/emit.js";
 import {
   resolveClaimPorts,
   resolveReadPorts,
@@ -663,11 +664,34 @@ export async function createTask(
       author: ctx.userId ?? getGitUser(ctx.projectDir).name,
     });
 
+    // After-hook (Stage 1, ADR-0006): create confirmed. Dry-run returned
+    // above, so reaching here is a durable effect — always emitted.
+    const createInstructions = await emitAfterHook(
+      ctx,
+      createHookScope(),
+      "task.create",
+      {
+        task: {
+          id: created.id,
+          title: created.title,
+          status: created.status,
+          ...(created.type ? { type: created.type } : {}),
+        },
+      },
+    );
+    const withCreateHooks = (
+      r: OperationResult<Task>,
+    ): OperationResult<Task> =>      createInstructions.length > 0
+        ? { ...r, instructions: createInstructions }
+        : r;
     // Field selection (parity with list_tasks/get_task and the CLI --fields).
     if (input.fields && input.fields.length > 0) {
-      return { ok: true, data: pickTaskFields(created, input.fields) };
+      return withCreateHooks({
+        ok: true,
+        data: pickTaskFields(created, input.fields),
+      });
     }
-    return { ok: true, data: created };
+    return withCreateHooks({ ok: true, data: created });
   } catch (err) {
     // A remote refusal travels VERBATIM (same rule as the read ops): the
     // code names the actual failure (structured server refusal, auth,
@@ -1158,6 +1182,25 @@ export async function updateTask(
       };
     }
 
+    // After-hook (Stage 1, ADR-0006): the task write is CONFIRMED here.
+    // Every return below this point — final success AND the partial
+    // UPDATE_COMMENT_FAILED refusals (update persisted, comment failed) —
+    // carries the task.update instructions for the confirmed effect. The
+    // comment event fires only when its own write confirms (never for the
+    // `cannot` system note, which is excluded like all system comments).
+    const updateHookScope = createHookScope();
+    const updateHookInstructions = await emitAfterHook(
+      ctx,
+      updateHookScope,
+      "task.update",
+      { taskId: id, changed: Object.keys(updates) },
+    );
+    const withUpdateHooks = (
+      r: OperationResult<Task>,
+    ): OperationResult<Task> =>      updateHookInstructions.length > 0
+        ? { ...r, instructions: updateHookInstructions }
+        : r;
+
     // Comments are written only after all gates pass (same ordering as CLI)
     // — and AWAITED (ticket 3d613068): the un-awaited fire-and-forget these
     // calls used to be meant a comment write could fail (or still be in
@@ -1165,11 +1208,18 @@ export async function updateTask(
     // is a durable partial effect, so it refuses LOUDLY as non-retryable:
     // the edit already landed, and resending the whole update would
     // re-apply it. Record the comment with add_comment instead.
+    let writtenCommentId: string | null = null;
     if (input.comment) {
       try {
-        await store.addComment(ctx.projectDir, id, "agent", input.comment);
+        const writtenComment = await store.addComment(
+          ctx.projectDir,
+          id,
+          "agent",
+          input.comment,
+        );
+        writtenCommentId = writtenComment.id;
       } catch (err) {
-        return {
+        return withUpdateHooks({
           ok: false,
           error: {
             code: "UPDATE_COMMENT_FAILED",
@@ -1178,7 +1228,7 @@ export async function updateTask(
               "The edit above WAS saved — do not resend update_task (it would re-apply the edit). Record the comment with add_comment for the same task id.",
             retryable: false,
           },
-        };
+        });
       }
     }
 
@@ -1196,16 +1246,16 @@ export async function updateTask(
           "system",
         );
       } catch (err) {
-        return {
+        return withUpdateHooks({
           ok: false,
           error: {
             code: "UPDATE_COMMENT_FAILED",
             message: `Task updated but the verify note was not recorded: ${err instanceof Error ? err.message : "comment write failed"}`,
-            suggestion:
+              suggestion:
               "The edit and verdict above WERE saved — do not resend update_task (it would re-apply the edit). Record the note with add_comment for the same task id.",
             retryable: false,
           },
-        };
+        });
       }
     }
 
@@ -1274,11 +1324,28 @@ export async function updateTask(
       }
     }
 
+    // The user comment (when written) is a second confirmed durable effect
+    // in the same action scope: one task.update + one task.comment, never
+    // a merged or a dropped event.
+    const commentHookInstructions =
+      writtenCommentId !== null
+        ? await emitAfterHook(ctx, updateHookScope, "task.comment", {
+            taskId: id,
+            commentId: writtenCommentId,
+          })
+        : [];
+    const allUpdateInstructions = [
+      ...updateHookInstructions,
+      ...commentHookInstructions,
+    ];
     // Field selection (parity with list_tasks/get_task and the CLI --fields).
     return {
       ok: true,
       data: pickTaskFields(task, input.fields),
       steps: steps.length > 0 ? steps : undefined,
+      ...(allUpdateInstructions.length > 0
+        ? { instructions: allUpdateInstructions }
+        : {}),
     };
   } catch (err) {
     // A remote refusal travels VERBATIM (same rule as the read ops and
@@ -1384,7 +1451,21 @@ export async function claimNextTask(
       return { ok: true, data: null };
     }
 
-    if (!childClaim) return { ok: true, data: claimed };
+    // After-hook (Stage 1, ADR-0006): a claimed task is a confirmed
+    // durable effect. The null (nothing-to-claim) and dry-run paths
+    // returned above — no after-emission without an effect.
+    const claimInstructions = await emitAfterHook(
+      ctx,
+      createHookScope(),
+      "task.claim",
+      { taskId: claimed.id, from: "todo", to: claimed.status },
+    );
+    const withClaimHooks = (
+      r: OperationResult<Task | null>,
+    ): OperationResult<Task | null> =>      claimInstructions.length > 0
+        ? { ...r, instructions: claimInstructions }
+        : r;
+    if (!childClaim) return withClaimHooks({ ok: true, data: claimed });
     // Unambiguous on the wire (as `notices`): this run claimed a CHILD,
     // not a root — name the parent so the agent knows which unit it sliced
     // off, mirroring the CLI's CHILD CLAIM line. (Single-purpose parent
@@ -1393,7 +1474,7 @@ export async function claimNextTask(
     const parentId =
       (claimed.links ?? []).find((l) => l.type === "parent")?.taskId ??
       "(unknown parent)";
-    return {
+    return withClaimHooks({
       ok: true,
       data: claimed,
       steps: [
@@ -1402,7 +1483,7 @@ export async function claimNextTask(
           message: `No todo root was available — claimed a todo child of ${parentId}.`,
         },
       ],
-    };
+    });
   } catch (err) {
     // A remote refusal travels VERBATIM (same rule as the read ops): the
     // code names the actual failure (REMOTE_CLAIM_UNSUPPORTED for an old

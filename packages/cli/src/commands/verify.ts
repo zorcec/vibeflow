@@ -1502,10 +1502,23 @@ export async function runVerify(
 
   if (opResult.ok) {
     const result = opResult.data as VerifyResult;
+    // After-hook instructions (Stage 1, ADR-0006): ride the single success
+    // document (human: dim stderr lines — stdout stays the result alone).
+    const verifyInstructions = opResult.instructions ?? [];
     if (opts.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(
+        JSON.stringify(
+          verifyInstructions.length > 0
+            ? { ...result, instructions: verifyInstructions }
+            : result,
+          null,
+          2,
+        ),
+      );
     } else {
       printResult(result);
+      for (const line of verifyInstructions)
+        console.error(chalk.dim(`hook: ${line}`));
     }
     return;
   }

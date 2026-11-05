@@ -42,6 +42,7 @@ import { login } from "../auth/login.js";
 import { getApiUrl } from "../core/api-url.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
+import { createHookScope, emitAfterHook } from "../core/hooks/emit.js";
 import { saasFailure } from "../saas/failure.js";
 import { fetchPullArchiveWithRetry } from "../saas/pull.js";
 import {
@@ -87,6 +88,8 @@ export interface PullResult {
    * emits on every `--json` surface, so one parser reads them all.
    */
   notices: OperationNotice[];
+  /** After-hook instructions (Stage 1, ADR-0006) — absent when no hook ran. */
+  instructions?: string[];
 }
 
 /**
@@ -369,6 +372,24 @@ export async function pull(
   const recordNotices = taskReadNotices(
     recordReads.filter((read) => read.quarantined),
   );
+  // After-hook (Stage 1, ADR-0006): computed BEFORE the --json envelope so
+  // the instructions ride the same single document. Dry-run and zero-write
+  // pulls are no-ops with no after-emission.
+  const pullWritten = summary.added + summary.merged;
+  const pullSkipped = summary.unchanged + summary.conflicts;
+  const pullInstructions =
+    !dryRun && pullWritten > 0
+      ? await emitAfterHook(
+          { projectDir, mode: "saas" },
+          createHookScope(),
+          "pull",
+          {
+            written: pullWritten,
+            skipped: pullSkipped,
+            mode: "apply",
+          },
+        )
+      : [];
   if (opts.silent !== true) {
     for (const notice of recordNotices) console.error(notice.message);
     if (opts.json) {
@@ -387,6 +408,9 @@ export async function pull(
           missingBytes: summary.missingBytes,
           board: boardLabel,
           ...(recordNotices.length > 0 ? { notices: recordNotices } : {}),
+          ...(pullInstructions.length > 0
+            ? { instructions: pullInstructions }
+            : {}),
         }),
       );
     } else {
@@ -428,5 +452,8 @@ export async function pull(
     missingBytes: summary.missingBytes,
     board: boardLabel,
     notices,
+    ...(pullInstructions.length > 0
+      ? { instructions: pullInstructions }
+      : {}),
   };
 }

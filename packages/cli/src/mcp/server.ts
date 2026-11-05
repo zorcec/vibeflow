@@ -347,7 +347,13 @@ function successPayload<T>(result: OperationResult<T>): SuccessPayload<T> {
   // contract (text: string) — null serialises to a valid JSON string.
   const data = result.data ?? null;
   const notices = result.steps ?? [];
-  if (notices.length === 0) return data;
+  // After-hook instructions (Stage 1, ADR-0006): ride the success payload
+  // as `instructions` (absent when no hook ran — never an empty array, so
+  // a hook-free success stays byte-identical to what it was).
+  const instructions = result.instructions ?? [];
+  const instructionFields =
+    instructions.length > 0 ? { instructions } : {};
+  if (notices.length === 0 && instructions.length === 0) return data;
   // `{}` vs `{committed:false}` rather than an always-present `committed`:
   // the error path is the only one that changes a payload shape, so a
   // clean success and a preview stay byte-identical to what they were.
@@ -357,14 +363,24 @@ function successPayload<T>(result: OperationResult<T>): SuccessPayload<T> {
     ? { committed: false as const }
     : {};
   if (data !== null && typeof data === "object" && !Array.isArray(data)) {
-    return { ...(data as Record<string, unknown>), notices, ...uncommitted };
+    return {
+      ...(data as Record<string, unknown>),
+      notices,
+      ...uncommitted,
+      ...instructionFields,
+    };
   }
   // Every operation that returns notices returns an object payload (a Task, a
   // TaskComment, a FileInfo, a push result). The branch below is the total
   // case, so a future operation pairing notices with a scalar cannot lose
   // either half on the wire — nor the `committed` signal, which travels with
   // the notices rather than with the payload's own shape.
-  return { data, notices, ...uncommitted };
+  return {
+    data,
+    notices,
+    ...uncommitted,
+    ...instructionFields,
+  };
 }
 
 function formatResult<T>(result: OperationResult<T>): {

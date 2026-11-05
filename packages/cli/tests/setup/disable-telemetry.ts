@@ -14,3 +14,13 @@
  * registration is ever dropped.
  */
 process.env.VIBEFLOW_TELEMETRY = "0";
+/**
+ * Hooks off by default under test (Stage 1, ADR-0006): hook emission
+ * spawns child processes and materialises shipped defaults into HOME,
+ * which would make every operation test slow and non-hermetic. Hook
+ * unit tests opt back in per case (explicit `env` without the kill
+ * switch); the e2e hook spec spawns the CLI with its own env likewise.
+ */
+if (!process.env.VIBEFLOW_HOOKS) {
+  process.env.VIBEFLOW_HOOKS = "0";
+}
