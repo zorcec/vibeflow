@@ -1,7 +1,7 @@
 /**
- * Pre-hook bypass audit (Stage 2, ticket wla7ci2wzbgaj5dqsrvh1j4o).
+ * Before-hook bypass audit (ADR-0007).
  *
- * `--no-verify` skips the pre-gate but never silently: every bypassed
+ * `--no-verify` skips the before-gate but never silently: every bypassed
  * gated invocation prints HOOK_BYPASSED on stderr AND appends one JSONL
  * record to the UNIVERSAL LOCAL audit file
  * (`~/.vibeflow/hooks/bypass-audit.log`). Task activity comments are
@@ -13,11 +13,13 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import type { HookActivity } from "./envelope.js";
 
 export interface HookBypassRecord {
   ts: string;
-  event: string;
-  phase: "pre";
+  tool: string;
+  activity: HookActivity;
+  phase: "before";
   command: string;
   reason: string;
 }
@@ -47,6 +49,6 @@ export function writeBypassAudit(
 }
 
 /** The HOOK_BYPASSED notice: printed on stderr for every bypassed gate. */
-export function formatBypassNotice(event: string, command: string): string {
-  return `HOOK_BYPASSED ${event} (pre-gate skipped by --no-verify on ${command}; recorded in bypass-audit.log)`;
+export function formatBypassNotice(tool: string, command: string): string {
+  return `HOOK_BYPASSED ${tool} (before-gate skipped by --no-verify on ${command}; recorded in bypass-audit.log)`;
 }

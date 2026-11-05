@@ -1,8 +1,8 @@
 // Example after-hook: nudge the agent when a task moves to review.
 //
-// Copy VERBATIM to `.vibeflow-hooks/after/after-task.update.mjs`.
-// Removal restores the shipped default for `task.update` (ADR-0006:
-// project beats global beats default, first hit wins, REPLACE never merge).
+// Copy VERBATIM to `.vibeflow-hooks/tasks.after.mjs`.
+// Removal restores the shipped default for `tasks` (ADR-0007:
+// project beats global beats shipped, first hit wins, REPLACE never merge).
 //
 // What it does: when the confirmed update left the task in `review`, it
 // returns one `instructions` string reminding the agent to attest the review
@@ -13,9 +13,9 @@
 // confirmed snapshot in `task` (see docs/agent-hooks.md), so the hook
 // prefers `envelope.task.status` and only falls back to the task store
 // (`cwd` is always the project root, guaranteed by the runner) when the
-// snapshot is absent — e.g. envelopes from older CLIs. Either path keeps
-// this file working verbatim.
-// Contract (ADR-0006): stdin = one envelope JSON + "\n"; stdout = exactly
+// snapshot is absent (hand-built inputs). Either path keeps this file
+// working verbatim.
+// Contract (ADR-0007): stdin = one envelope JSON + "\n"; stdout = exactly
 // one JSON document (`{"instructions":"..."}` or `{}`); diagnostics on
 // stderr ONLY (a stray console.log on stdout invalidates the document and
 // the runner drops the hook with HOOK_BAD_OUTPUT, fail-open).
@@ -64,7 +64,7 @@ async function main() {
     process.stdout.write(JSON.stringify({}) + "\n");
     return;
   }
-  if (envelope?.event === "task.update" && envelope?.phase === "after") {
+  if (envelope?.tool === "tasks" && envelope?.activity === "task.update" && envelope?.phase === "after") {
     const taskId = envelope?.payload?.taskId;
     // The snapshot suffices: the store read below only fires for
     // envelopes without one (older CLIs, hand-built inputs).

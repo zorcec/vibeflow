@@ -46,16 +46,16 @@ async function addTask(): Promise<string> {
 }
 
 function writeProjectHook(body: string): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "after-task.update.mjs"), body);
+  writeFileSync(join(dir, "tasks.after.mjs"), body);
 }
 
 describe("hooks-after-task-update e2e", () => {
   it("tasks --edit --json success = exactly ONE JSON doc carrying hook instructions", async () => {
     const id = await addTask();
     writeProjectHook(
-      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:"hook saw "+e.event}));});`,
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:"hook saw "+e.activity}));});`,
     );
     const edited = await spawnCliIsolated(
       ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
@@ -112,15 +112,15 @@ describe("hooks-after-task-update e2e", () => {
 
 describe("hooks-after-task-update module mode e2e (Stage 1.5, ADR-0006)", () => {
   function writeModuleHook(body: string): void {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.hook.mjs"), body);
+    writeFileSync(join(dir, "tasks.after.hook.mjs"), body);
   }
 
   it("module hook success = exactly ONE JSON doc carrying the instruction", async () => {
     const id = await addTask();
     writeModuleHook(
-      `export default async (envelope) => ({ instructions: "module saw " + envelope.event });`,
+      `export default async (envelope) => ({ instructions: "module saw " + envelope.activity });`,
     );
     const edited = await spawnCliIsolated(
       ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
@@ -235,11 +235,13 @@ describe("hooks-after-task-update module mode e2e (Stage 1.5, ADR-0006)", () => 
 describe("after-envelope generic fields live (ticket 431ee1c0)", () => {
   // The hook child env carries PATH+HOME only — the capture path is baked
   // into the hook body, never passed as env.
-  function writeCaptureHook(event: string, capture: string): void {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+  function writeCaptureHook(_event: string, capture: string): void {
+    // v2: one file per TOOL — a single tasks.after.mjs captures every
+    // activity; assertions below filter by e.activity.
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
-      join(dir, `after-${event}.mjs`),
+      join(dir, `tasks.after.mjs`),
       `import { appendFileSync } from "node:fs";\n` +
         `let s="";process.stdin.setEncoding("utf8").on("data",c=>s+=c).on("end",()=>{appendFileSync(${JSON.stringify(capture)},s+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
     );
@@ -264,7 +266,9 @@ describe("after-envelope generic fields live (ticket 431ee1c0)", () => {
     const envelopes = readCaptures(capture);
     expect(envelopes).toHaveLength(1);
     const env = envelopes[0];
-    expect(env.event).toBe("task.create");
+    expect(env.activity).toBe("task.create");
+    expect(env.tool).toBe("tasks");
+    expect(env.surface).toBe("cli");
     expect(env.phase).toBe("after");
     // Pre-fix this was null with no activityObject — the live proof.
     const task = env.task as Record<string, unknown>;
@@ -307,21 +311,20 @@ describe("after-envelope generic fields live (ticket 431ee1c0)", () => {
 
   it("task.comment after-envelope carries the task + written comment", async () => {
     const id = await addTask();
-    const updateCapture = join(projectDir, "capture-cu.jsonl");
-    const commentCapture = join(projectDir, "capture-cc.jsonl");
-    writeCaptureHook("task.update", updateCapture);
-    writeCaptureHook("task.comment", commentCapture);
+    const capture = join(projectDir, "capture-cu.jsonl");
+    writeCaptureHook("task.update", capture);
     const edited = await spawnCliIsolated(
       ["tasks", "--edit", id, "--title", "renamed", "--comment", "live note", "--json"],
       { cwd: projectDir, home: cliHome, env: HOOK_ENV },
     );
     expect(edited.code).toBe(0);
-    const updates = readCaptures(updateCapture);
+    // One file per tool ⇒ one execution per (tool, activity), in order.
+    const updates = readCaptures(capture).filter((e) => e.activity === "task.update");
     expect(updates).toHaveLength(1);
     const updateTask = updates[0].task as Record<string, unknown>;
     expect(updateTask.id).toBe(id);
     expect(updateTask.title).toBe("renamed");
-    const comments = readCaptures(commentCapture);
+    const comments = readCaptures(capture).filter((e) => e.activity === "task.comment");
     expect(comments).toHaveLength(1);
     const commentEnv = comments[0];
     const commentTask = commentEnv.task as Record<string, unknown>;

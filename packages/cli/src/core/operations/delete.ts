@@ -45,9 +45,10 @@ import { isRemoteReadError } from "../remote-task-store.js";
 import {
   createHookScope,
   emitAfterHook,
-  emitPreHook,
-  preGateRefusal,
+  emitBeforeHook,
+  beforeGateRefusal,
 } from "../hooks/emit.js";
+import { defaultToolForActivity } from "../hooks/tools.js";
 
 /** One row of the delete plan: enough to resolve, warn, and render. */
 export interface DeletePlanRow {
@@ -304,9 +305,9 @@ export async function deleteTaskOperation(
   // Pre-gate (Stage 2, ADR-0006): delete INTENT (no generated ids beyond
   // the resolved target); task is the pre-write snapshot (immutable).
   // Runs after confirm/dry-run gates, before the write — deny FAILS CLOSED.
-  const deleteGate = await emitPreHook(
+  const deleteGate = await emitBeforeHook(
     ctx,
-    createHookScope(),
+    ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.delete"), surface: "cli" }),
     "task.delete",
     {
       payload: {
@@ -319,7 +320,7 @@ export async function deleteTaskOperation(
     },
   );
   if (!deleteGate.allowed) {
-    const refusal = preGateRefusal(deleteGate);
+    const refusal = beforeGateRefusal(deleteGate);
     return {
       ok: false,
       error: {
@@ -383,7 +384,7 @@ export async function deleteTaskOperation(
     // the snapshot of what was deleted (same record as the pre-gate).
     const onlineInstructions = await emitAfterHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.delete"), surface: "cli" }),
       "task.delete",
       { taskId: id, childCount: Math.max(0, deletedIds.length - 1) },
       undefined,
@@ -426,7 +427,7 @@ export async function deleteTaskOperation(
   // what was deleted (same record as the pre-gate).
   const localInstructions = await emitAfterHook(
     ctx,
-    createHookScope(),
+    ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.delete"), surface: "cli" }),
     "task.delete",
     { taskId: id, childCount: 0 },
     undefined,

@@ -1,6 +1,7 @@
 /**
- * Installed-package contract (ADR-0006 Stage 1.5): the module-hook loader
- * and the `@vibeflow-tools/cli/hooks` types must survive packaging.
+ * Installed-package contract (ADR-0007, T6): the module-hook loader, the
+ * `@vibeflow-tools/cli/hooks` types, and the in-package shipped defaults
+ * must survive packaging.
  *
  * Local source tests can all pass while a published binary lacks its loader
  * or declarations, so this file installs the real tarball into a fresh
@@ -78,11 +79,29 @@ function spawnCli(entry: string, args: string[], cwd: string, home: string): Spa
 }
 
 function writeModuleHook(projectDir: string, instructions: string): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(dir, "after-task.update.hook.mjs"),
-    `export default async (envelope) => ({ instructions: ${JSON.stringify(instructions)} + envelope.event });\n`,
+    join(dir, "tasks.after.hook.mjs"),
+    `export default async (envelope) => ({ instructions: ${JSON.stringify(instructions)} + envelope.activity });\n`,
+  );
+}
+
+function writeStdioHook(projectDir: string, instructions: string): void {
+  const dir = join(projectDir, ".vibeflow-hooks");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "tasks.after.mjs"),
+    `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:${JSON.stringify(instructions)}}));});\n`,
+  );
+}
+
+function writeTsHook(projectDir: string, instructions: string): void {
+  const dir = join(projectDir, ".vibeflow-hooks");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "tasks.after.hook.ts"),
+    `export default async (envelope: { activity: unknown }): Promise<{ instructions: string }> => ({ instructions: ${JSON.stringify(instructions)} });\n`,
   );
 }
 
@@ -127,13 +146,31 @@ afterAll(() => {
 });
 
 describe("hooks-package", () => {
-  it("tarball ships the loader (both layouts) + hooks.d.ts and no src/", () => {
+  it("tarball ships the loader (both layouts) + hooks.d.ts + dist/hooks/defaults and no src/", () => {
     const out = sh("npm", ["pack", "--dry-run", "--json"], CLI_ROOT);
     const [summary] = JSON.parse(out) as Array<{ files: Array<{ path: string }> }>;
     const paths = summary.files.map((f) => f.path);
     expect(paths).toContain("dist/hook-loader.mjs");
     expect(paths).toContain("dist/cli/hook-loader.mjs");
     expect(paths).toContain("dist/hooks.d.ts");
+    // In-package shipped defaults (ADR-0007 D10): exactly the 9
+    // activity-bearing after files + VERSION, read in place. Marker:
+    // remove "dist/hooks/" from files and the shipped-default run below
+    // fails with HOOK_SHIPPED_DEFAULTS_MISSING.
+    expect(paths).toContain("dist/hooks/defaults/VERSION");
+    for (const file of [
+      "tasks.after.mjs",
+      "update_task.after.mjs",
+      "claim_next_task.after.mjs",
+      "add_comment.after.mjs",
+      "verify.after.mjs",
+      "verify_task.after.mjs",
+      "push.after.mjs",
+      "pull.after.mjs",
+      "create_task.after.mjs",
+    ]) {
+      expect(paths).toContain(`dist/hooks/defaults/${file}`);
+    }
     expect(paths.filter((p) => p.startsWith("src/"))).toEqual([]);
   });
 
@@ -166,10 +203,10 @@ describe("hooks-package", () => {
       `import type {\n` +
         `  HookAfterEnvelope,\n` +
         `  HookAfterHandler,\n` +
-        `  HookAfterPayloads,\n` +
+        `  HookConfirmedPayloads,\n` +
         `  HookAfterResult,\n` +
         `  HookEnvelope,\n` +
-        `  HookEvent,\n` +
+        `  HookActivity,\n` +
         `} from "@vibeflow-tools/cli/hooks";\n` +
         `\n` +
         `export function taskIdOf(envelope: HookAfterEnvelope<"task.update">): string {\n` +
@@ -180,7 +217,7 @@ describe("hooks-package", () => {
         `}\n` +
         `\n` +
         `export function commentOf(union: HookEnvelope): string | null {\n` +
-        `  if (union.event === "task.comment") {\n` +
+        `  if (union.activity === "task.comment") {\n` +
         `    return union.payload.commentId;\n` +
         `  }\n` +
         `  return null;\n` +
@@ -194,13 +231,13 @@ describe("hooks-package", () => {
         `\n` +
         `export const noop: HookAfterResult = {};\n` +
         `\n` +
-        `export function touchTypes(payloads: HookAfterPayloads, event: HookEvent): void {\n` +
+        `export function touchTypes(payloads: HookConfirmedPayloads, event: HookActivity): void {\n` +
         `  void payloads;\n` +
         `  void event;\n` +
         `}\n` +
         `\n` +
-        `// @ts-expect-error unknown events are not hook events\n` +
-        `export type BadEvent = HookAfterEnvelope<"task.frobnicate">;\n` +
+        `// @ts-expect-error unknown activities are not hook activities\n` +
+        `export type BadActivity = HookAfterEnvelope<"task.frobnicate">;\n` +
         `\n` +
         `export const badResult: HookAfterResult = {\n` +
         `  // @ts-expect-error instructions must be a string\n` +
@@ -215,7 +252,7 @@ describe("hooks-package", () => {
         `\n` +
         `export function prePhaseImpossible(envelope: HookAfterEnvelope<"task.update">): void {\n` +
         `  // @ts-expect-error phase is after-only\n` +
-        `  const phase: "pre" = envelope.phase;\n` +
+        `  const phase: "before" = envelope.phase;\n` +
         `  void phase;\n` +
         `}\n` +
         `\n` +
@@ -230,7 +267,7 @@ describe("hooks-package", () => {
       `// @ts-check\n` +
         `/** @type {import('@vibeflow-tools/cli/hooks').HookAfterHandler<'task.update'>} */\n` +
         `export default async (envelope) => {\n` +
-        `  return { instructions: \`saw \${envelope.event} (\${envelope.payload.taskId})\` };\n` +
+        `  return { instructions: \`saw \${envelope.activity} (\${envelope.payload.taskId})\` };\n` +
         `};\n`,
     );
     // Unused @ts-expect-error directives fail the run — the negatives are real.
@@ -252,6 +289,53 @@ describe("hooks-package", () => {
       ],
       proj,
     );
+  });
+
+  it("installed dist/index.js executes a project stdio hook (special-char path)", () => {
+    const projectDir = join(installRoot, "proj stdio señor #1?%");
+    mkdirSync(projectDir, { recursive: true });
+    ensureTaskDirs(projectDir);
+    const home = mkdtempSync(join(tmpdir(), "hook-pkg-home-"));
+    writeStdioHook(projectDir, "installed-stdio:");
+    const doc = editTask(join(pkgDir, "dist", "index.js"), projectDir, home) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toEqual(["installed-stdio:"]);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("installed dist/index.js executes a project module-ts hook (special-char path)", () => {
+    const projectDir = join(installRoot, "proj ts señor #2?%");
+    mkdirSync(projectDir, { recursive: true });
+    ensureTaskDirs(projectDir);
+    const home = mkdtempSync(join(tmpdir(), "hook-pkg-ts-home-"));
+    writeTsHook(projectDir, "installed-ts:");
+    const doc = editTask(join(pkgDir, "dist", "index.js"), projectDir, home) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toEqual(["installed-ts:"]);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("installed dist/index.js falls back to the SHIPPED tasks.after.mjs (no project/global file)", () => {
+    // Genuine installed-layout proof: the shipped default runs from the
+    // installed tree with nothing overriding it — the unconditional
+    // update text rides the document.
+    const projectDir = join(installRoot, "proj shipped-default");
+    mkdirSync(projectDir, { recursive: true });
+    ensureTaskDirs(projectDir);
+    const home = mkdtempSync(join(tmpdir(), "hook-pkg-shipped-home-"));
+    const doc = editTask(join(pkgDir, "dist", "index.js"), projectDir, home) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions?.join("\n")).toContain('NEVER set a task status to "done"');
+    rmSync(home, { recursive: true, force: true });
   });
 
   it("installed dist/index.js executes a module hook (special-char path)", () => {

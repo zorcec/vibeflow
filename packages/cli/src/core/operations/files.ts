@@ -23,6 +23,7 @@ import type {
 } from "../operations.js";
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
+import { emitReadHook } from "../hooks/emit.js";
 import { resolveOperationPorts } from "../task-store.js";
 import { resolveReadPorts } from "../operation-context.js";
 import { attachDuplicateRefusal } from "../attach.js";
@@ -296,6 +297,11 @@ export async function attachStandalone(
       }
     }
 
+    // Null-activity read narration (ADR-0007 §5.2): the attach target
+    // rides `task` (attach has no activity of its own).
+    const readInstructions = await emitReadHook(ctx, ctx.hookScope, "tasks", {
+      task: resolved.task as unknown as import("../hooks/envelope.js").HookTaskSnapshot,
+    });
     return {
       ok: true,
       data: {
@@ -305,6 +311,7 @@ export async function attachStandalone(
         ...(duplicate ? { replaced: true } : {}),
       },
       ...(steps.length > 0 ? { steps } : {}),
+      ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
     };
   } catch (err) {
     const { isRemoteReadError } = await import("../remote-task-store.js");
@@ -479,6 +486,9 @@ export async function getFile(
     const sizeRefusal = refuseRawAttachFilename(filename, bytes.length);
     if (sizeRefusal) return { ok: false, error: sizeRefusal };
 
+    const readInstructions = await emitReadHook(ctx, ctx.hookScope, "tasks", {
+      task: resolved.task as unknown as import("../hooks/envelope.js").HookTaskSnapshot,
+    });
     return {
       ok: true,
       data: {
@@ -487,6 +497,7 @@ export async function getFile(
         size: bytes.length,
         contentB64: bytes.toString("base64"),
       },
+      ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
     };
   } catch (err) {
     const { isRemoteReadError } = await import("../remote-task-store.js");
@@ -542,5 +553,5 @@ export async function attachFile(
   void _taskId;
   void _fileId;
   void _replaced;
-  return { ok: true, data: file as FileInfo, ...(r.steps ? { steps: r.steps } : {}) };
+  return { ok: true, data: file as FileInfo, ...(r.steps ? { steps: r.steps } : {}), ...(r.instructions ? { instructions: r.instructions } : {}) };
 }

@@ -42,7 +42,8 @@ import { login } from "../auth/login.js";
 import { getApiUrl } from "../core/api-url.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
-import { createHookScope, emitAfterHook } from "../core/hooks/emit.js";
+import { emitAfterHook, type HookScope } from "../core/hooks/emit.js";
+import { defaultToolForActivity } from "../core/hooks/tools.js";
 import { saasFailure } from "../saas/failure.js";
 import { fetchPullArchiveWithRetry } from "../saas/pull.js";
 import {
@@ -72,6 +73,7 @@ export interface PullOptions {
    * LOUDLY (notice + local audit); after-hooks still run.
    */
   hookBypass?: boolean;
+  hookScope?: HookScope;
 }
 
 export interface PullResult {
@@ -328,13 +330,14 @@ export async function pull(
   // Dry-run returns below without gating (nothing would be written).
   // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
   let pullGateInstructions: string[] = [];
+  const { createHookScope, emitBeforeHook, beforeGateRefusal } = await import(
+    "../core/hooks/emit.js"
+  );
+  const pullScope = opts.hookScope ?? createHookScope({ tool: defaultToolForActivity("pull"), surface: "cli" });
   if (!dryRun) {
-    const { createHookScope, emitPreHook, preGateRefusal } = await import(
-      "../core/hooks/emit.js"
-    );
-    const pullGate = await emitPreHook(
+    const pullGate = await emitBeforeHook(
       { projectDir, mode: "saas" },
-      createHookScope(),
+      pullScope,
       "pull",
       {
         payload: {},
@@ -348,7 +351,7 @@ export async function pull(
         ? [...pullGate.instructions]
         : [];
     if (!pullGate.allowed) {
-      const refusal = preGateRefusal(pullGate);
+      const refusal = beforeGateRefusal(pullGate);
       const msg = `${refusal.message} Nothing was written.`;
       if (opts.json) {
         console.log(
@@ -435,7 +438,7 @@ export async function pull(
     ...(!dryRun && pullWritten > 0
       ? await emitAfterHook(
           { projectDir, mode: "saas" },
-          createHookScope(),
+          pullScope,
           "pull",
           {
             written: pullWritten,

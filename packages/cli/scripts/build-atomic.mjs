@@ -182,6 +182,25 @@ for (const dest of [
     dest,
   );
 }
+// Shipped hook defaults (ADR-0007): the `src/core/hooks/defaults/` tree
+// (VERSION + after/*.after.mjs) ships verbatim as `dist/hooks/defaults/`
+// and is read in place — never materialised into $HOME. Copied here
+// before the live sync like the loader above; the `dist/hooks/` files
+// entry publishes it.
+{
+  const srcDefaults = resolve(cliRoot, "src", "core", "hooks", "defaults");
+  const destDefaults = resolve(stagingDir, "hooks", "defaults");
+  const copyTree = (from, to) => {
+    mkdirSync(to, { recursive: true });
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      const src = resolve(from, entry.name);
+      const dest = resolve(to, entry.name);
+      if (entry.isDirectory()) copyTree(src, dest);
+      else copyFileSync(src, dest);
+    }
+  };
+  copyTree(srcDefaults, destDefaults);
+}
 // Public module-hook authoring types for the `./hooks` subpath (types
 // only, ADR-0006 Stage 1.5). Copied here — not in tsup onSuccess —
 // because the DTS pass emits `cli/hooks.d.ts` after that hook runs.

@@ -10,7 +10,8 @@ Code points at these files with `ADR-NNNN`.
 | [0003](0003-commit-task-shared-resolve.md) | One shared local-task resolve | accepted | 2026-10-25 | Every short-id resolution goes through `resolveLocalTask`; a second path must never appear. | `packages/cli/tests/unit/git-commit-race.test.ts` |
 | [0004](0004-gates-run-locally.md) | Gates run locally | accepted | 2026-10-25 | No remote CI: the pre-commit and pre-push hooks are the gates, releases ship locally. | `.husky/pre-commit` |
 | [0005](0005-project-scoped-auth.md) | Auth is project-scoped | accepted | 2026-10-25 | Auth resolves per project from the repo pointer plus user-scoped credentials — never a machine-global token. | `packages/cli/tests/unit/auth/project-auth.test.ts` |
-| [0006](0006-agent-hooks.md) | Agent hooks are operation-owned child processes | accepted | 2026-11-05 | After-hooks emit per confirmed durable effect from the owning operation, run as child processes with replace-not-merge defaults — never in-process, never merged. | `packages/cli/tests/unit/hooks/emit.test.ts` |
+| [0006](0006-agent-hooks.md) | Agent hooks are operation-owned child processes | superseded by ADR-0007 | 2026-11-05 | After-hooks emit per confirmed durable effect from the owning operation, run as child processes with replace-not-merge defaults — never in-process, never merged. | `packages/cli/tests/unit/hooks/emit.test.ts` |
+| [0007](0007-tool-keyed-hooks.md) | Agent hooks are keyed by TOOL, defaults ship in-package | accepted | 2026-11-06 | One hook file per `<tool>.<phase>` over every CLI command + all 13 MCP tools; envelope v2 (`tool`/`surface`/`before|after`); shipped defaults read in place from `dist/hooks/defaults/`, never materialised into `$HOME`. | `packages/cli/tests/unit/hooks/tool-contract.test.ts` |
 
 How to add a decision: copy `TEMPLATE.md` to `NNNN-short-name.md`, fill it in,
 add one row above, and leave a one-line pointer in the code it governs.

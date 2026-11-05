@@ -4,7 +4,7 @@
  * `extra` parameter — the legacy payload stays byte-identical while the
  * envelope carries the full task snapshot + activityObject.
  *
- * `emitAfterHook`/`emitPreHook` are mocked (pre-gate allows): each test
+ * `emitAfterHook`/`emitBeforeHook` are mocked (before-gate allows): each test
  * drives the REAL operation against a temp local store (or stubbed fetch
  * for the online paths) and asserts what extras the site passed.
  * Run-intent sites (verify/push/pull) assert NO extras — task:null is
@@ -25,7 +25,7 @@ vi.mock("../../../src/core/hooks/emit.js", async (importOriginal) => {
   return {
     ...actual,
     emitAfterHook: vi.fn(async () => []),
-    emitPreHook: vi.fn(async () => ({
+    emitBeforeHook: vi.fn(async () => ({
       allowed: true,
       instructions: [],
       bypassed: false,

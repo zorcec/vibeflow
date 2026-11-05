@@ -129,11 +129,13 @@ const HOOK_ENV = {
   VIBEFLOW_API_URL: "",
 };
 
-function writeCaptureHook(store: string, event: string, capture: string): void {
-  const dir = join(store, ".vibeflow-hooks", "after");
+function writeCaptureHook(store: string, _event: string, capture: string): void {
+  // v2: one file per TOOL — a single tasks.after.mjs captures every
+  // activity; assertions below filter by activity.
+  const dir = join(store, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(dir, `after-${event}.mjs`),
+    join(dir, `tasks.after.mjs`),
     `import { appendFileSync } from "node:fs";\n` +
       `let s="";process.stdin.setEncoding("utf8").on("data",c=>s+=c).on("end",()=>{appendFileSync(${JSON.stringify(capture)},s+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
   );
@@ -176,12 +178,10 @@ describe("after-envelope saas paths live (ticket 431ee1c0)", () => {
   it("saas --edit after-envelopes carry the mapped record + comment", async () => {
     const store = freshDir("saas-env-edit-store-");
     const home = freshDir("saas-env-edit-home-");
-    const updateCapture = join(store, "capture-saas-update.jsonl");
-    const commentCapture = join(store, "capture-saas-comment.jsonl");
+    const capture = join(store, "capture-saas-comment.jsonl");
     const fake = await startFakeBackend();
     setupSaaSMode({ home, store, apiUrl: fake.url });
-    writeCaptureHook(store, "task.update", updateCapture);
-    writeCaptureHook(store, "task.comment", commentCapture);
+    writeCaptureHook(store, "task.update", capture);
 
     const r = await spawnCli(
       [
@@ -198,7 +198,7 @@ describe("after-envelope saas paths live (ticket 431ee1c0)", () => {
       { cwd: store, home, env: { ...HOOK_ENV, VIBEFLOW_API_URL: fake.url } },
     );
     expect(r.code).toBe(0);
-    const updates = readCaptures(updateCapture);
+    const updates = readCaptures(capture).filter((e) => e.activity === "task.update");
     expect(updates).toHaveLength(1);
     const updateTask = updates[0].task as Record<string, unknown>;
     expect(updateTask).not.toBeNull();
@@ -206,7 +206,7 @@ describe("after-envelope saas paths live (ticket 431ee1c0)", () => {
     expect(updateTask.title).toBe("Saas renamed");
     const changed = (updates[0].activityObject as { changed: string[] }).changed;
     expect(changed).toContain("title");
-    const comments = readCaptures(commentCapture);
+    const comments = readCaptures(capture).filter((e) => e.activity === "task.comment");
     expect(comments).toHaveLength(1);
     const commentTask = comments[0].task as Record<string, unknown>;
     expect(commentTask).not.toBeNull();

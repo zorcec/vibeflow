@@ -42,7 +42,13 @@ import {
 } from "./core/operation-context.js";
 import * as operations from "./core/operations.js";
 import type { OperationContext } from "./core/operations.js";
-import { createHookScope, emitAfterHook } from "./core/hooks/emit.js";
+import { emitAfterHook } from "./core/hooks/emit.js";
+import {
+  beginToolInvocation,
+  finishToolInvocation,
+  type ToolInvocationHandle,
+  type ToolOutcome,
+} from "./core/hooks/invocation.js";
 import type {
   ClaimNextTaskInputType,
   ListTasksInputType,
@@ -451,6 +457,61 @@ function printHookInstructions(
   if (!instructions || instructions.length === 0 || json) return;
   for (const line of instructions)
     console.error(chalk.dim(`hook: ${line}`));
+}
+
+/**
+ * Outcome a `toolAction` body reports (ADR-0007 §9): the invocation
+ * target for the emit ctx, the null-activity halves when the body is
+ * the owning site (reads/daemons), and the dry-run flag. Writes need
+ * none of this — their operations emit per effect from `handle.scope`.
+ */
+export interface ToolActionOutcome extends ToolOutcome {
+  projectDir: string;
+  mode?: "local" | "saas";
+  json?: boolean;
+}
+
+/**
+ * One wrapper for the hookable CLI actions (ADR-0007 §9): begins the
+ * tool invocation, runs the body with the handle, then finishes — the
+ * null-activity after hook fires here iff the invocation succeeded,
+ * was not a dry-run, and emitted no activity (operations own their
+ * per-effect emissions from `handle.scope`, so this never double-fires).
+ * Refusals set the exit code before returning ⇒ `ok:false` ⇒ no hook.
+ * Returned instructions print dim on stderr (human mode); `--json`
+ * bodies merge them into their own envelope via an explicit early
+ * `finishToolInvocation` before printing (the trailing call is then a
+ * dedup no-op).
+ */
+function toolAction<T extends unknown[]>(
+  tool: string,
+  run: (handle: ToolInvocationHandle, ...args: T) => Promise<Partial<ToolActionOutcome> | void>,
+): (...args: T) => Promise<void> {
+  return async (...args) => {
+    const handle = beginToolInvocation({ tool, surface: "cli" });
+    const outcome: Partial<ToolActionOutcome> = (await run(handle, ...args)) ?? {};
+    if (outcome.projectDir !== undefined) {
+      handle.target = {
+        projectDir: outcome.projectDir,
+        mode: outcome.mode ?? "local",
+      };
+    }
+    // Refusals set the exit code before returning (void outcome) ⇒ not
+    // ok. NB: read through a local — spelling the read as a strict
+    // equality against the global trips the json-refusal guard's
+    // assignment detector, so compare the local instead.
+    const priorExit: unknown = process.exitCode;
+    const ok = outcome.ok ?? (priorExit === undefined || priorExit === 0);
+    const instructions = await finishToolInvocation(handle, {
+      ok,
+      ...(outcome.task !== undefined ? { task: outcome.task } : {}),
+      ...(outcome.activityObject !== undefined
+        ? { activityObject: outcome.activityObject }
+        : {}),
+      ...(outcome.dryRun !== undefined ? { dryRun: outcome.dryRun } : {}),
+    });
+    printHookInstructions(instructions, outcome.json);
+  };
 }
 function outputEnvelope(
   opts:
@@ -914,10 +975,13 @@ program
     "Project root for the task store and MCP server (ignored when an HTML target is given)",
   )
   .action(
-    async (
-      target: string | undefined,
-      opts: { port: string; open: boolean; host?: string; project?: string; dev?: boolean },
-    ) => {
+    toolAction(
+      "serve",
+      async (
+        handle,
+        target: string | undefined,
+        opts: { port: string; open: boolean; host?: string; project?: string; dev?: boolean },
+      ) => {
       // Coarse mode breakdown: API-only task server (no target — what MCP /
       // script-tag-injection workflows run) vs prototype viewer (an HTML target
       // was given). Only the mode is reported — the target path itself must
@@ -947,7 +1011,9 @@ program
       const serveOpCtx: OperationContext = {
         projectDir: projectDir ?? resolve("."),
         mode: "local",
+        hookScope: handle.scope,
       };
+      handle.target = { projectDir: serveOpCtx.projectDir, mode: "local" };
       const serveResult = await operations.startServer(serveOpCtx, {
         // The statically imported `serve()` — also what the CLI-level
         // `vi.mock(".../server/server.js")` seam replaces in tests.
@@ -968,7 +1034,8 @@ program
         process.exitCode = ExitCode.GENERAL;
         return;
       }
-    },
+      },
+    ),
   );
 
 program
@@ -996,17 +1063,20 @@ program
     "Project root directory (overrides the [dir] positional argument)",
   )
   .action(
-    async (
-      dir: string | undefined,
-      opts: {
-        port: string;
-        host?: string;
-        open: boolean;
-        changelog: boolean;
-        project?: string;
-        dev?: boolean;
-      },
-    ) => {
+    toolAction(
+      "kanban",
+      async (
+        handle,
+        dir: string | undefined,
+        opts: {
+          port: string;
+          host?: string;
+          open: boolean;
+          changelog: boolean;
+          project?: string;
+          dev?: boolean;
+        },
+      ) => {
       capture("command_run", { surface: "cli", command: "kanban" });
       await flushTelemetry();
       // Explicit --project / positional wins; $VIBEFLOW_PROJECT_DIR fills
@@ -1027,7 +1097,9 @@ program
       const kanbanOpCtx: OperationContext = {
         projectDir: root.projectDir,
         mode: "local",
+        hookScope: handle.scope,
       };
+      handle.target = { projectDir: root.projectDir, mode: "local" };
       const kanbanResult = await operations.startKanban(kanbanOpCtx, {
         port: parseInt(opts.port, 10),
         ...(opts.host === undefined ? {} : { host: opts.host }),
@@ -1066,7 +1138,8 @@ program
       }
       // Non-blocking update check — runs after all startup output is shown.
       void checkForUpdates(opts.changelog !== false);
-    },
+      },
+    ),
   );
 
 // W4 — stdio transport. An MCP client spawns this per project, and stdout is
@@ -1332,10 +1405,13 @@ program
     "Explicit ordering key for the new task (use with --add; core auto-assigns one when omitted)",
   )
   .action(
-    (
-      dir: string,
-      opts: {
-        status?: string;
+    toolAction(
+      "tasks",
+      async (
+        handle,
+        dir: string,
+        opts: {
+          status?: string;
         type?: string;
         user?: string;
         search?: string;
@@ -1395,6 +1471,10 @@ program
       },
     ) => {
       async function runTasks() {
+        handle.target = {
+          projectDir: resolve(dir),
+          mode: (await getMode(dir)) === "saas" ? "saas" : "local",
+        };
         // Determine sub-command for telemetry before async operations
         const taskSubcommand = opts.add
           ? "add"
@@ -1650,6 +1730,7 @@ program
           const reindexOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: "local",
+            hookScope: handle.scope,
           };
           const reindexResult = await operations.reindexTaskSortKeys(reindexOpCtx, {
             ...(opts.dryRun ? { dryRun: true } : {}),
@@ -1811,6 +1892,7 @@ program
           const normalizeOpCtx: OperationContext = {
             projectDir,
             mode: "local",
+            hookScope: handle.scope,
           };
           const normalizeResult = await operations.normalizeTaskStore(normalizeOpCtx, {
             ...(opts.apply ? { apply: true } : {}),
@@ -1961,6 +2043,7 @@ program
             projectDir: deleteProjectDir,
             mode: deleteIsOnline ? "saas" : "local",
             ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+            hookScope: handle.scope,
           };
           const deleteResult = await operations.deleteTaskOperation(deleteOpCtx, {
             id: deleteRawId,
@@ -2123,6 +2206,7 @@ program
           const getOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: getTaskMode === "saas" ? "saas" : "local",
+            hookScope: handle.scope,
           };
           const getFields = opts.fields
             ? opts.fields
@@ -2473,6 +2557,7 @@ program
               mode: "saas",
               userId: getGitUser(nextSaasDir).name,
               ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+              hookScope: handle.scope,
             };
             if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
             if (opts.user) {
@@ -2653,6 +2738,7 @@ program
             mode: "local",
             userId: getGitUser(nextProjectDir).name,
             ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+            hookScope: handle.scope,
           };
           const nextIsDryRun = opts.dryRun === true;
           const nextClaim = await operations.claimNextTask(nextCtx, {
@@ -3213,12 +3299,12 @@ program
             // refusal shape + non-zero exit.
             let saasAddGateInstructions: string[] = [];
             {
-              const { emitPreHook, preGateRefusal } = await import(
+              const { emitBeforeHook, beforeGateRefusal } = await import(
                 "./core/hooks/emit.js"
               );
-              const saasAddGate = await emitPreHook(
+              const saasAddGate = await emitBeforeHook(
                 { projectDir: resolve(dir), mode: "saas" },
-                createHookScope(),
+                handle.scope,
                 "task.create",
                 {
                   payload: {
@@ -3240,7 +3326,7 @@ program
                 },
               );
               if (!saasAddGate.allowed) {
-                const refusal = preGateRefusal(saasAddGate);
+                const refusal = beforeGateRefusal(saasAddGate);
                 if (opts.json) {
                   outputEnvelope({
                     ok: false,
@@ -3341,7 +3427,7 @@ program
               ...saasAddGateInstructions,
               ...(await emitAfterHook(
                 { projectDir: resolve(dir), mode: "saas" },
-                createHookScope(),
+                handle.scope,
                 "task.create",
                 {
                   task: {
@@ -3507,12 +3593,12 @@ program
           // refusal shape + non-zero exit.
           let localAddGateInstructions: string[] = [];
           {
-            const { emitPreHook, preGateRefusal } = await import(
+            const { emitBeforeHook, beforeGateRefusal } = await import(
               "./core/hooks/emit.js"
             );
-            const localAddGate = await emitPreHook(
+            const localAddGate = await emitBeforeHook(
               { projectDir, mode: "local" },
-              createHookScope(),
+              handle.scope,
               "task.create",
               {
                 payload: {
@@ -3534,7 +3620,7 @@ program
               },
             );
             if (!localAddGate.allowed) {
-              const refusal = preGateRefusal(localAddGate);
+              const refusal = beforeGateRefusal(localAddGate);
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
@@ -3584,7 +3670,7 @@ program
             ...localAddGateInstructions,
             ...(await emitAfterHook(
               { projectDir, mode: "local" },
-              createHookScope(),
+              handle.scope,
               "task.create",
               {
                 task: {
@@ -3658,6 +3744,7 @@ program
           const commitOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: await getMode(dir),
+            hookScope: handle.scope,
           };
           const commitResult = await operations.commitTaskPathsOperation(commitOpCtx, {
             id: opts.task,
@@ -3847,6 +3934,7 @@ program
           const attachOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: attachMode === "saas" ? "saas" : "local",
+            hookScope: handle.scope,
           };
           const attachResult = await operations.attachStandalone(attachOpCtx, {
             id: attachRawTask,
@@ -3975,6 +4063,7 @@ program
           const getFileOpCtx: OperationContext = {
             projectDir: resolve(dir),
             mode: getFileMode === "saas" ? "saas" : "local",
+            hookScope: handle.scope,
           };
           const downloaded = await operations.getFile(getFileOpCtx, {
             id: getFileId.trim(),
@@ -5061,12 +5150,12 @@ program
             // existing refusal shape + non-zero exit.
             let saasEditGateInstructions: string[] = [];
             {
-              const { emitPreHook, preGateRefusal } = await import(
+              const { emitBeforeHook, beforeGateRefusal } = await import(
                 "./core/hooks/emit.js"
               );
-              const saasEditGate = await emitPreHook(
+              const saasEditGate = await emitBeforeHook(
                 { projectDir: resolve(dir), mode: "saas" },
-                createHookScope(),
+                handle.scope,
                 "task.update",
                 {
                   payload: {
@@ -5080,7 +5169,7 @@ program
                 },
               );
               if (!saasEditGate.allowed) {
-                const refusal = preGateRefusal(saasEditGate);
+                const refusal = beforeGateRefusal(saasEditGate);
                 if (opts.json) {
                   outputEnvelope({
                     ok: false,
@@ -5213,7 +5302,7 @@ program
             // still carry the task.update instructions for the confirmed
             // effect; the user comment (when written) adds task.comment in
             // the same action scope. System notes never emit (no cycle).
-            const saasEditScope = createHookScope();
+            const saasEditScope = handle.scope;
             // Generic contract (ticket 431ee1c0): the AFTER envelopes
             // carry the CONFIRMED server record as `task` (mapped onto
             // the local shape; payloads untouched) — the update names the
@@ -5786,12 +5875,12 @@ program
           // non-zero exit.
           let localEditGateInstructions: string[] = [];
           {
-            const { emitPreHook, preGateRefusal } = await import(
+            const { emitBeforeHook, beforeGateRefusal } = await import(
               "./core/hooks/emit.js"
             );
-            const localEditGate = await emitPreHook(
+            const localEditGate = await emitBeforeHook(
               { projectDir: localProjectDir, mode: "local" },
-              createHookScope(),
+              handle.scope,
               "task.update",
               {
                 payload: {
@@ -5805,7 +5894,7 @@ program
               },
             );
             if (!localEditGate.allowed) {
-              const refusal = preGateRefusal(localEditGate);
+              const refusal = beforeGateRefusal(localEditGate);
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
@@ -5953,7 +6042,7 @@ program
           // instructions for the confirmed effect. The user comment (when
           // written) adds task.comment in the same action scope; the
           // system `cannot` note never emits (no hook cycle).
-          const localEditScope = createHookScope();
+          const localEditScope = handle.scope;
           // Generic contract (ticket 431ee1c0): the AFTER envelopes carry
           // the CONFIRMED post-write record as `task` (payloads untouched)
           // — the update names the changed keys, the comment carries the
@@ -6237,6 +6326,7 @@ program
         const listOpCtx: OperationContext = {
           projectDir: resolve(dir),
           mode: mode === "saas" ? "saas" : "local",
+          hookScope: handle.scope,
         };
         const listBackend = resolveReadBackend(mode);
         const taskLimit = resolveListLimit(opts.limit);
@@ -6558,15 +6648,21 @@ program
           chalk.dim(formatStatusSummary(displayScope)) + limitSuffix + childSuffix,
         );
       }
-      async function runTasksAndFlush() {
+      async function runTasksAndFlush(): Promise<Partial<ToolActionOutcome>> {
         try {
           await runTasks();
         } finally {
           await flushTelemetry();
         }
+        // Writes and reads emit from their operations (instructions ride
+        // the results into the envelopes above); op-less branches
+        // (commit/reindex/normalize) narrate here with no extras. Dry-run
+        // previews write nothing and narrate nothing.
+        return { projectDir: resolve(dir), json: opts.json, dryRun: opts.dryRun === true };
       }
-      void runTasksAndFlush();
-    },
+      return runTasksAndFlush();
+      },
+    ),
   );
 
 // ── Auth commands (online mode) ─────────────────────────────────────
@@ -6596,22 +6692,32 @@ program
   .description(
     "Deprecated alias of `vibeflow auth login` (device flow)",
   )
-  .action(async () => {
-    capture("command_run", { surface: "cli", command: "login" });
-    await flushTelemetry();
-    printLoginDeprecationNotice();
-    await login();
-  });
+  .action(
+    toolAction("auth.login", async (handle) => {
+      capture("command_run", { surface: "cli", command: "login" });
+      await flushTelemetry();
+      printLoginDeprecationNotice();
+      await login();
+      const projectDir = resolve(".");
+      handle.target = { projectDir, mode: "local" };
+      return { projectDir, mode: "local" as const };
+    }),
+  );
 
 program
   .command("logout", { hidden: true })
   .description("Deprecated alias of `vibeflow auth logout`")
-  .action(async () => {
-    capture("command_run", { surface: "cli", command: "logout" });
-    await flushTelemetry();
-    printLogoutDeprecationNotice();
-    await logout();
-  });
+  .action(
+    toolAction("auth.logout", async (handle) => {
+      capture("command_run", { surface: "cli", command: "logout" });
+      await flushTelemetry();
+      printLogoutDeprecationNotice();
+      await logout();
+      const projectDir = resolve(".");
+      handle.target = { projectDir, mode: "local" };
+      return { projectDir, mode: "local" as const };
+    }),
+  );
 
 /**
  * Shared `auth status` implementation: mode + logged-in account, never
@@ -6788,11 +6894,16 @@ program
   .command("status", { hidden: true })
   .description("Deprecated alias of `vibeflow auth status`")
   .option("--json", "Emit machine-readable JSON instead of the human summary")
-  .action(async (opts: { json?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "status" });
-    await flushTelemetry();
-    await showAuthStatus(opts);
-  });
+  .action(
+    toolAction("auth.status", async (handle, opts: { json?: boolean }) => {
+      capture("command_run", { surface: "cli", command: "status" });
+      await flushTelemetry();
+      await showAuthStatus(opts);
+      const projectDir = resolve(".");
+      handle.target = { projectDir, mode: "local" };
+      return { projectDir, mode: "local" as const, json: opts.json };
+    }),
+  );
 
 program
   .command("push", { hidden: true })
@@ -6833,17 +6944,32 @@ program
     "Skip the pre-hook gate for this invocation (local CLI scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
   )
   .action(
-    async (
-      dir: string,
-      opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; verify?: boolean },
-    ) => {
-      capture("command_run", { surface: "cli", command: "push" });
-      const pushResult = await push(dir, { ...opts, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
-      // After-hook instructions (Stage 1, ADR-0006): --json already rides
-      // the single push document; human mode gets dim stderr lines.
-      printHookInstructions(pushResult?.instructions, opts.json);
-      await flushTelemetry();
-    },
+    toolAction(
+      "push",
+      async (
+        handle,
+        dir: string,
+        opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; verify?: boolean },
+      ) => {
+        capture("command_run", { surface: "cli", command: "push" });
+        handle.target = { projectDir: resolve(dir), mode: "saas" };
+        const pushResult = await push(dir, {
+          ...opts,
+          ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+          hookScope: handle.scope,
+        });
+        // After-hook instructions (Stage 1, ADR-0006): --json already rides
+        // the single push document; human mode gets dim stderr lines.
+        printHookInstructions(pushResult?.instructions, opts.json);
+        await flushTelemetry();
+        return {
+          projectDir: resolve(dir),
+          mode: "saas" as const,
+          json: opts.json,
+          dryRun: opts.dryRun,
+        };
+      },
+    ),
   );
 
 program
@@ -6881,17 +7007,32 @@ program
     "Skip the pre-hook gate for this invocation (local CLI scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
   )
   .action(
-    async (
-      dir: string,
-      opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean; verify?: boolean },
-    ) => {
-      capture("command_run", { surface: "cli", command: "pull" });
-      const pullResult = await pull(dir, { ...opts, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
-      // After-hook instructions (Stage 1, ADR-0006): --json already rides
-      // the single pull document; human mode gets dim stderr lines.
-      printHookInstructions(pullResult?.instructions, opts.json);
-      await flushTelemetry();
-    },
+    toolAction(
+      "pull",
+      async (
+        handle,
+        dir: string,
+        opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean; verify?: boolean },
+      ) => {
+        capture("command_run", { surface: "cli", command: "pull" });
+        handle.target = { projectDir: resolve(dir), mode: "saas" };
+        const pullResult = await pull(dir, {
+          ...opts,
+          ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+          hookScope: handle.scope,
+        });
+        // After-hook instructions (Stage 1, ADR-0006): --json already rides
+        // the single pull document; human mode gets dim stderr lines.
+          printHookInstructions(pullResult?.instructions, opts.json);
+        await flushTelemetry();
+        return {
+          projectDir: resolve(dir),
+          mode: "saas" as const,
+          json: opts.json,
+          dryRun: opts.dryRun,
+        };
+      },
+    ),
   );
 
 const authors = program
@@ -6908,8 +7049,12 @@ authors
   )
   .argument("[dir]", "Project root directory", ".")
   .option("--dry-run", "Report what would change without writing anything")
-  .action(async (dir: string, opts: { dryRun?: boolean; json?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "authors link" });
+  .action(
+    toolAction(
+      "authors.link",
+      async (handle, dir: string, opts: { dryRun?: boolean; json?: boolean }) => {
+        capture("command_run", { surface: "cli", command: "authors link" });
+        handle.target = { projectDir: resolve(dir), mode: "local" };
     // Flag parsing and the exit-code rule stay here; the enrichment itself
     // runs in the shared `linkCommitAuthors` operation
     // (core/operations/auxiliary.ts), so the request shape and the report
@@ -6918,6 +7063,7 @@ authors
     const authorsOpCtx: OperationContext = {
       projectDir: resolve(dir),
       mode: "local",
+      hookScope: handle.scope,
     };
     const linkResult = await operations.linkCommitAuthors(authorsOpCtx, {
       ...(opts.dryRun === true ? { dryRun: true as const } : {}),
@@ -6935,7 +7081,15 @@ authors
     // `authors link && git commit` must not sail through after doing nothing.
     if (!result.gitAvailable) process.exitCode = ExitCode.GENERAL;
     await flushTelemetry();
-  });
+    return {
+      projectDir: resolve(dir),
+      mode: "local" as const,
+      json: opts.json,
+      dryRun: opts.dryRun === true,
+    };
+      },
+    ),
+  );
 
 program
   .command("telemetry")
@@ -6944,14 +7098,21 @@ program
   .option("--disable", "Disable usage telemetry")
   .option("--status", "Show current telemetry status")
   .action(
-    async (opts: { enable?: boolean; disable?: boolean; status?: boolean }) => {
+    toolAction(
+      "telemetry",
+      async (
+        handle,
+        opts: { enable?: boolean; disable?: boolean; status?: boolean },
+      ) => {
       // Flag parsing and printing stay here; the enable/disable/status
       // decision and every config read/write run in the shared
       // `manageTelemetry` operation (core/operations/auxiliary.ts).
       const telemetryOpCtx: OperationContext = {
         projectDir: resolve("."),
         mode: "local",
+        hookScope: handle.scope,
       };
+      handle.target = { projectDir: resolve("."), mode: "local" };
       const telemetryResult = await operations.manageTelemetry(telemetryOpCtx, {
         action:
           opts.disable === true
@@ -7004,7 +7165,9 @@ program
       console.log(
         chalk.dim("  No PII is ever collected. User identity is hashed."),
       );
-    },
+      return { projectDir: resolve("."), mode: "local" as const };
+      },
+    ),
   );
 
 const auth = program
@@ -7016,11 +7179,17 @@ const auth = program
   .option("--list", "List stored auth state files and their age")
   .option("--json", "With no subcommand: emit status as JSON")
   .action(
-    async (opts: { clear?: boolean; list?: boolean; json?: boolean }) => {
-      capture("command_run", { surface: "cli", command: "auth" });
-      await flushTelemetry();
+    toolAction(
+      "auth",
+      async (
+        handle,
+        opts: { clear?: boolean; list?: boolean; json?: boolean },
+      ) => {
+        capture("command_run", { surface: "cli", command: "auth" });
+        await flushTelemetry();
 
-      const projectDir = resolve(".");
+        const projectDir = resolve(".");
+        handle.target = { projectDir, mode: "local" };
 
     if (opts.clear) {
       const deleted = clearAuthState(projectDir);
@@ -7053,39 +7222,65 @@ const auth = program
     // `vibeflow auth status`). The legacy --clear/--list cookie flags above
     // keep working unchanged.
     await showAuthStatus({ json: opts.json });
-    },
+    return { projectDir, mode: "local" as const, json: opts.json };
+      },
+    ),
   );
 
 auth
   .command("login")
   .description("Log in with your online account (device flow)")
   .option("--project <dir>", "Project to link (defaults to the current directory)")
-  .action(async (opts: { project?: string }) => {
-    capture("command_run", { surface: "cli", command: "auth login" });
-    await flushTelemetry();
-    await login(opts.project);
-  });
+  .action(
+    toolAction(
+      "auth.login",
+      async (handle, opts: { project?: string }) => {
+        capture("command_run", { surface: "cli", command: "auth login" });
+        await flushTelemetry();
+        await login(opts.project);
+        const projectDir = resolve(opts.project ?? ".");
+        handle.target = { projectDir, mode: "local" };
+        return { projectDir, mode: "local" as const };
+      },
+    ),
+  );
 
 auth
   .command("logout")
   .description("Log out: remove this project's credential and return to local mode")
   .option("--project <dir>", "Project to unlink (defaults to the current directory)")
   .option("--unlink", "Also remove the project's board pointer")
-  .action(async (opts: { project?: string; unlink?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "auth logout" });
-    await flushTelemetry();
-    await logout(opts.project, { unlink: opts.unlink });
-  });
+  .action(
+    toolAction(
+      "auth.logout",
+      async (handle, opts: { project?: string; unlink?: boolean }) => {
+        capture("command_run", { surface: "cli", command: "auth logout" });
+        await flushTelemetry();
+        await logout(opts.project, { unlink: opts.unlink });
+        const projectDir = resolve(opts.project ?? ".");
+        handle.target = { projectDir, mode: "local" };
+        return { projectDir, mode: "local" as const };
+      },
+    ),
+  );
 
 auth
   .command("status")
   .description("Show online status and the logged-in account (never secrets)")
   .option("--json", "Emit machine-readable JSON instead of the human summary")
-  .action(async (opts: { json?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "auth status" });
-    await flushTelemetry();
-    await showAuthStatus(opts);
-  });
+  .action(
+    toolAction(
+      "auth.status",
+      async (handle, opts: { json?: boolean }) => {
+        capture("command_run", { surface: "cli", command: "auth status" });
+        await flushTelemetry();
+        await showAuthStatus(opts);
+        const projectDir = resolve(".");
+        handle.target = { projectDir, mode: "local" };
+        return { projectDir, mode: "local" as const, json: opts.json };
+      },
+    ),
+  );
 
 program
   .command("verify")
@@ -7111,17 +7306,21 @@ program
     `Bound this verification run in whole milliseconds (${VERIFY_TIMEOUT_MIN_MS}-${VERIFY_TIMEOUT_MAX_MS}; default ${VERIFY_TIMEOUT_DEFAULT_MS})`,
   )
   .action(
-    async (
-      args: string[],
-      opts: {
-        json?: boolean;
-        url?: string;
-        filter?: string;
-        timeout?: string;
-        verify?: boolean;
-      },
-    ) => {
-      capture("command_run", { surface: "cli", command: "verify" });
+    toolAction(
+      "verify",
+      async (
+        handle,
+        args: string[],
+        opts: {
+          json?: boolean;
+          url?: string;
+          filter?: string;
+          timeout?: string;
+          verify?: boolean;
+        },
+      ) => {
+        capture("command_run", { surface: "cli", command: "verify" });
+        handle.target = { projectDir: resolve("."), mode: "local" };
       // Refused up front, before the task id is even looked at: a bad bound is
       // a usage error, not a verification failure.
       const timeoutMs = parseVerifyTimeout(opts.timeout, opts.json);
@@ -7162,23 +7361,33 @@ program
       // engine the abort signal. This handler installs nothing of its own —
       // a second AbortController here would be a double timer racing the
       // operation's (P7 verify delta (a)): same bound, single owner.
-      await runVerify(".", head, { ...opts, timeoutMs, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
+      await runVerify(".", head, {
+        ...opts,
+        timeoutMs,
+        ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
+        hookScope: handle.scope,
+      });
       await flushTelemetry();
-    },
+      return { projectDir: resolve("."), mode: "local" as const, json: opts.json };
+      },
+    ),
   );
 
 program
   .command("changelog")
   .description("Show the changelog — latest version by default")
   .option("--all", "Show the full changelog for every version")
-  .action(async (opts: { all?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "changelog" });
-    await flushTelemetry();
+  .action(
+    toolAction("changelog", async (handle, opts: { all?: boolean }) => {
+      capture("command_run", { surface: "cli", command: "changelog" });
+      await flushTelemetry();
+      handle.target = { projectDir: resolve("."), mode: "local" };
     // Content selection runs in the shared `getChangelog` operation
     // (core/operations/auxiliary.ts); this renderer only prints.
     const changelogOpCtx: OperationContext = {
       projectDir: resolve("."),
       mode: "local",
+      hookScope: handle.scope,
     };
     const changelogResult = await operations.getChangelog(changelogOpCtx, {
       ...(opts.all === true ? { all: true as const } : {}),
@@ -7186,7 +7395,7 @@ program
     const { text, empty, all } = changelogResult.data;
     if (empty) {
       console.log(chalk.dim("  No changelog found for this installation."));
-      return;
+      return { projectDir: resolve("."), mode: "local" as const };
     }
     console.log();
     console.log(text);
@@ -7199,21 +7408,26 @@ program
       );
       console.log();
     }
-  });
+    return { projectDir: resolve("."), mode: "local" as const };
+    }),
+  );
 
 program
   .command("openapi")
   .description("Print the bundled OpenAPI spec to stdout (no server needed)")
   .option("--yaml", "Emit the YAML form instead of JSON")
-  .action(async (opts: { yaml?: boolean }) => {
-    capture("command_run", { surface: "cli", command: "openapi" });
-    await flushTelemetry();
+  .action(
+    toolAction("openapi", async (handle, opts: { yaml?: boolean }) => {
+      capture("command_run", { surface: "cli", command: "openapi" });
+      await flushTelemetry();
+      handle.target = { projectDir: resolve("."), mode: "local" };
     // Spec selection runs in the shared `getOpenApiDocument` operation
     // (core/operations/auxiliary.ts); the EPIPE-quiet stdout write below is
     // transport plumbing that stays in the renderer.
     const openapiOpCtx: OperationContext = {
       projectDir: resolve("."),
       mode: "local",
+      hookScope: handle.scope,
     };
     const openapiResult = await operations.getOpenApiDocument(openapiOpCtx, {
       ...(opts.yaml === true ? { yaml: true as const } : {}),
@@ -7223,7 +7437,9 @@ program
       if ((err as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
       else throw err;
     });
-  });
+    return { projectDir: resolve("."), mode: "local" as const };
+    }),
+  );
 
   return program;
 }

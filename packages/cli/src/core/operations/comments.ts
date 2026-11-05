@@ -17,9 +17,10 @@ import { isRemoteReadError } from "../remote-task-store.js";
 import {
   createHookScope,
   emitAfterHook,
-  emitPreHook,
-  preGateRefusal,
+  emitBeforeHook,
+  beforeGateRefusal,
 } from "../hooks/emit.js";
+import { defaultToolForActivity } from "../hooks/tools.js";
 import type { AddCommentInputType } from "@vibeflow-tools/api-core";
 
 export async function addComment(
@@ -53,9 +54,9 @@ export async function addComment(
     // Pre-gate (Stage 2, ADR-0006): intended comment text, NOT a
     // generated commentId; task is the pre-write snapshot (immutable).
     // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
-    const commentGate = await emitPreHook(
+    const commentGate = await emitBeforeHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.comment"), surface: "cli" }),
       "task.comment",
       {
         payload: { taskId: resolved.id, text: input.comment },
@@ -66,7 +67,7 @@ export async function addComment(
       },
     );
     if (!commentGate.allowed) {
-      const refusal = preGateRefusal(commentGate);
+      const refusal = beforeGateRefusal(commentGate);
       return {
         ok: false,
         error: {
@@ -100,7 +101,7 @@ export async function addComment(
     // new comment itself rides `activityObject`, not a re-read.
     const instructions = await emitAfterHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.comment"), surface: "cli" }),
       "task.comment",
       { taskId: resolved.id, commentId: comment.id },
       undefined,

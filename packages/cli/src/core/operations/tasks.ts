@@ -30,9 +30,11 @@ import { isRemoteReadError } from "../remote-task-store.js";
 import {
   createHookScope,
   emitAfterHook,
-  emitPreHook,
-  preGateRefusal,
+  emitBeforeHook,
+  beforeGateRefusal,
+  emitReadHook,
 } from "../hooks/emit.js";
+import { defaultToolForActivity } from "../hooks/tools.js";
 import {
   resolveClaimPorts,
   resolveReadPorts,
@@ -162,6 +164,25 @@ function partialReportRefusal(
 }
 
 // ── Operations ─────────────────────────────────────────────────────────────
+
+
+/**
+ * Attach the null-activity read narration to a read result (ADR-0007
+ * §5.2): the READ record (get/show) rides `task`, listings ride
+ * `activityObject: {count}`. Instructions surface through the existing
+ * result plumbing (`--json` envelope / MCP `successPayload` / dim
+ * stderr) with no renderer changes.
+ */
+async function withReadInstructions<T>(
+  result: import("../operations.js").OperationResult<T>,
+  ctx: import("../operations.js").OperationContext,
+  extra: { task?: import("../hooks/envelope.js").HookTaskSnapshot; activityObject?: unknown },
+): Promise<import("../operations.js").OperationResult<T>> {
+  if (!result.ok) return result;
+  const readInstructions = await emitReadHook(ctx, ctx.hookScope, "tasks", extra);
+  if (readInstructions.length === 0) return result;
+  return { ...result, instructions: [...(result.instructions ?? []), ...readInstructions] };
+}
 
 export async function listTasks(
   ctx: OperationContext,
@@ -312,7 +333,15 @@ export async function listTasks(
     }
 
     const notices = taskReadNotices(reads);
-    return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
+    return withReadInstructions(
+      {
+        ok: true,
+        data: result,
+        ...(notices.length > 0 ? { steps: notices } : {}),
+      },
+      ctx,
+      { activityObject: { count: result.returned } },
+    );
   } catch (err) {
     return forwardListReadError(err);
   }
@@ -408,7 +437,15 @@ export async function listAllTasksForCli(
     }
 
     const notices = taskReadNotices(reads);
-    return { ok: true, data: result, ...(notices.length > 0 ? { steps: notices } : {}) };
+    return withReadInstructions(
+      {
+        ok: true,
+        data: result,
+        ...(notices.length > 0 ? { steps: notices } : {}),
+      },
+      ctx,
+      { activityObject: { count: result.returned } },
+    );
   } catch (err) {
     return forwardListReadError(err);
   }
@@ -488,11 +525,19 @@ export async function getTask(
         task.id,
       );
       // SAFETY: withCounts is the projected subset plus numeric count keys; structurally valid for JSON serialization as a partial Task
-      return { ok: true, data: withCounts as unknown as Task };
+      return withReadInstructions(
+        { ok: true, data: withCounts as unknown as Task },
+        ctx,
+        { task: withCounts as unknown as Task },
+      );
     }
 
     // SAFETY: data is a Task with added derived relation fields; structurally compatible for JSON serialization
-    return { ok: true, data: data as unknown as Task };
+    return withReadInstructions(
+      { ok: true, data: data as unknown as Task },
+      ctx,
+      { task: data as unknown as Task },
+    );
   } catch (err) {
     return {
       ok: false,
@@ -655,9 +700,9 @@ export async function createTask(
     // Pre-gate (Stage 2, ADR-0006): INTENT payload, no generated ids;
     // task snapshot is the intent fields (immutable), instructions
     // replaceable. Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
-    const createGate = await emitPreHook(
+    const createGate = await emitBeforeHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.create"), surface: "cli" }),
       "task.create",
       {
         payload: {
@@ -684,7 +729,7 @@ export async function createTask(
       },
     );
     if (!createGate.allowed) {
-      const refusal = preGateRefusal(createGate);
+      const refusal = beforeGateRefusal(createGate);
       return {
         ok: false,
         error: {
@@ -720,7 +765,7 @@ export async function createTask(
     // CONFIRMED record as `task` (the legacy payload above is untouched).
     const createInstructions = await emitAfterHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.create"), surface: "cli" }),
       "task.create",
       {
         task: {
@@ -1216,9 +1261,9 @@ export async function updateTask(
     // generated ids); task is the pre-write snapshot (immutable),
     // instructions replaceable. Runs after the review gate, before the
     // write — deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
-    const updateGate = await emitPreHook(
+    const updateGate = await emitBeforeHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.update"), surface: "cli" }),
       "task.update",
       {
         payload: { taskId: id, changed: Object.keys(updates) },
@@ -1229,7 +1274,7 @@ export async function updateTask(
       },
     );
     if (!updateGate.allowed) {
-      const refusal = preGateRefusal(updateGate);
+      const refusal = beforeGateRefusal(updateGate);
       return {
         ok: false,
         error: {
@@ -1276,7 +1321,7 @@ export async function updateTask(
     // carries the task.update instructions for the confirmed effect. The
     // comment event fires only when its own write confirms (never for the
     // `cannot` system note, which is excluded like all system comments).
-    const updateHookScope = createHookScope();
+    const updateHookScope = ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.update"), surface: "cli" });
     // Generic contract (ticket 431ee1c0): the AFTER envelope carries the
     // CONFIRMED post-write record as `task` and the changed keys as
     // `activityObject` (the legacy payload is untouched).
@@ -1537,9 +1582,9 @@ export async function claimNextTask(
     // Pre-gate (Stage 2, ADR-0006): INVOCATION-LEVEL over the claim
     // FILTERS — the atomic claim is preserved (no preview-then-update, no
     // reservation protocol). Deny/timeout/garbage/trust-fail BLOCKS.
-    const claimGate = await emitPreHook(
+    const claimGate = await emitBeforeHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.claim"), surface: "cli" }),
       "task.claim",
       {
         payload: {
@@ -1558,7 +1603,7 @@ export async function claimNextTask(
       },
     );
     if (!claimGate.allowed) {
-      const refusal = preGateRefusal(claimGate);
+      const refusal = beforeGateRefusal(claimGate);
       return {
         ok: false,
         error: {
@@ -1610,7 +1655,7 @@ export async function claimNextTask(
     // (same filter shape as the pre-gate input; payload untouched).
     const claimInstructions = await emitAfterHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("task.claim"), surface: "cli" }),
       "task.claim",
       { taskId: claimed.id, from: "todo", to: claimed.status },
       undefined,

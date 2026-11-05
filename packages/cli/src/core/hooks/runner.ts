@@ -5,16 +5,16 @@
  * A hook is `process.execPath` (the running Node — not `node`, which may be
  * absent from PATH) spawned with `shell:false`, `cwd` = project root, and
  * pipes on all three fds. stdin = one envelope JSON + `\n`, then end.
- * stdout is parsed as JSON; stderr passes through prefixed `hook <event>:`.
+ * stdout is parsed as JSON; stderr passes through prefixed `hook <tool>:`.
  *
- * Stage 1.5 adds the module mode (ADR-0006): the same envelope goes to
+ * The module mode (kept from v1): the same envelope goes to
  * stdin of the packaged `hook-loader.mjs`, which dynamic-imports the
- * `after-<event>.hook.mjs` default export and prints its return value.
- * Stage 4 adds `module-ts` (`.hook.mts`/`.hook.ts`, ADR-0006): the same
+ * `<tool>.<phase>.hook.mjs` default export and prints its return value.
+ * `module-ts` (`.hook.mts`/`.hook.ts`, kept from v1): the same
  * loader path, type-stripped on import — erasable syntax only, no flags,
  * no transpilation, no tsconfig. A runtime without type stripping refuses
  * LOUDLY (after fail-open `HOOK_TS_UNSUPPORTED`, pre fail-closed
- * `HOOK_PRE_TS_UNSUPPORTED`), honoring the phase policy.
+ * `HOOK_BEFORE_TS_UNSUPPORTED`), honoring the phase policy.
  * Mode is chosen by filename extension only (`discover.ts`); every mode
  * shares every bound and the parser below.
  *
@@ -51,7 +51,7 @@
  * returns all BLOCK the gated write (ticket wla7ci2wzbgaj5dqsrvh1j4o).
  * Success is an explicit `{allow:true}` (optional replacement
  * `instructions`); denial is `{allow:false,reason}`. Anything else refuses
- * with `HOOK_PRE_FAILED` — never a silent pass.
+ * with `HOOK_BEFORE_FAILED` — never a silent pass.
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -168,7 +168,7 @@ function childEnv(opts: RunAfterHookOptions, parent: NodeJS.ProcessEnv): NodeJS.
  * `instructions`, when present and a string, REPLACES the agent-instruction
  * draft (owner decision: instructions are the only mutable surface).
  */
-export type PreHookDecision =
+export type BeforeHookDecision =
   | { allow: true; instructions?: string }
   | { allow: false; reason: string; instructions?: string };
 
@@ -178,39 +178,39 @@ export type PreHookDecision =
  * `instructions`, when present, must be a string or the whole document is
  * malformed. Everything else — empty stdout, non-JSON, non-object, missing
  * or non-boolean `allow`, missing/empty/non-string `reason` on deny,
- * extra keys — is `HOOK_PRE_MALFORMED` (fail-closed at the gate).
+ * extra keys — is `HOOK_BEFORE_MALFORMED` (fail-closed at the gate).
  */
-export function parsePreHookOutput(
+export function parseBeforeHookOutput(
   stdout: string,
 ):
-  | { ok: true; decision: PreHookDecision }
+  | { ok: true; decision: BeforeHookDecision }
   | { ok: false; reason: string } {
   const trimmed = stdout.trim();
-  if (trimmed.length === 0) return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+  if (trimmed.length === 0) return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+    return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+    return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   }
   const record = parsed as Record<string, unknown>;
   if (typeof record["allow"] !== "boolean") {
-    return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+    return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   }
   let instructions: string | undefined;
   if (record["instructions"] !== undefined) {
     if (typeof record["instructions"] !== "string") {
-      return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+      return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
     }
     instructions = record["instructions"] as string;
   }
   if (record["allow"] === true) {
     const keys = Object.keys(record);
     const extra = keys.filter((k) => k !== "allow" && k !== "instructions");
-    if (extra.length > 0) return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+    if (extra.length > 0) return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
     return {
       ok: true,
       decision:
@@ -220,13 +220,13 @@ export function parsePreHookOutput(
     };
   }
   if (typeof record["reason"] !== "string" || record["reason"].length === 0) {
-    return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+    return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   }
   const keys = Object.keys(record);
   const extra = keys.filter(
     (k) => k !== "allow" && k !== "reason" && k !== "instructions",
   );
-  if (extra.length > 0) return { ok: false, reason: "HOOK_PRE_MALFORMED" };
+  if (extra.length > 0) return { ok: false, reason: "HOOK_BEFORE_MALFORMED" };
   return {
     ok: true,
     decision:
@@ -253,7 +253,7 @@ type SpawnOutcome =
  * own one-line verdicts with the historical codes below.
  */
 function spawnHookProcess(
-  event: string,
+  tool: string,
   file: string,
   envelopeJson: string,
   opts: RunAfterHookOptions,
@@ -347,7 +347,7 @@ function spawnHookProcess(
       if (stderrBytes >= maxBytes) return;
       const slice = chunk.subarray(0, maxBytes - stderrBytes);
       stderrBytes += slice.length;
-      process.stderr.write(`hook ${event}: ${slice.toString("utf8")}`);
+      process.stderr.write(`hook ${tool}: ${slice.toString("utf8")}`);
     });
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -396,7 +396,7 @@ function spawnHookProcess(
  * Returns null when the gate passes (no refusal).
  */
 function refuseUnsupportedTypeScript(
-  event: string,
+  tool: string,
   file: string,
   opts: RunAfterHookOptions,
 ): AfterHookResult | null {
@@ -404,54 +404,54 @@ function refuseUnsupportedTypeScript(
   const support = opts.typescriptSupport ?? resolveTypeScriptHookSupport();
   if (support !== "unsupported") return null;
   process.stderr.write(
-    `hook ${event}: HOOK_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — continuing without hook\n`,
+    `hook ${tool}: HOOK_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — continuing without hook\n`,
   );
   return { ran: false, reason: "HOOK_TS_UNSUPPORTED" };
 }
 
 export async function runAfterHook(
-  event: string,
+  tool: string,
   file: string,
   envelopeJson: string,
   opts: RunAfterHookOptions,
 ): Promise<AfterHookResult> {
-  const refused = refuseUnsupportedTypeScript(event, file, opts);
+  const refused = refuseUnsupportedTypeScript(tool, file, opts);
   if (refused !== null) return refused;
-  const outcome = await spawnHookProcess(event, file, envelopeJson, opts);
+  const outcome = await spawnHookProcess(tool, file, envelopeJson, opts);
   switch (outcome.kind) {
     case "reentrant":
       return { ran: false, reason: "HOOK_REENTRANT" };
     case "spawn-failed":
       process.stderr.write(
-        `hook ${event}: HOOK_SPAWN_FAILED (${outcome.message}) — continuing without hook\n`,
+        `hook ${tool}: HOOK_SPAWN_FAILED (${outcome.message}) — continuing without hook\n`,
       );
       return { ran: false, reason: "HOOK_SPAWN_FAILED" };
     case "stdin-failed":
       process.stderr.write(
-        `hook ${event}: HOOK_STDIN_FAILED (${outcome.message}) — continuing without hook\n`,
+        `hook ${tool}: HOOK_STDIN_FAILED (${outcome.message}) — continuing without hook\n`,
       );
       return { ran: false, reason: "HOOK_STDIN_FAILED" };
     case "timeout":
       process.stderr.write(
-        `hook ${event}: HOOK_TIMEOUT (${outcome.timeoutMs}ms per invocation exceeded) — continuing without hook\n`,
+        `hook ${tool}: HOOK_TIMEOUT (${outcome.timeoutMs}ms per invocation exceeded) — continuing without hook\n`,
       );
       return { ran: false, reason: "HOOK_TIMEOUT" };
     case "output-limit":
       process.stderr.write(
-        `hook ${event}: HOOK_OUTPUT_LIMIT (stdout exceeded ${outcome.maxBytes} bytes) — continuing without hook\n`,
+        `hook ${tool}: HOOK_OUTPUT_LIMIT (stdout exceeded ${outcome.maxBytes} bytes) — continuing without hook\n`,
       );
       return { ran: false, reason: "HOOK_OUTPUT_LIMIT" };
     case "exited": {
       if (outcome.code !== 0) {
         process.stderr.write(
-          `hook ${event}: HOOK_NONZERO_EXIT (exit ${outcome.code ?? "signal"}) — continuing without hook\n`,
+          `hook ${tool}: HOOK_NONZERO_EXIT (exit ${outcome.code ?? "signal"}) — continuing without hook\n`,
         );
         return { ran: false, reason: "HOOK_NONZERO_EXIT" };
       }
       const parsed = parseAfterHookOutput(outcome.stdout);
       if (!parsed.ok) {
         process.stderr.write(
-          `hook ${event}: HOOK_BAD_OUTPUT (stdout was not {"instructions":string} or {}) — continuing without hook\n`,
+          `hook ${tool}: HOOK_BAD_OUTPUT (stdout was not {"instructions":string} or {}) — continuing without hook\n`,
         );
         return { ran: false, reason: parsed.reason };
       }
@@ -460,7 +460,7 @@ export async function runAfterHook(
   }
 }
 
-export interface PreHookResult {
+export interface BeforeHookResult {
   ran: boolean;
   allowed: boolean;
   instructions?: string;
@@ -479,72 +479,72 @@ export interface PreHookResult {
  * blocks: a nested gated write inside a hook must not slip past the gate
  * by recursion. Only an explicit `{allow:true}` allows.
  */
-export async function runPreHook(
-  event: string,
+export async function runBeforeHook(
+  tool: string,
   file: string,
   envelopeJson: string,
   opts: RunAfterHookOptions,
-): Promise<PreHookResult> {
+): Promise<BeforeHookResult> {
   // TypeScript capability gate (Stage 4): pre-hooks fail CLOSED — a gate
   // that cannot even be parsed is not an open gate.
   if ((opts.mode ?? "stdio") === "module-ts") {
     const support = opts.typescriptSupport ?? resolveTypeScriptHookSupport();
     if (support === "unsupported") {
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_TS_UNSUPPORTED" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_TS_UNSUPPORTED" };
     }
   }
-  const outcome = await spawnHookProcess(event, file, envelopeJson, opts);
+  const outcome = await spawnHookProcess(tool, file, envelopeJson, opts);
   switch (outcome.kind) {
     case "reentrant":
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_REENTRANT (nested gated write inside a hook) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_REENTRANT (nested gated write inside a hook) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_REENTRANT" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_REENTRANT" };
     case "spawn-failed":
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_SPAWN_FAILED (${outcome.message}) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_SPAWN_FAILED (${outcome.message}) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_SPAWN_FAILED" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_SPAWN_FAILED" };
     case "stdin-failed":
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_STDIN_FAILED (${outcome.message}) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_STDIN_FAILED (${outcome.message}) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_STDIN_FAILED" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_STDIN_FAILED" };
     case "timeout":
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_TIMEOUT (${outcome.timeoutMs}ms per invocation exceeded) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_TIMEOUT (${outcome.timeoutMs}ms per invocation exceeded) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_TIMEOUT" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_TIMEOUT" };
     case "output-limit":
       process.stderr.write(
-        `hook ${event}: HOOK_PRE_OUTPUT_LIMIT (stdout exceeded ${outcome.maxBytes} bytes) — refusing gated write\n`,
+        `hook ${tool}: HOOK_BEFORE_OUTPUT_LIMIT (stdout exceeded ${outcome.maxBytes} bytes) — refusing gated write\n`,
       );
-      return { ran: false, allowed: false, reason: "HOOK_PRE_OUTPUT_LIMIT" };
+      return { ran: false, allowed: false, reason: "HOOK_BEFORE_OUTPUT_LIMIT" };
     case "exited": {
       if (outcome.code !== 0) {
         process.stderr.write(
-          `hook ${event}: HOOK_PRE_NONZERO_EXIT (exit ${outcome.code ?? "signal"}) — refusing gated write\n`,
+          `hook ${tool}: HOOK_BEFORE_NONZERO_EXIT (exit ${outcome.code ?? "signal"}) — refusing gated write\n`,
         );
-        return { ran: false, allowed: false, reason: "HOOK_PRE_NONZERO_EXIT" };
+        return { ran: false, allowed: false, reason: "HOOK_BEFORE_NONZERO_EXIT" };
       }
-      const parsed = parsePreHookOutput(outcome.stdout);
+      const parsed = parseBeforeHookOutput(outcome.stdout);
       if (!parsed.ok) {
         process.stderr.write(
-          `hook ${event}: HOOK_PRE_MALFORMED (stdout was not {"allow":boolean,...}) — refusing gated write\n`,
+          `hook ${tool}: HOOK_BEFORE_MALFORMED (stdout was not {"allow":boolean,...}) — refusing gated write\n`,
         );
         return { ran: false, allowed: false, reason: parsed.reason };
       }
       if (!parsed.decision.allow) {
         process.stderr.write(
-          `hook ${event}: HOOK_PRE_DENIED (${parsed.decision.reason}) — refusing gated write\n`,
+          `hook ${tool}: HOOK_BEFORE_DENIED (${parsed.decision.reason}) — refusing gated write\n`,
         );
         return {
           ran: true,
           allowed: false,
-          reason: "HOOK_PRE_DENIED",
+          reason: "HOOK_BEFORE_DENIED",
           hookReason: parsed.decision.reason,
           ...(parsed.decision.instructions !== undefined
             ? { instructions: parsed.decision.instructions }

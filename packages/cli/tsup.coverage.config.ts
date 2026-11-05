@@ -1,5 +1,12 @@
 import { defineConfig } from "tsup";
-import { readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * COVERAGE-ONLY CLI build — never shipped, never part of `pnpm build`.
@@ -38,6 +45,31 @@ export default defineConfig({
   minify: false,
   dts: false,
   banner: { js: "#!/usr/bin/env node" },
+  // ADR-0007 §10.4: the coverage build needs the SAME shipped-defaults
+  // tree and module loader the live build copies — without them, hook
+  // assertions under test:coverage:e2e resolve NO defaults (and module
+  // hooks no loader). Copy only, never delete: the .map files this
+  // build exists for must survive.
+  onSuccess: async () => {
+    const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)));
+    const outRoot = resolve(cliRoot, ".coverage-cli");
+    const loader = resolve(cliRoot, "src", "core", "hooks", "hook-loader.mjs");
+    mkdirSync(outRoot, { recursive: true });
+    copyFileSync(loader, resolve(outRoot, "hook-loader.mjs"));
+    const copyTree = (from: string, to: string): void => {
+      mkdirSync(to, { recursive: true });
+      for (const entry of readdirSync(from, { withFileTypes: true })) {
+        const src = resolve(from, entry.name);
+        const dest = resolve(to, entry.name);
+        if (entry.isDirectory()) copyTree(src, dest);
+        else copyFileSync(src, dest);
+      }
+    };
+    copyTree(
+      resolve(cliRoot, "src", "core", "hooks", "defaults"),
+      resolve(outRoot, "hooks", "defaults"),
+    );
+  },
   external: ["playwright", "playwright-core"],
   esbuildOptions(options) {
     try {

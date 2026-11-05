@@ -187,8 +187,17 @@ export async function startKanban(
       ...(input.quiet === undefined ? {} : { quiet: input.quiet }),
       ...(input.noCtrlCHint === true ? { noCtrlCHint: true as const } : {}),
     });
+    // Null-activity narration (ADR-0007 §5.2): the board URL rides
+    // `activityObject` (a daemon has no task). Fires at readiness — the
+    // server is listening above. The dry-run preview returns early with
+    // no emission.
+    const { emitReadHook } = await import("../hooks/emit.js");
+    const readInstructions = await emitReadHook(ctx, ctx.hookScope, "kanban", {
+      activityObject: { url: instance.url },
+    });
     return {
       ok: true,
+      ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
       data: {
         // `alreadyRunning: true` is the idempotent path — the caller is told
         // it did not just launch a second server.

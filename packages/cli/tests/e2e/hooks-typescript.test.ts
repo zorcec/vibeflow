@@ -1,9 +1,9 @@
 /**
- * TypeScript hook e2e (Stage 4, ADR-0006): the shipped
- * `docs/hooks-examples/after/after-task.update.hook.ts` example copied
+ * TypeScript hook e2e (ADR-0007): the shipped
+ * `docs/hooks-examples/tasks.after.hook.ts` example copied
  * VERBATIM into a temp project and executed through the PACKAGED CLI
  * (`dist/index.js`, not src/) — proving erased type imports work at
- * runtime — plus the pre-gate phase policy for `.hook.ts` (allow lands,
+ * runtime — plus the before-gate phase policy for `.hook.ts` (allow lands,
  * deny blocks with the store unchanged) and loud refusal of non-erasable
  * syntax. Non-TTY trust bypass (`VIBEFLOW_TRUST_HOOKS=1`) stands in for the
  * interactive prompt, exactly as the stdio/module e2e files do.
@@ -31,7 +31,7 @@ const VERBATIM_EXAMPLE = join(
   "docs",
   "hooks-examples",
   "after",
-  "after-task.update.hook.ts",
+  "tasks.after.hook.ts",
 );
 
 let cliHome!: string;
@@ -52,23 +52,23 @@ const HOOK_ENV = { VIBEFLOW_HOOKS: "1", VIBEFLOW_TRUST_HOOKS: "1" };
 
 /** Install the shipped example VERBATIM — byte-identical, never rewritten. */
 function installVerbatimExample(): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  const dest = join(dir, "after-task.update.hook.ts");
+  const dest = join(dir, "tasks.after.hook.ts");
   copyFileSync(VERBATIM_EXAMPLE, dest);
   expect(readFileSync(dest, "utf8")).toBe(readFileSync(VERBATIM_EXAMPLE, "utf8"));
 }
 
 function writeAfterTsHook(body: string): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "after-task.update.hook.ts"), body);
+  writeFileSync(join(dir, "tasks.after.hook.ts"), body);
 }
 
-function writePreTsHook(event: string, body: string): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "pre");
+function writePreTsHook(_event: string, body: string): void {
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `pre-${event}.hook.ts`), body);
+  writeFileSync(join(dir, `tasks.before.hook.ts`), body);
 }
 
 async function addTask(title = "hook ts e2e task"): Promise<string> {
@@ -175,7 +175,7 @@ describe("hooks-typescript e2e", () => {
     );
     expect(denied.code).not.toBe(0);
     expect(denied.stdout.trim()).toBe("");
-    expect(denied.stderr).toContain("HOOK_PRE_DENIED");
+    expect(denied.stderr).toContain("HOOK_BEFORE_DENIED");
     expect(denied.stderr).toContain("ts says no");
     const got = await spawnCliIsolated(["tasks", "--get", id, "--json"], {
       cwd: projectDir,

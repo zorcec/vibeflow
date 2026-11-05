@@ -16,6 +16,7 @@ import {
 } from "../core/baseline-projection.js";
 import type { ProjectedPageSnapshot } from "../core/baseline-projection.js";
 import { ExitCode } from "../core/exit-codes.js";
+import type { HookScope } from "../core/hooks/emit.js";
 import { readConfig } from "../core/config.js";
 import { RELEVANT_STYLES } from "../core/page-selector.js";
 
@@ -1475,7 +1476,7 @@ function buildResult(
 export async function runVerify(
   dir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string; timeoutMs?: number; hookBypass?: boolean },
+  opts: { json?: boolean; url?: string; timeoutMs?: number; hookBypass?: boolean; hookScope?: HookScope },
 ): Promise<void> {
   const projectDir = resolve(dir);
 
@@ -1493,6 +1494,7 @@ export async function runVerify(
       projectDir,
       mode: "local",
       ...(opts.hookBypass === true ? { hookBypass: true as const } : {}),
+      ...(opts.hookScope !== undefined ? { hookScope: opts.hookScope } : {}),
     },
     {
       id: taskId,

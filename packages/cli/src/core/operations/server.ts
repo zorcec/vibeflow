@@ -133,8 +133,15 @@ export async function startServer(
         : {}),
       ...(input.dev === true ? { dev: true as const } : {}),
     });
+    // Null-activity narration (ADR-0007 §5.2): the server URL rides
+    // `activityObject` (a daemon has no task). Fires at readiness.
+    const { emitReadHook } = await import("../hooks/emit.js");
+    const readInstructions = await emitReadHook(ctx, ctx.hookScope, "serve", {
+      activityObject: { url: instance.url },
+    });
     return {
       ok: true,
+      ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
       data: {
         mode,
         url: instance.url,

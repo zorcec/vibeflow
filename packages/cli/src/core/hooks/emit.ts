@@ -1,14 +1,11 @@
 /**
- * Shared after-hook dispatch helper — the ONE path every emit site uses
- * (ADR-0006).
+ * Shared hook dispatch helper — the ONE path every emit site uses (ADR-0007).
  *
- * The 8 events are OPERATION-OWNED (not TaskStore-emitted): `push`/`pull`/
+ * Activities are OPERATION-OWNED (not TaskStore-emitted): `push`/`pull`/
  * `verify` are not store methods, online delete never calls a store delete,
  * and the review transition writes comments directly via the store — so a
  * decorator would need a second mechanism anyway. Each owning operation
- * (and the three legacy CLI handlers that still write through
- * `core/tasks.ts`/`core/comments.ts` directly) calls `emitAfterHook` after
- * its CONFIRMED durable effect:
+ * calls `emitAfterHook` after its CONFIRMED durable effect:
  * - dry-run / no-op (null claim, empty push, scope refusal) → the caller
  *   does not call at all: no after-emission without an effect;
  * - partial success (update persisted, comment failed) → the caller emits
@@ -16,6 +13,10 @@
  * - generated SYSTEM comments (verify notes, bypass-audit, `cannot`
  *   reasons) are written via the store directly and never pass through an
  *   emitting call site — no hook cycle, by construction.
+ *
+ * Discovery is TOOL-SCOPED: `scope.tool` (set once per invocation by
+ * `beginToolInvocation`) drives which file runs; `activity` only selects
+ * the payload. A `kanban.after.mjs` never runs for `tasks`.
  *
  * Dedup is ACTION-SCOPED: the caller creates one `HookScope` per operation
  * invocation and the scope is discarded with it. Two separate actions in
@@ -26,30 +27,38 @@
 import { readProjectPointer } from "../../auth/project-pointer.js";
 import {
   buildHookEnvelope,
-  type HookAfterPayloads,
-  type HookEvent,
-  type HookPrePayloads,
+  type HookActivity,
+  type HookConfirmedPayloads,
+  type HookIntentPayloads,
+  type HookSurface,
   type HookTaskSnapshot,
 } from "./envelope.js";
 import {
   hookRoots,
   isHookConflict,
-  refusedSibling,
-  reportUnknownHookEvents,
+  reportUnrunnableHookFiles,
   resolveHookFile,
+  type HookRootsOptions,
 } from "./discover.js";
-import { ensureShippedDefaults, getDefaultHookSource } from "./defaults.js";
 import { checkHookTrust } from "./trust.js";
-import { HOOK_GUARD_ENV, runAfterHook, runPreHook } from "./runner.js";
+import { HOOK_GUARD_ENV, runAfterHook, runBeforeHook } from "./runner.js";
 import { formatBypassNotice, writeBypassAudit } from "./bypass.js";
 
 export interface HookScope {
+  /** Canonical tool key driving discovery (never an alias). */
+  tool: string;
+  surface: HookSurface;
   seen: Set<string>;
 }
 
+export interface ToolInvocation {
+  tool: string;
+  surface: HookSurface;
+}
+
 /** One scope per operation invocation — discarded with it, never process-wide. */
-export function createHookScope(): HookScope {
-  return { seen: new Set() };
+export function createHookScope(inv: ToolInvocation = { tool: "tasks", surface: "cli" }): HookScope {
+  return { tool: inv.tool, surface: inv.surface, seen: new Set() };
 }
 
 export interface EmitContext {
@@ -62,6 +71,8 @@ export interface EmitOptions {
   home?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  shippedDir?: HookRootsOptions["shippedDir"];
+  bundleUrl?: HookRootsOptions["bundleUrl"];
 }
 
 /**
@@ -75,16 +86,16 @@ function hooksDisabled(env: NodeJS.ProcessEnv): boolean {
 }
 
 function hookScopeKey(
-  event: HookEvent,
+  activity: HookActivity | null,
   payload: unknown,
-  phase: "pre" | "after" = "after",
+  phase: "before" | "after" = "after",
 ): string {
   let taskId = "-";
   if (payload !== null && typeof payload === "object" && "taskId" in payload) {
     const id = (payload as Record<string, unknown>)["taskId"];
     if (typeof id === "string" && id.length > 0) taskId = id;
   }
-  return `${event}:${phase}:${taskId}`;
+  return `${activity ?? "null"}:${phase}:${taskId}`;
 }
 
 /**
@@ -109,14 +120,12 @@ export function resolveHookBoardId(ctx: EmitContext): string | null {
 }
 
 /**
- * Generic extras for an after-hook (Stage 3 gap fix, ticket 431ee1c0):
- * the owner generic contract (envelope.ts header) promises every envelope
- * carries the full immutable task snapshot + activityObject +
- * instructions draft — but emitAfterHook used to take only (event,
- * payload), so every AFTER envelope carried task:null. Callers now pass
- * the CONFIRMED post-write record here; push/pull/verify pass nothing
- * (run intents: no single task exists, so task:null is CORRECT there).
- * The legacy `payload` stays byte-identical — these ride top-level fields.
+ * Generic extras for an after-hook: the owner generic contract
+ * (envelope.ts header) promises every envelope carries the full immutable
+ * task snapshot + activityObject + instructions draft. Callers pass the
+ * CONFIRMED post-write record here; push/pull/verify pass nothing (run
+ * intents: no single task exists, so task:null is CORRECT there). The
+ * legacy `payload` stays byte-identical — these ride top-level fields.
  */
 export interface AfterHookExtras {
   task?: HookTaskSnapshot;
@@ -124,16 +133,94 @@ export interface AfterHookExtras {
   instructions?: string;
 }
 
+/** Warn-once registry for the missing shipped-defaults tree (per process). */
+let warnedShippedMissing = false;
+
+/** Test seam: re-arm the shipped-missing warning. */
+export function resetShippedMissingWarning(): void {
+  warnedShippedMissing = false;
+}
+
+/**
+ * Resolve the hook file for (scope.tool, phase) with diagnostics:
+ * scan-based unrunnable-file reporting (replaces the per-lookup
+ * refusedSibling loop), conflict diagnostics, and the loud
+ * HOOK_SHIPPED_DEFAULTS_MISSING line when no shipped tree resolves.
+ * Returns the file + root + mode, or null when no hook runs.
+ */
+function resolveHookWithDiagnostics(
+  ctx: EmitContext,
+  scope: HookScope,
+  phase: "before" | "after",
+  opts: EmitOptions,
+): { file: string; root: string; escapedRoot: boolean; mode: "stdio" | "module" | "module-ts" } | null {
+  const projectDir = ctx.projectDir;
+  reportUnrunnableHookFiles(projectDir, opts);
+
+  const resolved = resolveHookFile(projectDir, scope.tool, phase, opts);
+  // Same-level stdio+module collision: configuration error for this
+  // invocation — diagnostic on stderr, no hook, and NO fallback to a
+  // lower-level default. After = skip (fail-open); before = refuse
+  // (fail-closed) — the caller applies its phase policy.
+  if (isHookConflict(resolved)) {
+    process.stderr.write(
+      `hook ${scope.tool}: HOOK_CONFIG_CONFLICT (${resolved.files.join(" and ")} all exist at ${resolved.root} level — keep exactly one) — continuing without hook\n`,
+    );
+    return { file: "", root: resolved.root, escapedRoot: false, mode: "stdio" };
+  }
+  if (resolved) {
+    // A shipped file that symlinks out is refused loudly, never trusted.
+    if (resolved.root === "shipped" && resolved.escapedRoot) {
+      process.stderr.write(
+        `hook ${scope.tool}: HOOK_SHIPPED_ESCAPED (${resolved.file} escapes the shipped defaults via symlink — not running)\n`,
+      );
+      return null;
+    }
+    return { file: resolved.file, root: resolved.root, escapedRoot: resolved.escapedRoot, mode: resolved.mode };
+  }
+  // No hook anywhere: if the shipped tree itself is missing, say so
+  // LOUDLY (silent default loss is the most likely regression of the
+  // whole in-package-defaults change) — but only then. A present tree
+  // with no file for this key (e.g. no .before defaults, by design) is
+  // a normal miss, not a warning.
+  const roots = hookRoots(projectDir, opts);
+  if (roots.shipped === null && !warnedShippedMissing) {
+    warnedShippedMissing = true;
+    process.stderr.write(
+      `hook ${scope.tool}: HOOK_SHIPPED_DEFAULTS_MISSING (no hooks/defaults with a VERSION marker next to the bundle) — continuing without default hook\n`,
+    );
+  }
+  return null;
+}
+
+/**
+ * Emit the null-activity read narration for an operation that performed a
+ * read with no durable effect (ADR-0007 §5.2): the tool comes from the
+ * invocation scope (set by the CLI wrapper / MCP dispatch) so the same
+ * operation narrates as `tasks` on the CLI and `list_tasks` on MCP;
+ * direct callers without a scope fall back to `fallbackTool`. Returns the
+ * hook's instructions for the operation result, or [] when nothing ran.
+ */
+export async function emitReadHook(
+  ctx: EmitContext,
+  scope: HookScope | undefined,
+  fallbackTool: string,
+  extra: AfterHookExtras = {},
+): Promise<string[]> {
+  const resolved = scope ?? createHookScope({ tool: fallbackTool, surface: "cli" });
+  return emitAfterHook(ctx, resolved, null, null, {}, extra);
+}
+
 /**
  * Emit one after-hook. Returns the hook's instructions (0..1 strings) for
  * the caller to carry on its result. Failures are silent-apart-from-stderr
  * by design: after = fail OPEN, the write already happened.
  */
-export async function emitAfterHook<E extends HookEvent>(
+export async function emitAfterHook<A extends HookActivity | null>(
   ctx: EmitContext,
   scope: HookScope,
-  event: E,
-  payload: HookAfterPayloads[E],
+  activity: A,
+  payload: A extends HookActivity ? HookConfirmedPayloads[A] : null,
   opts: EmitOptions = {},
   extra: AfterHookExtras = {},
 ): Promise<string[]> {
@@ -144,52 +231,19 @@ export async function emitAfterHook<E extends HookEvent>(
   // emit no further hooks (cycle breaker, not a write lock).
   if (env[HOOK_GUARD_ENV] === "1") return [];
 
-  const key = hookScopeKey(event, payload);
+  const key = hookScopeKey(activity, payload);
   if (scope.seen.has(key)) return [];
   scope.seen.add(key);
 
-  const projectDir = ctx.projectDir;
-  reportUnknownHookEvents(projectDir);
-
-  // Refused extensions are LOUD, never silent: a `.js`/`.cjs` hook that
-  // looks like policy but never runs is worse than no hook.
-  const roots = hookRoots(projectDir, opts.home);
-  for (const dir of [roots.project, roots.global]) {
-    const bad = refusedSibling(`${dir}/after`, "after", event);
-    if (bad) {
-      process.stderr.write(
-        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs and .hook.mjs/.hook.mts/.hook.ts execute; rename it or it never runs)\n`,
-      );
-    }
-  }
-
-  // Shipped defaults always resolve (materialised to
-  // ~/.vibeflow/hooks/defaults on version change); an explicit
-  // project/global file wins by precedence inside resolveHookFile.
-  ensureShippedDefaults(opts.home);
-
-  const resolved = resolveHookFile(projectDir, "after", event, opts.home);
-  // Same-level stdio+module collision: configuration error for this
-  // invocation — diagnostic on stderr, no hook, and NO fallback to a
-  // lower-level default (ADR-0006 Stage 1.5). After = fail OPEN.
-  if (isHookConflict(resolved)) {
-    process.stderr.write(
-      `hook ${event}: HOOK_CONFIG_CONFLICT (${resolved.files.join(" and ")} all exist at ${resolved.root} level — keep exactly one) — continuing without hook\n`,
-    );
-    return [];
-  }
-  const file =
-    resolved?.file ?? getDefaultHookSource(event, opts.home)?.file ?? null;
-  if (!file) return [];
-  const isProjectRoot = resolved ? resolved.root === "project" : false;
-  const escapedRoot = resolved?.escapedRoot ?? false;
-  // Shipped defaults are always stdio; only an explicit resolution carries
-  // the module mode into the shared runner.
-  const mode = resolved?.mode ?? "stdio";
+  const found = resolveHookWithDiagnostics(ctx, scope, "after", opts);
+  // Conflict is reported above; after = fail-open skip either way.
+  if (!found || !found.file) return [];
+  const file = found.file;
+  const isProjectRoot = found.root === "project";
 
   const trust = await checkHookTrust(file, {
     isProjectRoot,
-    escapedRoot,
+    escapedRoot: found.escapedRoot,
     home: opts.home,
     env,
   });
@@ -199,9 +253,11 @@ export async function emitAfterHook<E extends HookEvent>(
   // the write (or null where no single task exists — push/pull/verify run
   // intents) + the activityObject where one exists + the instructions
   // draft (empty post-write; the hook replaces it by returning one).
-  // Same shape as the pre-gate input — the legacy payload is untouched.
+  // Same shape as the before-gate input — the legacy payload is untouched.
   const envelope = buildHookEnvelope({
-    event,
+    tool: scope.tool,
+    surface: scope.surface,
+    activity,
     phase: "after",
     boardId: resolveHookBoardId(ctx),
     actor: resolveHookActor(ctx, env),
@@ -212,18 +268,18 @@ export async function emitAfterHook<E extends HookEvent>(
       : {}),
     instructions: extra.instructions ?? "",
   });
-  const result = await runAfterHook(event, file, JSON.stringify(envelope), {
-    cwd: projectDir,
+  const result = await runAfterHook(scope.tool, file, JSON.stringify(envelope), {
+    cwd: ctx.projectDir,
     timeoutMs: opts.timeoutMs,
     env,
-    mode,
+    mode: found.mode,
   });
   if (!result.ran || !result.instructions) return [];
   return [result.instructions];
 }
 
 /**
- * Pre-gate input (Stage 2): the generic envelope extras for a gate check.
+ * Before-gate input: the generic envelope extras for a gate check.
  * `payload` is INTENT (never a generated id); `task` is the full snapshot
  * where one exists (existing record pre-write, intent fields pre-create —
  * immutable by contract) or null where no single task exists (push/pull/
@@ -232,8 +288,8 @@ export async function emitAfterHook<E extends HookEvent>(
  * is the agent-instruction draft the hook may replace (default "").
  * `bypass` + `command` carry `--no-verify` (universal audit + notice).
  */
-export interface PreGateInput<E extends HookEvent> {
-  payload: HookPrePayloads[E];
+export interface BeforeGateInput<A extends HookActivity> {
+  payload: HookIntentPayloads[A];
   task?: HookTaskSnapshot;
   activityObject?: unknown;
   instructions?: string;
@@ -242,13 +298,13 @@ export interface PreGateInput<E extends HookEvent> {
 }
 
 /**
- * Pre-gate verdict. `allowed:false` ALWAYS refuses the gated write with
+ * Before-gate verdict. `allowed:false` ALWAYS refuses the gated write with
  * `code` + `reason` (fail-closed); `instructions` (when the hook replaced
  * the draft on allow) ride the success result like after-hook
  * instructions. `bypassed:true` means the gate was skipped by --no-verify
  * (notice printed, audit written) — the caller still runs after-hooks.
  */
-export interface PreGateResult {
+export interface BeforeGateResult {
   allowed: boolean;
   code?: string;
   reason?: string;
@@ -256,24 +312,24 @@ export interface PreGateResult {
   bypassed: boolean;
 }
 
-const PRE_UNTRUSTED_COMMAND =
+const BEFORE_UNTRUSTED_COMMAND =
   "approve it once from an interactive terminal, or set VIBEFLOW_TRUST_HOOKS=1 for this run";
 
 /**
- * Run the pre-gate for one gated invocation. Returns allow/deny as VALUES
- * — the caller translates deny into the existing refusal shape with a
- * non-zero exit. Fail-closed throughout: conflict, untrusted project
+ * Run the before-gate for one gated invocation. Returns allow/deny as
+ * VALUES — the caller translates deny into the existing refusal shape with
+ * a non-zero exit. Fail-closed throughout: conflict, untrusted project
  * hook, malformed/timeout/loader failure, and explicit deny ALL refuse.
  * No hook file anywhere: allowed (nothing to enforce). `VIBEFLOW_HOOKS=0`
  * disables everything, including the gate.
  */
-export async function emitPreHook<E extends HookEvent>(
+export async function emitBeforeHook<A extends HookActivity>(
   ctx: EmitContext,
   scope: HookScope,
-  event: E,
-  input: PreGateInput<E>,
+  activity: A,
+  input: BeforeGateInput<A>,
   opts: EmitOptions = {},
-): Promise<PreGateResult> {
+): Promise<BeforeGateResult> {
   const env = opts.env ?? process.env;
   const none = { allowed: true, instructions: [], bypassed: false };
   if (hooksDisabled(env)) return none;
@@ -282,86 +338,65 @@ export async function emitPreHook<E extends HookEvent>(
   // Never silent, never blocking — even the audit write cannot refuse.
   if (input.bypass === true) {
     const command = input.command ?? "cli";
-    process.stderr.write(formatBypassNotice(event, command) + "\n");
+    process.stderr.write(formatBypassNotice(scope.tool, command) + "\n");
     writeBypassAudit(
-      { event, phase: "pre", command, reason: "--no-verify" },
+      { tool: scope.tool, activity, phase: "before", command, reason: "--no-verify" },
       opts.home,
     );
     return { allowed: true, instructions: [], bypassed: true };
   }
 
-  const key = hookScopeKey(event, input.payload, "pre");
+  const key = hookScopeKey(activity, input.payload, "before");
   if (scope.seen.has(key)) return none;
   scope.seen.add(key);
 
-  const projectDir = ctx.projectDir;
-  reportUnknownHookEvents(projectDir);
-
-  const roots = hookRoots(projectDir, opts.home);
-  for (const dir of [roots.project, roots.global]) {
-    const bad = refusedSibling(`${dir}/pre`, "pre", event);
-    if (bad) {
-      process.stderr.write(
-        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs and .hook.mjs/.hook.mts/.hook.ts execute; rename it or it never runs)\n`,
-      );
-    }
-  }
-
-  // Shipped defaults resolve (same materialisation as after); an explicit
-  // project/global file wins by precedence inside resolveHookFile.
-  ensureShippedDefaults(opts.home);
-
-  const resolved = resolveHookFile(projectDir, "pre", event, opts.home);
+  const found = resolveHookWithDiagnostics(ctx, scope, "before", opts);
   // Same-level stdio+module conflict is a configuration error. After =
-  // skip-with-diagnostic (fail-open: the write happened); pre = REFUSE
+  // skip-with-diagnostic (fail-open: the write happened); before = REFUSE
   // (fail-closed: a misconfigured gate is not an open gate).
-  if (isHookConflict(resolved)) {
-    const names = resolved.files.join(" and ");
-    process.stderr.write(
-      `hook ${event}: HOOK_CONFIG_CONFLICT (${names} all exist at ${resolved.root} level — keep exactly one) — refusing gated write\n`,
-    );
+  if (found && !found.file) {
     return {
       allowed: false,
       code: "HOOK_CONFIG_CONFLICT",
-      reason: `Pre-hook misconfigured: ${names} both exist — keep exactly one or remove both.`,
+      reason: `Before-hook misconfigured for ${scope.tool} — keep exactly one file per level or remove both.`,
       instructions: [],
       bypassed: false,
     };
   }
   // No hook anywhere: nothing to enforce — allowed.
-  if (!resolved) return none;
-  const file = resolved.file;
-  const isProjectRoot = resolved.root === "project";
-  const escapedRoot = resolved.escapedRoot ?? false;
-  // Shipped defaults are always stdio; only an explicit resolution carries
-  // the module mode into the shared runner.
-  const mode = resolved.mode ?? "stdio";
+  if (!found) return none;
+  const file = found.file;
+  const isProjectRoot = found.root === "project";
 
   // Trust: an untrusted project hook BLOCKS the gated write (it could be
   // policy the operator never approved). After-hooks only skip with a
   // notice — the write already happened, so there is nothing to protect.
+  // (A shipped escape is already refused above with HOOK_SHIPPED_ESCAPED;
+  // project/global escapes are refused here via the shared escape rule.)
   const trust = await checkHookTrust(file, {
     isProjectRoot,
-    escapedRoot,
+    escapedRoot: found.escapedRoot,
     home: opts.home,
     env,
   });
   if (!trust.trusted) {
     process.stderr.write(
-      `hook ${event}: HOOK_PRE_UNTRUSTED (project hook ${file} is not trusted — ${PRE_UNTRUSTED_COMMAND}) — refusing gated write\n`,
+      `hook ${scope.tool}: HOOK_BEFORE_UNTRUSTED (project hook ${file} is not trusted — ${BEFORE_UNTRUSTED_COMMAND}) — refusing gated write\n`,
     );
     return {
       allowed: false,
-      code: "HOOK_PRE_UNTRUSTED",
-      reason: `Pre-hook ${file} is not trusted — ${PRE_UNTRUSTED_COMMAND}.`,
+      code: "HOOK_BEFORE_UNTRUSTED",
+      reason: `Before-hook ${file} is not trusted — ${BEFORE_UNTRUSTED_COMMAND}.`,
       instructions: [],
       bypassed: false,
     };
   }
 
   const envelope = buildHookEnvelope({
-    event,
-    phase: "pre",
+    tool: scope.tool,
+    surface: scope.surface,
+    activity,
+    phase: "before",
     boardId: resolveHookBoardId(ctx),
     actor: resolveHookActor(ctx, env),
     payload: input.payload,
@@ -371,11 +406,11 @@ export async function emitPreHook<E extends HookEvent>(
       : {}),
     instructions: input.instructions ?? "",
   });
-  const result = await runPreHook(event, file, JSON.stringify(envelope), {
-    cwd: projectDir,
+  const result = await runBeforeHook(scope.tool, file, JSON.stringify(envelope), {
+    cwd: ctx.projectDir,
     timeoutMs: opts.timeoutMs,
     env,
-    mode,
+    mode: found.mode,
   });
   if (result.allowed) {
     return {
@@ -387,52 +422,51 @@ export async function emitPreHook<E extends HookEvent>(
   }
   // Explicit deny carries the HOOK's reason (already printed on stderr
   // above); gate failures carry the human fail-closed line.
-  if (result.reason === "HOOK_PRE_DENIED") {
+  if (result.reason === "HOOK_BEFORE_DENIED") {
     return {
       allowed: false,
-      code: "HOOK_PRE_DENIED",
-      reason: result.hookReason ?? "Pre-hook denied the write.",
+      code: "HOOK_BEFORE_DENIED",
+      reason: result.hookReason ?? "Before-hook denied the write.",
       instructions: [],
       bypassed: false,
     };
   }
   return {
     allowed: false,
-    code: result.reason ?? "HOOK_PRE_FAILED",
-    reason: preFailureMessage(event, result.reason ?? "HOOK_PRE_FAILED"),
+    code: result.reason ?? "HOOK_BEFORE_FAILED",
+    reason: beforeFailureMessage(scope.tool, result.reason ?? "HOOK_BEFORE_FAILED"),
     instructions: [],
     bypassed: false,
   };
 }
 
 /**
- * Shared pre-gate refusal mapping (Stage 2, ADR-0006): every gated
- * operation translates a deny into its existing refusal shape with the
- * gate's code + human reason — never a silent pass, never a renamed code.
- * Owner decision (ticket wla7ci2wzbgaj5dqsrvh1j4o): fail-closed, one doc.
+ * Shared before-gate refusal mapping (ADR-0007): every gated operation
+ * translates a deny into its existing refusal shape with the gate's code
+ * + human reason — never a silent pass, never a renamed code.
  */
-export function preGateRefusal(result: PreGateResult): {
+export function beforeGateRefusal(result: BeforeGateResult): {
   code: string;
   message: string;
 } {
   return {
-    code: result.code ?? "HOOK_PRE_FAILED",
-    message: result.reason ?? "Pre-hook refused the write.",
+    code: result.code ?? "HOOK_BEFORE_FAILED",
+    message: result.reason ?? "Before-hook refused the write.",
   };
 }
 
 /** Human refusal line for gate failures (the hook's own deny text is separate). */
-function preFailureMessage(event: HookEvent, code: string): string {
+function beforeFailureMessage(tool: string, code: string): string {
   switch (code) {
-    case "HOOK_PRE_TIMEOUT":
-      return `Pre-hook for ${event} timed out — refusing gated write (fail-closed).`;
-    case "HOOK_PRE_TS_UNSUPPORTED":
-      return `Pre-hook for ${event} needs TypeScript type stripping, unavailable on this runtime ${process.version} — refusing gated write (fail-closed).`;
-    case "HOOK_PRE_NONZERO_EXIT":
-      return `Pre-hook for ${event} exited non-zero — refusing gated write (fail-closed).`;
-    case "HOOK_PRE_MALFORMED":
-      return `Pre-hook for ${event} returned a malformed decision (need {"allow":true|false,...}) — refusing gated write (fail-closed).`;
+    case "HOOK_BEFORE_TIMEOUT":
+      return `Before-hook for ${tool} timed out — refusing gated write (fail-closed).`;
+    case "HOOK_BEFORE_TS_UNSUPPORTED":
+      return `Before-hook for ${tool} needs TypeScript type stripping, unavailable on this runtime ${process.version} — refusing gated write (fail-closed).`;
+    case "HOOK_BEFORE_NONZERO_EXIT":
+      return `Before-hook for ${tool} exited non-zero — refusing gated write (fail-closed).`;
+    case "HOOK_BEFORE_MALFORMED":
+      return `Before-hook for ${tool} returned a malformed decision (need {"allow":true|false,...}) — refusing gated write (fail-closed).`;
     default:
-      return `Pre-hook for ${event} failed (${code}) — refusing gated write (fail-closed).`;
+      return `Before-hook for ${tool} failed (${code}) — refusing gated write (fail-closed).`;
   }
 }

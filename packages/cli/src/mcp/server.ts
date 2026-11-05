@@ -235,7 +235,24 @@ export async function invokeManifestTool(
     // the project currently resolves to.
     ctx.mode = checked.auth.mode;
   }
-  const result = await tool.run(ctx, input);
+  // Hook invocation boundary (ADR-0007 §9): one scope per tool call — the
+  // owning operations emit their per-effect hooks from `ctx.hookScope`,
+  // so MCP `create_task` fires `create_task.*` while the same operation
+  // through the CLI fires `tasks.*`. The trailing finish is the
+  // null-activity net (reads narrate here when the operation did not).
+  const { beginToolInvocation, finishToolInvocation } = await import(
+    "../core/hooks/invocation.js"
+  );
+  const handle = beginToolInvocation({ tool: tool.name, surface: "mcp" });
+  const ambientScope = ctx.hookScope;
+  ctx.hookScope = handle.scope;
+  handle.target = { projectDir: ctx.projectDir, mode: ctx.mode };
+  let result: Awaited<ReturnType<typeof tool.run>>;
+  try {
+    result = await tool.run(ctx, input);
+  } finally {
+    ctx.hookScope = ambientScope;
+  }
   // MCP usage telemetry (ticket 4e942bed, owner request): every tool call
   // captures ONE `command_run` — the SAME event the CLI emits — with
   // `surface: "mcp"` (CLI emitters carry `surface: "cli"`). Moved here
@@ -247,6 +264,25 @@ export async function invokeManifestTool(
     command: tool.cliRef.command,
     ok: result.ok,
   });
+  // Null-activity net: fires only when the operation emitted nothing
+  // (reads/daemons narrate through their own operations; writes already
+  // recorded their effects in the scope). Instructions ride
+  // `result.instructions` → `successPayload`.
+  // Dry-run previews write nothing and narrate nothing (no emission
+  // without a confirmed effect — the v1 dry-run rule, unchanged).
+  const dryRun =
+    typeof input === "object" &&
+    input !== null &&
+    (input as { dryRun?: unknown }).dryRun === true;
+  const boundaryInstructions = dryRun
+    ? []
+    : await finishToolInvocation(handle, { ok: result.ok });
+  if (boundaryInstructions.length > 0) {
+    result = {
+      ...result,
+      instructions: [...(result.instructions ?? []), ...boundaryInstructions],
+    };
+  }
   return formatResult(result);
 }
 

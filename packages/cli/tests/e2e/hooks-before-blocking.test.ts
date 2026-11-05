@@ -1,6 +1,7 @@
 /**
- * Pre-hook blocking e2e (Stage 2, ADR-0006, ticket wla7ci2wzbgaj5dqsrvh1j4o):
- * real CLI spawns against a temp project with trusted project pre-hooks.
+ * Before-hook blocking e2e (ADR-0007):
+ * real CLI spawns against a temp project with trusted project before-hooks.
+ * real CLI spawns against a temp project with trusted project before-hooks.
  * - allow: edit lands, exactly ONE JSON doc;
  * - deny: non-zero exit, hook reason surfaced, store UNCHANGED;
  * - modify: {allow:true,instructions} replaces the draft (rides success);
@@ -67,11 +68,12 @@ function expectGateRefusal(
   expect(envelope.error.message).toContain(reasonFragment);
 }
 
-function writePreHook(event: string, body: string, module = false): void {
-  const dir = join(projectDir, ".vibeflow-hooks", "pre");
+function writePreHook(_event: string, body: string, module = false): void {
+  // v2: one file per TOOL (flat) — every gate below belongs to tasks.
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(dir, module ? `pre-${event}.hook.mjs` : `pre-${event}.mjs`),
+    join(dir, module ? `tasks.before.hook.mjs` : `tasks.before.mjs`),
     body,
   );
 }
@@ -99,7 +101,7 @@ async function taskStatus(id: string): Promise<string> {
   return (JSON.parse(got.stdout) as { task: { status: string } }).task.status;
 }
 
-describe("hooks-pre-blocking e2e", () => {
+describe("hooks-before-blocking e2e", () => {
   it("allow: edit lands with exactly ONE JSON doc", async () => {
     const id = await addTask();
     writePreHook("task.update", ALLOW);
@@ -120,7 +122,7 @@ describe("hooks-pre-blocking e2e", () => {
       ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
       { cwd: projectDir, home: cliHome, env: HOOK_ENV },
     );
-    expectGateRefusal(edited, "HOOK_PRE_DENIED", "frozen board");
+    expectGateRefusal(edited, "HOOK_BEFORE_DENIED", "frozen board");
     expect(await taskStatus(id)).toBe("todo");
   });
 
@@ -196,11 +198,13 @@ describe("hooks-pre-blocking e2e", () => {
     expect(existsSync(audit)).toBe(true);
     const lines = readFileSync(audit, "utf8").trim().split("\n");
     const last = JSON.parse(lines[lines.length - 1]) as {
-      event: string;
+      tool: string;
+      activity: string;
       phase: string;
     };
-    expect(last.event).toBe("task.update");
-    expect(last.phase).toBe("pre");
+    expect(last.activity).toBe("task.update");
+    expect(last.tool).toBe("tasks");
+    expect(last.phase).toBe("before");
   });
 
   it("trust-deny: untrusted project pre BLOCKS (never silently passes)", async () => {
@@ -226,7 +230,7 @@ describe("hooks-pre-blocking e2e", () => {
       ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
       { cwd: projectDir, home: cliHome, env: HOOK_ENV },
     );
-    expectGateRefusal(edited, "HOOK_PRE_DENIED", "module says no");
+    expectGateRefusal(edited, "HOOK_BEFORE_DENIED", "module says no");
     expect(await taskStatus(id)).toBe("todo");
   });
 
@@ -236,7 +240,7 @@ describe("hooks-pre-blocking e2e", () => {
       ["tasks", "--add", "--title", "blocked create", "--json"],
       { cwd: projectDir, home: cliHome, env: HOOK_ENV },
     );
-    expectGateRefusal(added, "HOOK_PRE_DENIED", "no new tasks");
+    expectGateRefusal(added, "HOOK_BEFORE_DENIED", "no new tasks");
     const listed = await spawnCliIsolated(["tasks", "--json"], {
       cwd: projectDir,
       home: cliHome,
@@ -264,6 +268,6 @@ describe("hooks-pre-blocking e2e", () => {
       home: cliHome,
       env: HOOK_ENV,
     });
-    expectGateRefusal(claimed, "HOOK_PRE_DENIED", "no claims today");
+    expectGateRefusal(claimed, "HOOK_BEFORE_DENIED", "no claims today");
   });
 });

@@ -1,287 +1,233 @@
 # Agent hooks
 
-Team policy without editing the binary: a `pre` gate that can block a write,
+Team policy without editing the binary: a `before` gate that can block a write,
 and an `after` whisper that appends instructions to an agent's prompt.
-Decision record: `docs/decisions/0006-agent-hooks.md` (ADR-0006).
-Implementation: `packages/cli/src/core/hooks/`. Every statement below names
-the file that proves it — if the code and this doc ever disagree, the code
-wins and the doc must be fixed in the same commit.
+Decision record: `docs/decisions/0007-agent-hooks.md` (ADR-0007, supersedes ADR-0006).
+Implementation: `packages/cli/src/core/hooks/`. Registry: `tools.ts`.
+Every statement below names the file that proves it — if the code and this doc
+ever disagree, the code wins and the doc must be fixed in the same commit.
 
 ## Scope
 
 Local CLI + local stdio MCP only. `--no-verify` says so on every gated
 command (`packages/cli/src/index.ts`), and the MCP bypass arrives as
-`ctx.hookBypass` set by the local stdio MCP host
-(`packages/cli/src/mcp/manifest.ts`). Hosted clients are out of scope:
-a hook is a local child process and there is no channel that could run one
-remotely.
+`ctx.hookBypass` set by the dispatch (`packages/cli/src/mcp/server.ts`).
+Hosted clients are out of scope: a hook is a local child process and there
+is no channel that could run one remotely.
 
-## Events (8, operation-owned)
+## Tool keys (27, registry-owned)
 
-`task.create`, `task.update`, `task.claim`, `task.delete`, `task.comment`,
-`push`, `pull`, `verify` (`HookEvent` in `envelope.ts`). There is no
-`task.list`, no files/links/boards event: an event exists only when
-something must be gated or narrated.
+A hook file is named after its TOOL, not an internal event (`HOOK_TOOLS` in
+`tools.ts` — the one table discovery, the invocation boundary, the contract
+test and this doc all read). `<tool>` is the canonical commander command
+path (`tasks`, `auth.login`) or the MCP tool name (`create_task`);
+`pull` is the only key shared by both surfaces (the envelope's `surface`
+field tells a hook which one it is — no cross-surface fallback:
+`create_task.after.mjs` does not fall back to `tasks.after.mjs`).
+Hidden aliases resolve to their canonical key (`login`→`auth.login`,
+`logout`→`auth.logout`, `status`→`auth.status`); `authors` is a container
+node with no action and `help` is commander-owned — neither is hookable.
 
-Each event is emitted by the OWNING operation after its CONFIRMED durable
-effect (`emit.ts`): `push`/`pull`/`verify` are not store methods, so a store
-decorator could not emit them anyway. Dry-run and no-op emit nothing (null
-claim, empty push, scope refusal — the caller simply does not call);
-partial success emits only the confirmed effect (update persisted but
-comment failed → `task.update` only, never `task.comment`). Generated system
-comments (verify notes, bypass-audit notes, `cannot` reasons) are written
-via the store directly and never pass through an emitting call site, so no
-hook cycle is possible by construction.
+| key | surface | `.before` | `.after` | activities |
+| --- | --- | --- | --- | --- |
+| `tasks` | cli | ✓ | ✓ per effect; once with `activity:null` otherwise | create, update, claim, delete, comment |
+| `pull` | cli + mcp | ✓ | ✓ | pull |
+| `push` | cli | ✓ | ✓ | push |
+| `verify` | cli | ✓ | ✓ | verify |
+| `serve` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ at listening (`{url}`) | — |
+| `kanban` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ at listening (`{url}`) | — |
+| `mcp` | cli | ✗ `HOOK_NOT_GATEABLE` | ✗ `HOOK_NO_AFTER` (the client owns the lifetime) | — |
+| `changelog` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `openapi` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `telemetry` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `auth` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `auth.login` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `auth.logout` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `auth.status` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `authors.link` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `authors` | cli | ✗ `HOOK_CONTAINER_TOOL` | ✗ `HOOK_CONTAINER_TOOL` | — |
+| `create_task` | mcp | ✓ | ✓ | task.create |
+| `update_task` | mcp | ✓ | ✓ | task.update |
+| `claim_next_task` | mcp | ✓ | ✓ | task.claim |
+| `add_comment` | mcp | ✓ | ✓ | task.comment |
+| `verify_task` | mcp | ✓ | ✓ | verify |
+| `list_tasks` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (`{count}`) | — |
+| `get_task` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the record) | — |
+| `get_file` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the record) | — |
+| `attach_file` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the target) | — |
+| `get_project` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `start_kanban` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (`{url}`) | — |
+| `get_integration_guide` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 
-## The envelope (generic contract)
+`.before` is supported only for gateable tools (a tool whose invocation performs
+one of the 8 activities); a `.before` file for any other tool is refused loudly
+(`HOOK_NOT_GATEABLE`), never silently ignored. A before-hook exists to refuse a
+write — a read has nothing to refuse.
 
-Every hook — pre or after, all 8 events — receives exactly ONE JSON document
-on stdin with the SAME shape (`buildHookEnvelope` in `envelope.ts` is the
-one builder; nothing else may assemble one):
+## Filenames
 
-- 6 shared fields: `schemaVersion` (literal `1`, versions the ENVELOPE
-  contract, not the package), `event`, `phase` (`"pre"` | `"after"`),
-  `boardId` (always `null` locally — a local board has no server-side
-  identity, and naming a workspace pointer here would leak project layout),
-  `actor` (explicit context user, else `VIBEFLOW_ACTOR`, else
-  `USER`/`USERNAME`, else `"agent"`), `ts`.
-- `payload`: the legacy event payload, byte-identical. Pre-phase carries
-  INTENT (fields known before the write — no generated ids: no task id on
-  create, no commentId, no verdict; claim pre-gate runs over the claim
-  FILTERS because claim is atomic), after-phase carries the CONFIRMED
-  record (`HookPrePayloads` vs `HookAfterPayloads` in `envelope.ts` —
-  distinct types on purpose).
-- `task`: the full task where the emitter provides one — snapshot after
-  the write, best-known intent before it — or `null` where no single task
-  exists (push/pull/verify run intents, which move or inspect a whole
-  board rather than mutating one task). Every AFTER envelope for a
-  task-mutating event carries the CONFIRMED record: create/update/claim
-  pass the written record, comment passes the commented task, delete
-  passes the pre-delete row (the row is gone post-delete, so that
-  snapshot describes what was deleted). An after-hook that needs task
-  state reads `task` first and treats the store (`cwd` is the project
-  root) as a fallback for envelopes without one. Immutable JSON
-  copy by contract wherever present: hooks cannot alter the store
-  through it.
-- `activity`: explicit activity enum, always equals `event` (redundant on
-  purpose — generic consumers read ONE field).
-- `activityObject`: the secondary record when one exists — the changed
-  keys on `task.update`, the written comment on `task.comment`, the
-  claim filters on `task.claim`. Absent otherwise (create/delete carry
-  no secondary record; push/pull/verify name everything in `payload`).
-- `instructions`: the current agent-instruction draft — the ONLY replaceable
-  surface. Empty pre-write.
+One hook file per `<tool>.<phase>` (`discover.ts`), flat in each hooks root:
 
-## Pre vs after: opposite failure policies
+- `<tool>.before.mjs` / `<tool>.after.mjs` — stdio mode: one envelope JSON on stdin, one JSON document on stdout.
+- `<tool>.before.hook.mjs` / `<tool>.after.hook.mjs` — module mode: default export via the packaged `hook-loader.mjs`.
+- `<tool>.before.hook.mts` / `<tool>.after.hook.mts` / `<tool>.before.hook.ts` / `<tool>.after.hook.ts` — module-ts mode: same loader, type-stripped on import.
 
-After-hooks run AFTER the write, so they fail OPEN (`runAfterHook` in
-`runner.ts`): timeout, non-zero exit, non-JSON stdout, bad shape, and output
-over the byte limit each drop the hook with ONE stderr line
-(`HOOK_TIMEOUT`, `HOOK_NONZERO_EXIT`, `HOOK_BAD_OUTPUT`, `HOOK_OUTPUT_LIMIT`,
-`HOOK_SPAWN_FAILED`, `HOOK_STDIN_FAILED`) — never a throw, never a blocked
-write. Success is `{"instructions":"..."}` or the no-op `{}`; `undefined`,
-empty stdout, wrong-typed `instructions`, and extra keys are all rejected,
-never coerced.
+`HOOK_BAD_EXTENSION` for `.<phase>.js`/`.cjs`/bare-`.ts`/bare-`.mts` (present but
+never executed, reported loudly); anything else in the directory (`trust.json`,
+`bypass-audit.log`, `*.config.json`) is ignored. Unknown `<tool>` names report
+`HOOK_UNKNOWN_TOOL`. Two or more executables at one level is `HOOK_CONFIG_CONFLICT`.
 
-Pre-hooks run BEFORE the write, so they are fail-CLOSED gates
-(`runPreHook`): timeout, non-zero exit, non-JSON stdout, malformed decision,
-import error, and explicit `{allow:false,reason}` ALL block the gated write
-with the existing refusal shape and a non-zero exit. Success is an explicit
-`{allow:true}` (optional replacement `instructions`); denial is
-`{allow:false,reason}` with a non-empty reason. Anything else is
-`HOOK_PRE_MALFORMED` — never a silent pass. An UNTRUSTED project pre-hook
-blocks (`HOOK_PRE_UNTRUSTED`); an untrusted AFTER-hook only skips with a
-notice — the write already happened, so there is nothing left to protect.
+## The envelope (v2, generic contract)
 
-## Bypassing the gate (`--no-verify`)
+Every hook — before or after, every activity, plus activity-null narrations —
+receives exactly ONE JSON document on stdin with the SAME shape
+(`buildHookEnvelope` in `envelope.ts` is the one builder; nothing else may
+assemble one, pinned by `envelope.test.ts`):
 
-Every gated command accepts `--no-verify`. It skips the pre-gate but never
-silently: each bypassed invocation prints `HOOK_BYPASSED <event>` on stderr
-AND appends one JSONL record to the universal local audit file
-`~/.vibeflow/hooks/bypass-audit.log` (`bypass.ts`; task activity comments
-are supplementary only — push/pull/deleted tasks have no task to comment
-on, so the local file is the record of truth). An audit-write failure warns
-on stderr and NEVER blocks the bypassed command. After-hooks still run.
-`VIBEFLOW_HOOKS=0` disables ALL emission including gates (explicit
-kill-switch, used by the test setup for hermeticity).
-
-## Authoring modes (`.mjs` vs `.hook.mjs` vs `.hook.ts`)
-
-Mode is chosen by FILENAME EXTENSION only — never by source inspection
-(`discover.ts`):
-
-- `pre-<event>.mjs` / `after-<event>.mjs` — stdio mode: the CLI spawns the
-  file itself with `process.execPath`, writes the envelope to stdin.
-- `pre-<event>.hook.mjs` / `after-<event>.hook.mjs` — module mode: the CLI
-  spawns the packaged `hook-loader.mjs` with the hook file as its argument;
-  the loader dynamic-imports the default export and calls it with the
-  envelope as its SOLE argument (module code must not read stdin or write
-  protocol output — the loader owns both streams). The awaited return value
-  is serialised once to stdout; `undefined`, thrown handlers, and
-  unserializable returns exit non-zero. A `console.log` in module code lands
-  on child stdout, invalidates the document, and the parent parser rejects
-  it. Never in-process JS.
-- `pre-<event>.hook.mts` / `after-<event>.hook.mts` and
-  `pre-<event>.hook.ts` / `after-<event>.hook.ts` — TypeScript module
-  mode (Stage 4): the SAME loader path — the file is type-stripped on
-  import, then runs exactly like a `.hook.mjs` module.
-
-All modes share the deadline, byte limits, env allowlist, trust, parser,
-and failure policy. TWO OR MORE executable files at ONE level is
-`HOOK_CONFIG_CONFLICT` — a configuration error with NO fallback to a lower
-level: pre REFUSES the gated write, after SKIPS with a diagnostic
-(fail-open: the write happened). Only `*.mjs` and
-`.hook.mjs`/`.hook.mts`/`.hook.ts` execute; a `.js`/`.cjs`/bare-`.ts`/
-bare-`.mts` peer is REFUSED LOUDLY (`HOOK_BAD_EXTENSION`) — an ignored file
-that looks like policy but never runs is worse than no hook. Unknown event
-filenames warn once (`HOOK_UNKNOWN_EVENT`) and are never guessed at.
-
-### TypeScript rules: type stripping, never compilation (Stage 4)
-
-- **Capability floor.** `engines.node >= 22` does NOT guarantee type
-  stripping — the runner probes the ACTUAL runtime
-  (`resolveTypeScriptHookSupport` in `runner.ts`, mirroring
-  `process.features.typescript`: `"strip"` / `"transform"` run TS hooks,
-  anything else cannot). The probe reads the parent runtime, which is sound
-  because the child is always the same `process.execPath` binary. A runtime
-  without stripping REFUSES a `.hook.ts`/`.hook.mts` hook loudly: after
-  fails OPEN with one `HOOK_TS_UNSUPPORTED` stderr line (the write already
-  happened), pre fails CLOSED with `HOOK_PRE_TS_UNSUPPORTED` and the gated
-  write is refused. The phase policy is unchanged — only the refusal reason
-  is new.
-- **Erasable syntax ONLY.** Annotations and `import type` are erased; the
-  rest of the file must be plain runnable JavaScript. NO enums, NO
-  namespaces, NO parameter properties, NO JSX (`.tsx` is not discovered),
-  NO tsconfig paths, NO general transpilation — the loader spawns with no
-  flags, so even on runtimes that could transform, only erasable syntax
-  passes. Non-erasable syntax fails the import, which is LOUD, never
-  half-run: the loader exits non-zero (`HOOK_IMPORT_FAILED`), the after
-  runner drops it (`HOOK_NONZERO_EXIT`, fail-open), the pre gate blocks
-  (`HOOK_PRE_NONZERO_EXIT`, fail-closed).
-- **Type imports work because they vanish.** `import type { … } from
-  "@vibeflow-tools/cli/hooks"` is erased before resolution — it never
-  needs to resolve at runtime — so the shipped example type-checks in your
-  editor and runs verbatim under stripping. Keep the local dev dependency
-  (`npm install --save-dev @vibeflow-tools/cli`) so editors resolve the
-  declarations even when the CLI itself is installed globally; in `.mjs`
-  files use `// @ts-check` + `import('@vibeflow-tools/cli/hooks')` JSDoc
-  types instead (see `packages/cli/README.md`).
-
-## Precedence (replace, never merge)
-
-Project (`.vibeflow-hooks/`) beats global (`~/.vibeflow/hooks/`) beats
-shipped default (`~/.vibeflow/hooks/defaults/`, materialised from the bundle
-on version change — edits there are lost on upgrade by design). The FIRST
-hit wins and an override REPLACES the default: a later default change
-cannot silently alter overridden behaviour. Removing your override restores
-the shipped default automatically. A symlink that escapes its own trust root
-never inherits trust from either side (`escapedRoot` in `discover.ts` +
-`checkHookTrust`).
-
-## Bounds (every invocation)
-
-- **2 s deadline PER INVOCATION** (`HOOK_INVOCATION_TIMEOUT_MS` in
-  `runner.ts`), covering import + handler + serialization. Expiry SIGKILLs
-  the child AND its detached process group, so grandchildren holding
-  inherited pipes open cannot outlive the deadline. A command that emits
-  several events invokes several hooks — the budget is per hook, not per
-  command.
-- **1 MiB stdout / 1 MiB stderr caps** (`HOOK_MAX_OUTPUT_BYTES`): a hook
-  that floods output is truncated and treated as failure, never buffered
-  into OOM.
-- **stdout purity**: the runner NEVER writes to `process.stdout` — hook
-  chatter is stderr-only (prefixed `hook <event>:`), so `--json` stays
-  byte-clean for piping. Hook stdout must be exactly one JSON document.
-- **Child env allowlist**: `PATH` + `HOME` + `VIBEFLOW_IN_HOOK` ONLY
-  (`childEnv` in `runner.ts`) — never the API token, never your shell env.
-  Hooks run with `cwd` = project root.
-- **Reentrancy guard**: the child runs with `VIBEFLOW_IN_HOOK=1`; a nested
-  `vibeflow …` inside a hook runs fine but emits NO further hooks — a cycle
-  breaker, not a write lock.
-
-## Trust (code execution, not a sandbox)
-
-Trusting a hook grants CODE EXECUTION on your machine — it is not a sandbox
-(`trust.ts`, and the prompt says so plainly). Only PROJECT hooks prompt
-(direnv-style sha256 in `~/.vibeflow/hooks/trust.json`); global and shipped
-defaults are your own bits and never prompt. New file or changed hash →
-prompt `Run project hook …? [y/N/d]` (`d` prints the file first); anything
-but `y` does not run. Non-TTY (agents/CI/MCP) cannot prompt → NOT run, by
-design. Escape hatch: `VIBEFLOW_TRUST_HOOKS=1` (explicit, logged on stderr).
-Honest limit: the recorded hash covers the ENTRY FILE ONLY, not its import
-graph — a trusted `.mjs` approves everything it imports, and the child
-reads with your HOME (and therefore your credentials) visible. The same
-rule covers TypeScript: the recorded hash is the `.hook.ts`/`.hook.mts`
-SOURCE text, so editing the source re-prompts (even a comment-only edit —
-hash, not semantics), while editing a file it IMPORTS does not (Stage 1.5
-entry-hash-not-transitive). If your `.hook.ts` imports project helpers,
-re-review it yourself after changing them — trust will not ask again.
-
-## Secrets: the hook-owned config file (Sol review #9)
-
-The child env carries ONLY `PATH`, `HOME`, and `VIBEFLOW_IN_HOOK` — your
-webhook variables are invisible to the hook, so an example that reads
-`$NTFY_URL` cannot work verbatim. Since the hook boundary is
-review-required, examples do NOT get an env-forwarding mechanism; instead
-each hook reads a HOOK-OWNED JSON config file — the only user-controlled
-channel that actually reaches the child:
-
-1. `<project>/.vibeflow-hooks/<hook>.config.json` (per-project), else
-2. `$HOME/.vibeflow/hooks/<hook>.config.json` (per-user fallback).
-
-Both resolve because `cwd` is the project root and `HOME` is provided.
-`chmod 600` the file — it holds a secret. NEVER put a Vibeflow token in a
-hook or its config: hooks never need one (the child env never carries one
-by construction), and a hook that exfiltrates credentials is exactly what
-the trust prompt warns about.
-
-## Examples (copy-in flow)
-
-Shipped under `docs/hooks-examples/` (filenames mirror the hooks layout):
-
-| File | Install as | Needs |
-| --- | --- | --- |
-| `after/after-verify.mjs` | `.vibeflow-hooks/after/after-verify.mjs` | hook-owned config `after-verify.config.json` (see `after-verify.config.example.json`); without it the hook no-ops with an stderr note |
-| `after/after-task.update.mjs` | `.vibeflow-hooks/after/after-task.update.mjs` | nothing — pure, offline |
-| `after/after-task.update.hook.ts` | `.vibeflow-hooks/after/after-task.update.hook.ts` | nothing — pure, offline; needs a runtime with type stripping (see above) |
-
-```bash
-# Install (project level wins by precedence; TRUST it once from a terminal):
-cp docs/hooks-examples/after/after-task.update.mjs .vibeflow-hooks/after/
-cp docs/hooks-examples/after-verify.config.example.json .vibeflow-hooks/after-verify.config.json
-# then edit the URL in the config and chmod 600 it.
-# Global instead: ~/.vibeflow/hooks/after/ + ~/.vibeflow/hooks/*.config.json.
+```jsonc
+{
+  "schemaVersion": 2,
+  "tool": "tasks",
+  "surface": "cli",
+  "phase": "before",
+  "activity": "task.update",
+  "payload": { "taskId": "…", "changed": ["status"] },
+  "task": { /* full immutable record */ },
+  "activityObject": { /* secondary record when one exists */ },
+  "instructions": "",
+  "boardId": null,
+  "actor": "…",
+  "ts": "2026-11-06T…Z"
+}
 ```
 
-All three were exercised VERBATIM through the packaged CLI (real spawn,
-not source): `after-task.update.mjs` returns its review nudge on
-`tasks --edit --set-status review` and `{}` otherwise, with stdout staying
-one JSON document; `after-verify.mjs` POSTs the verdict to the configured
-URL on `vibeflow verify` and returns `{}` on every path including missing
-config; `after-task.update.hook.ts` behaves like its `.mjs` sibling (nudge
-on the review move, `{}` otherwise) with its `import type` erased at
-runtime. Removing any file restores the shipped default (verified: default
-text rides along again). Trust: run from an interactive terminal once, or
-set `VIBEFLOW_TRUST_HOOKS=1` for the run.
+- `tool` is the canonical hook key (never an alias); `surface` is `"cli"` | `"mcp"`.
+- `phase` is `"before"` | `"after"` — one vocabulary everywhere (filenames, codes, types).
+- `activity` is the 8-member enum or `null` when the invocation had no durable effect (reads, `kanban`/`serve`/`auth`); `payload` is the intent (before) or confirmed (after) activity payload, `null` iff `activity` is `null` (`HookIntentPayloads` vs `HookConfirmedPayloads` in `envelope.ts` — distinct types on purpose; no generated ids before the write).
+- `task` is the full immutable snapshot — confirmed post-write record, best-known intent before it — or `null` where no single task exists. `activityObject` is the secondary record when one exists (changed keys, written comment, claim filters). `instructions` is the ONLY replaceable surface.
+
+After-envelope content per activity (`emit.ts` + operation call sites):
+
+| activity | `task` | `activityObject` |
+| --- | --- | --- |
+| `task.create` | the written record | — |
+| `task.update` | the post-write record | `{changed: string[]}` |
+| `task.claim` | the claimed record | the claim filters |
+| `task.delete` | the **pre-delete** row (gone post-write) | — |
+| `task.comment` | the commented task | the written comment |
+| `push` / `pull` | `null` (run intent, no single task) | — |
+| `verify` | `null` (run intent) | — |
+| `null` activity, single-task read (`get_task`, `get_file`, `attach_file`, `tasks --get`) | the read/target record | — |
+| `null` activity, listing (`list_tasks`, `tasks` list mode) | `null` | `{count: number}` |
+| `null` activity, `kanban` / `serve` / `start_kanban` | `null` | `{url: string}` |
+| `null` activity, everything else | `null` | — |
+
+## Execution count (one per (tool, activity))
+
+One invocation of a multi-activity command fires the tool's before/after hook
+once per activity, in operation order (`tasks --edit <id> --set-status review
+--comment "…"` → 2 before runs, 2 after runs). A successful invocation that
+emitted no activity fires the after hook exactly once with `activity: null`.
+Failed/refused/dry-run invocations fire no after hook. Dedup is
+action-scoped (`HookScope` in `emit.ts`, created per invocation by
+`beginToolInvocation` in `invocation.ts`): two separate actions in one
+process each run their hooks; the scope only collapses a double fire for the
+same effect inside one action.
+
+## Failure policies
+
+Opposite and load-bearing (`runner.ts`): `.after` is fail-OPEN (timeout,
+non-zero exit, non-JSON, bad shape, output limit, spawn/stdin failure, TS
+unsupported ⇒ one stderr line, no instructions, the write already happened);
+`.before` is fail-CLOSED (the same list plus malformed decision, config
+conflict, untrusted project hook, TS unsupported ⇒ the gated write is refused
+with `beforeGateRefusal` and a non-zero exit).
+
+Bounds: 2 s per-invocation deadline (`HOOK_INVOCATION_TIMEOUT_MS`, detached-group
+SIGKILL), 1 MiB stdout/stderr caps (`HOOK_MAX_OUTPUT_BYTES`), child env
+allowlist `PATH` + `HOME` + `VIBEFLOW_IN_HOOK` only, reentrancy guard
+(`VIBEFLOW_IN_HOOK=1` disables nested hooks, not nested writes), stdout purity
+(the runner never writes parent stdout), `VIBEFLOW_HOOKS=0` kill switch.
+
+`--no-verify` skips the gate LOUDLY on the 4 gated CLI commands (`tasks`,
+`push`, `pull`, `verify`) and via `ctx.hookBypass` on MCP: `HOOK_BYPASSED
+<tool>` on stderr plus one JSONL record (`tool`, `activity`, `phase`,
+`command`, `reason`) in `~/.vibeflow/hooks/bypass-audit.log` (`bypass.ts`);
+after-hooks still run. A bypassed gate leaves `scope.seen` empty for that
+activity, but the effect's after hook still runs from the operation — so the
+boundary's null-activity rule never double-fires for it.
+
+## Authoring modes
+
+- `.mjs` — stdio protocol: stdin = one envelope JSON + `"\n"`; stdout = exactly one JSON document (`{"instructions":"..."}` or `{}`); diagnostics on stderr ONLY.
+- `.hook.mjs` — module mode: `export default` a (possibly async) function receiving the envelope as its ONE argument; the packaged `hook-loader.mjs` owns stdin/stdout.
+- `.hook.ts` / `.hook.mts` — TypeScript module mode: same loader, type-stripped on import. Erasable syntax only (annotations + `import type` erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses loudly (after skips `HOOK_TS_UNSUPPORTED`, before blocks `HOOK_BEFORE_TS_UNSUPPORTED`).
+
+Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks`
+— no runtime API; `src/hooks.ts`, parity-pinned with `envelope.ts`):
+
+```js
+// .vibeflow-hooks/tasks.after.hook.mjs
+// @ts-check
+/** @type {import('@vibeflow-tools/cli/hooks').HookAfterHandler<'task.update'>} */
+export default async (envelope) => {
+  return { instructions: `saw ${envelope.activity} (${envelope.payload.taskId})` };
+};
+```
+
+## Precedence + defaults in the package
+
+`project .vibeflow-hooks/` > `global ~/.vibeflow/hooks/` > shipped
+`node_modules/@vibeflow-tools/cli/dist/hooks/defaults/`, flat at every level
+(`discover.ts`). The first hit wins; an override REPLACES (never merges); two
+or more executables at one level is `HOOK_CONFIG_CONFLICT` with no fallback.
+
+Shipped defaults are read IN PLACE from the installed package (`VERSION` + 9
+`*.after.mjs` files — one per activity-bearing tool key, no `.before`
+defaults), trusted without prompting, upgraded by `npm`/`pnpm update`. The
+root is DERIVED from the running bundle (`resolveShippedDefaultsDir`), so npm
+nested installs, pnpm symlink-into-store, npx cache, global install and
+tarball all resolve with no path allowlist. If no shipped tree resolves, one
+loud `HOOK_SHIPPED_DEFAULTS_MISSING` line names the miss — never a silent
+fallback. `~/.vibeflow/hooks/defaults/` is OBSOLETE — earlier builds copied
+the defaults there; nothing reads it now. Delete it: `rm -rf
+~/.vibeflow/hooks/defaults`.
+
+## Trust
+
+Trusting a hook grants CODE EXECUTION on the machine — it is not a sandbox
+(`trust.ts`). Only project hooks prompt (direnv-style sha256 in `trust.json`;
+`[y/N/d]`, non-TTY refuses by design, `VIBEFLOW_TRUST_HOOKS=1` bypasses
+explicitly). Global and shipped defaults are the user's own bits — trusted
+without prompting and without a hash record (a prompt on package content
+would fire on every `pnpm update` and be unanswerable in non-TTY). A symlink
+escaping its own root never inherits trust in either direction (a shipped
+file that symlinks out is refused as `HOOK_SHIPPED_ESCAPED`).
+
+## Secrets + config files
+
+The child env carries ONLY `PATH`, `HOME`, `VIBEFLOW_IN_HOOK` — never the
+operator's env, never any token. A hook that needs configuration reads a
+hook-owned JSON file (see `docs/hooks-examples/verify.after.mjs`, which
+reads `.vibeflow-hooks/verify.after.config.json` with a `$HOME` fallback —
+`chmod 600`, it may hold a secret). NEVER put a token near hooks: they never
+need one. (The `childEnv` allowlist lives in `runner.ts`.)
+
+## Examples
+
+| file | install as | what it proves |
+| --- | --- | --- |
+| `docs/hooks-examples/tasks.after.mjs` | `.vibeflow-hooks/tasks.after.mjs` | stdio nudge on the review move; `{}` otherwise |
+| `docs/hooks-examples/tasks.after.hook.ts` | `.vibeflow-hooks/tasks.after.hook.ts` | module-ts nudge; type-stripped at runtime |
+| `docs/hooks-examples/verify.after.mjs` + `verify.after.config.example.json` | `.vibeflow-hooks/verify.after.mjs` (+ config) | webhook post; swallowed failures (fail-open) |
+
+All three run VERBATIM through the packaged CLI (see the ticket) — byte-identical, never rewritten.
 
 ## Writing your own
 
-- One file per (phase, event): `pre-task.create.mjs` gates creation,
-  `after-push.mjs` whispers after a push. Keep exactly ONE executable —
-  `.mjs`, `.hook.mjs`, `.hook.mts`, or `.hook.ts` — per (phase, event)
-  per level.
-- TypeScript (Stage 4): name it `<phase>-<event>.hook.ts` (or `.hook.mts`),
-  keep erasable syntax only, `import type` the declarations below, and
-  confirm your runtime strips types before trusting it — an unsupported
-  runtime refuses the hook on every run (after skips, pre blocks).
-- Public authoring types (type-only, no runtime): `@vibeflow-tools/cli/hooks`
-  (`HookAfterHandler<'task.update'>`, … in `packages/cli/src/hooks.ts`) —
-  after-only union; no pre payload is promised to public authors.
-- Instruction transport is one document or the existing failure channel:
-  success carries `instructions: string[]` (absent when no hook ran, so a
-  hook-free success stays byte-identical) through `OperationResult`, the CLI
-  `--json` envelopes, and the MCP `successPayload`; failures keep their
-  existing channel.
-- Keep it under 2 s, stdout to exactly one JSON document, secrets in the
-  hook-owned config file, and test it with `VIBEFLOW_TRUST_HOOKS=1` against
-  the REAL CLI before trusting it for real.
+One executable per (tool, phase) per level. Read the envelope's
+`tool`/`activity`/`phase` (never your own filename) and return
+`{instructions}` or `{}` (after) / `{allow, instructions?}` or
+`{allow:false, reason}` (before). There is no `mcp.after` (the client owns
+the lifetime) and no `.before` on reads (a read has nothing to refuse) —
+files for those cells are refused loudly, never silently ignored.

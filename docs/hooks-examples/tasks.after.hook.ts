@@ -1,16 +1,16 @@
 // Example module after-hook in TypeScript: nudge the agent when a task
 // moves to review.
 //
-// Copy VERBATIM to `.vibeflow-hooks/after/after-task.update.hook.ts`.
-// Removal restores the shipped default for `task.update` (ADR-0006:
-// project beats global beats default, first hit wins, REPLACE never merge).
+// Copy VERBATIM to `.vibeflow-hooks/tasks.after.hook.ts`.
+// Removal restores the shipped default for `tasks` (ADR-0007:
+// project beats global beats shipped, first hit wins, REPLACE never merge).
 //
 // What it does: when the confirmed update left the task in `review`, it
 // returns one `instructions` string reminding the agent to attest the review
 // verdict. Any other update returns `{}` (no-op). Pure and offline: no
 // network, no config file, no secrets — and NEVER a Vibeflow token.
 //
-// TypeScript rules (Stage 4, ADR-0006) — type stripping, NOT compilation:
+// TypeScript rules (ADR-0007) — type stripping, NOT compilation:
 // - Erasable syntax ONLY: annotations and `import type` are erased, the
 //   rest of the file must be plain runnable JavaScript. NO enums, NO
 //   namespaces, NO parameter properties, NO JSX, NO tsconfig paths.
@@ -22,10 +22,10 @@
 // confirmed snapshot in `task` (see docs/agent-hooks.md), so the hook
 // prefers `envelope.task.status` and only falls back to the task store
 // (`cwd` is always the project root, guaranteed by the runner) when the
-// snapshot is absent — e.g. envelopes from older CLIs. Either path keeps
-// this file working verbatim.
+// snapshot is absent (hand-built inputs). Either path keeps this file
+// working verbatim.
 //
-// Contract (ADR-0006): the loader calls the default export with the full
+// Contract (ADR-0007): the loader calls the default export with the full
 // envelope as its ONE argument; return `{instructions: "..."}` or `{}`.
 // A `console.log` lands on child stdout, invalidates the document, and the
 // runner drops the hook with HOOK_BAD_OUTPUT (fail-open).
@@ -80,10 +80,10 @@ function findTaskStatus(projectDir: string, taskId: string): string | null {
 export default async function (
   envelope: HookAfterEnvelope<"task.update">,
 ): Promise<HookAfterResult> {
-  if (envelope.event === "task.update" && envelope.phase === "after") {
+  if (envelope.tool === "tasks" && envelope.activity === "task.update" && envelope.phase === "after") {
     const taskId: string = envelope.payload.taskId;
     // The snapshot suffices: the store read below only fires for
-    // envelopes without one (older CLIs, hand-built inputs).
+    // envelopes without one (hand-built inputs).
     const snapshotStatus: unknown = envelope.task?.status;
     const status: string | null =
       typeof snapshotStatus === "string"

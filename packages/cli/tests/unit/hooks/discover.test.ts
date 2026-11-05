@@ -1,7 +1,11 @@
 /**
- * Discovery tests (ADR-0006): precedence project > global > defaults,
+ * Discovery tests (ADR-0007): precedence project > global > shipped,
  * override REPLACES, canonical roots, regular-file checks, the explicit
- * symlink rule, refused extensions, and unknown-event reporting.
+ * symlink rule, refused extensions, and unrunnable-file reporting.
+ *
+ * Flat layout: `<root>/tasks.after.mjs` — no `pre/`/`after/` subdirectory.
+ * Lookup key is (tool, phase); shipped root is derived from the bundle
+ * unless the `shippedDir` seam points elsewhere.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import {
@@ -17,8 +21,10 @@ import { tmpdir } from "node:os";
 import {
   hookRoots,
   isHookConflict,
+  parseHookFileName,
   refusedSibling,
-  reportUnknownHookEvents,
+  reportUnrunnableHookFiles,
+  resetUnrunnableHookWarnings,
   resolveHookFile,
   type HookResolution,
   type ResolvedHook,
@@ -33,316 +39,314 @@ function expectResolved(res: HookResolution): ResolvedHook {
 
 let projectDir: string;
 let home: string;
+/** Isolated shipped root (empty) — hermetic, never the real bundle tree. */
+let shippedDir: string;
 
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), "hook-discover-proj-"));
   home = mkdtempSync(join(tmpdir(), "hook-discover-home-"));
+  shippedDir = mkdtempSync(join(tmpdir(), "hook-discover-shipped-"));
+  resetUnrunnableHookWarnings();
 });
 
-function writeProjectHook(event = "task.update"): string {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+const opts = (): { home: string; shippedDir: string } => ({ home, shippedDir });
+
+function writeProjectHook(tool = "tasks", phase = "after"): string {
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `after-${event}.mjs`);
+  const file = join(dir, `${tool}.${phase}.mjs`);
   writeFileSync(file, `// project hook\n`);
   return file;
 }
 
-function writeGlobalHook(event = "task.update"): string {
-  const dir = join(home, ".vibeflow", "hooks", "after");
+function writeGlobalHook(tool = "tasks", phase = "after"): string {
+  const dir = join(home, ".vibeflow", "hooks");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `after-${event}.mjs`);
+  const file = join(dir, `${tool}.${phase}.mjs`);
   writeFileSync(file, `// global hook\n`);
   return file;
 }
 
-function writeDefaultsHook(event = "task.update"): string {
-  const dir = join(home, ".vibeflow", "hooks", "defaults", "after");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `after-${event}.mjs`);
-  writeFileSync(file, `// defaults hook\n`);
+function writeShippedHook(tool = "tasks", phase = "after"): string {
+  mkdirSync(shippedDir, { recursive: true });
+  const file = join(shippedDir, `${tool}.${phase}.mjs`);
+  writeFileSync(file, `// shipped hook\n`);
   return file;
 }
 
 describe("resolveHookFile", () => {
   it("returns null when nothing exists", () => {
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+    expect(resolveHookFile(projectDir, "tasks", "after", opts())).toBeNull();
   });
 
-  it("project beats global beats defaults (override REPLACES, never merges)", () => {
+  it("project beats global beats shipped (override REPLACES, never merges)", () => {
     const projectFile = writeProjectHook();
     const globalFile = writeGlobalHook();
-    const defaultsFile = writeDefaultsHook();
+    const shippedFile = writeShippedHook();
     void globalFile;
-    void defaultsFile;
-    const resolved = expectResolved(resolveHookFile(projectDir, "after", "task.update", home));
+    void shippedFile;
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(projectFile);
     expect(resolved.root).toBe("project");
     expect(resolved.mode).toBe("stdio");
 
     rmSync(projectFile);
-    const globalResolved = expectResolved(resolveHookFile(projectDir, "after", "task.update", home));
+    const globalResolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(globalResolved.file).toBe(globalFile);
     expect(globalResolved.root).toBe("global");
   });
 
-  it("falls back to shipped defaults", () => {
-    const defaultsFile = writeDefaultsHook();
-    const resolved = expectResolved(resolveHookFile(projectDir, "after", "task.update", home));
-    expect(resolved.file).toBe(defaultsFile);
-    expect(resolved.root).toBe("defaults");
+  it("falls back to the shipped root", () => {
+    const shippedFile = writeShippedHook();
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
+    expect(resolved.file).toBe(shippedFile);
+    expect(resolved.root).toBe("shipped");
+  });
+
+  it("a missing shipped root is a miss, not an error", () => {
+    expect(resolveHookFile(projectDir, "tasks", "after", { home, shippedDir: null })).toBeNull();
+    expect(resolveHookFile(projectDir, "tasks", "after", { home, shippedDir: join(tmpdir(), "hook-no-such-dir") })).toBeNull();
+  });
+
+  it("before and after are independent files", () => {
+    const before = writeProjectHook("tasks", "before");
+    const afterResolved = resolveHookFile(projectDir, "tasks", "after", opts());
+    expect(afterResolved).toBeNull();
+    const beforeResolved = expectResolved(resolveHookFile(projectDir, "tasks", "before", opts()));
+    expect(beforeResolved.file).toBe(before);
   });
 
   it("ignores directories masquerading as hook files (regular-file check)", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    mkdirSync(join(dir, "after-task.update.mjs"));
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+    mkdirSync(join(dir, "tasks.after.mjs"));
+    expect(resolveHookFile(projectDir, "tasks", "after", opts())).toBeNull();
   });
 
   it("marks symlink escapes (no trusted<->untrusted inheritance)", () => {
     const outside = mkdtempSync(join(tmpdir(), "hook-outside-"));
     const target = join(outside, "evil.mjs");
     writeFileSync(target, `// outside\n`);
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    symlinkSync(target, join(dir, "after-task.update.mjs"));
-    const resolved = expectResolved(resolveHookFile(projectDir, "after", "task.update", home));
+    symlinkSync(target, join(dir, "tasks.after.mjs"));
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.root).toBe("project");
     expect(resolved.escapedRoot).toBe(true);
     expect(resolved.file).toBe(target);
   });
 
   it("in-root symlinks are not escapes", () => {
-    const real = writeProjectHook();
-    const link = join(projectDir, ".vibeflow-hooks", "after", "after-task.delete.mjs");
-    rmSync(real);
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    const target = join(dir, "real-task-delete.mjs");
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    const target = join(dir, "real-tasks-after.mjs");
     writeFileSync(target, `// real\n`);
-    symlinkSync(target, link);
-    const resolved = expectResolved(resolveHookFile(projectDir, "after", "task.delete", home));
+    symlinkSync(target, join(dir, "tasks.after.mjs"));
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.escapedRoot).toBe(false);
+  });
+
+  it("a shipped file that symlinks out is resolved with escapedRoot (emit refuses HOOK_SHIPPED_ESCAPED)", () => {
+    const outside = mkdtempSync(join(tmpdir(), "hook-outside-shipped-"));
+    const target = join(outside, "evil.mjs");
+    writeFileSync(target, `// outside\n`);
+    mkdirSync(shippedDir, { recursive: true });
+    symlinkSync(target, join(shippedDir, "tasks.after.mjs"));
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
+    expect(resolved.root).toBe("shipped");
+    expect(resolved.escapedRoot).toBe(true);
   });
 });
 
 describe("refusedSibling", () => {
-  it("refuses .js/.cjs loudly (never silently ignored)", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+  it("refuses .before.js/.cjs loudly (never silently ignored)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    const jsFile = join(dir, "after-task.update.js");
+    const jsFile = join(dir, "tasks.before.js");
     writeFileSync(jsFile, `// wrong extension\n`);
-    expect(refusedSibling(dir, "after", "task.update")).toBe(jsFile);
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+    expect(refusedSibling(dir, "tasks", "before")).toBe(jsFile);
+    expect(resolveHookFile(projectDir, "tasks", "before", opts())).toBeNull();
     rmSync(jsFile);
-    const cjsFile = join(dir, "after-task.update.cjs");
+    const cjsFile = join(dir, "tasks.before.cjs");
     writeFileSync(cjsFile, `// wrong extension\n`);
-    expect(refusedSibling(dir, "after", "task.update")).toBe(cjsFile);
+    expect(refusedSibling(dir, "tasks", "before")).toBe(cjsFile);
+  });
+
+  it("refuses bare .ts/.mts siblings (the .hook. infix is the adapter)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    const tsFile = join(dir, "tasks.before.ts");
+    writeFileSync(tsFile, `// wrong extension\n`);
+    expect(refusedSibling(dir, "tasks", "before")).toBe(tsFile);
+    expect(resolveHookFile(projectDir, "tasks", "before", opts())).toBeNull();
   });
 
   it("returns null when no refused sibling exists", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    expect(refusedSibling(dir, "after", "task.update")).toBeNull();
+    expect(refusedSibling(dir, "tasks", "after")).toBeNull();
   });
 });
 
 describe("hookRoots", () => {
-  it("uses canonical absolute roots", () => {
-    const roots = hookRoots(projectDir, home);
+  it("uses canonical absolute roots with the shipped seam", () => {
+    const roots = hookRoots(projectDir, opts());
     expect(roots.project).toBe(join(projectDir, ".vibeflow-hooks"));
     expect(roots.global).toBe(join(home, ".vibeflow", "hooks"));
-    expect(roots.defaults).toBe(join(home, ".vibeflow", "hooks", "defaults"));
+    expect(roots.shipped).toBe(shippedDir);
     expect(existsSync(projectDir)).toBe(true);
   });
 });
 
-describe("reportUnknownHookEvents", () => {
-  it("reports unknown events once on stderr, never guessing", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+describe("reportUnrunnableHookFiles (the one scanner)", () => {
+  it("reports refused suffixes once per path (HOOK_BAD_EXTENSION)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.frobnicate.mjs"), `// unknown\n`);
+    writeFileSync(join(dir, "tasks.after.js"), `// wrong\n`);
     const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("HOOK_UNKNOWN_EVENT");
-    expect(lines[0]).toContain("task.frobnicate");
+    expect(lines[0]).toContain("HOOK_BAD_EXTENSION");
+  });
+
+  it("reports unknown tools once per path (HOOK_UNKNOWN_TOOL)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "frobnicate.after.mjs"), `// unknown\n`);
+    const lines: string[] = [];
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("HOOK_UNKNOWN_TOOL");
+    expect(lines[0]).toContain("frobnicate");
+  });
+
+  it("reports unsupported cells: .before on a read tool (HOOK_NOT_GATEABLE)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "kanban.before.mjs"), `// not gateable\n`);
+    const lines: string[] = [];
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("HOOK_NOT_GATEABLE");
+    expect(lines[0]).toContain("kanban");
+  });
+
+  it("reports mcp.after and the authors container", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "mcp.after.mjs"), `// no after\n`);
+    writeFileSync(join(dir, "authors.after.mjs"), `// container\n`);
+    const lines: string[] = [];
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    expect(lines.some((l) => l.includes("HOOK_NO_AFTER") && l.includes("mcp"))).toBe(true);
+    expect(lines.some((l) => l.includes("HOOK_CONTAINER_TOOL") && l.includes("authors"))).toBe(true);
+  });
+
+  it("valid files stay silent; non-hook names are ignored", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "tasks.after.mjs"), `// ok\n`);
+    writeFileSync(join(dir, "trust.json"), `{}\n`);
+    writeFileSync(join(dir, "bypass-audit.log"), ``);
+    writeFileSync(join(dir, "verify.after.config.json"), `{}\n`);
+    const lines: string[] = [];
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    expect(lines).toEqual([]);
+  });
+
+  it("a bare .ts file is refused (HOOK_BAD_EXTENSION), not an unknown tool", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "tasks.after.ts"), `// bare\n`);
+    const lines: string[] = [];
+    reportUnrunnableHookFiles(projectDir, { ...opts(), onWarn: (m) => lines.push(m) });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("HOOK_BAD_EXTENSION");
   });
 });
 
-describe("module peers (Stage 1.5, ADR-0006)", () => {
-  function writeProjectModuleHook(event = "task.update"): string {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+describe("module peers (kept from v1, flat names)", () => {
+  function writeProjectModuleHook(tool = "tasks", phase = "after"): string {
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `after-${event}.hook.mjs`);
+    const file = join(dir, `${tool}.${phase}.hook.mjs`);
     writeFileSync(file, `export default async () => ({});\n`);
     return file;
   }
 
-  function writeGlobalModuleHook(event = "task.update"): string {
-    const dir = join(home, ".vibeflow", "hooks", "after");
+  function writeGlobalModuleHook(tool = "tasks", phase = "after"): string {
+    const dir = join(home, ".vibeflow", "hooks");
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `after-${event}.hook.mjs`);
+    const file = join(dir, `${tool}.${phase}.hook.mjs`);
     writeFileSync(file, `export default async () => ({});\n`);
     return file;
   }
 
   it("a lone module peer resolves with mode 'module'", () => {
     const file = writeProjectModuleHook();
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(file);
     expect(resolved.root).toBe("project");
     expect(resolved.mode).toBe("module");
   });
 
-  it("project module beats global stdio beats shipped defaults", () => {
+  it("project module beats global stdio beats shipped default", () => {
     const moduleFile = writeProjectModuleHook();
-    const globalStdio = join(home, ".vibeflow", "hooks", "after");
-    mkdirSync(globalStdio, { recursive: true });
-    writeFileSync(join(globalStdio, "after-task.update.mjs"), `// global\n`);
-    const first = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    writeGlobalHook();
+    writeShippedHook();
+    const first = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(first.file).toBe(moduleFile);
     expect(first.mode).toBe("module");
 
     rmSync(moduleFile);
-    const second = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    const second = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(second.root).toBe("global");
     expect(second.mode).toBe("stdio");
   });
 
-  it("global module beats shipped defaults", () => {
-    const moduleFile = writeGlobalModuleHook();
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
-    expect(resolved.file).toBe(moduleFile);
-    expect(resolved.root).toBe("global");
-    expect(resolved.mode).toBe("module");
-  });
-
   it("stdio+module at the same level is an explicit conflict (no fallback)", () => {
     writeProjectModuleHook();
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    const stdioFile = join(dir, "after-task.update.mjs");
+    const dir = join(projectDir, ".vibeflow-hooks");
+    const stdioFile = join(dir, "tasks.after.mjs");
     writeFileSync(stdioFile, `// stdio\n`);
-    const resolved = resolveHookFile(projectDir, "after", "task.update", home);
+    const resolved = resolveHookFile(projectDir, "tasks", "after", opts());
     expect(isHookConflict(resolved)).toBe(true);
     if (!isHookConflict(resolved)) throw new Error("expected conflict");
     expect(resolved.root).toBe("project");
-    expect(resolved.files).toEqual([
-      stdioFile,
-      join(dir, "after-task.update.hook.mjs"),
-    ]);
+    expect(resolved.files).toEqual([stdioFile, join(dir, "tasks.after.hook.mjs")]);
   });
 
   it("a higher-level conflict never degrades to a lower-level hook", () => {
     writeProjectModuleHook();
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    writeFileSync(join(dir, "after-task.update.mjs"), `// stdio\n`);
-    const globalDir = join(home, ".vibeflow", "hooks", "after");
-    mkdirSync(globalDir, { recursive: true });
-    writeFileSync(join(globalDir, "after-task.update.mjs"), `// global\n`);
-    // Still the project-level conflict — the global file is invisible.
-    expect(
-      isHookConflict(resolveHookFile(projectDir, "after", "task.update", home)),
-    ).toBe(true);
-  });
-
-  it("global-level conflict wins over shipped defaults", () => {
-    const globalDir = join(home, ".vibeflow", "hooks", "after");
-    mkdirSync(globalDir, { recursive: true });
-    writeFileSync(join(globalDir, "after-task.update.mjs"), `// global\n`);
-    writeFileSync(join(globalDir, "after-task.update.hook.mjs"), `export default () => ({});\n`);
-    const resolved = resolveHookFile(projectDir, "after", "task.update", home);
-    expect(isHookConflict(resolved)).toBe(true);
-    if (!isHookConflict(resolved)) throw new Error("expected conflict");
-    expect(resolved.root).toBe("global");
+    const dir = join(projectDir, ".vibeflow-hooks");
+    writeFileSync(join(dir, "tasks.after.mjs"), `// stdio\n`);
+    writeGlobalHook();
+    expect(isHookConflict(resolveHookFile(projectDir, "tasks", "after", opts()))).toBe(true);
   });
 
   it("a dangling symlink in the pair is missing, not a conflict", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    symlinkSync(
-      join(projectDir, "no-such-target.mjs"),
-      join(dir, "after-task.update.mjs"),
-    );
+    symlinkSync(join(projectDir, "no-such-target.mjs"), join(dir, "tasks.after.mjs"));
     const moduleFile = writeProjectModuleHook();
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(moduleFile);
     expect(resolved.mode).toBe("module");
   });
 
-  it("module in-root symlinks are accepted, escapes are marked", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    const target = join(dir, "real-module.mjs");
-    writeFileSync(target, `export default () => ({});\n`);
-    symlinkSync(target, join(dir, "after-task.update.hook.mjs"));
-    const inRoot = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
-    expect(inRoot.mode).toBe("module");
-    expect(inRoot.escapedRoot).toBe(false);
-
-    rmSync(join(dir, "after-task.update.hook.mjs"));
-    const outside = mkdtempSync(join(tmpdir(), "hook-outside-mod-"));
-    const evil = join(outside, "evil.hook.mjs");
-    writeFileSync(evil, `export default () => ({});\n`);
-    symlinkSync(evil, join(dir, "after-task.update.hook.mjs"));
-    const escaped = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
-    expect(escaped.mode).toBe("module");
-    expect(escaped.escapedRoot).toBe(true);
-  });
-
   it("directories masquerading as module peers are ignored", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    mkdirSync(join(dir, "after-task.update.hook.mjs"));
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+    mkdirSync(join(dir, "tasks.after.hook.mjs"));
+    expect(resolveHookFile(projectDir, "tasks", "after", opts())).toBeNull();
   });
 });
 
-describe("reportUnknownHookEvents with module peers (Stage 1.5)", () => {
-  it("a known-event .hook.mjs peer is not an unknown event", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.hook.mjs"), `export default () => ({});\n`);
-    const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    expect(lines).toHaveLength(0);
-  });
-
-  it("an unknown-event .hook.mjs peer is reported once, not interpreted", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.quux.hook.mjs"), `export default () => ({});\n`);
-    const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("HOOK_UNKNOWN_EVENT");
-    expect(lines[0]).toContain("task.quux");
-    expect(lines[0]).toContain('"task.quux"');
-  });
-});
-
-describe("TypeScript module peers (Stage 4, ADR-0006)", () => {
-  function writeTsHook(name: string, atHome: string = projectDir): string {
-    const dir = join(
-      atHome,
-      atHome === projectDir ? ".vibeflow-hooks" : ".vibeflow/hooks",
-      "after",
-    );
+describe("TypeScript module peers (kept from v1, flat names)", () => {
+  function writeTsHook(name: string): string {
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
     const file = join(dir, name);
     writeFileSync(file, `export default async () => ({});\n`);
@@ -350,148 +354,89 @@ describe("TypeScript module peers (Stage 4, ADR-0006)", () => {
   }
 
   it("a lone .hook.ts peer resolves with mode 'module-ts'", () => {
-    const file = writeTsHook("after-task.update.hook.ts");
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    const file = writeTsHook("tasks.after.hook.ts");
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(file);
     expect(resolved.root).toBe("project");
     expect(resolved.mode).toBe("module-ts");
   });
 
   it("a lone .hook.mts peer resolves with mode 'module-ts'", () => {
-    const file = writeTsHook("after-task.update.hook.mts");
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    const file = writeTsHook("tasks.after.hook.mts");
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(file);
     expect(resolved.mode).toBe("module-ts");
   });
 
   it("project .hook.ts beats global .hook.mjs (precedence is level-first, not mode-first)", () => {
-    const tsFile = writeTsHook("after-task.update.hook.ts");
-    const globalDir = join(home, ".vibeflow", "hooks", "after");
+    const tsFile = writeTsHook("tasks.after.hook.ts");
+    const globalDir = join(home, ".vibeflow", "hooks");
     mkdirSync(globalDir, { recursive: true });
-    writeFileSync(
-      join(globalDir, "after-task.update.hook.mjs"),
-      `export default () => ({});\n`,
-    );
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    writeFileSync(join(globalDir, "tasks.after.hook.mjs"), `export default () => ({});\n`);
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(tsFile);
     expect(resolved.root).toBe("project");
     expect(resolved.mode).toBe("module-ts");
   });
 
-  it("any two executables at one level conflict: mjs+ts, stdio+ts, ts+mts", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+  it("any two executables at one level conflict: mjs+ts, ts+mts", () => {
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    const stdioFile = join(dir, "after-task.update.mjs");
-    const mjsFile = join(dir, "after-task.update.hook.mjs");
-    const mtsFile = join(dir, "after-task.update.hook.mts");
-    const tsFile = join(dir, "after-task.update.hook.ts");
+    const stdioFile = join(dir, "tasks.after.mjs");
+    const mjsFile = join(dir, "tasks.after.hook.mjs");
     writeFileSync(stdioFile, `// stdio\n`);
     writeFileSync(mjsFile, `export default () => ({});\n`);
-    const pair = resolveHookFile(projectDir, "after", "task.update", home);
+    const pair = resolveHookFile(projectDir, "tasks", "after", opts());
     expect(isHookConflict(pair)).toBe(true);
     if (!isHookConflict(pair)) throw new Error("expected conflict");
     expect(pair.files).toEqual([stdioFile, mjsFile]);
-
-    rmSync(stdioFile);
-    rmSync(mjsFile);
-    writeFileSync(mtsFile, `export default () => ({});\n`);
-    writeFileSync(tsFile, `export default () => ({});\n`);
-    const tsPair = resolveHookFile(projectDir, "after", "task.update", home);
-    expect(isHookConflict(tsPair)).toBe(true);
-    if (!isHookConflict(tsPair)) throw new Error("expected conflict");
-    expect(tsPair.files).toEqual([mtsFile, tsFile]);
-  });
-
-  it("three executables at one level conflict with no fallback", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    const stdioFile = join(dir, "after-task.update.mjs");
-    const tsFile = join(dir, "after-task.update.hook.ts");
-    writeFileSync(stdioFile, `// stdio\n`);
-    writeFileSync(tsFile, `export default () => ({});\n`);
-    writeFileSync(
-      join(dir, "after-task.update.hook.mjs"),
-      `export default () => ({});\n`,
-    );
-    const globalDir = join(home, ".vibeflow", "hooks", "after");
-    mkdirSync(globalDir, { recursive: true });
-    writeFileSync(join(globalDir, "after-task.update.mjs"), `// global\n`);
-    const resolved = resolveHookFile(projectDir, "after", "task.update", home);
-    expect(isHookConflict(resolved)).toBe(true);
-    if (!isHookConflict(resolved)) throw new Error("expected conflict");
-    expect(resolved.files).toEqual([
-      stdioFile,
-      join(dir, "after-task.update.hook.mjs"),
-      tsFile,
-    ]);
-  });
-
-  it("bare .ts/.mts siblings are refused loudly, never executed", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    const tsFile = join(dir, "after-task.update.ts");
-    writeFileSync(tsFile, `// wrong extension\n`);
-    expect(refusedSibling(dir, "after", "task.update")).toBe(tsFile);
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
-    rmSync(tsFile);
-    const mtsFile = join(dir, "after-task.update.mts");
-    writeFileSync(mtsFile, `// wrong extension\n`);
-    expect(refusedSibling(dir, "after", "task.update")).toBe(mtsFile);
-    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
   });
 
   it("a .hook.ts peer does not shadow a refused bare .ts (refusal wins by absence)", () => {
-    // Both present: the executable .hook.ts resolves; the bare .ts stays
-    // refused-loud via refusedSibling (emit reports HOOK_BAD_EXTENSION).
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.ts"), `// wrong extension\n`);
-    const hookFile = writeTsHook("after-task.update.hook.ts");
-    const resolved = expectResolved(
-      resolveHookFile(projectDir, "after", "task.update", home),
-    );
+    writeFileSync(join(dir, "tasks.after.ts"), `// wrong extension\n`);
+    const hookFile = writeTsHook("tasks.after.hook.ts");
+    const resolved = expectResolved(resolveHookFile(projectDir, "tasks", "after", opts()));
     expect(resolved.file).toBe(hookFile);
     expect(resolved.mode).toBe("module-ts");
-    expect(refusedSibling(dir, "after", "task.update")).toBe(
-      join(dir, "after-task.update.ts"),
-    );
+    expect(refusedSibling(dir, "tasks", "after")).toBe(join(dir, "tasks.after.ts"));
   });
 });
 
-describe("reportUnknownHookEvents with TypeScript peers (Stage 4)", () => {
-  it("a known-event .hook.ts peer is not an unknown event", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.hook.ts"), `export default () => ({});\n`);
-    const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    expect(lines).toHaveLength(0);
+describe("parseHookFileName (grammar unit)", () => {
+  it("parses all four executable suffixes with tool + phase", () => {
+    expect(parseHookFileName("tasks.after.mjs")).toEqual({
+      tool: "tasks",
+      phase: "after",
+      executable: true,
+      mode: "stdio",
+    });
+    expect(parseHookFileName("auth.login.before.hook.mjs")).toEqual({
+      tool: "auth.login",
+      phase: "before",
+      executable: true,
+      mode: "module",
+    });
+    expect(parseHookFileName("create_task.after.hook.ts")).toEqual({
+      tool: "create_task",
+      phase: "after",
+      executable: true,
+      mode: "module-ts",
+    });
+    expect(parseHookFileName("verify.before.hook.mts")).toEqual({
+      tool: "verify",
+      phase: "before",
+      executable: true,
+      mode: "module-ts",
+    });
   });
 
-  it("an unknown-event .hook.ts peer is reported once, not interpreted", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.quuz.hook.ts"), `export default () => ({});\n`);
-    const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("HOOK_UNKNOWN_EVENT");
-    expect(lines[0]).toContain("task.quuz");
-  });
-
-  it("a bare unknown .ts file stays silent (refusedSibling owns bare names)", () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.quux.ts"), `// bare\n`);
-    const lines: string[] = [];
-    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
-    expect(lines).toHaveLength(0);
+  it("marks refused suffixes non-executable and ignores non-hook names", () => {
+    expect(parseHookFileName("tasks.after.js")?.executable).toBe(false);
+    expect(parseHookFileName("tasks.before.cjs")?.executable).toBe(false);
+    expect(parseHookFileName("tasks.after.ts")?.executable).toBe(false);
+    expect(parseHookFileName("trust.json")).toBeNull();
+    expect(parseHookFileName("bypass-audit.log")).toBeNull();
   });
 });

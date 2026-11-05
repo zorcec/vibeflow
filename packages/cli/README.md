@@ -500,22 +500,27 @@ Agents can also run directly from the Kanban board via `POST /api/agent/run`, wh
 
 ## Agent hooks
 
-After-hooks run a command you own after a confirmed durable effect (for example `task.update`) and append the returned `instructions` to the agent's prompt. Hooks are child processes only — never in-process — and after-hooks fail open on a 2 s per-invocation deadline: timeouts, non-zero exits, and bad output are one stderr line, never a thrown error.
+One hook file per TOOL (`tasks.after.mjs`, `kanban.after.mjs`,
+`create_task.before.mjs`, …) covering every CLI command and all 13 MCP
+tools — see the tool key table in `docs/agent-hooks.md`. Hooks are child
+processes only — never in-process. Before-hooks gate writes (fail-closed);
+after-hooks whisper instructions into the agent prompt (fail-open) on a 2 s
+per-invocation deadline.
 
 Three deterministic filename modes, chosen by extension only (no auto-detection):
 
-- `after-<event>.mjs` — stdio protocol: the CLI writes one envelope JSON to stdin, the hook prints `{instructions: "..."}` or `{}` to stdout.
-- `after-<event>.hook.mjs` — module adapter: `export default` a function (async OK) that receives the full envelope as its ONE argument and returns the result. A packaged loader owns stdin/stdout in this mode — reading stdin or writing protocol output from module code is unsupported.
-- `after-<event>.hook.ts` / `after-<event>.hook.mts` — TypeScript module adapter: the same loader path, type-stripped on import. Erasable syntax only (annotations + `import type` are erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses the hook loudly (after skips, pre blocks the gated write).
+- `<tool>.before.mjs` / `<tool>.after.mjs` — stdio protocol: the CLI writes one envelope JSON to stdin, the hook prints `{instructions: "..."}` or `{}` to stdout.
+- `<tool>.before.hook.mjs` / `<tool>.after.hook.mjs` — module adapter: `export default` a function (async OK) that receives the full envelope as its ONE argument and returns the result. A packaged loader owns stdin/stdout in this mode — reading stdin or writing protocol output from module code is unsupported.
+- `<tool>.before.hook.mts` / `<tool>.after.hook.mts` / `<tool>.before.hook.ts` / `<tool>.after.hook.ts` — TypeScript module adapter: the same loader path, type-stripped on import. Erasable syntax only (annotations + `import type` are erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses the hook loudly.
 
-Precedence per `(phase, event)`: project `.vibeflow-hooks/after/` beats global `~/.vibeflow/hooks/after/` beats shipped defaults. The first level with any file wins; two or more files at the same level is a configuration error (`HOOK_CONFIG_CONFLICT` — no hook runs, no fallback to a lower level). Only `*.mjs` and `.hook.mjs`/`.hook.mts`/`.hook.ts` execute; `.js`/`.cjs`/bare-`.ts`/`.mts` are refused loudly; `VIBEFLOW_HOOKS=0` disables all hooks.
+Precedence per `(tool, phase)`: project `.vibeflow-hooks/` beats global `~/.vibeflow/hooks/` beats shipped defaults (read in place from the installed package — `~/.vibeflow/hooks/defaults/` is obsolete). The first level with any file wins; two or more files at the same level is a configuration error (`HOOK_CONFIG_CONFLICT` — no hook runs, no fallback to a lower level). Only `*.mjs` and `.hook.mjs`/`.hook.mts`/`.hook.ts` execute; `.js`/`.cjs`/bare-`.ts`/`.mts` are refused loudly; `VIBEFLOW_HOOKS=0` disables all hooks.
 
 ```js
-// .vibeflow-hooks/after/after-task.update.hook.mjs
+// .vibeflow-hooks/tasks.after.hook.mjs
 // @ts-check
 /** @type {import('@vibeflow-tools/cli/hooks').HookAfterHandler<'task.update'>} */
 export default async (envelope) => {
-  return { instructions: `saw ${envelope.event} (${envelope.payload.taskId})` };
+  return { instructions: `saw ${envelope.activity} (${envelope.payload.taskId})` };
 };
 ```
 
@@ -526,8 +531,6 @@ npm install --save-dev @vibeflow-tools/cli
 ```
 
 Trust is code-execution permission, not a sandbox: project hooks prompt once per entry-file hash (non-TTY refuses by design; `VIBEFLOW_TRUST_HOOKS=1` bypasses explicitly), and the hash covers the entry file only — not its imports. The child reads with your HOME, files, and network available.
-
----
 
 ## API
 

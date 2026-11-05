@@ -1,18 +1,22 @@
 /**
- * Emit tests (ADR-0006): the shared dispatch helper — action-scoped dedup
- * (discarded per invocation, never process-wide), envelope wiring,
- * trust/precedence integration, and the explicit kill-switch.
+ * Emit tests (ADR-0007): tool-scoped dispatch (scope.tool drives
+ * discovery), action-scoped dedup (discarded per invocation, never
+ * process-wide), envelope wiring, trust/precedence integration, and the
+ * explicit kill-switch.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
   createHookScope,
   emitAfterHook,
+  resetShippedMissingWarning,
   resolveHookActor,
   resolveHookBoardId,
 } from "../../../src/core/hooks/emit.js";
+import { resetUnrunnableHookWarnings } from "../../../src/core/hooks/discover.js";
 
 let projectDir: string;
 let home: string;
@@ -23,20 +27,45 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   VIBEFLOW_HOOKS: "1",
 };
 
+/** The repo's real committed defaults — the shipped root for fallback assertions. */
+const SRC_DEFAULTS = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "src",
+  "core",
+  "hooks",
+  "defaults",
+);
+
+const shippedOpts = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  home,
+  shippedDir: SRC_DEFAULTS,
+  ...extra,
+});
+
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), "hook-emit-proj-"));
   home = mkdtempSync(join(tmpdir(), "hook-emit-home-"));
   BASE_ENV.HOME = home;
+  resetUnrunnableHookWarnings();
+  resetShippedMissingWarning();
 });
 
-function writeProjectHook(event = "task.update", body?: string): string {
-  const dir = join(projectDir, ".vibeflow-hooks", "after");
+function hooksDir(root: string = projectDir): string {
+  const dir = join(root, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `after-${event}.mjs`);
+  return dir;
+}
+
+function writeProjectHook(tool = "tasks", body?: string): string {
+  const dir = hooksDir();
+  const file = join(dir, `${tool}.after.mjs`);
   writeFileSync(
     file,
     body ??
-      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"scoped:"+JSON.parse(s).event}))});`,
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"scoped:"+JSON.parse(s).tool}))});`,
   );
   return file;
 }
@@ -50,7 +79,7 @@ describe("emitAfterHook", () => {
       "task.update",
       { taskId: "abc", changed: ["status"] },
       {
-        home,
+        ...(shippedOpts() as { home: string; shippedDir: string }),
         env: { ...BASE_ENV, VIBEFLOW_HOOKS: "0", VIBEFLOW_TRUST_HOOKS: "1" },
       },
     );
@@ -65,7 +94,7 @@ describe("emitAfterHook", () => {
       "task.update",
       { taskId: "abc", changed: ["status"] },
       {
-        home,
+        ...(shippedOpts() as { home: string; shippedDir: string }),
         env: { ...BASE_ENV, VIBEFLOW_IN_HOOK: "1", VIBEFLOW_TRUST_HOOKS: "1" },
       },
     );
@@ -79,9 +108,44 @@ describe("emitAfterHook", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+      {
+        ...(shippedOpts() as { home: string; shippedDir: string }),
+        env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" },
+      },
     );
-    expect(out).toEqual(["scoped:task.update"]);
+    expect(out).toEqual(["scoped:tasks"]);
+  });
+
+  it("scope.tool drives discovery: a kanban.after.mjs never runs for tasks", async () => {
+    writeProjectHook(
+      "kanban",
+      `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({instructions:"wrong-tool"}))});`,
+    );
+    // tasks scope: the kanban file must NOT run (and no shipped task
+    // default either — shippedDir is empty here).
+    const emptyShipped = mkdtempSync(join(tmpdir(), "hook-emit-empty-shipped-"));
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope({ tool: "tasks", surface: "cli" }),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, shippedDir: emptyShipped, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+    );
+    expect(out).toEqual([]);
+    // kanban scope: the same file runs.
+    const kanbanOut = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope({ tool: "kanban", surface: "cli" }),
+      null,
+      null,
+      {
+        home,
+        shippedDir: emptyShipped,
+        env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" },
+      },
+      { activityObject: { url: "http://localhost:3700" } },
+    );
+    expect(kanbanOut).toEqual(["wrong-tool"]);
   });
 
   it("dedups the same effect within one action scope", async () => {
@@ -93,16 +157,16 @@ describe("emitAfterHook", () => {
       scope,
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env },
     );
     const second = await emitAfterHook(
       { projectDir, mode: "local" },
       scope,
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env },
     );
-    expect(first).toEqual(["scoped:task.update"]);
+    expect(first).toEqual(["scoped:tasks"]);
     expect(second).toEqual([]);
   });
 
@@ -112,41 +176,40 @@ describe("emitAfterHook", () => {
     const ctx = { projectDir, mode: "local" } as const;
     const payload = { taskId: "abc", changed: ["status"] } as const;
     const first = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
-      home,
+      ...(shippedOpts() as { home: string; shippedDir: string }),
       env,
     });
     const second = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
-      home,
+      ...(shippedOpts() as { home: string; shippedDir: string }),
       env,
     });
-    expect(first).toEqual(["scoped:task.update"]);
-    expect(second).toEqual(["scoped:task.update"]);
+    expect(first).toEqual(["scoped:tasks"]);
+    expect(second).toEqual(["scoped:tasks"]);
   });
 
-  it("different events in one scope both run (no cross-event suppression)", async () => {
-    writeProjectHook("task.update");
+  it("different activities in one scope both run (no cross-activity suppression)", async () => {
     writeProjectHook(
-      "task.comment",
-      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"comment-ok"}))});`,
+      "tasks",
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:"saw:"+e.activity}))});`,
     );
     const env = { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" };
     const ctx = { projectDir, mode: "local" } as const;
     const scope = createHookScope();
-    const update = await emitAfterHook(ctx, scope, "task.update", { taskId: "a", changed: ["title"] }, { home, env });
+    const update = await emitAfterHook(ctx, scope, "task.update", { taskId: "a", changed: ["title"] }, { ...(shippedOpts() as { home: string; shippedDir: string }), env });
     const comment = await emitAfterHook(
       ctx,
       scope,
       "task.comment",
       { taskId: "a", commentId: "c1" },
-      { home, env },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env },
     );
-    expect(update).toEqual(["scoped:task.update"]);
-    expect(comment).toEqual(["comment-ok"]);
+    expect(update).toEqual(["saw:task.update"]);
+    expect(comment).toEqual(["saw:task.comment"]);
   });
 
   it("failed hooks resolve to [] (fail-open, values not throws)", async () => {
     writeProjectHook(
-      "task.delete",
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write("garbage")});`,
     );
     const out = await emitAfterHook(
@@ -154,7 +217,10 @@ describe("emitAfterHook", () => {
       createHookScope(),
       "task.delete",
       { taskId: "abc", childCount: 0 },
-      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+      {
+        ...(shippedOpts() as { home: string; shippedDir: string }),
+        env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" },
+      },
     );
     expect(out).toEqual([]);
   });
@@ -166,7 +232,10 @@ describe("emitAfterHook", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: { ...BASE_ENV } },
+      {
+        ...(shippedOpts() as { home: string; shippedDir: string }),
+        env: { ...BASE_ENV },
+      },
     );
     expect(out).toEqual([]);
   });
@@ -177,10 +246,39 @@ describe("emitAfterHook", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: { ...BASE_ENV } },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: { ...BASE_ENV } },
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('NEVER set a task status to "done"');
+  });
+
+  it("a shipped file that symlinks out is refused (HOOK_SHIPPED_ESCAPED), not trusted", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "hook-emit-outside-"));
+    const evil = join(outside, "evil.mjs");
+    writeFileSync(evil, `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({instructions:"evil"}))});\n`);
+    const tainted = mkdtempSync(join(tmpdir(), "hook-emit-tainted-"));
+    const { symlinkSync: ln } = await import("node:fs");
+    ln(evil, join(tainted, "tasks.after.mjs"));
+    const lines: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      lines.push(String(c));
+      return true;
+    };
+    try {
+      const out = await emitAfterHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { taskId: "abc", changed: ["status"] },
+        { home, shippedDir: tainted, env: { ...BASE_ENV } },
+      );
+      expect(out).toEqual([]);
+    } finally {
+      process.stderr.write = orig;
+    }
+    expect(lines.join("")).toContain("HOOK_SHIPPED_ESCAPED");
   });
 
   it("resolves the actor: context user, then VIBEFLOW_ACTOR, then user", () => {
@@ -202,17 +300,20 @@ describe("emitAfterHook", () => {
     expect(resolveHookBoardId({ projectDir, mode: "local" })).toBeNull();
   });
 
-  it("threads task/activityObject/instructions extras into the hook envelope (ticket 431ee1c0)", async () => {
+  it("threads tool/surface/task/activityObject/instructions extras into the hook envelope", async () => {
     writeProjectHook(
-      "task.update",
-      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({task:e.task,activityObject:e.activityObject,instructions:e.instructions,payload:e.payload})}))});`,
+      "tasks",
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({tool:e.tool,surface:e.surface,activity:e.activity,task:e.task,activityObject:e.activityObject,instructions:e.instructions,payload:e.payload})}))});`,
     );
     const out = await emitAfterHook(
       { projectDir, mode: "local" },
-      createHookScope(),
+      createHookScope({ tool: "tasks", surface: "cli" }),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+      {
+        ...(shippedOpts() as { home: string; shippedDir: string }),
+        env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" },
+      },
       {
         task: { id: "abc", title: "t", status: "in-progress" },
         activityObject: { changed: ["status"] },
@@ -223,6 +324,9 @@ describe("emitAfterHook", () => {
     const seen = JSON.parse(out[0]);
     // The legacy payload is byte-identical; the generic fields arrive
     // alongside it.
+    expect(seen.tool).toBe("tasks");
+    expect(seen.surface).toBe("cli");
+    expect(seen.activity).toBe("task.update");
     expect(seen.payload).toEqual({ taskId: "abc", changed: ["status"] });
     expect(seen.task).toEqual({ id: "abc", title: "t", status: "in-progress" });
     expect(seen.activityObject).toEqual({ changed: ["status"] });
@@ -232,39 +336,42 @@ describe("emitAfterHook", () => {
   it("defaults to task:null with no activityObject when no extras are passed", async () => {
     writeProjectHook(
       "push",
-      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({task:e.task,hasActivity:"activityObject" in e,instructions:e.instructions})}))});`,
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({tool:e.tool,task:e.task,hasActivity:"activityObject" in e,instructions:e.instructions})}))});`,
     );
     const out = await emitAfterHook(
       { projectDir, mode: "saas" },
-      createHookScope(),
+      createHookScope({ tool: "push", surface: "cli" }),
       "push",
       { taskCount: 1, chunkCount: 1, transport: "remote" },
-      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+      {
+        ...(shippedOpts() as { home: string; shippedDir: string }),
+        env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" },
+      },
     );
     expect(out).toHaveLength(1);
     const seen = JSON.parse(out[0]);
+    expect(seen.tool).toBe("push");
     expect(seen.task).toBeNull();
     expect(seen.hasActivity).toBe(false);
     expect(seen.instructions).toBe("");
   });
 });
 
-describe("module peers (Stage 1.5, ADR-0006)", () => {
-  function writeProjectModuleHook(event = "task.update", body?: string): string {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    const file = join(dir, `after-${event}.hook.mjs`);
+describe("module peers (kept from v1, flat names)", () => {
+  function writeProjectModuleHook(tool = "tasks", body?: string): string {
+    const dir = hooksDir();
+    const file = join(dir, `${tool}.after.hook.mjs`);
     writeFileSync(
       file,
-      body ?? `export default async (envelope) => ({ instructions: "module:" + envelope.event });`,
+      body ?? `export default async (envelope) => ({ instructions: "module:" + envelope.tool });`,
     );
     return file;
   }
 
-  function writeGlobalStdioHook(event = "task.update", instructions = "global-ok"): string {
-    const dir = join(home, ".vibeflow", "hooks", "after");
+  function writeGlobalStdioHook(tool = "tasks", instructions = "global-ok"): string {
+    const dir = join(home, ".vibeflow", "hooks");
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `after-${event}.mjs`);
+    const file = join(dir, `${tool}.after.mjs`);
     writeFileSync(
       file,
       `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:${JSON.stringify(instructions)}}))});`,
@@ -272,7 +379,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
     return file;
   }
 
-  function captureStderr() {
+  function captureStderr(): { lines: string[]; restore: () => void } {
     const lines: string[] = [];
     const orig = process.stderr.write.bind(process.stderr);
     // @ts-expect-error intercept for assertion
@@ -295,9 +402,9 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: TRUSTED_ENV },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
     );
-    expect(out).toEqual(["module:task.update"]);
+    expect(out).toEqual(["module:tasks"]);
   });
 
   it("project module beats global stdio (first level wins)", async () => {
@@ -308,17 +415,17 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: TRUSTED_ENV },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
     );
-    expect(out).toEqual(["module:task.update"]);
+    expect(out).toEqual(["module:tasks"]);
   });
 
   it("same-level conflict fails open with HOOK_CONFIG_CONFLICT and no lower-level default", async () => {
     writeProjectHook(
-      "task.update",
+      "tasks",
       `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"must not run"}))});`,
     );
-    writeProjectModuleHook("task.update", `export default async () => ({ instructions: "must not run" });`);
+    writeProjectModuleHook("tasks", `export default async () => ({ instructions: "must not run" });`);
     const { lines, restore } = captureStderr();
     try {
       const out = await emitAfterHook(
@@ -326,7 +433,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
         createHookScope(),
         "task.update",
         { taskId: "abc", changed: ["status"] },
-        { home, env: TRUSTED_ENV },
+        { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
       );
       expect(out).toEqual([]);
     } finally {
@@ -342,7 +449,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
   it("a failing module hook never falls back to a lower level (single spawn, no retry)", async () => {
     const marker = join(projectDir, "marker.log");
     writeProjectModuleHook(
-      "task.update",
+      "tasks",
       `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, "spawn\\n");\nprocess.exit(3);\n`,
     );
     writeGlobalStdioHook();
@@ -353,7 +460,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
         createHookScope(),
         "task.update",
         { taskId: "abc", changed: ["status"] },
-        { home, env: TRUSTED_ENV },
+        { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
       );
       expect(out).toEqual([]);
     } finally {
@@ -373,7 +480,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
       "task.update",
       { taskId: "abc", changed: ["status"] },
       // No VIBEFLOW_TRUST_HOOKS: non-TTY cannot prompt → refused.
-      { home, env: { ...BASE_ENV } },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: { ...BASE_ENV } },
     );
     expect(out).toEqual([]);
   });
@@ -388,7 +495,7 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: { ...BASE_ENV } },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: { ...BASE_ENV } },
     );
     expect(out).toEqual([]);
   });
@@ -399,16 +506,15 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
     const outside = mkd(join(tmpdir(), "hook-emit-outside-"));
     const evil = join(outside, "evil.hook.mjs");
     writeFileSync(evil, `export default async () => ({ instructions: "evil" });\n`);
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    ln(evil, join(dir, "after-task.update.hook.mjs"));
+    const dir = hooksDir();
+    ln(evil, join(dir, "tasks.after.hook.mjs"));
     writeGlobalStdioHook();
     const out = await emitAfterHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: TRUSTED_ENV },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
     );
     expect(out).toEqual([]);
   });
@@ -416,17 +522,17 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
   it("repeated same-task module actions each execute (marker count 2)", async () => {
     const marker = join(projectDir, "count.log");
     writeProjectModuleHook(
-      "task.update",
+      "tasks",
       `import { appendFileSync } from "node:fs";\nexport default async (envelope) => { appendFileSync(${JSON.stringify(marker)}, "run\\n"); return { instructions: "n:" + envelope.payload.taskId }; };\n`,
     );
     const ctx = { projectDir, mode: "local" } as const;
     const payload = { taskId: "abc", changed: ["status"] } as const;
     const first = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
-      home,
+      ...(shippedOpts() as { home: string; shippedDir: string }),
       env: TRUSTED_ENV,
     });
     const second = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
-      home,
+      ...(shippedOpts() as { home: string; shippedDir: string }),
       env: TRUSTED_ENV,
     });
     expect(first).toEqual(["n:abc"]);
@@ -436,21 +542,20 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
   });
 });
 
-describe("TypeScript peers (Stage 4, ADR-0006)", () => {
-  function writeProjectTsHook(event = "task.update", body?: string): string {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    const file = join(dir, `after-${event}.hook.ts`);
+describe("TypeScript peers (kept from v1, flat names)", () => {
+  function writeProjectTsHook(tool = "tasks", body?: string): string {
+    const dir = hooksDir();
+    const file = join(dir, `${tool}.after.hook.ts`);
     writeFileSync(
       file,
       body ??
         `import type { HookAfterResult } from "@vibeflow-tools/cli/hooks";\n` +
-          `export default async (envelope: { event: string }): Promise<HookAfterResult> => ({ instructions: "ts:" + envelope.event });\n`,
+          `export default async (envelope: { activity: unknown }): Promise<HookAfterResult> => ({ instructions: "ts:" + String(envelope.activity) });\n`,
     );
     return file;
   }
 
-  function captureStderr() {
+  function captureStderr(): { lines: string[]; restore: () => void } {
     const lines: string[] = [];
     const orig = process.stderr.write.bind(process.stderr);
     // @ts-expect-error intercept for assertion
@@ -470,15 +575,14 @@ describe("TypeScript peers (Stage 4, ADR-0006)", () => {
       createHookScope(),
       "task.update",
       { taskId: "abc", changed: ["status"] },
-      { home, env: TRUSTED_ENV },
+      { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
     );
     expect(out).toEqual(["ts:task.update"]);
   });
 
   it("a stdio+.hook.ts same-level conflict fails open and names every file", async () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.mjs"), `// stdio\n`);
+    const dir = hooksDir();
+    writeFileSync(join(dir, "tasks.after.mjs"), `// stdio\n`);
     const tsFile = writeProjectTsHook();
     const { lines, restore } = captureStderr();
     try {
@@ -487,7 +591,7 @@ describe("TypeScript peers (Stage 4, ADR-0006)", () => {
         createHookScope(),
         "task.update",
         { taskId: "abc", changed: ["status"] },
-        { home, env: TRUSTED_ENV },
+        { ...(shippedOpts() as { home: string; shippedDir: string }), env: TRUSTED_ENV },
       );
       expect(out).toEqual([]);
     } finally {
@@ -496,6 +600,6 @@ describe("TypeScript peers (Stage 4, ADR-0006)", () => {
     const stderr = lines.join("");
     expect(stderr).toContain("HOOK_CONFIG_CONFLICT");
     expect(stderr).toContain(tsFile);
-    expect(stderr).toContain("after-task.update.mjs");
+    expect(stderr).toContain("tasks.after.mjs");
   });
 });

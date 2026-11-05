@@ -1,10 +1,11 @@
 # ADR-0006: agent hooks are operation-owned child processes with replace-not-merge defaults
 
-- Status: accepted
+- Status: superseded by ADR-0007
 - Date: 2026-11-05
 - Governed: `packages/cli/src/core/hooks/`
-- Reviewed: 2026-11-05
+- Reviewed: 2026-11-06
 - Decided by: owner (ticket 21f80286b972bceabe4d9660c526f3, Sol review approve-with-changes)
+- Superseded: 2026-11-06 by ADR-0007 (tool-keyed files, in-package defaults)
 
 ## Background
 

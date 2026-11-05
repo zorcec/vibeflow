@@ -29,6 +29,7 @@ import type {
   LocalArtifactStore,
   TaskStore,
 } from "./task-store.js";
+import type { HookScope } from "./hooks/emit.js";
 
 export interface OperationContext {
   projectDir: string;
@@ -43,6 +44,14 @@ export interface OperationContext {
    * audit record); after-hooks still run.
    */
   hookBypass?: boolean;
+  /**
+   * Invocation-scoped hook identity (ADR-0007): set once per tool
+   * invocation by the CLI `toolAction` wrapper / the MCP dispatch, read by
+   * the owning operation for every emit in that invocation. Absent in
+   * direct unit-test callers — operations fall back to
+   * `ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity(activity), surface: "cli" })`.
+   */
+  hookScope?: HookScope;
   store?: TaskStore;
   artifacts?: LocalArtifactStore;
 }
@@ -247,6 +256,8 @@ export async function getProject(
   // name/branch from the same absolute path, so the handshake announcement
   // and this tool always report identical values.
   const abs = resolve(ctx.projectDir);
+  const { emitReadHook } = await import("./hooks/emit.js");
+  const readInstructions = await emitReadHook(ctx, ctx.hookScope, "get_project", {});
   return {
     ok: true,
     data: {
@@ -255,6 +266,7 @@ export async function getProject(
       branch: getCurrentBranch(abs),
       mode: ctx.mode,
     },
+    ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
   };
 }
 
@@ -392,7 +404,7 @@ export async function pushTasks(
  * first, so a client never mistakes a hypothetical URL for a live one.
  */
 export async function getIntegrationGuide(
-  _ctx: OperationContext,
+  ctx: OperationContext,
   _input: GetIntegrationGuideInputType,
 ): Promise<OperationResult<unknown>> {
   try {
@@ -410,8 +422,11 @@ export async function getIntegrationGuide(
       : buildIntegrationGuide(
           resolveDisplayUrl("localhost", DEFAULT_KANBAN_PORT),
         );
+    const { emitReadHook } = await import("./hooks/emit.js");
+    const readInstructions = await emitReadHook(ctx, ctx.hookScope, "get_integration_guide", {});
     return {
       ok: true,
+      ...(readInstructions.length > 0 ? { instructions: readInstructions } : {}),
       data: {
         serverRunning: !!instance,
         url: guide.url,

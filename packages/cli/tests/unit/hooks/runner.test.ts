@@ -98,7 +98,7 @@ describe("runAfterHook", () => {
 
   it("does not spawn when already inside a hook (VIBEFLOW_IN_HOOK=1)", async () => {
     const file = writeHook("never.mjs", `process.exit(99);`);
-    const result = await runAfterHook("task.update", file, "{}", {
+    const result = await runAfterHook("tasks", file, "{}", {
       cwd: dir,
       env: testEnv({ [HOOK_GUARD_ENV]: "1" }),
     });
@@ -172,7 +172,7 @@ describe("runAfterHook", () => {
       `process.stdin.resume();setInterval(()=>{},1000);`,
     );
     const start = Date.now();
-    const result = await runAfterHook("task.comment", file, "{}", {
+    const result = await runAfterHook("tasks", file, "{}", {
       cwd: dir,
       env: testEnv(),
       timeoutMs: 300,
@@ -187,7 +187,7 @@ describe("runAfterHook", () => {
       "flood.mjs",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write("x".repeat(100000))});`,
     );
-    const result = await runAfterHook("task.delete", file, "{}", {
+    const result = await runAfterHook("tasks", file, "{}", {
       cwd: dir,
       env: testEnv(),
       maxBytes: 1024,
@@ -204,7 +204,7 @@ describe("runAfterHook", () => {
       "env.mjs",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({instructions:JSON.stringify(process.env)}))});`,
     );
-    const result = await runAfterHook("task.create", file, "{}", {
+    const result = await runAfterHook("tasks", file, "{}", {
       cwd: dir,
       env: testEnv({ SECRET_SHOULD_NOT_LEAK: "s3cr3t" }),
     });
@@ -240,7 +240,7 @@ describe("runAfterHook", () => {
       return true;
     };
     try {
-      const result = await runAfterHook("task.claim", file, "{}", {
+      const result = await runAfterHook("tasks", file, "{}", {
         cwd: dir,
         env: testEnv(),
       });
@@ -249,7 +249,7 @@ describe("runAfterHook", () => {
       process.stderr.write = origErr;
       process.stdout.write = origOut;
     }
-    expect(errLines.join("")).toContain("hook task.claim: a note");
+    expect(errLines.join("")).toContain("hook tasks: a note");
     expect(outLines.join("")).toBe("");
   });
 });
@@ -282,14 +282,14 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
       "mod-sync.hook.mjs",
       `export default (envelope) => ({ instructions: [envelope.event, envelope.phase, envelope.payload.taskId, envelope.actor].join(":") });`,
     );
-    const first = await runAfterHook("task.update", sync, ENVELOPE, moduleOpts());
+    const first = await runAfterHook("tasks", sync, ENVELOPE, moduleOpts());
     expect(first).toEqual({ ran: true, instructions: "task.update:after:abc:tester" });
 
     const asyncHook = writeModuleHook(
       "mod-async.hook.mjs",
       `export default async (envelope) => ({ instructions: "async:" + envelope.payload.changed.join(",") });`,
     );
-    const second = await runAfterHook("task.update", asyncHook, ENVELOPE, moduleOpts());
+    const second = await runAfterHook("tasks", asyncHook, ENVELOPE, moduleOpts());
     expect(second).toEqual({ ran: true, instructions: "async:status" });
   });
 
@@ -330,7 +330,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
 
   it("rejects undefined returns as HOOK_NONZERO_EXIT (never a silent no-op)", async () => {
     const file = writeModuleHook("mod-undef.hook.mjs", `export default () => undefined;`);
-    expect(await runAfterHook("task.update", file, ENVELOPE, moduleOpts())).toEqual({
+    expect(await runAfterHook("tasks", file, ENVELOPE, moduleOpts())).toEqual({
       ran: false,
       reason: "HOOK_NONZERO_EXIT",
     });
@@ -343,7 +343,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
       ["mod-extra.hook.mjs", `export default () => ({ instructions: "x", extra: 1 });`],
     ] as Array<[string, string]>) {
       const file = writeModuleHook(name, body);
-      expect(await runAfterHook("task.update", file, ENVELOPE, moduleOpts())).toEqual({
+      expect(await runAfterHook("tasks", file, ENVELOPE, moduleOpts())).toEqual({
         ran: false,
         reason: "HOOK_BAD_OUTPUT",
       });
@@ -390,14 +390,14 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
       return true;
     };
     try {
-      expect(await runAfterHook("task.claim", file, ENVELOPE, moduleOpts())).toEqual({
+      expect(await runAfterHook("tasks", file, ENVELOPE, moduleOpts())).toEqual({
         ran: true,
         instructions: undefined,
       });
     } finally {
       process.stderr.write = origErr;
     }
-    expect(errLines.join("")).toContain("hook task.claim: module note");
+    expect(errLines.join("")).toContain("hook tasks: module note");
   });
 
   it("SIGKILLs a hung import/handler so the parent settles (HOOK_TIMEOUT)", async () => {
@@ -406,7 +406,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
       `await new Promise((resolve) => setTimeout(resolve, 60000));\nexport default () => ({});`,
     );
     const start = Date.now();
-    const result = await runAfterHook("task.comment", file, ENVELOPE, moduleOpts({ timeoutMs: 300 }));
+    const result = await runAfterHook("tasks", file, ENVELOPE, moduleOpts({ timeoutMs: 300 }));
     expect(result).toEqual({ ran: false, reason: "HOOK_TIMEOUT" });
     expect(Date.now() - start).toBeLessThan(5000);
   });
@@ -427,7 +427,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
       "mod-flood.hook.mjs",
       `export default () => ({ instructions: "x".repeat(100000) });`,
     );
-    const result = await runAfterHook("task.delete", file, ENVELOPE, moduleOpts({ maxBytes: 1024 }));
+    const result = await runAfterHook("tasks", file, ENVELOPE, moduleOpts({ maxBytes: 1024 }));
     expect(result).toEqual({ ran: false, reason: "HOOK_OUTPUT_LIMIT" });
   });
 
@@ -437,7 +437,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
     mkdirSync(weird, { recursive: true });
     const file = join(weird, "after-task.update.hook.mjs");
     write(file, `export default (envelope) => ({ instructions: "weird:" + envelope.event });\n`);
-    const result = await runAfterHook("task.update", file, ENVELOPE, moduleOpts());
+    const result = await runAfterHook("tasks", file, ENVELOPE, moduleOpts());
     expect(result).toEqual({ ran: true, instructions: "weird:task.update" });
   });
 
@@ -460,7 +460,7 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
   });
 });
 
-describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
+describe("runAfterHook/runBeforeHook module-ts mode (Stage 4, ADR-0006)", () => {
   const TS_ENVELOPE = JSON.stringify({
     schemaVersion: 1,
     event: "task.update",
@@ -512,7 +512,7 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
         `  return { instructions: "ts:" + seen.event + ":" + seen.taskId };\n` +
         `};\n`,
     );
-    const result = await runAfterHook("task.update", file, TS_ENVELOPE, tsOpts());
+    const result = await runAfterHook("tasks", file, TS_ENVELOPE, tsOpts());
     expect(result).toEqual({ ran: true, instructions: "ts:task.update:abc" });
   });
 
@@ -523,7 +523,7 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
         `export default async () => ({ instructions: \"must never run:\" + Color.Red });\n`,
     );
     const { value, err } = await captureStderr(() =>
-      runAfterHook("task.update", file, TS_ENVELOPE, tsOpts()),
+      runAfterHook("tasks", file, TS_ENVELOPE, tsOpts()),
     );
     expect(value).toEqual({ ran: false, reason: "HOOK_NONZERO_EXIT" });
     // Loud refusal: the loader names the cause, the runner names the policy.
@@ -533,35 +533,35 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
   });
 
   it("refuses non-erasable syntax fail-closed at the pre gate", async () => {
-    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+    const { runBeforeHook } = await import("../../../src/core/hooks/runner.js");
     const file = writeHook(
       "pre-non-erasable.hook.ts",
       `namespace Ns { export const x = 1; }\n` +
         `export default async () => ({ allow: true as boolean });\n`,
     );
     const { value, err } = await captureStderr(() =>
-      runPreHook("task.create", file, TS_ENVELOPE, tsOpts()),
+      runBeforeHook("taskscreate", file, TS_ENVELOPE, tsOpts()),
     );
     expect(value.allowed).toBe(false);
-    expect(value.reason).toBe("HOOK_PRE_NONZERO_EXIT");
+    expect(value.reason).toBe("HOOK_BEFORE_NONZERO_EXIT");
     expect(err).toContain("refusing gated write");
   });
 
   it("pre .hook.ts allow/deny round-trips on a supported runtime (phase policy unchanged)", async () => {
-    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+    const { runBeforeHook } = await import("../../../src/core/hooks/runner.js");
     const allow = writeHook(
       "pre-allow.hook.ts",
       `export default async (envelope: { event: string }): Promise<{ allow: true }> => ({ allow: true as const });\n`,
     );
-    const allowed = await runPreHook("task.create", allow, TS_ENVELOPE, tsOpts());
+    const allowed = await runBeforeHook("taskscreate", allow, TS_ENVELOPE, tsOpts());
     expect(allowed.allowed).toBe(true);
 
     const deny = writeHook(
       "pre-deny.hook.ts",
       `export default async (): Promise<{ allow: false; reason: string }> => ({ allow: false, reason: \"nope\" });\n`,
     );
-    const denied = await runPreHook("task.create", deny, TS_ENVELOPE, tsOpts());
-    expect(denied).toMatchObject({ allowed: false, reason: "HOOK_PRE_DENIED" });
+    const denied = await runBeforeHook("taskscreate", deny, TS_ENVELOPE, tsOpts());
+    expect(denied).toMatchObject({ allowed: false, reason: "HOOK_BEFORE_DENIED" });
   });
 
   it("unsupported runtime: after fails OPEN with one HOOK_TS_UNSUPPORTED line, never spawns", async () => {
@@ -570,7 +570,7 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
       `export default async () => { throw new Error("must not execute"); };\n`,
     );
     const { value, err } = await captureStderr(() =>
-      runAfterHook("task.update", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
+      runAfterHook("tasks", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
     );
     expect(value).toEqual({ ran: false, reason: "HOOK_TS_UNSUPPORTED" });
     expect(err).toContain("HOOK_TS_UNSUPPORTED");
@@ -580,17 +580,17 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
     expect(err.trim().split("\n")).toHaveLength(1);
   });
 
-  it("unsupported runtime: pre fails CLOSED with HOOK_PRE_TS_UNSUPPORTED, refusing the write", async () => {
-    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+  it("unsupported runtime: pre fails CLOSED with HOOK_BEFORE_TS_UNSUPPORTED, refusing the write", async () => {
+    const { runBeforeHook } = await import("../../../src/core/hooks/runner.js");
     const file = writeHook(
       "pre-never-spawned.hook.ts",
       `export default async () => ({ allow: true as const });\n`,
     );
     const { value, err } = await captureStderr(() =>
-      runPreHook("task.create", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
+      runBeforeHook("taskscreate", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
     );
-    expect(value).toEqual({ ran: false, allowed: false, reason: "HOOK_PRE_TS_UNSUPPORTED" });
-    expect(err).toContain("HOOK_PRE_TS_UNSUPPORTED");
+    expect(value).toEqual({ ran: false, allowed: false, reason: "HOOK_BEFORE_TS_UNSUPPORTED" });
+    expect(err).toContain("HOOK_BEFORE_TS_UNSUPPORTED");
     expect(err).toContain("refusing gated write");
     expect(err.trim().split("\n")).toHaveLength(1);
   });
@@ -603,7 +603,7 @@ describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
         `  return { instructions: "late" };\n` +
         `};\n`,
     );
-    const result = await runAfterHook("task.update", file, TS_ENVELOPE, tsOpts({ timeoutMs: 300 }));
+    const result = await runAfterHook("tasks", file, TS_ENVELOPE, tsOpts({ timeoutMs: 300 }));
     expect(result).toEqual({ ran: false, reason: "HOOK_TIMEOUT" });
   });
 });

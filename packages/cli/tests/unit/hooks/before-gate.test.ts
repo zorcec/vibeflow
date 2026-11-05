@@ -1,8 +1,8 @@
 /**
- * Pre-gate unit tests (Stage 2, ADR-0006, ticket wla7ci2wzbgaj5dqsrvh1j4o):
- * parsePreHookOutput (explicit allow / deny / malformed), emitPreHook
- * (allow, deny, bypass-notice+audit, conflict, untrusted, kill-switch),
- * preGateRefusal mapping, and the bypass audit helpers.
+ * Before-gate unit tests (ADR-0007): parseBeforeHookOutput (explicit
+ * allow / deny / malformed), emitBeforeHook (allow, deny,
+ * bypass-notice+audit, conflict, untrusted, kill-switch),
+ * beforeGateRefusal mapping, and the bypass audit helpers.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import {
@@ -10,26 +10,29 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
-  existsSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   createHookScope,
   emitAfterHook,
-  emitPreHook,
-  preGateRefusal,
+  emitBeforeHook,
+  beforeGateRefusal,
+  resetShippedMissingWarning,
 } from "../../../src/core/hooks/emit.js";
-import { parsePreHookOutput } from "../../../src/core/hooks/runner.js";
+import { parseBeforeHookOutput } from "../../../src/core/hooks/runner.js";
 import { buildHookEnvelope } from "../../../src/core/hooks/envelope.js";
 import {
   bypassAuditPath,
   formatBypassNotice,
   writeBypassAudit,
 } from "../../../src/core/hooks/bypass.js";
+import { resetUnrunnableHookWarnings } from "../../../src/core/hooks/discover.js";
 
 let projectDir: string;
 let home: string;
+/** Isolated shipped root (empty) — gates never see the real bundle tree. */
+let shippedDir: string;
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   PATH: process.env.PATH ?? "",
@@ -39,25 +42,30 @@ const BASE_ENV: NodeJS.ProcessEnv = {
 };
 
 beforeEach(() => {
-  projectDir = mkdtempSync(join(tmpdir(), "hook-pre-proj-"));
-  home = mkdtempSync(join(tmpdir(), "hook-pre-home-"));
+  projectDir = mkdtempSync(join(tmpdir(), "hook-before-proj-"));
+  home = mkdtempSync(join(tmpdir(), "hook-before-home-"));
+  shippedDir = mkdtempSync(join(tmpdir(), "hook-before-shipped-"));
   BASE_ENV.HOME = home;
+  resetUnrunnableHookWarnings();
+  resetShippedMissingWarning();
 });
 
-function writePreHook(
-  event = "task.update",
+const gateOpts = (): { home: string; shippedDir: string } => ({ home, shippedDir });
+
+function writeBeforeHook(
+  tool = "tasks",
   body = `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({allow:true}))});`,
 ): string {
-  const dir = join(projectDir, ".vibeflow-hooks", "pre");
+  const dir = join(projectDir, ".vibeflow-hooks");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `pre-${event}.mjs`);
+  const file = join(dir, `${tool}.before.mjs`);
   writeFileSync(file, body);
   return file;
 }
 
-describe("parsePreHookOutput", () => {
+describe("parseBeforeHookOutput", () => {
   it("accepts an explicit {allow:true}", () => {
-    expect(parsePreHookOutput(`{"allow":true}`)).toEqual({
+    expect(parseBeforeHookOutput(`{"allow":true}`)).toEqual({
       ok: true,
       decision: { allow: true },
     });
@@ -65,22 +73,22 @@ describe("parsePreHookOutput", () => {
 
   it("accepts {allow:true} with string instructions", () => {
     expect(
-      parsePreHookOutput(`{"allow":true,"instructions":"do x"}`),
+      parseBeforeHookOutput(`{"allow":true,"instructions":"do x"}`),
     ).toEqual({ ok: true, decision: { allow: true, instructions: "do x" } });
   });
 
   it("accepts {allow:false,reason} with a non-empty reason", () => {
-    expect(parsePreHookOutput(`{"allow":false,"reason":"no"}`)).toEqual({
+    expect(parseBeforeHookOutput('{"allow":false,"reason":"no"}')).toEqual({
       ok: true,
       decision: { allow: false, reason: "no" },
     });
   });
 
-  it("rejects empty stdout, non-JSON, and missing allow as HOOK_PRE_MALFORMED", () => {
+  it("rejects empty stdout, non-JSON, and missing allow as HOOK_BEFORE_MALFORMED", () => {
     for (const bad of ["", "   ", "not json", `{}`, `{"instructions":"x"}`]) {
-      expect(parsePreHookOutput(bad)).toEqual({
+      expect(parseBeforeHookOutput(bad)).toEqual({
         ok: false,
-        reason: "HOOK_PRE_MALFORMED",
+        reason: "HOOK_BEFORE_MALFORMED",
       });
     }
   });
@@ -93,44 +101,44 @@ describe("parsePreHookOutput", () => {
       `{"allow":false,"reason":"x","extra":1}`,
       `{"allow":true,"instructions":42}`,
     ]) {
-      expect(parsePreHookOutput(bad)).toEqual({
+      expect(parseBeforeHookOutput(bad)).toEqual({
         ok: false,
-        reason: "HOOK_PRE_MALFORMED",
+        reason: "HOOK_BEFORE_MALFORMED",
       });
     }
   });
 
   it("rejects non-boolean allow", () => {
-    expect(parsePreHookOutput(`{"allow":"yes"}`)).toEqual({
+    expect(parseBeforeHookOutput(`{"allow":"yes"}`)).toEqual({
       ok: false,
-      reason: "HOOK_PRE_MALFORMED",
+      reason: "HOOK_BEFORE_MALFORMED",
     });
   });
 });
 
-describe("emitPreHook", () => {
+describe("emitBeforeHook", () => {
   it("allows when no hook file exists anywhere (nothing to enforce)", async () => {
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out).toEqual({ allowed: true, instructions: [], bypassed: false });
   });
 
   it("allows on {allow:true} and carries replacement instructions", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({allow:true,instructions:"updated draft"}))});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
-      createHookScope(),
+      createHookScope({ tool: "tasks", surface: "cli" }),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out.allowed).toBe(true);
     expect(out.instructions).toEqual(["updated draft"]);
@@ -138,147 +146,148 @@ describe("emitPreHook", () => {
   });
 
   it("denies on {allow:false,reason} with the hook's own reason", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({allow:false,reason:"frozen board"}))});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out.allowed).toBe(false);
-    expect(out.code).toBe("HOOK_PRE_DENIED");
+    expect(out.code).toBe("HOOK_BEFORE_DENIED");
     expect(out.reason).toBe("frozen board");
   });
 
   it("blocks on garbage stdout (fail-closed, never a silent pass)", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write("garbage")});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out.allowed).toBe(false);
-    expect(out.code).toBe("HOOK_PRE_MALFORMED");
+    expect(out.code).toBe("HOOK_BEFORE_MALFORMED");
   });
 
   it("blocks on non-zero exit (fail-closed)", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.exit(3)});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out.allowed).toBe(false);
-    expect(out.code).toBe("HOOK_PRE_NONZERO_EXIT");
+    expect(out.code).toBe("HOOK_BEFORE_NONZERO_EXIT");
   });
 
   it("blocks on timeout (fail-closed)", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();setTimeout(()=>{process.stdout.write(JSON.stringify({allow:true}))},5000);`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV }, timeoutMs: 100 },
+      { ...gateOpts(), env: { ...BASE_ENV }, timeoutMs: 100 },
     );
     expect(out.allowed).toBe(false);
-    expect(out.code).toBe("HOOK_PRE_TIMEOUT");
+    expect(out.code).toBe("HOOK_BEFORE_TIMEOUT");
   });
 
   it("bypasses LOUDLY on --no-verify: allowed + bypassed, notice + audit record", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({allow:false,reason:"must not run"}))});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
-      createHookScope(),
+      createHookScope({ tool: "tasks", surface: "cli" }),
       "task.update",
       {
         payload: { taskId: "abc", changed: ["status"] },
         bypass: true,
         command: "tasks --edit",
       },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     // The denying hook never ran: bypass wins, but it is recorded.
     expect(out).toEqual({ allowed: true, instructions: [], bypassed: true });
     const auditLine = readFileSync(bypassAuditPath(home), "utf8").trim();
     const record = JSON.parse(auditLine) as Record<string, unknown>;
-    expect(record["event"]).toBe("task.update");
-    expect(record["phase"]).toBe("pre");
+    expect(record["tool"]).toBe("tasks");
+    expect(record["activity"]).toBe("task.update");
+    expect(record["phase"]).toBe("before");
     expect(record["command"]).toBe("tasks --edit");
     expect(record["reason"]).toBe("--no-verify");
     expect(typeof record["ts"]).toBe("string");
   });
 
   it("refuses on same-level stdio+module conflict (fail-closed, not open)", async () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "pre");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "pre-task.update.mjs"), "process.exit(0);");
+    writeFileSync(join(dir, "tasks.before.mjs"), "process.exit(0);");
     writeFileSync(
-      join(dir, "pre-task.update.hook.mjs"),
+      join(dir, "tasks.before.hook.mjs"),
       "export default async () => ({allow:true});",
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV } },
+      { ...gateOpts(), env: { ...BASE_ENV } },
     );
     expect(out.allowed).toBe(false);
     expect(out.code).toBe("HOOK_CONFIG_CONFLICT");
   });
 
   it("blocks an untrusted project hook (never an open gate)", async () => {
-    writePreHook();
-    const out = await emitPreHook(
+    writeBeforeHook();
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
       // No VIBEFLOW_TRUST_HOOKS: non-TTY cannot prompt, so trust refuses.
-      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: undefined } },
+      { ...gateOpts(), env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: undefined } },
     );
     expect(out.allowed).toBe(false);
-    expect(out.code).toBe("HOOK_PRE_UNTRUSTED");
+    expect(out.code).toBe("HOOK_BEFORE_UNTRUSTED");
   });
 
   it("returns allowed when the kill-switch is set (explicit, never silent)", async () => {
-    writePreHook(
-      "task.update",
+    writeBeforeHook(
+      "tasks",
       `process.stdin.resume();process.stdin.on("end",()=>{process.stdout.write(JSON.stringify({allow:false,reason:"must not run"}))});`,
     );
-    const out = await emitPreHook(
+    const out = await emitBeforeHook(
       { projectDir, mode: "local" },
       createHookScope(),
       "task.update",
       { payload: { taskId: "abc", changed: ["status"] } },
-      { home, env: { ...BASE_ENV, VIBEFLOW_HOOKS: "0" } },
+      { ...gateOpts(), env: { ...BASE_ENV, VIBEFLOW_HOOKS: "0" } },
     );
     expect(out).toEqual({ allowed: true, instructions: [], bypassed: false });
   });
 });
 
-describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
+describe("flat refusedSibling gate (ticket 746155ce, flat-dir equivalent)", () => {
   async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
     const lines: string[] = [];
     const orig = process.stderr.write;
@@ -295,21 +304,22 @@ describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
     return lines.join("");
   }
 
-  // The pre lookup lives in `.vibeflow-hooks/pre/` (same dir the gate
-  // must check — the bug checked the bare hooks root, so this stayed
-  // silent). Fails on the old code (no warning), passes on the fix.
-  it("warns HOOK_BAD_EXTENSION for a pre .js beside a valid pre .mjs (project level, right dir)", async () => {
-    writePreHook();
-    const bad = join(projectDir, ".vibeflow-hooks", "pre", "pre-task.update.js");
+  // The flat lookup lives in `.vibeflow-hooks/` (the same dir the gate
+  // must check — 623b164 moved the check from the bare hooks root into
+  // the `pre/` dir; the flat layout subsumes that special case). Fails on
+  // the old code (no warning), passes on the fix.
+  it("warns HOOK_BAD_EXTENSION for a before .js beside a valid before .mjs (flat, project level)", async () => {
+    writeBeforeHook();
+    const bad = join(projectDir, ".vibeflow-hooks", "tasks.before.js");
     writeFileSync(bad, `// wrong extension\n`);
-    let out!: Awaited<ReturnType<typeof emitPreHook>>;
+    let out!: Awaited<ReturnType<typeof emitBeforeHook>>;
     const stderr = await captureStderr(async () => {
-      out = await emitPreHook(
+      out = await emitBeforeHook(
         { projectDir, mode: "local" },
         createHookScope(),
         "task.update",
         { payload: { taskId: "abc", changed: ["status"] } },
-        { home, env: { ...BASE_ENV } },
+        { ...gateOpts(), env: { ...BASE_ENV } },
       );
     });
     expect(stderr).toContain("HOOK_BAD_EXTENSION");
@@ -318,66 +328,66 @@ describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
     expect(out.allowed).toBe(true);
   });
 
-  it("refuses .cjs for pre at the project level", async () => {
-    writePreHook();
-    const bad = join(projectDir, ".vibeflow-hooks", "pre", "pre-task.update.cjs");
+  it("refuses .cjs for before at the project level", async () => {
+    writeBeforeHook();
+    const bad = join(projectDir, ".vibeflow-hooks", "tasks.before.cjs");
     writeFileSync(bad, `// wrong extension\n`);
     const stderr = await captureStderr(async () => {
-      await emitPreHook(
+      await emitBeforeHook(
         { projectDir, mode: "local" },
         createHookScope(),
         "task.update",
         { payload: { taskId: "abc", changed: ["status"] } },
-        { home, env: { ...BASE_ENV } },
+        { ...gateOpts(), env: { ...BASE_ENV } },
       );
     });
     expect(stderr).toContain("HOOK_BAD_EXTENSION");
     expect(stderr).toContain(bad);
   });
 
-  it("warns for a pre .js at the global level", async () => {
-    const dir = join(home, ".vibeflow", "hooks", "pre");
+  it("warns for a before .js at the global level", async () => {
+    const dir = join(home, ".vibeflow", "hooks");
     mkdirSync(dir, { recursive: true });
-    const bad = join(dir, "pre-task.update.js");
+    const bad = join(dir, "tasks.before.js");
     writeFileSync(bad, `// wrong extension\n`);
     const stderr = await captureStderr(async () => {
-      await emitPreHook(
+      await emitBeforeHook(
         { projectDir, mode: "local" },
         createHookScope(),
         "task.update",
         { payload: { taskId: "abc", changed: ["status"] } },
-        { home, env: { ...BASE_ENV } },
+        { ...gateOpts(), env: { ...BASE_ENV } },
       );
     });
     expect(stderr).toContain("HOOK_BAD_EXTENSION");
     expect(stderr).toContain(bad);
   });
 
-  it("stays silent when the .js is NOT a sibling of the pre lookup dir (after/ only)", async () => {
-    writePreHook();
-    const afterDir = join(projectDir, ".vibeflow-hooks", "after");
-    mkdirSync(afterDir, { recursive: true });
-    writeFileSync(join(afterDir, "pre-task.update.js"), `// wrong dir\n`);
+  it("stays silent when the .js is NOT in a lookup dir (stale pre/ subdir)", async () => {
+    writeBeforeHook();
+    const staleDir = join(projectDir, ".vibeflow-hooks", "before");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(join(staleDir, "tasks.before.js"), `// wrong dir\n`);
     const stderr = await captureStderr(async () => {
-      await emitPreHook(
+      await emitBeforeHook(
         { projectDir, mode: "local" },
         createHookScope(),
         "task.update",
         { payload: { taskId: "abc", changed: ["status"] } },
-        { home, env: { ...BASE_ENV } },
+        { ...gateOpts(), env: { ...BASE_ENV } },
       );
     });
     expect(stderr).not.toContain("HOOK_BAD_EXTENSION");
   });
 
   it("after behaviour unchanged: an after .js beside a valid after .mjs still warns", async () => {
-    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    const dir = join(projectDir, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
-      join(dir, "after-task.update.mjs"),
+      join(dir, "tasks.after.mjs"),
       `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"ok"}))});`,
     );
-    const bad = join(dir, "after-task.update.js");
+    const bad = join(dir, "tasks.after.js");
     writeFileSync(bad, `// wrong extension\n`);
     let out!: string[];
     const stderr = await captureStderr(async () => {
@@ -386,7 +396,7 @@ describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
         createHookScope(),
         "task.update",
         { taskId: "abc", changed: ["status"] },
-        { home, env: { ...BASE_ENV } },
+        { ...gateOpts(), env: { ...BASE_ENV } },
       );
     });
     expect(stderr).toContain("HOOK_BAD_EXTENSION");
@@ -395,39 +405,39 @@ describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
   });
 });
 
-describe("preGateRefusal", () => {
+describe("beforeGateRefusal", () => {
   it("keeps the gate code and human reason verbatim (never renamed)", () => {
     expect(
-      preGateRefusal({
+      beforeGateRefusal({
         allowed: false,
-        code: "HOOK_PRE_DENIED",
+        code: "HOOK_BEFORE_DENIED",
         reason: "frozen board",
         instructions: [],
         bypassed: false,
       }),
-    ).toEqual({ code: "HOOK_PRE_DENIED", message: "frozen board" });
+    ).toEqual({ code: "HOOK_BEFORE_DENIED", message: "frozen board" });
   });
 });
 
 describe("bypass audit", () => {
-  it("formats the HOOK_BYPASSED notice with event + command", () => {
+  it("formats the HOOK_BYPASSED notice with tool + command", () => {
     expect(formatBypassNotice("push", "push")).toContain("HOOK_BYPASSED push");
     expect(formatBypassNotice("push", "push")).toContain("--no-verify");
   });
 
   it("appends one JSONL record per bypass (append-only, never throws)", () => {
     writeBypassAudit(
-      { event: "push", phase: "pre", command: "push", reason: "--no-verify" },
+      { tool: "push", activity: "push", phase: "before", command: "push", reason: "--no-verify" },
       home,
     );
     writeBypassAudit(
-      { event: "pull", phase: "pre", command: "pull", reason: "--no-verify" },
+      { tool: "pull", activity: "pull", phase: "before", command: "pull", reason: "--no-verify" },
       home,
     );
     const lines = readFileSync(bypassAuditPath(home), "utf8").trim().split("\n");
     expect(lines).toHaveLength(2);
-    expect((JSON.parse(lines[0]) as { event: string }).event).toBe("push");
-    expect((JSON.parse(lines[1]) as { event: string }).event).toBe("pull");
+    expect((JSON.parse(lines[0]) as { activity: string }).activity).toBe("push");
+    expect((JSON.parse(lines[1]) as { activity: string }).activity).toBe("pull");
   });
 
   it("an unwritable audit path warns but never throws", () => {
@@ -437,7 +447,7 @@ describe("bypass audit", () => {
     writeFileSync(blocker, "x");
     expect(() =>
       writeBypassAudit(
-        { event: "push", phase: "pre", command: "push", reason: "--no-verify" },
+        { tool: "push", activity: "push", phase: "before", command: "push", reason: "--no-verify" },
         join(blocker, "sub"),
       ),
     ).not.toThrow();
@@ -446,20 +456,23 @@ describe("bypass audit", () => {
   });
 });
 
-describe("pre-phase envelope", () => {
-  it("builds a pre envelope with INTENT payload and replaceable instructions", () => {
+describe("before-phase envelope", () => {
+  it("builds a before envelope with INTENT payload and replaceable instructions", () => {
     const envelope = buildHookEnvelope({
-      event: "task.create",
-      phase: "pre",
+      tool: "tasks",
+      surface: "cli",
+      activity: "task.create",
+      phase: "before",
       boardId: null,
       actor: "agent",
       payload: { title: "t" },
       task: { title: "t" },
       instructions: "",
     });
-    expect(envelope.phase).toBe("pre");
+    expect(envelope.phase).toBe("before");
     expect(envelope.payload).toEqual({ title: "t" });
     expect(envelope.activity).toBe("task.create");
+    expect(envelope.tool).toBe("tasks");
     expect(envelope.instructions).toBe("");
     // No generated id on a create intent.
     expect(envelope.payload).not.toHaveProperty("id");

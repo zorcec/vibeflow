@@ -23,6 +23,7 @@
     "dist/index.js",
     "dist/index.d.ts",
     "dist/hook-loader.mjs",
+    "dist/hooks/",
     "dist/cli/hook-loader.mjs",
     "dist/hooks.d.ts",
     "dist/openapi.json",

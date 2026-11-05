@@ -55,9 +55,10 @@ import type { EvidenceSet } from "../../commands/verify-tools.js";
 import {
   createHookScope,
   emitAfterHook,
-  emitPreHook,
-  preGateRefusal,
+  emitBeforeHook,
+  beforeGateRefusal,
 } from "../hooks/emit.js";
+import { defaultToolForActivity } from "../hooks/tools.js";
 
 // ── Shared id resolution ─────────────────────────────────────────────────
 
@@ -222,9 +223,9 @@ export async function verifyTaskOp(
     // Pre-gate (Stage 2, ADR-0006): verify RUN intent (no verdict — the
     // verdict exists only post-write). Deny/timeout/garbage/trust-fail
     // BLOCKS the run (fail-closed).
-    const verifyGate = await emitPreHook(
+    const verifyGate = await emitBeforeHook(
       ctx,
-      createHookScope(),
+      ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("verify"), surface: "cli" }),
       "verify",
       {
         payload: { taskId },
@@ -234,7 +235,7 @@ export async function verifyTaskOp(
       },
     );
     if (!verifyGate.allowed) {
-      const refusal = preGateRefusal(verifyGate);
+      const refusal = beforeGateRefusal(verifyGate);
       clearTimer(timer);
       return {
         ok: false,
@@ -263,7 +264,7 @@ export async function verifyTaskOp(
       // beyond what the payload already names. Defaults cover both.
       const verifyInstructions = await emitAfterHook(
         ctx,
-        createHookScope(),
+        ctx.hookScope ?? createHookScope({ tool: defaultToolForActivity("verify"), surface: "cli" }),
         "verify",
         { taskId, verdict: result.verdict },
       );

@@ -1,39 +1,47 @@
 /**
- * Agent-hooks envelope — the ONE builder (ADR-0006).
+ * Agent-hooks envelope v2 — the ONE builder (ADR-0007).
  *
- * GENERIC CONTRACT (owner decision, Stage 2 ticket wla7ci2wzbgaj5dqsrvh1j4o):
- * every hook (pre/after, all 8 events) receives exactly one JSON document
- * on stdin with the SAME shape: 6 shared fields + the full task object
- * (immutable snapshot) + the explicit activity enum + the activity object
- * when one exists (comment/label/...) + the current agent-instruction draft
- * (the ONLY thing a hook may replace — tasks are read-only).
- * Pre-phase carries INTENT (fields known before the write; no generated
+ * Vocabulary is unified on before/after — one spelling per concept:
+ * filename suffix, envelope `phase`, failure-policy names, error codes,
+ * type names. The v1 "pre" vocabulary is deleted outright (unreleased ⇒
+ * no aliases, no dual-read, no deprecation notices).
+ *
+ * GENERIC CONTRACT (owner decision, kept from Stage 2): every hook
+ * (before/after, all 8 activities) receives exactly one JSON document
+ * on stdin with the SAME shape: the tool key + surface + the full task
+ * object (immutable snapshot) + the explicit activity enum + the activity
+ * object when one exists + the current agent-instruction draft (the ONLY
+ * thing a hook may replace — tasks are read-only).
+ * Before-phase carries INTENT (fields known before the write; no generated
  * ids); after-phase carries the CONFIRMED record. Null task only where no
- * single task exists (push/pull/verify run intents).
+ * single task exists (push/pull/verify run intents, and null-activity
+ * invocations such as reads, `kanban`/`serve`, `auth`).
  *
- * The legacy event `payload` is kept byte-identical so shipped after-hooks
- * and defaults keep working; new code should read the generic fields.
- * Call sites pass `event` + `payload` (+ generic extras) only — the envelope
- * is never re-assembled elsewhere (pinned by `envelope.test.ts`: no other
- * module may build one).
+ * The legacy activity `payload` is kept byte-identical so shipped
+ * after-hooks and defaults keep working; new code should read the generic
+ * fields. Call sites pass `tool` + `surface` + `activity` + `payload` (+
+ * generic extras) only — the envelope is never re-assembled elsewhere
+ * (pinned by `envelope.test.ts`: no other module may build one).
  *
- * `boardId` is `null` locally: a local board has no server-side identity to
- * name, and naming a workspace pointer here would leak project layout into
+ * `boardId` is `null` locally: a local board has no server-side identity,
+ * and naming a workspace pointer here would leak project layout into
  * hook input. `schemaVersion` is a literal in this file only — it versions
- * the ENVELOPE contract, not the package (see ADR-0006).
+ * the ENVELOPE contract, not the package (see ADR-0007).
  */
 
 import type { Task } from "../types.js";
 
-export const HOOK_SCHEMA_VERSION = 1;
+export const HOOK_SCHEMA_VERSION = 2;
 
-export type HookPhase = "pre" | "after";
+export type HookPhase = "before" | "after";
 
 /**
- * The deliberately-8 event set. No `task.list`, no files/links/boards/mcp —
- * an event exists only when something must be gated or narrated (ADR-0006).
+ * The deliberately-8 activity set. An activity is a unit of work with an
+ * intent side and a confirmed side; a TOOL key is a file — the mapping is
+ * many-to-one (see `tools.ts`). No `task.list`, no files/links/boards/mcp —
+ * an activity exists only when something must be gated or narrated.
  */
-export type HookEvent =
+export type HookActivity =
   | "task.create"
   | "task.update"
   | "task.claim"
@@ -45,12 +53,11 @@ export type HookEvent =
 
 /**
  * After-phase payloads describe the CONFIRMED durable effect (post-write
- * result). Stage 2 adds the pre-phase intent payloads; the phase split is
- * load-bearing (Sol review P1-1: claim is atomic, commentId/verify results
- * exist only post-write), so pre and after payloads are distinct types, not
- * one shared shape.
+ * result). The phase split is load-bearing: claim is atomic,
+ * commentId/verify results exist only post-write, so before and after
+ * payloads are distinct types, not one shared shape.
  */
-export interface HookAfterPayloads {
+export interface HookConfirmedPayloads {
   "task.create": {
     task: { id: string; title: string; status: string; type?: string };
   };
@@ -64,15 +71,15 @@ export interface HookAfterPayloads {
 }
 
 /**
- * Pre-phase INTENT payloads: what the invocation intends, BEFORE any
- * durable effect (Stage 2). No generated ids (no task id on create, no
- * commentId, no verdict) — a pre-hook that needs the result must allow
- * and read the after-hook. Claim pre-gate is invocation-level over the
- * claim FILTERS (atomic claim preserved — no preview-then-update, no
- * reservation protocol). Same deliberately-8 event set; distinct from
- * after payloads on purpose (Sol review P1-1).
+ * Before-phase INTENT payloads: what the invocation intends, BEFORE any
+ * durable effect. No generated ids (no task id on create, no commentId,
+ * no verdict) — a before-hook that needs the result must allow and read
+ * the after-hook. Claim before-gate is invocation-level over the claim
+ * FILTERS (atomic claim preserved — no preview-then-update, no
+ * reservation protocol). Same deliberately-8 activity set; distinct from
+ * confirmed payloads on purpose.
  */
-export interface HookPrePayloads {
+export interface HookIntentPayloads {
   "task.create": {
     title: string;
     description?: string;
@@ -92,72 +99,82 @@ export interface HookPrePayloads {
 
 /**
  * Full task for the generic contract: the CONFIRMED record (after) or the
- * best-known INTENT (pre — fields known before the write; never a
+ * best-known INTENT (before — fields known before the write; never a
  * generated id). Hooks receive it as an immutable JSON snapshot and MUST
  * NOT treat it as writable: the ONLY mutable surface is `instructions`.
  */
 export type HookTaskSnapshot = Task | (Partial<Task> & { title: string }) | null;
 
-export interface HookEnvelope<E extends HookEvent = HookEvent> {
+export type HookSurface = "cli" | "mcp";
+
+export interface HookEnvelope<A extends HookActivity | null = HookActivity | null> {
   schemaVersion: typeof HOOK_SCHEMA_VERSION;
-  event: E;
+  /** The canonical hook key (never an alias) — the filename without the phase suffix. */
+  tool: string;
+  /** Which surface ran the tool: `"cli"` | `"mcp"`. */
+  surface: HookSurface;
   phase: HookPhase;
-  /** Null locally — a local board has no server-side identity (ADR-0006). */
+  /** Null locally — a local board has no server-side identity. */
   boardId: string | null;
   actor: string;
   ts: string;
-  /** Legacy event payload, byte-identical (after = confirmed, pre = intent). */
-  payload: HookAfterPayloads[E] | HookPrePayloads[E];
   /**
-   * GENERIC CONTRACT (owner, Stage 2): the full task — snapshot after the
-   * write, intent before it — or null where no single task exists
-   * (push/pull/verify run intents). Immutable by contract: hooks get a
-   * JSON copy and cannot alter the store through it.
-   */
-  task: HookTaskSnapshot;
-  /**
-   * Explicit activity enum (owner, Stage 2): always equals `event`.
+   * Explicit activity enum: the unit of work, or `null` when the
+   * invocation had no durable effect (read / `kanban` / `serve` / `auth`).
    * Redundant on purpose — generic consumers read ONE field.
    */
-  activity: E;
+  activity: A;
+  /** Activity payload, byte-identical (intent before, confirmed after); null iff activity is null. */
+  payload: A extends HookActivity ? HookConfirmedPayloads[A] | HookIntentPayloads[A] : null;
+  /**
+   * GENERIC CONTRACT (owner): the full task — snapshot after the write,
+   * intent before it — or null where no single task exists (push/pull/
+   * verify run intents; null-activity invocations carry the read/target
+   * record when one exists). Immutable by contract.
+   */
+  task: HookTaskSnapshot;
   /**
    * The secondary record the activity acted on/with, when one exists
    * (comment text, changed-keys, claim filters, …). Immutable snapshot.
    */
   activityObject?: unknown;
   /**
-   * Current agent-instruction draft (owner, Stage 2): the ONLY replaceable
-   * surface. Empty pre-write; a hook replaces it by returning
-   * `{instructions: "..."}` (after) or `{allow, instructions?}` (pre).
+   * Current agent-instruction draft: the ONLY replaceable surface.
+   * Empty pre-write; a hook replaces it by returning
+   * `{instructions: "..."}` (after) or `{allow, instructions?}` (before).
    */
   instructions: string;
 }
 
-export interface HookEnvelopeInput<E extends HookEvent> {
-  event: E;
+export interface HookEnvelopeInput<A extends HookActivity | null> {
+  tool: string;
+  surface: HookSurface;
   phase: HookPhase;
   boardId: string | null;
   actor: string;
-  payload: HookAfterPayloads[E] | HookPrePayloads[E];
+  activity: A;
+  /** Wide at the boundary — narrowed to the conditional by the builder (single cast, contained there). */
+  payload: HookConfirmedPayloads[HookActivity] | HookIntentPayloads[HookActivity] | null;
   task?: HookTaskSnapshot;
   activityObject?: unknown;
   instructions?: string;
 }
 
-/** The ONE envelope builder. All 8 emit sites call this — nothing else. */
-export function buildHookEnvelope<E extends HookEvent>(
-  input: HookEnvelopeInput<E>,
-): HookEnvelope<E> {
+/** The ONE envelope builder. All emit sites call this — nothing else. */
+export function buildHookEnvelope<A extends HookActivity | null>(
+  input: HookEnvelopeInput<A>,
+): HookEnvelope<A> {
   return {
     schemaVersion: HOOK_SCHEMA_VERSION,
-    event: input.event,
+    tool: input.tool,
+    surface: input.surface,
     phase: input.phase,
     boardId: input.boardId,
     actor: input.actor,
     ts: new Date().toISOString(),
-    payload: input.payload,
+    activity: input.activity,
+    payload: input.payload as HookEnvelope<A>["payload"],
     task: input.task ?? null,
-    activity: input.event,
     ...(input.activityObject !== undefined
       ? { activityObject: input.activityObject }
       : {}),

@@ -18,6 +18,7 @@ import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
 import { emitAfterHook } from "../core/hooks/emit.js";
+import type { HookScope } from "../core/hooks/emit.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
 import {
   fetchWithTimeout,
@@ -435,7 +436,7 @@ export function countTasksMissingCommitAuthorEmail(
   ).length;
 }
 
-async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; hookBypass?: boolean }): Promise<PushResult | void> {
+async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; hookBypass?: boolean; hookScope?: HookScope }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = prepareTaskRecordsForPush(projectDir, reads, opts.dryRun === true);
@@ -711,12 +712,13 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // Pre-gate (Stage 2, ADR-0006): push INTENT (dryRun only); runs after
   // the dry-run early return above, before auth + the first write.
   // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
-  const { createHookScope, emitPreHook, preGateRefusal } = await import(
+  const { createHookScope, emitBeforeHook, beforeGateRefusal } = await import(
     "../core/hooks/emit.js"
   );
-  const pushGate = await emitPreHook(
+  const { defaultToolForActivity } = await import("../core/hooks/tools.js");
+  const pushGate = await emitBeforeHook(
     { projectDir, mode: "saas" },
-    createHookScope(),
+    opts.hookScope ?? createHookScope({ tool: defaultToolForActivity("push"), surface: "cli" }),
     "push",
     {
       payload: {},
@@ -727,7 +729,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   );
   {
     if (!pushGate.allowed) {
-      const refusal = preGateRefusal(pushGate);
+      const refusal = beforeGateRefusal(pushGate);
       const msg = `${refusal.message} Nothing was pushed.`;
       if (opts.json) {
         console.log(JSON.stringify({ ok: false, code: refusal.code, message: msg }));
@@ -1391,7 +1393,7 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   ): Promise<string[]> {
     return emitAfterHook(
       { projectDir: hookProjectDir, mode: "saas" },
-      createHookScope(),
+      opts.hookScope ?? createHookScope({ tool: defaultToolForActivity("push"), surface: "cli" }),
       "push",
       payload,
     );
