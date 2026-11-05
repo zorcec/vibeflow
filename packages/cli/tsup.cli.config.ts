@@ -11,7 +11,10 @@ import { readFileSync } from "node:fs";
  */
 const DIST = process.env.VIBEFLOW_DIST_DIR || "dist";
 export default defineConfig({
-  entry: ["src/index.ts"],
+  // `src/hooks.ts` is a TYPE-ONLY authoring boundary (no runtime API):
+  // tsup emits an inert `hooks.js` next to `hooks.d.ts` — it is NOT in
+  // package exports and must never be imported (ADR-0006 Stage 1.5).
+  entry: ["src/index.ts", "src/hooks.ts"],
   format: ["esm"],
   // Explicit node platform: without it a neutral/browser platform would let
   // esbuild inline CJS shims whose bare `require("crypto")` becomes a
@@ -79,6 +82,8 @@ export default defineConfig({
     } catch {
       /* optional */
     }
+    // NOTE: `cli/hooks.d.ts` is emitted by the DTS pass AFTER this hook
+    // runs — build-atomic.mjs copies it to the staging root instead.
     // Copy EVERY emitted runtime module from the cli dir into the output
     // root — no hand-maintained allowlist.
     //

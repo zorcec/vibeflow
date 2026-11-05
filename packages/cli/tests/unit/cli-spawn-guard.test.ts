@@ -51,6 +51,12 @@ const BUNDLE_ALLOWLIST = new Set([
   join("scripts", "operation-drift-canary.mjs"),
   // Asserts on the dist file inventory (expected sizes); never spawns.
   join("packages", "cli", "tests", "unit", "readme-assets.test.ts"),
+  // Stage 1.5 (ADR-0006): spawns the INSTALLED tarball entry and the
+  // alternate packaged layout to prove the loader resolves from the
+  // executing bundle's own location. Routing these through CLI_ENTRY
+  // (the repo dev bundle) would defeat the test's subject — both entries
+  // are spawned with isolatedCliEnv, no raw env spread.
+  join("packages", "cli", "tests", "integration", "hooks-package.test.ts"),
 ]);
 
 function walk(dir: string, exts: string[]): string[] {

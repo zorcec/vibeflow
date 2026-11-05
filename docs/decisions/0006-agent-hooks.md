@@ -13,7 +13,7 @@ Users need team policy without editing the binary: a `pre` gate that can block a
 ## Decision
 
 1. **Operation-owned events, after-only in Stage 1.** The 8 events (`task.create/update/claim/delete/comment`, `push`, `pull`, `verify`) are emitted by the owning operation (or owning command for push/pull) AFTER the confirmed durable effect — never by a TaskStore decorator (push/pull/verify are not store methods; online delete never calls a store delete). Dry-run and no-op emit nothing; partial success emits only the confirmed effect. Generated system comments never pass through an emitting call site, so no hook cycle is possible by construction.
-2. **Child process only.** Hooks run as `process.execPath` with `shell:false`, JSON envelope on stdin, `{instructions}`/`{}` on stdout, chatter on stderr. Never in-process JS. After-hooks fail OPEN on a 2 s per-invocation deadline (whole process tree killed); timeouts, non-zero exits, and bad output are one stderr line, never a throw.
+2. **Child process only, two deterministic modes.** `after-<event>.mjs` is the stdio mode (JSON envelope on stdin); `after-<event>.hook.mjs` is the module mode (the packaged `hook-loader.mjs` owns stdin/stdout and awaits the default export with the envelope as its sole argument). Mode is chosen by filename extension only — never by source inspection or auto-detection — and both files at one level is `HOOK_CONFIG_CONFLICT` (no hook runs, no fallback to a lower level). Both modes share the 2 s per-invocation deadline (whole process tree killed), byte limits, env allowlist, trust, the `{instructions}`/`{}` parser, and the fail-open one-stderr-line policy. Never in-process JS. Public authoring is type-only (`@vibeflow-tools/cli/hooks`, after-only union — no pre payload is promised).
 3. **Trust is code-execution permission, not a sandbox.** Only project hooks prompt (direnv-style sha256 in `trust.json`); global and shipped defaults are the user's own bits. The entry-file hash is not transitive integrity, and non-TTY refuses by design.
 4. **Replace, never merge.** Project beats global beats shipped default; the first hit wins and an override replaces. Only `*.mjs` executes; `.js`/`.cjs` are refused loudly; symlinks never inherit trust across roots.
 5. **Defaults are unconditional text only.** Everything settings- or type-dependent stays rendered by the CLI; byte-identical extraction applies to the extracted sections only.
@@ -32,3 +32,5 @@ Adding a 9th event, moving emission into the store layer, executing hooks in-pro
 - Pins: `packages/cli/tests/unit/hooks/trust.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/emit.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/defaults.test.ts`
+- Pins: `packages/cli/tests/unit/hooks/hook-loader.test.ts`
+- Pins: `packages/cli/tests/integration/hooks-package.test.ts`

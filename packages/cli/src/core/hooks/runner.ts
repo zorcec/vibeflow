@@ -7,6 +7,12 @@
  * pipes on all three fds. stdin = one envelope JSON + `\n`, then end.
  * stdout is parsed as JSON; stderr passes through prefixed `hook <event>:`.
  *
+ * Stage 1.5 adds the module mode (ADR-0006): the same envelope goes to
+ * stdin of the packaged `hook-loader.mjs`, which dynamic-imports the
+ * `after-<event>.hook.mjs` default export and prints its return value.
+ * Mode is chosen by filename extension only (`discover.ts`); both modes
+ * share every bound and the parser below.
+ *
  * Bounds (all pinned by `runner.test.ts`):
  * - 2 s deadline PER INVOCATION, covering import + handler + serialization.
  *   Expiry SIGKILLs the child AND its process tree (detached group kill),
@@ -33,6 +39,8 @@
  * (fail-open with `HOOK_BAD_OUTPUT`), never coerced.
  */
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import type { HookMode } from "./discover.js";
 
 export const HOOK_INVOCATION_TIMEOUT_MS = 2000;
 export const HOOK_MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -52,6 +60,25 @@ export interface RunAfterHookOptions {
   env?: NodeJS.ProcessEnv;
   PATH?: string;
   HOME?: string;
+  /** Hook mode (ADR-0006 Stage 1.5): stdio executes the file itself,
+   *  module executes the packaged loader with the file as its argument.
+   *  Defaults to `"stdio"` — existing callers are unaffected. */
+  mode?: HookMode;
+  /** Absolute loader entry override (per-invocation test seam only).
+   *  Defaults to the `hook-loader.mjs` shipped next to the executing
+   *  bundle — never `process.cwd()`, PATH lookup, or a `--import` shim. */
+  loaderEntry?: string;
+}
+
+/**
+ * Loader location for module mode: the `hook-loader.mjs` packaged next to
+ * the executing CLI bundle (ADR-0006 Stage 1.5). `import.meta.url` is the
+ * bundle's own location in both layouts (`dist/index.js` and
+ * `dist/cli/index.js`) and the `src/` tree under test — never a
+ * source-tree absolute path or a nonexistent `--import` specifier.
+ */
+export function resolveLoaderEntry(): string {
+  return fileURLToPath(new URL("./hook-loader.mjs", import.meta.url));
 }
 
 /**
@@ -122,9 +149,19 @@ export async function runAfterHook(
       resolvePromise(result);
     };
 
+    // ADR-0006 Stage 1.5 mode branch: stdio spawns the hook file itself;
+    // module spawns the packaged loader with the canonical hook file as
+    // its argument. Both paths share deadline, byte limits, parser, and
+    // stderr-only reporting below — one policy for both modes.
+    const mode: HookMode = opts.mode ?? "stdio";
+    const argv =
+      mode === "module"
+        ? [opts.loaderEntry ?? resolveLoaderEntry(), file]
+        : [file];
+
     let child;
     try {
-      child = spawn(process.execPath, [file], {
+      child = spawn(process.execPath, argv, {
         cwd: opts.cwd,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],

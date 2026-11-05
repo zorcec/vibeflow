@@ -22,6 +22,9 @@
     "dist/client/",
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/hook-loader.mjs",
+    "dist/cli/hook-loader.mjs",
+    "dist/hooks.d.ts",
     "dist/openapi.json",
     "dist/openapi.yaml",
     "dist/overlay.css",
@@ -36,6 +39,9 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./hooks": {
+      "types": "./dist/hooks.d.ts"
+    },
     "./openapi.json": "./dist/openapi.json",
     "./openapi.yaml": "./dist/openapi.yaml"
   },

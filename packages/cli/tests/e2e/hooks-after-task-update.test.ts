@@ -103,3 +103,125 @@ describe("hooks-after-task-update e2e", () => {
     );
   });
 });
+
+describe("hooks-after-task-update module mode e2e (Stage 1.5, ADR-0006)", () => {
+  function writeModuleHook(body: string): void {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.update.hook.mjs"), body);
+  }
+
+  it("module hook success = exactly ONE JSON doc carrying the instruction", async () => {
+    const id = await addTask();
+    writeModuleHook(
+      `export default async (envelope) => ({ instructions: "module saw " + envelope.event });`,
+    );
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const doc = JSON.parse(edited.stdout) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toEqual(["module saw task.update"]);
+  });
+
+  it("human renderer displays the module instruction on stderr", async () => {
+    const id = await addTask();
+    writeModuleHook(
+      `export default async () => ({ instructions: "human-visible-module-note" });`,
+    );
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    expect(edited.stderr).toContain("hook: human-visible-module-note");
+  });
+
+  it("conflict refuses with HOOK_CONFIG_CONFLICT and no lower-level default", async () => {
+    const id = await addTask();
+    writeProjectHook(
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"stdio must not run"}))});`,
+    );
+    writeModuleHook(`export default async () => ({ instructions: "module must not run" });`);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const doc = JSON.parse(edited.stdout) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    // Fail-open with NO fallback: neither hook's instruction, neither the
+    // shipped default's unconditional text.
+    expect(doc.instructions).toBeUndefined();
+    expect(edited.stderr).toContain("HOOK_CONFIG_CONFLICT");
+    expect(edited.stderr).not.toContain('NEVER set a task status to "done"');
+  });
+
+  it("untrusted module hook refuses (non-TTY) with no default fallback", async () => {
+    const id = await addTask();
+    writeModuleHook(`export default async () => ({ instructions: "must not run" });`);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: { VIBEFLOW_HOOKS: "1" } },
+    );
+    expect(edited.code).toBe(0);
+    const doc = JSON.parse(edited.stdout) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toBeUndefined();
+    expect(edited.stderr).toContain("non-interactive");
+  });
+
+  it("module {} no-op succeeds with no instructions (not a fake success)", async () => {
+    const id = await addTask();
+    writeModuleHook(`export default async () => ({});`);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const doc = JSON.parse(edited.stdout) as {
+      ok: boolean;
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toBeUndefined();
+    expect(edited.stderr).not.toContain("hook: ");
+  });
+
+  it("a failing module hook persists the update and never retries", async () => {
+    const id = await addTask();
+    writeModuleHook(`process.exit(3);`);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const doc = JSON.parse(edited.stdout) as {
+      ok: boolean;
+      task?: { status?: string };
+      instructions?: string[];
+    };
+    expect(doc.ok).toBe(true);
+    expect(doc.instructions).toBeUndefined();
+    expect(edited.stderr).toContain("HOOK_NONZERO_EXIT");
+    // The write persisted despite the hook failure (fail-open, after = open).
+    const fetched = await spawnCliIsolated(
+      ["tasks", "--get", id, "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(fetched.code).toBe(0);
+    const got = JSON.parse(fetched.stdout) as { task?: { status?: string } };
+    expect(got.task?.status).toBe("in-progress");
+  });
+});

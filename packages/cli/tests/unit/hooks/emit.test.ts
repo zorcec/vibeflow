@@ -202,3 +202,190 @@ describe("emitAfterHook", () => {
     expect(resolveHookBoardId({ projectDir, mode: "local" })).toBeNull();
   });
 });
+
+describe("module peers (Stage 1.5, ADR-0006)", () => {
+  function writeProjectModuleHook(event = "task.update", body?: string): string {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `after-${event}.hook.mjs`);
+    writeFileSync(
+      file,
+      body ?? `export default async (envelope) => ({ instructions: "module:" + envelope.event });`,
+    );
+    return file;
+  }
+
+  function writeGlobalStdioHook(event = "task.update", instructions = "global-ok"): string {
+    const dir = join(home, ".vibeflow", "hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `after-${event}.mjs`);
+    writeFileSync(
+      file,
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:${JSON.stringify(instructions)}}))});`,
+    );
+    return file;
+  }
+
+  function captureStderr() {
+    const lines: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      lines.push(String(c));
+      return true;
+    };
+    return { lines, restore: () => (process.stderr.write = orig) };
+  }
+
+  const TRUSTED_ENV = { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" };
+
+  it("runs a trusted module hook and returns its instructions (fails if mode is ignored)", async () => {
+    // Non-vacuity: spawning the `.hook.mjs` directly (stdio mode) would run
+    // no protocol and yield HOOK_BAD_OUTPUT → []. Only the loader path
+    // returns the instruction.
+    writeProjectModuleHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: TRUSTED_ENV },
+    );
+    expect(out).toEqual(["module:task.update"]);
+  });
+
+  it("project module beats global stdio (first level wins)", async () => {
+    writeProjectModuleHook();
+    writeGlobalStdioHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: TRUSTED_ENV },
+    );
+    expect(out).toEqual(["module:task.update"]);
+  });
+
+  it("same-level conflict fails open with HOOK_CONFIG_CONFLICT and no lower-level default", async () => {
+    writeProjectHook(
+      "task.update",
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"must not run"}))});`,
+    );
+    writeProjectModuleHook("task.update", `export default async () => ({ instructions: "must not run" });`);
+    const { lines, restore } = captureStderr();
+    try {
+      const out = await emitAfterHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { taskId: "abc", changed: ["status"] },
+        { home, env: TRUSTED_ENV },
+      );
+      expect(out).toEqual([]);
+    } finally {
+      restore();
+    }
+    const stderr = lines.join("");
+    expect(stderr).toContain("HOOK_CONFIG_CONFLICT");
+    // No shipped-default fallback either: the unconditional update text
+    // must not ride along after a conflict.
+    expect(stderr).not.toContain('NEVER set a task status to "done"');
+  });
+
+  it("a failing module hook never falls back to a lower level (single spawn, no retry)", async () => {
+    const marker = join(projectDir, "marker.log");
+    writeProjectModuleHook(
+      "task.update",
+      `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, "spawn\\n");\nprocess.exit(3);\n`,
+    );
+    writeGlobalStdioHook();
+    const { lines, restore } = captureStderr();
+    try {
+      const out = await emitAfterHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { taskId: "abc", changed: ["status"] },
+        { home, env: TRUSTED_ENV },
+      );
+      expect(out).toEqual([]);
+    } finally {
+      restore();
+    }
+    expect(lines.join("")).toContain("HOOK_NONZERO_EXIT");
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(marker, "utf8")).toBe("spawn\n");
+  });
+
+  it("an untrusted module hook does not fall back to global stdio", async () => {
+    writeProjectModuleHook();
+    writeGlobalStdioHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      // No VIBEFLOW_TRUST_HOOKS: non-TTY cannot prompt → refused.
+      { home, env: { ...BASE_ENV } },
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("a changed-hash module hook does not fall back (stale trust record)", async () => {
+    const { recordTrust } = await import("../../../src/core/hooks/trust.js");
+    const file = writeProjectModuleHook();
+    recordTrust(home, file, "stale-digest");
+    writeGlobalStdioHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: { ...BASE_ENV } },
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("an escaped module hook does not fall back to global stdio", async () => {
+    const { mkdtempSync: mkd } = await import("node:fs");
+    const { symlinkSync: ln } = await import("node:fs");
+    const outside = mkd(join(tmpdir(), "hook-emit-outside-"));
+    const evil = join(outside, "evil.hook.mjs");
+    writeFileSync(evil, `export default async () => ({ instructions: "evil" });\n`);
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    ln(evil, join(dir, "after-task.update.hook.mjs"));
+    writeGlobalStdioHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: TRUSTED_ENV },
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("repeated same-task module actions each execute (marker count 2)", async () => {
+    const marker = join(projectDir, "count.log");
+    writeProjectModuleHook(
+      "task.update",
+      `import { appendFileSync } from "node:fs";\nexport default async (envelope) => { appendFileSync(${JSON.stringify(marker)}, "run\\n"); return { instructions: "n:" + envelope.payload.taskId }; };\n`,
+    );
+    const ctx = { projectDir, mode: "local" } as const;
+    const payload = { taskId: "abc", changed: ["status"] } as const;
+    const first = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
+      home,
+      env: TRUSTED_ENV,
+    });
+    const second = await emitAfterHook(ctx, createHookScope(), "task.update", payload, {
+      home,
+      env: TRUSTED_ENV,
+    });
+    expect(first).toEqual(["n:abc"]);
+    expect(second).toEqual(["n:abc"]);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(marker, "utf8")).toBe("run\nrun\n");
+  });
+});

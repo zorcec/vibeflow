@@ -27,6 +27,7 @@ import { readProjectPointer } from "../../auth/project-pointer.js";
 import { buildHookEnvelope, type HookAfterPayloads, type HookEvent } from "./envelope.js";
 import {
   hookRoots,
+  isHookConflict,
   refusedSibling,
   reportUnknownHookEvents,
   resolveHookFile,
@@ -140,11 +141,23 @@ export async function emitAfterHook<E extends HookEvent>(
   ensureShippedDefaults(opts.home);
 
   const resolved = resolveHookFile(projectDir, "after", event, opts.home);
+  // Same-level stdio+module collision: configuration error for this
+  // invocation — diagnostic on stderr, no hook, and NO fallback to a
+  // lower-level default (ADR-0006 Stage 1.5). After = fail OPEN.
+  if (isHookConflict(resolved)) {
+    process.stderr.write(
+      `hook ${event}: HOOK_CONFIG_CONFLICT (${resolved.stdioFile} and ${resolved.moduleFile} both exist at ${resolved.root} level — keep exactly one) — continuing without hook\n`,
+    );
+    return [];
+  }
   const file =
     resolved?.file ?? getDefaultHookSource(event, opts.home)?.file ?? null;
   if (!file) return [];
   const isProjectRoot = resolved ? resolved.root === "project" : false;
   const escapedRoot = resolved?.escapedRoot ?? false;
+  // Shipped defaults are always stdio; only an explicit resolution carries
+  // the module mode into the shared runner.
+  const mode = resolved?.mode ?? "stdio";
 
   const trust = await checkHookTrust(file, {
     isProjectRoot,
@@ -165,6 +178,7 @@ export async function emitAfterHook<E extends HookEvent>(
     cwd: projectDir,
     timeoutMs: opts.timeoutMs,
     env,
+    mode,
   });
   if (!result.ran || !result.instructions) return [];
   return [result.instructions];

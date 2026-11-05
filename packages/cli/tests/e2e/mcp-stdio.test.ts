@@ -13,7 +13,14 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 // Module-anchored CLI entry + isolated env (ticket 8ac96ef9) — never
@@ -63,7 +70,7 @@ interface Exchange {
 function runMcp(
   args: string[],
   input: object[],
-  opts: { cwd: string; eofDelayMs?: number },
+  opts: { cwd: string; eofDelayMs?: number; env?: Record<string, string> },
 ): Promise<Exchange> {
   return new Promise((resolvePromise) => {
     // Isolated env (ticket 8ac96ef9) via the shared chokepoint: temp HOME,
@@ -72,6 +79,7 @@ function runMcp(
     const env: NodeJS.ProcessEnv = isolatedCliEnv({
       home,
       cwd: opts.cwd,
+      env: opts.env,
     });
     // A leaked introspection guard would make the spawn a silent no-op.
     delete env.VIBEFLOW_CLI_SKIP_PARSE;
@@ -401,4 +409,182 @@ describe("get_integration_guide over stdio", () => {
     expect(payload.instructions).toContain("start_kanban");
   });
 });
+});
+
+describe("module hooks over local stdio MCP (Stage 1.5, ADR-0006)", () => {
+  const HOOK_ENV = { VIBEFLOW_HOOKS: "1", VIBEFLOW_TRUST_HOOKS: "1" };
+
+  function writeModuleHook(project: string, body: string): void {
+    const dir = join(project, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.update.hook.mjs"), body);
+  }
+
+  function freshProject(): string {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-hook-proj-"));
+    mkdirSync(join(dir, ".vibeflow"));
+    return dir;
+  }
+
+  function createCall(id: number, title: string) {
+    return {
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name: "create_task", arguments: { title } },
+    };
+  }
+
+  function updateCall(id: number, taskId: string, status: string) {
+    return {
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name: "update_task", arguments: { id: taskId, status } },
+    };
+  }
+
+  it("update_task carries the module instruction; every stdout line stays a JSON-RPC frame", async () => {
+    const project = freshProject();
+    // Marker OUTSIDE the project: proves the hook ran exactly once here.
+    const marker = join(mkdtempSync(join(tmpdir(), "mcp-hook-marker-")), "runs.log");
+    writeModuleHook(
+      project,
+      `import { appendFileSync } from "node:fs";\n` +
+        `export default async (envelope) => {\n` +
+        `  appendFileSync(${JSON.stringify(marker)}, "run\\n");\n` +
+        `  return { instructions: "mcp saw " + envelope.payload.taskId };\n` +
+        `};`,
+    );
+    // create first (response id 11 carries its task id), then update (id 12).
+    // The create runs hook-free: task.create's shipped default is a no-op,
+    // so its payload must carry NO instructions key at all.
+    const created = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, createCall(11, "mcp hook task")],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    expect(created.timedOut).toBe(false);
+    const createFrames = parseFrames(created.stdout);
+    const createRes = createFrames.find((f) => f.id === 11);
+    expect(createRes, "no create_task response").toBeTruthy();
+    expect(createRes!.error).toBeUndefined();
+    const createdTask = JSON.parse(createRes!.result.content[0].text as string) as {
+      id: string;
+      instructions?: string[];
+    };
+    expect(typeof createdTask.id).toBe("string");
+    expect("instructions" in createdTask).toBe(false);
+
+    const updated = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, updateCall(12, createdTask.id, "in-progress")],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    expect(updated.timedOut).toBe(false);
+    // Protocol purity first: a hook instruction must never become a frame.
+    const updateFrames = parseFrames(updated.stdout);
+    const updateRes = updateFrames.find((f) => f.id === 12);
+    expect(updateRes, "no update_task response (match by request id)").toBeTruthy();
+    expect(updateRes!.error).toBeUndefined();
+    const payload = JSON.parse(updateRes!.result.content[0].text as string) as {
+      id: string;
+      status?: string;
+      instructions?: string[];
+    };
+    expect(payload.id).toBe(createdTask.id);
+    expect(payload.status).toBe("in-progress");
+    expect(payload.instructions).toEqual([`mcp saw ${createdTask.id}`]);
+    expect(readFileSync(marker, "utf-8")).toBe("run\n");
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it("two sequential updates in one MCP process EACH run (action scope, count 2)", async () => {
+    const project = freshProject();
+    const marker = join(mkdtempSync(join(tmpdir(), "mcp-hook-marker2-")), "runs.log");
+    writeModuleHook(
+      project,
+      `import { appendFileSync } from "node:fs";\n` +
+        `export default async () => { appendFileSync(${JSON.stringify(marker)}, "run\\n"); return {}; };\n`,
+    );
+    const created = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, createCall(21, "twice-updated")],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    const taskId = (
+      JSON.parse(
+        parseFrames(created.stdout).find((f) => f.id === 21)!.result.content[0].text as string,
+      ) as { id: string }
+    ).id;
+    // Both updates ride ONE session: same process, two actions, two runs.
+    // (Both are plain writes — the review transition has its own gates and
+    // a refused write correctly emits nothing.)
+    const secondUpdate = {
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: { name: "update_task", arguments: { id: taskId, title: "twice-updated-2" } },
+    };
+    const run = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, updateCall(22, taskId, "in-progress"), secondUpdate],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    expect(run.timedOut).toBe(false);
+    const frames = parseFrames(run.stdout);
+    const first = frames.find((f) => f.id === 22);
+    expect(first, "no response for request 22").toBeTruthy();
+    expect(first!.error).toBeUndefined();
+    expect(
+      (JSON.parse(first!.result.content[0].text as string) as { status?: string }).status,
+    ).toBe("in-progress");
+    const second = frames.find((f) => f.id === 23);
+    expect(second, "no response for request 23").toBeTruthy();
+    expect(second!.error).toBeUndefined();
+    expect(
+      (JSON.parse(second!.result.content[0].text as string) as { title?: string }).title,
+    ).toBe("twice-updated-2");
+    // The {} no-op carries no instructions — but BOTH hooks executed.
+    expect(readFileSync(marker, "utf-8")).toBe("run\nrun\n");
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it("import-time console chatter stays stderr-only and never becomes a frame", async () => {
+    const project = freshProject();
+    writeModuleHook(
+      project,
+      `console.log('{"fake":"protocol"}');\nexport default async () => ({});`,
+    );
+    const created = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, createCall(31, "chatty hook task")],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    const taskId = (
+      JSON.parse(
+        parseFrames(created.stdout).find((f) => f.id === 31)!.result.content[0].text as string,
+      ) as { id: string }
+    ).id;
+    const run = await runMcp(
+      ["mcp", "--project", project],
+      [INIT, READY, updateCall(32, taskId, "in-progress")],
+      { cwd: home, eofDelayMs: 8000, env: HOOK_ENV },
+    );
+    expect(run.timedOut).toBe(false);
+    // Still protocol-only: the chatter never reaches the channel.
+    const frames = parseFrames(run.stdout);
+    const res = frames.find((f) => f.id === 32);
+    expect(res, "no update_task response").toBeTruthy();
+    expect(res!.error).toBeUndefined();
+    // The write still landed (fail-open); the hook error is stderr-only.
+    const payload = JSON.parse(res!.result.content[0].text as string) as {
+      status?: string;
+      instructions?: string[];
+    };
+    expect(payload.status).toBe("in-progress");
+    expect(payload.instructions).toBeUndefined();
+    expect(run.stderr).toContain("HOOK_BAD_OUTPUT");
+    rmSync(project, { recursive: true, force: true });
+  });
 });

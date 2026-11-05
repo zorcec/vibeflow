@@ -498,6 +498,34 @@ Vibeflow tasks are formatted for AI agents with full context:
 
 Agents can also run directly from the Kanban board via `POST /api/agent/run`, which spawns [opencode](https://github.com/opencode-ai/opencode) with full task context.
 
+## Agent hooks
+
+After-hooks run a command you own after a confirmed durable effect (for example `task.update`) and append the returned `instructions` to the agent's prompt. Hooks are child processes only — never in-process — and after-hooks fail open on a 2 s per-invocation deadline: timeouts, non-zero exits, and bad output are one stderr line, never a thrown error.
+
+Two deterministic filename modes, chosen by extension only (no auto-detection):
+
+- `after-<event>.mjs` — stdio protocol: the CLI writes one envelope JSON to stdin, the hook prints `{instructions: "..."}` or `{}` to stdout.
+- `after-<event>.hook.mjs` — module adapter: `export default` a function (async OK) that receives the full envelope as its ONE argument and returns the result. A packaged loader owns stdin/stdout in this mode — reading stdin or writing protocol output from module code is unsupported.
+
+Precedence per `(phase, event)`: project `.vibeflow-hooks/after/` beats global `~/.vibeflow/hooks/after/` beats shipped defaults. The first level with either file wins; both files at the same level is a configuration error (`HOOK_CONFIG_CONFLICT` — no hook runs, no fallback to a lower level). Only `*.mjs` executes; `.js`/`.cjs` are refused loudly; `VIBEFLOW_HOOKS=0` disables all hooks.
+
+```js
+// .vibeflow-hooks/after/after-task.update.hook.mjs
+// @ts-check
+/** @type {import('@vibeflow-tools/cli/hooks').HookAfterHandler<'task.update'>} */
+export default async (envelope) => {
+  return { instructions: `saw ${envelope.event} (${envelope.payload.taskId})` };
+};
+```
+
+Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks` — no runtime API, no TypeScript execution: hooks are `.hook.mjs`, never `.ts`). If the CLI itself is installed globally, still add it as a local dev dependency so editors resolve the types:
+
+```bash
+npm install --save-dev @vibeflow-tools/cli
+```
+
+Trust is code-execution permission, not a sandbox: project hooks prompt once per entry-file hash (non-TTY refuses by design; `VIBEFLOW_TRUST_HOOKS=1` bypasses explicitly), and the hash covers the entry file only — not its imports. The child reads with your HOME, files, and network available.
+
 ---
 
 ## API

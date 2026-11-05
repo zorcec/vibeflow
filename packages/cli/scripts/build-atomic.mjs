@@ -167,6 +167,30 @@ sh(
 sh(`"${tsupBin}"`, stagingEnv);
 sh(`"${tsupBin}" --config tsup.cli.config.ts`, stagingEnv);
 
+// Stage 1.5 (ADR-0006): the module-hook loader ships UNBUNDLED next to BOTH
+// CLI entries, so the runner resolves it from the executing bundle's own
+// location (`import.meta.url`) — never a source-tree path or `--import`
+// shim. Copied verbatim before the live sync, so the loader is published
+// before either entry and stale copies are removed on rebuild.
+for (const dest of [
+  resolve(stagingDir, "hook-loader.mjs"),
+  resolve(stagingDir, "cli", "hook-loader.mjs"),
+]) {
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(
+    resolve(cliRoot, "src", "core", "hooks", "hook-loader.mjs"),
+    dest,
+  );
+}
+// Public module-hook authoring types for the `./hooks` subpath (types
+// only, ADR-0006 Stage 1.5). Copied here — not in tsup onSuccess —
+// because the DTS pass emits `cli/hooks.d.ts` after that hook runs.
+// A missing declaration fails the build LOUDLY: the export requires it.
+copyFileSync(
+  resolve(stagingDir, "cli", "hooks.d.ts"),
+  resolve(stagingDir, "hooks.d.ts"),
+);
+
 syncStagingToLive();
 console.log(`[build-atomic] staged ${STAGING_NAME}/ → synced into ${LIVE_NAME}/`);
 
