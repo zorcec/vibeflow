@@ -28,11 +28,20 @@ export const HOOK_FILE_SUFFIX = ".mjs";
  *  peer next to the stdio `after-<event>.mjs` at the same precedence level. */
 export const HOOK_MODULE_SUFFIX = ".hook.mjs";
 
-/** Deterministic mode choice: filename extension only, never source inspection. */
-export type HookMode = "stdio" | "module";
+/** TypeScript module-adapter suffixes (Stage 4, ADR-0006): default-export
+ *  `.hook.mts` / `.hook.ts` peers — same deterministic filename contract as
+ *  `.hook.mjs`, no auto-detection, erasable-syntax-only (type stripping,
+ *  never compilation). */
+export const HOOK_TS_MODULE_SUFFIXES = [".hook.mts", ".hook.ts"] as const;
 
-/** Refused extensions — present but never executed, reported loudly. */
-const REFUSED_SUFFIXES = [".js", ".cjs"];
+/** Deterministic mode choice: filename extension only, never source inspection. */
+export type HookMode = "stdio" | "module" | "module-ts";
+
+/** Refused extensions — present but never executed, reported loudly.
+ *  Bare `.ts`/`.mts` (without the `.hook.` adapter infix) are refused like
+ *  `.js`/`.cjs`: an ignored file that looks like policy but never runs is
+ *  worse than no hook. */
+const REFUSED_SUFFIXES = [".js", ".cjs", ".ts", ".mts"];
 
 /** The 8 known events; anything else under a hooks dir is unknown. */
 const KNOWN_EVENTS: ReadonlySet<string> = new Set<string>([
@@ -55,21 +64,24 @@ export interface ResolvedHook {
   /** True when the final target escaped its own trust root via symlink. */
   escapedRoot: boolean;
   /** Deterministic by filename: `after-<event>.mjs` = stdio,
-   *  `after-<event>.hook.mjs` = module (ADR-0006 Stage 1.5). */
+   *  `after-<event>.hook.mjs` = module (ADR-0006 Stage 1.5),
+   *  `after-<event>.hook.mts` / `after-<event>.hook.ts` = module-ts
+   *  (ADR-0006 Stage 4). */
   mode: HookMode;
 }
 
 /**
- * Same-level stdio+module collision (Stage 1.5, ADR-0006): BOTH
- * `after-<event>.mjs` and `after-<event>.hook.mjs` exist at the same
- * precedence level. This is a configuration error for the invocation —
- * diagnostic on stderr, no hook, and NO fallback to a lower level.
+ * Same-level executable collision (Stages 1.5+4, ADR-0006): two or more of
+ * the four executable names (`after-<event>.mjs`, `.hook.mjs`, `.hook.mts`,
+ * `.hook.ts`) exist at the same precedence level. This is a configuration
+ * error for the invocation — diagnostic on stderr, no hook, and NO fallback
+ * to a lower level. `files` carries every same-level executable found, in
+ * deterministic probe order (stdio, `.hook.mjs`, `.hook.mts`, `.hook.ts`).
  */
 export interface HookConflict {
   conflict: true;
   root: HookTrustRoot;
-  stdioFile: string;
-  moduleFile: string;
+  files: string[];
 }
 
 /** Discriminated resolution: a hook, an explicit conflict, or nothing. */
@@ -101,6 +113,12 @@ function hookFileName(phase: HookPhase, event: HookEvent): string {
 /** Module-adapter peer: same directory, same precedence level, `.hook.mjs`. */
 function hookModuleFileName(phase: HookPhase, event: HookEvent): string {
   return `${phase}-${event}${HOOK_MODULE_SUFFIX}`;
+}
+
+/** TypeScript module-adapter peers (Stage 4): same directory, same
+ *  precedence level, `.hook.mts` / `.hook.ts`. */
+function hookTsModuleFileNames(phase: HookPhase, event: HookEvent): string[] {
+  return HOOK_TS_MODULE_SUFFIXES.map((suffix) => `${phase}-${event}${suffix}`);
 }
 
 /**
@@ -150,9 +168,10 @@ function canonicalWithinRoot(path: string, rootDir: string): { canonical: string
 }
 
 /**
- * Refused-extension check: a `.js`/`.cjs` file for the same (phase, event)
- * in the SAME directory as a lookup. Returns the offending path or null.
- * Callers report it loudly (stderr) — never silently ignore it.
+ * Refused-extension check: a `.js`/`.cjs`/bare-`.ts`/bare-`.mts` file for
+ * the same (phase, event) in the SAME directory as a lookup. Returns the
+ * offending path or null. Callers report it loudly (stderr) — never
+ * silently ignore it.
  */
 export function refusedSibling(dir: string, phase: HookPhase, event: HookEvent): string | null {
   for (const suffix of REFUSED_SUFFIXES) {
@@ -164,15 +183,16 @@ export function refusedSibling(dir: string, phase: HookPhase, event: HookEvent):
 
 /**
  * Resolve one (phase, event) hook: project → global → defaults, first hit
- * wins. At each level BOTH exact names are probed before descending:
- * `after-<event>.mjs` (stdio) and `after-<event>.hook.mjs` (module).
- * The first level with either file wins; both at one level is an explicit
- * {@link HookConflict}, never a silent fallback. Returns null when nothing
- * exists. The returned `file` is the canonical path; `escapedRoot` marks a
- * symlink escape (callers treat an escape as untrusted-at-best and never
- * let an untrusted-root hook inherit trust from the directory it points
- * into). A conflicting, broken, untrusted, or escaped chosen file is never
- * replaced by a lower-level hook.
+ * wins. At each level ALL FOUR exact names are probed before descending:
+ * `after-<event>.mjs` (stdio), `after-<event>.hook.mjs` (module),
+ * `after-<event>.hook.mts` / `after-<event>.hook.ts` (module-ts, Stage 4).
+ * The first level with any file wins; two or more at one level is an
+ * explicit {@link HookConflict}, never a silent fallback. Returns null
+ * when nothing exists. The returned `file` is the canonical path;
+ * `escapedRoot` marks a symlink escape (callers treat an escape as
+ * untrusted-at-best and never let an untrusted-root hook inherit trust
+ * from the directory it points into). A conflicting, broken, untrusted, or
+ * escaped chosen file is never replaced by a lower-level hook.
  */
 export function resolveHookFile(
   projectDir: string,
@@ -190,26 +210,47 @@ export function resolveHookFile(
     const levelDir = join(dir, phase);
     const stdio = canonicalCandidate(join(levelDir, hookFileName(phase, event)), dir);
     const module = canonicalCandidate(join(levelDir, hookModuleFileName(phase, event)), dir);
-    if (stdio !== null && module !== null) {
+    const tsFound = hookTsModuleFileNames(phase, event).map(
+      (name) => canonicalCandidate(join(levelDir, name), dir),
+    );
+    const present: Array<{
+      found: { canonical: string; inside: boolean } | null;
+      mode: HookMode;
+    }> = [
+      { found: stdio, mode: "stdio" as const },
+      { found: module, mode: "module" as const },
+      ...tsFound.map((found) => ({ found, mode: "module-ts" as const })),
+    ].filter((entry) => entry.found !== null);
+    if (present.length > 1) {
       return {
         conflict: true,
         root,
-        stdioFile: stdio.canonical,
-        moduleFile: module.canonical,
+        files: present.map(
+          (entry) => (entry.found as { canonical: string }).canonical,
+        ),
       };
     }
-    const chosen = stdio ?? module;
-    if (chosen === null) continue;
+    const chosen = present[0];
+    if (chosen === undefined || chosen.found === null) continue;
     // Canonicalise: the file that executes is the link TARGET, not the name.
     return {
-      file: chosen.canonical,
+      file: chosen.found.canonical,
       root,
-      escapedRoot: !chosen.inside,
-      mode: stdio !== null ? "stdio" : "module",
+      escapedRoot: !chosen.found.inside,
+      mode: chosen.mode,
     };
   }
   return null;
 }
+
+/** Executable hook suffixes, longest first — the unknown-event reporter
+ *  strips exactly one of these. Refused suffixes (`.js`/`.cjs`/bare
+ *  `.ts`/`.mts`) are reported by {@link refusedSibling}, never here. */
+const EXECUTABLE_SUFFIXES = [
+  HOOK_MODULE_SUFFIX,
+  ...HOOK_TS_MODULE_SUFFIXES,
+  HOOK_FILE_SUFFIX,
+] as const;
 
 /** Warn-once registry for unknown event directories (per process). */
 const warnedUnknownEvents = new Set<string>();
@@ -226,12 +267,14 @@ export function reportUnknownHookEvents(
       continue;
     }
     for (const entry of entries) {
-      if (!entry.endsWith(HOOK_FILE_SUFFIX)) continue;
-      // Longest suffix first: `after-task.update.hook.mjs` names the
-      // `task.update` module peer, not an event called `task.update.hook`.
-      const event = entry.endsWith(HOOK_MODULE_SUFFIX)
-        ? entry.slice(phase.length + 1, -HOOK_MODULE_SUFFIX.length)
-        : entry.slice(phase.length + 1, -HOOK_FILE_SUFFIX.length);
+      // Executable suffixes longest-first: `after-task.update.hook.mjs`
+      // names the `task.update` module peer, not an event called
+      // `task.update.hook` — and `.hook.ts` must win over a bare `.ts`.
+      // Refused (non-executable) suffixes are reported by refusedSibling,
+      // never here.
+      const suffix = EXECUTABLE_SUFFIXES.find((s) => entry.endsWith(s));
+      if (suffix === undefined) continue;
+      const event = entry.slice(phase.length + 1, -suffix.length);
       const key = `${phase}:${event}`;
       if (!KNOWN_EVENTS.has(event) && !warnedUnknownEvents.has(key)) {
         warnedUnknownEvents.add(key);

@@ -104,6 +104,28 @@ describe("hook-loader", () => {
     expect(result.stderr).toContain("HOOK_NO_DEFAULT_EXPORT");
   });
 
+  it("type-strips a .hook.ts hook with erased annotations and type imports (Stage 4)", async () => {
+    const file = writeHook(
+      "typed.hook.ts",
+      `import type { HookAfterResult } from "@vibeflow-tools/cli/hooks";\n` +
+        `export default async (envelope: { event: string }): Promise<HookAfterResult> => ({ instructions: "stripped:" + envelope.event });\n`,
+    );
+    const result = await runEnvelope(file);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ instructions: "stripped:task.update" });
+  });
+
+  it("refuses non-erasable TypeScript syntax loudly (Stage 4, never half-runs)", async () => {
+    const file = writeHook(
+      "non-erasable.hook.ts",
+      `enum Color { Red = "red" }\nexport default async () => ({ instructions: "must never run:" + Color.Red });\n`,
+    );
+    const result = await runEnvelope(file);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("HOOK_IMPORT_FAILED");
+    expect(result.stdout).toBe("");
+  });
+
   it("rejects import syntax errors", async () => {
     const file = writeHook("syntax.hook.mjs", `export default ( => ;`);
     const result = await runEnvelope(file);

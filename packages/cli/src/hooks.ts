@@ -1,12 +1,14 @@
 /**
- * Public module-hook authoring types (ADR-0006 Stage 1.5).
+ * Public module-hook authoring types (ADR-0006 Stages 1.5+4).
  *
  * TYPE-ONLY boundary: this module has NO runtime exports — it re-exports
- * and narrows the internal envelope types for `.hook.mjs` authors. Never
- * import it for values; the CLI executes hook modules in a separate child
- * process (the packaged `hook-loader.mjs`), never in-process.
+ * and narrows the internal envelope types for `.hook.mjs` / `.hook.ts`
+ * authors. Never import it for values; the CLI executes hook modules in a
+ * separate child process (the packaged `hook-loader.mjs`), never
+ * in-process.
  *
- * Consumer (Node >= 22, with a local dev dependency on
+ * Consumer (Node with type stripping — see `resolveTypeScriptHookSupport`
+ * in `core/hooks/runner.ts` — with a local dev dependency on
  * `@vibeflow-tools/cli` for editor resolution even when the CLI itself is
  * installed globally):
  *
@@ -16,6 +18,18 @@
  * export default async (envelope) => {
  *   return { instructions: `saw ${envelope.event} (${envelope.payload.taskId})` };
  * };
+ * ```
+ *
+ * TypeScript (Stage 4, erasable syntax only — type stripping, never
+ * compilation: no JSX, no tsconfig paths, no enums; `import type` is
+ * erased and never resolved):
+ *
+ * ```ts
+ * import type { HookAfterHandler } from "@vibeflow-tools/cli/hooks";
+ * const handler: HookAfterHandler<"task.update"> = async (envelope) => ({
+ *   instructions: `saw ${envelope.event} (${envelope.payload.taskId})`,
+ * });
+ * export default handler;
  * ```
  */
 import type {

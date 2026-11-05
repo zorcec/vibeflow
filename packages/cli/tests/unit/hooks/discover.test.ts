@@ -235,8 +235,10 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
     expect(isHookConflict(resolved)).toBe(true);
     if (!isHookConflict(resolved)) throw new Error("expected conflict");
     expect(resolved.root).toBe("project");
-    expect(resolved.stdioFile).toBe(stdioFile);
-    expect(resolved.moduleFile).toBe(join(dir, "after-task.update.hook.mjs"));
+    expect(resolved.files).toEqual([
+      stdioFile,
+      join(dir, "after-task.update.hook.mjs"),
+    ]);
   });
 
   it("a higher-level conflict never degrades to a lower-level hook", () => {
@@ -331,5 +333,165 @@ describe("reportUnknownHookEvents with module peers (Stage 1.5)", () => {
     expect(lines[0]).toContain("HOOK_UNKNOWN_EVENT");
     expect(lines[0]).toContain("task.quux");
     expect(lines[0]).toContain('"task.quux"');
+  });
+});
+
+describe("TypeScript module peers (Stage 4, ADR-0006)", () => {
+  function writeTsHook(name: string, atHome: string = projectDir): string {
+    const dir = join(
+      atHome,
+      atHome === projectDir ? ".vibeflow-hooks" : ".vibeflow/hooks",
+      "after",
+    );
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, name);
+    writeFileSync(file, `export default async () => ({});\n`);
+    return file;
+  }
+
+  it("a lone .hook.ts peer resolves with mode 'module-ts'", () => {
+    const file = writeTsHook("after-task.update.hook.ts");
+    const resolved = expectResolved(
+      resolveHookFile(projectDir, "after", "task.update", home),
+    );
+    expect(resolved.file).toBe(file);
+    expect(resolved.root).toBe("project");
+    expect(resolved.mode).toBe("module-ts");
+  });
+
+  it("a lone .hook.mts peer resolves with mode 'module-ts'", () => {
+    const file = writeTsHook("after-task.update.hook.mts");
+    const resolved = expectResolved(
+      resolveHookFile(projectDir, "after", "task.update", home),
+    );
+    expect(resolved.file).toBe(file);
+    expect(resolved.mode).toBe("module-ts");
+  });
+
+  it("project .hook.ts beats global .hook.mjs (precedence is level-first, not mode-first)", () => {
+    const tsFile = writeTsHook("after-task.update.hook.ts");
+    const globalDir = join(home, ".vibeflow", "hooks", "after");
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(
+      join(globalDir, "after-task.update.hook.mjs"),
+      `export default () => ({});\n`,
+    );
+    const resolved = expectResolved(
+      resolveHookFile(projectDir, "after", "task.update", home),
+    );
+    expect(resolved.file).toBe(tsFile);
+    expect(resolved.root).toBe("project");
+    expect(resolved.mode).toBe("module-ts");
+  });
+
+  it("any two executables at one level conflict: mjs+ts, stdio+ts, ts+mts", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const stdioFile = join(dir, "after-task.update.mjs");
+    const mjsFile = join(dir, "after-task.update.hook.mjs");
+    const mtsFile = join(dir, "after-task.update.hook.mts");
+    const tsFile = join(dir, "after-task.update.hook.ts");
+    writeFileSync(stdioFile, `// stdio\n`);
+    writeFileSync(mjsFile, `export default () => ({});\n`);
+    const pair = resolveHookFile(projectDir, "after", "task.update", home);
+    expect(isHookConflict(pair)).toBe(true);
+    if (!isHookConflict(pair)) throw new Error("expected conflict");
+    expect(pair.files).toEqual([stdioFile, mjsFile]);
+
+    rmSync(stdioFile);
+    rmSync(mjsFile);
+    writeFileSync(mtsFile, `export default () => ({});\n`);
+    writeFileSync(tsFile, `export default () => ({});\n`);
+    const tsPair = resolveHookFile(projectDir, "after", "task.update", home);
+    expect(isHookConflict(tsPair)).toBe(true);
+    if (!isHookConflict(tsPair)) throw new Error("expected conflict");
+    expect(tsPair.files).toEqual([mtsFile, tsFile]);
+  });
+
+  it("three executables at one level conflict with no fallback", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const stdioFile = join(dir, "after-task.update.mjs");
+    const tsFile = join(dir, "after-task.update.hook.ts");
+    writeFileSync(stdioFile, `// stdio\n`);
+    writeFileSync(tsFile, `export default () => ({});\n`);
+    writeFileSync(
+      join(dir, "after-task.update.hook.mjs"),
+      `export default () => ({});\n`,
+    );
+    const globalDir = join(home, ".vibeflow", "hooks", "after");
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(join(globalDir, "after-task.update.mjs"), `// global\n`);
+    const resolved = resolveHookFile(projectDir, "after", "task.update", home);
+    expect(isHookConflict(resolved)).toBe(true);
+    if (!isHookConflict(resolved)) throw new Error("expected conflict");
+    expect(resolved.files).toEqual([
+      stdioFile,
+      join(dir, "after-task.update.hook.mjs"),
+      tsFile,
+    ]);
+  });
+
+  it("bare .ts/.mts siblings are refused loudly, never executed", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const tsFile = join(dir, "after-task.update.ts");
+    writeFileSync(tsFile, `// wrong extension\n`);
+    expect(refusedSibling(dir, "after", "task.update")).toBe(tsFile);
+    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+    rmSync(tsFile);
+    const mtsFile = join(dir, "after-task.update.mts");
+    writeFileSync(mtsFile, `// wrong extension\n`);
+    expect(refusedSibling(dir, "after", "task.update")).toBe(mtsFile);
+    expect(resolveHookFile(projectDir, "after", "task.update", home)).toBeNull();
+  });
+
+  it("a .hook.ts peer does not shadow a refused bare .ts (refusal wins by absence)", () => {
+    // Both present: the executable .hook.ts resolves; the bare .ts stays
+    // refused-loud via refusedSibling (emit reports HOOK_BAD_EXTENSION).
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.update.ts"), `// wrong extension\n`);
+    const hookFile = writeTsHook("after-task.update.hook.ts");
+    const resolved = expectResolved(
+      resolveHookFile(projectDir, "after", "task.update", home),
+    );
+    expect(resolved.file).toBe(hookFile);
+    expect(resolved.mode).toBe("module-ts");
+    expect(refusedSibling(dir, "after", "task.update")).toBe(
+      join(dir, "after-task.update.ts"),
+    );
+  });
+});
+
+describe("reportUnknownHookEvents with TypeScript peers (Stage 4)", () => {
+  it("a known-event .hook.ts peer is not an unknown event", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.update.hook.ts"), `export default () => ({});\n`);
+    const lines: string[] = [];
+    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
+    expect(lines).toHaveLength(0);
+  });
+
+  it("an unknown-event .hook.ts peer is reported once, not interpreted", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.quuz.hook.ts"), `export default () => ({});\n`);
+    const lines: string[] = [];
+    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
+    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("HOOK_UNKNOWN_EVENT");
+    expect(lines[0]).toContain("task.quuz");
+  });
+
+  it("a bare unknown .ts file stays silent (refusedSibling owns bare names)", () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.quux.ts"), `// bare\n`);
+    const lines: string[] = [];
+    reportUnknownHookEvents(projectDir, (m) => lines.push(m));
+    expect(lines).toHaveLength(0);
   });
 });

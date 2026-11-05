@@ -103,7 +103,7 @@ on stderr and NEVER blocks the bypassed command. After-hooks still run.
 `VIBEFLOW_HOOKS=0` disables ALL emission including gates (explicit
 kill-switch, used by the test setup for hermeticity).
 
-## Authoring modes (`.mjs` vs `.hook.mjs`)
+## Authoring modes (`.mjs` vs `.hook.mjs` vs `.hook.ts`)
 
 Mode is chosen by FILENAME EXTENSION only — never by source inspection
 (`discover.ts`):
@@ -119,15 +119,51 @@ Mode is chosen by FILENAME EXTENSION only — never by source inspection
   unserializable returns exit non-zero. A `console.log` in module code lands
   on child stdout, invalidates the document, and the parent parser rejects
   it. Never in-process JS.
+- `pre-<event>.hook.mts` / `after-<event>.hook.mts` and
+  `pre-<event>.hook.ts` / `after-<event>.hook.ts` — TypeScript module
+  mode (Stage 4): the SAME loader path — the file is type-stripped on
+  import, then runs exactly like a `.hook.mjs` module.
 
-Both modes share the deadline, byte limits, env allowlist, trust, parser,
-and failure policy. Both files at ONE level is `HOOK_CONFIG_CONFLICT` —
-a configuration error with NO fallback to a lower level: pre REFUSES the
-gated write, after SKIPS with a diagnostic (fail-open: the write happened).
-Only `*.mjs` executes; a `.js`/`.cjs` peer is REFUSED LOUDLY
-(`HOOK_BAD_EXTENSION`) — an ignored file that looks like policy but never
-runs is worse than no hook. Unknown event filenames warn once
-(`HOOK_UNKNOWN_EVENT`) and are never guessed at.
+All modes share the deadline, byte limits, env allowlist, trust, parser,
+and failure policy. TWO OR MORE executable files at ONE level is
+`HOOK_CONFIG_CONFLICT` — a configuration error with NO fallback to a lower
+level: pre REFUSES the gated write, after SKIPS with a diagnostic
+(fail-open: the write happened). Only `*.mjs` and
+`.hook.mjs`/`.hook.mts`/`.hook.ts` execute; a `.js`/`.cjs`/bare-`.ts`/
+bare-`.mts` peer is REFUSED LOUDLY (`HOOK_BAD_EXTENSION`) — an ignored file
+that looks like policy but never runs is worse than no hook. Unknown event
+filenames warn once (`HOOK_UNKNOWN_EVENT`) and are never guessed at.
+
+### TypeScript rules: type stripping, never compilation (Stage 4)
+
+- **Capability floor.** `engines.node >= 22` does NOT guarantee type
+  stripping — the runner probes the ACTUAL runtime
+  (`resolveTypeScriptHookSupport` in `runner.ts`, mirroring
+  `process.features.typescript`: `"strip"` / `"transform"` run TS hooks,
+  anything else cannot). The probe reads the parent runtime, which is sound
+  because the child is always the same `process.execPath` binary. A runtime
+  without stripping REFUSES a `.hook.ts`/`.hook.mts` hook loudly: after
+  fails OPEN with one `HOOK_TS_UNSUPPORTED` stderr line (the write already
+  happened), pre fails CLOSED with `HOOK_PRE_TS_UNSUPPORTED` and the gated
+  write is refused. The phase policy is unchanged — only the refusal reason
+  is new.
+- **Erasable syntax ONLY.** Annotations and `import type` are erased; the
+  rest of the file must be plain runnable JavaScript. NO enums, NO
+  namespaces, NO parameter properties, NO JSX (`.tsx` is not discovered),
+  NO tsconfig paths, NO general transpilation — the loader spawns with no
+  flags, so even on runtimes that could transform, only erasable syntax
+  passes. Non-erasable syntax fails the import, which is LOUD, never
+  half-run: the loader exits non-zero (`HOOK_IMPORT_FAILED`), the after
+  runner drops it (`HOOK_NONZERO_EXIT`, fail-open), the pre gate blocks
+  (`HOOK_PRE_NONZERO_EXIT`, fail-closed).
+- **Type imports work because they vanish.** `import type { … } from
+  "@vibeflow-tools/cli/hooks"` is erased before resolution — it never
+  needs to resolve at runtime — so the shipped example type-checks in your
+  editor and runs verbatim under stripping. Keep the local dev dependency
+  (`npm install --save-dev @vibeflow-tools/cli`) so editors resolve the
+  declarations even when the CLI itself is installed globally; in `.mjs`
+  files use `// @ts-check` + `import('@vibeflow-tools/cli/hooks')` JSDoc
+  types instead (see `packages/cli/README.md`).
 
 ## Precedence (replace, never merge)
 
@@ -172,7 +208,12 @@ but `y` does not run. Non-TTY (agents/CI/MCP) cannot prompt → NOT run, by
 design. Escape hatch: `VIBEFLOW_TRUST_HOOKS=1` (explicit, logged on stderr).
 Honest limit: the recorded hash covers the ENTRY FILE ONLY, not its import
 graph — a trusted `.mjs` approves everything it imports, and the child
-reads with your HOME (and therefore your credentials) visible.
+reads with your HOME (and therefore your credentials) visible. The same
+rule covers TypeScript: the recorded hash is the `.hook.ts`/`.hook.mts`
+SOURCE text, so editing the source re-prompts (even a comment-only edit —
+hash, not semantics), while editing a file it IMPORTS does not (Stage 1.5
+entry-hash-not-transitive). If your `.hook.ts` imports project helpers,
+re-review it yourself after changing them — trust will not ask again.
 
 ## Secrets: the hook-owned config file (Sol review #9)
 
@@ -200,6 +241,7 @@ Shipped under `docs/hooks-examples/` (filenames mirror the hooks layout):
 | --- | --- | --- |
 | `after/after-verify.mjs` | `.vibeflow-hooks/after/after-verify.mjs` | hook-owned config `after-verify.config.json` (see `after-verify.config.example.json`); without it the hook no-ops with an stderr note |
 | `after/after-task.update.mjs` | `.vibeflow-hooks/after/after-task.update.mjs` | nothing — pure, offline |
+| `after/after-task.update.hook.ts` | `.vibeflow-hooks/after/after-task.update.hook.ts` | nothing — pure, offline; needs a runtime with type stripping (see above) |
 
 ```bash
 # Install (project level wins by precedence; TRUST it once from a terminal):
@@ -209,20 +251,27 @@ cp docs/hooks-examples/after-verify.config.example.json .vibeflow-hooks/after-ve
 # Global instead: ~/.vibeflow/hooks/after/ + ~/.vibeflow/hooks/*.config.json.
 ```
 
-Both were exercised VERBATIM through the packaged CLI (real spawn, not
-source): `after-task.update.mjs` returns its review nudge on
+All three were exercised VERBATIM through the packaged CLI (real spawn,
+not source): `after-task.update.mjs` returns its review nudge on
 `tasks --edit --set-status review` and `{}` otherwise, with stdout staying
 one JSON document; `after-verify.mjs` POSTs the verdict to the configured
 URL on `vibeflow verify` and returns `{}` on every path including missing
-config. Removing either file restores the shipped default (verified:
-default text rides along again). Trust: run from an interactive terminal
-once, or set `VIBEFLOW_TRUST_HOOKS=1` for the run.
+config; `after-task.update.hook.ts` behaves like its `.mjs` sibling (nudge
+on the review move, `{}` otherwise) with its `import type` erased at
+runtime. Removing any file restores the shipped default (verified: default
+text rides along again). Trust: run from an interactive terminal once, or
+set `VIBEFLOW_TRUST_HOOKS=1` for the run.
 
 ## Writing your own
 
 - One file per (phase, event): `pre-task.create.mjs` gates creation,
-  `after-push.mjs` whispers after a push. Keep exactly ONE of `.mjs` /
-  `.hook.mjs` per (phase, event) per level.
+  `after-push.mjs` whispers after a push. Keep exactly ONE executable —
+  `.mjs`, `.hook.mjs`, `.hook.mts`, or `.hook.ts` — per (phase, event)
+  per level.
+- TypeScript (Stage 4): name it `<phase>-<event>.hook.ts` (or `.hook.mts`),
+  keep erasable syntax only, `import type` the declarations below, and
+  confirm your runtime strips types before trusting it — an unsupported
+  runtime refuses the hook on every run (after skips, pre blocks).
 - Public authoring types (type-only, no runtime): `@vibeflow-tools/cli/hooks`
   (`HookAfterHandler<'task.update'>`, … in `packages/cli/src/hooks.ts`) —
   after-only union; no pre payload is promised to public authors.

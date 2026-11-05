@@ -502,12 +502,13 @@ Agents can also run directly from the Kanban board via `POST /api/agent/run`, wh
 
 After-hooks run a command you own after a confirmed durable effect (for example `task.update`) and append the returned `instructions` to the agent's prompt. Hooks are child processes only — never in-process — and after-hooks fail open on a 2 s per-invocation deadline: timeouts, non-zero exits, and bad output are one stderr line, never a thrown error.
 
-Two deterministic filename modes, chosen by extension only (no auto-detection):
+Three deterministic filename modes, chosen by extension only (no auto-detection):
 
 - `after-<event>.mjs` — stdio protocol: the CLI writes one envelope JSON to stdin, the hook prints `{instructions: "..."}` or `{}` to stdout.
 - `after-<event>.hook.mjs` — module adapter: `export default` a function (async OK) that receives the full envelope as its ONE argument and returns the result. A packaged loader owns stdin/stdout in this mode — reading stdin or writing protocol output from module code is unsupported.
+- `after-<event>.hook.ts` / `after-<event>.hook.mts` — TypeScript module adapter: the same loader path, type-stripped on import. Erasable syntax only (annotations + `import type` are erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses the hook loudly (after skips, pre blocks the gated write).
 
-Precedence per `(phase, event)`: project `.vibeflow-hooks/after/` beats global `~/.vibeflow/hooks/after/` beats shipped defaults. The first level with either file wins; both files at the same level is a configuration error (`HOOK_CONFIG_CONFLICT` — no hook runs, no fallback to a lower level). Only `*.mjs` executes; `.js`/`.cjs` are refused loudly; `VIBEFLOW_HOOKS=0` disables all hooks.
+Precedence per `(phase, event)`: project `.vibeflow-hooks/after/` beats global `~/.vibeflow/hooks/after/` beats shipped defaults. The first level with any file wins; two or more files at the same level is a configuration error (`HOOK_CONFIG_CONFLICT` — no hook runs, no fallback to a lower level). Only `*.mjs` and `.hook.mjs`/`.hook.mts`/`.hook.ts` execute; `.js`/`.cjs`/bare-`.ts`/`.mts` are refused loudly; `VIBEFLOW_HOOKS=0` disables all hooks.
 
 ```js
 // .vibeflow-hooks/after/after-task.update.hook.mjs
@@ -518,7 +519,7 @@ export default async (envelope) => {
 };
 ```
 
-Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks` — no runtime API, no TypeScript execution: hooks are `.hook.mjs`, never `.ts`). If the CLI itself is installed globally, still add it as a local dev dependency so editors resolve the types:
+Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks` — no runtime API; `.hook.ts` files `import type` them and the imports are erased before resolution). If the CLI itself is installed globally, still add it as a local dev dependency so editors resolve the types:
 
 ```bash
 npm install --save-dev @vibeflow-tools/cli

@@ -389,3 +389,67 @@ describe("module peers (Stage 1.5, ADR-0006)", () => {
     expect(readFileSync(marker, "utf8")).toBe("run\nrun\n");
   });
 });
+
+describe("TypeScript peers (Stage 4, ADR-0006)", () => {
+  function writeProjectTsHook(event = "task.update", body?: string): string {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `after-${event}.hook.ts`);
+    writeFileSync(
+      file,
+      body ??
+        `import type { HookAfterResult } from "@vibeflow-tools/cli/hooks";\n` +
+          `export default async (envelope: { event: string }): Promise<HookAfterResult> => ({ instructions: "ts:" + envelope.event });\n`,
+    );
+    return file;
+  }
+
+  function captureStderr() {
+    const lines: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      lines.push(String(c));
+      return true;
+    };
+    return { lines, restore: () => (process.stderr.write = orig) };
+  }
+
+  const TRUSTED_ENV = { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" };
+
+  it("runs a trusted .hook.ts end to end (discovery, trust, strip, instructions)", async () => {
+    writeProjectTsHook();
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: TRUSTED_ENV },
+    );
+    expect(out).toEqual(["ts:task.update"]);
+  });
+
+  it("a stdio+.hook.ts same-level conflict fails open and names every file", async () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "after-task.update.mjs"), `// stdio\n`);
+    const tsFile = writeProjectTsHook();
+    const { lines, restore } = captureStderr();
+    try {
+      const out = await emitAfterHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { taskId: "abc", changed: ["status"] },
+        { home, env: TRUSTED_ENV },
+      );
+      expect(out).toEqual([]);
+    } finally {
+      restore();
+    }
+    const stderr = lines.join("");
+    expect(stderr).toContain("HOOK_CONFIG_CONFLICT");
+    expect(stderr).toContain(tsFile);
+    expect(stderr).toContain("after-task.update.mjs");
+  });
+});

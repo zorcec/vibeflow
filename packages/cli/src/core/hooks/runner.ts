@@ -10,11 +10,17 @@
  * Stage 1.5 adds the module mode (ADR-0006): the same envelope goes to
  * stdin of the packaged `hook-loader.mjs`, which dynamic-imports the
  * `after-<event>.hook.mjs` default export and prints its return value.
- * Mode is chosen by filename extension only (`discover.ts`); both modes
- * share every bound and the parser below.
+ * Stage 4 adds `module-ts` (`.hook.mts`/`.hook.ts`, ADR-0006): the same
+ * loader path, type-stripped on import — erasable syntax only, no flags,
+ * no transpilation, no tsconfig. A runtime without type stripping refuses
+ * LOUDLY (after fail-open `HOOK_TS_UNSUPPORTED`, pre fail-closed
+ * `HOOK_PRE_TS_UNSUPPORTED`), honoring the phase policy.
+ * Mode is chosen by filename extension only (`discover.ts`); every mode
+ * shares every bound and the parser below.
  *
  * Bounds (all pinned by `runner.test.ts`):
- * - 2 s deadline PER INVOCATION, covering import + handler + serialization.
+ * - 2 s deadline PER INVOCATION, covering import + handler + serialization
+ *   (module-ts: stripping + import + handler — one budget, same kill).
  *   Expiry SIGKILLs the child AND its process tree (detached group kill),
  *   so a parent that holds inherited pipes open still settles in time.
  * - After-hooks fail OPEN (the write already happened): timeout, non-zero
@@ -55,6 +61,24 @@ export const HOOK_INVOCATION_TIMEOUT_MS = 2000;
 export const HOOK_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const HOOK_GUARD_ENV = "VIBEFLOW_IN_HOOK";
 
+/**
+ * TypeScript hook support (Stage 4, ADR-0006): the ACTUAL runtime
+ * capability for type stripping — never the `engines.node >= 22` floor,
+ * which does not guarantee it. Mirrors `process.features.typescript`:
+ * `"strip"` / `"transform"` can import erasable-syntax `.hook.ts` /
+ * `.hook.mts` files; anything else (older Node, stripped-down builds)
+ * cannot. The probe reads the PARENT runtime, which is sound: the child
+ * is always the same `process.execPath` binary, so parent and child
+ * capabilities are identical by construction.
+ */
+export type TypeScriptHookSupport = "strip" | "transform" | "unsupported";
+
+export function resolveTypeScriptHookSupport(): TypeScriptHookSupport {
+  const marker = (process.features as { typescript?: unknown } | undefined)
+    ?.typescript;
+  return marker === "strip" || marker === "transform" ? marker : "unsupported";
+}
+
 export interface AfterHookResult {
   ran: boolean;
   instructions?: string;
@@ -69,10 +93,17 @@ export interface RunAfterHookOptions {
   env?: NodeJS.ProcessEnv;
   PATH?: string;
   HOME?: string;
-  /** Hook mode (ADR-0006 Stage 1.5): stdio executes the file itself,
-   *  module executes the packaged loader with the file as its argument.
-   *  Defaults to `"stdio"` — existing callers are unaffected. */
+  /** Hook mode (ADR-0006 Stages 1.5+4): stdio executes the file itself,
+   *  module/module-ts execute the packaged loader with the file as its
+   *  argument (`module-ts` = a `.hook.mts`/`.hook.ts` file, imported with
+   *  runtime type stripping). Defaults to `"stdio"` — existing callers
+   *  are unaffected. */
   mode?: HookMode;
+  /** TypeScript capability override (per-invocation test seam only).
+   *  Defaults to the live {@link resolveTypeScriptHookSupport} probe —
+   *  production callers never set this; tests use `"unsupported"` to
+   *  simulate a runtime without type stripping. */
+  typescriptSupport?: TypeScriptHookSupport;
   /** Absolute loader entry override (per-invocation test seam only).
    *  Defaults to the `hook-loader.mjs` shipped next to the executing
    *  bundle — never `process.cwd()`, PATH lookup, or a `--import` shim. */
@@ -242,13 +273,15 @@ function spawnHookProcess(
       resolvePromise(result);
     };
 
-    // ADR-0006 Stage 1.5 mode branch: stdio spawns the hook file itself;
-    // module spawns the packaged loader with the canonical hook file as
-    // its argument. Both paths share deadline, byte limits, parser, and
-    // stderr-only reporting below — one policy for both modes.
+    // ADR-0006 Stages 1.5+4 mode branch: stdio spawns the hook file itself;
+    // module AND module-ts spawn the packaged loader with the canonical
+    // hook file as its argument (module-ts files are type-stripped on
+    // import — erasable syntax only, no flags, no transpilation). Both
+    // paths share deadline, byte limits, parser, and stderr-only reporting
+    // below — one policy for every mode.
     const mode: HookMode = opts.mode ?? "stdio";
     const argv =
-      mode === "module"
+      mode === "module" || mode === "module-ts"
         ? [opts.loaderEntry ?? resolveLoaderEntry(), file]
         : [file];
 
@@ -356,12 +389,34 @@ function spawnHookProcess(
  * except for programming errors in OUR code, the write must not fail
  * because a hook did.
  */
+/**
+ * TypeScript capability gate (Stage 4): a `.hook.ts`/`.hook.mts` hook on a
+ * runtime without type stripping is REFUSED, never half-run. After-hooks
+ * fail OPEN (the write already happened): one stderr line, no throw.
+ * Returns null when the gate passes (no refusal).
+ */
+function refuseUnsupportedTypeScript(
+  event: string,
+  file: string,
+  opts: RunAfterHookOptions,
+): AfterHookResult | null {
+  if ((opts.mode ?? "stdio") !== "module-ts") return null;
+  const support = opts.typescriptSupport ?? resolveTypeScriptHookSupport();
+  if (support !== "unsupported") return null;
+  process.stderr.write(
+    `hook ${event}: HOOK_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — continuing without hook\n`,
+  );
+  return { ran: false, reason: "HOOK_TS_UNSUPPORTED" };
+}
+
 export async function runAfterHook(
   event: string,
   file: string,
   envelopeJson: string,
   opts: RunAfterHookOptions,
 ): Promise<AfterHookResult> {
+  const refused = refuseUnsupportedTypeScript(event, file, opts);
+  if (refused !== null) return refused;
   const outcome = await spawnHookProcess(event, file, envelopeJson, opts);
   switch (outcome.kind) {
     case "reentrant":
@@ -430,6 +485,17 @@ export async function runPreHook(
   envelopeJson: string,
   opts: RunAfterHookOptions,
 ): Promise<PreHookResult> {
+  // TypeScript capability gate (Stage 4): pre-hooks fail CLOSED — a gate
+  // that cannot even be parsed is not an open gate.
+  if ((opts.mode ?? "stdio") === "module-ts") {
+    const support = opts.typescriptSupport ?? resolveTypeScriptHookSupport();
+    if (support === "unsupported") {
+      process.stderr.write(
+        `hook ${event}: HOOK_PRE_TS_UNSUPPORTED (${file} needs TypeScript type stripping, unavailable on this runtime ${process.version}) — refusing gated write\n`,
+      );
+      return { ran: false, allowed: false, reason: "HOOK_PRE_TS_UNSUPPORTED" };
+    }
+  }
   const outcome = await spawnHookProcess(event, file, envelopeJson, opts);
   switch (outcome.kind) {
     case "reentrant":

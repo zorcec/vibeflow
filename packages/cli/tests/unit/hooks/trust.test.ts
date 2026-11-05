@@ -122,6 +122,31 @@ describe("checkHookTrust", () => {
     expect(verdict).toEqual({ trusted: false, reason: "changed" });
   });
 
+  it("a .hook.ts source edit invalidates trust and re-prompts (Stage 4, source-based)", async () => {
+    // The recorded hash covers the TypeScript SOURCE file: editing it
+    // re-prompts exactly like a .mjs edit (Stage 1.5 entry-hash rule —
+    // the hash is per entry file, never transitive over its imports).
+    const tsFile = hookFile.replace(/\.mjs$/, ".hook.ts");
+    writeFileSync(tsFile, `export default async () => ({});\n`);
+    await checkHookTrust(tsFile, {
+      isProjectRoot: true,
+      escapedRoot: false,
+      home,
+      tty: true,
+      prompt: async () => "y",
+    });
+    writeFileSync(tsFile, `export default async () => ({ instructions: "edited" });\n`);
+    const verdict = await checkHookTrust(tsFile, {
+      isProjectRoot: true,
+      escapedRoot: false,
+      home,
+      tty: true,
+      prompt: async () => "n",
+    });
+    expect(verdict.trusted).toBe(false);
+    expect(verdict).toEqual({ trusted: false, reason: "changed" });
+  });
+
   it("a recorded hash passes without prompting", async () => {
     recordTrust(home, hookFile, sha256File(hookFile));
     let prompted = false;

@@ -459,3 +459,151 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
     expect(Object.keys(childEnv).sort()).toEqual(["HOME", "PATH", HOOK_GUARD_ENV].sort());
   });
 });
+
+describe("runAfterHook/runPreHook module-ts mode (Stage 4, ADR-0006)", () => {
+  const TS_ENVELOPE = JSON.stringify({
+    schemaVersion: 1,
+    event: "task.update",
+    phase: "after",
+    boardId: null,
+    actor: "tester",
+    ts: "2026-11-05T00:00:00.000Z",
+    payload: { taskId: "abc", changed: ["status"] },
+  });
+
+  function tsOpts(extra: Record<string, unknown> = {}): {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    mode: "module-ts";
+  } {
+    return { cwd: dir, env: testEnv(), mode: "module-ts", ...extra };
+  }
+
+  async function captureStderr<T>(fn: () => Promise<T>): Promise<{ value: T; err: string }> {
+    const errLines: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      errLines.push(String(c));
+      return true;
+    };
+    try {
+      const value = await fn();
+      return { value, err: errLines.join("") };
+    } finally {
+      process.stderr.write = orig;
+    }
+  }
+
+  it("live probe reports the actual runtime capability (strip on this box)", async () => {
+    const { resolveTypeScriptHookSupport } = await import(
+      "../../../src/core/hooks/runner.js"
+    );
+    expect(["strip", "transform"]).toContain(resolveTypeScriptHookSupport());
+  });
+
+  it("runs a .hook.ts hook with erased type annotations and type imports", async () => {
+    const file = writeHook(
+      "typed.hook.ts",
+      `import type { HookAfterResult } from "@vibeflow-tools/cli/hooks";\n` +
+        `interface Seen { event: string; taskId: string }\n` +
+        `export default async (envelope: { event: string; payload: { taskId: string } }): Promise<HookAfterResult> => {\n` +
+        `  const seen: Seen = { event: envelope.event, taskId: envelope.payload.taskId };\n` +
+        `  return { instructions: "ts:" + seen.event + ":" + seen.taskId };\n` +
+        `};\n`,
+    );
+    const result = await runAfterHook("task.update", file, TS_ENVELOPE, tsOpts());
+    expect(result).toEqual({ ran: true, instructions: "ts:task.update:abc" });
+  });
+
+  it("refuses non-erasable syntax loudly, never half-runs (after fail-open)", async () => {
+    const file = writeHook(
+      "non-erasable.hook.ts",
+      `enum Color { Red = \"red\" }\n` +
+        `export default async () => ({ instructions: \"must never run:\" + Color.Red });\n`,
+    );
+    const { value, err } = await captureStderr(() =>
+      runAfterHook("task.update", file, TS_ENVELOPE, tsOpts()),
+    );
+    expect(value).toEqual({ ran: false, reason: "HOOK_NONZERO_EXIT" });
+    // Loud refusal: the loader names the cause, the runner names the policy.
+    expect(err).toContain("HOOK_IMPORT_FAILED");
+    expect(err).toContain("HOOK_NONZERO_EXIT");
+    expect(err).toContain("continuing without hook");
+  });
+
+  it("refuses non-erasable syntax fail-closed at the pre gate", async () => {
+    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+    const file = writeHook(
+      "pre-non-erasable.hook.ts",
+      `namespace Ns { export const x = 1; }\n` +
+        `export default async () => ({ allow: true as boolean });\n`,
+    );
+    const { value, err } = await captureStderr(() =>
+      runPreHook("task.create", file, TS_ENVELOPE, tsOpts()),
+    );
+    expect(value.allowed).toBe(false);
+    expect(value.reason).toBe("HOOK_PRE_NONZERO_EXIT");
+    expect(err).toContain("refusing gated write");
+  });
+
+  it("pre .hook.ts allow/deny round-trips on a supported runtime (phase policy unchanged)", async () => {
+    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+    const allow = writeHook(
+      "pre-allow.hook.ts",
+      `export default async (envelope: { event: string }): Promise<{ allow: true }> => ({ allow: true as const });\n`,
+    );
+    const allowed = await runPreHook("task.create", allow, TS_ENVELOPE, tsOpts());
+    expect(allowed.allowed).toBe(true);
+
+    const deny = writeHook(
+      "pre-deny.hook.ts",
+      `export default async (): Promise<{ allow: false; reason: string }> => ({ allow: false, reason: \"nope\" });\n`,
+    );
+    const denied = await runPreHook("task.create", deny, TS_ENVELOPE, tsOpts());
+    expect(denied).toMatchObject({ allowed: false, reason: "HOOK_PRE_DENIED" });
+  });
+
+  it("unsupported runtime: after fails OPEN with one HOOK_TS_UNSUPPORTED line, never spawns", async () => {
+    const file = writeHook(
+      "never-spawned.hook.ts",
+      `export default async () => { throw new Error("must not execute"); };\n`,
+    );
+    const { value, err } = await captureStderr(() =>
+      runAfterHook("task.update", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
+    );
+    expect(value).toEqual({ ran: false, reason: "HOOK_TS_UNSUPPORTED" });
+    expect(err).toContain("HOOK_TS_UNSUPPORTED");
+    expect(err).toContain("type stripping");
+    expect(err).toContain("continuing without hook");
+    // Exactly one stderr line — no child output, no second verdict.
+    expect(err.trim().split("\n")).toHaveLength(1);
+  });
+
+  it("unsupported runtime: pre fails CLOSED with HOOK_PRE_TS_UNSUPPORTED, refusing the write", async () => {
+    const { runPreHook } = await import("../../../src/core/hooks/runner.js");
+    const file = writeHook(
+      "pre-never-spawned.hook.ts",
+      `export default async () => ({ allow: true as const });\n`,
+    );
+    const { value, err } = await captureStderr(() =>
+      runPreHook("task.create", file, TS_ENVELOPE, tsOpts({ typescriptSupport: "unsupported" })),
+    );
+    expect(value).toEqual({ ran: false, allowed: false, reason: "HOOK_PRE_TS_UNSUPPORTED" });
+    expect(err).toContain("HOOK_PRE_TS_UNSUPPORTED");
+    expect(err).toContain("refusing gated write");
+    expect(err.trim().split("\n")).toHaveLength(1);
+  });
+
+  it("the 2 s deadline covers strip+import+handler in module-ts mode (HOOK_TIMEOUT)", async () => {
+    const file = writeHook(
+      "slow.hook.ts",
+      `export default async (): Promise<{ instructions: string }> => {\n` +
+        `  await new Promise<void>((resolve) => { setTimeout(resolve, 60000); });\n` +
+        `  return { instructions: "late" };\n` +
+        `};\n`,
+    );
+    const result = await runAfterHook("task.update", file, TS_ENVELOPE, tsOpts({ timeoutMs: 300 }));
+    expect(result).toEqual({ ran: false, reason: "HOOK_TIMEOUT" });
+  });
+});

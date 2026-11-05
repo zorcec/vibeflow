@@ -141,7 +141,7 @@ export async function emitAfterHook<E extends HookEvent>(
     const bad = refusedSibling(`${dir}/after`, "after", event);
     if (bad) {
       process.stderr.write(
-        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs executes; rename it or it never runs)\n`,
+        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs and .hook.mjs/.hook.mts/.hook.ts execute; rename it or it never runs)\n`,
       );
     }
   }
@@ -157,7 +157,7 @@ export async function emitAfterHook<E extends HookEvent>(
   // lower-level default (ADR-0006 Stage 1.5). After = fail OPEN.
   if (isHookConflict(resolved)) {
     process.stderr.write(
-      `hook ${event}: HOOK_CONFIG_CONFLICT (${resolved.stdioFile} and ${resolved.moduleFile} both exist at ${resolved.root} level — keep exactly one) — continuing without hook\n`,
+      `hook ${event}: HOOK_CONFIG_CONFLICT (${resolved.files.join(" and ")} all exist at ${resolved.root} level — keep exactly one) — continuing without hook\n`,
     );
     return [];
   }
@@ -275,7 +275,7 @@ export async function emitPreHook<E extends HookEvent>(
     const bad = refusedSibling(dir, "pre", event);
     if (bad) {
       process.stderr.write(
-        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs executes; rename it or it never runs)\n`,
+        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs and .hook.mjs/.hook.mts/.hook.ts execute; rename it or it never runs)\n`,
       );
     }
   }
@@ -289,9 +289,9 @@ export async function emitPreHook<E extends HookEvent>(
   // skip-with-diagnostic (fail-open: the write happened); pre = REFUSE
   // (fail-closed: a misconfigured gate is not an open gate).
   if (isHookConflict(resolved)) {
-    const names = `${resolved.stdioFile} and ${resolved.moduleFile}`;
+    const names = resolved.files.join(" and ");
     process.stderr.write(
-      `hook ${event}: HOOK_CONFIG_CONFLICT (${names} both exist at ${resolved.root} level — keep exactly one) — refusing gated write\n`,
+      `hook ${event}: HOOK_CONFIG_CONFLICT (${names} all exist at ${resolved.root} level — keep exactly one) — refusing gated write\n`,
     );
     return {
       allowed: false,
@@ -399,6 +399,8 @@ function preFailureMessage(event: HookEvent, code: string): string {
   switch (code) {
     case "HOOK_PRE_TIMEOUT":
       return `Pre-hook for ${event} timed out — refusing gated write (fail-closed).`;
+    case "HOOK_PRE_TS_UNSUPPORTED":
+      return `Pre-hook for ${event} needs TypeScript type stripping, unavailable on this runtime ${process.version} — refusing gated write (fail-closed).`;
     case "HOOK_PRE_NONZERO_EXIT":
       return `Pre-hook for ${event} exited non-zero — refusing gated write (fail-closed).`;
     case "HOOK_PRE_MALFORMED":
