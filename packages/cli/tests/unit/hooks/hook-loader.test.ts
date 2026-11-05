@@ -192,16 +192,20 @@ describe("hook-loader", () => {
     expect(bigResult.stderr).toContain("HOOK_BAD_OUTPUT");
   });
 
-  it("does not swallow import-time console.log (parent parser rejects the mix)", async () => {
+  // Owner ticket c478fd86: import-time console.log is rerouted to stderr
+  // by the loader-top guard, so stdout stays the single JSON document —
+  // chatter can never become an instruction. Raw process.stdout.write
+  // pollution is still the parent parser's HOOK_BAD_OUTPUT (pinned in
+  // runner.test.ts).
+  it("reroutes import-time console.log to stderr, stdout stays the single document", async () => {
     const file = writeHook(
       "chatty.hook.mjs",
       `console.log('{"fake":"protocol"}');\nexport default () => ({});`,
     );
     const result = await runEnvelope(file);
-    // The loader still exits 0 — the PARENT parser rejects mixed stdout.
-    // (Pinned by runner/emit tests asserting HOOK_BAD_OUTPUT.)
     expect(result.code).toBe(0);
-    expect(() => JSON.parse(result.stdout)).toThrow();
+    expect(JSON.parse(result.stdout)).toEqual({});
+    expect(result.stderr).toContain('{"fake":"protocol"}');
   });
 
   it("keeps stderr chatter on stderr, stdout to the single document", async () => {

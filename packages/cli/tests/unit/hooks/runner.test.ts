@@ -119,6 +119,46 @@ describe("runAfterHook", () => {
     expect(result).toEqual({ ran: true, instructions: "link the SHA" });
   });
 
+  // Owner ticket c478fd86: stdio hooks spawn as `node --import <guard>
+  // <file>`, so console.log lands on stderr and the JSON document still
+  // delivers — while bad stdout still drops the hook (fail-open).
+  it("reroutes stdio console.log to stderr and still delivers instructions", async () => {
+    const file = writeHook(
+      "chatty.mjs",
+      `console.log("stdio note", { n: 1 });\nlet s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"stdio-kept"}))});`,
+    );
+    const errLines: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      errLines.push(String(c));
+      return true;
+    };
+    try {
+      expect(
+        await runAfterHook("tasks", file, JSON.stringify({ event: "x" }), {
+          cwd: dir,
+          env: testEnv(),
+        }),
+      ).toEqual({ ran: true, instructions: "stdio-kept" });
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(errLines.join("")).toContain("hook tasks: stdio note { n: 1 }");
+  });
+
+  it("still drops a stdio hook whose stdout is not one JSON document (fail-open)", async () => {
+    const file = writeHook(
+      "bad-stdout.mjs",
+      `console.log("a helpful note");\nprocess.stdout.write("not json\\n");`,
+    );
+    const result = await runAfterHook("tasks", file, JSON.stringify({}), {
+      cwd: dir,
+      env: testEnv(),
+    });
+    expect(result).toEqual({ ran: false, reason: "HOOK_BAD_OUTPUT" });
+  });
+
   it("treats {} as ran with no instructions", async () => {
     const file = writeHook(
       "noop.mjs",
@@ -366,10 +406,37 @@ describe("runAfterHook module mode (Stage 1.5, ADR-0006)", () => {
     });
   });
 
-  it("rejects import-time console.log as HOOK_BAD_OUTPUT (never an instruction)", async () => {
+  // Owner ticket c478fd86: console.log/info/warn/debug is rerouted to
+  // stderr child-side, so hook chatter can never become an instruction —
+  // the JSON document still delivers. Raw process.stdout.write pollution
+  // is still rejected (stdout stays reserved for the single document).
+  it("reroutes import-time console.log to stderr and still delivers (never an instruction)", async () => {
     const file = writeModuleHook(
       "mod-chatty.hook.mjs",
-      `console.log('{"fake":"protocol"}');\nexport default () => ({});`,
+      `console.log('{"fake":"protocol"}');\nexport default () => ({ instructions: "kept" });`,
+    );
+    const errLines: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    // @ts-expect-error intercept for assertion
+    process.stderr.write = (c: string) => {
+      errLines.push(String(c));
+      return true;
+    };
+    try {
+      expect(await runAfterHook("verify", file, ENVELOPE, moduleOpts())).toEqual({
+        ran: true,
+        instructions: "kept",
+      });
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(errLines.join("")).toContain('hook verify: {"fake":"protocol"}');
+  });
+
+  it("still rejects raw process.stdout.write pollution (HOOK_BAD_OUTPUT)", async () => {
+    const file = writeModuleHook(
+      "mod-polluting.hook.mjs",
+      `process.stdout.write("junk\\n");\nexport default () => ({});`,
     );
     expect(await runAfterHook("verify", file, ENVELOPE, moduleOpts())).toEqual({
       ran: false,
@@ -514,6 +581,44 @@ describe("runAfterHook/runBeforeHook module-ts mode (Stage 4, ADR-0006)", () => 
     );
     const result = await runAfterHook("tasks", file, TS_ENVELOPE, tsOpts());
     expect(result).toEqual({ ran: true, instructions: "ts:task.update:abc" });
+  });
+
+  // Owner ticket c478fd86: the loader-top console patch covers module-ts
+  // too — a .hook.ts hook using console.log still delivers, and its
+  // chatter lands on stderr with the hook prefix.
+  it("reroutes .hook.ts console.log to stderr and still delivers", async () => {
+    const file = writeHook(
+      "chatty.hook.ts",
+      `console.log("ts note");\n` +
+        `export default async (envelope: { event: string }): Promise<{ instructions: string }> => ({ instructions: "ts-kept:" + envelope.event });\n`,
+    );
+    const { value, err } = await captureStderr(() =>
+      runAfterHook("tasks", file, TS_ENVELOPE, tsOpts()),
+    );
+    expect(value).toEqual({ ran: true, instructions: "ts-kept:task.update" });
+    expect(err).toContain("hook tasks: ts note");
+  });
+
+  // Owner ticket c478fd86: console.log safety never opens the pre gate —
+  // a before hook whose stdout is not {allow:boolean,...} still
+  // fail-closes, chatter or not.
+  it("before still fail-closes on bad stdout when the hook used console.log", async () => {
+    const { runBeforeHook } = await import(
+      "../../../src/core/hooks/runner.js"
+    );
+    const file = writeHook(
+      "pre-chatty-bad.mjs",
+      `console.log("pre note");\nprocess.stdout.write("not json\\n");`,
+    );
+    const result = await runBeforeHook("tasks", file, JSON.stringify({}), {
+      cwd: dir,
+      env: testEnv(),
+    });
+    expect(result).toEqual({
+      ran: false,
+      allowed: false,
+      reason: "HOOK_BEFORE_MALFORMED",
+    });
   });
 
   it("refuses non-erasable syntax loudly, never half-runs (after fail-open)", async () => {

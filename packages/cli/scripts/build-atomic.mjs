@@ -172,15 +172,17 @@ sh(`"${tsupBin}" --config tsup.cli.config.ts`, stagingEnv);
 // location (`import.meta.url`) — never a source-tree path or `--import`
 // shim. Copied verbatim before the live sync, so the loader is published
 // before either entry and stale copies are removed on rebuild.
-for (const dest of [
-  resolve(stagingDir, "hook-loader.mjs"),
-  resolve(stagingDir, "cli", "hook-loader.mjs"),
+// The stdio console guard (owner ticket c478fd86) ships verbatim next to
+// EACH loader copy: stdio hooks spawn as `node --import <guard> <file>`
+// with the guard resolved like the loader (never PATH/cwd).
+for (const [src, dest] of [
+  ["hook-loader.mjs", resolve(stagingDir, "hook-loader.mjs")],
+  ["hook-loader.mjs", resolve(stagingDir, "cli", "hook-loader.mjs")],
+  ["hook-console-guard.mjs", resolve(stagingDir, "hook-console-guard.mjs")],
+  ["hook-console-guard.mjs", resolve(stagingDir, "cli", "hook-console-guard.mjs")],
 ]) {
   mkdirSync(dirname(dest), { recursive: true });
-  copyFileSync(
-    resolve(cliRoot, "src", "core", "hooks", "hook-loader.mjs"),
-    dest,
-  );
+  copyFileSync(resolve(cliRoot, "src", "core", "hooks", src), dest);
 }
 // Shipped hook defaults (ADR-0007): the `src/core/hooks/defaults/` tree
 // (VERSION + after/*.after.mjs) ships verbatim as `dist/hooks/defaults/`

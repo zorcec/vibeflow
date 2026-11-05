@@ -4,7 +4,7 @@
 - Date: 2026-11-06
 - Supersedes: ADR-0006
 - Governed: `packages/cli/src/core/hooks/`
-- Reviewed: 2026-11-06
+- Reviewed: 2026-11-05
 - Decided by: owner (ticket d552207737ba3ee1a22ad6476789fc, Hooks v2)
 
 ## Background
@@ -20,7 +20,7 @@ ADR-0006 keyed hooks by internal event (`after-task.update.mjs`) and materialise
 5. **Precedence + replace-not-merge unchanged** (project > global > shipped, first hit wins, conflicts refuse).
 6. **Defaults ship in the package, read in place** at `dist/hooks/defaults/`, trusted without prompting, upgraded by `npm/pnpm update`, never materialised into `$HOME`, and shipped iff the tool covers an activity (no before defaults).
 7. **Trust is code execution, not a sandbox** — unchanged, plus: the shipped root is derived from the running bundle and containment is compared against that same realpath, which is what makes npm/pnpm/npx layouts safe without any path allowlist.
-8. **Failure policies, bounds, env allowlist, stdout purity, bypass audit unchanged**; the vocabulary is `before`/`after` in names, phases and codes.
+8. **Failure policies, bounds, env allowlist, stdout purity, bypass audit unchanged**; the vocabulary is `before`/`after` in names, phases and codes. `console.log/info/warn/debug` is rerouted to child stderr (stdio preloads `hook-console-guard.mjs` via `node --import`, module/TS get the loader-top patch) — the stdout contract is unchanged, now enforced: chatter can never become an instruction, raw `process.stdout.write` pollution still fails the same way.
 9. **Before is for writes:** `.before` is supported only for gateable tools; a `.before` file for a read/container tool is refused loudly, never silently ignored.
 10. Test hermeticity: `VIBEFLOW_HOOKS=0` (unchanged). Adding a 9th activity, replacing the registry with per-call logic, or re-introducing a `$HOME` defaults copy must revisit this ADR in the same commit.
 

@@ -161,6 +161,7 @@ boundary's null-activity rule never double-fires for it.
 
 - `.mjs` — stdio protocol: stdin = one envelope JSON + `"\n"`; stdout = exactly one JSON document (`{"instructions":"..."}` or `{}`); diagnostics on stderr ONLY.
 - `.hook.mjs` — module mode: `export default` a (possibly async) function receiving the envelope as its ONE argument; the packaged `hook-loader.mjs` owns stdin/stdout.
+- `console.log` is safe in every mode: `console.log/info/warn/debug` is rerouted to stderr child-side (stdio preloads the packaged `hook-console-guard.mjs` via `node --import`; module/TS get the same patch at the top of `hook-loader.mjs`), so chatter lands on stderr with the `hook <tool>:` prefix and stdout keeps exactly one JSON document. Raw `process.stdout.write` pollution is still rejected (`HOOK_BAD_OUTPUT` after, `HOOK_BEFORE_MALFORMED` before). `console.error` already wrote stderr and is untouched; byte caps and fail policies are unchanged.
 - `.hook.ts` / `.hook.mts` — TypeScript module mode: same loader, type-stripped on import. Erasable syntax only (annotations + `import type` erased; no enums, no namespaces, no JSX, no tsconfig paths, no transpilation). A runtime without type stripping refuses loudly (after skips `HOOK_TS_UNSUPPORTED`, before blocks `HOOK_BEFORE_TS_UNSUPPORTED`).
 
 Typed authoring ships as type-only declarations (`@vibeflow-tools/cli/hooks`

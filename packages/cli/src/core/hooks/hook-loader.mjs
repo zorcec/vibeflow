@@ -17,9 +17,12 @@
  *   INVALID (not a no-op); thrown imports/handlers, circular/BigInt
  *   returns, and write errors exit nonzero with a short stderr line —
  *   never a success `{}` on an error.
- * - Module `console.log` is NOT swallowed: it lands on child stdout, makes
- *   the output invalid, and the parent parser rejects it — hook chatter
- *   can never become an instruction and never leaks to parent stdout.
+ * - Module `console.log/info/warn/debug` is rerouted to child stderr by
+ *   the guard below (owner ticket c478fd86), so hook chatter can never
+ *   become an instruction and never leaks to parent stdout. Raw
+ *   `process.stdout.write` pollution is still rejected by the parent
+ *   parser (`HOOK_BAD_OUTPUT`) — stdout stays reserved for the single
+ *   JSON document. The runner prefixes child stderr with `hook <tool:>`.
  *
  * Trust honesty: the entry-file hash approves the whole import graph
  * (changing an imported module alone does NOT invalidate entry trust).
@@ -32,6 +35,21 @@
  */
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
+import { format } from "node:util";
+
+// Console guard (owner ticket c478fd86): route console.log/info/warn/debug
+// to stderr BEFORE the hook module imports, so hook chatter can never
+// pollute the single JSON document on stdout. Mirrors the packaged
+// `hook-console-guard.mjs` preloaded via `--import` in stdio mode —
+// duplicated here (not imported) so the loader stays a single file with
+// zero resolution risk next to either bundle entry. `console.error`
+// already writes stderr and is untouched; byte caps and fail policies
+// are unchanged (the runner owns them).
+for (const method of ["debug", "info", "log", "warn"]) {
+  console[method] = (...args) => {
+    process.stderr.write(`${format(...args)}\n`);
+  };
+}
 
 /** Cap on the stdin envelope read — envelopes are small; anything larger is a bug. */
 const MAX_ENVELOPE_BYTES = 8 * 1024 * 1024;

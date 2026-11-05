@@ -10,6 +10,11 @@
  * The module mode (kept from v1): the same envelope goes to
  * stdin of the packaged `hook-loader.mjs`, which dynamic-imports the
  * `<tool>.<phase>.hook.mjs` default export and prints its return value.
+ * `console.log/info/warn/debug` is rerouted to stderr child-side in every
+ * mode (owner ticket c478fd86): stdio preloads the packaged
+ * `hook-console-guard.mjs` via `node --import`, module/module-ts get the
+ * same patch at the top of `hook-loader.mjs` — stdout stays reserved for
+ * the single JSON document (purity now enforced, not just documented).
  * `module-ts` (`.hook.mts`/`.hook.ts`, kept from v1): the same
  * loader path, type-stripped on import — erasable syntax only, no flags,
  * no transpilation, no tsconfig. A runtime without type stripping refuses
@@ -108,6 +113,11 @@ export interface RunAfterHookOptions {
    *  Defaults to the `hook-loader.mjs` shipped next to the executing
    *  bundle — never `process.cwd()`, PATH lookup, or a `--import` shim. */
   loaderEntry?: string;
+  /** Absolute console-guard entry override (per-invocation test seam only).
+   *  Defaults to the `hook-console-guard.mjs` shipped next to the
+   *  executing bundle (same directory as the loader) — never PATH/cwd.
+   *  Only used in stdio mode, as the `--import` preload. */
+  guardEntry?: string;
 }
 
 /**
@@ -119,6 +129,18 @@ export interface RunAfterHookOptions {
  */
 export function resolveLoaderEntry(): string {
   return fileURLToPath(new URL("./hook-loader.mjs", import.meta.url));
+}
+
+/**
+ * Console-guard location for stdio mode: the `hook-console-guard.mjs`
+ * packaged next to the executing CLI bundle (same directory as the
+ * loader — `ADR-0006 Stage 1.5` layout), so stdio hooks spawn as
+ * `node --import <guard> <hook-file>`. Never `process.cwd()`, PATH
+ * lookup, or a source-tree path — same resolution rule as the loader
+ * (owner ticket c478fd86).
+ */
+export function resolveGuardEntry(): string {
+  return fileURLToPath(new URL("./hook-console-guard.mjs", import.meta.url));
 }
 
 /**
@@ -280,10 +302,14 @@ function spawnHookProcess(
     // paths share deadline, byte limits, parser, and stderr-only reporting
     // below — one policy for every mode.
     const mode: HookMode = opts.mode ?? "stdio";
+    // stdio preloads the console guard via `--import` (owner ticket
+    // c478fd86): `console.log` in a `.mjs` hook lands on stderr, so stdout
+    // keeps exactly one JSON document. Module modes get the same patch
+    // from the top of `hook-loader.mjs` instead.
     const argv =
       mode === "module" || mode === "module-ts"
         ? [opts.loaderEntry ?? resolveLoaderEntry(), file]
-        : [file];
+        : ["--import", opts.guardEntry ?? resolveGuardEntry(), file];
 
     let child;
     try {
