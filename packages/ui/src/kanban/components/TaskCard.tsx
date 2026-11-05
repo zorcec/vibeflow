@@ -498,9 +498,18 @@ export const TaskCard = React.memo(function TaskCard({
             null,
       );
       // Expanded state is per user and persisted on the task (expandedBy) — not
-      // in-memory, so it survives a reload.
-      const expanded =
+      // in-memory, so it survives a reload. Without a user id (static demo,
+      // logged-out preview) there is nobody to persist under: fall back to
+      // card-local state so the chip still expands/collapses visibly instead
+      // of dead-clicking (ticket 47df2128). The local bit is also the
+      // immediate feedback while the persisted echo is in flight.
+      const [localExpanded, setLocalExpanded] = React.useState(false);
+      const persistedExpanded =
             !!currentUserId && (task.expandedBy ?? []).includes(currentUserId);
+      // Persisted whenever a user id exists (even handler-less, so a
+      // reloaded expandedBy still renders expanded); local otherwise, so
+      // the chip never silently no-ops.
+      const expanded = currentUserId ? persistedExpanded : localExpanded;
       const thumbRef = React.useRef<HTMLImageElement>(null);
       const childChipRef = React.useRef<HTMLSpanElement>(null);
       const childHoverTimeout = React.useRef<ReturnType<
@@ -600,6 +609,7 @@ export const TaskCard = React.memo(function TaskCard({
 
       function toggleExpanded(next: boolean) {
             setShowChildPopover(false);
+            setLocalExpanded(next);
             onToggleExpanded?.(task.id, next);
       }
 
@@ -677,11 +687,16 @@ export const TaskCard = React.memo(function TaskCard({
                               {showInlineIcons && childCount > 0 && (
                                     <button
                                           data-role="compact-child-count"
-                                          title={`${childCount} subtask(s) — open task`}
+                                          title={`${childCount} subtask(s) — activate to ${expanded ? "collapse" : "expand"} (row click opens the task)`}
+                                          aria-expanded={expanded}
+                                          data-expanded={expanded || undefined}
                                           style={COMPACT_INDICATOR_STYLE}
                                           onClick={(e) => {
+                                                // Ticket 47df2128: the compact chip toggles the
+                                                // persisted expansion (visible on the board view)
+                                                // instead of opening the task — row click still opens.
                                                 e.stopPropagation();
-                                                onOpen(task);
+                                                toggleExpanded(!expanded);
                                           }}
                                     >
                                           <span>⤷</span>

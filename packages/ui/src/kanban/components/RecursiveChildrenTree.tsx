@@ -59,6 +59,12 @@ interface RecursiveChildrenTreeProps {
   onRowDrop?: (e: React.DragEvent, childId: string) => void;
   /** Reactive drag-active flag — replaces render-time dragSession.get() reads. */
   isDragging?: boolean;
+  /** Locally-collapsed node ids — per-node collapse within an expanded tree
+   * (ticket 47df2128). Owned by the top-level instance when omitted and
+   * threaded through the recursion. */
+  collapsedIds?: Set<string>;
+  /** Called when a node's collapse toggle is activated. */
+  onToggleNodeCollapsed?: (taskId: string, collapsed: boolean) => void;
 }
 
 /**
@@ -86,7 +92,31 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
   onRowDragStart,
   onRowDrop,
   isDragging,
+  collapsedIds: collapsedIdsProp,
+  onToggleNodeCollapsed: onToggleNodeCollapsedProp,
 }: RecursiveChildrenTreeProps) {
+  // Collapse ownership: the top-level instance (rendered by the card) owns
+  // the set when the caller passes none; nested levels reuse the inherited
+  // set + handler so one toggle state spans the whole subtree.
+  const [localCollapsed, setLocalCollapsed] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const collapsedIds = collapsedIdsProp ?? localCollapsed;
+  const handleToggleNodeCollapsed = React.useCallback(
+    (taskId: string, collapsed: boolean) => {
+      if (onToggleNodeCollapsedProp) {
+        onToggleNodeCollapsedProp(taskId, collapsed);
+        return;
+      }
+      setLocalCollapsed((prev) => {
+        const next = new Set(prev);
+        if (collapsed) next.add(taskId);
+        else next.delete(taskId);
+        return next;
+      });
+    },
+    [onToggleNodeCollapsedProp],
+  );
   const safeTasks = allTasks ?? [];
   const derivedChildren = useMemo(
     () => getChildren(safeTasks, parentId),
@@ -240,6 +270,12 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
         const showCenterHighlight =
           dragIntent?.kind === "zone" && dragIntent.parentId === child.id;
 
+        // Per-node collapse (47df2128): a row whose own subtree exists gets a
+        // toggle; collapsing hides everything below the row (nested subtree
+        // and the depth-limit marker alike). Default is expanded, so card
+        // expand still reveals the full subtree.
+        const nodeCollapsed = collapsedIds.has(child.id);
+        const nodeCollapsible = !flat && childHasChildren;
         return (
           <React.Fragment key={child.id}>
             {showLineBefore && (
@@ -269,6 +305,11 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   onOpen={() => onOpen?.(child)}
                   isOrphan={isOrphan}
                   childCount={childCount}
+                  collapsible={nodeCollapsible}
+                  collapsed={nodeCollapsed}
+                  onToggleCollapsed={() =>
+                    handleToggleNodeCollapsed(child.id, !nodeCollapsed)
+                  }
                   onRemove={onRemove}
                   removeTitle={removeTitle}
                   // A rendered row always represents a task, so it is always a
@@ -282,7 +323,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   onRowDrop={dndActive ? onRowDrop : undefined}
                 />
               </div>
-              {!flat && childHasChildren && atMaxDepth && (
+              {!flat && childHasChildren && !nodeCollapsed && atMaxDepth && (
                 <div
                   className="tree-depth-limit"
                   data-role="tree-depth-limit"
@@ -295,7 +336,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   … {getDescendants(safeTasks, child.id).length} more
                 </div>
               )}
-              {!flat && childHasChildren && !atMaxDepth && (
+              {!flat && childHasChildren && !nodeCollapsed && !atMaxDepth && (
                 <div className="child-tree-nested">
                   <RecursiveChildrenTree
                     parentId={child.id}
@@ -312,6 +353,8 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                     onRowDragStart={onRowDragStart}
                     onRowDrop={onRowDrop}
                     isDragging={isDragging}
+                    collapsedIds={collapsedIds}
+                    onToggleNodeCollapsed={handleToggleNodeCollapsed}
                   />
                 </div>
               )}

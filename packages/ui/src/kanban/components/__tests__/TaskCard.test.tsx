@@ -151,12 +151,41 @@ describe("TaskCard children toggle chip", () => {
     expect(chip).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("uncontrolled without currentUserId: no chip expansion state, no unread dot", () => {
-    const { container } = renderCard(makeTask(), [makeTask(), child]);
+  it("without currentUserId the chip falls back to local state (never a dead click)", () => {
+    // Ticket 47df2128: anonymous surfaces (static demo, logged-out preview)
+    // have nobody to persist expandedBy under — the card toggles locally so
+    // the chip visibly expands AND collapses.
+    const onToggleExpanded = vi.fn();
+    const { container } = renderCard(makeTask(), [makeTask(), child], {
+      onToggleExpanded,
+    });
     expect(screen.queryByTitle("Unread")).not.toBeInTheDocument();
+    const chip = container.querySelector('[data-role="children-toggle"]')!;
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
     expect(
-      container.querySelector('[data-role="children-toggle"]'),
-    ).toHaveAttribute("aria-expanded", "false");
+      container.querySelector('[data-role="children-block"]'),
+    ).toHaveAttribute("data-expanded", "true");
+    // The persist call still fires (a real board applies the echo); the
+    // local bit is what makes the toggle visible without a user id.
+    expect(onToggleExpanded).toHaveBeenCalledWith("parent-task-id", true);
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("without currentUserId and without a persist handler the chip still toggles", () => {
+    const onOpen = vi.fn();
+    const { container } = renderCard(makeTask(), [makeTask(), child], {
+      onOpen,
+    });
+    const chip = container.querySelector('[data-role="children-toggle"]')!;
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("chip click does not open the card and shows count label when collapsed", () => {
@@ -492,6 +521,32 @@ describe("TaskCard compact inline icons (0a2fa3d6)", () => {
     expect(
       container.querySelector('[data-role="compact-child-count"]'),
     ).not.toBeInTheDocument();
+  });
+
+  it("compact child chip toggles expansion instead of opening the task", () => {
+    // Ticket 47df2128: the compact chip used to open the task; now it
+    // toggles the persisted expansion (row click still opens).
+    const onOpen = vi.fn();
+    const onToggleExpanded = vi.fn();
+    const { container } = render(
+      <TaskCard
+        task={rich}
+        col={col}
+        compact
+        allTasks={[rich, child]}
+        onOpen={onOpen}
+        onDragStart={vi.fn()}
+        currentUserId="user-1"
+        onToggleExpanded={onToggleExpanded}
+      />,
+    );
+    const chip = container.querySelector(
+      '[data-role="compact-child-count"]',
+    )!;
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+    expect(onToggleExpanded).toHaveBeenCalledWith("parent-task-id", true);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("file indicator opens the files tab, comment indicator the comments tab", () => {

@@ -67,8 +67,12 @@ const CLI_VERSION =
   (window as unknown as { __CLI_VERSION__?: string }).__CLI_VERSION__ ?? "";
 // SAFETY: __VIBEFLOW_USER__ is injected by the CLI server into the kanban HTML
 // (process.env.USER ?? USERNAME) so per-user task state matches the CLI writer.
+// Ticket 47df2128: the static website demo mounts this same App with no server
+// injection — fall back to a stable anonymous id so the children chip (and the
+// unread dot) keeps working instead of hitting the empty-id silent no-op below.
 const CURRENT_USER_ID =
-  (window as unknown as { __VIBEFLOW_USER__?: string }).__VIBEFLOW_USER__ ?? "";
+  (window as unknown as { __VIBEFLOW_USER__?: string }).__VIBEFLOW_USER__ ||
+  "local-viewer";
 
 
 function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {

@@ -25,6 +25,14 @@ interface ChildRowProps {
     onRowDragOver?: (e: React.DragEvent, childId: string) => void;
     /** Fired on drop of the row — bubbles to the column/section drop handler. */
     onRowDrop?: (e: React.DragEvent, childId: string) => void;
+    /** When true the row renders a per-node subtree collapse toggle
+     * (ticket 47df2128) — a native button sibling of the row root, never
+     * nested inside it (cd061198). */
+    collapsible?: boolean;
+    /** True while this node's subtree is collapsed. */
+    collapsed?: boolean;
+    /** Called when the collapse toggle is activated. */
+    onToggleCollapsed?: () => void;
 }
 
 export function ChildRow({
@@ -39,6 +47,9 @@ export function ChildRow({
     onRowDragStart,
     onRowDragOver,
     onRowDrop,
+    collapsible,
+    collapsed,
+    onToggleCollapsed,
 }: ChildRowProps) {
     const isInline = variant === "inline";
     const isMinimal = variant === "inline" || variant === "detail";
@@ -161,6 +172,42 @@ export function ChildRow({
                     : undefined
             }
         >
+            {collapsible && (
+                <button
+                    type="button"
+                    data-role="tree-node-toggle"
+                    data-task-id={child?.id}
+                    aria-expanded={!collapsed}
+                    aria-label={`${collapsed ? "Expand" : "Collapse"} children of ${title}`}
+                    title={collapsed ? "Expand subtree" : "Collapse subtree"}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleCollapsed?.();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onToggleCollapsed?.();
+                        }
+                    }}
+                    style={{
+                        flex: "0 0 auto",
+                        alignSelf: "center",
+                        width: 14,
+                        padding: 0,
+                        border: "none",
+                        background: "transparent",
+                        color: "var(--t-text-muted)",
+                        fontSize: 9,
+                        lineHeight: 1,
+                        cursor: "pointer",
+                    }}
+                >
+                    {collapsed ? "\u25B8" : "\u25BE"}
+                </button>
+            )}
             <div
                 className={`child-link-row child-link-row--${variant}${isOrphan ? " child-row--orphan" : ""}`}
                 data-role="child-link-row"
