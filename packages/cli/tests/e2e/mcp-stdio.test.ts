@@ -579,14 +579,17 @@ describe("module hooks over local stdio MCP (Stage 1.5, ADR-0006)", () => {
     const res = frames.find((f) => f.id === 32);
     expect(res, "no update_task response").toBeTruthy();
     expect(res!.error).toBeUndefined();
-    // The write still landed (fail-open); the hook error is stderr-only.
+    // The write still landed (fail-open); the loader-top console guard
+    // rerouted the chatter to stderr (owner ticket c478fd86), so there is
+    // no HOOK_BAD_OUTPUT and the {} no-op carries no instructions.
     const payload = JSON.parse(res!.result.content[0].text as string) as {
       status?: string;
       instructions?: string[];
     };
     expect(payload.status).toBe("in-progress");
     expect(payload.instructions).toBeUndefined();
-    expect(run.stderr).toContain("HOOK_BAD_OUTPUT");
+    expect(run.stderr).toContain('{"fake":"protocol"}');
+    expect(run.stderr).not.toContain("HOOK_BAD_OUTPUT");
     rmSync(project, { recursive: true, force: true });
   });
 });
