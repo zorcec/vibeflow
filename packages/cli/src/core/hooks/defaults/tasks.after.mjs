@@ -3,10 +3,41 @@
 // Override by creating .vibeflow-hooks/tasks.after.mjs (project) or
 // ~/.vibeflow/hooks/tasks.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
+const LINES_TASK_CLAIM = [
+  "  Workflow:",
+  "    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:",
+  "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST",
+  "       (if you used --next: task is already in-progress — skip to step 2)",
+  "    2. <implement the change>",
+  "  BLOCKED? If a task is unclear or missing context:",
+  "    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"",
+  "    Then pick the next task: vibeflow tasks --next",
+  "    Do not guess at unclear requirements — leave a comment and move on.",
+  "  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.",
+  "    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.",
+  "    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
+];
+
+const LINES_TASK_UPDATE = [
+  "  CRITICAL: NEVER set a task status to \"done\".",
+  "    When your implementation is complete, set the status to \"review\" — not \"done\".",
+  "    Only humans can mark tasks as done after reviewing the work.",
+  "    The CLI will warn you and still allow the change — but agents must not use it.",
+  "  CRITICAL: NEVER edit .vibeflow/ task files directly.",
+  "    All task operations (status, comments, commits) must go through CLI commands.",
+];
+
+const LINES_TASK_COMMENT = [
+  "  Comment format (--comment):",
+  "    · Plain text for concise one-liners.",
+  "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
+  "    · Must cover: what changed, why, key decisions, anything future agents should know.",
+  "    · For long reports, attach a .md file and reference it in the comment.",
+];
 const TEXTS = {
-  "task.claim": "  Workflow:\n    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:\n    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST\n       (if you used --next: task is already in-progress — skip to step 2)\n    2. <implement the change>\n  BLOCKED? If a task is unclear or missing context:\n    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"\n    Then pick the next task: vibeflow tasks --next\n    Do not guess at unclear requirements — leave a comment and move on.\n  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.\n    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.\n    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
-  "task.update": "  CRITICAL: NEVER set a task status to \"done\".\n    When your implementation is complete, set the status to \"review\" — not \"done\".\n    Only humans can mark tasks as done after reviewing the work.\n    The CLI will warn you and still allow the change — but agents must not use it.\n  CRITICAL: NEVER edit .vibeflow/ task files directly.\n    All task operations (status, comments, commits) must go through CLI commands.",
-  "task.comment": "  Comment format (--comment):\n    · Plain text for concise one-liners.\n    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.\n    · Must cover: what changed, why, key decisions, anything future agents should know.\n    · For long reports, attach a .md file and reference it in the comment."
+  "task.claim": LINES_TASK_CLAIM.join("\n"),
+  "task.update": LINES_TASK_UPDATE.join("\n"),
+  "task.comment": LINES_TASK_COMMENT.join("\n"),
 };
 let input = "";
 process.stdin.setEncoding("utf8");

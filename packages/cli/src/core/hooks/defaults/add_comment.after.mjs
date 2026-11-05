@@ -3,6 +3,14 @@
 // Override by creating .vibeflow-hooks/add_comment.after.mjs (project) or
 // ~/.vibeflow/hooks/add_comment.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
+const LINES_TEXT = [
+  "  Comment format (--comment):",
+  "    · Plain text for concise one-liners.",
+  "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
+  "    · Must cover: what changed, why, key decisions, anything future agents should know.",
+  "    · For long reports, attach a .md file and reference it in the comment.",
+];
+const TEXT = LINES_TEXT.join("\n");
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => { input += c; });
@@ -13,5 +21,5 @@ process.stdin.on("end", () => {
     process.stdout.write(JSON.stringify({}) + "\n");
     return;
   }
-  process.stdout.write(JSON.stringify({ instructions: "  Comment format (--comment):\n    · Plain text for concise one-liners.\n    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.\n    · Must cover: what changed, why, key decisions, anything future agents should know.\n    · For long reports, attach a .md file and reference it in the comment." }) + "\n");
+  process.stdout.write(JSON.stringify({ instructions: TEXT }) + "\n");
 });

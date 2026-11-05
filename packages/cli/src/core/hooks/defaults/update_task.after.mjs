@@ -3,6 +3,15 @@
 // Override by creating .vibeflow-hooks/update_task.after.mjs (project) or
 // ~/.vibeflow/hooks/update_task.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
+const LINES_TEXT = [
+  "  CRITICAL: NEVER set a task status to \"done\".",
+  "    When your implementation is complete, set the status to \"review\" — not \"done\".",
+  "    Only humans can mark tasks as done after reviewing the work.",
+  "    The CLI will warn you and still allow the change — but agents must not use it.",
+  "  CRITICAL: NEVER edit .vibeflow/ task files directly.",
+  "    All task operations (status, comments, commits) must go through CLI commands.",
+];
+const TEXT = LINES_TEXT.join("\n");
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => { input += c; });
@@ -13,5 +22,5 @@ process.stdin.on("end", () => {
     process.stdout.write(JSON.stringify({}) + "\n");
     return;
   }
-  process.stdout.write(JSON.stringify({ instructions: "  CRITICAL: NEVER set a task status to \"done\".\n    When your implementation is complete, set the status to \"review\" — not \"done\".\n    Only humans can mark tasks as done after reviewing the work.\n    The CLI will warn you and still allow the change — but agents must not use it.\n  CRITICAL: NEVER edit .vibeflow/ task files directly.\n    All task operations (status, comments, commits) must go through CLI commands." }) + "\n");
+  process.stdout.write(JSON.stringify({ instructions: TEXT }) + "\n");
 });

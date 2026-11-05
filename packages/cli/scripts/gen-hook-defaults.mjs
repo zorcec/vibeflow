@@ -97,50 +97,45 @@ const header = (tool) => `// Shipped default after-hook for "${tool}" (ADR-0007)
 // stdin: one hook envelope JSON + "\\n". stdout: {"instructions":"..."} or {}.
 `;
 
+/**
+ * Readability form (owner ticket c478fd86): one JSON string per line,
+ * joined with "\\n" at load. Line-arrays — NOT template literals: a
+ * template literal would need defensive backtick/`${` escaping on every
+ * regeneration, while per-line JSON.stringify cannot break the emitter no
+ * matter what the text contains. Mirrors SHIPPED_DEFAULT_TEXTS (line
+ * arrays upstream); the joined bytes are identical to the old escaped
+ * literals (proven by the /tmp byte-compare at regen time + drift tests).
+ */
+function linesConst(name, lines) {
+  return `const ${name} = [\n${lines.map((l) => `  ${JSON.stringify(l)},`).join("\n")}\n];\n`;
+}
+
+/** @param {string} s */
+function constName(s) {
+  return s.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
 /** @param {string} tool @param {Record<string, string[]>} texts activity -> lines */
 function switchingHookSource(tool, texts) {
-  const encoded = Object.fromEntries(
-    Object.entries(texts).map(([activity, lines]) => [activity, lines.join("\n")]),
-  );
+  const consts = Object.entries(texts)
+    .map(([activity, lines]) => linesConst(`LINES_${constName(activity)}`, lines))
+    .join("\n");
+  const entries = Object.keys(texts)
+    .map((activity) => `  ${JSON.stringify(activity)}: LINES_${constName(activity)}.join("\\n"),`)
+    .join("\n");
   return (
     header(tool) +
-    `const TEXTS = ${JSON.stringify(encoded, null, 2)};
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (c) => { input += c; });
-process.stdin.on("end", () => {
-  let activity = null;
-  try {
-    activity = JSON.parse(input).activity ?? null;
-  } catch {
-    process.stdout.write(JSON.stringify({}) + "\\n");
-    return;
-  }
-  const text = activity !== null ? TEXTS[activity] : undefined;
-  process.stdout.write(JSON.stringify(text !== undefined ? { instructions: text } : {}) + "\\n");
-});
-`
+    consts +
+    `const TEXTS = {\n${entries}\n};\nlet input = "";\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (c) => { input += c; });\nprocess.stdin.on("end", () => {\n  let activity = null;\n  try {\n    activity = JSON.parse(input).activity ?? null;\n  } catch {\n    process.stdout.write(JSON.stringify({}) + "\\n");\n    return;\n  }\n  const text = activity !== null ? TEXTS[activity] : undefined;\n  process.stdout.write(JSON.stringify(text !== undefined ? { instructions: text } : {}) + "\\n");\n});\n`
   );
 }
 
 /** @param {string} tool @param {string[]} lines */
 function textHookSource(tool, lines) {
-  const encoded = JSON.stringify(lines.join("\n"));
   return (
     header(tool) +
-    `let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (c) => { input += c; });
-process.stdin.on("end", () => {
-  try {
-    JSON.parse(input);
-  } catch {
-    process.stdout.write(JSON.stringify({}) + "\\n");
-    return;
-  }
-  process.stdout.write(JSON.stringify({ instructions: ${encoded} }) + "\\n");
-});
-`
+    linesConst("LINES_TEXT", lines) +
+    `const TEXT = LINES_TEXT.join("\\n");\nlet input = "";\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (c) => { input += c; });\nprocess.stdin.on("end", () => {\n  try {\n    JSON.parse(input);\n  } catch {\n    process.stdout.write(JSON.stringify({}) + "\\n");\n    return;\n  }\n  process.stdout.write(JSON.stringify({ instructions: TEXT }) + "\\n");\n});\n`
   );
 }
 

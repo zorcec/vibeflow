@@ -3,6 +3,21 @@
 // Override by creating .vibeflow-hooks/claim_next_task.after.mjs (project) or
 // ~/.vibeflow/hooks/claim_next_task.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
+const LINES_TEXT = [
+  "  Workflow:",
+  "    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:",
+  "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST",
+  "       (if you used --next: task is already in-progress — skip to step 2)",
+  "    2. <implement the change>",
+  "  BLOCKED? If a task is unclear or missing context:",
+  "    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"",
+  "    Then pick the next task: vibeflow tasks --next",
+  "    Do not guess at unclear requirements — leave a comment and move on.",
+  "  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.",
+  "    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.",
+  "    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
+];
+const TEXT = LINES_TEXT.join("\n");
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => { input += c; });
@@ -13,5 +28,5 @@ process.stdin.on("end", () => {
     process.stdout.write(JSON.stringify({}) + "\n");
     return;
   }
-  process.stdout.write(JSON.stringify({ instructions: "  Workflow:\n    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:\n    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST\n       (if you used --next: task is already in-progress — skip to step 2)\n    2. <implement the change>\n  BLOCKED? If a task is unclear or missing context:\n    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"\n    Then pick the next task: vibeflow tasks --next\n    Do not guess at unclear requirements — leave a comment and move on.\n  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.\n    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.\n    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement." }) + "\n");
+  process.stdout.write(JSON.stringify({ instructions: TEXT }) + "\n");
 });
