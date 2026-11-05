@@ -250,7 +250,9 @@ export async function pull(
   }
 
   const apiUrl = getApiUrl();
-  if (opts.silent !== true) {
+  // --json keeps stdout to the single result document (T7 one-doc rule):
+  // progress chatter would invalidate the pipe.
+  if (opts.silent !== true && opts.json !== true) {
     if (!dryRun) {
       console.log(chalk.cyan(`  Pulling board ${boardLabel} into ${targetDir}...`));
     } else {

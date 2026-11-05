@@ -174,7 +174,6 @@ describe("CLI keys: read-only tools narrate once with activity null", () => {
     ["telemetry", ["telemetry", "--status"]],
     ["auth", ["auth"]],
     ["auth.status", ["auth", "status"]],
-    ["authors.link", ["authors", "link", projectDir]],
   ])("%s runs its after hook once with activity:null", async (tool, args) => {
     const marker = join(projectDir, `marker-${tool}.log`);
     const capture = join(projectDir, `capture-${tool}.jsonl`);
@@ -185,20 +184,38 @@ describe("CLI keys: read-only tools narrate once with activity null", () => {
       `import { appendFileSync } from "node:fs";\n` +
         `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(marker)},"run\\n");appendFileSync(${JSON.stringify(capture)},JSON.stringify({tool:e.tool,activity:e.activity})+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
     );
-    // authors.link needs a git repo to succeed; the hook fires regardless
-    // only on success — init one so the success path (and the hook) runs.
-    if (tool === "authors.link") {
-      const { execFileSync } = await import("node:child_process");
-      execFileSync("git", ["init"], { cwd: projectDir });
-      execFileSync("git", ["config", "user.email", "t@t.t"], { cwd: projectDir });
-      execFileSync("git", ["config", "user.name", "t"], { cwd: projectDir });
-      execFileSync("git", ["commit", "--allow-empty", "-m", "x"], { cwd: projectDir });
-    }
     const r = await spawnCliIsolated(args, { cwd: projectDir, home: cliHome, env: HOOK_ENV });
     expect(r.code).toBe(0);
     expect(markerLines(marker)).toHaveLength(1);
     const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     expect(rows[0]).toEqual({ tool, activity: null });
+  });
+
+  it("authors.link runs its after hook once with activity:null (human mode, git repo)", async () => {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("git", ["init"], { cwd: projectDir });
+    execFileSync("git", ["config", "user.email", "t@t.t"], { cwd: projectDir });
+    execFileSync("git", ["config", "user.name", "t"], { cwd: projectDir });
+    execFileSync("git", ["commit", "--allow-empty", "-m", "x"], { cwd: projectDir });
+    const marker = join(projectDir, "marker-authors.link.log");
+    const capture = join(projectDir, "capture-authors.link.jsonl");
+    const dir = join(projectDir, ".vibeflow-hooks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "authors.link.after.mjs"),
+      `import { appendFileSync } from "node:fs";\n` +
+        `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(marker)},"run\\n");appendFileSync(${JSON.stringify(capture)},JSON.stringify({tool:e.tool,activity:e.activity})+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
+    );
+    // No --json flag on this command: human mode, exit 0, marker once.
+    const r = await spawnCliIsolated(["authors", "link", projectDir], {
+      cwd: projectDir,
+      home: cliHome,
+      env: HOOK_ENV,
+    });
+    expect(r.code).toBe(0);
+    expect(markerLines(marker)).toHaveLength(1);
+    const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    expect(rows[0]).toEqual({ tool: "authors.link", activity: null });
   });
 
   it("auth.logout runs its after hook (offline-safe: nothing to log out)", async () => {
@@ -282,6 +299,46 @@ describe("CLI keys: push + pull against a fake backend", () => {
           finish(200, { items: [], nextCursor: null });
           return;
         }
+        // Pull archive: a valid one-task export (written > 0, so the
+        // after hook fires with the confirmed counts).
+        if (req.method === "POST" && pathname === "/api/v0/tasks/export/archive") {
+          void import("node:zlib").then(async ({ gzipSync }) => {
+            const { writeTar } = await import("../../src/saas/tar-write.js");
+            const record = {
+              id: "remote-task-1",
+              title: "Remote one",
+              description: "",
+              status: "todo",
+              created: "2026-01-01T00:00:00.000Z",
+              comments: [],
+              files: [],
+            };
+            const manifest = {
+              version: 1,
+              kind: "vibeflow-board-export",
+              boardId: "board-1",
+              taskCount: 1,
+              fileCount: 0,
+              totalFileBytes: 0,
+              tasks: [{ cliId: "remote-task-1" }],
+              files: [],
+            };
+            const body = {
+              clientId: "remote-task-1",
+              record,
+              fields: record,
+            };
+            const bytes = gzipSync(
+              writeTar([
+                { path: "manifest.json", data: Buffer.from(JSON.stringify(manifest)) },
+                { path: "tasks/remote-task-1.json", data: Buffer.from(JSON.stringify(body)) },
+              ]),
+            );
+            res.writeHead(200, { "Content-Type": "application/octet-stream" });
+            res.end(bytes);
+          });
+          return;
+        }
         let body = "";
         req.on("data", (d) => (body += d));
         req.on("end", () => finish(404, { error: "not found" }));
@@ -310,8 +367,10 @@ describe("CLI keys: push + pull against a fake backend", () => {
         env: { ...HOOK_ENV, VIBEFLOW_API_URL: board.url },
       });
       expect(r.code).toBe(0);
-      const doc = JSON.parse(r.stdout) as { ok: boolean; instructions?: string[] };
-      expect(doc.ok).toBe(true);
+      // Pull's --json envelope carries counts (no ok wrapper); the hook's
+      // instructions ride alongside and stdout stays one document.
+      const doc = JSON.parse(r.stdout) as { added?: number; instructions?: string[] };
+      expect(typeof doc.added).toBe("number");
       expect(doc.instructions).toContain("pull-note");
       expect(markerLines(marker)).toHaveLength(1);
     } finally {
@@ -391,11 +450,10 @@ describe("MCP keys (all 13, HTTP transport)", () => {
       const marker = join(mcpProject, "marker-create.log");
       writeMcpHook("create_task", "after", MARKER_INSTRUCTIONS_BODY(marker, "create-note"));
       const created = (await call("create_task", { title: "mcp hook task" })) as {
-        ok: boolean;
+        id: string;
         instructions?: string[];
-        data?: { id: string };
       };
-      expect(created.ok).toBe(true);
+      expect(typeof created.id).toBe("string");
       expect(created.instructions).toContain("create-note");
       expect(markerLines(marker)).toHaveLength(1);
     });
@@ -410,38 +468,40 @@ describe("MCP keys (all 13, HTTP transport)", () => {
         `process.stdout.write(JSON.stringify({instructions:"wrong-surface"}));process.stdin.resume();process.stdin.on("end",()=>{});\n`,
       );
       const created = (await call("create_task", { title: "surface check" })) as {
-        ok: boolean;
+        id: string;
         instructions?: string[];
       };
-      expect(created.ok).toBe(true);
+      expect(typeof created.id).toBe("string");
       // The shipped tasks.after default does not exist for MCP-shaped keys
       // either — either way, the project tasks.after.mjs must not run.
       expect(created.instructions ?? []).not.toContain("wrong-surface");
     });
   });
 
-  it.each([
-    ["update_task", { id: "", status: "in-progress" }, "taskId"],
-    ["claim_next_task", {}, "taskId"],
-    ["add_comment", { id: "", text: "note" }, "commentId"],
-  ])("%s gate + after marker ride the result", async (tool, args, _idField) => {
-    void _idField;
+  it.each([["update_task"], ["claim_next_task"], ["add_comment"]] as Array<[string]>)(
+    "%s gate + after marker ride the result",
+    async (tool) => {
     await withHookEnv(async () => {
       const created = (await call("create_task", { title: `${tool} target` })) as {
-        ok: boolean;
-        data?: { id: string };
+        id: string;
       };
-      expect(created.ok).toBe(true);
-      const id = created.data?.id ?? (created as unknown as { id: string }).id;
-      const withId = { ...args, id };
+      expect(typeof created.id).toBe("string");
+      const id = created.id;
+      // Per-tool input shapes (strict schemas refuse unknown keys).
+      const input: Record<string, unknown> =
+        tool === "update_task"
+          ? { id, status: "in-progress" }
+          : tool === "add_comment"
+            ? { id, comment: "note" }
+            : {};
       writeMcpHook(
         tool,
         "after",
         `import { appendFileSync } from "node:fs";\n` +
           `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(join(mcpProject, `marker-${tool}.log`))},"run:"+e.activity+"\\n");process.stdout.write(JSON.stringify({instructions:${JSON.stringify(`${tool}-note`)}}));});\n`,
       );
-      const out = (await call(tool, withId)) as { ok: boolean; instructions?: string[] };
-      expect(out.ok).toBe(true);
+      const out = (await call(tool, input)) as { id?: string; instructions?: string[]; error?: unknown };
+      expect(out.error).toBeUndefined();
       expect(out.instructions).toContain(`${tool}-note`);
       const lines = readFileSync(join(mcpProject, `marker-${tool}.log`), "utf8").split("\n").filter(Boolean);
       expect(lines).toHaveLength(1);
@@ -461,15 +521,16 @@ describe("MCP keys (all 13, HTTP transport)", () => {
             `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(capture)},JSON.stringify({tool:e.tool,activity:e.activity,task:e.task!=null,activityObject:e.activityObject})+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
         );
       }
-      const listed = (await call("list_tasks", {})) as { ok: boolean };
-      expect(listed.ok).toBe(true);
+      const listed = (await call("list_tasks", {})) as { tasks: unknown[]; error?: unknown };
+      expect(listed.error).toBeUndefined();
+      expect(Array.isArray(listed.tasks)).toBe(true);
       const created = (await call("create_task", { title: "get target" })) as {
-        ok: boolean;
-        data?: { id: string };
+        id: string;
       };
-      const id = created.data?.id ?? (created as unknown as { id: string }).id;
-      const got = (await call("get_task", { id })) as { ok: boolean };
-      expect(got.ok).toBe(true);
+      const id = created.id;
+      const got = (await call("get_task", { id })) as { id: string; error?: unknown };
+      expect(got.error).toBeUndefined();
+      expect(got.id).toBe(id);
       const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
       const listRow = rows.find((r: { tool: string }) => r.tool === "list_tasks");
       const getRow = rows.find((r: { tool: string }) => r.tool === "get_task");
@@ -483,15 +544,15 @@ describe("MCP keys (all 13, HTTP transport)", () => {
   it("get_file/attach_file/get_project/get_integration_guide narrate with task:null or the target", async () => {
     await withHookEnv(async () => {
       const created = (await call("create_task", { title: "file target" })) as {
-        ok: boolean;
-        data?: { id: string };
+        id: string;
       };
-      const id = created.data?.id ?? (created as unknown as { id: string }).id;
-      await call("attach_file", {
+      const id = created.id;
+      const attached0 = (await call("attach_file", {
         id,
         filename: "note.txt",
         contentB64: Buffer.from("hello").toString("base64"),
-      });
+      })) as { filename?: string; error?: unknown };
+      expect(attached0.error).toBeUndefined();
       const dir = join(mcpProject, ".vibeflow-hooks");
       mkdirSync(dir, { recursive: true });
       const capture = join(mcpProject, "capture-misc.jsonl");
@@ -502,12 +563,17 @@ describe("MCP keys (all 13, HTTP transport)", () => {
             `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(capture)},JSON.stringify({tool:e.tool,activity:e.activity,task:e.task!=null})+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
         );
       }
-      expect(((await call("get_file", { id, filename: "note.txt" })) as { ok: boolean }).ok).toBe(true);
-      expect(
-        ((await call("attach_file", { id, filename: "n2.txt", contentB64: Buffer.from("x").toString("base64") })) as { ok: boolean }).ok,
-      ).toBe(true);
-      expect(((await call("get_project", {})) as { ok: boolean }).ok).toBe(true);
-      expect(((await call("get_integration_guide", {})) as { ok: boolean }).ok).toBe(true);
+      const gotFile = (await call("get_file", { id, filename: "note.txt" })) as { filename?: string; error?: unknown };
+      expect(gotFile.error).toBeUndefined();
+      expect(gotFile.filename).toBe("note.txt");
+      const attached = (await call("attach_file", { id, filename: "n2.txt", contentB64: Buffer.from("x").toString("base64") })) as { filename?: string; error?: unknown };
+      expect(attached.error).toBeUndefined();
+      const project = (await call("get_project", {})) as { root?: string; error?: unknown };
+      expect(project.error).toBeUndefined();
+      expect(typeof project.root).toBe("string");
+      const guide = (await call("get_integration_guide", {})) as { serverRunning?: boolean; error?: unknown };
+      expect(guide.error).toBeUndefined();
+      expect(typeof guide.serverRunning).toBe("boolean");
       const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
       expect(rows.map((r: { tool: string }) => r.tool).sort()).toEqual(
         ["attach_file", "get_file", "get_integration_guide", "get_project"].sort(),
@@ -521,14 +587,24 @@ describe("MCP keys (all 13, HTTP transport)", () => {
     });
   });
 
-  it("pull (shared key): offline refusal fires no hook; the key resolves per-surface", async () => {
+  it("pull (shared key): zero-write pull narrates once with activity:null", async () => {
     await withHookEnv(async () => {
       const marker = join(mcpProject, "marker-mcp-pull.log");
-      writeMcpHook("pull", "after", MARKER_BODY(marker));
-      const out = (await call("pull", {})) as { ok: boolean; error?: { code: string } };
-      // Offline the pull cannot run — whatever the refusal, no after hook fires.
-      expect(out.ok).toBe(false);
-      expect(markerLines(marker)).toHaveLength(0);
+      const capture = join(mcpProject, "capture-mcp-pull.jsonl");
+      writeMcpHook(
+        "pull",
+        "after",
+        `import { appendFileSync } from "node:fs";\n` +
+          `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(marker)},"run\\n");appendFileSync(${JSON.stringify(capture)},JSON.stringify({tool:e.tool,surface:e.surface,activity:e.activity})+"\\n");process.stdout.write(JSON.stringify({instructions:"pull-note"}));});\n`,
+      );
+      const out = (await call("pull", {})) as { added?: number; instructions?: string[] };
+      // Offline the pull writes nothing (E_NOT_AUTHENTICATED notice) — a
+      // successful invocation with no activity narrates exactly once.
+      expect(out.added).toBe(0);
+      expect(out.instructions).toEqual(["pull-note"]);
+      expect(markerLines(marker)).toHaveLength(1);
+      const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      expect(rows).toEqual([{ tool: "pull", surface: "mcp", activity: null }]);
     });
   });
 
@@ -555,8 +631,9 @@ describe("MCP keys (all 13, HTTP transport)", () => {
           `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);appendFileSync(${JSON.stringify(marker)},"run\\n");appendFileSync(${JSON.stringify(capture)},JSON.stringify({activity:e.activity,url:e.activityObject&&e.activityObject.url})+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
       );
       const port = await getFreePort();
-      const started = (await call("start_kanban", { port })) as { ok: boolean };
-      expect(started.ok).toBe(true);
+      const started = (await call("start_kanban", { port })) as { url?: string; error?: unknown };
+      expect(started.error).toBeUndefined();
+      expect(typeof started.url).toBe("string");
       await pollMarker(marker, 1);
       const rows = readFileSync(capture, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
       expect(rows[0].activity).toBeNull();
