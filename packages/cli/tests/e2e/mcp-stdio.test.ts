@@ -415,9 +415,11 @@ describe("module hooks over local stdio MCP (Stage 1.5, ADR-0006)", () => {
   const HOOK_ENV = { VIBEFLOW_HOOKS: "1", VIBEFLOW_TRUST_HOOKS: "1" };
 
   function writeModuleHook(project: string, body: string): void {
-    const dir = join(project, ".vibeflow-hooks", "after");
+    // v2: one file per TOOL — the MCP key is update_task (not the
+    // task.update activity), flat in .vibeflow-hooks/.
+    const dir = join(project, ".vibeflow-hooks");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "after-task.update.hook.mjs"), body);
+    writeFileSync(join(dir, "update_task.after.hook.mjs"), body);
   }
 
   function freshProject(): string {

@@ -30,7 +30,6 @@ const VERBATIM_EXAMPLE = join(
   "..",
   "docs",
   "hooks-examples",
-  "after",
   "tasks.after.hook.ts",
 );
 
