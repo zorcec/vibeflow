@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   createHookScope,
+  emitAfterHook,
   emitPreHook,
   preGateRefusal,
 } from "../../../src/core/hooks/emit.js";
@@ -274,6 +275,123 @@ describe("emitPreHook", () => {
       { home, env: { ...BASE_ENV, VIBEFLOW_HOOKS: "0" } },
     );
     expect(out).toEqual({ allowed: true, instructions: [], bypassed: false });
+  });
+});
+
+describe("pre refusedSibling wrong-dir gate (ticket 746155ce)", () => {
+  async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+    const lines: string[] = [];
+    const orig = process.stderr.write;
+    (process.stderr.write as unknown as (...args: unknown[]) => boolean) =
+      ((chunk: unknown) => {
+        lines.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+    try {
+      await fn();
+    } finally {
+      process.stderr.write = orig;
+    }
+    return lines.join("");
+  }
+
+  // The pre lookup lives in `.vibeflow-hooks/pre/` (same dir the gate
+  // must check — the bug checked the bare hooks root, so this stayed
+  // silent). Fails on the old code (no warning), passes on the fix.
+  it("warns HOOK_BAD_EXTENSION for a pre .js beside a valid pre .mjs (project level, right dir)", async () => {
+    writePreHook();
+    const bad = join(projectDir, ".vibeflow-hooks", "pre", "pre-task.update.js");
+    writeFileSync(bad, `// wrong extension\n`);
+    let out!: Awaited<ReturnType<typeof emitPreHook>>;
+    const stderr = await captureStderr(async () => {
+      out = await emitPreHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { payload: { taskId: "abc", changed: ["status"] } },
+        { home, env: { ...BASE_ENV } },
+      );
+    });
+    expect(stderr).toContain("HOOK_BAD_EXTENSION");
+    expect(stderr).toContain(bad);
+    // The gate itself still runs: the valid .mjs allows the write.
+    expect(out.allowed).toBe(true);
+  });
+
+  it("refuses .cjs for pre at the project level", async () => {
+    writePreHook();
+    const bad = join(projectDir, ".vibeflow-hooks", "pre", "pre-task.update.cjs");
+    writeFileSync(bad, `// wrong extension\n`);
+    const stderr = await captureStderr(async () => {
+      await emitPreHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { payload: { taskId: "abc", changed: ["status"] } },
+        { home, env: { ...BASE_ENV } },
+      );
+    });
+    expect(stderr).toContain("HOOK_BAD_EXTENSION");
+    expect(stderr).toContain(bad);
+  });
+
+  it("warns for a pre .js at the global level", async () => {
+    const dir = join(home, ".vibeflow", "hooks", "pre");
+    mkdirSync(dir, { recursive: true });
+    const bad = join(dir, "pre-task.update.js");
+    writeFileSync(bad, `// wrong extension\n`);
+    const stderr = await captureStderr(async () => {
+      await emitPreHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { payload: { taskId: "abc", changed: ["status"] } },
+        { home, env: { ...BASE_ENV } },
+      );
+    });
+    expect(stderr).toContain("HOOK_BAD_EXTENSION");
+    expect(stderr).toContain(bad);
+  });
+
+  it("stays silent when the .js is NOT a sibling of the pre lookup dir (after/ only)", async () => {
+    writePreHook();
+    const afterDir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(afterDir, { recursive: true });
+    writeFileSync(join(afterDir, "pre-task.update.js"), `// wrong dir\n`);
+    const stderr = await captureStderr(async () => {
+      await emitPreHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { payload: { taskId: "abc", changed: ["status"] } },
+        { home, env: { ...BASE_ENV } },
+      );
+    });
+    expect(stderr).not.toContain("HOOK_BAD_EXTENSION");
+  });
+
+  it("after behaviour unchanged: an after .js beside a valid after .mjs still warns", async () => {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "after-task.update.mjs"),
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{process.stdout.write(JSON.stringify({instructions:"ok"}))});`,
+    );
+    const bad = join(dir, "after-task.update.js");
+    writeFileSync(bad, `// wrong extension\n`);
+    let out!: string[];
+    const stderr = await captureStderr(async () => {
+      out = await emitAfterHook(
+        { projectDir, mode: "local" },
+        createHookScope(),
+        "task.update",
+        { taskId: "abc", changed: ["status"] },
+        { home, env: { ...BASE_ENV } },
+      );
+    });
+    expect(stderr).toContain("HOOK_BAD_EXTENSION");
+    expect(stderr).toContain(bad);
+    expect(out).toEqual(["ok"]);
   });
 });
 

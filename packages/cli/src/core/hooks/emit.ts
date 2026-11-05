@@ -299,7 +299,7 @@ export async function emitPreHook<E extends HookEvent>(
 
   const roots = hookRoots(projectDir, opts.home);
   for (const dir of [roots.project, roots.global]) {
-    const bad = refusedSibling(dir, "pre", event);
+    const bad = refusedSibling(`${dir}/pre`, "pre", event);
     if (bad) {
       process.stderr.write(
         `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs and .hook.mjs/.hook.mts/.hook.ts execute; rename it or it never runs)\n`,
