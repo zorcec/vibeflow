@@ -35,10 +35,10 @@
 import type {
   HookActivity,
   HookConfirmedPayloads,
-  HookEnvelope as CoreHookEnvelope,
   HookIntentPayloads,
   HookSurface,
-} from "./core/hooks/envelope.js";
+} from "./core/hooks/activities.js";
+import type { HookEnvelope as CoreHookEnvelope } from "./core/hooks/envelope.js";
 
 export type { HookActivity, HookConfirmedPayloads, HookIntentPayloads, HookSurface };
 

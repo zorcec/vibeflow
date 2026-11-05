@@ -30,72 +30,23 @@
  */
 
 import type { Task } from "../types.js";
+import type {
+  HookActivity,
+  HookConfirmedPayloads,
+  HookIntentPayloads,
+  HookSurface,
+} from "./activities.js";
+
+// Re-exported so existing importers keep one path (`./envelope.js`); the
+// api-core-free leaf is `./activities.js` — the public authoring boundary
+// (`src/hooks.ts`) imports from THERE, never from this Task-carrying
+// module, so the packed `dist/hooks.d.ts` stays self-contained (pinned by
+// `hooks-package.test.ts`: a tarball consumer has no api-core).
+export type { HookActivity, HookConfirmedPayloads, HookIntentPayloads, HookSurface };
 
 export const HOOK_SCHEMA_VERSION = 2;
 
 export type HookPhase = "before" | "after";
-
-/**
- * The deliberately-8 activity set. An activity is a unit of work with an
- * intent side and a confirmed side; a TOOL key is a file — the mapping is
- * many-to-one (see `tools.ts`). No `task.list`, no files/links/boards/mcp —
- * an activity exists only when something must be gated or narrated.
- */
-export type HookActivity =
-  | "task.create"
-  | "task.update"
-  | "task.claim"
-  | "task.delete"
-  | "task.comment"
-  | "push"
-  | "pull"
-  | "verify";
-
-/**
- * After-phase payloads describe the CONFIRMED durable effect (post-write
- * result). The phase split is load-bearing: claim is atomic,
- * commentId/verify results exist only post-write, so before and after
- * payloads are distinct types, not one shared shape.
- */
-export interface HookConfirmedPayloads {
-  "task.create": {
-    task: { id: string; title: string; status: string; type?: string };
-  };
-  "task.update": { taskId: string; changed: string[] };
-  "task.claim": { taskId: string; from: string; to: string };
-  "task.delete": { taskId: string; childCount: number };
-  "task.comment": { taskId: string; commentId: string };
-  push: { taskCount: number; chunkCount: number; transport: string };
-  pull: { written: number; skipped: number; mode: string };
-  verify: { taskId: string; verdict: string };
-}
-
-/**
- * Before-phase INTENT payloads: what the invocation intends, BEFORE any
- * durable effect. No generated ids (no task id on create, no commentId,
- * no verdict) — a before-hook that needs the result must allow and read
- * the after-hook. Claim before-gate is invocation-level over the claim
- * FILTERS (atomic claim preserved — no preview-then-update, no
- * reservation protocol). Same deliberately-8 activity set; distinct from
- * confirmed payloads on purpose.
- */
-export interface HookIntentPayloads {
-  "task.create": {
-    title: string;
-    description?: string;
-    status?: string;
-    type?: string;
-    priority?: string;
-    tags?: string[];
-  };
-  "task.update": { taskId: string; changed: string[] };
-  "task.claim": { type?: string; user?: string; tag?: unknown };
-  "task.delete": { taskId: string; childCount: number };
-  "task.comment": { taskId: string; text: string };
-  push: { dryRun?: boolean };
-  pull: { mode?: string };
-  verify: { taskId: string };
-}
 
 /**
  * Full task for the generic contract: the CONFIRMED record (after) or the
@@ -104,8 +55,6 @@ export interface HookIntentPayloads {
  * NOT treat it as writable: the ONLY mutable surface is `instructions`.
  */
 export type HookTaskSnapshot = Task | (Partial<Task> & { title: string }) | null;
-
-export type HookSurface = "cli" | "mcp";
 
 export interface HookEnvelope<A extends HookActivity | null = HookActivity | null> {
   schemaVersion: typeof HOOK_SCHEMA_VERSION;

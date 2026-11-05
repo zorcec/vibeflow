@@ -23,9 +23,9 @@
  * owns the process lifetime; a hook that sometimes runs is a trap) and
  * the `authors` container (a node with no action of its own).
  */
-import type { HookActivity } from "./envelope.js";
+import type { HookActivity, HookSurface } from "./activities.js";
 
-export type HookSurface = "cli" | "mcp";
+export type { HookSurface };
 
 /** Why a cell is unsupported — the exact diagnostic code surfaced. */
 export type HookUnsupportedReason = "not-gateable" | "no-after" | "container";
