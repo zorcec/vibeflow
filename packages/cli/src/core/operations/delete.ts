@@ -378,11 +378,16 @@ export async function deleteTaskOperation(
     // After-hook (Stage 1, ADR-0006): the delete is confirmed (remote
     // landed; local drops are best-effort cleanup of the same effect).
     // childCount excludes the root itself.
+    // Generic contract (ticket 431ee1c0): the record no longer exists
+    // post-delete, so the AFTER envelope carries the pre-delete row as
+    // the snapshot of what was deleted (same record as the pre-gate).
     const onlineInstructions = await emitAfterHook(
       ctx,
       createHookScope(),
       "task.delete",
       { taskId: id, childCount: Math.max(0, deletedIds.length - 1) },
+      undefined,
+      { task: (found ?? null) as import("../types.js").Task | null },
     );
     const onlineMerged = [
       ...(deleteGate.allowed && deleteGate.instructions.length > 0
@@ -416,11 +421,16 @@ export async function deleteTaskOperation(
     };
   }
   // After-hook (Stage 1, ADR-0006): local delete confirmed.
+  // Generic contract (ticket 431ee1c0): the row is gone post-delete, so
+  // the AFTER envelope carries the pre-delete row as the snapshot of
+  // what was deleted (same record as the pre-gate).
   const localInstructions = await emitAfterHook(
     ctx,
     createHookScope(),
     "task.delete",
     { taskId: id, childCount: 0 },
+    undefined,
+    { task: (found ?? null) as import("../types.js").Task | null },
   );
   const localMerged = [
     ...(deleteGate.allowed && deleteGate.instructions.length > 0

@@ -18,11 +18,12 @@
 //   at runtime (but keep the local dev dependency so editors resolve it:
 //   `npm install --save-dev @vibeflow-tools/cli`).
 //
-// Why it reads the task file: in the current build the AFTER envelope
-// carries the confirmed effect in `payload` (`{taskId, changed}`) while
-// `task` is null — the full snapshot rides the PRE envelope only (see
-// docs/agent-hooks.md). So this hook looks up the fresh status from the
-// task store (`cwd` is always the project root, guaranteed by the runner).
+// Why it reads the envelope first: the AFTER envelope carries the
+// confirmed snapshot in `task` (see docs/agent-hooks.md), so the hook
+// prefers `envelope.task.status` and only falls back to the task store
+// (`cwd` is always the project root, guaranteed by the runner) when the
+// snapshot is absent — e.g. envelopes from older CLIs. Either path keeps
+// this file working verbatim.
 //
 // Contract (ADR-0006): the loader calls the default export with the full
 // envelope as its ONE argument; return `{instructions: "..."}` or `{}`.
@@ -81,10 +82,16 @@ export default async function (
 ): Promise<HookAfterResult> {
   if (envelope.event === "task.update" && envelope.phase === "after") {
     const taskId: string = envelope.payload.taskId;
-    if (
-      typeof taskId === "string" &&
-      findTaskStatus(process.cwd(), taskId) === "review"
-    ) {
+    // The snapshot suffices: the store read below only fires for
+    // envelopes without one (older CLIs, hand-built inputs).
+    const snapshotStatus: unknown = envelope.task?.status;
+    const status: string | null =
+      typeof snapshotStatus === "string"
+        ? snapshotStatus
+        : typeof taskId === "string"
+          ? findTaskStatus(process.cwd(), taskId)
+          : null;
+    if (status === "review") {
       return {
         instructions:
           "This task just moved to review: attest the result with " +

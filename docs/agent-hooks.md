@@ -53,20 +53,22 @@ one builder; nothing else may assemble one):
   distinct types on purpose).
 - `task`: the full task where the emitter provides one — snapshot after
   the write, best-known intent before it — or `null` where no single task
-  exists (push/pull/verify run intents). CURRENT BUILD (verified
-  2026-11-05 against `emit.ts` + a live capture): the PRE gate populates
-  `task`/`activityObject` from its input, but `emitAfterHook` takes only
-  the payload, so every AFTER envelope today carries `"task":null` and
-  no `activityObject` — the confirmed effect rides `payload` alone. An
-  after-hook that needs task state reads it from the store (`cwd` is the
-  project root) or waits for the gate to be closed (reported on ticket
-  pgli5zy761vwfvddx41r203h — core change, NOT made here). Immutable JSON
+  exists (push/pull/verify run intents, which move or inspect a whole
+  board rather than mutating one task). Every AFTER envelope for a
+  task-mutating event carries the CONFIRMED record: create/update/claim
+  pass the written record, comment passes the commented task, delete
+  passes the pre-delete row (the row is gone post-delete, so that
+  snapshot describes what was deleted). An after-hook that needs task
+  state reads `task` first and treats the store (`cwd` is the project
+  root) as a fallback for envelopes without one. Immutable JSON
   copy by contract wherever present: hooks cannot alter the store
   through it.
 - `activity`: explicit activity enum, always equals `event` (redundant on
   purpose — generic consumers read ONE field).
-- `activityObject`: the secondary record when one exists (comment text,
-  changed keys, claim filters, …). Absent otherwise.
+- `activityObject`: the secondary record when one exists — the changed
+  keys on `task.update`, the written comment on `task.comment`, the
+  claim filters on `task.claim`. Absent otherwise (create/delete carry
+  no secondary record; push/pull/verify name everything in `payload`).
 - `instructions`: the current agent-instruction draft — the ONLY replaceable
   surface. Empty pre-write.
 

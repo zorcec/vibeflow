@@ -58,6 +58,47 @@ describe("buildHookEnvelope", () => {
     expect(HOOK_SCHEMA_VERSION).toBe(1);
   });
 
+  it("threads task/activityObject/instructions when the emitter provides them (ticket 431ee1c0)", () => {
+    const task = {
+      id: "abc",
+      title: "t",
+      description: "",
+      status: "todo" as const,
+      selector: "/",
+      created: "2026-01-01T00:00:00.000Z",
+    };
+    const envelope = buildHookEnvelope({
+      event: "task.update",
+      phase: "after",
+      boardId: null,
+      actor: "agent",
+      payload: { taskId: "abc", changed: ["status"] },
+      task,
+      activityObject: { changed: ["status"] },
+      instructions: "draft",
+    });
+    // The legacy payload is byte-identical — the generic fields ride
+    // alongside it, never inside it.
+    expect(envelope.payload).toEqual({ taskId: "abc", changed: ["status"] });
+    expect(envelope.task).toEqual(task);
+    expect(envelope.activity).toBe("task.update");
+    expect(envelope.activityObject).toEqual({ changed: ["status"] });
+    expect(envelope.instructions).toBe("draft");
+  });
+
+  it("omits activityObject when the emitter passes none (absent, not null)", () => {
+    const envelope = buildHookEnvelope({
+      event: "push",
+      phase: "after",
+      boardId: null,
+      actor: "agent",
+      payload: { taskCount: 1, chunkCount: 1, transport: "remote" },
+    });
+    expect(envelope.task).toBeNull();
+    expect("activityObject" in envelope).toBe(false);
+    expect(envelope.instructions).toBe("");
+  });
+
   it("drift pin: only envelope.ts versions an envelope; only emit.ts calls the builder", () => {
     const versionedOutside: string[] = [];
     const buildersOutside: string[] = [];

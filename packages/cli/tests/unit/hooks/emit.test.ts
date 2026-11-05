@@ -201,6 +201,52 @@ describe("emitAfterHook", () => {
   it("resolves boardId null locally", () => {
     expect(resolveHookBoardId({ projectDir, mode: "local" })).toBeNull();
   });
+
+  it("threads task/activityObject/instructions extras into the hook envelope (ticket 431ee1c0)", async () => {
+    writeProjectHook(
+      "task.update",
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({task:e.task,activityObject:e.activityObject,instructions:e.instructions,payload:e.payload})}))});`,
+    );
+    const out = await emitAfterHook(
+      { projectDir, mode: "local" },
+      createHookScope(),
+      "task.update",
+      { taskId: "abc", changed: ["status"] },
+      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+      {
+        task: { id: "abc", title: "t", status: "in-progress" },
+        activityObject: { changed: ["status"] },
+        instructions: "draft",
+      },
+    );
+    expect(out).toHaveLength(1);
+    const seen = JSON.parse(out[0]);
+    // The legacy payload is byte-identical; the generic fields arrive
+    // alongside it.
+    expect(seen.payload).toEqual({ taskId: "abc", changed: ["status"] });
+    expect(seen.task).toEqual({ id: "abc", title: "t", status: "in-progress" });
+    expect(seen.activityObject).toEqual({ changed: ["status"] });
+    expect(seen.instructions).toBe("draft");
+  });
+
+  it("defaults to task:null with no activityObject when no extras are passed", async () => {
+    writeProjectHook(
+      "push",
+      `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const e=JSON.parse(s);process.stdout.write(JSON.stringify({instructions:JSON.stringify({task:e.task,hasActivity:"activityObject" in e,instructions:e.instructions})}))});`,
+    );
+    const out = await emitAfterHook(
+      { projectDir, mode: "saas" },
+      createHookScope(),
+      "push",
+      { taskCount: 1, chunkCount: 1, transport: "remote" },
+      { home, env: { ...BASE_ENV, VIBEFLOW_TRUST_HOOKS: "1" } },
+    );
+    expect(out).toHaveLength(1);
+    const seen = JSON.parse(out[0]);
+    expect(seen.task).toBeNull();
+    expect(seen.hasActivity).toBe(false);
+    expect(seen.instructions).toBe("");
+  });
 });
 
 describe("module peers (Stage 1.5, ADR-0006)", () => {

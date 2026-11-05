@@ -14,6 +14,7 @@
  */
 import type {
   Task,
+  TaskComment,
   TaskLink,
 } from "../types.js";
 import type { TaskStatus } from "../types.js";
@@ -715,6 +716,8 @@ export async function createTask(
 
     // After-hook (Stage 1, ADR-0006): create confirmed. Dry-run returned
     // above, so reaching here is a durable effect — always emitted.
+    // Generic contract (ticket 431ee1c0): the AFTER envelope carries the
+    // CONFIRMED record as `task` (the legacy payload above is untouched).
     const createInstructions = await emitAfterHook(
       ctx,
       createHookScope(),
@@ -727,6 +730,8 @@ export async function createTask(
           ...(created.type ? { type: created.type } : {}),
         },
       },
+      undefined,
+      { task: created },
     );
     const createGateInstructions =
       createGate.allowed && createGate.instructions.length > 0
@@ -1272,11 +1277,16 @@ export async function updateTask(
     // comment event fires only when its own write confirms (never for the
     // `cannot` system note, which is excluded like all system comments).
     const updateHookScope = createHookScope();
+    // Generic contract (ticket 431ee1c0): the AFTER envelope carries the
+    // CONFIRMED post-write record as `task` and the changed keys as
+    // `activityObject` (the legacy payload is untouched).
     const updateHookInstructions = await emitAfterHook(
       ctx,
       updateHookScope,
       "task.update",
       { taskId: id, changed: Object.keys(updates) },
+      undefined,
+      { task, activityObject: { changed: Object.keys(updates) } },
     );
     const updateGateInstructions =
       updateGate.allowed && updateGate.instructions.length > 0
@@ -1297,6 +1307,7 @@ export async function updateTask(
     // the edit already landed, and resending the whole update would
     // re-apply it. Record the comment with add_comment instead.
     let writtenCommentId: string | null = null;
+    let writtenCommentRecord: TaskComment | null = null;
     if (input.comment) {
       try {
         const writtenComment = await store.addComment(
@@ -1306,6 +1317,7 @@ export async function updateTask(
           input.comment,
         );
         writtenCommentId = writtenComment.id;
+        writtenCommentRecord = writtenComment;
       } catch (err) {
         return withUpdateHooks({
           ok: false,
@@ -1415,12 +1427,27 @@ export async function updateTask(
     // The user comment (when written) is a second confirmed durable effect
     // in the same action scope: one task.update + one task.comment, never
     // a merged or a dropped event.
+    // Generic contract (ticket 431ee1c0): the task.comment AFTER envelope
+    // carries the confirmed post-write task plus the written comment as
+    // `activityObject` (the legacy payload is untouched).
     const commentHookInstructions =
       writtenCommentId !== null
-        ? await emitAfterHook(ctx, updateHookScope, "task.comment", {
-            taskId: id,
-            commentId: writtenCommentId,
-          })
+        ? await emitAfterHook(
+            ctx,
+            updateHookScope,
+            "task.comment",
+            {
+              taskId: id,
+              commentId: writtenCommentId,
+            },
+            undefined,
+            {
+              task,
+              ...(writtenCommentRecord !== null
+                ? { activityObject: writtenCommentRecord }
+                : {}),
+            },
+          )
         : [];
     const allUpdateInstructions = [
       ...updateHookInstructions,
@@ -1578,11 +1605,23 @@ export async function claimNextTask(
     // After-hook (Stage 1, ADR-0006): a claimed task is a confirmed
     // durable effect. The null (nothing-to-claim) and dry-run paths
     // returned above — no after-emission without an effect.
+    // Generic contract (ticket 431ee1c0): the AFTER envelope carries the
+    // claimed record as `task` and the claim filters as `activityObject`
+    // (same filter shape as the pre-gate input; payload untouched).
     const claimInstructions = await emitAfterHook(
       ctx,
       createHookScope(),
       "task.claim",
       { taskId: claimed.id, from: "todo", to: claimed.status },
+      undefined,
+      {
+        task: claimed,
+        activityObject: {
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.user !== undefined ? { user: input.user } : {}),
+          ...(input.tag !== undefined ? { tag: input.tag } : {}),
+        },
+      },
     );
     const claimGateInstructions =
       claimGate.allowed && claimGate.instructions.length > 0

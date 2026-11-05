@@ -32,7 +32,7 @@ import {
   type ProjectRootResult,
 } from "./core/project-root.js";
 import { loadSettings } from "./core/settings.js";
-import type { Task, TaskStatus } from "./core/types.js";
+import type { Task, TaskComment, TaskStatus } from "./core/types.js";
 import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
 import { runStdioMcp } from "./mcp/stdio.js";
@@ -88,9 +88,13 @@ import {
   createSaasTask,
   resolveSaasTaskId,
   toCliStatus,
+  type SaasComment,
   type SaasTask,
 } from "./saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
+// Generic contract (ticket 431ee1c0): maps the CONFIRMED online record
+// onto the local Task shape for after-hook `task` snapshots.
+import { toLocalTask } from "./core/remote-task-store.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
 import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
@@ -3327,6 +3331,12 @@ program
             const saasCreatedTask = saasCreated.data;
             const addNextActions = getNextActions("add", saasCreatedTask.id);
             // After-hook (Stage 1, ADR-0006): online create confirmed.
+            // Generic contract (ticket 431ee1c0): the AFTER envelope
+            // carries the CONFIRMED server record as `task` (mapped onto
+            // the local shape; the minimal legacy payload above is
+            // untouched). The mapper only refuses a row missing
+            // id/title/createdAt — the fallback keeps the confirmed
+            // id/title/status rather than a null.
             const saasAddInstructions = [
               ...saasAddGateInstructions,
               ...(await emitAfterHook(
@@ -3339,6 +3349,15 @@ program
                     title: saasCreatedTask.title,
                     status: String(saasCreatedTask.status),
                   },
+                },
+                undefined,
+                {
+                  task:
+                    toLocalTask(saasCreatedTask) ?? {
+                      id: saasCreatedTask.id,
+                      title: saasCreatedTask.title,
+                      status: toCliStatus(saasCreatedTask.status) as TaskStatus,
+                    },
                 },
               )),
             ];
@@ -3559,6 +3578,8 @@ program
           // After-hook (Stage 1, ADR-0006): the legacy local add writes
           // through core/tasks.ts directly, so the CLI handler is the
           // event-owning site here (same shared helper the operations use).
+          // Generic contract (ticket 431ee1c0): the AFTER envelope
+          // carries the CONFIRMED record as `task` (payload untouched).
           const localAddInstructions = [
             ...localAddGateInstructions,
             ...(await emitAfterHook(
@@ -3572,6 +3593,8 @@ program
                   status: created.status,
                 },
               },
+              undefined,
+              { task: created },
             )),
           ];
           if (opts.json) {
@@ -5120,6 +5143,7 @@ program
 
             let saasCommentError: string | undefined;
             let saasWrittenCommentId: string | null = null;
+            let saasWrittenComment: SaasComment | null = null;
             if (opts.comment?.trim()) {
               const commented = await addSaasComment(
                 editTargetId,
@@ -5128,6 +5152,7 @@ program
               );
               if (commented.ok) {
                 saasWrittenCommentId = commented.data.id;
+                saasWrittenComment = commented.data;
                 if (!opts.json) console.log(chalk.dim("  comment: added"));
               } else {
                 saasCommentError = commented.error.message;
@@ -5189,6 +5214,22 @@ program
             // effect; the user comment (when written) adds task.comment in
             // the same action scope. System notes never emit (no cycle).
             const saasEditScope = createHookScope();
+            // Generic contract (ticket 431ee1c0): the AFTER envelopes
+            // carry the CONFIRMED server record as `task` (mapped onto
+            // the local shape; payloads untouched) — the update names the
+            // changed keys, the comment carries the written comment — as
+            // `activityObject`. The mapper only refuses a row missing
+            // id/title/createdAt; the fallback keeps the confirmed
+            // id/title/status rather than a null.
+            // Inferred `Task | { id, title, status }`: both arms satisfy
+            // `HookTaskSnapshot` (full record or title-bearing partial).
+            const saasEditSnapshot =
+              toLocalTask(saasResultData.task) ?? {
+                id: editTargetId,
+                title: saasResultData.task.title,
+                status: toCliStatus(saasResultData.task.status) as TaskStatus,
+              };
+            const saasEditChanged = { changed: Object.keys(saasPatch) };
             const saasEditUpdateInstructions = [
               ...saasEditGateInstructions,
               ...(await emitAfterHook(
@@ -5196,6 +5237,8 @@ program
               saasEditScope,
               "task.update",
               { taskId: editTargetId, changed: Object.keys(saasPatch) },
+              undefined,
+              { task: saasEditSnapshot, activityObject: saasEditChanged },
               )),
             ];
             const saasEditCommentInstructions =
@@ -5207,6 +5250,13 @@ program
                     {
                       taskId: editTargetId,
                       commentId: saasWrittenCommentId,
+                    },
+                    undefined,
+                    {
+                      task: saasEditSnapshot,
+                      ...(saasWrittenComment !== null
+                        ? { activityObject: saasWrittenComment }
+                        : {}),
                     },
                   )
                 : [];
@@ -5802,6 +5852,7 @@ program
           // promise that races process exit and silently loses the comment.
           let commentError: string | undefined;
           let localEditCommentId: string | null = null;
+          let localEditCommentRecord: TaskComment | null = null;
           if (opts.comment?.trim()) {
             try {
               const localEditComment = await addComment(
@@ -5811,6 +5862,7 @@ program
                 opts.comment.trim(),
               );
               localEditCommentId = localEditComment.id;
+              localEditCommentRecord = localEditComment;
             } catch (err) {
               commentError = err instanceof Error ? err.message : String(err);
             }
@@ -5902,6 +5954,11 @@ program
           // written) adds task.comment in the same action scope; the
           // system `cannot` note never emits (no hook cycle).
           const localEditScope = createHookScope();
+          // Generic contract (ticket 431ee1c0): the AFTER envelopes carry
+          // the CONFIRMED post-write record as `task` (payloads untouched)
+          // — the update names the changed keys, the comment carries the
+          // written comment — as `activityObject`.
+          const localEditChanged = { changed: Object.keys(updates) };
           const localEditUpdateInstructions = [
             ...localEditGateInstructions,
             ...(await emitAfterHook(
@@ -5909,6 +5966,8 @@ program
               localEditScope,
               "task.update",
               { taskId: resolvedTaskId, changed: Object.keys(updates) },
+              undefined,
+              { task: updated, activityObject: localEditChanged },
             )),
           ];
           const localEditCommentInstructions =
@@ -5918,6 +5977,13 @@ program
                   localEditScope,
                   "task.comment",
                   { taskId: resolvedTaskId, commentId: localEditCommentId },
+                  undefined,
+                  {
+                    task: updated,
+                    ...(localEditCommentRecord !== null
+                      ? { activityObject: localEditCommentRecord }
+                      : {}),
+                  },
                 )
               : [];
           const localEditInstructions = [

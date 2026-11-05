@@ -425,6 +425,9 @@ export async function pull(
   // After-hook (Stage 1, ADR-0006): computed BEFORE the --json envelope so
   // the instructions ride the same single document. Dry-run and zero-write
   // pulls are no-ops with no after-emission.
+  // Generic contract (ticket 431ee1c0): task:null is CORRECT here — a
+  // pull applies a whole archive (no single task exists) and the
+  // written/skipped counts ride the payload. Defaults cover it.
   const pullWritten = summary.added + summary.merged;
   const pullSkipped = summary.unchanged + summary.conflicts;
   const pullInstructions = [

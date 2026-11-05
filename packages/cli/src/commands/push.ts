@@ -1382,6 +1382,9 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // After-hook dispatch for push (Stage 1, ADR-0006): push is not a store
   // method, so the command is the event-owning site (shared dispatch
   // helper in core/hooks/emit.ts).
+  // Generic contract (ticket 431ee1c0): task:null is CORRECT here — a
+  // push moves a whole set of tasks (no single task exists) and the
+  // counts ride the payload. Defaults cover it: no extras passed.
   async function emitPushHook(
     hookProjectDir: string,
     payload: { taskCount: number; chunkCount: number; transport: string },

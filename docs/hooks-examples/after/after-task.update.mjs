@@ -9,11 +9,12 @@
 // verdict. Any other update returns `{}` (no-op). Pure and offline: no
 // network, no config file, no secrets — and NEVER any Vibeflow token.
 //
-// Why it reads the task file: in the current build the AFTER envelope
-// carries the confirmed effect in `payload` (`{taskId, changed}`) while
-// `task` is null — the full snapshot rides the PRE envelope only (see
-// docs/agent-hooks.md). So this hook looks up the fresh status from the
-// task store (`cwd` is always the project root, guaranteed by the runner).
+// Why it reads the envelope first: the AFTER envelope carries the
+// confirmed snapshot in `task` (see docs/agent-hooks.md), so the hook
+// prefers `envelope.task.status` and only falls back to the task store
+// (`cwd` is always the project root, guaranteed by the runner) when the
+// snapshot is absent — e.g. envelopes from older CLIs. Either path keeps
+// this file working verbatim.
 // Contract (ADR-0006): stdin = one envelope JSON + "\n"; stdout = exactly
 // one JSON document (`{"instructions":"..."}` or `{}`); diagnostics on
 // stderr ONLY (a stray console.log on stdout invalidates the document and
@@ -65,7 +66,19 @@ async function main() {
   }
   if (envelope?.event === "task.update" && envelope?.phase === "after") {
     const taskId = envelope?.payload?.taskId;
-    if (typeof taskId === "string" && findTaskStatus(process.cwd(), taskId) === "review") {
+    // The snapshot suffices: the store read below only fires for
+    // envelopes without one (older CLIs, hand-built inputs).
+    const snapshot = envelope?.task;
+    const snapshotStatus =
+      snapshot !== null &&
+      typeof snapshot === "object" &&
+      typeof snapshot.status === "string"
+        ? snapshot.status
+        : null;
+    const status =
+      snapshotStatus ??
+      (typeof taskId === "string" ? findTaskStatus(process.cwd(), taskId) : null);
+    if (status === "review") {
       process.stdout.write(
         JSON.stringify({
           instructions:

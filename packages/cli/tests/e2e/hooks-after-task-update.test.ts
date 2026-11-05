@@ -7,7 +7,13 @@
  * - an untrusted project hook does not run and says why on stderr.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnCliIsolated } from "./spawn-isolated.js";
@@ -223,5 +229,109 @@ describe("hooks-after-task-update module mode e2e (Stage 1.5, ADR-0006)", () => 
     expect(fetched.code).toBe(0);
     const got = JSON.parse(fetched.stdout) as { task?: { status?: string } };
     expect(got.task?.status).toBe("in-progress");
+  });
+});
+
+describe("after-envelope generic fields live (ticket 431ee1c0)", () => {
+  // The hook child env carries PATH+HOME only — the capture path is baked
+  // into the hook body, never passed as env.
+  function writeCaptureHook(event: string, capture: string): void {
+    const dir = join(projectDir, ".vibeflow-hooks", "after");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `after-${event}.mjs`),
+      `import { appendFileSync } from "node:fs";\n` +
+        `let s="";process.stdin.setEncoding("utf8").on("data",c=>s+=c).on("end",()=>{appendFileSync(${JSON.stringify(capture)},s+"\\n");process.stdout.write(JSON.stringify({}));});\n`,
+    );
+  }
+
+  function readCaptures(capture: string): Array<Record<string, unknown>> {
+    return readFileSync(capture, "utf8")
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it("task.create after-envelope carries the CONFIRMED record as task", async () => {
+    const capture = join(projectDir, "capture-create.jsonl");
+    writeCaptureHook("task.create", capture);
+    const added = await spawnCliIsolated(
+      ["tasks", "--add", "--title", "envelope snapshot task", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(added.code).toBe(0);
+    const id = (JSON.parse(added.stdout) as { task: { id: string } }).task.id;
+    const envelopes = readCaptures(capture);
+    expect(envelopes).toHaveLength(1);
+    const env = envelopes[0];
+    expect(env.event).toBe("task.create");
+    expect(env.phase).toBe("after");
+    // Pre-fix this was null with no activityObject — the live proof.
+    const task = env.task as Record<string, unknown>;
+    expect(task).not.toBeNull();
+    expect(task.id).toBe(id);
+    expect(task.title).toBe("envelope snapshot task");
+    expect(task.status).toBe("todo");
+    expect("activityObject" in env).toBe(false);
+    expect(env.instructions).toBe("");
+    expect(env.activity).toBe("task.create");
+    // Legacy payload byte-identical.
+    expect(env.payload).toEqual({
+      task: { id, title: "envelope snapshot task", status: "todo" },
+    });
+  });
+
+  it("task.update after-envelope carries the post-write record + changed keys", async () => {
+    const id = await addTask();
+    const capture = join(projectDir, "capture-update.jsonl");
+    writeCaptureHook("task.update", capture);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--set-status", "in-progress", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const envelopes = readCaptures(capture);
+    expect(envelopes).toHaveLength(1);
+    const env = envelopes[0];
+    const task = env.task as Record<string, unknown>;
+    expect(task).not.toBeNull();
+    expect(task.id).toBe(id);
+    expect(task.status).toBe("in-progress");
+    // The CLI's --set-status path folds author/verified bookkeeping into
+    // the write: pin containment + payload/activityObject agreement,
+    // not the exact key set.
+    const changed = (env.activityObject as { changed: string[] }).changed;
+    expect(changed).toContain("status");
+    expect(env.payload).toEqual({ taskId: id, changed });
+  });
+
+  it("task.comment after-envelope carries the task + written comment", async () => {
+    const id = await addTask();
+    const updateCapture = join(projectDir, "capture-cu.jsonl");
+    const commentCapture = join(projectDir, "capture-cc.jsonl");
+    writeCaptureHook("task.update", updateCapture);
+    writeCaptureHook("task.comment", commentCapture);
+    const edited = await spawnCliIsolated(
+      ["tasks", "--edit", id, "--title", "renamed", "--comment", "live note", "--json"],
+      { cwd: projectDir, home: cliHome, env: HOOK_ENV },
+    );
+    expect(edited.code).toBe(0);
+    const updates = readCaptures(updateCapture);
+    expect(updates).toHaveLength(1);
+    const updateTask = updates[0].task as Record<string, unknown>;
+    expect(updateTask.id).toBe(id);
+    expect(updateTask.title).toBe("renamed");
+    const comments = readCaptures(commentCapture);
+    expect(comments).toHaveLength(1);
+    const commentEnv = comments[0];
+    const commentTask = commentEnv.task as Record<string, unknown>;
+    expect(commentTask).not.toBeNull();
+    expect(commentTask.id).toBe(id);
+    const activityObject = commentEnv.activityObject as Record<string, unknown>;
+    expect(activityObject.text).toBe("live note");
+    expect(commentEnv.payload).toEqual({
+      taskId: id,
+      commentId: activityObject.id,
+    });
   });
 });

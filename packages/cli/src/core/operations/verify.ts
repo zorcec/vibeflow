@@ -256,6 +256,11 @@ export async function verifyTaskOp(
       // landed. The note is a generated system comment written via the
       // store — never through an emitting call site — so it cannot cycle
       // into task.comment. Dry-run and refusals return elsewhere: no emit.
+      // Generic contract (ticket 431ee1c0): task:null is CORRECT here —
+      // a verify run is a run intent, not a task mutation (the operation
+      // never sets a verdict; the verdict rides the payload). No
+      // activityObject either: the run produced no secondary record
+      // beyond what the payload already names. Defaults cover both.
       const verifyInstructions = await emitAfterHook(
         ctx,
         createHookScope(),

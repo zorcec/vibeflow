@@ -109,6 +109,22 @@ export function resolveHookBoardId(ctx: EmitContext): string | null {
 }
 
 /**
+ * Generic extras for an after-hook (Stage 3 gap fix, ticket 431ee1c0):
+ * the owner generic contract (envelope.ts header) promises every envelope
+ * carries the full immutable task snapshot + activityObject +
+ * instructions draft — but emitAfterHook used to take only (event,
+ * payload), so every AFTER envelope carried task:null. Callers now pass
+ * the CONFIRMED post-write record here; push/pull/verify pass nothing
+ * (run intents: no single task exists, so task:null is CORRECT there).
+ * The legacy `payload` stays byte-identical — these ride top-level fields.
+ */
+export interface AfterHookExtras {
+  task?: HookTaskSnapshot;
+  activityObject?: unknown;
+  instructions?: string;
+}
+
+/**
  * Emit one after-hook. Returns the hook's instructions (0..1 strings) for
  * the caller to carry on its result. Failures are silent-apart-from-stderr
  * by design: after = fail OPEN, the write already happened.
@@ -119,6 +135,7 @@ export async function emitAfterHook<E extends HookEvent>(
   event: E,
   payload: HookAfterPayloads[E],
   opts: EmitOptions = {},
+  extra: AfterHookExtras = {},
 ): Promise<string[]> {
   const env = opts.env ?? process.env;
   if (hooksDisabled(env)) return [];
@@ -178,12 +195,22 @@ export async function emitAfterHook<E extends HookEvent>(
   });
   if (!trust.trusted) return [];
 
+  // Generic contract (envelope.ts header): the full task snapshot after
+  // the write (or null where no single task exists — push/pull/verify run
+  // intents) + the activityObject where one exists + the instructions
+  // draft (empty post-write; the hook replaces it by returning one).
+  // Same shape as the pre-gate input — the legacy payload is untouched.
   const envelope = buildHookEnvelope({
     event,
     phase: "after",
     boardId: resolveHookBoardId(ctx),
     actor: resolveHookActor(ctx, env),
     payload,
+    task: extra.task ?? null,
+    ...(extra.activityObject !== undefined
+      ? { activityObject: extra.activityObject }
+      : {}),
+    instructions: extra.instructions ?? "",
   });
   const result = await runAfterHook(event, file, JSON.stringify(envelope), {
     cwd: projectDir,

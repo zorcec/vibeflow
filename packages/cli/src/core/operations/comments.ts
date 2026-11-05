@@ -93,11 +93,18 @@ export async function addComment(
     // and never pass through here — no hook cycle, by construction.
     // (input.author is typed `"user" | "agent"`: a `system` author
     // cannot arrive through this operation.)
+    // Generic contract (ticket 431ee1c0): the AFTER envelope carries the
+    // task snapshot as `task` and the written comment as `activityObject`
+    // (the legacy payload is untouched). The comment write mints no
+    // task-level fields, so the resolved snapshot stays accurate — the
+    // new comment itself rides `activityObject`, not a re-read.
     const instructions = await emitAfterHook(
       ctx,
       createHookScope(),
       "task.comment",
       { taskId: resolved.id, commentId: comment.id },
+      undefined,
+      { task: resolved.task, activityObject: comment },
     );
     const gateInstructions =
       commentGate.allowed && commentGate.instructions.length > 0
