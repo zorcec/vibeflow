@@ -24,7 +24,13 @@
  * fire for the SAME effect inside one action (e.g. a nested dispatch).
  */
 import { readProjectPointer } from "../../auth/project-pointer.js";
-import { buildHookEnvelope, type HookAfterPayloads, type HookEvent } from "./envelope.js";
+import {
+  buildHookEnvelope,
+  type HookAfterPayloads,
+  type HookEvent,
+  type HookPrePayloads,
+  type HookTaskSnapshot,
+} from "./envelope.js";
 import {
   hookRoots,
   isHookConflict,
@@ -34,7 +40,8 @@ import {
 } from "./discover.js";
 import { ensureShippedDefaults, getDefaultHookSource } from "./defaults.js";
 import { checkHookTrust } from "./trust.js";
-import { HOOK_GUARD_ENV, runAfterHook } from "./runner.js";
+import { HOOK_GUARD_ENV, runAfterHook, runPreHook } from "./runner.js";
+import { formatBypassNotice, writeBypassAudit } from "./bypass.js";
 
 export interface HookScope {
   seen: Set<string>;
@@ -67,13 +74,17 @@ function hooksDisabled(env: NodeJS.ProcessEnv): boolean {
   return env["VIBEFLOW_HOOKS"] === "0";
 }
 
-function hookScopeKey(event: HookEvent, payload: unknown): string {
+function hookScopeKey(
+  event: HookEvent,
+  payload: unknown,
+  phase: "pre" | "after" = "after",
+): string {
   let taskId = "-";
   if (payload !== null && typeof payload === "object" && "taskId" in payload) {
     const id = (payload as Record<string, unknown>)["taskId"];
     if (typeof id === "string" && id.length > 0) taskId = id;
   }
-  return `${event}:after:${taskId}`;
+  return `${event}:${phase}:${taskId}`;
 }
 
 /**
@@ -182,4 +193,217 @@ export async function emitAfterHook<E extends HookEvent>(
   });
   if (!result.ran || !result.instructions) return [];
   return [result.instructions];
+}
+
+/**
+ * Pre-gate input (Stage 2): the generic envelope extras for a gate check.
+ * `payload` is INTENT (never a generated id); `task` is the full snapshot
+ * where one exists (existing record pre-write, intent fields pre-create —
+ * immutable by contract) or null where no single task exists (push/pull/
+ * verify run intents); `activityObject` is the secondary record when one
+ * exists (comment text, changed-keys, claim filters, …); `instructions`
+ * is the agent-instruction draft the hook may replace (default "").
+ * `bypass` + `command` carry `--no-verify` (universal audit + notice).
+ */
+export interface PreGateInput<E extends HookEvent> {
+  payload: HookPrePayloads[E];
+  task?: HookTaskSnapshot;
+  activityObject?: unknown;
+  instructions?: string;
+  bypass?: boolean;
+  command?: string;
+}
+
+/**
+ * Pre-gate verdict. `allowed:false` ALWAYS refuses the gated write with
+ * `code` + `reason` (fail-closed); `instructions` (when the hook replaced
+ * the draft on allow) ride the success result like after-hook
+ * instructions. `bypassed:true` means the gate was skipped by --no-verify
+ * (notice printed, audit written) — the caller still runs after-hooks.
+ */
+export interface PreGateResult {
+  allowed: boolean;
+  code?: string;
+  reason?: string;
+  instructions: string[];
+  bypassed: boolean;
+}
+
+const PRE_UNTRUSTED_COMMAND =
+  "approve it once from an interactive terminal, or set VIBEFLOW_TRUST_HOOKS=1 for this run";
+
+/**
+ * Run the pre-gate for one gated invocation. Returns allow/deny as VALUES
+ * — the caller translates deny into the existing refusal shape with a
+ * non-zero exit. Fail-closed throughout: conflict, untrusted project
+ * hook, malformed/timeout/loader failure, and explicit deny ALL refuse.
+ * No hook file anywhere: allowed (nothing to enforce). `VIBEFLOW_HOOKS=0`
+ * disables everything, including the gate.
+ */
+export async function emitPreHook<E extends HookEvent>(
+  ctx: EmitContext,
+  scope: HookScope,
+  event: E,
+  input: PreGateInput<E>,
+  opts: EmitOptions = {},
+): Promise<PreGateResult> {
+  const env = opts.env ?? process.env;
+  const none = { allowed: true, instructions: [], bypassed: false };
+  if (hooksDisabled(env)) return none;
+
+  // --no-verify: skip the gate LOUDLY (notice) + append-only audit record.
+  // Never silent, never blocking — even the audit write cannot refuse.
+  if (input.bypass === true) {
+    const command = input.command ?? "cli";
+    process.stderr.write(formatBypassNotice(event, command) + "\n");
+    writeBypassAudit(
+      { event, phase: "pre", command, reason: "--no-verify" },
+      opts.home,
+    );
+    return { allowed: true, instructions: [], bypassed: true };
+  }
+
+  const key = hookScopeKey(event, input.payload, "pre");
+  if (scope.seen.has(key)) return none;
+  scope.seen.add(key);
+
+  const projectDir = ctx.projectDir;
+  reportUnknownHookEvents(projectDir);
+
+  const roots = hookRoots(projectDir, opts.home);
+  for (const dir of [roots.project, roots.global]) {
+    const bad = refusedSibling(dir, "pre", event);
+    if (bad) {
+      process.stderr.write(
+        `hook ${event}: HOOK_BAD_EXTENSION (${bad} — only *.mjs executes; rename it or it never runs)\n`,
+      );
+    }
+  }
+
+  // Shipped defaults resolve (same materialisation as after); an explicit
+  // project/global file wins by precedence inside resolveHookFile.
+  ensureShippedDefaults(opts.home);
+
+  const resolved = resolveHookFile(projectDir, "pre", event, opts.home);
+  // Same-level stdio+module conflict is a configuration error. After =
+  // skip-with-diagnostic (fail-open: the write happened); pre = REFUSE
+  // (fail-closed: a misconfigured gate is not an open gate).
+  if (isHookConflict(resolved)) {
+    const names = `${resolved.stdioFile} and ${resolved.moduleFile}`;
+    process.stderr.write(
+      `hook ${event}: HOOK_CONFIG_CONFLICT (${names} both exist at ${resolved.root} level — keep exactly one) — refusing gated write\n`,
+    );
+    return {
+      allowed: false,
+      code: "HOOK_CONFIG_CONFLICT",
+      reason: `Pre-hook misconfigured: ${names} both exist — keep exactly one or remove both.`,
+      instructions: [],
+      bypassed: false,
+    };
+  }
+  // No hook anywhere: nothing to enforce — allowed.
+  if (!resolved) return none;
+  const file = resolved.file;
+  const isProjectRoot = resolved.root === "project";
+  const escapedRoot = resolved.escapedRoot ?? false;
+  // Shipped defaults are always stdio; only an explicit resolution carries
+  // the module mode into the shared runner.
+  const mode = resolved.mode ?? "stdio";
+
+  // Trust: an untrusted project hook BLOCKS the gated write (it could be
+  // policy the operator never approved). After-hooks only skip with a
+  // notice — the write already happened, so there is nothing to protect.
+  const trust = await checkHookTrust(file, {
+    isProjectRoot,
+    escapedRoot,
+    home: opts.home,
+    env,
+  });
+  if (!trust.trusted) {
+    process.stderr.write(
+      `hook ${event}: HOOK_PRE_UNTRUSTED (project hook ${file} is not trusted — ${PRE_UNTRUSTED_COMMAND}) — refusing gated write\n`,
+    );
+    return {
+      allowed: false,
+      code: "HOOK_PRE_UNTRUSTED",
+      reason: `Pre-hook ${file} is not trusted — ${PRE_UNTRUSTED_COMMAND}.`,
+      instructions: [],
+      bypassed: false,
+    };
+  }
+
+  const envelope = buildHookEnvelope({
+    event,
+    phase: "pre",
+    boardId: resolveHookBoardId(ctx),
+    actor: resolveHookActor(ctx, env),
+    payload: input.payload,
+    task: input.task ?? null,
+    ...(input.activityObject !== undefined
+      ? { activityObject: input.activityObject }
+      : {}),
+    instructions: input.instructions ?? "",
+  });
+  const result = await runPreHook(event, file, JSON.stringify(envelope), {
+    cwd: projectDir,
+    timeoutMs: opts.timeoutMs,
+    env,
+    mode,
+  });
+  if (result.allowed) {
+    return {
+      allowed: true,
+      instructions:
+        result.instructions !== undefined ? [result.instructions] : [],
+      bypassed: false,
+    };
+  }
+  // Explicit deny carries the HOOK's reason (already printed on stderr
+  // above); gate failures carry the human fail-closed line.
+  if (result.reason === "HOOK_PRE_DENIED") {
+    return {
+      allowed: false,
+      code: "HOOK_PRE_DENIED",
+      reason: result.hookReason ?? "Pre-hook denied the write.",
+      instructions: [],
+      bypassed: false,
+    };
+  }
+  return {
+    allowed: false,
+    code: result.reason ?? "HOOK_PRE_FAILED",
+    reason: preFailureMessage(event, result.reason ?? "HOOK_PRE_FAILED"),
+    instructions: [],
+    bypassed: false,
+  };
+}
+
+/**
+ * Shared pre-gate refusal mapping (Stage 2, ADR-0006): every gated
+ * operation translates a deny into its existing refusal shape with the
+ * gate's code + human reason — never a silent pass, never a renamed code.
+ * Owner decision (ticket wla7ci2wzbgaj5dqsrvh1j4o): fail-closed, one doc.
+ */
+export function preGateRefusal(result: PreGateResult): {
+  code: string;
+  message: string;
+} {
+  return {
+    code: result.code ?? "HOOK_PRE_FAILED",
+    message: result.reason ?? "Pre-hook refused the write.",
+  };
+}
+
+/** Human refusal line for gate failures (the hook's own deny text is separate). */
+function preFailureMessage(event: HookEvent, code: string): string {
+  switch (code) {
+    case "HOOK_PRE_TIMEOUT":
+      return `Pre-hook for ${event} timed out — refusing gated write (fail-closed).`;
+    case "HOOK_PRE_NONZERO_EXIT":
+      return `Pre-hook for ${event} exited non-zero — refusing gated write (fail-closed).`;
+    case "HOOK_PRE_MALFORMED":
+      return `Pre-hook for ${event} returned a malformed decision (need {"allow":true|false,...}) — refusing gated write (fail-closed).`;
+    default:
+      return `Pre-hook for ${event} failed (${code}) — refusing gated write (fail-closed).`;
+  }
 }

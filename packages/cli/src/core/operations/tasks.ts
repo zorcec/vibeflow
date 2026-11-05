@@ -26,7 +26,12 @@ import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { localTaskStore } from "../task-store.js";
 import { isRemoteReadError } from "../remote-task-store.js";
-import { createHookScope, emitAfterHook } from "../hooks/emit.js";
+import {
+  createHookScope,
+  emitAfterHook,
+  emitPreHook,
+  preGateRefusal,
+} from "../hooks/emit.js";
 import {
   resolveClaimPorts,
   resolveReadPorts,
@@ -646,6 +651,50 @@ export async function createTask(
       };
     }
 
+    // Pre-gate (Stage 2, ADR-0006): INTENT payload, no generated ids;
+    // task snapshot is the intent fields (immutable), instructions
+    // replaceable. Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
+    const createGate = await emitPreHook(
+      ctx,
+      createHookScope(),
+      "task.create",
+      {
+        payload: {
+          title: input.title,
+          ...(input.description !== undefined
+            ? { description: input.description }
+            : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.priority !== undefined ? { priority: input.priority } : {}),
+          ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        },
+        task: {
+          title: input.title,
+          ...(input.description !== undefined
+            ? { description: input.description }
+            : {}),
+          ...(input.status !== undefined
+            ? { status: input.status as import("../types.js").TaskStatus }
+            : {}),
+        },
+        bypass: ctx.hookBypass === true,
+        command: "tasks --add",
+      },
+    );
+    if (!createGate.allowed) {
+      const refusal = preGateRefusal(createGate);
+      return {
+        ok: false,
+        error: {
+          code: refusal.code,
+          message: refusal.message,
+          suggestion:
+            "The pre-hook refused this create — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing was created.",
+        },
+      };
+    }
+
     const { getGitUser } = await import("../git-user.js");
     const created = await store.createTask(ctx.projectDir, {
       title: input.title,
@@ -679,11 +728,16 @@ export async function createTask(
         },
       },
     );
+    const createGateInstructions =
+      createGate.allowed && createGate.instructions.length > 0
+        ? createGate.instructions
+        : [];
     const withCreateHooks = (
       r: OperationResult<Task>,
-    ): OperationResult<Task> =>      createInstructions.length > 0
-        ? { ...r, instructions: createInstructions }
-        : r;
+    ): OperationResult<Task> => {
+      const merged = [...createGateInstructions, ...createInstructions];
+      return merged.length > 0 ? { ...r, instructions: merged } : r;
+    };
     // Field selection (parity with list_tasks/get_task and the CLI --fields).
     if (input.fields && input.fields.length > 0) {
       return withCreateHooks({
@@ -1153,6 +1207,35 @@ export async function updateTask(
       }
     }
 
+    // Pre-gate (Stage 2, ADR-0006): INTENT payload (changed keys, no
+    // generated ids); task is the pre-write snapshot (immutable),
+    // instructions replaceable. Runs after the review gate, before the
+    // write — deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
+    const updateGate = await emitPreHook(
+      ctx,
+      createHookScope(),
+      "task.update",
+      {
+        payload: { taskId: id, changed: Object.keys(updates) },
+        task: existingTask,
+        activityObject: { changed: Object.keys(updates) },
+        bypass: ctx.hookBypass === true,
+        command: "tasks --edit",
+      },
+    );
+    if (!updateGate.allowed) {
+      const refusal = preGateRefusal(updateGate);
+      return {
+        ok: false,
+        error: {
+          code: refusal.code,
+          message: refusal.message,
+          suggestion:
+            "The pre-hook refused this edit — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing was written.",
+        },
+      };
+    }
+
     let task: Task | null;
     try {
       task = await store.updateTask(ctx.projectDir, id, updates);
@@ -1195,11 +1278,16 @@ export async function updateTask(
       "task.update",
       { taskId: id, changed: Object.keys(updates) },
     );
+    const updateGateInstructions =
+      updateGate.allowed && updateGate.instructions.length > 0
+        ? updateGate.instructions
+        : [];
     const withUpdateHooks = (
       r: OperationResult<Task>,
-    ): OperationResult<Task> =>      updateHookInstructions.length > 0
-        ? { ...r, instructions: updateHookInstructions }
-        : r;
+    ): OperationResult<Task> => {
+      const merged = [...updateGateInstructions, ...updateHookInstructions];
+      return merged.length > 0 ? { ...r, instructions: merged } : r;
+    };
 
     // Comments are written only after all gates pass (same ordering as CLI)
     // — and AWAITED (ticket 3d613068): the un-awaited fire-and-forget these
@@ -1419,6 +1507,42 @@ export async function claimNextTask(
       };
     }
 
+    // Pre-gate (Stage 2, ADR-0006): INVOCATION-LEVEL over the claim
+    // FILTERS — the atomic claim is preserved (no preview-then-update, no
+    // reservation protocol). Deny/timeout/garbage/trust-fail BLOCKS.
+    const claimGate = await emitPreHook(
+      ctx,
+      createHookScope(),
+      "task.claim",
+      {
+        payload: {
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.user !== undefined ? { user: input.user } : {}),
+          ...(input.tag !== undefined ? { tag: input.tag } : {}),
+        },
+        task: null,
+        activityObject: {
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.user !== undefined ? { user: input.user } : {}),
+          ...(input.tag !== undefined ? { tag: input.tag } : {}),
+        },
+        bypass: ctx.hookBypass === true,
+        command: "tasks --next",
+      },
+    );
+    if (!claimGate.allowed) {
+      const refusal = preGateRefusal(claimGate);
+      return {
+        ok: false,
+        error: {
+          code: refusal.code,
+          message: refusal.message,
+          suggestion:
+            "The pre-hook refused this claim — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing was claimed.",
+        },
+      };
+    }
+
     // Delegate to the atomic claim primitive for serialized, race-safe
     // claiming. Roots first, then the explicit child fallback — the SAME
     // revised rule the CLI's --next follows (ticket 4ab7104a), applied here
@@ -1460,11 +1584,16 @@ export async function claimNextTask(
       "task.claim",
       { taskId: claimed.id, from: "todo", to: claimed.status },
     );
+    const claimGateInstructions =
+      claimGate.allowed && claimGate.instructions.length > 0
+        ? claimGate.instructions
+        : [];
     const withClaimHooks = (
       r: OperationResult<Task | null>,
-    ): OperationResult<Task | null> =>      claimInstructions.length > 0
-        ? { ...r, instructions: claimInstructions }
-        : r;
+    ): OperationResult<Task | null> => {
+      const merged = [...claimGateInstructions, ...claimInstructions];
+      return merged.length > 0 ? { ...r, instructions: merged } : r;
+    };
     if (!childClaim) return withClaimHooks({ ok: true, data: claimed });
     // Unambiguous on the wire (as `notices`): this run claimed a CHILD,
     // not a root — name the parent so the agent knows which unit it sliced

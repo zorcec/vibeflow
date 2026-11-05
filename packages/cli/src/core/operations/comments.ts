@@ -14,7 +14,12 @@ import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
 import { resolveWritePorts } from "../operation-context.js";
 import { isRemoteReadError } from "../remote-task-store.js";
-import { createHookScope, emitAfterHook } from "../hooks/emit.js";
+import {
+  createHookScope,
+  emitAfterHook,
+  emitPreHook,
+  preGateRefusal,
+} from "../hooks/emit.js";
 import type { AddCommentInputType } from "@vibeflow-tools/api-core";
 
 export async function addComment(
@@ -45,6 +50,33 @@ export async function addComment(
         steps: [{ code: "DRY_RUN", message: "Comment would be added" }],
       };
     }
+    // Pre-gate (Stage 2, ADR-0006): intended comment text, NOT a
+    // generated commentId; task is the pre-write snapshot (immutable).
+    // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
+    const commentGate = await emitPreHook(
+      ctx,
+      createHookScope(),
+      "task.comment",
+      {
+        payload: { taskId: resolved.id, text: input.comment },
+        task: resolved.task,
+        activityObject: { text: input.comment },
+        bypass: ctx.hookBypass === true,
+        command: "tasks --comment",
+      },
+    );
+    if (!commentGate.allowed) {
+      const refusal = preGateRefusal(commentGate);
+      return {
+        ok: false,
+        error: {
+          code: refusal.code,
+          message: refusal.message,
+          suggestion:
+            "The pre-hook refused this comment — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing was written.",
+        },
+      };
+    }
     // The RESOLVED id, never input.id: prefix tolerance and the existence
     // check are decided once, in the resolver. AWAITED: the port settles
     // before the success is reported, so a delayed store cannot leave the
@@ -67,10 +99,15 @@ export async function addComment(
       "task.comment",
       { taskId: resolved.id, commentId: comment.id },
     );
+    const gateInstructions =
+      commentGate.allowed && commentGate.instructions.length > 0
+        ? commentGate.instructions
+        : [];
+    const merged = [...gateInstructions, ...instructions];
     return {
       ok: true,
       data: comment,
-      ...(instructions.length > 0 ? { instructions } : {}),
+      ...(merged.length > 0 ? { instructions: merged } : {}),
     };
   } catch (err) {
     // A remote refusal travels VERBATIM (same rule as the task writes):

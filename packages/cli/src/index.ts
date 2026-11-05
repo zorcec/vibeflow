@@ -429,6 +429,17 @@ function hookInstructionsField(
   return instructions && instructions.length > 0 ? { instructions } : {};
 }
 
+/**
+ * Stage 2 `--no-verify` (ticket wla7ci2wzbgaj5dqsrvh1j4o, ADR-0006):
+ * commander maps the negated `--no-verify` flag onto `opts.verify`
+ * (true unless passed), so the bypass reads `verify === false` — never
+ * `opts.noVerify`, which commander never sets. Scope: local CLI + local
+ * stdio MCP only.
+ */
+function isHookBypass(opts: { verify?: boolean }): boolean {
+  return opts.verify === false;
+}
+
 function printHookInstructions(
   instructions: string[] | undefined,
   json: boolean | undefined,
@@ -1277,6 +1288,10 @@ program
     "Preview what would change without modifying anything (mutations only)",
   )
   .option(
+    "--no-verify",
+    "Skip the pre-hook gate for this invocation (local CLI + local stdio MCP scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
+  )
+  .option(
     "--reindex-sort-keys",
     "One-time maintenance: re-key keyless and same-column duplicate tasks so the rendered order survives (idempotent; honors --dry-run/--json)",
   )
@@ -1357,6 +1372,7 @@ program
         unblocks?: string[];
         dryRun?: boolean;
         fields?: string;
+        verify?: boolean;
         setVerify?: "pass" | "fail" | "cannot";
         verifyReason?: string;
         priority?: string;
@@ -1940,6 +1956,7 @@ program
           const deleteOpCtx: OperationContext = {
             projectDir: deleteProjectDir,
             mode: deleteIsOnline ? "saas" : "local",
+            ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
           };
           const deleteResult = await operations.deleteTaskOperation(deleteOpCtx, {
             id: deleteRawId,
@@ -2451,6 +2468,7 @@ program
               projectDir: nextSaasDir,
               mode: "saas",
               userId: getGitUser(nextSaasDir).name,
+              ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
             };
             if (opts.type && !validateTypeFilter(opts.type, opts.json)) return;
             if (opts.user) {
@@ -2630,6 +2648,7 @@ program
             projectDir: nextProjectDir,
             mode: "local",
             userId: getGitUser(nextProjectDir).name,
+            ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
           };
           const nextIsDryRun = opts.dryRun === true;
           const nextClaim = await operations.claimNextTask(nextCtx, {
@@ -3184,6 +3203,56 @@ program
               }
               return;
             }
+            // Pre-gate (Stage 2, ADR-0006): INTENT payload (no generated
+            // id); runs after the dry-run return, before the POST.
+            // Deny/timeout/garbage/trust-fail BLOCKS with the existing
+            // refusal shape + non-zero exit.
+            let saasAddGateInstructions: string[] = [];
+            {
+              const { emitPreHook, preGateRefusal } = await import(
+                "./core/hooks/emit.js"
+              );
+              const saasAddGate = await emitPreHook(
+                { projectDir: resolve(dir), mode: "saas" },
+                createHookScope(),
+                "task.create",
+                {
+                  payload: {
+                    title: opts.title.trim(),
+                    ...(opts.description !== undefined
+                      ? { description: opts.description.trim() }
+                      : {}),
+                    status: saasStatus,
+                  },
+                  task: {
+                    title: opts.title.trim(),
+                    ...(opts.description !== undefined
+                      ? { description: opts.description.trim() }
+                      : {}),
+                    status: saasStatus as "todo",
+                  },
+                  bypass: isHookBypass(opts),
+                  command: "tasks --add",
+                },
+              );
+              if (!saasAddGate.allowed) {
+                const refusal = preGateRefusal(saasAddGate);
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: refusal.code,
+                    message: refusal.message,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${refusal.message}`));
+                }
+                process.exitCode = refusalExitCode(refusal.code);
+                return;
+              }
+              if (saasAddGate.instructions.length > 0)
+                saasAddGateInstructions = [...saasAddGate.instructions];
+            }
             const saasCreated = await createSaasTask({
               id: newId,
               title: opts.title.trim(),
@@ -3258,18 +3327,21 @@ program
             const saasCreatedTask = saasCreated.data;
             const addNextActions = getNextActions("add", saasCreatedTask.id);
             // After-hook (Stage 1, ADR-0006): online create confirmed.
-            const saasAddInstructions = await emitAfterHook(
-              { projectDir: resolve(dir), mode: "saas" },
-              createHookScope(),
-              "task.create",
-              {
-                task: {
-                  id: saasCreatedTask.id,
-                  title: saasCreatedTask.title,
-                  status: String(saasCreatedTask.status),
+            const saasAddInstructions = [
+              ...saasAddGateInstructions,
+              ...(await emitAfterHook(
+                { projectDir: resolve(dir), mode: "saas" },
+                createHookScope(),
+                "task.create",
+                {
+                  task: {
+                    id: saasCreatedTask.id,
+                    title: saasCreatedTask.title,
+                    status: String(saasCreatedTask.status),
+                  },
                 },
-              },
-            );
+              )),
+            ];
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -3410,6 +3482,56 @@ program
             return;
           }
 
+          // Pre-gate (Stage 2, ADR-0006): INTENT payload (no generated
+          // id); runs after the dry-run return, before the write.
+          // Deny/timeout/garbage/trust-fail BLOCKS with the existing
+          // refusal shape + non-zero exit.
+          let localAddGateInstructions: string[] = [];
+          {
+            const { emitPreHook, preGateRefusal } = await import(
+              "./core/hooks/emit.js"
+            );
+            const localAddGate = await emitPreHook(
+              { projectDir, mode: "local" },
+              createHookScope(),
+              "task.create",
+              {
+                payload: {
+                  title: opts.title.trim(),
+                  ...(opts.description !== undefined
+                    ? { description: opts.description.trim() }
+                    : {}),
+                  status,
+                },
+                task: {
+                  title: opts.title.trim(),
+                  ...(opts.description !== undefined
+                    ? { description: opts.description.trim() }
+                    : {}),
+                  status: status as "todo",
+                },
+                bypass: isHookBypass(opts),
+                command: "tasks --add",
+              },
+            );
+            if (!localAddGate.allowed) {
+              const refusal = preGateRefusal(localAddGate);
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: refusal.code,
+                  message: refusal.message,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${refusal.message}`));
+              }
+              process.exitCode = refusalExitCode(refusal.code);
+              return;
+            }
+            if (localAddGate.instructions.length > 0)
+              localAddGateInstructions = [...localAddGate.instructions];
+          }
           const created = createTask(projectDir, {
             title: opts.title.trim(),
             description: opts.description?.trim() ?? "",
@@ -3437,18 +3559,21 @@ program
           // After-hook (Stage 1, ADR-0006): the legacy local add writes
           // through core/tasks.ts directly, so the CLI handler is the
           // event-owning site here (same shared helper the operations use).
-          const localAddInstructions = await emitAfterHook(
-            { projectDir, mode: "local" },
-            createHookScope(),
-            "task.create",
-            {
-              task: {
-                id: created.id,
-                title: created.title,
-                status: created.status,
+          const localAddInstructions = [
+            ...localAddGateInstructions,
+            ...(await emitAfterHook(
+              { projectDir, mode: "local" },
+              createHookScope(),
+              "task.create",
+              {
+                task: {
+                  id: created.id,
+                  title: created.title,
+                  status: created.status,
+                },
               },
-            },
-          );
+            )),
+          ];
           if (opts.json) {
             // --fields narrows the returned task (same selector the MCP
             // create_task `fields` takes; parity contract 83159002).
@@ -4907,6 +5032,48 @@ program
               return;
             }
 
+            // Pre-gate (Stage 2, ADR-0006): INTENT payload (changed keys,
+            // no generated ids); runs after the dry-run return, before the
+            // PATCH. Deny/timeout/garbage/trust-fail BLOCKS with the
+            // existing refusal shape + non-zero exit.
+            let saasEditGateInstructions: string[] = [];
+            {
+              const { emitPreHook, preGateRefusal } = await import(
+                "./core/hooks/emit.js"
+              );
+              const saasEditGate = await emitPreHook(
+                { projectDir: resolve(dir), mode: "saas" },
+                createHookScope(),
+                "task.update",
+                {
+                  payload: {
+                    taskId: editTargetId,
+                    changed: Object.keys(saasPatch),
+                  },
+                  task: null,
+                  activityObject: { changed: Object.keys(saasPatch) },
+                  bypass: isHookBypass(opts),
+                  command: "tasks --edit",
+                },
+              );
+              if (!saasEditGate.allowed) {
+                const refusal = preGateRefusal(saasEditGate);
+                if (opts.json) {
+                  outputEnvelope({
+                    ok: false,
+                    code: refusal.code,
+                    message: refusal.message,
+                    json: opts.json,
+                  });
+                } else {
+                  console.log(chalk.red(`✗ ${refusal.message}`));
+                }
+                process.exitCode = refusalExitCode(refusal.code);
+                return;
+              }
+              if (saasEditGate.instructions.length > 0)
+                saasEditGateInstructions = [...saasEditGate.instructions];
+            }
             // The PATCH carries the FULL resolved id — a prefix never
             // reaches the server (this was the reported bug: --edit sent
             // the raw prefix while --get resolved it).
@@ -5022,12 +5189,15 @@ program
             // effect; the user comment (when written) adds task.comment in
             // the same action scope. System notes never emit (no cycle).
             const saasEditScope = createHookScope();
-            const saasEditUpdateInstructions = await emitAfterHook(
+            const saasEditUpdateInstructions = [
+              ...saasEditGateInstructions,
+              ...(await emitAfterHook(
               { projectDir: resolve(dir), mode: "saas" },
               saasEditScope,
               "task.update",
               { taskId: editTargetId, changed: Object.keys(saasPatch) },
-            );
+              )),
+            ];
             const saasEditCommentInstructions =
               saasWrittenCommentId !== null
                 ? await emitAfterHook(
@@ -5560,6 +5730,48 @@ program
             updates.verified = attestation.value;
           }
 
+          // Pre-gate (Stage 2, ADR-0006): INTENT payload (changed keys,
+          // no generated ids); runs before the write. Deny/timeout/
+          // garbage/trust-fail BLOCKS with the existing refusal shape +
+          // non-zero exit.
+          let localEditGateInstructions: string[] = [];
+          {
+            const { emitPreHook, preGateRefusal } = await import(
+              "./core/hooks/emit.js"
+            );
+            const localEditGate = await emitPreHook(
+              { projectDir: localProjectDir, mode: "local" },
+              createHookScope(),
+              "task.update",
+              {
+                payload: {
+                  taskId: resolvedTaskId,
+                  changed: Object.keys(updates),
+                },
+                task: null,
+                activityObject: { changed: Object.keys(updates) },
+                bypass: isHookBypass(opts),
+                command: "tasks --edit",
+              },
+            );
+            if (!localEditGate.allowed) {
+              const refusal = preGateRefusal(localEditGate);
+              if (opts.json) {
+                outputEnvelope({
+                  ok: false,
+                  code: refusal.code,
+                  message: refusal.message,
+                  json: opts.json,
+                });
+              } else {
+                console.log(chalk.red(`✗ ${refusal.message}`));
+              }
+              process.exitCode = refusalExitCode(refusal.code);
+              return;
+            }
+            if (localEditGate.instructions.length > 0)
+              localEditGateInstructions = [...localEditGate.instructions];
+          }
           // The id was resolved above, so a miss here is only a
           // delete-between-reads race — still refused, never a guess.
           const updated = updateTask(dir, resolvedTaskId, updates);
@@ -5690,12 +5902,15 @@ program
           // written) adds task.comment in the same action scope; the
           // system `cannot` note never emits (no hook cycle).
           const localEditScope = createHookScope();
-          const localEditUpdateInstructions = await emitAfterHook(
-            { projectDir: localProjectDir, mode: "local" },
-            localEditScope,
-            "task.update",
-            { taskId: resolvedTaskId, changed: Object.keys(updates) },
-          );
+          const localEditUpdateInstructions = [
+            ...localEditGateInstructions,
+            ...(await emitAfterHook(
+              { projectDir: localProjectDir, mode: "local" },
+              localEditScope,
+              "task.update",
+              { taskId: resolvedTaskId, changed: Object.keys(updates) },
+            )),
+          ];
           const localEditCommentInstructions =
             localEditCommentId !== null
               ? await emitAfterHook(
@@ -6547,13 +6762,17 @@ program
     "--json",
     "Emit the full push result (grouped refusals, all skipped links) as JSON on stdout",
   )
+  .option(
+    "--no-verify",
+    "Skip the pre-hook gate for this invocation (local CLI scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
+  )
   .action(
     async (
       dir: string,
-      opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean },
+      opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; verify?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "push" });
-      const pushResult = await push(dir, opts);
+      const pushResult = await push(dir, { ...opts, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
       // After-hook instructions (Stage 1, ADR-0006): --json already rides
       // the single push document; human mode gets dim stderr lines.
       printHookInstructions(pushResult?.instructions, opts.json);
@@ -6591,13 +6810,17 @@ program
     "--json",
     "Emit the pull result (added/merged/unchanged, files written) as JSON on stdout",
   )
+  .option(
+    "--no-verify",
+    "Skip the pre-hook gate for this invocation (local CLI scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
+  )
   .action(
     async (
       dir: string,
-      opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean },
+      opts: { board?: string; out?: string; preferRemote?: boolean; preferLocal?: boolean; dryRun?: boolean; json?: boolean; verify?: boolean },
     ) => {
       capture("command_run", { surface: "cli", command: "pull" });
-      const pullResult = await pull(dir, opts);
+      const pullResult = await pull(dir, { ...opts, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
       // After-hook instructions (Stage 1, ADR-0006): --json already rides
       // the single pull document; human mode gets dim stderr lines.
       printHookInstructions(pullResult?.instructions, opts.json);
@@ -6808,6 +7031,10 @@ program
     "task-id, or a tool: style_query | style_diff | element_info | html_diff",
   )
   .option("--json", "Output machine-readable JSON")
+  .option(
+    "--no-verify",
+    "Skip the pre-hook gate for this invocation (local CLI scope only) — prints HOOK_BYPASSED and writes a local append-only audit record; after-hooks still run",
+  )
   .option("--url <url>", "Override target URL (same-origin port changes only)")
   .option(
     "--filter <pattern>",
@@ -6825,6 +7052,7 @@ program
         url?: string;
         filter?: string;
         timeout?: string;
+        verify?: boolean;
       },
     ) => {
       capture("command_run", { surface: "cli", command: "verify" });
@@ -6868,7 +7096,7 @@ program
       // engine the abort signal. This handler installs nothing of its own —
       // a second AbortController here would be a double timer racing the
       // operation's (P7 verify delta (a)): same bound, single owner.
-      await runVerify(".", head, { ...opts, timeoutMs });
+      await runVerify(".", head, { ...opts, timeoutMs, ...(isHookBypass(opts) ? { hookBypass: true as const } : {}) });
       await flushTelemetry();
     },
   );

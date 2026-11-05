@@ -52,7 +52,12 @@ import type { TaskStore } from "../task-store.js";
 import type { VerifyTaskInputType } from "../operations.js";
 import type { VerifyResult } from "../../commands/verify.js";
 import type { EvidenceSet } from "../../commands/verify-tools.js";
-import { createHookScope, emitAfterHook } from "../hooks/emit.js";
+import {
+  createHookScope,
+  emitAfterHook,
+  emitPreHook,
+  preGateRefusal,
+} from "../hooks/emit.js";
 
 // ── Shared id resolution ─────────────────────────────────────────────────
 
@@ -214,6 +219,33 @@ export async function verifyTaskOp(
     // must not keep the process alive on its own when the real timer runs.
     (timer as { unref?: () => void })?.unref?.();
 
+    // Pre-gate (Stage 2, ADR-0006): verify RUN intent (no verdict — the
+    // verdict exists only post-write). Deny/timeout/garbage/trust-fail
+    // BLOCKS the run (fail-closed).
+    const verifyGate = await emitPreHook(
+      ctx,
+      createHookScope(),
+      "verify",
+      {
+        payload: { taskId },
+        task: null,
+        bypass: ctx.hookBypass === true,
+        command: "verify",
+      },
+    );
+    if (!verifyGate.allowed) {
+      const refusal = preGateRefusal(verifyGate);
+      clearTimer(timer);
+      return {
+        ok: false,
+        error: {
+          code: refusal.code,
+          message: refusal.message,
+          suggestion:
+            "The pre-hook refused this verify run — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing ran.",
+        },
+      };
+    }
     try {
       const result = await runEngine(ctx.projectDir, taskId, {
         url: input.url,
@@ -230,12 +262,16 @@ export async function verifyTaskOp(
         "verify",
         { taskId, verdict: result.verdict },
       );
+      const verifyMerged = [
+        ...(verifyGate.allowed && verifyGate.instructions.length > 0
+          ? verifyGate.instructions
+          : []),
+        ...verifyInstructions,
+      ];
       return {
         ok: true,
         data: result,
-        ...(verifyInstructions.length > 0
-          ? { instructions: verifyInstructions }
-          : {}),
+        ...(verifyMerged.length > 0 ? { instructions: verifyMerged } : {}),
       };
     } catch (err) {
       const ve =

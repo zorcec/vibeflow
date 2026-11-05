@@ -36,6 +36,13 @@ export interface OperationContext {
   userId?: string;
   workspaceId?: string;
   dryRun?: boolean;
+  /**
+   * Stage 2 pre-hook bypass (ticket wla7ci2wzbgaj5dqsrvh1j4o, ADR-0006):
+   * set by `--no-verify` (local CLI + local stdio MCP scope only).
+   * Skips the pre-gate LOUDLY (HOOK_BYPASSED notice + append-only local
+   * audit record); after-hooks still run.
+   */
+  hookBypass?: boolean;
   store?: TaskStore;
   artifacts?: LocalArtifactStore;
 }
@@ -320,6 +327,7 @@ export async function pullFromBoard(
       dryRun: false,
       json: true,
       silent: true,
+      ...(ctx.hookBypass === true ? { hookBypass: true as const } : {}),
     });
     // pull() returns void on early exits (no login, no board selected).
     // Normalise to an object so the success envelope is always
@@ -349,6 +357,7 @@ export async function pushTasks(
       workspace: input.workspace,
       keepLocalFiles: input.keepLocalFiles,
       dryRun: input.dryRun,
+      ...(ctx.hookBypass === true ? { hookBypass: true as const } : {}),
     });
     // push() is typed Promise<PushResult | void> and returns void on early
     // exits (nothing to push, local mode, missing login). Normalise to an

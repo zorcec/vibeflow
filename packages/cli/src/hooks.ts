@@ -22,32 +22,78 @@ import type {
   HookAfterPayloads,
   HookEnvelope as CoreHookEnvelope,
   HookEvent,
+  HookPrePayloads,
 } from "./core/hooks/envelope.js";
 
-export type { HookAfterPayloads, HookEvent };
+export type { HookAfterPayloads, HookEvent, HookPrePayloads };
 
-/** Phase is always `after` today — Stage 2 adds real pre-intent payloads. */
 export type HookAfterPhase = "after";
+
+export type HookPrePhase = "pre";
+
+/**
+ * Structural task view for hook authors (Stage 2, ADR-0006, ticket
+ * wla7ci2wzbgaj5dqsrvh1j4o): the full task snapshot is delivered as an
+ * immutable JSON copy, so authors get a structural read view — never the
+ * store's `Task` type. Structural on purpose: `@vibeflow-tools/api-core`
+ * (the canonical home of `TaskStatus`/`TaskLinkType`) is private and
+ * bundled into the CLI, so the packed `dist/hooks.d.ts` cannot import it
+ * (pinned by `hooks-package.test.ts`: a tarball consumer has no api-core
+ * to resolve). Payload shapes stay narrowed from core below — only the
+ * task snapshot is a view, and it is documented here, not diverged silently.
+ */
+export interface HookTaskView {
+  id?: string;
+  title: string;
+  description?: string;
+  status?: string;
+  type?: string;
+  priority?: string;
+  url?: string;
+  selector?: string;
+  author?: string;
+  created?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Shared envelope shell (Stage 2, ADR-0006): the same 6 fields + the generic
+ * contract (`task`, `activity`, `activityObject`, `instructions`) as the
+ * runtime envelope in `core/hooks/envelope.ts`. Structural — NOT `Omit` of
+ * the core type — on purpose: the core `task` field is the store's `Task`,
+ * whose `TaskStatus`/`TaskLinkType` live in `@vibeflow-tools/api-core`
+ * (private, bundled, never published), so any reference to the core envelope
+ * drags an unresolvable import into the packed `dist/hooks.d.ts` (pinned by
+ * `hooks-package.test.ts`). Payloads stay narrowed from core (`HookEvent`,
+ * `HookAfterPayloads`, `HookPrePayloads` are api-core-free); only the shell
+ * and the task view are structural here. Drift between this shell and core
+ * is pinned by the compile-time parity assertion in
+ * `tests/unit/hooks/pre-gate.test.ts` — update both sides together.
+ */
+export interface HookEnvelopeShell<E extends HookEvent, P> {
+  schemaVersion: 1;
+  event: E;
+  boardId: string | null;
+  actor: string;
+  ts: string;
+  payload: P;
+  task: HookTaskView | null;
+  activity: E;
+  activityObject?: unknown;
+  instructions: string;
+}
 
 /**
  * One after-phase envelope: the event narrows the payload
  * (`event: 'task.update'` narrows `payload` to `{taskId, changed}`).
- *
- * Built from the internal runtime envelope type (single source of truth),
- * narrowed from `phase: HookPhase` to the after-only phase — never a
- * divergent manual copy, and never published as a pre-hook contract.
  */
-export type HookAfterEnvelope<E extends HookEvent = HookEvent> = Omit<
-  CoreHookEnvelope<E>,
-  "phase"
-> & {
-  phase: HookAfterPhase;
-};
+export type HookAfterEnvelope<E extends HookEvent = HookEvent> =
+  HookEnvelopeShell<E, HookAfterPayloads[E]> & {
+    phase: HookAfterPhase;
+  };
 
 /**
- * The active hook envelope today: the after-only union. Do NOT mistake the
- * internal generic for a pre-hook contract — pre payloads do not exist yet
- * (Stage 2 defines them).
+ * The after-phase envelope union (Stage 1, ADR-0006).
  */
 export type HookEnvelope = {
   [E in HookEvent]: HookAfterEnvelope<E>;
@@ -70,3 +116,63 @@ export type HookAfterResult =
 export type HookAfterHandler<E extends HookEvent = HookEvent> = (
   envelope: HookAfterEnvelope<E>,
 ) => HookAfterResult | Promise<HookAfterResult>;
+
+/**
+ * One pre-phase envelope (Stage 2, ADR-0006, ticket wla7ci2wzbgaj5dqsrvh1j4o):
+ * the event narrows the INTENT payload (fields known before the write —
+ * never a generated id). Same 6-field generic contract as after: the full
+ * task snapshot is immutable, `activity` always equals `event`, and the
+ * ONLY replaceable surface is `instructions`.
+ */
+export type HookPreEnvelope<E extends HookEvent = HookEvent> =
+  HookEnvelopeShell<E, HookPrePayloads[E]> & {
+    phase: HookPrePhase;
+  };
+
+/** The pre-phase envelope union (Stage 2, ADR-0006). */
+export type HookPreUnionEnvelope = {
+  [E in HookEvent]: HookPreEnvelope<E>;
+}[HookEvent];
+
+/**
+ * Exactly what the pre-hook runner accepts: an explicit `{allow: true}`
+ * (optional replacement `instructions`) or a denial
+ * `{allow: false, reason}`. Anything else — empty stdout, non-JSON,
+ * missing/non-boolean `allow`, missing/empty `reason` on deny, extra keys —
+ * is `HOOK_PRE_MALFORMED` and BLOCKS the gated write (fail-closed).
+ */
+export type HookPreResult =
+  | { allow: true; instructions?: string }
+  | { allow: false; reason: string; instructions?: string };
+
+/**
+ * A pre-hook module: `export default` a (possibly async) function receiving
+ * the full pre envelope as its ONE argument and returning the decision.
+ *
+ * ```js
+ * // @ts-check
+ * /** @type {import('@vibeflow-tools/cli/hooks').HookPreHandler<'task.create'>} *\/
+ * export default async (envelope) => {
+ *   if (envelope.payload.title.trim() === "")
+ *     return { allow: false, reason: "title must not be empty" };
+ *   return { allow: true };
+ * };
+ * ```
+ */
+export type HookPreHandler<E extends HookEvent = HookEvent> = (
+  envelope: HookPreEnvelope<E>,
+) => HookPreResult | Promise<HookPreResult>;
+
+/**
+ * Compile-time parity (ADR-0006, enforced by `tsc --noEmit`): the public
+ * structural shell must expose every field the runtime envelope delivers.
+ * If core gains a field, `_Missing` is non-never and this file fails to
+ * compile — update `HookEnvelopeShell` (and the view) together with core.
+ * Underscore-private on purpose: nothing here is exported, so the packed
+ * `dist/hooks.d.ts` carries no reference to the core module (self-contained,
+ * pinned by `hooks-package.test.ts`).
+ */
+type _CoreKeys = keyof CoreHookEnvelope<HookEvent>;
+type _PublicKeys = keyof HookAfterEnvelope<HookEvent>;
+type _Missing = Exclude<_CoreKeys, _PublicKeys>;
+const _assertNoMissing: _Missing extends never ? true : never = true;

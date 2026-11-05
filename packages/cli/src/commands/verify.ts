@@ -1475,7 +1475,7 @@ function buildResult(
 export async function runVerify(
   dir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string; timeoutMs?: number },
+  opts: { json?: boolean; url?: string; timeoutMs?: number; hookBypass?: boolean },
 ): Promise<void> {
   const projectDir = resolve(dir);
 
@@ -1489,7 +1489,11 @@ export async function runVerify(
   // failures like the old unknown-error branch).
   const { verifyTaskOp } = await import("../core/operations.js");
   const opResult = await verifyTaskOp(
-    { projectDir, mode: "local" },
+    {
+      projectDir,
+      mode: "local",
+      ...(opts.hookBypass === true ? { hookBypass: true as const } : {}),
+    },
     {
       id: taskId,
       // The schema defaults (timeoutMs 60000, dryRun false) apply on the

@@ -189,6 +189,17 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "pins a project root from the command line; an MCP server is spawned per project, so the project is the server's own context, not a per-call tool input",
     "verify --filter":
       "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs/dryRun",
+    // Pre-hook bypass (Stage 2, ADR-0006): a LOCAL invocation modifier —
+    // it skips the pre-gate loudly (HOOK_BYPASSED notice + local audit
+    // record), never changes what the operation writes. The operation layer
+    // carries it as ctx.hookBypass (set by the local stdio MCP host when it
+    // participates), so no tool input field spells the flag itself.
+    "tasks --no-verify":
+      "local pre-hook bypass for the gated tasks invocations (add/edit/delete/next/comment); skips the gate loudly, never silently — see the Stage 2 entry above",
+    "pull --no-verify":
+      "local pre-hook bypass for the gated pull; skips the gate loudly, never silently — see the Stage 2 entry above",
+    "verify --no-verify":
+      "local pre-hook bypass for the gated verify run; skips the gate loudly, never silently — see the Stage 2 entry above",
   },
 };
 

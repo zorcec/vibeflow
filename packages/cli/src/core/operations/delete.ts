@@ -42,7 +42,12 @@ import { readProjectPointer } from "../../auth/project-pointer.js";
 import { fetchSaasTasks, toCliStatus } from "../../saas/client.js";
 import { saasFailure, saasReadErrorMessage } from "../../saas/failure.js";
 import { isRemoteReadError } from "../remote-task-store.js";
-import { createHookScope, emitAfterHook } from "../hooks/emit.js";
+import {
+  createHookScope,
+  emitAfterHook,
+  emitPreHook,
+  preGateRefusal,
+} from "../hooks/emit.js";
 
 /** One row of the delete plan: enough to resolve, warn, and render. */
 export interface DeletePlanRow {
@@ -296,6 +301,36 @@ export async function deleteTaskOperation(
     };
   }
 
+  // Pre-gate (Stage 2, ADR-0006): delete INTENT (no generated ids beyond
+  // the resolved target); task is the pre-write snapshot (immutable).
+  // Runs after confirm/dry-run gates, before the write — deny FAILS CLOSED.
+  const deleteGate = await emitPreHook(
+    ctx,
+    createHookScope(),
+    "task.delete",
+    {
+      payload: {
+        taskId: id,
+        childCount: online ? descendants.length : children.length,
+      },
+      task: (found ?? null) as import("../types.js").Task | null,
+      bypass: ctx.hookBypass === true,
+      command: "tasks --delete",
+    },
+  );
+  if (!deleteGate.allowed) {
+    const refusal = preGateRefusal(deleteGate);
+    return {
+      ok: false,
+      error: {
+        code: refusal.code,
+        message: refusal.message,
+        suggestion:
+          "The pre-hook refused this delete — fix what the message names (or re-run with --no-verify to bypass loudly). Nothing was deleted.",
+      },
+    };
+  }
+
   if (online) {
     const { deleteSaasTask } = await import("../../saas/client.js");
     const deleted = await deleteSaasTask(id, ctx.projectDir);
@@ -349,6 +384,12 @@ export async function deleteTaskOperation(
       "task.delete",
       { taskId: id, childCount: Math.max(0, deletedIds.length - 1) },
     );
+    const onlineMerged = [
+      ...(deleteGate.allowed && deleteGate.instructions.length > 0
+        ? deleteGate.instructions
+        : []),
+      ...onlineInstructions,
+    ];
     return {
       ok: true,
       data: {
@@ -356,9 +397,7 @@ export async function deleteTaskOperation(
         id,
         deletedIds,
         title,
-        ...(onlineInstructions.length > 0
-          ? { instructions: onlineInstructions }
-          : {}),
+        ...(onlineMerged.length > 0 ? { instructions: onlineMerged } : {}),
       },
     };
   }
@@ -383,6 +422,12 @@ export async function deleteTaskOperation(
     "task.delete",
     { taskId: id, childCount: 0 },
   );
+  const localMerged = [
+    ...(deleteGate.allowed && deleteGate.instructions.length > 0
+      ? deleteGate.instructions
+      : []),
+    ...localInstructions,
+  ];
   return {
     ok: true,
     data: {
@@ -390,9 +435,7 @@ export async function deleteTaskOperation(
       id,
       deletedIds: [id],
       title,
-      ...(localInstructions.length > 0
-        ? { instructions: localInstructions }
-        : {}),
+      ...(localMerged.length > 0 ? { instructions: localMerged } : {}),
     },
   };
 }

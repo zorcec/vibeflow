@@ -17,7 +17,7 @@ import { runDeltaPush } from "../saas/delta-run.js";
 import { PROTO_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { ExitCode } from "../core/exit-codes.js";
 import type { OperationNotice } from "../core/operations.js";
-import { createHookScope, emitAfterHook } from "../core/hooks/emit.js";
+import { emitAfterHook } from "../core/hooks/emit.js";
 import { maybeCompressForUpload } from "../saas/compression.js";
 import {
   fetchWithTimeout,
@@ -435,7 +435,7 @@ export function countTasksMissingCommitAuthorEmail(
   ).length;
 }
 
-async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean }): Promise<PushResult | void> {
+async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: string; workspace?: string; pruneLocal?: boolean; keepLocalFiles?: boolean; dryRun?: boolean; verbose?: boolean; json?: boolean; hookBypass?: boolean }): Promise<PushResult | void> {
   const projectDir = resolve(dir);
 
   const taskList = prepareTaskRecordsForPush(projectDir, reads, opts.dryRun === true);
@@ -706,6 +706,44 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
       tasksMissingCommitAuthorEmail,
       notices: [{ code: "DRY_RUN", message: "No changes were made" }],
     };
+  }
+
+  // Pre-gate (Stage 2, ADR-0006): push INTENT (dryRun only); runs after
+  // the dry-run early return above, before auth + the first write.
+  // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
+  const { createHookScope, emitPreHook, preGateRefusal } = await import(
+    "../core/hooks/emit.js"
+  );
+  const pushGate = await emitPreHook(
+    { projectDir, mode: "saas" },
+    createHookScope(),
+    "push",
+    {
+      payload: {},
+      task: null,
+      bypass: opts.hookBypass === true,
+      command: "push",
+    },
+  );
+  {
+    if (!pushGate.allowed) {
+      const refusal = preGateRefusal(pushGate);
+      const msg = `${refusal.message} Nothing was pushed.`;
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: false, code: refusal.code, message: msg }));
+      } else {
+        console.error(chalk.red(`  ${msg}`));
+      }
+      process.exitCode = ExitCode.GENERAL;
+      return {
+        dryRun: false,
+        tasks: 0,
+        files: 0,
+        board: boardLabel,
+        tasksMissingCommitAuthorEmail,
+        notices: [{ code: refusal.code, message: msg }],
+      };
+    }
   }
 
   // Auth check: only required for live (non-dry-run) push
@@ -1305,14 +1343,18 @@ async function pushImpl(dir: string, reads: TaskReadFinding[], opts: { board?: s
   // A push that landed tasks is a confirmed durable effect; zero-task
   // pushes are no-ops with no after-emission.
   const pushedCountForJson = result.imported + result.existing;
-  const pushInstructionsForJson =
-    pushedCountForJson > 0
+  const pushInstructionsForJson = [
+    ...(pushGate.allowed && pushGate.instructions.length > 0
+      ? pushGate.instructions
+      : []),
+    ...(pushedCountForJson > 0
       ? await emitPushHook(projectDir, {
           taskCount: pushedCountForJson,
           chunkCount: result.attempted,
           transport: "remote",
         })
-      : [];
+      : []),
+  ];
   if (opts.json === true) {
     const recordNotices = taskReadNotices(reads);
     console.log(JSON.stringify({

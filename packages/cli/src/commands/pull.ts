@@ -66,6 +66,12 @@ export interface PullOptions {
    * CLI-internal: no `--silent` flag exists on purpose.
    */
   silent?: boolean;
+  /**
+   * Stage 2 pre-hook bypass (ticket wla7ci2wzbgaj5dqsrvh1j4o, ADR-0006):
+   * set by `--no-verify` (local CLI scope only). Skips the pre-gate
+   * LOUDLY (notice + local audit); after-hooks still run.
+   */
+  hookBypass?: boolean;
 }
 
 export interface PullResult {
@@ -317,6 +323,50 @@ export async function pull(
     };
   }
 
+  // Pre-gate (Stage 2, ADR-0006): pull INTENT (mode only — no single
+  // task exists); runs after auth/scope, before the first store write.
+  // Dry-run returns below without gating (nothing would be written).
+  // Deny/timeout/garbage/trust-fail BLOCKS (fail-closed).
+  let pullGateInstructions: string[] = [];
+  if (!dryRun) {
+    const { createHookScope, emitPreHook, preGateRefusal } = await import(
+      "../core/hooks/emit.js"
+    );
+    const pullGate = await emitPreHook(
+      { projectDir, mode: "saas" },
+      createHookScope(),
+      "pull",
+      {
+        payload: {},
+        task: null,
+        bypass: opts.hookBypass === true,
+        command: "pull",
+      },
+    );
+    pullGateInstructions =
+      pullGate.allowed && pullGate.instructions.length > 0
+        ? [...pullGate.instructions]
+        : [];
+    if (!pullGate.allowed) {
+      const refusal = preGateRefusal(pullGate);
+      const msg = `${refusal.message} Nothing was written.`;
+      if (opts.json) {
+        console.log(
+          JSON.stringify({ ok: false, code: refusal.code, message: msg }),
+        );
+      } else if (opts.silent !== true) {
+        console.error(chalk.red(`  ${msg}`));
+      }
+      process.exitCode = ExitCode.GENERAL;
+      return {
+        dryRun,
+        ...emptyPullSummary(),
+        board: boardLabel,
+        notices: [{ code: refusal.code, message: msg }],
+      };
+    }
+  }
+
   let summary: PullMergeSummary;
   try {
     ({ summary } = await runPullFromBytes(targetDir, fetched.bytes, {
@@ -377,8 +427,9 @@ export async function pull(
   // pulls are no-ops with no after-emission.
   const pullWritten = summary.added + summary.merged;
   const pullSkipped = summary.unchanged + summary.conflicts;
-  const pullInstructions =
-    !dryRun && pullWritten > 0
+  const pullInstructions = [
+    ...pullGateInstructions,
+    ...(!dryRun && pullWritten > 0
       ? await emitAfterHook(
           { projectDir, mode: "saas" },
           createHookScope(),
@@ -389,7 +440,8 @@ export async function pull(
             mode: "apply",
           },
         )
-      : [];
+      : []),
+  ];
   if (opts.silent !== true) {
     for (const notice of recordNotices) console.error(notice.message);
     if (opts.json) {

@@ -16,7 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = join(HERE, "..", "..", "..", "src");
 
 describe("buildHookEnvelope", () => {
-  it("builds the 6 shared fields plus event/phase-typed payload", () => {
+  it("builds the 6 shared fields plus event/phase-typed payload and the generic contract", () => {
     const envelope = buildHookEnvelope({
       event: "task.update",
       phase: "after",
@@ -24,6 +24,9 @@ describe("buildHookEnvelope", () => {
       actor: "agent",
       payload: { taskId: "abc", changed: ["status"] },
     });
+    // Generic contract (Stage 2, ADR-0006): the same 6 shared fields plus
+    // the full task snapshot (null when absent), the explicit activity enum
+    // (always equals event), and the replaceable instructions draft.
     expect(envelope).toEqual({
       schemaVersion: 1,
       event: "task.update",
@@ -32,6 +35,9 @@ describe("buildHookEnvelope", () => {
       actor: "agent",
       ts: expect.any(String),
       payload: { taskId: "abc", changed: ["status"] },
+      task: null,
+      activity: "task.update",
+      instructions: "",
     });
     // ts is ISO-8601.
     expect(Number.isNaN(Date.parse(envelope.ts))).toBe(false);
@@ -69,9 +75,15 @@ describe("buildHookEnvelope", () => {
         if (entry.name.endsWith(".gen.ts")) continue;
         const isEnvelope = path.endsWith(join("core", "hooks", "envelope.ts"));
         const isEmit = path.endsWith(join("core", "hooks", "emit.ts"));
+        // Public authoring shell (Stage 2, ADR-0006): src/hooks.ts declares
+        // the envelope SHAPE for `.hook.mjs` authors (including the
+        // schemaVersion field type) but never assembles one — the builder
+        // ban below stays absolute, so this allowlist cannot hide a second
+        // assembly point. Parity with core is compile-pinned in hooks.ts.
+        const isPublicShell = path.endsWith(join("src", "hooks.ts"));
         const isTest = path.includes(`${join("tests", "unit", "hooks")}${""}`) || path.endsWith(".test.ts");
         const text = readFileSync(path, "utf8");
-        if (/schemaVersion\s*:/.test(text) && !isEnvelope) {
+        if (/schemaVersion\s*:/.test(text) && !isEnvelope && !isPublicShell) {
           versionedOutside.push(path);
         }
         if (/buildHookEnvelope\s*\(/.test(text) && !isEnvelope && !isEmit && !isTest) {
