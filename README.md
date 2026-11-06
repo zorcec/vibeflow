@@ -1,8 +1,10 @@
 # Vibeflow
 
-> **Task management for AI coding agents — with annotation and verification built in.**
+> **Agent task management made for humans.**
 
-Vibeflow gives your coding agent sequenced, claimable work: tasks with hierarchy, an atomic `--next` claim, and a review gate with verification verdicts — on a local-first kanban board that stays in your repo. Clicking a UI element to file a ticket with its exact selector, URL, and source location is built in, so visual feedback arrives as structured tasks instead of prose.
+You plan the work on the board; your coding agent claims tasks and posts back progress, what needs attention, and what needs your verification. You stay the decision-maker — the board is the shared plan and your agent's status channel.
+
+Vibeflow gives your coding agent sequenced, claimable work: tasks with hierarchy, an atomic `--next` claim, and a review gate with verification verdicts — on a local-first kanban board that stays in your repo. Clicking a UI element to file a ticket with its exact selector, URL, and source location is built in, so visual feedback arrives as structured tasks instead of prose. The loop closes on the same board: your agent moves cards, posts progress, and asks for your verification where a human call is needed.
 
 ```bash
 npm install -g @vibeflow-tools/cli
@@ -13,13 +15,14 @@ vibeflow kanban
 
 ## Why It Matters
 
-AI agents write code fast, but **understanding what to change is slow**. Describing a UI issue in prose wastes tokens and produces wrong fixes.
+AI agents write code fast — **the slow part is managing the work**: saying what to do, tracking what is happening, and checking the result. Describing a UI issue in prose wastes tokens and produces wrong fixes.
 
-Vibeflow turns visual feedback into structured tasks:
+Vibeflow turns visual feedback into structured tasks, and the board into the place you and your agent stay in sync:
 
 - **Click any element** → instant task with CSS selector, URL, and source file location
-- **Track on a Kanban board** → see everything at a glance, drag between columns
+- **Track on a Kanban board** → your shared plan: see everything at a glance, drag between columns
 - **Agents implement with context** → no guessing, no wrong elements, no wasted iterations
+- **Agents report back** → progress, what needs attention, and what needs your verification land on the task — you review and decide
 
 Perfect for small UI fixes, broken layouts, spacing issues, and anything where pointing is faster than explaining.
 
@@ -36,7 +39,7 @@ vibeflow kanban
 
 # 3. Click elements in your app to annotate, or create tasks on the board
 
-# 4. Your agent picks the next task with full context executing following command
+# 4. Your agent claims the next task with full context — watch its progress on the board, verify what comes back
 vibeflow tasks --next
 
 ```
@@ -59,7 +62,7 @@ vibeflow kanban                   # open Kanban board for current directory
 vibeflow kanban ./my-project      # open Kanban for a specific project
 ```
 
-The Kanban board provides a visual task tracker with drag-and-drop columns, agent status display, and file attachments. Create tasks directly on the board or import them from annotated prototypes.
+The Kanban board provides a visual task tracker with drag-and-drop columns, agent status display, and file attachments. Create tasks directly on the board or import them from annotated prototypes. It is the shared plan: you set priorities by dragging cards, and your agent's progress, questions, and verification requests show up on the same cards.
 
 ### `vibeflow serve [target]`
 
@@ -71,11 +74,11 @@ vibeflow serve --no-open .        # don't open browser automatically
 vibeflow serve                    # API-only mode — connects to an existing hosted app
 ```
 
-Serve HTML prototypes with the annotation overlay — click any element to create a task with its CSS selector, URL, and source location.
+Serve HTML prototypes with the annotation overlay — click any element to create a task with its CSS selector, URL, and source location. Each report lands on the board as a task that is actionable right away — context attached, ready for your agent to claim.
 
 ### `vibeflow tasks`
 
-Full task management from the command line — designed to be agent-friendly.
+Full task management from the command line — designed to be agent-friendly, and the channel your agent uses to report back: status moves, comments, and verification verdicts all land on the board where you can see them.
 
 ```bash
 # Pick the next task (auto-claims a ROOT task in todo)
@@ -203,21 +206,21 @@ Visit `/inject` on your running server for ready-to-use bookmarklets and snippet
 ## How It Works
 
 ```
-You browse your app  →  click to annotate  →  task created with context
-         ↑                                         ↓
-   browser reloads  ←  agent implements  ←  vibeflow tasks --next
+You point at the bug  →  task lands on the board, actionable  →  agent claims with tasks --next
+         ↑                                                                          ↓
+   you verify + decide  ←  agent posts progress, flags blockers, asks for verification
 ```
 
-1. **Overlay** — embed the bookmarklet or script into your app, click any element to annotate
-2. **Kanban** — open the board to see all tasks at a glance, create new ones directly
-3. **Tasks** — `vibeflow tasks --next` claims the highest-priority **root** task in todo, and returns it with its children — the whole unit of work, with full context for your agent
-4. **Iterate** — agent implements, browser reloads, annotate again
+1. **You point** — embed the bookmarklet or script into your app, click any element to annotate — the task arrives with its context attached, ready to claim
+2. **You plan** — open the board to see all tasks at a glance, set priorities, create new ones directly
+3. **Agent claims** — `vibeflow tasks --next` claims the highest-priority **root** task in todo, and returns it with its children — the whole unit of work, with full context for your agent
+4. **Agent reports back** — your agent moves the card, posts progress, and asks for your verification where a human call is needed — you review and decide, then annotate again
 
 ---
 
 ## Agent Integration
 
-Vibeflow tasks are formatted for AI agents with full context:
+Vibeflow tasks are formatted for AI agents with full context — and carry the way back, so your agent can keep you posted from the same task:
 
 - **CSS selectors** — exact element targeting, no guesswork
 - **Source locations** — file, line, and column where the element is defined
