@@ -54,6 +54,11 @@ type FakeTask = {
   createdAt: string;
   updatedAt: string;
   links: Link[];
+  /** Annotation fields the real v0 view carries (tickets 9029e53c/684114fb). */
+  url?: string;
+  selector?: string;
+  cssSelector?: string;
+  tags?: string[];
 };
 
 function makeTask(id: string, title: string, links: Link[] = []): FakeTask {
@@ -134,6 +139,12 @@ async function startFakeBackend(): Promise<{
       const parsed = (body ? JSON.parse(body) : {}) as {
         title?: string;
         links?: Link[];
+        url?: string;
+        selector?: string;
+        cssSelector?: string;
+        type?: string;
+        priority?: string;
+        tags?: string[];
       };
       const checkParent = (
         links: Link[] | undefined,
@@ -162,6 +173,14 @@ async function startFakeBackend(): Promise<{
           parsed.title ?? "Untitled",
           parsed.links ?? [],
         );
+        // Echo the annotation fields the real server stores, so read-back
+        // tests round-trip instead of asserting against a lossy fake.
+        if (typeof parsed.url === "string") created.url = parsed.url;
+        if (typeof parsed.selector === "string") created.selector = parsed.selector;
+        if (typeof parsed.cssSelector === "string") created.cssSelector = parsed.cssSelector;
+        if (typeof parsed.type === "string") created.type = parsed.type;
+        if (typeof parsed.priority === "string") created.priority = parsed.priority;
+        if (Array.isArray(parsed.tags)) created.tags = parsed.tags;
         tasks.set(created.id, created);
         finish(201, created);
         return;
@@ -545,5 +564,112 @@ describe("tasks list in SaaS mode hides children by default", () => {
     };
     expect(allPayload.tasks.map((t) => t.id)).toContain("3b8f9d12dd04");
     expect(allPayload.hiddenChildren).toBe(0);
+  });
+});
+
+describe("tasks --add forwards annotation fields in SaaS mode (ticket 684114fb)", () => {
+  it("--type/--priority/--tag/--url/--selector all reach the POST body", async () => {
+    const store = freshDir("saas-create-fields-store-");
+    const home = freshDir("saas-create-fields-home-");
+    const { url, requests } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
+
+    const r = await spawnCli(
+      [
+        "tasks", store, "--add",
+        "--title", "Research spike",
+        "--type", "Research",
+        "--priority", "High",
+        "--tag", "public",
+        "--url", "https://example.com/pricing",
+        "--selector", "#cta",
+        "--json",
+      ],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(r.code).toBe(0);
+    const posts = postBodies(requests);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({
+      title: "Research spike",
+      type: "Research",
+      priority: "High",
+      tags: ["public"],
+      url: "https://example.com/pricing",
+      selector: "#cta",
+    });
+    // sortKey has no v0 create column — never sent (strict record schema, c0557b6c).
+    expect(posts[0]).not.toHaveProperty("sortKey");
+  });
+
+  it("round trip: --add --url/--selector then --get reads the SAME values back (ticket 9029e53c)", async () => {
+    const store = freshDir("saas-annot-store-");
+    const home = freshDir("saas-annot-home-");
+    const { url } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
+
+    const add = await spawnCli(
+      ["tasks", store, "--add", "--title", "Annotated probe",
+       "--url", "https://example.com/x", "--selector", "#z", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(add.code).toBe(0);
+    const created = (JSON.parse(add.stdout) as { task: { id: string } }).task;
+
+    // json read-back carries the stored annotation (was: selector hardcoded
+    // "/" through toLocalTask, url never mapped).
+    const read = await spawnCli(
+      ["tasks", store, "--get", created.id, "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(read.code).toBe(0);
+    const task = (JSON.parse(read.stdout) as {
+      task: { url?: string; selector?: string };
+    }).task;
+    expect(task.url).toBe("https://example.com/x");
+    expect(task.selector).toBe("#z");
+
+    // human read-back prints the REAL selector + url (was a hardcoded
+    // "selector: /" line and no url line at all).
+    const human = await spawnCli(
+      ["tasks", store, "--get", created.id],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(human.code).toBe(0);
+    expect(human.stdout).toContain("selector: #z");
+    expect(human.stdout).toContain("url:      https://example.com/x");
+    expect(human.stdout).not.toContain("selector: /");
+  });
+
+  it("--get --fields projects online exactly like local (was a silent no-op, ticket 13ab0652)", async () => {
+    const store = freshDir("saas-fields-store-");
+    const home = freshDir("saas-fields-home-");
+    const { url } = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: url });
+
+    const add = await spawnCli(
+      ["tasks", store, "--add", "--title", "Fields probe", "--type", "Research", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(add.code).toBe(0);
+    const created = (JSON.parse(add.stdout) as { task: { id: string } }).task;
+
+    const picked = await spawnCli(
+      ["tasks", store, "--get", created.id, "--fields", "type,title", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    expect(picked.code).toBe(0);
+    const pickedTask = (JSON.parse(picked.stdout) as { task: Record<string, unknown> }).task;
+    expect(Object.keys(pickedTask).sort()).toEqual(["title", "type"]);
+    expect(pickedTask.type).toBe("Research");
+
+    // without --fields the full task still comes back
+    const full = await spawnCli(
+      ["tasks", store, "--get", created.id, "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: url } },
+    );
+    const fullTask = (JSON.parse(full.stdout) as { task: Record<string, unknown> }).task;
+    expect(Object.keys(fullTask).length).toBeGreaterThan(2);
+    expect(fullTask).toHaveProperty("description");
   });
 });

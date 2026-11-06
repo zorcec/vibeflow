@@ -33,6 +33,7 @@ import {
 } from "./core/project-root.js";
 import { loadSettings } from "./core/settings.js";
 import type { Task, TaskComment, TaskStatus } from "./core/types.js";
+import { pickTaskFields } from "./core/operations/tasks.js";
 import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
 import { getMode } from "./auth/mode.js";
 import { runStdioMcp } from "./mcp/stdio.js";
@@ -1209,7 +1210,7 @@ program
   )
   .option(
     "--type <type>",
-    "Filter by type (Task, Bug, Feature, Enhancement, Research)",
+    "Filter by type (Task, Bug, Feature, Enhancement, Research); with --add, sets the new task's type",
   )
   .option(
     "--user <user>",
@@ -1321,7 +1322,7 @@ program
   )
   .option(
     "--tag <tag>",
-    "Filter by tag (can be specified multiple times for AND matching)",
+    "Filter by tag (repeatable for AND); with --add, tags the new task",
     (val, prev: string[]) => [...prev, val],
     [] as string[],
   )
@@ -2331,6 +2332,16 @@ program
             }
             const cliStatus = toCliStatus(saasTask.status);
             if (opts.json) {
+              const emittedTask = {
+                ...saasTask,
+                status: cliStatus,
+                ...(saasTask.parentId !== undefined
+                  ? { parentId: saasTask.parentId }
+                  : {}),
+                ...(saasTask.children !== undefined
+                  ? { children: saasTask.children }
+                  : {}),
+              };
               outputEnvelope({
                 ok: true,
                 json: opts.json,
@@ -2342,17 +2353,18 @@ program
                 // facts the server never sent). (Local MCP get_task already
                 // merges derived relations in operations.getTask — nothing
                 // to change there.)
+                // --fields: the LOCAL branch has always projected
+                // (localGetJsonPayload); the online branch computed the
+                // flag and dropped it — the same flag must mean the same
+                // thing in both modes (ticket 13ab0652).
                 payload: {
-                  task: {
-                    ...saasTask,
-                    status: cliStatus,
-                    ...(saasTask.parentId !== undefined
-                      ? { parentId: saasTask.parentId }
-                      : {}),
-                    ...(saasTask.children !== undefined
-                      ? { children: saasTask.children }
-                      : {}),
-                  },
+                  task:
+                    getFields.length > 0
+                      ? pickTaskFields(
+                          emittedTask as unknown as Task,
+                          getFields,
+                        )
+                      : emittedTask,
                 },
               });
               return;
@@ -2362,7 +2374,16 @@ program
               `  ${colorFnSaas(`[${cliStatus}]`)} ${chalk.bold(saasTask.title)}`,
             );
             console.log(chalk.dim(`    id:       ${saasTask.id}`));
-            console.log(chalk.dim(`    selector: /`));
+            // The v0 view carries the stored annotation (ticket 9029e53c):
+            // this line used to print a hardcoded "selector: /" and url was
+            // never shown, so the human read disagreed with the board.
+            const shownSelector =
+              typeof saasTask.selector === "string" && saasTask.selector.length > 0
+                ? saasTask.selector
+                : "/";
+            console.log(chalk.dim(`    selector: ${shownSelector}`));
+            if (saasTask.url)
+              console.log(chalk.dim(`    url:      ${saasTask.url}`));
             if (saasTask.type)
               console.log(chalk.dim(`    type:     ${saasTask.type}`));
             if (saasTask.priority)
@@ -3313,6 +3334,12 @@ program
                       ? { description: opts.description.trim() }
                       : {}),
                     status: saasStatus,
+                    // Intent parity with the operations create gate — the
+                    // online `--add` carries the same annotation fields
+                    // (ticket 684114fb).
+                    ...(opts.type ? { type: opts.type } : {}),
+                    ...(opts.priority ? { priority: opts.priority } : {}),
+                    ...(opts.tag?.length ? { tags: opts.tag } : {}),
                   },
                   task: {
                     title: opts.title.trim(),
@@ -3348,6 +3375,17 @@ program
               title: opts.title.trim(),
               description: opts.description?.trim(),
               status: saasStatus,
+              // Same annotations the local `--add` stores (ticket 684114fb):
+              // these flags used to be parsed, validated and then silently
+              // dropped on the online path. selector mirrors local (the
+              // historic "/" default); sortKey stays local-only — no v0
+              // column, and an extra key trips the strict record schema
+              // (c0557b6c).
+              ...(opts.type ? { type: opts.type } : {}),
+              ...(opts.priority ? { priority: opts.priority } : {}),
+              ...(opts.tag?.length ? { tags: opts.tag } : {}),
+              ...(url ? { url } : {}),
+              selector,
               boardId: addWorkspace?.id,
               ...(addLinks ? { links: addLinks } : {}),
               projectDir: dir,

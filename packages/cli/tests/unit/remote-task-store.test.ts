@@ -159,6 +159,30 @@ describe("toLocalTask — no invented defaults", () => {
     expect(toLocalTask({ title: "x" } as never)).toBeNull();
     expect(toLocalTask({ id: "x" } as never)).toBeNull();
   });
+
+  it("maps the stored annotation instead of inventing a default (ticket 9029e53c)", () => {
+    const task = toLocalTask(
+      v0Task("r-ann", {
+        url: "https://example.com/x",
+        selector: "#z",
+        cssSelector: ".z",
+      }) as never,
+    );
+    expect(task).toMatchObject({
+      url: "https://example.com/x",
+      selector: "#z",
+      cssSelector: ".z",
+    });
+  });
+
+  it("falls back to selector \"/\" only when the row has none; absent url stays absent (ticket 9029e53c)", () => {
+    const bare = toLocalTask(v0Task("r-bare") as never);
+    expect(bare?.selector).toBe("/");
+    expect(bare && "url" in bare).toBe(false);
+    const empty = toLocalTask(v0Task("r-empty", { selector: "", url: "" }) as never);
+    expect(empty?.selector).toBe("/");
+    expect(empty && "url" in empty).toBe(false);
+  });
 });
 
 describe("listTasks — the remote board, never local files", () => {
@@ -482,6 +506,100 @@ describe("remote claim — one versioned POST, never list+PATCH", () => {
       code: "E_NOT_AUTHENTICATED",
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote create — annotation fields reach the v0 body (ticket 684114fb)", () => {
+  interface SeenCreateRequest {
+    method: string;
+    url: string;
+    body: unknown;
+  }
+  /** URL-routed fake: boards → list for scope, POST /tasks → 201 created. */
+  function stubCreateServer(created: unknown): SeenCreateRequest[] {
+    const seen: SeenCreateRequest[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+        seen.push({
+          method: init?.method ?? "GET",
+          url,
+          body: init?.body ? (JSON.parse(init.body) as unknown) : undefined,
+        });
+        if (url.includes("/api/v0/boards")) {
+          const boards = { items: [{ id: "board-1", name: "B1" }], nextCursor: null };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(boards)),
+            json: () => Promise.resolve(boards),
+          });
+        }
+        if (init?.method === "POST" && url.includes("/api/v0/tasks")) {
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            headers: { get: () => "application/json" },
+            text: () => Promise.resolve(JSON.stringify(created)),
+            json: () => Promise.resolve(created),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          headers: { get: () => "application/json" },
+          text: () => Promise.resolve("{}"),
+          json: () => Promise.resolve({}),
+        });
+      }),
+    );
+    return seen;
+  }
+
+  it("forwards type, priority, tags, url, selector and cssSelector on create", async () => {
+    const seen = stubCreateServer(v0Task("created-1"));
+    await remoteTaskStore.createTask(PROJECT, {
+      title: "Research spike",
+      description: "",
+      status: "backlog",
+      selector: "#cta",
+      type: "Research",
+      priority: "High",
+      tags: ["public"],
+      url: "https://example.com/pricing",
+      cssSelector: ".cta",
+    });
+    const posts = seen.filter((r) => r.method === "POST" && r.url.includes("/api/v0/tasks"));
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.body).toMatchObject({
+      title: "Research spike",
+      status: "backlog",
+      selector: "#cta",
+      type: "Research",
+      priority: "High",
+      tags: ["public"],
+      url: "https://example.com/pricing",
+      cssSelector: ".cta",
+      boardId: "board-1",
+    });
+    // sortKey has no v0 column — never sent (strict record schema, c0557b6c).
+    expect(posts[0]?.body).not.toHaveProperty("sortKey");
+  });
+
+  it("omits annotation keys the operation never set (no invented defaults)", async () => {
+    const seen = stubCreateServer(v0Task("created-2"));
+    await remoteTaskStore.createTask(PROJECT, {
+      title: "Plain",
+      description: "",
+      status: "todo",
+      selector: "/",
+    });
+    const post = seen.find((r) => r.method === "POST" && r.url.includes("/api/v0/tasks"));
+    expect(post?.body).toMatchObject({ title: "Plain", status: "todo", selector: "/" });
+    for (const key of ["type", "priority", "tags", "url", "cssSelector", "sortKey"]) {
+      expect(post?.body && key in (post.body as object)).toBe(false);
+    }
   });
 });
 

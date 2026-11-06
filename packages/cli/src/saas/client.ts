@@ -131,6 +131,15 @@ export interface SaasTask {
   priority: string | null;
   type: string | null;
   /**
+   * Annotation fields the v0 view carries (ticket 9029e53c): reads used
+   * to drop all three — toLocalTask hardcoded selector "/" — so an online
+   * task's real selector/url were invisible to CLI/MCP even though the
+   * server stored them.
+   */
+  url?: string | null;
+  selector?: string | null;
+  cssSelector?: string | null;
+  /**
    * Free-form tags the v0 wire sends on every row (`serializeV0Task`).
    * Present on list/detail/create reads; absent (or null) on older
    * shapes — callers read through the mapping, never this field.
@@ -1670,6 +1679,17 @@ export async function createSaasTask(params: {
   status?: string;
   priority?: string;
   type?: string;
+  /**
+   * v0 create-contract fields (`V0TaskCreateFields`): forwarded verbatim so
+   * an online create carries the same annotations the local path stores
+   * (ticket 684114fb — these were silently dropped before). `sortKey` is
+   * deliberately absent: the v0 create has no column for it and an extra
+   * key trips the strict record schema (c0557b6c).
+   */
+  tags?: string[];
+  url?: string;
+  selector?: string;
+  cssSelector?: string;
   boardId?: string;
   /**
    * Links to write with the new task (v0 POST `links`). A

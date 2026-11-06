@@ -294,7 +294,18 @@ export function toLocalTask(row: SaasTask): Task | null {
     title: row.title,
     description: row.description ?? "",
     status: toCliStatus(row.status) as TaskStatus,
-    selector: "/",
+    // The v0 view carries the stored annotation (ticket 9029e53c): this
+    // used to be hardcoded "/" and url/cssSelector were never mapped, so
+    // CLI/MCP reads disagreed with the board and verify resolved the wrong
+    // selector. "/" stays the fallback only when the row has none.
+    selector:
+      typeof row.selector === "string" && row.selector.length > 0
+        ? row.selector
+        : "/",
+    ...(row.url != null && row.url.length > 0 ? { url: row.url } : {}),
+    ...(row.cssSelector != null && row.cssSelector.length > 0
+      ? { cssSelector: row.cssSelector }
+      : {}),
     created: row.createdAt,
     ...(row.type != null ? { type: row.type } : {}),
     ...(row.priority != null ? { priority: row.priority } : {}),
@@ -903,17 +914,26 @@ class RemoteTaskStore implements TaskStore {
     input: TaskCreateInput,
   ): Promise<Task> {
     const boardId = await resolveBoardOnce(_projectDir);
-    // Wire parity with the CLI's proven online `--add` body: title /
-    // description / status / boardId / links only. Type/priority/tags/url
-    // annotations have no online column on this path — the CLI drops them
-    // too — so sending them would invent a contract the server never
-    // promised; the operation validates them, the board stamps its own.
+    // Forward every annotation the v0 create contract accepts (ticket
+    // 684114fb): type/priority/tags/url/selector/cssSelector were dropped
+    // here — and in the CLI online `--add` — so `--add --type Research`
+    // created a plain Task with no warning. `V0TaskCreateFields` accepts
+    // exactly these; sortKey stays local-only (no v0 column — an extra key
+    // trips the strict record schema, c0557b6c).
     const created = await createSaasTask({
       title: input.title,
       ...(input.description !== undefined
         ? { description: input.description }
         : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.tags !== undefined ? { tags: input.tags } : {}),
+      ...(input.url !== undefined ? { url: input.url } : {}),
+      ...(input.selector !== undefined ? { selector: input.selector } : {}),
+      ...(input.cssSelector !== undefined
+        ? { cssSelector: input.cssSelector }
+        : {}),
       ...(boardId !== undefined ? { boardId } : {}),
       ...(input.links !== undefined ? { links: input.links } : {}),
       projectDir: _projectDir,

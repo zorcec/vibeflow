@@ -1248,6 +1248,40 @@ describe("createSaasTask", () => {
     expect(body.links).toEqual([{ taskId: "parent-1", type: "parent" }]);
   });
 
+  it("sends type, priority, tags, url, selector and cssSelector in the POST body (ticket 684114fb)", async () => {
+    mockFetch(SAMPLE_TASK);
+    await createSaasTask({ projectDir: "/test-project",
+      title: "Research spike",
+      type: "Research",
+      priority: "High",
+      tags: ["public"],
+      url: "https://example.com/pricing",
+      selector: "#cta",
+      cssSelector: ".cta",
+    });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      title: "Research spike",
+      type: "Research",
+      priority: "High",
+      tags: ["public"],
+      url: "https://example.com/pricing",
+      selector: "#cta",
+      cssSelector: ".cta",
+    });
+    // sortKey has no v0 create column — never sent (strict record schema, c0557b6c).
+    expect(body).not.toHaveProperty("sortKey");
+  });
+
+  it("omits annotation keys the caller never set (no invented defaults)", async () => {
+    mockFetch(SAMPLE_TASK);
+    await createSaasTask({ projectDir: "/test-project", title: "Plain" });
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+    for (const key of ["type", "priority", "tags", "url", "selector", "cssSelector", "sortKey"]) {
+      expect(key in body).toBe(false);
+    }
+  });
+
   it("carries the server refusal code through as serverCode", async () => {
     mockFetch({ error: "Parent target task ghost not found", code: "INVALID_LINKS" }, false);
     const result = await createSaasTask({ projectDir: "/test-project",
