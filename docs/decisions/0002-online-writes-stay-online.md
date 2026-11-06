@@ -4,7 +4,7 @@
 - Date: 2026-10-25
 - Governed: `packages/cli/src/core/remote-task-store.ts`
 - Governed: `packages/cli/src/saas/pull-archive.ts`
-- Reviewed: 2026-11-04 (5bb9d16 added read-path `q` narrowing to remote-task-store fetch + doc-only search-description updates; no write path touched — decision unchanged)
+- Reviewed: 2026-11-06 (564ea55 forwards create annotations through the existing online createSaasTask path + read-side toLocalTask/--fields projections; no local-store write path added — decision unchanged)
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 
 ## Background

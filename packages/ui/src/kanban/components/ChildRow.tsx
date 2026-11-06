@@ -447,10 +447,24 @@ export function ChildRow({
                                 alignSelf: "stretch",
                                 display: "inline-flex",
                                 alignItems: "center",
-                                padding: "0 10px",
+                                // Resting state collapses the tab to ZERO
+                                // width (ticket cfqggn1w) — the sibling
+                                // CopyIdButton already contracts this way
+                                // (its `revealed` contract); an opacity-only
+                                // hide left the padding + label laid out,
+                                // permanently stealing ~54px from the row.
+                                // minWidth:0 is load-bearing: the flex item's
+                                // min-content size would otherwise resist the
+                                // collapse. width stays focusable, so the
+                                // keyboard reveal (onFocus) keeps working.
+                                width: unlinkRevealed ? "auto" : 0,
+                                minWidth: 0,
+                                overflow: "hidden",
+                                whiteSpace: "nowrap",
+                                padding: unlinkRevealed ? "0 10px" : "0",
                                 border: "none",
                                 borderLeft:
-                                    showCopyId && child?.id
+                                    unlinkRevealed && showCopyId && child?.id
                                         ? "1px solid color-mix(in srgb, var(--t-border) 60%, transparent)"
                                         : "none",
                                 borderRadius: "0 6px 6px 0",
