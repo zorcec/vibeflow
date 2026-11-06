@@ -25,6 +25,7 @@ import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
+import { AttentionBadge } from "../../AttentionBadge";
 
 import { linkSetKey, tagSetKey, diffTagLists } from "../fieldChanges";
 import { getTaskTypeColor } from "../../task-types";
@@ -1536,6 +1537,19 @@ export function DetailPanel({
             {/* Verification verdict — a quiet trailing note in the status
                 cluster so it reads as one unit; the VerifyIndicator carries
                 the tooltip (what the verdict means). */}
+            {!isAdd && task && task.needsAttention === true && (
+              <div
+                id="dp-attention-row"
+                data-attention-state="flagged"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  marginLeft: verifyState !== "none" ? undefined : "auto",
+                }}
+              >
+                <AttentionBadge flagged />
+              </div>
+            )}
             {!isAdd && task && verifyState !== "none" && (
               <div
                 id="dp-verify-row"

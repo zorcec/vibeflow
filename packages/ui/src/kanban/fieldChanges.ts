@@ -49,6 +49,11 @@ export function verifyLabel(v: unknown): string {
   return "none";
 }
 
+/** Feed label for the `needsAttention` flag (ticket 0752d55c). */
+export function attentionLabel(v: unknown): string {
+  return v === true ? "flagged" : "clear";
+}
+
 /** Canonical comparable string for a tag set (order-insensitive). */
 export function tagSetKey(tags: unknown): string {
   return normalizeTagList(tags).join(",");
@@ -201,6 +206,11 @@ export function diffTaskFields(
   const verNext = verifyLabel(next.verified);
   if (verNext !== verPrev) {
     out.push({ field: "verify", from: verPrev, to: verNext });
+  }
+  const attPrev = attentionLabel(prev.needsAttention);
+  const attNext = attentionLabel(next.needsAttention);
+  if (attNext !== attPrev) {
+    out.push({ field: "attention", from: attPrev, to: attNext });
   }
   const statusChanged =
     text((prev as { status?: unknown }).status) !==

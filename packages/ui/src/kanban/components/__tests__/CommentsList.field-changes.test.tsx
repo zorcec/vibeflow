@@ -47,6 +47,20 @@ function change(overrides: Partial<LocalChange> = {}): LocalChange {
 }
 
 describe("minimal field entries", () => {
+  it("renders an attention change with flagged/clear pills", () => {
+    const { container } = renderFeed([
+      change({
+        field: "attention",
+        from: "clear",
+        to: "flagged",
+        timestamp: "2026-10-16T10:00:02.000Z",
+      }),
+    ]);
+    expect(container.textContent).toContain("attention");
+    expect(container.textContent).toContain("clear");
+    expect(container.textContent).toContain("flagged");
+    expect(container.textContent).toContain("→");
+  });
   it("renders a description edit as a name-only row (no value pills)", () => {
     const { container } = renderFeed([change({ field: "description" })]);
     expect(container.textContent).toContain("changed");

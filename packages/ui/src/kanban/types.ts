@@ -53,6 +53,8 @@ export interface Task {
   branchName?: string;
   /** When true, the task was successfully verified. */
   verified?: boolean;
+  /** When true, the task needs attention (agent-set flag; reason in the activity feed). */
+  needsAttention?: boolean;
   /** Links to other tasks (parent, relates, blocks). */
   links?: TaskLink[];
   /** True when the current assignee claimed through an agent surface (ephemeral: live patch only, never stored — unknown rows stay unbadged). */

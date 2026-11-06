@@ -129,6 +129,12 @@ export function mergeTaskFromPayload(
     // Absence is the "no verdict" state — never fall back to existing here.
     verified:
       typeof incoming.verified === "boolean" ? incoming.verified : undefined,
+    // Needs-attention flag (ticket 0752d55c): same absence rule — a live
+    // payload without the key means "not flagged", never a stale badge.
+    needsAttention:
+      typeof incoming.needsAttention === "boolean"
+        ? incoming.needsAttention
+        : undefined,
     links: Array.isArray(incoming.links)
       ? (incoming.links as Task["links"])
       : (existing?.links ?? []),

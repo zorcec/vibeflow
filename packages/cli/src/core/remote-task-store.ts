@@ -311,6 +311,9 @@ export function toLocalTask(row: SaasTask): Task | null {
     ...(row.priority != null ? { priority: row.priority } : {}),
     ...(row.author != null ? { author: row.author } : {}),
     ...(typeof row.verified === "boolean" ? { verified: row.verified } : {}),
+    ...(typeof row.needsAttention === "boolean"
+      ? { needsAttention: row.needsAttention }
+      : {}),
     ...(row.branchName != null ? { branchName: row.branchName } : {}),
     ...(row.annotatedElementText != null
       ? { annotatedElementText: row.annotatedElementText }
@@ -378,6 +381,8 @@ function saasRowToRecordCandidate(row: SaasTask): Record<string, unknown> {
   if (Array.isArray(row.tags)) candidate.tags = row.tags;
   if (typeof row.branchName === "string") candidate.branchName = row.branchName;
   if (typeof row.verified === "boolean") candidate.verified = row.verified;
+  if (typeof row.needsAttention === "boolean")
+    candidate.needsAttention = row.needsAttention;
   if (typeof row.annotatedElementText === "string") {
     candidate.annotatedElementText = row.annotatedElementText;
   }
@@ -971,6 +976,7 @@ class RemoteTaskStore implements TaskStore {
       description?: string;
       branchName?: string;
       verified?: boolean | null;
+      needsAttention?: boolean;
       links?: Array<{ taskId: string; type: string }>;
     } = {};
     if (updates.status !== undefined) patch.status = updates.status;
@@ -983,6 +989,8 @@ class RemoteTaskStore implements TaskStore {
     // CLEAR — the operation clears by omitting the key locally, which the
     // server spells as explicit null (see updateSaasTask).
     if ("verified" in updates) patch.verified = updates.verified ?? null;
+    if ("needsAttention" in updates && updates.needsAttention !== undefined)
+      patch.needsAttention = updates.needsAttention;
     // Whole-set replace of the operation's merged set. Present-but-empty
     // clears every link (clearLinks:true with nothing re-added).
     if ("links" in updates) patch.links = updates.links ?? [];

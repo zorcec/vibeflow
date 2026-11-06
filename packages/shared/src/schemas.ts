@@ -118,6 +118,9 @@ export const updateTaskSchema = z.object({
     // Tri-state agent attestation: true = verified correct, false = verified
     // wrong, null = clear to absent. Absent (omitted) leaves it untouched.
     verified: z.boolean().nullish(),
+    // Needs-attention flag (ticket 0752d55c): plain boolean; null clears to
+    // absent. Absent (omitted) leaves it untouched.
+    needsAttention: z.boolean().nullish(),
     sortKey: z.string().optional(),
     tags: z.array(z.string().max(50)).max(20).optional(),
     links: z

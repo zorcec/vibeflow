@@ -159,6 +159,8 @@ export interface Task {
   priority?: string;
   /** When true, the task was successfully verified. */
   verified?: boolean;
+  /** When true, the task needs attention (agent-set flag with a reason comment; verify-style amber badge). */
+  needsAttention?: boolean;
   /** When true, the agent must add a comment with a report after completing the task. */
   reportBack?: boolean;
   /** Preferred coding agent name for this task. */

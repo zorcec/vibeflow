@@ -1349,6 +1349,14 @@ program
     "Why the task cannot be verified — REQUIRED when --set-verify cannot; recorded in the task's activity",
   )
   .option(
+    "--set-attention",
+    "Flag the task as needing attention (amber badge) — REQUIRES --comment on the same call; the comment carries the reason",
+  )
+  .option(
+    "--clear-attention",
+    "Clear the needs-attention flag (no comment required)",
+  )
+  .option(
     "--limit <n>",
     // The number lives in exactly one place: DEFAULT_LIST_LIMIT in api-core
     // (ticket 9bb350a7) — the MCP `limit` schema defaults to the same
@@ -1456,6 +1464,8 @@ program
         verify?: boolean;
         setVerify?: "pass" | "fail" | "cannot";
         verifyReason?: string;
+        setAttention?: boolean;
+        clearAttention?: boolean;
         priority?: string;
         // --add-only annotation fields. Optional because the same opts object
         // is shared with the list/get/edit paths, which never read them.
@@ -4185,6 +4195,8 @@ program
             opts.reportFile ||
             opts.setVerify ||
             opts.verifyReason?.trim() ||
+            opts.setAttention ||
+            opts.clearAttention ||
             opts.relates?.length ||
             opts.blocks?.length ||
             opts.unrelates?.length ||
@@ -4206,7 +4218,7 @@ program
                 code: "E_USAGE",
                 message: !taskId
                   ? "--edit needs a task id and at least one edit flag, e.g. --edit <id> --set-status review"
-                  : "nothing to edit: pass at least one of --title / --set-status / --description / --set-parent / --no-parent / --report-file / --set-verify / --verify-reason / --comment",
+                  : "nothing to edit: pass at least one of --title / --set-status / --description / --set-parent / --no-parent / --report-file / --set-verify / --verify-reason / --set-attention / --clear-attention / --comment",
                 suggestion:
                   "Run 'vibeflow tasks' (without --json) for the usage instructions and the list of editable task ids.",
                 json: opts.json,
@@ -4241,6 +4253,11 @@ program
             console.log(
               chalk.cyan(
                 "  verification verdict (agent-only): [--set-verify pass|fail|cannot]  (required at review for annotated tasks; pass = correct, fail = NOT correct — blocks review; cannot needs --verify-reason \"<why>\" and records no badge)",
+              ),
+            );
+            console.log(
+              chalk.cyan(
+                "  needs attention: [--set-attention --comment \"<why>\" | --clear-attention]  (set REQUIRES --comment carrying the reason; shows an amber badge)",
               ),
             );
             console.log();
@@ -4687,6 +4704,54 @@ program
             return;
           }
 
+          // ── Needs-attention flag (ticket 0752d55c) ───────────────────────
+          // --set-attention flags the task; the --comment on the same call
+          // carries the reason, so a set without one is refused (a bare
+          // flag with no reason is the same loss as a dropped --comment).
+          // --clear-attention needs no comment. Both together contradict.
+          // Runs before any write, so the --dry-run preview path refuses
+          // identically — the gate is the single source of truth.
+          if (opts.setAttention && opts.clearAttention) {
+            const message =
+              "--set-attention and --clear-attention contradict — pass only one";
+            const suggestion =
+              'Pass --set-attention (with --comment "<why>") to flag, or --clear-attention to clear.';
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message,
+                suggestion,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${message}`));
+              console.log(chalk.dim(`  ${suggestion}`));
+            }
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+          if (opts.setAttention && !opts.comment?.trim()) {
+            const message =
+              "--set-attention requires --comment — the comment carries the reason";
+            const suggestion =
+              'Resend with --comment naming why the task needs attention, e.g. --set-attention --comment "<reason>".';
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code: "E_USAGE",
+                message,
+                suggestion,
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${message}`));
+              console.log(chalk.dim(`  ${suggestion}`));
+            }
+            process.exitCode = ExitCode.USAGE;
+            return;
+          }
+
           // ── Research tasks cannot carry a verification verdict ─────────────
           // Standalone --set-verify on a Research task must be rejected the same
           // way the review gate does (RESEARCH_VERIFY_NOT_ALLOWED). This covers
@@ -5061,6 +5126,7 @@ program
               description?: string;
               branchName?: string;
               verified?: boolean | null;
+              needsAttention?: boolean;
               links?: Array<{ taskId: string; type: string }>;
             } = {};
             if (opts.setStatus) saasPatch.status = opts.setStatus;
@@ -5089,6 +5155,13 @@ program
               saasPatch.verified = null;
             else if (opts.setStatus === "in-progress")
               saasPatch.verified = null;
+
+            // ── Needs-attention flag (ticket 0752d55c) ───────────────
+            // Plain boolean on the v0 wire (no tri-state): set writes true,
+            // clear writes false. The --comment requirement was enforced
+            // at the gate above, so the reason always travels with the set.
+            if (opts.setAttention) saasPatch.needsAttention = true;
+            else if (opts.clearAttention) saasPatch.needsAttention = false;
 
             // Conflict detection: warn when attempting in-progress on an already in-progress task
             // (the FULL resolved id — a prefix never reaches the server).
@@ -5138,6 +5211,8 @@ program
                 dryUpdates.branchName = saasPatch.branchName;
               if (saasPatch.verified !== undefined)
                 dryUpdates.verified = saasPatch.verified;
+              if (saasPatch.needsAttention !== undefined)
+                dryUpdates.needsAttention = saasPatch.needsAttention;
               if (saasPatch.links !== undefined)
                 dryUpdates.links = saasLinks;
               // A `cannot` verdict also posts the reason as a comment (see
@@ -5485,6 +5560,8 @@ program
             } else if (attestation.value !== undefined) {
               dryUpdates.verified = attestation.value;
             }
+            if (opts.setAttention) dryUpdates.needsAttention = true;
+            else if (opts.clearAttention) dryUpdates.needsAttention = false;
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -5531,6 +5608,7 @@ program
               | "description"
               | "branchName"
               | "verified"
+              | "needsAttention"
               | "author"
               | "links"
             >
@@ -5906,6 +5984,12 @@ program
           } else if (attestation.value !== undefined) {
             updates.verified = attestation.value;
           }
+
+          // Needs-attention flag (ticket 0752d55c): plain boolean write —
+          // set writes true, clear writes false. The --comment gate above
+          // guarantees the reason travels with every set.
+          if (opts.setAttention) updates.needsAttention = true;
+          else if (opts.clearAttention) updates.needsAttention = false;
 
           // Pre-gate (Stage 2, ADR-0006): INTENT payload (changed keys,
           // no generated ids); runs before the write. Deny/timeout/

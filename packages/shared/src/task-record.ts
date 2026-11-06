@@ -197,6 +197,8 @@ export const TaskRecordSchema = z
     reportBack: z.boolean().optional(),
     /** Tri-state by absence: true / false / absent. */
     verified: z.boolean().optional(),
+    /** Needs-attention flag (ticket 0752d55c): plain boolean, absence = not flagged. */
+    needsAttention: z.boolean().optional(),
     authorEmail: authorEmailField.optional(),
     /** Column is `text` (cap lives here, not in the column type). */
     annotatedElementText: z.string().max(20_000).optional(),

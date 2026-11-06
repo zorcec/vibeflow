@@ -954,6 +954,36 @@ export async function updateTask(
       }
     }
 
+    // Needs-attention flag (ticket 0752d55c): setAttention:true flags the
+    // task, clearAttention:true clears it. Setting carries the reason in the
+    // call's own `comment`, so a set without one is refused — a bare flag
+    // with no reason is the same loss as a dropped --comment. Sending both
+    // is contradictory and refused. Absent means untouched.
+    if (input.setAttention === true && input.clearAttention === true) {
+      return {
+        ok: false,
+        error: {
+          code: "E_USAGE",
+          message:
+            "setAttention and clearAttention contradict — send only one",
+          suggestion:
+            "Send setAttention:true (with `comment`) to flag, or clearAttention:true to clear.",
+        },
+      };
+    }
+    if (input.setAttention === true && !input.comment?.trim()) {
+      return {
+        ok: false,
+        error: {
+          code: "E_USAGE",
+          message:
+            "setAttention requires `comment` — the comment carries the reason",
+          suggestion:
+            'Resend with `comment` naming why the task needs attention, e.g. update_task { id, setAttention: true, comment: "<reason>" }.',
+        },
+      };
+    }
+
     // Research tasks cannot carry a verification verdict — same rule as
     // the review gate, but applied to standalone setVerify too. (Single-
     // purpose type check, inlined: the canonical `isResearchType` lives in
@@ -1212,6 +1242,11 @@ export async function updateTask(
     if (attestation.verdict) {
       updates.verified = attestation.clear ? undefined : attestation.value;
     }
+
+    // Needs-attention write (validated above): set writes true, clear
+    // writes false. The store persists a plain boolean (no tri-state).
+    if (input.setAttention === true) updates.needsAttention = true;
+    else if (input.clearAttention === true) updates.needsAttention = false;
 
     // Author attribution on status changes (parity with the CLI --edit path):
     // claiming sets the current identity; other transitions backfill only.

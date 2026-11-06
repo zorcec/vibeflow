@@ -14,6 +14,7 @@ export type {
 export { StatusBadge } from "./StatusBadge";
 export { TypeBadge } from "./TypeBadge";
 export { PriorityBadge } from "./PriorityBadge";
+export { AttentionBadge } from "./AttentionBadge";
 
 // Agent chat panel (ticket 0847833f) — reusable across overlay, kanban, web app.
 export { ChatPanel } from "./ChatPanel";

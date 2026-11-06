@@ -151,6 +151,8 @@ export interface SaasTask {
   branchName?: string | null;
   /** Tri-state agent attestation: true/false = verdict, null/absent = not assessed. */
   verified?: boolean | null;
+  /** Needs-attention flag (ticket 0752d55c): plain boolean on the v0 wire. */
+  needsAttention?: boolean | null;
   /**
    * Parent/relates/blocks links as the v0 wire carries them
    * (`links: [{ taskId, type }]`). Present on reads; the online board CAN
@@ -1053,6 +1055,8 @@ export async function updateSaasTask(
     branchName?: string;
     /** Tri-state attestation: true/false = verdict, null = clear to absent. */
     verified?: boolean | null;
+    /** Needs-attention flag (ticket 0752d55c): plain boolean, sent verbatim. */
+    needsAttention?: boolean;
     /**
      * Whole link set (v0 PATCH `links` replaces). The caller computes the
      * merge (set/replace/clear parent) from the task it read first — the
@@ -1077,6 +1081,8 @@ export async function updateSaasTask(
   if (patch.branchName !== undefined) body.branchName = patch.branchName;
   // Send `null` explicitly to clear — undefined means "no change".
   if (patch.verified !== undefined) body.verified = patch.verified;
+  if (patch.needsAttention !== undefined)
+    body.needsAttention = patch.needsAttention;
   if (patch.links !== undefined) body.links = patch.links;
 
   try {

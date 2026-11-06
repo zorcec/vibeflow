@@ -447,6 +447,13 @@ function normalizeTask(raw: Record<string, unknown>): Task {
       : typeof raw.verified === "boolean"
         ? raw.verified
         : undefined,
+    // Needs-attention flag (ticket 0752d55c): plain boolean, survives
+    // normalization verbatim like any non-tri-state flag — absence means
+    // "not flagged", never a verdict, so no Research exclusion applies.
+    needsAttention:
+      typeof raw.needsAttention === "boolean"
+        ? raw.needsAttention
+        : undefined,
     branchName: raw.branchName ? String(raw.branchName) : undefined,
     baseline:
       raw.baseline && typeof raw.baseline === "object"

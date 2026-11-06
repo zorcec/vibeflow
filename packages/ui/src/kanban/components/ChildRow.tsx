@@ -3,6 +3,7 @@ import type { Task } from "../types";
 import { getStatusColor, shortId } from "../task-links";
 import { TREE_INDENT_PX } from "./tree-constants";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
+import { AttentionBadge } from "../../AttentionBadge";
 import { CopyIdButton } from "./CopyIdButton";
 
 interface ChildRowProps {
@@ -336,6 +337,9 @@ export function ChildRow({
                             visible text stays ellipsis-truncated by
                             `.child-link-title`, the hover reveals everything. */}
                         <span className="child-link-title" title={title}>{title}</span>
+                        {child?.needsAttention === true && (
+                            <AttentionBadge flagged style={{ fontSize: 8 }} />
+                        )}
                         {isInline && (
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
@@ -367,6 +371,9 @@ export function ChildRow({
                         </span>
                         <span className="child-link-info">
                             <span className="child-link-title" title={title}>{title}</span>
+                            {child?.needsAttention === true && (
+                                <AttentionBadge flagged style={{ fontSize: 8 }} />
+                            )}
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
                             >

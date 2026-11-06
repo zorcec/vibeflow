@@ -14,6 +14,7 @@ import {
   diffTaskFields,
   MINIMAL_FIELDS,
   verifyLabel,
+  attentionLabel,
   verifyFoldedIntoStatusMove,
   tagSetKey,
   normalizeTagList,
@@ -126,6 +127,22 @@ describe("diffTaskFields", () => {
     expect(
       diffTaskFields(base({ verified: true }), base({ verified: false })),
     ).toEqual([{ field: "verify", from: "verified", to: "failed" }]);
+  });
+
+  it("diffs a standalone attention change with flagged/clear vocabulary", () => {
+    expect(attentionLabel(true)).toBe("flagged");
+    expect(attentionLabel(false)).toBe("clear");
+    expect(attentionLabel(undefined)).toBe("clear");
+    expect(
+      diffTaskFields(base(), base({ needsAttention: true })),
+    ).toEqual([{ field: "attention", from: "clear", to: "flagged" }]);
+    expect(
+      diffTaskFields(
+        base({ needsAttention: true }),
+        base({ needsAttention: false }),
+      ),
+    ).toEqual([{ field: "attention", from: "flagged", to: "clear" }]);
+    expect(diffTaskFields(base(), base())).toEqual([]);
   });
 
   it("folds branchName into the status entry on the same save", () => {

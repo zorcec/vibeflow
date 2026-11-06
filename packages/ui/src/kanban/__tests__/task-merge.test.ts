@@ -48,6 +48,22 @@ describe("mergeTaskFromPayload — verified semantics", () => {
     expect(result.verified).toBeUndefined();
   });
 
+  it("carries needsAttention=true from the frame (ticket 0752d55c)", () => {
+    const result = mergeTaskFromPayload(
+      { id: "t1", needsAttention: true },
+      baseTask({ needsAttention: false }),
+    );
+    expect(result.needsAttention).toBe(true);
+  });
+
+  it("clears the flag when the frame omits needsAttention", () => {
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task" },
+      baseTask({ needsAttention: true }),
+    );
+    expect(result.needsAttention).toBeUndefined();
+  });
+
   it("claim reset: a frame with no verified key clears a stored true", () => {
     // Claiming a task resets the verdict (verify-attestation.ts).
     const result = mergeTaskFromPayload(
