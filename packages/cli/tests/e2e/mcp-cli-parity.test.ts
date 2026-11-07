@@ -496,20 +496,24 @@ describe("write/shape parity — CLI vs MCP on the same workspace", () => {
       readTaskFromDisk(env.projectDir, kid.id).links ?? [],
     ).toEqual([]);
 
-    // Dangling parent: same TASK_NOT_FOUND code on both surfaces.
+    // Dangling parent: INVALID_LINKS on both surfaces (ticket 180347d6).
+    // A dangling parent is a LINK problem, not a missing-task lookup, so the
+    // code is unified with the hosted/v0 answer instead of each surface
+    // reporting its own. The human wording stays "Parent task not found: …".
     const mcpBad = await callJson(client, "update_task", {
       id: kid.id,
       parent: "deadbeef",
     });
-    expect(mcpBad.error.code).toBe("TASK_NOT_FOUND");
+    expect(mcpBad.error.code).toBe("INVALID_LINKS");
+    expect(mcpBad.error.message).toContain("Parent task not found");
     const cliBad = await runCli(
       ["tasks", "--edit", kid.id, "--set-parent", "deadbeef", "--json"],
       { cwd: env.projectDir, home },
     );
-    // NOT_FOUND exit (3): the refusal carries the same TASK_NOT_FOUND code
+    // GENERAL exit: a link-validation refusal, not a not-found lookup
     // (error envelopes print to stderr — same convention as the gate tests).
-    expect(cliBad.code).toBe(3);
-    expect(JSON.parse(cliBad.stderr).error.code).toBe("TASK_NOT_FOUND");
+    expect(cliBad.code).toBe(1);
+    expect(JSON.parse(cliBad.stderr).error.code).toBe("INVALID_LINKS");
   });
 
   it("fields: compact answers carry exactly the requested keys on both surfaces", async () => {
