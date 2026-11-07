@@ -1337,6 +1337,32 @@ describe("proto serve — deprecated agents API", () => {
     expect(doneData.tasks[0].status).toBe("done");
   });
 
+  it("GET /api/tasks?status= gates on the ROOT status (children ride)", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir: tempDir,
+    });
+    const post = async (body: unknown) => {
+      const r = await fetch(`${instance.url}/api/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return (await r.json()) as { success: boolean; task: { id: string } };
+    };
+    const todoRoot = await post({ title: "Todo root", selector: "/body", status: "todo" });
+    await post({ title: "Done kid of todo", selector: "/body", status: "done", parent: todoRoot.task.id });
+    const doneRoot = await post({ title: "Done root", selector: "/body", status: "done" });
+    await post({ title: "Todo kid of done", selector: "/body", status: "todo", parent: doneRoot.task.id });
+
+    const todoRes = await fetch(`${instance.url}/api/tasks?status=todo`);
+    const todoTitles = ((await todoRes.json()) as { tasks: { title: string }[] }).tasks.map((t) => t.title);
+    expect(todoTitles).toContain("Todo root");
+    expect(todoTitles).toContain("Done kid of todo"); // rides with matched root
+    expect(todoTitles).not.toContain("Done root");
+    expect(todoTitles).not.toContain("Todo kid of done"); // root not in filter
+  });
+
   it("GET /api/tasks?limit= limits results", async () => {
     instance = await serveWithPort(undefined, {
       open: false,

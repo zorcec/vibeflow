@@ -1,5 +1,6 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
+import { getTaskRoot } from "../core/task-listing.js";
 import {
   readFileSync,
   readdirSync,
@@ -331,10 +332,12 @@ function registerTaskApi(
     let tasks = listTasks(projectDir, reads);
     const remoteShas = getRemoteCommitShas(projectDir);
 
-    // Support ?status=<status> query parameter for filtering
+    // Support ?status=<status> query parameter for filtering. Root-status
+    // scoping (ticket 024a3180, extended 9c5499bb): gates on the ROOT's
+    // status so the served board agrees with tasks --status everywhere.
     const statusFilter = req.query.status as string | undefined;
     if (statusFilter && typeof statusFilter === "string") {
-      tasks = tasks.filter((t) => t.status === statusFilter);
+      tasks = tasks.filter((t) => getTaskRoot(tasks, t).status === statusFilter);
     }
 
     // Support ?limit=<n> query parameter for limiting results

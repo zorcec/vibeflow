@@ -235,29 +235,41 @@ export function sortTasksForListing<T extends Task>(tasks: T[]): T[] {
  * Filter + scope + sort + limit in one pass. Pure: takes the store's tasks,
  * returns the labelled answer. Both surfaces must call this (not a copy).
  */
+/**
+ * Root-status scoping (ticket 024a3180, extended 9c5499bb): resolve a
+ * task to its ROOT by walking parent links transitively (25-hop cap,
+ * cycle/missing-parent falls back to self). A status filter gates on
+ * the ROOT's status — children ride with a matched root regardless of
+ * their own status. Shared by queryTaskList AND the local kanban
+ * /api/tasks ?status= param so every surface agrees.
+ */
+export function getTaskRoot<T extends { id: string; links?: unknown }>(
+  all: T[],
+  t: T,
+): T {
+  const byId = new Map(all.map((x) => [x.id, x]));
+  let cur: T | undefined = t;
+  const seen = new Set<string>();
+  for (let i = 0; i < 25; i++) {
+    if (!cur) return t;
+    if (seen.has(cur.id)) return t; // cycle -> fall back to self
+    seen.add(cur.id);
+    const links = Array.isArray((cur as { links?: unknown }).links)
+      ? ((cur as { links?: Array<{ type?: unknown; taskId?: unknown }> }).links ?? [])
+      : [];
+    const link = links.find((l) => l.type === "parent" && typeof l.taskId === "string");
+    if (!link) return cur;
+    const parent = byId.get(link.taskId as string);
+    if (!parent) return cur;
+    cur = parent;
+  }
+  return cur ?? t;
+}
 export function queryTaskList<T extends Task>(
   all: T[],
   query: TaskListQuery,
 ): TaskListResult<T> {
-  // Root-status scoping (ticket 024a3180): a status filter gates on the
-  // ROOT task's status, not the row's own. Children ride with a matched
-  // root regardless of their own status.
-  const byId = new Map(all.map((t) => [t.id, t]));
-  const rootOf = (t: T): T => {
-    let cur: T | undefined = t;
-    const seen = new Set<string>();
-    for (let i = 0; i < 25; i++) {
-      if (!cur) return t;
-      if (seen.has(cur.id)) return t; // cycle -> fall back to self
-      seen.add(cur.id);
-      const link = (cur.links ?? []).find((l: { type?: unknown; taskId?: unknown }) => l.type === "parent" && typeof l.taskId === "string");
-      if (!link) return cur;
-      const parent = byId.get(link.taskId as string);
-      if (!parent) return cur;
-      cur = parent;
-    }
-    return cur ?? t;
-  };
+  const rootOf = (t: T): T => getTaskRoot(all, t);
   let filtered = all;
   if (query.status) {
     filtered = filtered.filter((t) => rootOf(t).status === query.status);
