@@ -1797,6 +1797,7 @@ function BoardApp() {
             onAddTask={(status) => openPanel(null, "details", status)}
             onDrop={handleColumnDrop}
             onChangeStatus={(taskId, status) => patchTask(taskId, { status })}
+            onDetach={detachTaskById}
           />
         ) : (
           <KanbanBoard
@@ -1815,6 +1816,7 @@ function BoardApp() {
             onToggleExpanded={(taskId, expanded) =>
               void setTaskExpanded(taskId, expanded)
             }
+            onDetach={detachTaskById}
             rightInset={boardRightInset}
           />
         )}
