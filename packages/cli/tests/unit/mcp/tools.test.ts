@@ -404,7 +404,7 @@ describe("update_task", () => {
     ]);
   });
 
-  it("parent with a dangling target is refused with TASK_NOT_FOUND", async () => {
+  it("parent with a dangling target is refused with INVALID_LINKS", async () => {
     createTestTask({ id: "task-1" });
 
     const result = await updateTask(ctx, {
@@ -412,7 +412,7 @@ describe("update_task", () => {
       parent: "deadbeef",
     });
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe("TASK_NOT_FOUND");
+    expect(result.error?.code).toBe("INVALID_LINKS");
     expect(readStoredTask("task-1").links).toBeUndefined();
   });
 

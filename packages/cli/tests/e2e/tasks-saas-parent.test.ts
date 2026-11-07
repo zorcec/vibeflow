@@ -11,8 +11,10 @@
  * Id-like flag values are resolved against the online board BEFORE the
  * write: an exact id is used as-is, a unique prefix resolves to the full
  * id, an ambiguous prefix is refused naming the candidates, and an unknown
- * value is refused TASK_NOT_FOUND (the CLI's own code, like the local
- * path) — none of them ever reach the server unresolved. The fake backend
+ * --parent / --set-parent value is refused INVALID_LINKS by the CLI's own
+ * client-side pre-check (a dangling parent is a LINK problem — the same
+ * code the server answers for the same mistake, and the same code the
+ * local path reports) — none of them ever reach the server unresolved. The fake backend
  * below emulates the v0 validation the real server does (parent targets
  * must exist; self-links refused) so the remaining refusal-code assertions
  * (INVALID_LINKS, verbatim) prove the CLI surfaces the backend's own code
@@ -24,7 +26,7 @@
  * mapping removed, the self-link test fails (E_BACKEND_UNAVAILABLE); with
  * the pre-write resolution removed, the prefix tests fail (the raw prefix
  * hits the backend and is refused INVALID_LINKS) and the dangling tests
- * fail (INVALID_LINKS instead of TASK_NOT_FOUND, and a POST/PATCH is sent).
+ * fail (no pre-check code, and a POST/PATCH is sent).
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -259,7 +261,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
     ).toBe(true);
   });
 
-  it("--add --parent with a dangling target is refused TASK_NOT_FOUND before any POST", async () => {
+  it("--add --parent with a dangling target is refused INVALID_LINKS before any POST", async () => {
     const store = freshDir("saas-parent-store-");
     const home = freshDir("saas-parent-home-");
     const { url, requests } = await startFakeBackend();
@@ -276,7 +278,7 @@ describe("tasks --add --parent in SaaS mode is honoured", () => {
       error: { code: string; message: string };
     };
     expect(envelope.ok).toBe(false);
-    expect(envelope.error.code).toBe("TASK_NOT_FOUND");
+    expect(envelope.error.code).toBe("INVALID_LINKS");
     expect(envelope.error.message).toContain("ghost");
     // Resolved BEFORE the online request: no POST was attempted.
     expect(postBodies(requests)).toEqual([]);
@@ -384,7 +386,7 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
     expect(tasks.get("3b8f9d12dd04")!.links).toEqual([{ taskId: "7d1e0b55cc03", type: "relates" }]);
   });
 
-  it("--set-parent with a dangling target is refused TASK_NOT_FOUND and sends no PATCH", async () => {
+  it("--set-parent with a dangling target is refused INVALID_LINKS and sends no PATCH", async () => {
     const store = freshDir("saas-parent-store-");
     const home = freshDir("saas-parent-home-");
     const { url, requests, tasks } = await startFakeBackend();
@@ -401,7 +403,7 @@ describe("tasks --edit --set-parent/--no-parent in SaaS mode is honoured", () =>
       error: { code: string; message: string };
     };
     expect(envelope.ok).toBe(false);
-    expect(envelope.error.code).toBe("TASK_NOT_FOUND");
+    expect(envelope.error.code).toBe("INVALID_LINKS");
     expect(envelope.error.message).toContain("ghost");
     // Resolved BEFORE the online request: no PATCH was attempted and the
     // old parent still stands.

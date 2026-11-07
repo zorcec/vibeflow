@@ -592,10 +592,10 @@ export async function createTask(
     const allTasks = await store.listTasks(ctx.projectDir);
 
     // Resolve `parent` (full id or unique prefix) to a parent link, matching
-    // the wording the --set-parent path emits. The code differs from the
-    // CLI's TASK_NOT_FOUND for the same situation (pre-existing, and out of
-    // scope to change on a wire an existing consumer may parse) — but the
-    // RECOVERY text must not depend on which surface refused.
+    // the wording the --set-parent path emits. A dangling parent is a LINK
+    // problem, so the code is INVALID_LINKS — the same code the CLI and the
+    // hosted backend answer for the same mistake — while the RECOVERY text
+    // stays surface-neutral so callers learn it once and apply it everywhere.
     let parentLink: TaskLink | undefined;
     if (input.parent) {
       const parentTask = await store.getTask(ctx.projectDir, input.parent);
@@ -603,7 +603,7 @@ export async function createTask(
         return {
           ok: false,
           error: {
-            code: "CREATE_TASK_ERROR",
+            code: "INVALID_LINKS",
             message: `Parent task not found: ${input.parent}`,
             suggestion: `The parent task does not exist — drop \`parent\` to create a root task, or pass an id from list_tasks (MCP) / 'vibeflow tasks' (CLI)`,
           },
@@ -1169,7 +1169,10 @@ export async function updateTask(
             return {
               ok: false,
               error: {
-                code: "TASK_NOT_FOUND",
+                // A dangling parent is a LINK problem: INVALID_LINKS on
+                // every surface — never TASK_NOT_FOUND, which is reserved
+                // for addressing a task that does not exist.
+                code: "INVALID_LINKS",
                 message: `Parent task not found: ${input.parent}`,
                 suggestion: TASK_NOT_FOUND_SUGGESTION,
               },
@@ -1189,7 +1192,8 @@ export async function updateTask(
               code: applied.code,
               message: applied.reason,
               suggestion:
-                applied.code === "TASK_NOT_FOUND"
+                applied.code === "TASK_NOT_FOUND" ||
+                applied.code === "INVALID_LINKS"
                   ? TASK_NOT_FOUND_SUGGESTION
                   : "The parent link was refused as invalid — fix what the message names and resend. Existing links are untouched by a refused set.",
             },

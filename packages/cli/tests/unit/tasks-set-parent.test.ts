@@ -35,7 +35,10 @@ describe("buildSetParentLinks (--set-parent)", () => {
       parentId: "missing",
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("Parent task not found");
+    if (!result.ok) {
+      expect(result.reason).toContain("Parent task not found");
+      expect(result.code).toBe("INVALID_LINKS");
+    }
   });
 
   it("replaces an existing parent with a different one", () => {

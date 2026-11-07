@@ -88,6 +88,7 @@ describe("createTask parent link", () => {
     });
 
     expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("INVALID_LINKS");
     expect(res.error?.message).toBe("Parent task not found: deadbeefdeadbeef");
   });
 

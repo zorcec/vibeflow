@@ -77,7 +77,7 @@ describe("create with parent — MCP + HTTP parity", () => {
       }),
     );
     expect(bad.ok).toBe(false);
-    expect(bad.error.code).toBe("CREATE_TASK_ERROR");
+    expect(bad.error.code).toBe("INVALID_LINKS");
     expect(bad.error.message).toBe("Parent task not found: deadbeefdeadbeef");
   });
 

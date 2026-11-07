@@ -706,7 +706,7 @@ describe("create_task parent", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe("CREATE_TASK_ERROR");
+    expect(result.error?.code).toBe("INVALID_LINKS");
     expect(result.error?.message).toBe("Parent task not found: deadbeef");
     expect(snapshotTaskStore()).toEqual(before);
   });

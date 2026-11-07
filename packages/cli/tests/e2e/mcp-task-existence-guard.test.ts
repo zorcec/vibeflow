@@ -221,10 +221,10 @@ const REACHABLE_REFUSALS: Array<
   },
   {
     group: "recovery",
-    label: "CREATE_TASK_ERROR (a parent that does not exist)",
+    label: "INVALID_LINKS (a parent that does not exist)",
     tool: "create_task",
     input: () => ({ title: "Orphan", parent: IMPOSSIBLE_ID }),
-    code: "CREATE_TASK_ERROR",
+    code: "INVALID_LINKS",
   },
   {
     group: "recovery",

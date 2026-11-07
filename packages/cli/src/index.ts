@@ -3192,8 +3192,12 @@ program
             // prefix must name the task it means (exact id wins, a unique
             // prefix resolves, anything else is refused here) so a
             // user-supplied prefix is never passed through to the server
-            // unresolved. A dangling target is the CLI's own TASK_NOT_FOUND
-            // refusal, not the server's INVALID_LINKS. Detail-first: a FULL
+            // unresolved. A dangling target is refused here with
+            // INVALID_LINKS — a dangling parent is a LINK problem, so the
+            // CLI's client-side pre-check (better message, no round trip)
+            // reports the same code the server answers for the same
+            // mistake (and the same code every other surface reports).
+            // Detail-first: a FULL
             // parent id hits one GET and never enumerates the board; only
             // a 404 falls back to ONE listing for prefix resolution.
             let addLinks: Array<{ taskId: string; type: string }> | undefined;
@@ -3260,7 +3264,7 @@ program
                     if (opts.json) {
                       outputEnvelope({
                         ok: false,
-                        code: "TASK_NOT_FOUND",
+                        code: "INVALID_LINKS",
                         message: addParentMessage,
                         suggestion:
                           "Run 'vibeflow tasks' to see available task IDs.",
@@ -3274,7 +3278,7 @@ program
                         ),
                       );
                     }
-                    process.exitCode = ExitCode.NOT_FOUND;
+                    process.exitCode = ExitCode.GENERAL;
                   } else {
                     if (opts.json) {
                       outputEnvelope({
@@ -3594,7 +3598,11 @@ program
                 if (opts.json) {
                   outputEnvelope({
                     ok: false,
-                    code: "TASK_NOT_FOUND",
+                    // A dangling parent is a LINK problem: INVALID_LINKS on
+                    // every surface (same code the hosted backend and the
+                    // MCP path answer for the same mistake). Wording stays
+                    // human-friendly; only the code is unified.
+                    code: "INVALID_LINKS",
                     message: `Parent task not found: ${rawParent}`,
                     suggestion: "Run 'vibeflow tasks' to see available task IDs.",
                     json: opts.json,
@@ -3605,7 +3613,7 @@ program
                     chalk.dim("  Run 'vibeflow tasks' to see available task IDs."),
                   );
                 }
-                process.exitCode = ExitCode.NOT_FOUND;
+                process.exitCode = ExitCode.GENERAL;
               }
               return;
             }
@@ -4948,10 +4956,12 @@ program
           // against the online board BEFORE the PATCH — exact id wins, a
           // unique prefix resolves, anything else is refused here — so a
           // user-supplied prefix is never passed through unresolved. A
-          // dangling target is the CLI's own TASK_NOT_FOUND refusal (the
-          // same code the local path answers), not the server's
-          // INVALID_LINKS; cycle validation still lives server-side and
-          // its INVALID_LINKS code is surfaced verbatim below.
+          // dangling --set-parent target is refused here with INVALID_LINKS
+          // (a dangling parent is a LINK problem — the same code the local
+          // path and the server answer for the same mistake); other link
+          // flags keep their existing codes. Cycle validation still lives
+          // server-side and its INVALID_LINKS code is surfaced verbatim
+          // below.
           const wantsLinkChange =
             wantsParentChange ||
             (opts.relates?.length ?? 0) > 0 ||
@@ -5011,7 +5021,8 @@ program
             // Resolve every id-taking link flag (--set-parent/--relates/
             // --blocks/--unrelates/--unblocks) against the same source
             // the PATCH writes to. Refusals mirror the local path's
-            // wording and codes (TASK_NOT_FOUND naming the value,
+            // wording and codes (INVALID_LINKS for a dangling --set-parent
+            // target, TASK_NOT_FOUND naming the value for the other flags,
             // E_AMBIGUOUS naming the candidates, E_USAGE for a self-link).
             // Link targets resolve against the board listing fetched once
             // for the --edit target above — no second listing read, so the
@@ -5037,7 +5048,9 @@ program
               process.exitCode =
                 code === "TASK_NOT_FOUND"
                   ? ExitCode.NOT_FOUND
-                  : ExitCode.USAGE;
+                  : code === "INVALID_LINKS"
+                    ? ExitCode.GENERAL
+                    : ExitCode.USAGE;
               return null;
             };
             const resolveLinkTarget = (
@@ -5052,7 +5065,7 @@ program
                     ? `Parent task not found: ${raw}`
                     : `Task ${raw} not found`;
                 return refuseLinkTarget(
-                  resolved.code,
+                  flag === "--set-parent" ? "INVALID_LINKS" : resolved.code,
                   message,
                   "Run 'vibeflow tasks' to see available task IDs.",
                 );
@@ -5768,6 +5781,14 @@ program
                 rawParent,
               );
               if (!setParentResolved.ok) {
+                // A dangling parent is a LINK problem: INVALID_LINKS on
+                // every surface (same code the hosted backend and the MCP
+                // path answer for the same mistake). Wording stays
+                // human-friendly; only the code is unified.
+                const setParentCode =
+                  setParentResolved.code === "TASK_NOT_FOUND"
+                    ? "INVALID_LINKS"
+                    : setParentResolved.code;
                 const setParentSuggestion =
                   setParentResolved.code === "TASK_NOT_FOUND"
                     ? "Run 'vibeflow tasks' to see available task IDs."
@@ -5779,7 +5800,7 @@ program
                 if (opts.json) {
                   outputEnvelope({
                     ok: false,
-                    code: setParentResolved.code,
+                    code: setParentCode,
                     message: setParentMessage,
                     suggestion: setParentSuggestion,
                     json: opts.json,
@@ -5789,9 +5810,11 @@ program
                   console.log(chalk.dim(`  ${setParentSuggestion}`));
                 }
                 process.exitCode =
-                  setParentResolved.code === "TASK_NOT_FOUND"
-                    ? ExitCode.NOT_FOUND
-                    : ExitCode.USAGE;
+                  setParentCode === "INVALID_LINKS"
+                    ? ExitCode.GENERAL
+                    : setParentResolved.code === "TASK_NOT_FOUND"
+                      ? ExitCode.NOT_FOUND
+                      : ExitCode.USAGE;
                 return;
               }
               const resolvedParentId = setParentResolved.id;
@@ -5804,7 +5827,8 @@ program
                 // The producer knows why it refused — pass its code straight
                 // through instead of re-deriving one from the reason string.
                 const appliedSuggestion =
-                  applied.code === "TASK_NOT_FOUND"
+                  applied.code === "TASK_NOT_FOUND" ||
+                  applied.code === "INVALID_LINKS"
                     ? "Run 'vibeflow tasks' to see available task IDs."
                     : undefined;
                 if (opts.json) {
@@ -5826,7 +5850,9 @@ program
                 process.exitCode =
                   applied.code === "TASK_NOT_FOUND"
                     ? ExitCode.NOT_FOUND
-                    : ExitCode.USAGE;
+                    : applied.code === "INVALID_LINKS"
+                      ? ExitCode.GENERAL
+                      : ExitCode.USAGE;
                 return;
               }
               updates.links = applied.links;

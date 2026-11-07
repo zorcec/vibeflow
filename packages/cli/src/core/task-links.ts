@@ -102,8 +102,13 @@ export function buildSetParentLinks({
   if (!allTasks.some((t) => t.id === parentId))
     return {
       ok: false,
+      // A dangling parent is a LINK problem: INVALID_LINKS on every
+      // surface (CLI, local MCP, hosted) — never TASK_NOT_FOUND, which is
+      // reserved for addressing a task that does not exist. Only the
+      // parent-missing branch carries this code; the task-missing branch
+      // above stays TASK_NOT_FOUND.
       reason: `Parent task not found: ${parentId}`,
-      code: "TASK_NOT_FOUND",
+      code: "INVALID_LINKS",
     };
 
   // Validate against the post-swap state (existing parent stripped first)

@@ -365,7 +365,7 @@ describe("tasks --json refusals carry a code on stderr", () => {
     expectRefusal(r, "TASK_NOT_FOUND");
   });
 
-  it("TASK_NOT_FOUND — --add with a dangling --parent", async () => {
+  it("INVALID_LINKS — --add with a dangling --parent", async () => {
     const store = freshDir("json-refusal-store-");
     const home = freshDir("json-refusal-home-");
     const r = await spawnCli(
@@ -381,11 +381,11 @@ describe("tasks --json refusals carry a code on stderr", () => {
       ],
       { cwd: store, home },
     );
-    const envelope = expectRefusal(r, "TASK_NOT_FOUND");
+    const envelope = expectRefusal(r, "INVALID_LINKS");
     expect(envelope.error.message).toContain("Parent task not found");
   });
 
-  it("TASK_NOT_FOUND — --set-parent pointing at a task that does not exist", async () => {
+  it("INVALID_LINKS — --set-parent pointing at a task that does not exist", async () => {
     const store = freshDir("json-refusal-store-");
     const home = freshDir("json-refusal-home-");
     const id = await addTask(store, home, "Needs a parent");
@@ -394,7 +394,7 @@ describe("tasks --json refusals carry a code on stderr", () => {
       ["tasks", store, "--edit", id, "--set-parent", "deadbeefdeadbeef", "--json"],
       { cwd: store, home },
     );
-    const envelope = expectRefusal(r, "TASK_NOT_FOUND");
+    const envelope = expectRefusal(r, "INVALID_LINKS");
     expect(envelope.error.message).toContain("Parent task not found");
   });
 
