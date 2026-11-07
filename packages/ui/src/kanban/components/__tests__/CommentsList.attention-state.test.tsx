@@ -192,7 +192,11 @@ describe("reason comment tint", () => {
     }
   });
 
-  it("falls back to the latest surviving comment when the link is absent (older records / online)", () => {
+  it("tints nothing when the link is absent — the proxy never paints (ryqew9bv7ae6b2j6eankkxkb)", () => {
+    // Owner rule: no link → no tint, even though the latest-comment proxy
+    // still resolves a reason for the derived row below. The proxy tinted
+    // the newest plain comment (the reported bug); now the amber lives
+    // only on the flag row until a linked reason exists.
     const { container } = renderFeed({
       comments: [
         comment({ id: "c-old", text: "Earlier note.", createdAt: "2026-10-16T09:00:00.000Z" }),
@@ -200,9 +204,10 @@ describe("reason comment tint", () => {
       ],
       needsAttention: true,
     });
-    const tinted = container.querySelectorAll('[data-attention="reason"]');
-    expect(tinted).toHaveLength(1);
-    expect(tinted[0]?.getAttribute("data-comment-id")).toBe("c-new");
+    expect(container.querySelector('[data-attention="reason"]')).toBeNull();
+    expect(
+      container.querySelectorAll('[data-activity="attention-change"]'),
+    ).toHaveLength(1);
   });
 
   it("tints nothing when the linked comment is gone (no invented reason)", () => {
@@ -228,6 +233,7 @@ describe("reason comment tint", () => {
         comment({ id: "c-reason", text: "Blocked: awaiting tokens.", createdAt: "2026-10-16T10:00:00.000Z" }),
       ],
       needsAttention: true,
+      attentionReasonId: "c-reason",
     });
     const tinted = container.querySelectorAll('[data-attention="reason"]');
     expect(tinted).toHaveLength(1);

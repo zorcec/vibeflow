@@ -388,9 +388,12 @@ interface Props {
   /**
    * Id of the comment carrying the attention reason (ticket 0752d55c,
    * reason-link fix): the task record stores the created reason comment's
-   * id when the flag is set. The feed tints that exact comment; only when
-   * the field is absent (older records / online rows that predate the
-   * link) does it fall back to the `attentionReasonComment` proxy below.
+   * id when the flag is set. The feed tints that exact comment and ONLY
+   * that comment (ticket ryqew9bv7ae6b2j6eankkxkb) — when the field is
+   * absent (older records that predate the link) nothing tints and the
+   * amber lives only on the derived attention change row. The
+   * `attentionReasonComment` proxy below still places that row; it never
+   * paints a comment.
    */
   attentionReasonId?: string | null;
   loading: boolean;
@@ -425,14 +428,17 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
 
   // The reason comment when the flag is set (ticket 0752d55c, cold-load
   // gap + reason-link fix): prefer the exact `attentionReasonId` the
-  // set-attention write stored — the tint lands on the true reason even
-  // when newer plain comments arrived after it. Only when the field is
-  // absent (older records / online rows that predate the link) fall back
-  // to the latest-normal-comment proxy the claim alert reads. Used for
-  // the derived row's placement/actor and for the amber tint below. Null
-  // unless the flag is on — an unflagged task never tints a comment.
-  // A linked id whose comment is gone (deleted/history) resolves to null
-  // — no invented reason — while the flag-only row still renders.
+  // set-attention write stored — the derived row sorts with the true
+  // reason even when newer plain comments arrived after it. Only when
+  // the field is absent (older records that predate the link) fall back
+  // to the latest-normal-comment proxy the claim alert reads. Used ONLY
+  // for the derived row's placement/actor — never for the amber tint
+  // (ticket ryqew9bv7ae6b2j6eankkxkb: the tint reads the exact linked id
+  // straight from the prop, so a proxy guess can never paint a plain
+  // comment yellow). Null unless the flag is on — an unflagged task
+  // never tints a comment. A linked id whose comment is gone
+  // (deleted/history) resolves to null — no invented reason — while the
+  // flag-only row still renders.
   const reasonComment = React.useMemo(() => {
     if (needsAttention !== true) return null;
     if (
@@ -691,7 +697,11 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
                   : flashedKeys.has(itemKey)
                     ? 'activity-flash'
                     : '';
-                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup, reasonComment?.id ?? null);
+                // Owner rule (ticket ryqew9bv7ae6b2j6eankkxkb): the amber tint
+              // reads ONLY the exact linked id — never the resolved
+              // `reasonComment` (which still falls back to the proxy for
+              // the derived row's placement/actor). No link → no tint.
+              return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup, attentionReasonId);
               })}
             </div>
           </div>
@@ -773,8 +783,9 @@ function renderActivityItem(
   onFilePreview?: (name: string, url: string) => void,
   onFileDownload?: (name: string, url: string) => void,
   taskLookup?: (id: string) => { title: string; status: string } | undefined,
-  /** Id of the comment carrying the attention reason (null when the flag
-      is off or no comment qualifies) — that card earns the amber wash. */
+  /** Exact id of the comment carrying the attention reason (null when the
+      flag is off or no link is stored) — only that card earns the amber
+      wash (ticket ryqew9bv7ae6b2j6eankkxkb: never a proxy guess). */
   attentionReasonId?: string | null,
 ): React.ReactNode {
   if (item.kind === 'lifecycle') {
