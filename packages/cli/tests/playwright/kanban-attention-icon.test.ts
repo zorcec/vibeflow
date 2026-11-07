@@ -117,6 +117,10 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     writeTaskJson(tempDir, {
       ...preFlagged,
       needsAttention: true,
+      // ryqew9bv: the feed tints ONLY the comment the set-attention write
+      // linked. A flagged task without this id tints nothing (no guessing
+      // at "the latest comment"), so the fixture carries the real link.
+      attentionReasonId: "c-cold-reason",
       comments: [
         {
           id: "c-cold-reason",
