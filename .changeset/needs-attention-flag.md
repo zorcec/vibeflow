@@ -1,3 +1,4 @@
+<!-- highlight -->
 ---
 "@vibeflow-tools/cli": patch
 "@vibeflow-tools/api-core": patch
