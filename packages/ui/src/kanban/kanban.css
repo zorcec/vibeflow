@@ -1042,31 +1042,33 @@ body.proto-resizing-panel {
   transform: scale(1);
  }
 }
-/* Needs-attention breathe (0752d55c restyle, round 2): the bell icon
-   carries a light box-shadow breathe so a flagged task catches the eye
-   without shouting. One notch MORE visible than the original (0.28 peak
-   alpha, 6px spread — owner call: the first pass was too faint), still
-   much fainter than away-glow (14px/0.45) — amber to match the glyph.
-   CSS-only, no JS timers: the shared .attention-indicator class puts the
-   same animation on the card, the child row and the detail header. Static
-   under prefers-reduced-motion, following the activity-row pattern below. */
+/* Needs-attention breathe (0752d55c restyle, round 2; e54b341e glow-only
+   retarget): the bell SVG itself breathes an amber glow — glow radius
+   and alpha rise and fall smoothly while the glyph stays fully opaque.
+   The earlier wrapper-level opacity dip (down to 0.45) read as a flicker
+   pulse, not a breath, so the keyframes no longer touch opacity at all.
+   Slow ~3s ease-in-out, no scale, no colour shift off amber.
+   CSS-only, no JS timers: the single shared `.attention-indicator svg`
+   rule puts the same animation on the card, the child row and the detail
+   header (all three render AttentionBadge). Static under
+   prefers-reduced-motion, following the activity-row pattern below. */
 @keyframes attention-breathe {
  0%,
  100% {
-  opacity: 1;
   filter: drop-shadow(0 0 0 rgba(245, 158, 11, 0));
  }
  50% {
-  opacity: 0.45;
-  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.55));
+  filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.5));
  }
 }
 .attention-indicator {
  border-radius: 50%;
- animation: attention-breathe 2s ease-in-out infinite;
+}
+.attention-indicator svg {
+ animation: attention-breathe 3s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
- .attention-indicator {
+ .attention-indicator svg {
   animation: none;
   opacity: 1;
   filter: none;

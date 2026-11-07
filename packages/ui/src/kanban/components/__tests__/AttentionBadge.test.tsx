@@ -94,7 +94,7 @@ describe("AttentionBadge", () => {
     expectNoPillText(container);
   });
 
-  it("pins the breathe animation in kanban.css (faint, reduced-motion static)", () => {
+  it("pins the breathe animation in kanban.css (glow-only, reduced-motion static)", () => {
     // jsdom never applies the stylesheet, so the animation contract is
     // pinned by reading the CSS — same approach as the row lane-dot box
     // pin in TaskCard.leading-slot.test.tsx. The Playwright spec pins the
@@ -104,19 +104,31 @@ describe("AttentionBadge", () => {
       "utf-8",
     );
     const keyframes = css.match(/@keyframes attention-breathe[\s\S]*?\n\}/);
-    // e25639f (owner: first passes too faint live): an opacity dip plus
-    // an amber drop-shadow glow instead of the faint box-shadow spread.
-    expect(keyframes?.[0]).toContain("opacity: 0.45");
+    // e54b341e (owner: the wrapper fade read as a flicker pulse, not a
+    // breath): the glow itself breathes on the bell svg — drop-shadow
+    // radius/alpha rise and fall while the glyph stays fully opaque. The
+    // keyframes must not animate opacity at all.
+    expect(keyframes?.[0]).not.toMatch(/opacity/);
     expect(keyframes?.[0]).toContain(
-      "drop-shadow(0 0 4px rgba(245, 158, 11, 0.55))",
+      "drop-shadow(0 0 5px rgba(245, 158, 11, 0.5))",
     );
-    const rule = css.match(/\.attention-indicator \{[\s\S]*?\}/);
+    expect(keyframes?.[0]).toContain(
+      "drop-shadow(0 0 0 rgba(245, 158, 11, 0))",
+    );
+    // The animation is declared on the svg, not the wrapper: one shared
+    // rule covers the card, the child row and the detail header (all
+    // three render AttentionBadge).
+    const rule = css.match(/\.attention-indicator svg \{[\s\S]*?\}/);
     expect(rule?.[0]).toContain("attention-breathe");
-    expect(rule?.[0]).toMatch(/2s ease-in-out infinite/);
+    expect(rule?.[0]).toMatch(/3s ease-in-out infinite/);
+    const wrapperRule = css.match(/\.attention-indicator \{[\s\S]*?\}/);
+    expect(wrapperRule?.[0]).not.toContain("animation");
     const reduced = css.match(
-      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.attention-indicator[\s\S]*?\}/,
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.attention-indicator svg[\s\S]*?\}/,
     );
     expect(reduced?.[0]).toContain("animation: none");
+    expect(reduced?.[0]).toContain("opacity: 1");
+    expect(reduced?.[0]).toContain("filter: none");
   });
 
   it("sizes the glyph to the neighbouring slot (11 card, 10 tree row)", () => {

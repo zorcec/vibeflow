@@ -211,13 +211,20 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     // Icon variant: a glyph, zero pill text.
     expect(probe.hasSvg).toBe(true);
     expect(probe.text).toBe("");
-    // Breathing hook: the shared class drives the CSS-only pulse (real
-    // browser computes the keyframes; unit pins the stylesheet itself).
-    const animationName = await page.$eval(
+    // Breathing hook: the shared class drives the CSS-only glow on the
+    // bell svg itself (real browser computes the keyframes; unit pins
+    // the stylesheet itself). e54b341e: the wrapper carries NO animation
+    // — the opacity dip there read as a flicker pulse, not a breath.
+    const wrapperAnimation = await page.$eval(
       sel,
       (el) => getComputedStyle(el).animationName,
     );
-    expect(animationName).toContain("attention-breathe");
+    expect(wrapperAnimation).not.toContain("attention-breathe");
+    const svgAnimation = await page.$eval(
+      `${sel} svg`,
+      (el) => getComputedStyle(el).animationName,
+    );
+    expect(svgAnimation).toContain("attention-breathe");
   });
 
   it("child row renders the bell icon alongside the leading slot", async () => {
@@ -313,14 +320,62 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await panelOpen;
     const sel = `#dp-attention-row [data-attention-state="flagged"]`;
     await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
-    // The header bell rides the same CSS-only pulse as the card bell —
+    // The header bell rides the same CSS-only glow as the card bell —
     // real browser computes the keyframes (unit pins the stylesheet).
-    const animationName = await page.$eval(
+    // e54b341e: the animation lives on the svg, not the wrapper.
+    const wrapperAnimation = await page.$eval(
       sel,
       (el) => getComputedStyle(el).animationName,
     );
-    expect(animationName).toContain("attention-breathe");
+    expect(wrapperAnimation).not.toContain("attention-breathe");
+    const svgAnimation = await page.$eval(
+      `${sel} svg`,
+      (el) => getComputedStyle(el).animationName,
+    );
+    expect(svgAnimation).toContain("attention-breathe");
     await page.click("#dp-close");
+  });
+
+  it("bell glow breathes on the svg while the glyph stays opaque (e54b341e)", async () => {
+    // Minimalistic breathing glow: the amber drop-shadow on the bell svg
+    // swells and fades over the ~3s cycle while the glyph itself never
+    // dims (regression guard against re-introducing the wrapper opacity
+    // fade). Samples computed filter/opacity at several timestamps — the
+    // filter must vary across the cycle, the opacity must stay > 0.9.
+    const sel = `article.task-card[data-task-id="${rootTaskId}"] [data-attention-state="flagged"] svg`;
+    await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
+    const samples: Array<{ filter: string; opacity: string }> = [];
+    for (let i = 0; i < 7; i++) {
+      samples.push(
+        await page.$eval(sel, (el) => ({
+          filter: getComputedStyle(el).filter,
+          opacity: getComputedStyle(el).opacity,
+        })),
+      );
+      await page.waitForTimeout(500);
+    }
+    for (const sample of samples) {
+      expect(parseFloat(sample.opacity)).toBeGreaterThan(0.9);
+    }
+    expect(new Set(samples.map((s) => s.filter)).size).toBeGreaterThan(1);
+  });
+
+  it("reduced motion parks the bell static: no animation, no glow", async () => {
+    const sel = `article.task-card[data-task-id="${rootTaskId}"] [data-attention-state="flagged"] svg`;
+    await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    try {
+      const probe = await page.$eval(sel, (el) => ({
+        animation: getComputedStyle(el).animationName,
+        filter: getComputedStyle(el).filter,
+        opacity: getComputedStyle(el).opacity,
+      }));
+      expect(probe.animation).toBe("none");
+      expect(probe.filter).toBe("none");
+      expect(probe.opacity).toBe("1");
+    } finally {
+      await page.emulateMedia({ reducedMotion: "no-override" });
+    }
   });
 
   it("external set-attention tints the flag row and shows the reason live", async () => {
