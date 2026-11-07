@@ -4,12 +4,8 @@
 // ~/.vibeflow/hooks/update_task.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
 const LINES_TEXT = [
-  "  CRITICAL: NEVER set a task status to \"done\".",
-  "    When your implementation is complete, set the status to \"review\" — not \"done\".",
-  "    Only humans can mark tasks as done after reviewing the work.",
-  "    The CLI will warn you and still allow the change — but agents must not use it.",
-  "  CRITICAL: NEVER edit .vibeflow/ task files directly.",
-  "    All task operations (status, comments, commits) must go through CLI commands.",
+  "  CRITICAL: NEVER set status \"done\" — when complete set \"review\". Only humans mark done (the CLI warns but still allows it — never use it).",
+  "  CRITICAL: NEVER edit .vibeflow/ task files directly — all task ops go through CLI commands.",
 ];
 const TEXT = LINES_TEXT.join("\n");
 let input = "";

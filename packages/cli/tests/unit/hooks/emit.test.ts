@@ -249,7 +249,7 @@ describe("emitAfterHook", () => {
       { ...(shippedOpts() as { home: string; shippedDir: string }), env: { ...BASE_ENV } },
     );
     expect(out).toHaveLength(1);
-    expect(out[0]).toContain('NEVER set a task status to "done"');
+    expect(out[0]).toContain('NEVER set status "done"');
   });
 
   it("a shipped file that symlinks out is refused (HOOK_SHIPPED_ESCAPED), not trusted", async () => {
@@ -443,7 +443,7 @@ describe("module peers (kept from v1, flat names)", () => {
     expect(stderr).toContain("HOOK_CONFIG_CONFLICT");
     // No shipped-default fallback either: the unconditional update text
     // must not ride along after a conflict.
-    expect(stderr).not.toContain('NEVER set a task status to "done"');
+    expect(stderr).not.toContain('NEVER set status "done"');
   });
 
   it("a failing module hook never falls back to a lower level (single spawn, no retry)", async () => {

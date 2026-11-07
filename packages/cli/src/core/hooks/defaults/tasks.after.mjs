@@ -4,35 +4,23 @@
 // ~/.vibeflow/hooks/tasks.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
 const LINES_TASK_CLAIM = [
-  "  Workflow:",
-  "    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:",
-  "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST",
-  "       (if you used --next: task is already in-progress — skip to step 2)",
+  "  Workflow: claim FIRST, then implement:",
+  "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST (--next already claimed: skip to step 2)",
   "    2. <implement the change>",
-  "  BLOCKED? If a task is unclear or missing context:",
-  "    vibeflow tasks --edit <id> --comment \"Blocked: <reason>. Need: <what is needed>.\"",
-  "    Then pick the next task: vibeflow tasks --next",
-  "    Do not guess at unclear requirements — leave a comment and move on.",
-  "  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.",
-  "    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.",
-  "    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
+  "  BLOCKED (unclear/missing context)? → vibeflow tasks --edit <id> --set-attention --comment \"Blocked: <reason>. Need: <what>.\" — badge + feed keep it visible; then vibeflow tasks --next. Never guess.",
+  "  CRITICAL: claim BEFORE reading/planning — unclaimed work gets duplicated.",
+  "    Sequence: discover → pick → claim → THEN read/implement.",
 ];
 
 const LINES_TASK_UPDATE = [
-  "  CRITICAL: NEVER set a task status to \"done\".",
-  "    When your implementation is complete, set the status to \"review\" — not \"done\".",
-  "    Only humans can mark tasks as done after reviewing the work.",
-  "    The CLI will warn you and still allow the change — but agents must not use it.",
-  "  CRITICAL: NEVER edit .vibeflow/ task files directly.",
-  "    All task operations (status, comments, commits) must go through CLI commands.",
+  "  CRITICAL: NEVER set status \"done\" — when complete set \"review\". Only humans mark done (the CLI warns but still allows it — never use it).",
+  "  CRITICAL: NEVER edit .vibeflow/ task files directly — all task ops go through CLI commands.",
 ];
 
 const LINES_TASK_COMMENT = [
-  "  Comment format (--comment):",
-  "    · Plain text for concise one-liners.",
-  "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
-  "    · Must cover: what changed, why, key decisions, anything future agents should know.",
-  "    · For long reports, attach a .md file and reference it in the comment.",
+  "  Comment format: plain text for one-liners; Markdown (**bold**, lists, fences) for reports.",
+  "    Cover: what changed, why, key decisions, what future agents need.",
+  "    Long reports: attach a .md and reference it in the comment.",
 ];
 const TEXTS = {
   "task.claim": LINES_TASK_CLAIM.join("\n"),

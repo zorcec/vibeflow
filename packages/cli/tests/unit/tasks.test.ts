@@ -1832,7 +1832,7 @@ describe("renderAgentInstructions", () => {
     expect(output).toContain("Workflow:");
     expect(output).toContain("in-progress");
     expect(output).toContain("NEVER edit .vibeflow/");
-    expect(output).toContain('NEVER set a task status to "done"');
+    expect(output).toContain('NEVER set status "done"');
   });
 
   it("includes auto-commit step 3/4 when autoCommit is true", () => {
@@ -1877,9 +1877,9 @@ describe("renderAgentInstructions", () => {
       hasResearchTasks: false,
       autoComment: true,
     });
-    expect(output).toContain("Comment format (--comment):");
-    expect(output).toContain("Plain text for concise");
-    expect(output).toContain("Markdown for multi-section");
+    expect(output).toContain("Comment format:");
+    expect(output).toContain("plain text for one-liners");
+    expect(output).toContain("Markdown (**bold**, lists, fences)");
   });
 
   it("excludes Comment format section when autoComment is false", () => {
@@ -1887,7 +1887,7 @@ describe("renderAgentInstructions", () => {
       hasResearchTasks: false,
       autoComment: false,
     });
-    expect(output).not.toContain("Comment format (--comment):");
+    expect(output).not.toContain("Comment format:");
   });
 
   it("includes Auto-push setting when autoPush is true", () => {
@@ -1990,7 +1990,7 @@ describe("renderAgentInstructions", () => {
     expect(output).toContain("Create branch ON");
     expect(output).toContain("Research tasks:");
     expect(output).toContain("Bug tasks:");
-    expect(output).toContain("Comment format (--comment):");
+    expect(output).toContain("Comment format:");
   });
 
   it("includes Verify gate setting when requireVerifyBeforeReview is true", () => {

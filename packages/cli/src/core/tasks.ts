@@ -1812,9 +1812,9 @@ export function renderAgentInstructions(opts: {
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  Workflow:");
   if (createBranch) {
+    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
+    lines.push("  Workflow:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    ⚠ Create a branch FIRST, before any implementation:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -1837,16 +1837,10 @@ export function renderAgentInstructions(opts: {
     lines.push("    3. <implement the change>");
   } else {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(
-      "    ⚠ IMMEDIATELY set in-progress BEFORE any implementation work:",
-    );
+    lines.push("  Workflow: claim FIRST, then implement:");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST",
-    );
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push(
-      "       (if you used --next: task is already in-progress — skip to step 2)",
+      "    1. vibeflow tasks --edit <id> --set-status in-progress  ← DO THIS FIRST (--next already claimed: skip to step 2)",
     );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("    2. <implement the change>");
@@ -1864,82 +1858,24 @@ export function renderAgentInstructions(opts: {
   const verifyEvidenceLines: string[] = [];
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       ALWAYS attempt verification — even with no baseline and no ground truth. Verify what you CAN:",
+    "       ALWAYS attempt verification — verify what you CAN, even with no baseline.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       does the artifact actually satisfy what this ticket asked?",
+    "       UI task (URL + selector): run 'vibeflow verify <id>' AND judge the result yourself — verify only checks the element resolves + no NEW console errors (a wrong-but-rendering change still PASSES).",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       Annotated UI task (URL + selector): run 'vibeflow verify <id>' AND reason about the result.",
+    "       Non-UI task: inspect the artifact yourself — rename → old string = ZERO hits; links → all resolve; README → files exist and ship; commands → exist in --help.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyEvidenceLines.push(
-    "       verify only checks that your annotated element still resolves and that the page logged",
+    '       If the task genuinely CANNOT be verified here: vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>" (no verdict, no badge).',
   );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       no NEW console errors. It CANNOT tell whether you did what the ticket asked — YOU judge that.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       Counterexamples that PASS verify but are still WRONG: making a button green when the ticket",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       said red, or fixing a different bug than the ticket describes.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       Non-UI task (docs, rename, copy, links, config): no automated check exists — inspect the artifact",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       yourself, e.g. rename → grep the old string and assert ZERO occurrences; links → resolve every",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       href and assert none 404; README → confirm every referenced file exists and is actually shipped",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       in the package's files list; command reference → confirm each documented command exists in --help.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       Did you actually accomplish the task? If not, set it back to in-progress and fix it.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       If the task genuinely CANNOT be verified here, declare it so no badge shows:",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    '         vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       (cannot records no verdict or badge — the honest state for an unverifiable task; the reason",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push(
-    "       is recorded in the task's activity. --set-verify fail means you verified it is WRONG.)",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyEvidenceLines.push("       Never submit work you know is incomplete.");
   const verifyAttestationLines: string[] = [];
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   verifyAttestationLines.push(
-    "       --set-verify pass is YOUR attestation that the task IS implemented correctly. The review gate",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyAttestationLines.push(
-    "       requires a verdict on annotated (URL + selector) tasks. If you verified and the task is",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  verifyAttestationLines.push(
-    "       WRONG, record --set-verify fail — that does NOT pass the gate; fix the work first.",
+    "       --set-verify pass = YOUR attestation the work is correct (required at review for URL+selector tasks); fail = verified WRONG (blocks review). Not done → set back to in-progress; never submit known-incomplete work.",
   );
   if (verifyBeforeReview) {
     // Verify gate ON: verify → review
@@ -2028,20 +1964,16 @@ export function renderAgentInstructions(opts: {
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push("");
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("  Comment format (--comment):");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-    lines.push("    · Plain text for concise one-liners.");
-    // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
+      "  Comment format: plain text for one-liners; Markdown (**bold**, lists, fences) for reports.",
     );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    · Must cover: what changed, why, key decisions, anything future agents should know.",
+      "    Cover: what changed, why, key decisions, what future agents need.",
     );
     // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
     lines.push(
-      "    · For long reports, attach a .md file and reference it in the comment.",
+      "    Long reports: attach a .md and reference it in the comment.",
     );
   }
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
@@ -2132,48 +2064,24 @@ export function renderAgentInstructions(opts: {
     );
   }
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  BLOCKED? If a task is unclear or missing context:");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    '    vibeflow tasks --edit <id> --comment "Blocked: <reason>. Need: <what is needed>."',
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("    Then pick the next task: vibeflow tasks --next");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    "    Do not guess at unclear requirements — leave a comment and move on.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push("  CRITICAL: NEVER edit .vibeflow/ task files directly.");
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    "    All task operations (status, comments, commits) must go through CLI commands.",
+    '  BLOCKED (unclear/missing context)? → vibeflow tasks --edit <id> --set-attention --comment "Blocked: <reason>. Need: <what>." — badge + feed keep it visible; then vibeflow tasks --next. Never guess.',
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "  CRITICAL: Set in-progress BEFORE reading/planning. Other agents may pick the same task.",
+    "  CRITICAL: NEVER edit .vibeflow/ task files directly — all task ops go through CLI commands.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "    The in-progress transition signals ownership. Skip it and another agent may duplicate your work.",
+    "  CRITICAL: claim BEFORE reading/planning — unclaimed work gets duplicated.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "    Sequence: discover tasks → pick one → set in-progress → THEN read details and implement.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push('  CRITICAL: NEVER set a task status to "done".');
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    '    When your implementation is complete, set the status to "review" — not "done".',
+    "    Sequence: discover → pick → claim → THEN read/implement.",
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push(
-    "    Only humans can mark tasks as done after reviewing the work.",
-  );
-  // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
-  lines.push(
-    "    The CLI will warn you and still allow the change — but agents must not use it.",
+    '  CRITICAL: NEVER set status "done" — when complete set "review". Only humans mark done (the CLI warns but still allows it — never use it).',
   );
   // Stryker disable once StringLiteral: display text for agent instructions - semantically equivalent
   lines.push("");

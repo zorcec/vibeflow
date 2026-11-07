@@ -66,7 +66,7 @@ describe("resolveShippedDefaultsDir layout matrix", () => {
       activity: "task.update",
     })) as { instructions?: string };
     expect(typeof out.instructions).toBe("string");
-    expect(out.instructions).toContain('NEVER set a task status to "done"');
+    expect(out.instructions).toContain('NEVER set status "done"');
   });
 
   it("(b) pnpm symlink-into-store layout", async () => {
@@ -121,7 +121,7 @@ describe("resolveShippedDefaultsDir layout matrix", () => {
     const root = resolveShippedDefaultsDir({ bundleUrl: discoverUrl });
     expect(root).not.toBeNull();
     // The probe lands on the committed source tree itself.
-    expect(readFileSync(join(root as string, "VERSION"), "utf8").trim()).toBe("2");
+    expect(readFileSync(join(root as string, "VERSION"), "utf8").trim()).toBe("3");
   });
 
   it("no VERSION ⇒ null (the caller prints HOOK_SHIPPED_DEFAULTS_MISSING, no default hook)", async () => {

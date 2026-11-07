@@ -37,9 +37,9 @@ const EXPECTED_FILES = [
 ];
 
 describe("shipped defaults (in-package layout)", () => {
-  it("VERSION is 2", () => {
-    expect(SHIPPED_DEFAULTS_VERSION).toBe("2");
-    expect(readFileSync(join(DEFAULTS_DIR, "VERSION"), "utf8").trim()).toBe("2");
+  it("VERSION is 3", () => {
+    expect(SHIPPED_DEFAULTS_VERSION).toBe("3");
+    expect(readFileSync(join(DEFAULTS_DIR, "VERSION"), "utf8").trim()).toBe("3");
   });
 
   it(" ships exactly the 9 activity-bearing after files (no .before defaults)", () => {

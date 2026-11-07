@@ -4,11 +4,9 @@
 // ~/.vibeflow/hooks/add_comment.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
 const LINES_TEXT = [
-  "  Comment format (--comment):",
-  "    · Plain text for concise one-liners.",
-  "    · Markdown for multi-section reports. Use **bold**, bullet lists, code fences.",
-  "    · Must cover: what changed, why, key decisions, anything future agents should know.",
-  "    · For long reports, attach a .md file and reference it in the comment.",
+  "  Comment format: plain text for one-liners; Markdown (**bold**, lists, fences) for reports.",
+  "    Cover: what changed, why, key decisions, what future agents need.",
+  "    Long reports: attach a .md and reference it in the comment.",
 ];
 const TEXT = LINES_TEXT.join("\n");
 let input = "";

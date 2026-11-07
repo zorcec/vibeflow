@@ -45,10 +45,11 @@ describe("renderAgentInstructions", () => {
 
   it("includes blocked task escape hatch", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
-    expect(text).toContain("BLOCKED?");
+    expect(text).toContain("BLOCKED (unclear/missing context)?");
+    expect(text).toContain("--set-attention --comment");
     expect(text).toContain("Blocked: <reason>");
     expect(text).toContain("vibeflow tasks --next");
-    expect(text).toContain("Do not guess at unclear requirements");
+    expect(text).toContain("Never guess.");
   });
 
   it("includes bug task rules when hasBugTasks is true", () => {
@@ -79,9 +80,9 @@ describe("renderAgentInstructions", () => {
   it("includes critical warnings", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
     expect(text).toContain(
-      "CRITICAL: NEVER edit .vibeflow/ task files directly.",
+      "CRITICAL: NEVER edit .vibeflow/ task files directly — all task ops go through CLI commands.",
     );
-    expect(text).toContain('CRITICAL: NEVER set a task status to "done".');
+    expect(text).toContain('CRITICAL: NEVER set status "done"');
   });
 
   it("includes auto-push setting when autoPush is true", () => {
@@ -121,7 +122,7 @@ describe("renderAgentInstructions", () => {
       hasResearchTasks: false,
       autoComment: true,
     });
-    expect(text).toContain("Comment format (--comment):");
+    expect(text).toContain("Comment format: plain text for one-liners");
     expect(text).toContain("Auto-comment ON");
   });
 
@@ -130,7 +131,7 @@ describe("renderAgentInstructions", () => {
       hasResearchTasks: false,
       autoComment: false,
     });
-    expect(text).not.toContain("Comment format (--comment):");
+    expect(text).not.toContain("Comment format:");
     expect(text).not.toContain("Auto-comment ON");
   });
 
@@ -176,17 +177,17 @@ describe("renderAgentInstructions", () => {
     );
     // (2) what verify actually proves — and what it cannot
     expect(text).toContain(
-      "verify only checks that your annotated element still resolves",
+      "verify only checks the element resolves + no NEW console errors",
     );
     expect(text).toContain("no NEW console errors");
-    expect(text).toContain("CANNOT tell whether you did what the ticket asked");
+    expect(text).toContain("(a wrong-but-rendering change still PASSES)");
     // (3) the AGENT must attest, and the attestation is required at review
     expect(text).toContain(
-      "--set-verify pass is YOUR attestation that the task IS implemented correctly",
+      "--set-verify pass = YOUR attestation the work is correct",
     );
-    expect(text).toContain("requires a verdict on annotated (URL + selector) tasks");
+    expect(text).toContain("required at review for URL+selector tasks");
     expect(text).toContain(
-      "record --set-verify fail — that does NOT pass the gate",
+      "fail = verified WRONG (blocks review)",
     );
     expect(text).toContain("--set-status review --set-verify pass");
   });
@@ -216,28 +217,24 @@ describe("renderAgentInstructions", () => {
   it("tells the agent to ALWAYS attempt verification, even without ground truth", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
     expect(text).toContain("ALWAYS attempt verification");
-    expect(text).toContain("even with no baseline and no ground truth");
+    expect(text).toContain("even with no baseline.");
     expect(text).toContain(
-      "does the artifact actually satisfy what this ticket asked?",
+      "judge the result yourself",
     );
   });
 
-  it("names the counterexamples that PASS verify but are still wrong", () => {
+  it("keeps the wrong-but-rendering warning inline", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
-    expect(text).toContain("making a button green when the ticket");
-    expect(text).toContain(
-      "fixing a different bug than the ticket describes",
-    );
+    expect(text).toContain("(a wrong-but-rendering change still PASSES)");
   });
 
   it("explains how to verify a non-UI task by inspecting the artifact", () => {
     const text = renderAgentInstructions({ hasResearchTasks: false });
-    expect(text).toContain("Non-UI task (docs, rename, copy, links, config)");
-    expect(text).toContain("grep the old string and assert ZERO occurrences");
-    expect(text).toContain("resolve every");
-    expect(text).toContain("assert none 404");
-    expect(text).toContain("in the package's files list");
-    expect(text).toContain("documented command exists in --help");
+    expect(text).toContain("Non-UI task: inspect the artifact yourself");
+    expect(text).toContain("old string = ZERO hits");
+    expect(text).toContain("links → all resolve");
+    expect(text).toContain("README → files exist and ship");
+    expect(text).toContain("commands → exist in --help");
   });
 
   it("tells the agent to declare an unverifiable task so no badge shows", () => {
@@ -247,12 +244,12 @@ describe("renderAgentInstructions", () => {
       autoCommit: true,
       autoComment: true,
     });
-    expect(text).toContain("declare it so no badge shows");
+    expect(text).toContain("genuinely CANNOT be verified here");
     expect(text).toContain(
       'vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
     );
-    expect(text).toContain("cannot records no verdict or badge");
-    expect(text).toContain("--set-verify fail means you verified it is WRONG");
+    expect(text).toContain("(no verdict, no badge)");
+    expect(text).toContain("fail = verified WRONG (blocks review)");
   });
 
   it("keeps the always-verify and clearing guidance when the gate is OFF", () => {
@@ -261,7 +258,7 @@ describe("renderAgentInstructions", () => {
       requireVerifyBeforeReview: false,
     });
     expect(text).toContain("ALWAYS attempt verification");
-    expect(text).toContain("Non-UI task (docs, rename, copy, links, config)");
+    expect(text).toContain("Non-UI task: inspect the artifact yourself");
     expect(text).toContain(
       'vibeflow tasks --edit <id> --set-verify cannot --verify-reason "<why>"',
     );

@@ -4,26 +4,11 @@
 // ~/.vibeflow/hooks/verify_task.after.mjs (global). An override REPLACES this file, never merges.
 // stdin: one hook envelope JSON + "\n". stdout: {"instructions":"..."} or {}.
 const LINES_TEXT = [
-  "       ALWAYS attempt verification — even with no baseline and no ground truth. Verify what you CAN:",
-  "       does the artifact actually satisfy what this ticket asked?",
-  "       Annotated UI task (URL + selector): run 'vibeflow verify <id>' AND reason about the result.",
-  "       verify only checks that your annotated element still resolves and that the page logged",
-  "       no NEW console errors. It CANNOT tell whether you did what the ticket asked — YOU judge that.",
-  "       Counterexamples that PASS verify but are still WRONG: making a button green when the ticket",
-  "       said red, or fixing a different bug than the ticket describes.",
-  "       Non-UI task (docs, rename, copy, links, config): no automated check exists — inspect the artifact",
-  "       yourself, e.g. rename → grep the old string and assert ZERO occurrences; links → resolve every",
-  "       href and assert none 404; README → confirm every referenced file exists and is actually shipped",
-  "       in the package's files list; command reference → confirm each documented command exists in --help.",
-  "       Did you actually accomplish the task? If not, set it back to in-progress and fix it.",
-  "       If the task genuinely CANNOT be verified here, declare it so no badge shows:",
-  "         vibeflow tasks --edit <id> --set-verify cannot --verify-reason \"<why>\"",
-  "       (cannot records no verdict or badge — the honest state for an unverifiable task; the reason",
-  "       is recorded in the task's activity. --set-verify fail means you verified it is WRONG.)",
-  "       Never submit work you know is incomplete.",
-  "       --set-verify pass is YOUR attestation that the task IS implemented correctly. The review gate",
-  "       requires a verdict on annotated (URL + selector) tasks. If you verified and the task is",
-  "       WRONG, record --set-verify fail — that does NOT pass the gate; fix the work first.",
+  "       ALWAYS attempt verification — verify what you CAN, even with no baseline.",
+  "       UI task (URL + selector): run 'vibeflow verify <id>' AND judge the result yourself — verify only checks the element resolves + no NEW console errors (a wrong-but-rendering change still PASSES).",
+  "       Non-UI task: inspect the artifact yourself — rename → old string = ZERO hits; links → all resolve; README → files exist and ship; commands → exist in --help.",
+  "       If the task genuinely CANNOT be verified here: vibeflow tasks --edit <id> --set-verify cannot --verify-reason \"<why>\" (no verdict, no badge).",
+  "       --set-verify pass = YOUR attestation the work is correct (required at review for URL+selector tasks); fail = verified WRONG (blocks review). Not done → set back to in-progress; never submit known-incomplete work.",
 ];
 const TEXT = LINES_TEXT.join("\n");
 let input = "";
