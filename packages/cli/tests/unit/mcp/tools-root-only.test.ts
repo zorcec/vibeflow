@@ -113,10 +113,10 @@ describe("mcp list_tasks root/child contract", () => {
         };
       }
     ).data;
-    // kid-done is filtered out by status; the matching child is returned.
-    expect(data.tasks.map((t) => t.id).sort()).toEqual(["kid-todo", "root"]);
+    // Root-status scoping: kid-done rides with todo root; all three returned.
+    expect(data.tasks.map((t) => t.id).sort()).toEqual(["kid-done", "kid-todo", "root"]);
     expect(data.hiddenChildren).toBe(0);
-    expect(data.totalMatching).toBe(2);
+    expect(data.totalMatching).toBe(3);
     expect(data.totalRoots).toBe(1);
   });
 });

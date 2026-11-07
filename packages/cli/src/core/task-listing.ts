@@ -239,9 +239,28 @@ export function queryTaskList<T extends Task>(
   all: T[],
   query: TaskListQuery,
 ): TaskListResult<T> {
+  // Root-status scoping (ticket 024a3180): a status filter gates on the
+  // ROOT task's status, not the row's own. Children ride with a matched
+  // root regardless of their own status.
+  const byId = new Map(all.map((t) => [t.id, t]));
+  const rootOf = (t: T): T => {
+    let cur: T | undefined = t;
+    const seen = new Set<string>();
+    for (let i = 0; i < 25; i++) {
+      if (!cur) return t;
+      if (seen.has(cur.id)) return t; // cycle -> fall back to self
+      seen.add(cur.id);
+      const link = (cur.links ?? []).find((l: { type?: unknown; taskId?: unknown }) => l.type === "parent" && typeof l.taskId === "string");
+      if (!link) return cur;
+      const parent = byId.get(link.taskId as string);
+      if (!parent) return cur;
+      cur = parent;
+    }
+    return cur ?? t;
+  };
   let filtered = all;
   if (query.status) {
-    filtered = filtered.filter((t) => t.status === query.status);
+    filtered = filtered.filter((t) => rootOf(t).status === query.status);
   }
   if (query.type) {
     const want = query.type.toLowerCase();
