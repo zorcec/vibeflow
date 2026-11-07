@@ -250,6 +250,94 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.click("#dp-close");
   });
 
+  it("detail header bell pulses with the shared breathe animation", async () => {
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(
+      `article.task-card[data-task-id="${rootTaskId}"] span[data-role="card-title"]`,
+    );
+    await panelOpen;
+    const sel = `#dp-attention-row [data-attention-state="flagged"]`;
+    await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
+    // The header bell rides the same CSS-only pulse as the card bell —
+    // real browser computes the keyframes (unit pins the stylesheet).
+    const animationName = await page.$eval(
+      sel,
+      (el) => getComputedStyle(el).animationName,
+    );
+    expect(animationName).toContain("attention-breathe");
+    await page.click("#dp-close");
+  });
+
+  it("external set-attention tints the flag row and shows the reason live", async () => {
+    // Owner gap (round 2): on the LOCAL board a `tasks --edit
+    // --set-attention --comment` file write must surface BOTH the tinted
+    // attention change row AND the reason comment in the open detail
+    // activity feed — the flag row arrives via the task-changed diff, the
+    // reason via the comment refetch the frame triggers. Seeded unflagged,
+    // flagged mid-test through a direct file write (same bytes the CLI
+    // writes), so this pins the live watcher path, not a seeded fixture.
+    const live = createTask(tempDir, {
+      title: "Live-flagged task",
+      description: "flagged mid-test by kanban-attention-icon.test.ts",
+      selector: "/",
+      type: "Task",
+      status: "todo",
+    });
+    const cardSel = `article.task-card[data-task-id="${live.id}"]`;
+    await page.waitForSelector(cardSel, { timeout: 15_000 });
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(`${cardSel} span[data-role="card-title"]`);
+    await panelOpen;
+    await page.click("#dp-tab-activity");
+    await page.waitForSelector("#dp-tab-activity.active", {
+      timeout: 8_000,
+    });
+    const reason =
+      "Blocked: awaiting design tokens for the empty state. Need: token names.";
+    writeTaskJson(tempDir, {
+      ...live,
+      needsAttention: true,
+      comments: [
+        {
+          id: "c-live-reason",
+          author: "agent",
+          text: reason,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    // The card bell appears live off the same watcher frame.
+    await page.waitForSelector(
+      `${cardSel} [data-attention-state="flagged"]`,
+      { state: "visible", timeout: 15_000 },
+    );
+    // The flag row reaches the feed with field metadata intact — tinted
+    // amber, not a plain change row.
+    const rowSel = `#detail-panel [data-activity="attention-change"]`;
+    await page.waitForSelector(rowSel, {
+      state: "visible",
+      timeout: 15_000,
+    });
+    const rowStyle = await page.$eval(
+      rowSel,
+      (el) => el.getAttribute("style") ?? "",
+    );
+    expect(rowStyle).toContain("color-mix");
+    expect(rowStyle).toContain("t-warning");
+    const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
+    expect(rowText).toContain("attention");
+    // The reason comment lands in the same feed without a reload.
+    await page
+      .locator("#detail-panel")
+      .getByText(reason, { exact: false })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page.click("#dp-close");
+  });
+
   it("no uppercase pill text exists anywhere on the board", async () => {
     // The old pill rendered "Needs attention" as text with CSS uppercase
     // (visually NEEDS ATTENTION). The icon variant keeps the words only in

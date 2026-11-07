@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mergeTaskFromPayload } from "../task-merge";
+import {
+  commentListSignature,
+  mergeTaskFromPayload,
+} from "../task-merge";
+import { diffTaskFields } from "../fieldChanges";
 import type { Task, TaskLink } from "../types";
 
 /**
@@ -307,5 +311,76 @@ describe("mergeTaskFromPayload — PATCH/drag server responses (hardening path)"
     );
     expect(result.openedBy).toEqual(["alice"]);
     expect(result.expandedBy).toEqual(["alice"]);
+  });
+});
+
+describe("commentListSignature — live reason-comment detection (0752d55c, round 2)", () => {
+  const reason = {
+    id: "c1",
+    author: "user",
+    text: "Blocked: needs design input.",
+    createdAt: "2026-11-07T10:00:00.000Z",
+  };
+  it("is empty when the task-like carries no comment list", () => {
+    expect(commentListSignature(null)).toBe("");
+    expect(commentListSignature(undefined)).toBe("");
+    expect(commentListSignature({ id: "t1" })).toBe("");
+    expect(commentListSignature({ comments: "nope" })).toBe("");
+  });
+
+  it("changes when a reason comment is appended (the set-attention frame)", () => {
+    const before = commentListSignature({ comments: [] });
+    const after = commentListSignature({ comments: [reason] });
+    expect(after).not.toBe("");
+    expect(after).not.toBe(before);
+  });
+
+  it("is stable for identical lists (no refetch storm on repeat frames)", () => {
+    const a = commentListSignature({ comments: [reason] });
+    const b = commentListSignature({ comments: [{ ...reason }] });
+    expect(b).toBe(a);
+  });
+
+  it("detects edits (same id, new text) and deletes (deleted flag)", () => {
+    const base = commentListSignature({ comments: [reason] });
+    expect(
+      commentListSignature({
+        comments: [{ ...reason, text: "Blocked: updated." }],
+      }),
+    ).not.toBe(base);
+    expect(
+      commentListSignature({ comments: [{ ...reason, deleted: true }] }),
+    ).not.toBe(base);
+  });
+});
+
+describe("watcher frame round-trip — attention flag keeps field metadata", () => {
+  it("diffs a set-attention file write to an attention change (clear → flagged)", () => {
+    // The file watcher broadcasts the whole task record (source cli) after a
+    // `tasks --edit --set-attention --comment` write. The board merges the
+    // frame, then diffs against the stored task — the entry that reaches the
+    // feed must name the attention field, or the tint never applies.
+    const prev = baseTask({ needsAttention: false });
+    const frame = {
+      id: "t1",
+      needsAttention: true,
+      comments: [
+        {
+          id: "c1",
+          author: "user",
+          text: "Blocked: needs design input.",
+          createdAt: "2026-11-07T10:00:00.000Z",
+        },
+      ],
+    };
+    const mapped = mergeTaskFromPayload(frame, prev);
+    expect(mapped.needsAttention).toBe(true);
+    expect(commentListSignature(frame)).not.toBe(
+      commentListSignature({ comments: [] }),
+    );
+    const changes = diffTaskFields(prev, mapped);
+    expect(changes).toEqual([
+      { field: "attention", from: "clear", to: "flagged" },
+    ]);
   });
 });

@@ -32,6 +32,7 @@ export {
 // Kanban shared utilities
 export {
   mergeTaskFromPayload,
+  commentListSignature,
 } from "./task-merge";
 export {
   taskMatchesQuery,

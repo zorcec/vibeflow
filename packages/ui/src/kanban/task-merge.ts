@@ -147,3 +147,33 @@ export function mergeTaskFromPayload(
       : existing?.expandedBy,
   } satisfies Record<keyof Task, unknown>;
 }
+
+/**
+ * Stable signature of a task-like's embedded comment list (ticket 0752d55c,
+ * round 2). A CLI/MCP `--set-attention --comment` writes the flag AND the
+ * reason comment straight to the task file, so the file-watcher
+ * `task-changed` frame carries both but no `changed` parts — the board
+ * cannot tell from the frame type that the open panel's comment list is
+ * stale. Comparing this signature before/after the merge tells the host
+ * exactly when to refetch comments, so the reason reaches the feed live
+ * next to its tinted flag row. Deleted entries count (a delete changes the
+ * visible feed), text is included (an edit keeps the id), order is
+ * preserved (a reorder is a visible change).
+ */
+export function commentListSignature(taskLike: unknown): string {
+  const list =
+    typeof taskLike === "object" && taskLike !== null && "comments" in taskLike
+      ? taskLike.comments
+      : undefined;
+  if (!Array.isArray(list)) return "";
+  return list
+    .map((c) => {
+      const row = typeof c === "object" && c !== null ? c : null;
+      const id = row !== null && "id" in row ? String(row.id) : "";
+      const live =
+        row !== null && "deleted" in row && row.deleted === true ? "0" : "1";
+      const text = row !== null && "text" in row ? String(row.text) : "";
+      return [id, live, text].join(":");
+    })
+    .join("\n");
+}

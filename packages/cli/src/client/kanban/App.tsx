@@ -23,6 +23,7 @@ import {
   getDescendants,
   applyInitialTheme,
   mergeTaskFromPayload,
+  commentListSignature,
   diffTaskFields,
   verifyFoldedIntoStatusMove,
   filterTasksByQuery,
@@ -779,6 +780,19 @@ function BoardApp() {
             ? incoming.verified
             : undefined,
         );
+      }
+      // Needs-attention reason (0752d55c, round 2): a CLI/MCP
+      // `--set-attention --comment` writes the flag AND the reason comment
+      // straight to the task file, so the file-watcher frame carries both
+      // but no `changed` parts — the diff above records the tinted flag row
+      // while the open panel would never refetch the reason itself. When
+      // the embedded comment list differs for the open task, refetch
+      // comments through the normal coalesced path (local board only —
+      // the online surface owns its own panel refresh).
+      if (prevTask && prevTask.id === panelTaskIdRef.current) {
+        const before = commentListSignature(prevTask);
+        const after = commentListSignature(incoming);
+        if (before !== after) requestPanelRefresh(["comments"]);
       }
 
       setTasks((prev) => {
