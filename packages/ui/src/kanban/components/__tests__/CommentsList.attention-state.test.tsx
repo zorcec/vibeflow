@@ -52,12 +52,14 @@ function renderFeed(args: {
   comments?: Comment[];
   changes?: LocalChange[];
   needsAttention?: boolean;
+  attentionReasonId?: string | null;
 }) {
   return render(
     <CommentsList
       comments={args.comments ?? []}
       localChanges={args.changes ?? []}
       needsAttention={args.needsAttention}
+      attentionReasonId={args.attentionReasonId}
       loading={false}
       error={null}
       onEdit={vi.fn().mockResolvedValue(undefined)}
@@ -165,6 +167,60 @@ describe("derived attention state row", () => {
 });
 
 describe("reason comment tint", () => {
+  it("tints the exact linked comment even when newer comments exist (the bug)", () => {
+    // Owner-verified repro: flag with "THE REASON", then two plain
+    // comments. The proxy would tint the newest plain comment; the link
+    // pins the tint on the true reason.
+    const { container } = renderFeed({
+      comments: [
+        comment({ id: "c-reason", text: "THE REASON", createdAt: "2026-10-16T09:00:00.000Z" }),
+        comment({ id: "c-new-1", text: "Newer plain note one.", createdAt: "2026-10-16T10:00:00.000Z" }),
+        comment({ id: "c-new-2", text: "Newer plain note two.", createdAt: "2026-10-16T11:00:00.000Z" }),
+      ],
+      needsAttention: true,
+      attentionReasonId: "c-reason",
+    });
+    const tinted = container.querySelectorAll('[data-attention="reason"]');
+    expect(tinted).toHaveLength(1);
+    expect(tinted[0]?.getAttribute("data-comment-id")).toBe("c-reason");
+    expect(tinted[0]?.textContent).toContain("THE REASON");
+    // Neither newer comment earns the tint.
+    for (const id of ["c-new-1", "c-new-2"]) {
+      const plain = container.querySelector(`[data-comment-id="${id}"]`);
+      expect(plain?.getAttribute("data-attention")).toBeNull();
+      expect(plain?.querySelector('div[style*="t-warning"]')).toBeNull();
+    }
+  });
+
+  it("falls back to the latest surviving comment when the link is absent (older records / online)", () => {
+    const { container } = renderFeed({
+      comments: [
+        comment({ id: "c-old", text: "Earlier note.", createdAt: "2026-10-16T09:00:00.000Z" }),
+        comment({ id: "c-new", text: "Newest note.", createdAt: "2026-10-16T11:00:00.000Z" }),
+      ],
+      needsAttention: true,
+    });
+    const tinted = container.querySelectorAll('[data-attention="reason"]');
+    expect(tinted).toHaveLength(1);
+    expect(tinted[0]?.getAttribute("data-comment-id")).toBe("c-new");
+  });
+
+  it("tints nothing when the linked comment is gone (no invented reason)", () => {
+    const { container } = renderFeed({
+      comments: [
+        comment({ id: "c-other", text: "Unrelated note.", createdAt: "2026-10-16T10:00:00.000Z" }),
+      ],
+      needsAttention: true,
+      attentionReasonId: "c-vanished",
+    });
+    expect(container.querySelector('[data-attention="reason"]')).toBeNull();
+    // The flag-only row still renders: the flag is real, only the reason
+    // comment is gone.
+    expect(
+      container.querySelectorAll('[data-activity="attention-change"]'),
+    ).toHaveLength(1);
+  });
+
   it("tints exactly the reason comment amber when flagged", () => {
     const { container } = renderFeed({
       comments: [
@@ -181,12 +237,12 @@ describe("reason comment tint", () => {
     // serialized inline style like the row tests do.
     const cardStyle =
       tinted[0]?.querySelector('div[style*="t-warning"]')?.getAttribute("style") ?? "";
+    // Tint treatment (e25639f): 4% amber wash over the input surface with
+    // a 3px amber left border — no longer the full-card 9%/30% wash.
     expect(cardStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 9%, transparent)",
+      "color-mix(in srgb, var(--t-warning) 4%, var(--t-input))",
     );
-    expect(cardStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 30%, transparent)",
-    );
+    expect(cardStyle).toContain("border-left: 3px solid var(--t-warning)");
     // The older comment keeps the plain card.
     const plain = container.querySelector('[data-comment-id="c-old"]');
     expect(plain?.getAttribute("data-attention")).toBeNull();

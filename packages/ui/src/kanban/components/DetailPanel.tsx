@@ -1948,6 +1948,7 @@ export function DetailPanel({
               // derive the attention state row + reason tint from the
               // current task state, not from a live diff that never fired.
               needsAttention={task?.needsAttention === true}
+              attentionReasonId={task?.attentionReasonId}
               loading={commentsLoading}
               error={commentsError}
               gitUserName={gitUserName}

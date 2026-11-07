@@ -87,6 +87,13 @@ describe("tasks --edit --set-attention / --clear-attention", () => {
     expect(texts.some((t) => t.includes("blocked on API response shape"))).toBe(
       true,
     );
+    // Reason-link fix (0752d55c): the set stores the created reason
+    // comment's id on the task record (raw bytes, no normalization).
+    const reason = (
+      (stored(store, id).comments ?? []) as Array<{ id: string; text: string }>
+    ).find((c) => c.text.includes("blocked on API response shape"));
+    expect(reason).toBeDefined();
+    expect(stored(store, id).attentionReasonId).toBe(reason!.id);
   });
 
   it("--set-attention WITHOUT --comment fails non-zero and leaves the flag unset", async () => {
@@ -160,6 +167,7 @@ describe("tasks --edit --set-attention / --clear-attention", () => {
     );
     expect(set.code).toBe(0);
     expect(stored(store, id).needsAttention).toBe(true);
+    expect(typeof stored(store, id).attentionReasonId).toBe("string");
 
     const r = await spawnCli(
       ["tasks", store, "--edit", id, "--clear-attention", "--json"],
@@ -168,5 +176,7 @@ describe("tasks --edit --set-attention / --clear-attention", () => {
 
     expect(r.code).toBe(0);
     expect(stored(store, id).needsAttention).toBe(false);
+    // Clearing the flag drops the reason link from the record bytes.
+    expect("attentionReasonId" in stored(store, id)).toBe(false);
   });
 });

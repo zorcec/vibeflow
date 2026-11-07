@@ -104,9 +104,12 @@ describe("AttentionBadge", () => {
       "utf-8",
     );
     const keyframes = css.match(/@keyframes attention-breathe[\s\S]*?\n\}/);
-    // Round 2 (owner: first pass too faint): one notch more visible.
-    expect(keyframes?.[0]).toContain("rgba(245, 158, 11, 0.28)");
-    expect(keyframes?.[0]).toContain("0 0 0 6px");
+    // e25639f (owner: first passes too faint live): an opacity dip plus
+    // an amber drop-shadow glow instead of the faint box-shadow spread.
+    expect(keyframes?.[0]).toContain("opacity: 0.45");
+    expect(keyframes?.[0]).toContain(
+      "drop-shadow(0 0 4px rgba(245, 158, 11, 0.55))",
+    );
     const rule = css.match(/\.attention-indicator \{[\s\S]*?\}/);
     expect(rule?.[0]).toContain("attention-breathe");
     expect(rule?.[0]).toMatch(/2s ease-in-out infinite/);
@@ -328,8 +331,11 @@ describe("DetailPanel needs-attention icon", () => {
     );
     const row = container.querySelector("#dp-attention-row");
     expect(row).not.toBeNull();
-    expect(row).toHaveAttribute("data-attention-state", "flagged");
+    // e25639f: the wrapper no longer duplicates the hook — the badge
+    // glyph inside carries `data-attention-state="flagged"`.
+    expect(row).not.toHaveAttribute("data-attention-state");
     const badge = row?.querySelector('[data-attention-state="flagged"]');
+    expect(badge).not.toBeNull();
     expect(badge?.querySelector("svg")).not.toBeNull();
     expectNoPillText(container);
     unmount();

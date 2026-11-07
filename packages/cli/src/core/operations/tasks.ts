@@ -1245,9 +1245,15 @@ export async function updateTask(
     }
 
     // Needs-attention write (validated above): set writes true, clear
-    // writes false. The store persists a plain boolean (no tri-state).
+    // writes false and drops the reason link (absence = no link, so the
+    // UI falls back to the proxy never an invented reason). The store
+    // persists a plain boolean (no tri-state); the link rides a second
+    // updateTask after the reason comment below, once its id exists.
     if (input.setAttention === true) updates.needsAttention = true;
-    else if (input.clearAttention === true) updates.needsAttention = false;
+    else if (input.clearAttention === true) {
+      updates.needsAttention = false;
+      updates.attentionReasonId = undefined;
+    }
 
     // Author attribution on status changes (parity with the CLI --edit path):
     // claiming sets the current identity; other transitions backfill only.
@@ -1428,6 +1434,21 @@ export async function updateTask(
           },
         });
       }
+    }
+
+    // Reason-comment link (ticket 0752d55c, reason-link fix): the flag set
+    // above names no comment, so the feed tint cannot know which one is
+    // the reason. Store the written comment's id on the task in a second
+    // write — now that the id exists. Best-effort: the flag and the reason
+    // text already landed (a link failure leaves the proxy fallback, never
+    // a refusal for data that is already on disk).
+    if (input.setAttention === true && writtenCommentId !== null) {
+      const linked = await store.updateTask(ctx.projectDir, id, {
+        attentionReasonId: writtenCommentId,
+      });
+      // Keep the returned snapshot truthful: the confirmed link rides the
+      // same task the hooks and the response already carry.
+      if (linked) task.attentionReasonId = writtenCommentId;
     }
 
     // A "cannot" verdict's reason is recorded in the task's activity (system

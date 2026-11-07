@@ -385,6 +385,14 @@ interface Props {
    * same amber wash as the row.
    */
   needsAttention?: boolean;
+  /**
+   * Id of the comment carrying the attention reason (ticket 0752d55c,
+   * reason-link fix): the task record stores the created reason comment's
+   * id when the flag is set. The feed tints that exact comment; only when
+   * the field is absent (older records / online rows that predate the
+   * link) does it fall back to the `attentionReasonComment` proxy below.
+   */
+  attentionReasonId?: string | null;
   loading: boolean;
   error: string | null;
   gitUserName?: string;
@@ -403,7 +411,7 @@ interface Props {
   taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
-export function CommentsList({ comments, files = [], localChanges = [], needsAttention = false, loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
+export function CommentsList({ comments, files = [], localChanges = [], needsAttention = false, attentionReasonId = null, loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -416,13 +424,29 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
   const prevLoadingRef = React.useRef(loading);
 
   // The reason comment when the flag is set (ticket 0752d55c, cold-load
-  // gap): the same proxy the claim alert reads, used here for the derived
-  // row's placement/actor and for the amber tint below. Null unless the
-  // flag is on — an unflagged task never tints a comment.
-  const reasonComment = React.useMemo(
-    () => (needsAttention === true ? attentionReasonComment(comments) : null),
-    [needsAttention, comments],
-  );
+  // gap + reason-link fix): prefer the exact `attentionReasonId` the
+  // set-attention write stored — the tint lands on the true reason even
+  // when newer plain comments arrived after it. Only when the field is
+  // absent (older records / online rows that predate the link) fall back
+  // to the latest-normal-comment proxy the claim alert reads. Used for
+  // the derived row's placement/actor and for the amber tint below. Null
+  // unless the flag is on — an unflagged task never tints a comment.
+  // A linked id whose comment is gone (deleted/history) resolves to null
+  // — no invented reason — while the flag-only row still renders.
+  const reasonComment = React.useMemo(() => {
+    if (needsAttention !== true) return null;
+    if (
+      typeof attentionReasonId === 'string' &&
+      attentionReasonId.length > 0
+    ) {
+      return (
+        comments.find(
+          (c) => c.id === attentionReasonId && c.deleted !== true,
+        ) ?? null
+      );
+    }
+    return attentionReasonComment(comments);
+  }, [needsAttention, attentionReasonId, comments]);
 
   // Build unified chronological activity stream: lifecycle events + comments + files + local changes
   const activity: ActivityItem[] = React.useMemo(() => {

@@ -314,6 +314,13 @@ export function toLocalTask(row: SaasTask): Task | null {
     ...(typeof row.needsAttention === "boolean"
       ? { needsAttention: row.needsAttention }
       : {}),
+    // Reason-comment link (ticket 0752d55c, reason-link fix): a non-empty
+    // string id rides the mapped task so the feed tints the exact comment;
+    // absent on older servers, where the proxy fallback applies.
+    ...(typeof row.attentionReasonId === "string" &&
+    row.attentionReasonId.length > 0
+      ? { attentionReasonId: row.attentionReasonId }
+      : {}),
     ...(row.branchName != null ? { branchName: row.branchName } : {}),
     ...(row.annotatedElementText != null
       ? { annotatedElementText: row.annotatedElementText }
@@ -383,6 +390,11 @@ function saasRowToRecordCandidate(row: SaasTask): Record<string, unknown> {
   if (typeof row.verified === "boolean") candidate.verified = row.verified;
   if (typeof row.needsAttention === "boolean")
     candidate.needsAttention = row.needsAttention;
+  if (
+    typeof row.attentionReasonId === "string" &&
+    row.attentionReasonId.length > 0
+  )
+    candidate.attentionReasonId = row.attentionReasonId;
   if (typeof row.annotatedElementText === "string") {
     candidate.annotatedElementText = row.annotatedElementText;
   }
@@ -977,6 +989,7 @@ class RemoteTaskStore implements TaskStore {
       branchName?: string;
       verified?: boolean | null;
       needsAttention?: boolean;
+      attentionReasonId?: string | null;
       links?: Array<{ taskId: string; type: string }>;
     } = {};
     if (updates.status !== undefined) patch.status = updates.status;
@@ -991,6 +1004,13 @@ class RemoteTaskStore implements TaskStore {
     if ("verified" in updates) patch.verified = updates.verified ?? null;
     if ("needsAttention" in updates && updates.needsAttention !== undefined)
       patch.needsAttention = updates.needsAttention;
+    // Reason-comment link (ticket 0752d55c, reason-link fix): same
+    // presence rule as the flag — a set carries the written comment's id,
+    // a clear carries presence-with-undefined, which the server spells as
+    // explicit null. An older server strips the unknown key and the UI
+    // falls back to the proxy, so online stays valid either way.
+    if ("attentionReasonId" in updates)
+      patch.attentionReasonId = updates.attentionReasonId ?? null;
     // Whole-set replace of the operation's merged set. Present-but-empty
     // clears every link (clearLinks:true with nothing re-added).
     if ("links" in updates) patch.links = updates.links ?? [];

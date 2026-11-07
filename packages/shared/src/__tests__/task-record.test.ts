@@ -51,6 +51,33 @@ describe("parseTaskRecord", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("accepts the needs-attention reason link (0752d55c) and round-trips it", () => {
+    const r = parseTaskRecord({
+      ...base,
+      needsAttention: true,
+      attentionReasonId: "c-reason",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.record.attentionReasonId).toBe("c-reason");
+    // Canonical bytes carry the link back through a re-parse unchanged.
+    const reparsed = parseTaskRecord(
+      JSON.parse(toCanonicalBytes(r.record)) as unknown,
+    );
+    expect(reparsed.ok).toBe(true);
+    if (reparsed.ok)
+      expect(reparsed.record.attentionReasonId).toBe("c-reason");
+  });
+
+  it("rejects a non-string or empty reason link", () => {
+    expect(
+      parseTaskRecord({ ...base, attentionReasonId: "" }).ok,
+    ).toBe(false);
+    expect(
+      parseTaskRecord({ ...base, attentionReasonId: 42 }).ok,
+    ).toBe(false);
+  });
+
   it("accepts a server-minted files[].id (a37abf9f) and preserves it", () => {
     const r = parseTaskRecord({
       ...base,

@@ -55,6 +55,13 @@ export interface Task {
   verified?: boolean;
   /** When true, the task needs attention (agent-set flag; reason in the activity feed). */
   needsAttention?: boolean;
+  /**
+   * Id of the comment carrying the needs-attention reason (ticket 0752d55c,
+   * reason-link fix). The feed tints this exact comment and falls back to
+   * the latest-normal-comment proxy only when it is absent (older
+   * records / online rows that predate the link).
+   */
+  attentionReasonId?: string;
   /** Links to other tasks (parent, relates, blocks). */
   links?: TaskLink[];
   /** True when the current assignee claimed through an agent surface (ephemeral: live patch only, never stored — unknown rows stay unbadged). */

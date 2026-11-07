@@ -119,6 +119,21 @@ describe("@vibeflow/shared schemas", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("accepts the needs-attention reason link (0752d55c): id or null", () => {
+      const set = updateTaskSchema.safeParse({
+        workspaceId: "ws1",
+        taskId: "t1",
+        patch: { needsAttention: true, attentionReasonId: "c-reason" },
+      });
+      expect(set.success).toBe(true);
+      const clear = updateTaskSchema.safeParse({
+        workspaceId: "ws1",
+        taskId: "t1",
+        patch: { needsAttention: false, attentionReasonId: null },
+      });
+      expect(clear.success).toBe(true);
+    });
   });
 
   describe("deleteTaskSchema", () => {

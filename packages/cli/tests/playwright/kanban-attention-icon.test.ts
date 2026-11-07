@@ -387,6 +387,101 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.click("#dp-close");
   });
 
+  it("reason link pins the tint when newer plain comments arrive (0752d55c)", async () => {
+    // Owner-verified bug: flag with "THE REASON", then two plain
+    // comments — the proxy tinted the NEWEST plain comment and left the
+    // real reason plain. The set-attention write now stores the reason
+    // comment's id on the task (`attentionReasonId`); the feed must tint
+    // that exact comment, never the latest one.
+    const reason = "THE REASON: awaiting design tokens for the empty state.";
+    const linked = createTask(tempDir, {
+      title: "Link-pinned task",
+      description: "reason-link pin by kanban-attention-icon.test.ts",
+      selector: "/",
+      type: "Task",
+      status: "todo",
+    });
+    const reasonAt = new Date().toISOString();
+    writeTaskJson(tempDir, {
+      ...linked,
+      needsAttention: true,
+      attentionReasonId: "c-true-reason",
+      comments: [
+        {
+          id: "c-true-reason",
+          author: "agent",
+          text: reason,
+          createdAt: reasonAt,
+        },
+      ],
+    });
+    // Two plain comments arrive AFTER the flag, like the owner repro.
+    const after = (ms: number) =>
+      new Date(new Date(reasonAt).getTime() + ms).toISOString();
+    writeTaskJson(tempDir, {
+      ...linked,
+      needsAttention: true,
+      attentionReasonId: "c-true-reason",
+      comments: [
+        {
+          id: "c-true-reason",
+          author: "agent",
+          text: reason,
+          createdAt: reasonAt,
+        },
+        {
+          id: "c-plain-after-1",
+          author: "agent",
+          text: "A newer plain follow-up, not the reason.",
+          createdAt: after(60_000),
+        },
+        {
+          id: "c-plain-after-2",
+          author: "agent",
+          text: "An even newer plain follow-up, not the reason.",
+          createdAt: after(120_000),
+        },
+      ],
+    });
+    const cardSel = `article.task-card[data-task-id="${linked.id}"]`;
+    await page.waitForSelector(cardSel, { timeout: 15_000 });
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(`${cardSel} button[data-attention-press="true"]`);
+    await panelOpen;
+    await page.waitForSelector("#dp-tab-activity.active", {
+      timeout: 8_000,
+    });
+    // Exactly one reason-tinted comment, and it is the true reason — not
+    // either newer plain comment.
+    const reasonSel = `#detail-panel [data-attention="reason"]`;
+    await page.waitForSelector(reasonSel, {
+      state: "visible",
+      timeout: 15_000,
+    });
+    expect(
+      await page.locator(`#detail-panel [data-attention="reason"]`).count(),
+    ).toBe(1);
+    const tintedId = await page.$eval(reasonSel, (el) =>
+      el.getAttribute("data-comment-id"),
+    );
+    expect(tintedId).toBe("c-true-reason");
+    await page
+      .locator("#detail-panel")
+      .getByText(reason, { exact: false })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    for (const plainId of ["c-plain-after-1", "c-plain-after-2"]) {
+      const plainSel = `#detail-panel [data-comment-id="${plainId}"]`;
+      await page.waitForSelector(plainSel, {
+        state: "visible",
+        timeout: 15_000,
+      });
+      expect(await page.$eval(plainSel, (el) => el.getAttribute("data-attention"))).toBeNull();
+    }
+    await page.click("#dp-close");
+  });
+
   it("cold load derives the attention row and tints the reason comment", async () => {
     // Owner-eyeballed gap: the pre-flagged task was flagged BEFORE the
     // board opened, so no live diff-event ever fires for it. Cold-load

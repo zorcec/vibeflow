@@ -135,6 +135,14 @@ export function mergeTaskFromPayload(
       typeof incoming.needsAttention === "boolean"
         ? incoming.needsAttention
         : undefined,
+    // Reason-comment link (ticket 0752d55c, reason-link fix): same
+    // absence rule — a payload without a non-empty id means "no link",
+    // and the feed falls back to the proxy (older records / online).
+    attentionReasonId:
+      typeof incoming.attentionReasonId === "string" &&
+      incoming.attentionReasonId.length > 0
+        ? incoming.attentionReasonId
+        : undefined,
     links: Array.isArray(incoming.links)
       ? (incoming.links as Task["links"])
       : (existing?.links ?? []),

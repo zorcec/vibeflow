@@ -154,6 +154,13 @@ export interface SaasTask {
   /** Needs-attention flag (ticket 0752d55c): plain boolean on the v0 wire. */
   needsAttention?: boolean | null;
   /**
+   * Id of the comment carrying the needs-attention reason (ticket 0752d55c,
+   * reason-link fix). Present on reads from servers that store it; absent
+   * (or null) on older shapes — callers read through the mapping, never
+   * this field (same rule as every other nullable wire scalar here).
+   */
+  attentionReasonId?: string | null;
+  /**
    * Parent/relates/blocks links as the v0 wire carries them
    * (`links: [{ taskId, type }]`). Present on reads; the online board CAN
    * express parent links, so the CLI-online list applies the same root-only
@@ -1058,6 +1065,12 @@ export async function updateSaasTask(
     /** Needs-attention flag (ticket 0752d55c): plain boolean, sent verbatim. */
     needsAttention?: boolean;
     /**
+     * Reason-comment link (ticket 0752d55c, reason-link fix): the written
+     * comment's id on set, null to clear. An older server strips the
+     * unknown key and the UI falls back to the proxy — online stays valid.
+     */
+    attentionReasonId?: string | null;
+    /**
      * Whole link set (v0 PATCH `links` replaces). The caller computes the
      * merge (set/replace/clear parent) from the task it read first — the
      * server validates (exists, not self, no cycle) and refuses INVALID_LINKS.
@@ -1083,6 +1096,8 @@ export async function updateSaasTask(
   if (patch.verified !== undefined) body.verified = patch.verified;
   if (patch.needsAttention !== undefined)
     body.needsAttention = patch.needsAttention;
+  if (patch.attentionReasonId !== undefined)
+    body.attentionReasonId = patch.attentionReasonId;
   if (patch.links !== undefined) body.links = patch.links;
 
   try {

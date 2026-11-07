@@ -7,7 +7,7 @@
  * comment. Sending both is refused; omitting both leaves the flag untouched.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -96,6 +96,13 @@ describe("updateTask — needs-attention parity with the CLI", () => {
     expect(texts.some((t) => t.includes("blocked on API response shape"))).toBe(
       true,
     );
+    // Reason-link fix (0752d55c): the set stores the created reason
+    // comment's id on the task, so the feed tints the exact comment.
+    const reason = ((stored(id).comments ?? []) as Array<{ id: string; text: string }>).find(
+      (c) => c.text.includes("blocked on API response shape"),
+    );
+    expect(reason).toBeDefined();
+    expect(stored(id).attentionReasonId).toBe(reason!.id);
   });
 
   it("REFUSES setAttention:true without comment (E_USAGE) and writes nothing", async () => {
@@ -132,11 +139,19 @@ describe("updateTask — needs-attention parity with the CLI", () => {
     });
     expect(set.ok).toBe(true);
     expect(stored(id).needsAttention).toBe(true);
+    expect(typeof stored(id).attentionReasonId).toBe("string");
 
     const res = await updateTask(ctx(), { id, clearAttention: true });
 
     expect(res.ok).toBe(true);
     expect(stored(id).needsAttention).toBe(false);
+    // Clearing the flag drops the reason link (absence = no link). The
+    // normalized in-memory record keeps the key as undefined (same
+    // convention as `needsAttention`/`verified`); the file bytes — the
+    // durable truth — carry no link.
+    expect(stored(id).attentionReasonId).toBeUndefined();
+    const rawFile = readFileSync(findTaskFilePath(projectDir, id)!, "utf-8");
+    expect(rawFile).not.toContain("attentionReasonId");
   });
 
   it("leaves the flag untouched when neither field is sent", async () => {
@@ -146,6 +161,31 @@ describe("updateTask — needs-attention parity with the CLI", () => {
 
     expect(res.ok).toBe(true);
     expect(stored(id).needsAttention).toBeUndefined();
+  });
+
+  it("keeps the reason link when a newer plain comment arrives (the bug)", async () => {
+    const id = await plainTask();
+    const set = await updateTask(ctx(), {
+      id,
+      setAttention: true,
+      comment: "THE REASON",
+    });
+    expect(set.ok).toBe(true);
+    const reasonId = stored(id).attentionReasonId as string;
+    expect(typeof reasonId).toBe("string");
+
+    const followUp = await updateTask(ctx(), {
+      id,
+      comment: "a newer plain comment",
+    });
+    expect(followUp.ok).toBe(true);
+    // A plain follow-up must not move or clear the link: the feed keeps
+    // tinting the true reason, never the newest comment.
+    expect(stored(id).attentionReasonId).toBe(reasonId);
+    const reason = ((stored(id).comments ?? []) as Array<{ id: string; text: string }>).find(
+      (c) => c.id === reasonId,
+    );
+    expect(reason?.text).toContain("THE REASON");
   });
 });
 

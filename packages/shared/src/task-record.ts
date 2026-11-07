@@ -199,6 +199,17 @@ export const TaskRecordSchema = z
     verified: z.boolean().optional(),
     /** Needs-attention flag (ticket 0752d55c): plain boolean, absence = not flagged. */
     needsAttention: z.boolean().optional(),
+    /**
+     * Id of the comment carrying the needs-attention reason (ticket
+     * 0752d55c, reason-link fix): set to the created comment's id by the
+     * `--set-attention --comment` path (CLI local/SaaS, MCP/local
+     * operations) in the same call that writes the reason, cleared by
+     * `--clear-attention`. Optional so older records and online rows that
+     * predate the link stay valid — readers fall back to the latest-normal-
+     * comment proxy when it is absent. No schemaVersion bump: additive
+     * optional field, same precedent as `needsAttention` (763a3db).
+     */
+    attentionReasonId: z.string().min(1).max(255).optional(),
     authorEmail: authorEmailField.optional(),
     /** Column is `text` (cap lives here, not in the column type). */
     annotatedElementText: z.string().max(20_000).optional(),

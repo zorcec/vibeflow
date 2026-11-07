@@ -454,6 +454,14 @@ function normalizeTask(raw: Record<string, unknown>): Task {
       typeof raw.needsAttention === "boolean"
         ? raw.needsAttention
         : undefined,
+    // Reason-comment link (ticket 0752d55c, reason-link fix): a non-empty
+    // string id survives verbatim; anything else reads as absent so older
+    // records (and hand edits) keep validating and fall back to the proxy.
+    attentionReasonId:
+      typeof raw.attentionReasonId === "string" &&
+      raw.attentionReasonId.length > 0
+        ? raw.attentionReasonId
+        : undefined,
     branchName: raw.branchName ? String(raw.branchName) : undefined,
     baseline:
       raw.baseline && typeof raw.baseline === "object"

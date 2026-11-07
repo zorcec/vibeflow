@@ -137,6 +137,7 @@ export function normalizeTask(
     "priority",
     "verified",
     "needsAttention",
+    "attentionReasonId",
     "reportBack",
     "agent",
     "model",

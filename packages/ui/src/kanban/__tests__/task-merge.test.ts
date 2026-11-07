@@ -68,6 +68,25 @@ describe("mergeTaskFromPayload — verified semantics", () => {
     expect(result.needsAttention).toBeUndefined();
   });
 
+  it("carries attentionReasonId from the frame (ticket 0752d55c, reason-link fix)", () => {
+    const result = mergeTaskFromPayload(
+      { id: "t1", needsAttention: true, attentionReasonId: "c-reason" },
+      baseTask({}),
+    );
+    expect(result.attentionReasonId).toBe("c-reason");
+  });
+
+  it("clears the reason link when the frame omits attentionReasonId", () => {
+    // Clear-attention writes absence; JSON.stringify drops the key, so the
+    // frame arrives WITHOUT it. Falling back to existing here would leave
+    // a stale tint on the old reason — the naive-fix trap.
+    const result = mergeTaskFromPayload(
+      { id: "t1", title: "Task" },
+      baseTask({ attentionReasonId: "c-old" }),
+    );
+    expect(result.attentionReasonId).toBeUndefined();
+  });
+
   it("claim reset: a frame with no verified key clears a stored true", () => {
     // Claiming a task resets the verdict (verify-attestation.ts).
     const result = mergeTaskFromPayload(

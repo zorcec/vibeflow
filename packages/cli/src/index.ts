@@ -5150,6 +5150,7 @@ program
               branchName?: string;
               verified?: boolean | null;
               needsAttention?: boolean;
+              attentionReasonId?: string | null;
               links?: Array<{ taskId: string; type: string }>;
             } = {};
             if (opts.setStatus) saasPatch.status = opts.setStatus;
@@ -5181,10 +5182,17 @@ program
 
             // ── Needs-attention flag (ticket 0752d55c) ───────────────
             // Plain boolean on the v0 wire (no tri-state): set writes true,
-            // clear writes false. The --comment requirement was enforced
-            // at the gate above, so the reason always travels with the set.
+            // clear writes false and clears the reason link (null). The
+            // --comment requirement was enforced at the gate above, so the
+            // reason always travels with the set; the set link rides a
+            // second PATCH after the comment below, once its id exists
+            // (best-effort: an older server strips the unknown key and the
+            // UI falls back to the proxy).
             if (opts.setAttention) saasPatch.needsAttention = true;
-            else if (opts.clearAttention) saasPatch.needsAttention = false;
+            else if (opts.clearAttention) {
+              saasPatch.needsAttention = false;
+              saasPatch.attentionReasonId = null;
+            }
 
             // Conflict detection: warn when attempting in-progress on an already in-progress task
             // (the FULL resolved id — a prefix never reaches the server).
@@ -5236,6 +5244,8 @@ program
                 dryUpdates.verified = saasPatch.verified;
               if (saasPatch.needsAttention !== undefined)
                 dryUpdates.needsAttention = saasPatch.needsAttention;
+              if (saasPatch.attentionReasonId !== undefined)
+                dryUpdates.attentionReasonId = saasPatch.attentionReasonId;
               if (saasPatch.links !== undefined)
                 dryUpdates.links = saasLinks;
               // A `cannot` verdict also posts the reason as a comment (see
@@ -5247,6 +5257,11 @@ program
               if (dryRunReportName)
                 dryUpdates.report = `${dryRunReportName} (would attach; source file kept)`;
               if (opts.comment?.trim()) dryUpdates.comment = "(would add)";
+              // The set path stores the written comment's id as the reason
+              // link in a second PATCH (ticket 0752d55c, reason-link fix);
+              // the id does not exist yet at preview time.
+              if (opts.setAttention && opts.comment?.trim())
+                dryUpdates.attentionReasonId = "(would link reason comment)";
               const saasDryRunNextActions = opts.setStatus
                 ? getNextActions(
                     opts.setStatus === "review"
@@ -5389,6 +5404,26 @@ program
                   );
                 }
                 process.exitCode = ExitCode.GENERAL;
+              }
+            }
+
+            // Reason-comment link (ticket 0752d55c, reason-link fix): a
+            // second PATCH storing the written comment's id, so the feed
+            // tints the exact reason instead of proxying the latest
+            // comment. Best-effort: the flag and the reason text already
+            // landed (an older server strips the unknown key and the UI
+            // falls back to the proxy), so a failure is a dim note, never
+            // a refusal for data that is already on the server.
+            if (opts.setAttention && saasWrittenCommentId !== null) {
+              const linked = await updateSaasTask(
+                editTargetId,
+                { attentionReasonId: saasWrittenCommentId },
+                dir,
+              );
+              if (!linked.ok && !opts.json) {
+                console.log(
+                  chalk.dim("  reason link: not stored (older server?)"),
+                );
               }
             }
 
@@ -5613,6 +5648,13 @@ program
             }
             if (opts.setAttention) dryUpdates.needsAttention = true;
             else if (opts.clearAttention) dryUpdates.needsAttention = false;
+            // The set path stores the written comment's id as the reason
+            // link in a second write (ticket 0752d55c, reason-link fix); a
+            // clear drops it. Neither id exists yet at preview time.
+            if (opts.setAttention && opts.comment?.trim())
+              dryUpdates.attentionReasonId = "(would link reason comment)";
+            else if (opts.clearAttention)
+              dryUpdates.attentionReasonId = "(cleared)";
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -5660,6 +5702,7 @@ program
               | "branchName"
               | "verified"
               | "needsAttention"
+              | "attentionReasonId"
               | "author"
               | "links"
             >
@@ -6037,10 +6080,15 @@ program
           }
 
           // Needs-attention flag (ticket 0752d55c): plain boolean write —
-          // set writes true, clear writes false. The --comment gate above
-          // guarantees the reason travels with every set.
+          // set writes true, clear writes false and drops the reason link
+          // (absence = no link). The --comment gate above guarantees the
+          // reason travels with every set; the link rides a second
+          // updateTask after the comment below, once its id exists.
           if (opts.setAttention) updates.needsAttention = true;
-          else if (opts.clearAttention) updates.needsAttention = false;
+          else if (opts.clearAttention) {
+            updates.needsAttention = false;
+            updates.attentionReasonId = undefined;
+          }
 
           // Pre-gate (Stage 2, ADR-0006): INTENT payload (changed keys,
           // no generated ids); runs before the write. Deny/timeout/
@@ -6128,6 +6176,16 @@ program
             } catch (err) {
               commentError = err instanceof Error ? err.message : String(err);
             }
+          }
+
+          // Reason-comment link (ticket 0752d55c, reason-link fix): store the
+          // written comment's id on the task so the feed tints the exact
+          // reason instead of proxying the latest comment. Best-effort like
+          // the operations path: flag + reason text already landed.
+          if (opts.setAttention && localEditCommentId !== null) {
+            updateTask(dir, resolvedTaskId, {
+              attentionReasonId: localEditCommentId,
+            });
           }
 
           // A "cannot" verdict's reason is recorded in the task's activity

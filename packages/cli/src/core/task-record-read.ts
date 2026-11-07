@@ -51,7 +51,7 @@ export function taskRecordValidationView(raw: Record<string, unknown>): Record<s
 const OPTIONAL_SCALARS = new Set([
   "description", "type", "priority", "selector", "cssSelector", "file", "url",
   "line", "col", "component", "author", "agent", "model", "branchName",
-  "reportBack", "verified", "needsAttention", "authorEmail", "annotatedElementText", "sortKey",
+  "reportBack", "verified", "needsAttention", "attentionReasonId", "authorEmail", "annotatedElementText", "sortKey",
   "updated", "commit", "screenshot", "baselineElementFile", "baselineFile",
 ]);
 

@@ -161,6 +161,13 @@ export interface Task {
   verified?: boolean;
   /** When true, the task needs attention (agent-set flag with a reason comment; verify-style amber badge). */
   needsAttention?: boolean;
+  /**
+   * Id of the comment carrying the needs-attention reason (ticket 0752d55c,
+   * reason-link fix). Written by the set-attention path alongside the reason
+   * comment; readers tint this exact comment and fall back to the
+   * latest-normal-comment proxy only when it is absent (older records).
+   */
+  attentionReasonId?: string;
   /** When true, the agent must add a comment with a report after completing the task. */
   reportBack?: boolean;
   /** Preferred coding agent name for this task. */
