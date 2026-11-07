@@ -4,7 +4,7 @@
 - Date: 2026-10-25
 - Governed: `packages/cli/src/core/tasks.ts`
 - Governed: `packages/cli/src/core/git.ts`
-- Reviewed: 2026-11-06
+- Reviewed: 2026-11-07
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 
 ## Background

@@ -342,7 +342,7 @@ describe("hooks-package", () => {
       instructions?: string[];
     };
     expect(doc.ok).toBe(true);
-    expect(doc.instructions?.join("\n")).toContain('NEVER set a task status to "done"');
+    expect(doc.instructions?.join("\n")).toContain('NEVER set status "done"');
     rmSync(home, { recursive: true, force: true });
   });
 

@@ -105,7 +105,7 @@ describe("hooks-after-task-update e2e", () => {
     expect(doc.ok).toBe(true);
     // Shipped defaults ARE hooks: the unconditional update text rides along.
     expect(doc.instructions?.join("\n")).toContain(
-      'NEVER set a task status to "done"',
+      'NEVER set status "done"',
     );
   });
 });
@@ -168,7 +168,7 @@ describe("hooks-after-task-update module mode e2e (Stage 1.5, ADR-0006)", () => 
     // shipped default's unconditional text.
     expect(doc.instructions).toBeUndefined();
     expect(edited.stderr).toContain("HOOK_CONFIG_CONFLICT");
-    expect(edited.stderr).not.toContain('NEVER set a task status to "done"');
+    expect(edited.stderr).not.toContain('NEVER set status "done"');
   });
 
   it("untrusted module hook refuses (non-TTY) with no default fallback", async () => {

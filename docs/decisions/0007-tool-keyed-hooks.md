@@ -4,7 +4,7 @@
 - Date: 2026-11-06
 - Supersedes: ADR-0006
 - Governed: `packages/cli/src/core/hooks/`
-- Reviewed: 2026-11-05
+- Reviewed: 2026-11-07
 - Decided by: owner (ticket d552207737ba3ee1a22ad6476789fc, Hooks v2)
 
 ## Background
