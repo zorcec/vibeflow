@@ -701,6 +701,21 @@ function renderActivityItem(
     const fromTrimmed = item.from.length > trimLen ? item.from.slice(0, trimLen) + '…' : item.from;
     const toTrimmed = item.to.length > trimLen ? item.to.slice(0, trimLen) + '…' : item.to;
     const needsTooltip = item.from.length > trimLen || item.to.length > trimLen;
+    // Needs-attention flag change (round 2): the row that records the
+    // flag flip (clear ↔ flagged) renders slightly yellow-tinted — a
+    // subtle amber wash + hairline, same token family as the bell glyph,
+    // so the reason's neighbourhood reads as attention-related at a
+    // glance. Static colours only (no animation): reduced-motion safe by
+    // construction, and all text keeps the feed's readable ink.
+    const isAttentionChange = item.field === 'attention';
+    const attentionRowStyle: React.CSSProperties | undefined = isAttentionChange
+      ? {
+          background: 'color-mix(in srgb, var(--t-warning) 9%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--t-warning) 30%, transparent)',
+          borderRadius: 8,
+          padding: '6px 10px',
+        }
+      : undefined;
     const verdict = verifyEntryVerdict(item);
     if (verdict) {
       // Verdict-carrying transition: agent-message rhythm (header + card) so it
@@ -740,13 +755,16 @@ function renderActivityItem(
     return (
       <div
         key={itemKey}
-        className={animClass || undefined}
+        className={isAttentionChange ? `activity-attention${animClass ? ` ${animClass}` : ''}` : (animClass || undefined)}
+        data-activity={isAttentionChange ? 'attention-change' : undefined}
+        title={isAttentionChange ? 'Needs attention — the reason is the attention comment in this feed' : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 6,
           padding: '2px 0',
+          ...attentionRowStyle,
         }}
       >
-        <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
+        <span style={{ fontSize: 11, color: isAttentionChange ? 'var(--t-chip-amber-300)' : 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>{changeActorLabel(item.actor, item.agent)}</span>}

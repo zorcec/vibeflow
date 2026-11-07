@@ -19,7 +19,11 @@ interface RelationsSectionProps {
   task: Task;
   allTasks: Task[];
   onUpdateLinks: (links: Task["links"]) => void;
-  onOpenTask?: (task: Task) => void;
+  /**
+   * Row navigation with the same optional tab target as the board open
+   * path — the attention bell (round 2) forwards `"comments"` through it.
+   */
+  onOpenTask?: (task: Task, tab?: "details" | "comments" | "files") => void;
   /** Sibling reorder inside one parent (tree-row intent, same parent). */
   onTreeReorder?: (
     draggedId: string,
@@ -268,7 +272,7 @@ export default function RelationsSection({
               parentId={task.id}
               allTasks={safeTasks}
               variant="detail"
-              onOpen={(child) => onOpenTask?.(child)}
+              onOpen={(child, tab) => onOpenTask?.(child, tab)}
               // Gated on onDetach (same contract as TaskCard): without a host
               // detach the button would open a confirm that cannot remove
               // anything (ticket 2fe91e15) — honest absence beats silent no-op.
@@ -480,7 +484,7 @@ interface FlatRelationGroupProps {
   allTasks: Task[];
   /** That type's rows, with the original link index needed for removal. */
   rows: DetailRelationRow[];
-  onOpen?: (task: Task) => void;
+  onOpen?: (task: Task, tab?: "details" | "comments" | "files") => void;
   /** Removes the link at its original index in `task.links`. */
   onRemoveLink: (linkIndex: number) => void;
 }

@@ -33,9 +33,13 @@ interface Props {
       compact?: boolean;
       allTasks: Task[];
       onOpen: (task: Task, tab?: "details" | "comments" | "files") => void;
-      onOpenTask?: (task: Task) => void;
-      /** Called when a child row inside the card is clicked (opens child in detail panel). */
-      onOpenChild?: (task: Task) => void;
+      onOpenTask?: (task: Task, tab?: "details" | "comments" | "files") => void;
+      /**
+       * Called when a child row inside the card is clicked (opens child in
+       * detail panel). Carries the same optional tab target as onOpen — the
+       * attention bell (round 2) forwards `"comments"` through it.
+       */
+      onOpenChild?: (task: Task, tab?: "details" | "comments" | "files") => void;
       onDragStart: (e: React.DragEvent, taskId: string) => void;
       /** When a drag is over this card's children zone, forward the event. */
       onChildrenZoneDragOver?: (e: React.DragEvent) => void;
@@ -650,9 +654,18 @@ export const TaskCard = React.memo(function TaskCard({
                                     reserve={reserveLeadingSlot}
                               />
                               {/* Needs-attention (0752d55c): bell icon alongside the
-                                  leading slot so it reads as verify family, not a tag pill. */}
+                                  leading slot so it reads as verify family, not a tag pill.
+                                  Clickable (round 2): jumps to the activities tab — the
+                                  row click opens details, the bell opens the reason. */}
                               {task.needsAttention === true && (
-                                    <AttentionBadge flagged size={11} />
+                                    <AttentionBadge
+                                          flagged
+                                          size={11}
+                                          onPress={(e) => {
+                                                e.stopPropagation();
+                                                onOpen(task, "comments");
+                                          }}
+                                    />
                               )}
                               <CardTitle
                                     title={task.title}
@@ -782,9 +795,18 @@ export const TaskCard = React.memo(function TaskCard({
                         {/* Status as colour (kwaz437j): name in tooltip + AT name. */}
                         <StatusDot status={task.status} />
                         {/* Needs-attention (0752d55c): bell icon alongside the
-                            leading slot so it reads as verify family, not a tag pill. */}
+                            leading slot so it reads as verify family, not a tag pill.
+                            Clickable (round 2): jumps to the activities tab — the
+                            row click opens details, the bell opens the reason. */}
                         {task.needsAttention === true && (
-                              <AttentionBadge flagged size={11} />
+                              <AttentionBadge
+                                    flagged
+                                    size={11}
+                                    onPress={(e) => {
+                                          e.stopPropagation();
+                                          onOpen(task, "comments");
+                                    }}
+                              />
                         )}
                         <CardTitle title={task.title} />
                         {/* Actions cluster (37b82fba): advance precedes the
@@ -1068,10 +1090,13 @@ export const TaskCard = React.memo(function TaskCard({
                                                 onRowDragStart={
                                                       onTreeRowDragStart
                                                 }
-                                                onOpen={(child) => {
+                                                onOpen={(child, tab) => {
                                                       if (onOpenChild)
-                                                            onOpenChild(child);
-                                                      else onOpen(child);
+                                                            onOpenChild(
+                                                                  child,
+                                                                  tab,
+                                                            );
+                                                      else onOpen(child, tab);
                                                 }}
                                                 onRemove={
                                                       onDetach
@@ -1111,10 +1136,11 @@ export const TaskCard = React.memo(function TaskCard({
                                     task={task}
                                     allTasks={allTasks}
                                     anchorRect={childChipRect}
-                                    onOpenTask={(child) => {
+                                    onOpenTask={(child, tab) => {
                                           setShowChildPopover(false);
-                                          if (onOpenTask) onOpenTask(child);
-                                          else onOpen(child);
+                                          if (onOpenTask)
+                                                onOpenTask(child, tab);
+                                          else onOpen(child, tab);
                                     }}
                               />
                         )}

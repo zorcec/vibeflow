@@ -27,8 +27,12 @@ interface RecursiveChildrenTreeProps {
   visited?: Set<string>;
   /** Visual variant forwarded to ChildRow. */
   variant?: "inline" | "detail";
-  /** Callback when a child row is clicked. */
-  onOpen?: (task: Task) => void;
+  /**
+   * Callback when a child row is clicked. The optional tab target is the
+     attention bell (round 2): `"comments"` jumps to the activities tab
+     through the same open path — never a second navigation.
+   */
+  onOpen?: (task: Task, tab?: "details" | "comments" | "files") => void;
   /** Callback to remove the parent link for a child. When provided, ChildRow renders a hover × button. */
   onRemove?: (taskId: string) => void;
   /** Tooltip for the ChildRow Unlink button (flat relation groups override the children wording). */
@@ -302,7 +306,7 @@ export const RecursiveChildrenTree = React.memo(function RecursiveChildrenTree({
                   child={child}
                   variant={variant}
                   depth={depth + 1}
-                  onOpen={() => onOpen?.(child)}
+                  onOpen={(tab) => onOpen?.(child, tab)}
                   isOrphan={isOrphan}
                   childCount={childCount}
                   collapsible={nodeCollapsible}

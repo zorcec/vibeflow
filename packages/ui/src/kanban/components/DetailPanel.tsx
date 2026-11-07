@@ -249,8 +249,12 @@ interface Props {
   allTasks?: Task[];
   /** Called when the user clicks the back button. Shown only when defined. */
   onGoBack?: () => void;
-  /** Navigate to a different task in the detail panel (e.g., click a child). */
-  onOpenTask?: (task: Task) => void;
+  /**
+   * Navigate to a different task in the detail panel (e.g., click a
+   * child). Carries the same optional tab target as the board open path —
+   * the attention bell (round 2) forwards `"comments"` through it.
+   */
+  onOpenTask?: (task: Task, tab?: "details" | "comments" | "files") => void;
   externalLocalChanges?: LocalChange[];
   /** Label shown in the back button tooltip (the previous task title). */
   navBackLabel?: string;
@@ -1547,7 +1551,12 @@ export function DetailPanel({
                   marginLeft: verifyState !== "none" ? undefined : "auto",
                 }}
               >
-                <AttentionBadge flagged />
+                {/* Clickable (round 2): the header bell jumps to the
+                    activities tab where the reason lives. */}
+                <AttentionBadge
+                  flagged
+                  onPress={() => setActiveTab("comments")}
+                />
               </div>
             )}
             {!isAdd && task && verifyState !== "none" && (

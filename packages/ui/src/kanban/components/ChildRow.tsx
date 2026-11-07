@@ -8,7 +8,12 @@ import { CopyIdButton } from "./CopyIdButton";
 
 interface ChildRowProps {
     child: Task;
-    onOpen?: () => void;
+    /**
+     * Row activation. The row body opens details; the attention bell
+       passes `"comments"` so it jumps straight to the activities tab
+       (round 2) — one detail open path, tab-targeted, never rebuilt.
+     */
+    onOpen?: (tab?: "details" | "comments" | "files") => void;
     variant: "popover" | "detail" | "inline";
     /** Tree depth (1 = direct child). Drives flat left-padding indent per level. */
     depth?: number;
@@ -329,9 +334,18 @@ export function ChildRow({
                 )}
                 {/* Needs-attention (0752d55c): bell icon alongside the leading
               slot so it reads as verify family, not a tag pill. Size 10
-              matches the tree-row verify glyph. */}
+              matches the tree-row verify glyph. Clickable (round 2): the
+              bell jumps to the activities tab while the row body keeps
+              opening details. */}
                 {child?.needsAttention === true && (
-                    <AttentionBadge flagged size={10} />
+                    <AttentionBadge
+                        flagged
+                        size={10}
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            onOpen?.("comments");
+                        }}
+                    />
                 )}
                 {/* Inline (board card tree): title + the child's OWN status badge
               (c8160a0c) — a child in review nested under an in-progress/done

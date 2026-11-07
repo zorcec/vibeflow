@@ -24,11 +24,20 @@ interface Props {
       /** Optical size in px — match the neighbouring slot glyph (11 card, 10 tree row). */
       size?: number;
       style?: React.CSSProperties;
+      /**
+       * Jump-to-reason handler (round 2): when provided the bell renders
+       * as a native button that jumps straight to the reason — card and
+       * child-row bells open the detail panel on the activity/comments tab,
+       * the detail-header bell switches to it. The inner glyph keeps its
+       * role/title/aria contract, so the non-interactive rendering stays
+       * byte-identical and existing selectors keep resolving.
+       */
+      onPress?: (e: React.MouseEvent) => void;
 }
 
-export function AttentionBadge({ flagged, size = 11, style }: Props) {
+export function AttentionBadge({ flagged, size = 11, style, onPress }: Props) {
       if (flagged !== true) return null;
-      return (
+      const glyph = (
             <span
                   className="attention-indicator"
                   data-attention-state="flagged"
@@ -44,5 +53,30 @@ export function AttentionBadge({ flagged, size = 11, style }: Props) {
             >
                   <Bell aria-hidden="true" style={{ width: size, height: size }} />
             </span>
+      );
+      if (!onPress) return glyph;
+      return (
+            <button
+                  type="button"
+                  data-attention-press="true"
+                  aria-label="Needs attention — open the activity feed"
+                  title="Needs attention — open the activity feed"
+                  onClick={onPress}
+                  style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        // Slightly larger hit area without shifting layout.
+                        padding: 2,
+                        margin: -2,
+                        background: "transparent",
+                        border: "none",
+                        borderRadius: "50%",
+                        cursor: "pointer",
+                        color: "inherit",
+                  }}
+            >
+                  {glyph}
+            </button>
       );
 }

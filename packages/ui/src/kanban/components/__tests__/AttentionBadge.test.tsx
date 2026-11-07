@@ -17,7 +17,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { render } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { AttentionBadge } from "../../../AttentionBadge";
 import { BadgeCluster, TaskCard } from "../TaskCard";
@@ -104,7 +104,9 @@ describe("AttentionBadge", () => {
       "utf-8",
     );
     const keyframes = css.match(/@keyframes attention-breathe[\s\S]*?\n\}/);
-    expect(keyframes?.[0]).toContain("rgba(245, 158, 11, 0.12)");
+    // Round 2 (owner: first pass too faint): one notch more visible.
+    expect(keyframes?.[0]).toContain("rgba(245, 158, 11, 0.28)");
+    expect(keyframes?.[0]).toContain("0 0 0 6px");
     const rule = css.match(/\.attention-indicator \{[\s\S]*?\}/);
     expect(rule?.[0]).toContain("attention-breathe");
     expect(rule?.[0]).toMatch(/2s ease-in-out infinite/);
@@ -139,6 +141,43 @@ describe("AttentionBadge", () => {
     );
     expect(absent.textContent).toBe("");
   });
+
+  it("renders a pressable button wrapper when onPress is provided (round 2)", async () => {
+    const onPress = vi.fn();
+    const { container } = render(
+      <AttentionBadge flagged onPress={onPress} />,
+    );
+    const button = container.querySelector(
+      'button[data-attention-press="true"]',
+    );
+    expect(button).not.toBeNull();
+    expect(button).toHaveAttribute(
+      "aria-label",
+      "Needs attention — open the activity feed",
+    );
+    // The inner glyph keeps its role/title/aria contract, so the
+    // non-interactive selectors keep resolving.
+    const glyph = container.querySelector(
+      '[data-attention-state="flagged"]',
+    );
+    expect(glyph).not.toBeNull();
+    expect(glyph).toHaveAttribute("role", "img");
+    expect(glyph).toHaveAttribute("aria-label", "Needs attention");
+    expect(glyph?.querySelector("svg")).not.toBeNull();
+    expectNoPillText(container);
+    fireEvent.click(button!);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no button without onPress (byte-identical non-interactive)", () => {
+    const { container } = render(<AttentionBadge flagged />);
+    expect(
+      container.querySelector('button[data-attention-press="true"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-attention-state="flagged"]'),
+    ).not.toBeNull();
+  });
 });
 
 describe("BadgeCluster needs-attention", () => {
@@ -152,17 +191,20 @@ describe("BadgeCluster needs-attention", () => {
 });
 
 describe("TaskCard needs-attention icon", () => {
-  function renderCard(task: Task) {
-    return render(
-      <TaskCard
-        task={task}
-        col={col}
-        allTasks={[task]}
-        currentUserId="user-1"
-        onOpen={vi.fn()}
-        onDragStart={vi.fn()}
-      />,
-    );
+  function renderCard(task: Task, onOpen = vi.fn()) {
+    return {
+      ...render(
+        <TaskCard
+          task={task}
+          col={col}
+          allTasks={[task]}
+          currentUserId="user-1"
+          onOpen={onOpen}
+          onDragStart={vi.fn()}
+        />,
+      ),
+      onOpen,
+    };
   }
 
   it("shows the icon alongside the leading slot for a flagged task", () => {
@@ -196,6 +238,20 @@ describe("TaskCard needs-attention icon", () => {
       ).toBeNull();
       unmount();
     }
+  });
+
+  it("bell click opens the detail panel on the activities tab (round 2)", () => {
+    const task = makeTask({ needsAttention: true, openedBy: ["user-1"] });
+    const { container, onOpen, unmount } = renderCard(task);
+    const bell = container.querySelector(
+      'button[data-attention-press="true"]',
+    );
+    expect(bell).not.toBeNull();
+    fireEvent.click(bell!);
+    // Tab-targeted open: the reason tab, not the default details tab.
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith(task, "comments");
+    unmount();
   });
 });
 
@@ -236,6 +292,33 @@ describe("ChildRow needs-attention icon", () => {
       container.querySelector('[data-attention-state="flagged"]'),
     ).toBeNull();
   });
+
+  it("bell click jumps to the activities tab while the row body opens details (round 2)", () => {
+    const onOpen = vi.fn();
+    const { container, unmount } = render(
+      <ChildRow
+        child={makeTask({ needsAttention: true })}
+        variant="inline"
+        depth={1}
+        onOpen={onOpen}
+      />,
+    );
+    const bell = container.querySelector(
+      'button[data-attention-press="true"]',
+    );
+    expect(bell).not.toBeNull();
+    fireEvent.click(bell!);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("comments");
+    // The row body keeps the default (details) open — no tab target.
+    onOpen.mockClear();
+    fireEvent.click(
+      container.querySelector('[data-role="child-link-row"]')!,
+    );
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith();
+    unmount();
+  });
 });
 
 describe("DetailPanel needs-attention icon", () => {
@@ -257,6 +340,28 @@ describe("DetailPanel needs-attention icon", () => {
       makeTask() as unknown as Task,
     );
     expect(container.querySelector("#dp-attention-row")).toBeNull();
+    unmount();
+  });
+
+  it("header bell click switches to the activities tab (round 2)", () => {
+    const { container, unmount } = renderPanel(
+      makeTask({ needsAttention: true }) as unknown as Task,
+    );
+    // Details tab starts active.
+    expect(
+      container.querySelector("#dp-tab-details")?.className,
+    ).toContain("active");
+    const bell = container.querySelector(
+      '#dp-attention-row button[data-attention-press="true"]',
+    );
+    expect(bell).not.toBeNull();
+    fireEvent.click(bell!);
+    expect(
+      container.querySelector("#dp-tab-activity")?.className,
+    ).toContain("active");
+    expect(
+      container.querySelector("#dp-tab-details")?.className,
+    ).not.toContain("active");
     unmount();
   });
 });

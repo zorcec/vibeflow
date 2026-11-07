@@ -25,6 +25,7 @@ import type {
 } from "../operations.js";
 import { isDryRun } from "../operations.js";
 import { resolveTaskOrRefusal } from "./resolution.js";
+import { attentionClaimAlert } from "../attention.js";
 import { localTaskStore } from "../task-store.js";
 import { isRemoteReadError } from "../remote-task-store.js";
 import {
@@ -1372,10 +1373,27 @@ export async function updateTask(
       updateGate.allowed && updateGate.instructions.length > 0
         ? updateGate.instructions
         : [];
+    // Needs-attention notification (owner round 2 — see core/attention.ts):
+    // moving a flagged task into progress surfaces the flag + reason, or
+    // the agent starts work blind. Suppressed when this same call SET the
+    // flag — the agent just wrote the reason itself, no echo needed. One
+    // notice in the payload, one dynamic instruction line; the shipped
+    // hook defaults stay untouched.
+    const updateAttention =
+      input.status === "in-progress" && input.setAttention !== true
+        ? attentionClaimAlert(task, id)
+        : null;
+    const updateAttentionInstructions = updateAttention
+      ? [updateAttention.instruction]
+      : [];
     const withUpdateHooks = (
       r: OperationResult<Task>,
     ): OperationResult<Task> => {
-      const merged = [...updateGateInstructions, ...updateHookInstructions];
+      const merged = [
+        ...updateGateInstructions,
+        ...updateHookInstructions,
+        ...updateAttentionInstructions,
+      ];
       return merged.length > 0 ? { ...r, instructions: merged } : r;
     };
 
@@ -1445,6 +1463,7 @@ export async function updateTask(
     // a commit that SUCCEEDED; the MCP tool always says which happened,
     // because here the notice is the only signal at all.
     const steps: import("../operations.js").OperationNotice[] = [];
+    if (updateAttention) steps.push(updateAttention.notice);
 
     // Source consumption (ticket efcd6992, P4 step 5): the report source
     // file is deleted ONLY after the submission effects above are
@@ -1532,6 +1551,7 @@ export async function updateTask(
     const allUpdateInstructions = [
       ...updateHookInstructions,
       ...commentHookInstructions,
+      ...updateAttentionInstructions,
     ];
     // Field selection (parity with list_tasks/get_task and the CLI --fields).
     return {
@@ -1707,13 +1727,33 @@ export async function claimNextTask(
       claimGate.allowed && claimGate.instructions.length > 0
         ? claimGate.instructions
         : [];
+    // Needs-attention notification (owner round 2 — see core/attention.ts):
+    // a claim onto a flagged task surfaces the flag + reason comment, or
+    // the agent starts work blind. One notice in the payload, one dynamic
+    // instruction line — the shipped hook defaults stay untouched.
+    const claimAttention = attentionClaimAlert(claimed, claimed.id);
+    const claimAttentionSteps = claimAttention ? [claimAttention.notice] : [];
+    const claimAttentionInstructions = claimAttention
+      ? [claimAttention.instruction]
+      : [];
     const withClaimHooks = (
       r: OperationResult<Task | null>,
     ): OperationResult<Task | null> => {
-      const merged = [...claimGateInstructions, ...claimInstructions];
+      const merged = [
+        ...claimGateInstructions,
+        ...claimInstructions,
+        ...claimAttentionInstructions,
+      ];
       return merged.length > 0 ? { ...r, instructions: merged } : r;
     };
-    if (!childClaim) return withClaimHooks({ ok: true, data: claimed });
+    if (!childClaim)
+      return withClaimHooks({
+        ok: true,
+        data: claimed,
+        ...(claimAttentionSteps.length > 0
+          ? { steps: claimAttentionSteps }
+          : {}),
+      });
     // Unambiguous on the wire (as `notices`): this run claimed a CHILD,
     // not a root — name the parent so the agent knows which unit it sliced
     // off, mirroring the CLI's CHILD CLAIM line. (Single-purpose parent
@@ -1730,6 +1770,7 @@ export async function claimNextTask(
           code: "CHILD_CLAIM",
           message: `No todo root was available — claimed a todo child of ${parentId}.`,
         },
+        ...claimAttentionSteps,
       ],
     });
   } catch (err) {

@@ -7,7 +7,11 @@ import { ChildRow } from "./ChildRow";
 interface ChildPopoverProps {
   task: Task;
   allTasks: Task[];
-  onOpenTask: (task: Task) => void;
+  /**
+   * Tab target rides along (round 2): the attention bell asks for
+     `"comments"`, the row body asks for nothing — one open path.
+   */
+  onOpenTask: (task: Task, tab?: "details" | "comments" | "files") => void;
   anchorRect?: DOMRect | null;
 }
 
@@ -86,8 +90,8 @@ export default function ChildPopover({
             key={child.id}
             child={child}
             variant="popover"
-            onOpen={() => {
-              onOpenTask(child);
+            onOpen={(tab) => {
+              onOpenTask(child, tab);
             }}
           />
         ))}

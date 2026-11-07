@@ -23,6 +23,10 @@ import {
   isResearchType,
 } from "./core/tasks.js";
 import { addComment } from "./core/comments.js";
+import {
+  attentionClaimAlert,
+  ATTENTION_NOTICE_CODE,
+} from "./core/attention.js";
 import { resolveListLimit } from "./core/task-listing.js";
 import { DEFAULT_LIST_LIMIT } from "@vibeflow-tools/api-core";
 import { readConfig, getCurrentBranch } from "./core/config.js";
@@ -2656,6 +2660,13 @@ program
             const nextSaasNextActions = nextSaasIsDryRun
               ? []
               : getNextActions("set-status:in-progress", nextTask.id);
+            // Needs-attention (owner round 2): the shared claim operation
+            // flags the payload when the claimed task carries the flag —
+            // surface its notice here (payload + human line below); the
+            // dynamic instruction line already rides instructions.
+            const nextSaasAttention = (nextSaasClaim.steps ?? []).filter(
+              (s) => s.code === ATTENTION_NOTICE_CODE,
+            );
             if (opts.json) {
               outputEnvelope({
                 ok: true,
@@ -2664,6 +2675,7 @@ program
                   task: nextTask,
                   next_actions: nextSaasNextActions,
                   childClaim: nextSaasChildClaim,
+                  ...noticeFields(nextSaasAttention),
                   ...hookInstructionsField(nextSaasClaim.instructions),
                 },
               });
@@ -2743,6 +2755,8 @@ program
                   "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
                 ),
               );
+              for (const a of nextSaasAttention)
+                console.log(chalk.yellow(`  ⚠ ${a.message}`));
               printNextHint(nextSaasNextActions);
             }
             return;
@@ -2944,11 +2958,18 @@ program
                   : { id: pid, title: "(not found)" };
               })()
             : null;
+          // Needs-attention (owner round 2): same surfacing as the saas
+          // --next path above — the shared claim operation flags the
+          // payload when the claimed task carries the flag.
+          const nextLocalAttention = (nextClaim.steps ?? []).filter(
+            (s) => s.code === ATTENTION_NOTICE_CODE,
+          );
           if (opts.json) {
             const nextLocalPayload: Record<string, unknown> = {
               task: nextUpdated,
               next_actions: nextLocalNextActions,
               childClaim: nextIsChildClaim,
+              ...noticeFields(nextLocalAttention),
             };
             if (nextBlockedPayload.length > 0) {
               nextLocalPayload.blocked = nextBlockedPayload;
@@ -3117,6 +3138,8 @@ program
                 "  ⚡ This task is already in-progress. Implement it now and mark as review when done.",
               ),
             );
+            for (const a of nextLocalAttention)
+              console.log(chalk.yellow(`  ⚠ ${a.message}`));
             printNextHint(nextLocalNextActions);
           }
           return;
@@ -5466,6 +5489,30 @@ program
               ...saasEditUpdateInstructions,
               ...saasEditCommentInstructions,
             ];
+            // Needs-attention (owner round 2): moving a flagged task into
+            // progress surfaces the flag + reason — same helper the shared
+            // operations use, so the wording cannot drift. Suppressed when
+            // this same call set the flag (the agent just wrote the reason).
+            const saasEditAttention =
+              opts.setStatus === "in-progress" && !opts.setAttention
+                ? attentionClaimAlert(
+                    {
+                      needsAttention:
+                        "needsAttention" in saasEditSnapshot
+                          ? (saasEditSnapshot.needsAttention ?? undefined)
+                          : undefined,
+                      comments:
+                        "comments" in saasEditSnapshot
+                          ? (saasEditSnapshot.comments ?? undefined)
+                          : undefined,
+                    },
+                    editTargetId,
+                  )
+                : null;
+            if (saasEditAttention) {
+              editNotices.push({ ...saasEditAttention.notice });
+              saasEditInstructions.push(saasEditAttention.instruction);
+            }
             if (opts.json) {
               // A comment is part of the TASK DATA: losing it leaves the
               // task genuinely incomplete, so this stays a refusal with a
@@ -5521,6 +5568,10 @@ program
                   `  id: ${saasResultData.task.id} | status: ${toCliStatus(saasResultData.task.status)}`,
                 ),
               );
+              if (saasEditAttention)
+                console.log(
+                  chalk.yellow(`  ⚠ ${saasEditAttention.notice.message}`),
+                );
               printHookInstructions(saasEditInstructions, opts.json);
               if (saasEditNextActions.length > 0)
                 printNextHint(saasEditNextActions);
@@ -6201,6 +6252,18 @@ program
             ...localEditUpdateInstructions,
             ...localEditCommentInstructions,
           ];
+          // Needs-attention (owner round 2): moving a flagged task into
+          // progress surfaces the flag + reason — same helper the shared
+          // operations use, so the wording cannot drift. Suppressed when
+          // this same call set the flag (the agent just wrote the reason).
+          const localEditAttention =
+            opts.setStatus === "in-progress" && !opts.setAttention
+              ? attentionClaimAlert(updated, resolvedTaskId)
+              : null;
+          if (localEditAttention) {
+            editNotices.push({ ...localEditAttention.notice });
+            localEditInstructions.push(localEditAttention.instruction);
+          }
           // The success envelope is written AFTER the auto-commit below, so a
           // commit that did not happen rides the same payload as a `notices`
           // entry instead of being a second document — and the exit code stays
@@ -6227,6 +6290,10 @@ program
               // The verdict the store now holds — see verifyOutcome above.
               if (verifyOutcome)
                 console.log(chalk.dim(`  ${verifyOutcome}`));
+              if (localEditAttention)
+                console.log(
+                  chalk.yellow(`  ⚠ ${localEditAttention.notice.message}`),
+                );
               printHookInstructions(localEditInstructions, opts.json);
               if (localEditNextActions.length > 0)
                 printNextHint(localEditNextActions);

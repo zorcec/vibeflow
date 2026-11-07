@@ -207,6 +207,49 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.click("#dp-close");
   });
 
+  it("card bell click opens the detail panel directly on the activities tab", async () => {
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(
+      `article.task-card[data-task-id="${rootTaskId}"] button[data-attention-press="true"]`,
+    );
+    await panelOpen;
+    // Tab-targeted open: the reason tab, not the default details tab.
+    await page.waitForSelector("#dp-tab-activity.active", {
+      timeout: 8_000,
+    });
+    await page.click("#dp-close");
+  });
+
+  it("detail child-row bell click navigates to the child on the activities tab", async () => {
+    // Open the flagged root on details, then take the CHILDREN group
+    // bell — it navigates the same panel to the child, tab-targeted.
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(
+      `article.task-card[data-task-id="${rootTaskId}"] span[data-role="card-title"]`,
+    );
+    await panelOpen;
+    const childBell = `[data-role="relation-group-rows"] [data-role="child-link-row"][data-task-id="${childTaskId}"] button[data-attention-press="true"]`;
+    await page.waitForSelector(childBell, {
+      state: "visible",
+      timeout: 8_000,
+    });
+    await page.click(childBell);
+    // Same panel, now on the child task with the activities tab active
+    // (the child is flagged too, so its header bell is still present).
+    await page.waitForSelector("#dp-tab-activity.active", {
+      timeout: 8_000,
+    });
+    await page.waitForSelector(
+      `#dp-attention-row [data-attention-state="flagged"]`,
+      { state: "visible", timeout: 8_000 },
+    );
+    await page.click("#dp-close");
+  });
+
   it("no uppercase pill text exists anywhere on the board", async () => {
     // The old pill rendered "Needs attention" as text with CSS uppercase
     // (visually NEEDS ATTENTION). The icon variant keeps the words only in

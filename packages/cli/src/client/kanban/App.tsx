@@ -1578,12 +1578,14 @@ function BoardApp() {
 
   /** Navigate to a task from inside the detail panel (relation clicks, child clicks).
    *  Pushes the current task to nav history so the back button works. */
-  function navigateToTask(nextTask: Task) {
+  // Tab-targeted navigation (round 2): the attention bell forwards
+  // `"comments"` through onOpenTask so the panel opens on the reason.
+  function navigateToTask(nextTask: Task, tab: PanelState["tab"] = "details") {
     setPanelState((prev) => {
       if (prev.task && prev.task.id !== nextTask.id) {
         setNavHistory((h) => [...h, prev.task!]);
       }
-      return { ...prev, open: true, task: nextTask, tab: "details" };
+      return { ...prev, open: true, task: nextTask, tab };
     });
   }
 
