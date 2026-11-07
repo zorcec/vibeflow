@@ -1544,7 +1544,6 @@ export function DetailPanel({
             {!isAdd && task && task.needsAttention === true && (
               <div
                 id="dp-attention-row"
-                data-attention-state="flagged"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",

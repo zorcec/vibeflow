@@ -966,7 +966,11 @@ function renderActivityItem(
   // hairline as the attention change row — so the reason's neighbourhood
   // is glanceable even when the flag predates the board opening. Only the
   // matched comment tints; every other card keeps the plain style.
-  const isAttentionReason = attentionReasonId !== null && attentionReasonId !== undefined && c.id === attentionReasonId;
+  const isAttentionReason =
+    typeof attentionReasonId === 'string' &&
+    attentionReasonId.length > 0 &&
+    typeof c.id === 'string' &&
+    c.id === attentionReasonId;
   return (
     <div key={itemKey} data-comment-id={c.id} data-attention={isAttentionReason ? 'reason' : undefined} title={isAttentionReason ? 'Needs attention — this comment carries the flag reason' : undefined} className={`flex flex-col gap-1 group/comment${animClass ? ` ${animClass}` : ''}`} style={{ paddingTop: isGrouped ? 2 : 4 }}>
       {!isGrouped && (
@@ -1034,7 +1038,7 @@ function renderActivityItem(
           markdown={c.text}
           taskLookup={taskLookup}
           style={isAttentionReason
-            ? { background: 'color-mix(in srgb, var(--t-warning) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--t-warning) 30%, transparent)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }
+            ? { background: 'color-mix(in srgb, var(--t-warning) 4%, var(--t-input))', border: '1px solid var(--t-border)', borderLeft: '3px solid var(--t-warning)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }
             : { background: 'var(--t-input)', border: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
         />
       )}
