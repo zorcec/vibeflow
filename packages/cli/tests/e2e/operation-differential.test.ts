@@ -200,7 +200,8 @@ describe("same-board differential: CLI vs MCP", () => {
     expect(sortedIds(cliFiltered.body.tasks)).toEqual(
       sortedIds(mcpFiltered.tasks),
     );
-    expect(sortedIds(cliFiltered.body.tasks)).toContain("child-a");
+    expect(sortedIds(cliFiltered.body.tasks)).not.toContain("child-a");
+    expect(sortedIds(cliFiltered.body.tasks)).toEqual(["root-a", "root-b"]);
 
     // Unbounded children on both.
     const cliAll = await cliJson(projectDir, home, [

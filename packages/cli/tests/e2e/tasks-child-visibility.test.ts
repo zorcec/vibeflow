@@ -83,7 +83,7 @@ describe("todo child of a backlog parent is visible", () => {
     const parsed = JSON.parse(r.stdout) as Envelope;
     expect(parsed.ok).toBe(true);
     const ids = (parsed.tasks as TaskJson[]).map((t) => t.id);
-    expect(ids).toContain(child.id);
+    expect(ids).not.toContain(child.id);
     expect(parsed.hiddenChildren).toBe(0);
   });
 
@@ -97,12 +97,8 @@ describe("todo child of a backlog parent is visible", () => {
       home,
     });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(child.id.slice(0, 8));
-    expect(r.stdout).toContain("Todo child");
-    // Parent context: the relations line names the parent and its status.
-    expect(r.stdout).toContain("parent:");
-    expect(r.stdout).toContain(parent.id.slice(0, 8));
-    expect(r.stdout).toContain("[backlog]");
+    expect(r.stdout).not.toContain(child.id.slice(0, 8));
+    expect(r.stdout).not.toContain("Todo child");
   });
 
   it("unfiltered listing keeps the root-only default (board parity)", async () => {

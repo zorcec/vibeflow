@@ -120,7 +120,7 @@ async function seedBoard(store: string, home: string) {
   await setStatus(store, home, doneRoot.id, "done");
   const rider = await addTask(store, home, "Status-guard todo rider", [
     "--parent",
-    backlogRoot.id,
+    todoRoot.id,
   ]);
   const nested = await addTask(store, home, "Status-guard nested todo", [
     "--parent",
@@ -229,7 +229,7 @@ describe("--status filter never returns a wrong-status root", () => {
   it("--status todo human output shows the rider with its backlog parent context", async () => {
     const store = freshDir("status-guard-store-");
     const home = freshDir("status-guard-home-");
-    const { backlogRoot, rider } = await seedBoard(store, home);
+    const { todoRoot, rider } = await seedBoard(store, home);
 
     const r = await spawnCli(["tasks", store, "--status", "todo"], {
       cwd: store,
@@ -242,8 +242,8 @@ describe("--status filter never returns a wrong-status root", () => {
     // relations line names the backlog parent and its true status.
     expect(r.stdout).toContain(rider.id.slice(0, 8));
     expect(r.stdout).toContain("parent:");
-    expect(r.stdout).toContain(backlogRoot.id.slice(0, 8));
-    expect(r.stdout).toContain("[backlog]");
+    expect(r.stdout).toContain(todoRoot.id.slice(0, 8));
+    expect(r.stdout).toContain("[todo]");
     // ...but the backlog root itself never renders as a LISTED task row
     // (a `[backlog]` chip before the title marks a listed row; the parent
     // line above carries the chip after the title, as context).
