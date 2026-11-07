@@ -66,6 +66,11 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
   let instance: ServeInstance;
   let rootTaskId: string;
   let childTaskId: string;
+  let preFlaggedTaskId: string;
+  let plainTaskId: string;
+  const COLD_REASON =
+    "Blocked: awaiting design tokens for the empty state before build.";
+  const PLAIN_NOTE = "Plain note on an unflagged task for style comparison.";
   let guard: ErrorGuard;
 
   beforeAll(async () => {
@@ -98,6 +103,50 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     childTaskId = child.id;
     writeTaskJson(tempDir, { ...root, needsAttention: true });
     writeTaskJson(tempDir, { ...child, needsAttention: true });
+    // Cold-load gap pin: flagged BEFORE the board opens, with the reason
+    // comment already in the file — no live transition will ever fire for
+    // this task, so the feed must derive the row + tint from state alone.
+    const preFlagged = createTask(tempDir, {
+      title: "Pre-flagged task",
+      description: "flagged before serve by kanban-attention-icon.test.ts",
+      selector: "/",
+      type: "Task",
+      status: "todo",
+    });
+    preFlaggedTaskId = preFlagged.id;
+    writeTaskJson(tempDir, {
+      ...preFlagged,
+      needsAttention: true,
+      comments: [
+        {
+          id: "c-cold-reason",
+          author: "agent",
+          text: COLD_REASON,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    // Unflagged task with one plain comment: the computed-style baseline
+    // the cold-load tint asserts against (no inline-style comparison).
+    const plain = createTask(tempDir, {
+      title: "Unflagged task",
+      description: "plain baseline by kanban-attention-icon.test.ts",
+      selector: "/",
+      type: "Task",
+      status: "todo",
+    });
+    plainTaskId = plain.id;
+    writeTaskJson(tempDir, {
+      ...plain,
+      comments: [
+        {
+          id: "c-plain-note",
+          author: "Owner",
+          text: PLAIN_NOTE,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
 
     instance = await serve(undefined, {
       port: PORT,
@@ -335,6 +384,79 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       .locator("#detail-panel")
       .getByText(reason, { exact: false })
       .waitFor({ state: "visible", timeout: 15_000 });
+    await page.click("#dp-close");
+  });
+
+  it("cold load derives the attention row and tints the reason comment", async () => {
+    // Owner-eyeballed gap: the pre-flagged task was flagged BEFORE the
+    // board opened, so no live diff-event ever fires for it. Cold-load
+    // must still show the amber attention row AND the reason comment
+    // amber-tinted — both derived from current task state at render.
+    // The card bell jumps straight to the activities tab.
+    const cardSel = `article.task-card[data-task-id="${preFlaggedTaskId}"]`;
+    await page.waitForSelector(cardSel, { timeout: 15_000 });
+    const panelOpen = page.waitForSelector("#detail-panel.open", {
+      timeout: 8_000,
+    });
+    await page.click(`${cardSel} button[data-attention-press="true"]`);
+    await panelOpen;
+    await page.waitForSelector("#dp-tab-activity.active", {
+      timeout: 8_000,
+    });
+    // The state-derived row: amber wash + hairline, naming the field.
+    const rowSel = `#detail-panel [data-activity="attention-change"]`;
+    await page.waitForSelector(rowSel, {
+      state: "visible",
+      timeout: 15_000,
+    });
+    const rowStyle = await page.$eval(
+      rowSel,
+      (el) => el.getAttribute("style") ?? "",
+    );
+    expect(rowStyle).toContain("color-mix");
+    expect(rowStyle).toContain("t-warning");
+    const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
+    expect(rowText).toContain("attention");
+    // Exactly one attention row — cold load derives, never duplicates.
+    expect(
+      await page.locator(`#detail-panel [data-activity="attention-change"]`).count(),
+    ).toBe(1);
+    // The reason comment carries the tint hook and its text.
+    const reasonSel = `#detail-panel [data-attention="reason"]`;
+    await page.waitForSelector(reasonSel, {
+      state: "visible",
+      timeout: 15_000,
+    });
+    await page
+      .locator("#detail-panel")
+      .getByText(COLD_REASON, { exact: false })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    // Computed-style proof (no screenshot artifact): the reason card
+    // resolves to a different background than a plain comment card on the
+    // unflagged baseline task — the tint is real paint, not just markup.
+    const cardOf = (wrapperSel: string) =>
+      `${wrapperSel} div[style*="t-warning"], ${wrapperSel} div[style*="--t-input"]`;
+    const reasonBg = await page.$eval(
+      cardOf(reasonSel),
+      (el) => getComputedStyle(el).backgroundColor,
+    );
+    await page.click("#dp-close");
+    const plainCardSel = `article.task-card[data-task-id="${plainTaskId}"]`;
+    await page.click(`${plainCardSel} span[data-role="card-title"]`);
+    await page.waitForSelector("#detail-panel.open", { timeout: 8_000 });
+    await page.click("#dp-tab-activity");
+    const plainSel = `#detail-panel [data-comment-id="c-plain-note"]`;
+    await page.waitForSelector(plainSel, {
+      state: "visible",
+      timeout: 15_000,
+    });
+    const plainBg = await page.$eval(
+      cardOf(plainSel),
+      (el) => getComputedStyle(el).backgroundColor,
+    );
+    expect(reasonBg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(plainBg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(reasonBg).not.toBe(plainBg);
     await page.click("#dp-close");
   });
 

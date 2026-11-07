@@ -1945,6 +1945,10 @@ export function DetailPanel({
               comments={comments}
               files={files}
               localChanges={mergedLocalChanges}
+              // Cold-load gap (0752d55c): the flag may predate the board —
+              // derive the attention state row + reason tint from the
+              // current task state, not from a live diff that never fired.
+              needsAttention={task?.needsAttention === true}
               loading={commentsLoading}
               error={commentsError}
               gitUserName={gitUserName}

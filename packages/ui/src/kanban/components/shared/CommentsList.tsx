@@ -206,6 +206,36 @@ export interface LocalChange {
   verified?: boolean;
 }
 
+/**
+ * The comment carrying a task's needs-attention reason (ticket 0752d55c,
+ * cold-load gap). Setting the flag REQUIRES a same-call `--comment`
+ * (CLI) / `comment` (MCP), so the latest surviving user comment is the
+ * reason — the same proxy `attentionClaimAlert`
+ * (`cli/src/core/attention.ts`) reads, minus the truncation: the feed
+ * needs the row to tint, not the excerpt. System comments (verify notes,
+ * file traces) never carry it, deleted rows are history — both skipped.
+ * Null when nothing qualifies; callers fall back to the flag-only row,
+ * never an invented reason.
+ */
+export function attentionReasonComment(
+  comments: readonly Comment[] | undefined | null,
+): Comment | null {
+  if (!Array.isArray(comments) || comments.length === 0) return null;
+  const latest = [...comments]
+    .filter(
+      (c) =>
+        c.deleted !== true &&
+        (c.type ?? "comment") === "comment" &&
+        typeof c.text === "string" &&
+        c.text.trim().length > 0,
+    )
+    .sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
+    )
+    .at(-1);
+  return latest ?? null;
+}
+
 /** What a verify entry in the activity feed records (80df86ed). */
 export type VerifyEntryVerdict = 'pass' | 'fail' | 'cannot';
 
@@ -344,6 +374,17 @@ interface Props {
   comments: Comment[];
   files?: FileEntry[];
   localChanges?: LocalChange[];
+  /**
+   * Current flag state (ticket 0752d55c, cold-load gap). Change rows are
+   * in-session only: a flag set BEFORE the board opened never produced a
+   * diff, so the feed would render nothing attention-specific. When true
+   * the feed derives ONE state row from the flag itself (clear → flagged,
+   * sorted at the reason comment so it reads as one unit); a live
+   * transition row already in `localChanges` wins and no second row is
+   * added. The reason comment (see `attentionReasonComment`) earns the
+   * same amber wash as the row.
+   */
+  needsAttention?: boolean;
   loading: boolean;
   error: string | null;
   gitUserName?: string;
@@ -362,7 +403,7 @@ interface Props {
   taskLookup?: (id: string) => { title: string; status: string } | undefined;
 }
 
-export function CommentsList({ comments, files = [], localChanges = [], loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
+export function CommentsList({ comments, files = [], localChanges = [], needsAttention = false, loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -373,6 +414,15 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
     try { return localStorage.getItem('vibeflow-show-updates') !== 'false'; } catch { return true; }
   });
   const prevLoadingRef = React.useRef(loading);
+
+  // The reason comment when the flag is set (ticket 0752d55c, cold-load
+  // gap): the same proxy the claim alert reads, used here for the derived
+  // row's placement/actor and for the amber tint below. Null unless the
+  // flag is on — an unflagged task never tints a comment.
+  const reasonComment = React.useMemo(
+    () => (needsAttention === true ? attentionReasonComment(comments) : null),
+    [needsAttention, comments],
+  );
 
   // Build unified chronological activity stream: lifecycle events + comments + files + local changes
   const activity: ActivityItem[] = React.useMemo(() => {
@@ -388,8 +438,28 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
       kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, agent: c.agent, source: c.source,
       toStatus: c.toStatus, verified: c.verified,
     }));
+    // State-derived attention row (ticket 0752d55c, cold-load gap): change
+    // rows are in-session only, so a flag set before the board opened never
+    // produced a diff and the feed rendered nothing attention-specific.
+    // Derive ONE row from the current flag state, sorted at the reason
+    // comment (same write in the common case) so row and reason read as
+    // one unit. A live transition row already in `localChanges` wins —
+    // the flag flip it recorded IS this state, so no second row is added.
+    if (
+      needsAttention === true &&
+      !localChanges.some((c) => c.field === 'attention' && c.to === 'flagged')
+    ) {
+      changeItems.push({
+        kind: 'change' as const,
+        sortKey: reasonComment?.createdAt ?? taskUpdatedAt ?? '',
+        field: 'attention',
+        from: 'clear',
+        to: 'flagged',
+        actor: reasonComment?.author ?? taskAuthorName ?? gitUserName,
+      });
+    }
     return [...items, ...commentItems, ...fileItems, ...changeItems].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
-  }, [comments, files, localChanges, baseUrl, taskCreatedAt, taskUpdatedAt]);
+  }, [comments, files, localChanges, baseUrl, taskCreatedAt, taskUpdatedAt, needsAttention, reasonComment, taskAuthorName, gitUserName]);
 
   const updateCount = React.useMemo(
     () => activity.filter(item => item.kind === 'lifecycle' || item.kind === 'change').length,
@@ -597,7 +667,7 @@ export function CommentsList({ comments, files = [], localChanges = [], loading,
                   : flashedKeys.has(itemKey)
                     ? 'activity-flash'
                     : '';
-                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup);
+                return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup, reasonComment?.id ?? null);
               })}
             </div>
           </div>
@@ -679,6 +749,9 @@ function renderActivityItem(
   onFilePreview?: (name: string, url: string) => void,
   onFileDownload?: (name: string, url: string) => void,
   taskLookup?: (id: string) => { title: string; status: string } | undefined,
+  /** Id of the comment carrying the attention reason (null when the flag
+      is off or no comment qualifies) — that card earns the amber wash. */
+  attentionReasonId?: string | null,
 ): React.ReactNode {
   if (item.kind === 'lifecycle') {
     return (
@@ -888,8 +961,14 @@ function renderActivityItem(
     );
   }
 
+  // Reason tint (ticket 0752d55c, cold-load gap): the comment carrying
+  // the attention reason reads amber-tinted — the same subtle wash +
+  // hairline as the attention change row — so the reason's neighbourhood
+  // is glanceable even when the flag predates the board opening. Only the
+  // matched comment tints; every other card keeps the plain style.
+  const isAttentionReason = attentionReasonId !== null && attentionReasonId !== undefined && c.id === attentionReasonId;
   return (
-    <div key={itemKey} className={`flex flex-col gap-1 group/comment${animClass ? ` ${animClass}` : ''}`} style={{ paddingTop: isGrouped ? 2 : 4 }}>
+    <div key={itemKey} data-comment-id={c.id} data-attention={isAttentionReason ? 'reason' : undefined} title={isAttentionReason ? 'Needs attention — this comment carries the flag reason' : undefined} className={`flex flex-col gap-1 group/comment${animClass ? ` ${animClass}` : ''}`} style={{ paddingTop: isGrouped ? 2 : 4 }}>
       {!isGrouped && (
         <div className="flex items-center justify-between gap-1.5 text-xs mb-0.5">
           <div className="flex items-center gap-1.5">
@@ -954,7 +1033,9 @@ function renderActivityItem(
         <MarkdownPreview
           markdown={c.text}
           taskLookup={taskLookup}
-          style={{ background: 'var(--t-input)', border: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
+          style={isAttentionReason
+            ? { background: 'color-mix(in srgb, var(--t-warning) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--t-warning) 30%, transparent)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }
+            : { background: 'var(--t-input)', border: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
         />
       )}
     </div>
