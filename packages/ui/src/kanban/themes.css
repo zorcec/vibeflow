@@ -380,8 +380,12 @@
    Added by task 9a2c1be7. Each block below is a DATA-ONLY theme: it
    declares every `--t-*` token itself (surfaces, text, borders, accents,
    status, relations, semantic states, elevation, syntax, and the extended
-   chip/control aliases) and no `--p-*` primitives, so nothing can silently
-   inherit another theme's value. The contract test
+   chip/control aliases) and no `--p-*` primitives, so no `--t-*` value can
+   silently inherit another theme's value. The primitive tier those legacy
+   `--p-*` consumers need (dashboard shell/pages, CLI board chrome) is
+   derived once for all data-only themes in the "Primitive derivation"
+   block below — `var(--t-*)` aliases, never copied hex — so one token
+   source styles both scopes. The contract test
    (`__tests__/theme-contract.test.ts`) fails if any of these blocks is
    incomplete or drops below the contrast floor. Values come from
    docs/research/theme-palettes.md §3–§5; the only deviations are documented
@@ -633,6 +637,62 @@
   --t-chip-slate-400: #a89984;
   --t-control-surface: #3c3836;
   --t-code-bg: #3c3836;
+}
+
+/* ── Primitive derivation for data-only themes (ticket x5o8pbiz) ──
+   The curated themes above declare `--t-*` only, but the dashboard shell,
+   settings pages, and CLI board chrome consume the legacy `--p-*`
+   primitives — so under those themes every non-kanban surface fell back to
+   the `:root` dark values (Dracula navy shell, Dawn paper board in a navy
+   shell, ...). This block derives the full `--p-*` tier from the winning
+   `--t-*` tokens, so one token source styles both scopes with no copied
+   hex. Scoped to the data-only themes ONLY: legacy themes resolve `--t-*`
+   FROM `--p-*` (e.g. `--t-bg: var(--p-bg)`), so aliasing `--p-*` back would
+   be a cycle. A theme added to THEME_REGISTRY that declares no `--p-*` of
+   its own must be added to this selector; the contract test fails
+   otherwise (its `--p-bg` would still equal the dark default).
+   Light-on-light note: `--p-teal` has no `--t-*` counterpart, so it derives
+   from the cool accent; `--p-pink` derives from `--t-pink-soft`, the only
+   pink the curated themes carry. */
+[data-theme="dracula"],
+[data-theme="gruvbox-dark"],
+[data-theme="rose-pine-dawn"] {
+  --p-bg: var(--t-bg);
+  --p-surface: var(--t-surface);
+  --p-card: var(--t-card);
+  --p-input: var(--t-input);
+  --p-hover: var(--t-hover);
+  --p-bg-2: var(--t-bg-raised);
+  --p-bg-3: var(--t-card-inset);
+  --p-border: var(--t-border);
+  --p-border-s: var(--t-border-strong);
+  --p-border-t: var(--t-border-faint);
+  --p-text: var(--t-text);
+  --p-text-sub: var(--t-text-sub);
+  --p-text-m: var(--t-text-muted);
+  --p-text-f: var(--t-text-faint);
+  --p-text-g: var(--t-text-ghost);
+  --p-white: var(--t-white);
+  --p-blue: var(--t-accent);
+  --p-blue-700: var(--t-accent-strong);
+  --p-blue-300: var(--t-accent-soft);
+  --p-blue-200: var(--t-accent-subtle);
+  --p-purple: var(--t-secondary);
+  --p-purple-300: var(--t-secondary-soft);
+  --p-cyan: var(--t-cyan);
+  --p-cyan-300: var(--t-cyan-soft);
+  --p-teal: var(--t-cyan);
+  --p-amber: var(--t-warning);
+  --p-amber-300: var(--t-warning-subtle);
+  --p-green: var(--t-success);
+  --p-green-300: var(--t-success-subtle);
+  --p-red: var(--t-danger);
+  --p-red-500: var(--t-danger-strong);
+  --p-fg-3: var(--t-chip-slate-400);
+  --p-pink: var(--t-pink-soft);
+  --p-pink-300: var(--t-pink-soft);
+  --p-shadow-lg: var(--t-shadow-lg);
+  --p-overlay: var(--t-overlay-scrim);
 }
 
 /* ── System fallback: auto-detect light preference ── */

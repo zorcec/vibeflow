@@ -230,10 +230,8 @@ function missingTokens(tokens: Record<string, string>): string[] {
   return REQUIRED_TOKENS.filter((token) => tokens[token] === undefined);
 }
 
-/** Resolve `var(--x)` chains for one theme (root defaults overlaid by its block). */
-function effectiveTokens(id: Theme): Record<string, string> {
-  const overlay = id === "dark" ? {} : blockFor(id).tokens;
-  const map: Record<string, string> = { ...(ROOT as Block).tokens, ...overlay };
+/** Resolve `var(--x)` chains over one theme's merged token map. */
+function resolveMap(map: Record<string, string>): Record<string, string> {
   const resolve = (value: string, seen: Set<string>): string | null => {
     const trimmed = value.trim();
     const ref = trimmed.match(/^var\(\s*(--[a-z0-9-]+)\s*(?:,\s*(.*))?\)$/i);
@@ -251,6 +249,82 @@ function effectiveTokens(id: Theme): Record<string, string> {
   }
   return resolved;
 }
+
+/** All blocks that win on `<html data-theme="${id}">`: `:root` plus every
+ *  block whose selector list names that theme, in source order (later wins).
+ *  The `@media` fallback (`:root:not([data-theme])`) never matches an
+ *  explicit theme and is excluded. */
+function cascadeFor(id: Theme): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const block of BLOCKS) {
+    if (block.selector === ":root") {
+      Object.assign(merged, block.tokens);
+      continue;
+    }
+    if (block.selector.includes(":not(")) continue;
+    const namesTheme = block.selector
+      .split(",")
+      .some((part) => part.includes(`[data-theme="${id}"]`));
+    if (namesTheme) Object.assign(merged, block.tokens);
+  }
+  return merged;
+}
+
+/** Effective `--p-*` primitives for one theme, `var()` chains resolved. */
+function effectivePrimitives(id: Theme): Record<string, string> {
+  return resolveMap(cascadeFor(id));
+}
+
+/** Resolve `var(--x)` chains for one theme (root defaults overlaid by its block). */
+function effectiveTokens(id: Theme): Record<string, string> {
+  const overlay = id === "dark" ? {} : blockFor(id).tokens;
+  return resolveMap({ ...(ROOT as Block).tokens, ...overlay });
+}
+
+/** The legacy primitive tier the dashboard shell/pages and the CLI board
+ *  chrome consume — every `--p-*` that `:root` defines. Ticket x5o8pbiz:
+ *  curated themes shipped `--t-*` only, so these fell back to the dark
+ *  defaults everywhere outside the kanban. Kept explicit (not derived from
+ *  the CSS) so dropping a primitive from the derivation can never shrink
+ *  the contract. */
+const REQUIRED_DASHBOARD_PRIMITIVES: readonly string[] = [
+  "--p-bg",
+  "--p-surface",
+  "--p-card",
+  "--p-input",
+  "--p-hover",
+  "--p-bg-2",
+  "--p-bg-3",
+  "--p-border",
+  "--p-border-s",
+  "--p-border-t",
+  "--p-text",
+  "--p-text-sub",
+  "--p-text-m",
+  "--p-text-f",
+  "--p-text-g",
+  "--p-white",
+  "--p-blue",
+  "--p-blue-700",
+  "--p-blue-300",
+  "--p-blue-200",
+  "--p-purple",
+  "--p-purple-300",
+  "--p-cyan",
+  "--p-cyan-300",
+  "--p-teal",
+  "--p-amber",
+  "--p-amber-300",
+  "--p-green",
+  "--p-green-300",
+  "--p-red",
+  "--p-red-500",
+  "--p-fg-3",
+  "--p-pink",
+  "--p-pink-300",
+  "--p-shadow-lg",
+  "--p-overlay",
+];
 
 type Rgba = readonly [number, number, number, number];
 
@@ -387,6 +461,57 @@ describe("theme contract", () => {
         SHIPPED_THEMES,
         `${key} may only belong to a shipped theme`,
       ).toContain(id);
+    }
+  });
+
+  describe("dashboard primitive tier (ticket x5o8pbiz)", () => {
+    const missingPrimitives = (tokens: Record<string, string>): string[] =>
+      REQUIRED_DASHBOARD_PRIMITIVES.filter(
+        (token) => tokens[token] === undefined,
+      );
+
+    it("resolves every --p-* primitive for every registered theme", () => {
+      for (const { id } of THEME_REGISTRY) {
+        expect(
+          missingPrimitives(effectivePrimitives(id)),
+          `${id} leaves dashboard/CLI surfaces on the dark fallback`,
+        ).toEqual([]);
+      }
+    });
+
+    it("derivation covers the full primitive tier (guard is not vacuous)", () => {
+      expect(REQUIRED_DASHBOARD_PRIMITIVES.length).toBeGreaterThan(30);
+      expect(new Set(REQUIRED_DASHBOARD_PRIMITIVES).size).toBe(
+        REQUIRED_DASHBOARD_PRIMITIVES.length,
+      );
+      expect(effectivePrimitives("dark")["--p-bg"]).toBe("#020c1b");
+      // A data-only theme that is never added to the derivation selector
+      // still resolves (to the dark fallback) — and is caught below.
+      expect(cascadeFor("dracula")["--p-bg"]).toBe("var(--t-bg)");
+    });
+
+    it("does not restyle the dark default", () => {
+      const dark = effectivePrimitives("dark");
+      for (const token of REQUIRED_DASHBOARD_PRIMITIVES) {
+        expect(dark[token], `dark ${token} moved`).toBe(
+          (ROOT as Block).tokens[token],
+        );
+      }
+    });
+
+    for (const { id } of THEME_REGISTRY) {
+      if (id === "dark") continue;
+      it(`${id} themes the shell differently from the dark default`, () => {
+        const effective = effectivePrimitives(id);
+        expect(
+          effective["--p-bg"],
+          `${id}: --p-bg still equals the dark default`,
+        ).not.toBe(effectivePrimitives("dark")["--p-bg"]);
+        expect(
+          effective["--p-text"],
+          `${id}: --p-text still equals the dark default`,
+        ).not.toBe(effectivePrimitives("dark")["--p-text"]);
+      });
     }
   });
 
