@@ -649,6 +649,11 @@ export const TaskCard = React.memo(function TaskCard({
                                     isUnread={isUnread}
                                     reserve={reserveLeadingSlot}
                               />
+                              {/* Needs-attention (0752d55c): bell icon alongside the
+                                  leading slot so it reads as verify family, not a tag pill. */}
+                              {task.needsAttention === true && (
+                                    <AttentionBadge flagged size={11} />
+                              )}
                               <CardTitle
                                     title={task.title}
                                     muted={isDone}
@@ -776,6 +781,11 @@ export const TaskCard = React.memo(function TaskCard({
                         />
                         {/* Status as colour (kwaz437j): name in tooltip + AT name. */}
                         <StatusDot status={task.status} />
+                        {/* Needs-attention (0752d55c): bell icon alongside the
+                            leading slot so it reads as verify family, not a tag pill. */}
+                        {task.needsAttention === true && (
+                              <AttentionBadge flagged size={11} />
+                        )}
                         <CardTitle title={task.title} />
                         {/* Actions cluster (37b82fba): advance precedes the
                             copy pill so copy stays flush right; same write
@@ -863,7 +873,6 @@ export const TaskCard = React.memo(function TaskCard({
                         <BadgeCluster
                               type={task.type}
                               priority={task.priority}
-                              needsAttention={task.needsAttention}
                               assigneeName={
                                     isInProgress
                                           ? task.assigneeName
@@ -1167,8 +1176,6 @@ export function computeHiddenFrom(
 interface BadgeClusterProps {
       type?: Task["type"];
       priority?: Task["priority"];
-      /** Needs-attention flag (ticket 0752d55c): amber pill right after the type badge. */
-      needsAttention?: boolean;
       assigneeName?: string | null;
       /** Agent-involvement flag (0b7c45c5): assignee claimed through an agent surface. Absent = unknown = unbadged. */
       assigneeIsAgent?: boolean;
@@ -1188,13 +1195,17 @@ interface BadgeClusterProps {
  * popover uses), so it anchors to the chip and stays inside the
  * viewport instead of clipping under the column's scroll container.
  */
+// Needs-attention (ticket 0752d55c) is NOT a badge-cluster pill: it
+// renders as an amber bell icon in the card's title row, alongside the
+// leading status/verify slot, so the two indicators read as a family
+// (owner order — the marker must not look like a tag pill). See the
+// AttentionBadge usages in the title rows below.
 export function BadgeCluster({
       type,
       priority,
       assigneeName,
       assigneeIsAgent,
       tags,
-      needsAttention,
 }: BadgeClusterProps) {
       const badges: CardBadge[] = React.useMemo(() => {
             const list: CardBadge[] = [
@@ -1204,13 +1215,6 @@ export function BadgeCluster({
                         node: <TypeBadge type={type} />,
                   },
             ];
-            if (needsAttention === true) {
-                  list.push({
-                        key: "attention",
-                        label: "Needs attention",
-                        node: <AttentionBadge flagged />,
-                  });
-            }
             if (priority) {
                   list.push({
                         key: "priority",
@@ -1294,7 +1298,7 @@ export function BadgeCluster({
                   });
             }
             return list;
-      }, [type, priority, assigneeName, tags, needsAttention]);
+      }, [type, priority, assigneeName, tags]);
 
       const containerRef = React.useRef<HTMLDivElement>(null);
       const chipRef = React.useRef<HTMLButtonElement>(null);

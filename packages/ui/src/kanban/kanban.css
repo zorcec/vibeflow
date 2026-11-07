@@ -1042,6 +1042,31 @@ body.proto-resizing-panel {
   transform: scale(1);
  }
 }
+/* Needs-attention breathe (0752d55c restyle): the bell icon carries a VERY
+   light box-shadow breathe so a flagged task catches the eye without
+   shouting. Deliberately much fainter than away-glow (4px spread with 0.12
+   peak alpha vs its 14px/0.45) — amber to match the glyph. CSS-only, no JS
+   timers: the shared .attention-indicator class puts the same animation on
+   the card, the child row and the detail header. Static under
+   prefers-reduced-motion, following the activity-row pattern below. */
+@keyframes attention-breathe {
+ 0%,
+ 100% {
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.12);
+ }
+ 50% {
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0);
+ }
+}
+.attention-indicator {
+ border-radius: 50%;
+ animation: attention-breathe 2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+ .attention-indicator {
+  animation: none;
+ }
+}
 
 /* ══════════════════════════════════════════════
    TASK LINKS — child-count chip, popover, relations

@@ -327,6 +327,12 @@ export function ChildRow({
                         }}
                     />
                 )}
+                {/* Needs-attention (0752d55c): bell icon alongside the leading
+              slot so it reads as verify family, not a tag pill. Size 10
+              matches the tree-row verify glyph. */}
+                {child?.needsAttention === true && (
+                    <AttentionBadge flagged size={10} />
+                )}
                 {/* Inline (board card tree): title + the child's OWN status badge
               (c8160a0c) — a child in review nested under an in-progress/done
               parent must read as review, not as a plain row of its parent.
@@ -337,9 +343,6 @@ export function ChildRow({
                             visible text stays ellipsis-truncated by
                             `.child-link-title`, the hover reveals everything. */}
                         <span className="child-link-title" title={title}>{title}</span>
-                        {child?.needsAttention === true && (
-                            <AttentionBadge flagged style={{ fontSize: 8 }} />
-                        )}
                         {isInline && (
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
@@ -371,9 +374,6 @@ export function ChildRow({
                         </span>
                         <span className="child-link-info">
                             <span className="child-link-title" title={title}>{title}</span>
-                            {child?.needsAttention === true && (
-                                <AttentionBadge flagged style={{ fontSize: 8 }} />
-                            )}
                             <span
                                 className={`status-badge status-badge--${child?.status ?? "todo"}`}
                             >
