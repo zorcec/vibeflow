@@ -92,12 +92,10 @@ describe("derived attention state row", () => {
     expect(rows[0]?.textContent).toContain("clear");
     expect(rows[0]?.textContent).toContain("flagged");
     const rowStyle = rows[0]?.getAttribute("style") ?? "";
-    expect(rowStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 9%, transparent)",
-    );
-    expect(rowStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 30%, transparent)",
-    );
+    // Owner ruling: the row is an ordinary activity row — no amber wash or
+    // hairline. Only the linked reason comment is marked (pinned below).
+    expect(rowStyle).not.toContain("t-warning");
+    expect(rowStyle).not.toContain("background");
   });
 
   it("adds no second row when the live transition row is already present", () => {

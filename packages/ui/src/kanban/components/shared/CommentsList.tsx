@@ -778,14 +778,13 @@ function renderActivityItem(
     // glance. Static colours only (no animation): reduced-motion safe by
     // construction, and all text keeps the feed's readable ink.
     const isAttentionChange = item.field === 'attention';
-    const attentionRowStyle: React.CSSProperties | undefined = isAttentionChange
-      ? {
-          background: 'color-mix(in srgb, var(--t-warning) 9%, transparent)',
-          border: '1px solid color-mix(in srgb, var(--t-warning) 30%, transparent)',
-          borderRadius: 8,
-          padding: '6px 10px',
-        }
-      : undefined;
+    // Owner ruling (p2udqv44 follow-up): the amber mark belongs to the
+    // REASON COMMENT only. The derived "changed attention" row is an ordinary
+    // activity row — boxing it in warning tint made two amber things compete
+    // in the same feed, which read as "the wrong message is highlighted".
+    // Kept as a named constant so the row's shape stays one edit away if the
+    // owner ever wants a mark back.
+    const attentionRowStyle: React.CSSProperties = {};
     const verdict = verifyEntryVerdict(item);
     if (verdict) {
       // Verdict-carrying transition: agent-message rhythm (header + card) so it
@@ -840,7 +839,7 @@ function renderActivityItem(
           ...attentionRowStyle,
         }}
       >
-        <span style={{ fontSize: 11, color: isAttentionChange ? 'var(--t-chip-amber-300)' : 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
+        <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {!isGrouped && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t-accent-soft)' }}>{changeActorLabel(item.actor, item.agent)}</span>}

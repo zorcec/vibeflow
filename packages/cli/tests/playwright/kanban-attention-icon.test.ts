@@ -502,8 +502,9 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       `${cardSel} [data-attention-state="flagged"]`,
       { state: "visible", timeout: 15_000 },
     );
-    // The flag row reaches the feed with field metadata intact — tinted
-    // amber, not a plain change row.
+    // The flag row reaches the feed with field metadata intact, as an
+    // ORDINARY activity row: the amber belongs to the reason comment alone
+    // (owner ruling — two amber things in one feed read as a wrong highlight).
     const rowSel = `#detail-panel [data-activity="attention-change"]`;
     await page.waitForSelector(rowSel, {
       state: "visible",
@@ -513,8 +514,8 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       rowSel,
       (el) => el.getAttribute("style") ?? "",
     );
-    expect(rowStyle).toContain("color-mix");
-    expect(rowStyle).toContain("t-warning");
+    expect(rowStyle).not.toContain("t-warning");
+    expect(rowStyle).not.toContain("background");
     const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
     expect(rowText).toContain("attention");
     // The reason comment lands in the same feed without a reload.
@@ -636,7 +637,8 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.waitForSelector("#dp-tab-activity.active", {
       timeout: 8_000,
     });
-    // The state-derived row: amber wash + hairline, naming the field.
+    // The state-derived row names the field but carries NO amber of its own
+    // — the reason comment is the only marked thing in the feed.
     const rowSel = `#detail-panel [data-activity="attention-change"]`;
     await page.waitForSelector(rowSel, {
       state: "visible",
@@ -646,8 +648,8 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       rowSel,
       (el) => el.getAttribute("style") ?? "",
     );
-    expect(rowStyle).toContain("color-mix");
-    expect(rowStyle).toContain("t-warning");
+    expect(rowStyle).not.toContain("t-warning");
+    expect(rowStyle).not.toContain("background");
     const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
     expect(rowText).toContain("attention");
     // Exactly one attention row — cold load derives, never duplicates.
