@@ -14,7 +14,6 @@ import {
   diffTaskFields,
   MINIMAL_FIELDS,
   verifyLabel,
-  attentionLabel,
   verifyFoldedIntoStatusMove,
   tagSetKey,
   normalizeTagList,
@@ -129,19 +128,16 @@ describe("diffTaskFields", () => {
     ).toEqual([{ field: "verify", from: "verified", to: "failed" }]);
   });
 
-  it("diffs a standalone attention change with flagged/clear vocabulary", () => {
-    expect(attentionLabel(true)).toBe("flagged");
-    expect(attentionLabel(false)).toBe("clear");
-    expect(attentionLabel(undefined)).toBe("clear");
-    expect(
-      diffTaskFields(base(), base({ needsAttention: true })),
-    ).toEqual([{ field: "attention", from: "clear", to: "flagged" }]);
+  it("emits no entry for a flag flip — the reason comment is the only feed record (nfmnf5bn9iu5jvarymp8lo8b)", () => {
+    // Fails on the pre-fix code, which pushed
+    // `{ field: "attention", from, to }` here.
+    expect(diffTaskFields(base(), base({ needsAttention: true }))).toEqual([]);
     expect(
       diffTaskFields(
         base({ needsAttention: true }),
         base({ needsAttention: false }),
       ),
-    ).toEqual([{ field: "attention", from: "flagged", to: "clear" }]);
+    ).toEqual([]);
     expect(diffTaskFields(base(), base())).toEqual([]);
   });
 

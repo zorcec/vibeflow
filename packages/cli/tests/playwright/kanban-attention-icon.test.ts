@@ -457,12 +457,11 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     }
   });
 
-  it("external set-attention tints the flag row and shows the reason live", async () => {
-    // Owner gap (round 2): on the LOCAL board a `tasks --edit
-    // --set-attention --comment` file write must surface BOTH the tinted
-    // attention change row AND the reason comment in the open detail
-    // activity feed — the flag row arrives via the task-changed diff, the
-    // reason via the comment refetch the frame triggers. Seeded unflagged,
+  it("external set-attention shows the reason live with no flag row (nfmnf5bn9iu5jvarymp8lo8b)", async () => {
+    // Owner order: on the LOCAL board a `tasks --edit --set-attention
+    // --comment` file write must surface the reason comment in the open
+    // detail activity feed with NO "changed attention" row — the reason
+    // arrives via the comment refetch the frame triggers. Seeded unflagged,
     // flagged mid-test through a direct file write (same bytes the CLI
     // writes), so this pins the live watcher path, not a seeded fixture.
     const live = createTask(tempDir, {
@@ -502,27 +501,18 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       `${cardSel} [data-attention-state="flagged"]`,
       { state: "visible", timeout: 15_000 },
     );
-    // The flag row reaches the feed with field metadata intact, as an
-    // ORDINARY activity row: the amber belongs to the reason comment alone
-    // (owner ruling — two amber things in one feed read as a wrong highlight).
-    const rowSel = `#detail-panel [data-activity="attention-change"]`;
-    await page.waitForSelector(rowSel, {
-      state: "visible",
-      timeout: 15_000,
-    });
-    const rowStyle = await page.$eval(
-      rowSel,
-      (el) => el.getAttribute("style") ?? "",
-    );
-    expect(rowStyle).not.toContain("t-warning");
-    expect(rowStyle).not.toContain("background");
-    const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
-    expect(rowText).toContain("attention");
-    // The reason comment lands in the same feed without a reload.
+    // The reason comment lands in the same feed without a reload — this
+    // wait proves the watcher frame landed, so the absence assertion after
+    // it is not vacuous (on pre-fix code the row arrives with the frame).
     await page
       .locator("#detail-panel")
       .getByText(reason, { exact: false })
       .waitFor({ state: "visible", timeout: 15_000 });
+    // No attention change row reaches the feed: the flag flip diffs to
+    // nothing, and the renderer drops stored `attention` entries too.
+    expect(
+      await page.locator(`#detail-panel [data-activity="attention-change"]`).count(),
+    ).toBe(0);
     await page.click("#dp-close");
   });
 
@@ -621,12 +611,11 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.click("#dp-close");
   });
 
-  it("cold load derives the attention row and tints the reason comment", async () => {
-    // Owner-eyeballed gap: the pre-flagged task was flagged BEFORE the
-    // board opened, so no live diff-event ever fires for it. Cold-load
-    // must still show the amber attention row AND the reason comment
-    // amber-tinted — both derived from current task state at render.
-    // The card bell jumps straight to the activities tab.
+  it("cold load shows no attention row and tints the reason comment (nfmnf5bn9iu5jvarymp8lo8b)", async () => {
+    // Owner order: the pre-flagged task was flagged BEFORE the board
+    // opened, and cold-load must show NO attention row — only the reason
+    // comment amber-tinted. The card bell jumps straight to the activities
+    // tab.
     const cardSel = `article.task-card[data-task-id="${preFlaggedTaskId}"]`;
     await page.waitForSelector(cardSel, { timeout: 15_000 });
     const panelOpen = page.waitForSelector("#detail-panel.open", {
@@ -637,26 +626,9 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.waitForSelector("#dp-tab-activity.active", {
       timeout: 8_000,
     });
-    // The state-derived row names the field but carries NO amber of its own
-    // — the reason comment is the only marked thing in the feed.
-    const rowSel = `#detail-panel [data-activity="attention-change"]`;
-    await page.waitForSelector(rowSel, {
-      state: "visible",
-      timeout: 15_000,
-    });
-    const rowStyle = await page.$eval(
-      rowSel,
-      (el) => el.getAttribute("style") ?? "",
-    );
-    expect(rowStyle).not.toContain("t-warning");
-    expect(rowStyle).not.toContain("background");
-    const rowText = await page.$eval(rowSel, (el) => el.textContent ?? "");
-    expect(rowText).toContain("attention");
-    // Exactly one attention row — cold load derives, never duplicates.
-    expect(
-      await page.locator(`#detail-panel [data-activity="attention-change"]`).count(),
-    ).toBe(1);
-    // The reason comment carries the tint hook and its text.
+    // The reason comment carries the tint hook and its text — this wait
+    // proves the feed rendered, so the absence assertion after it is not
+    // vacuous (on pre-fix code cold load derives the row at render).
     const reasonSel = `#detail-panel [data-attention="reason"]`;
     await page.waitForSelector(reasonSel, {
       state: "visible",
@@ -666,6 +638,11 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
       .locator("#detail-panel")
       .getByText(COLD_REASON, { exact: false })
       .waitFor({ state: "visible", timeout: 15_000 });
+    // No attention row on cold load either — the reason comment is the
+    // only marked thing in the feed.
+    expect(
+      await page.locator(`#detail-panel [data-activity="attention-change"]`).count(),
+    ).toBe(0);
     // Computed-style proof (no screenshot artifact): the reason card
     // resolves to a different background than a plain comment card on the
     // unflagged baseline task — the tint is real paint, not just markup.

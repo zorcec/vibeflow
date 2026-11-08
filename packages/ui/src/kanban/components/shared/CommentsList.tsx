@@ -384,6 +384,11 @@ interface Props {
 }
 
 export function CommentsList({ comments, files = [], localChanges = [], needsAttention = false, attentionReasonId = null, loading, error, gitUserName = 'You', taskAuthorName, baseUrl = '', taskId, taskCreatedAt, taskUpdatedAt, onEdit, onDelete, onDeleteFile, onFilePreview, onFileDownload, taskLookup }: Props) {
+  // `needsAttention` is retained in Props so both hosts keep passing it
+  // without churn, but it no longer renders anything: the derived
+  // "changed attention" row was removed (ticket nfmnf5bn9iu5jvarymp8lo8b)
+  // and the amber reason tint reads `attentionReasonId` only.
+  void needsAttention;
   const listRef = React.useRef<HTMLDivElement>(null);
   const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -395,25 +400,6 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
   });
   const prevLoadingRef = React.useRef(loading);
 
-  // The reason comment when the flag is set (ticket 0752d55c, cold-load
-  // gap + reason-link fix): the exact `attentionReasonId` the set-attention
-  // write stored, so the derived row sorts with the true reason even when
-  // newer plain comments arrived after it. Link-only by decision (ticket
-  // p2udqv44cd5zqv1tiqir6ifn): a record that predates the link has NO
-  // reason comment, and the feed never guesses one from the newest note —
-  // that guess made the amber row (and, before the tint fix, the amber
-  // card) look attached to a random message. Null unless the flag is on —
-  // an unflagged task never tints a comment — and a linked id whose
-  // comment is deleted resolves to null while the flag-only row still
-  // renders.
-  const reasonComment = React.useMemo(() => {
-    if (needsAttention !== true) return null;
-    if (typeof attentionReasonId !== 'string' || attentionReasonId.length === 0) {
-      return null;
-    }
-    return comments.find((c) => c.id === attentionReasonId && c.deleted !== true) ?? null;
-  }, [needsAttention, attentionReasonId, comments]);
-
   // Build unified chronological activity stream: lifecycle events + comments + files + local changes
   const activity: ActivityItem[] = React.useMemo(() => {
     const items: ActivityItem[] = [];
@@ -424,34 +410,20 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
       const fileUrl = f.url.startsWith('http') ? f.url : `${baseUrl}${f.url}`;
       return { kind: 'file' as const, sortKey: f.createdAt ?? '9999', file: f, url: fileUrl };
     });
-    const changeItems: ActivityItem[] = localChanges.map(c => ({
-      kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, agent: c.agent, source: c.source,
-      toStatus: c.toStatus, verified: c.verified,
-    }));
-    // State-derived attention row (ticket 0752d55c, cold-load gap): change
-    // rows are in-session only, so a flag set before the board opened never
-    // produced a diff and the feed rendered nothing attention-specific.
-    // Derive ONE row from the current flag state, sorted at the linked
-    // reason comment when there is one (same write in the common case) so
-    // row and reason read as one unit; a link-less record sorts at the
-    // task's own update time — the feed never places the row at a guessed
-    // comment. A live transition row already in `localChanges` wins —
-    // the flag flip it recorded IS this state, so no second row is added.
-    if (
-      needsAttention === true &&
-      !localChanges.some((c) => c.field === 'attention' && c.to === 'flagged')
-    ) {
-      changeItems.push({
-        kind: 'change' as const,
-        sortKey: reasonComment?.createdAt ?? taskUpdatedAt ?? '',
-        field: 'attention',
-        from: 'clear',
-        to: 'flagged',
-        actor: reasonComment?.author ?? taskAuthorName ?? gitUserName,
-      });
-    }
+    // No `attention` rows, ever (ticket nfmnf5bn9iu5jvarymp8lo8b): the
+    // producer stopped emitting them, and the renderer drops stored ones
+    // so a legacy record (flagged before this change) resurfaces nothing.
+    // The flag still reads as the bell, the badge, and the amber reason
+    // comment — suppression lives HERE, at the single feed both hosts
+    // share, so neither surface can render the row from any record.
+    const changeItems: ActivityItem[] = localChanges
+      .filter((c) => c.field !== 'attention')
+      .map(c => ({
+        kind: 'change' as const, sortKey: c.timestamp, field: c.field, from: c.from, to: c.to, added: c.added, removed: c.removed, actor: c.actor, agent: c.agent, source: c.source,
+        toStatus: c.toStatus, verified: c.verified,
+      }));
     return [...items, ...commentItems, ...fileItems, ...changeItems].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
-  }, [comments, files, localChanges, baseUrl, taskCreatedAt, taskUpdatedAt, needsAttention, reasonComment, taskAuthorName, gitUserName]);
+  }, [comments, files, localChanges, baseUrl, taskCreatedAt, taskUpdatedAt, gitUserName]);
 
   const updateCount = React.useMemo(
     () => activity.filter(item => item.kind === 'lifecycle' || item.kind === 'change').length,
@@ -660,9 +632,7 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
                     ? 'activity-flash'
                     : '';
                 // Owner rule (ticket ryqew9bv7ae6b2j6eankkxkb): the amber tint
-              // reads ONLY the exact linked id — never the resolved
-              // `reasonComment` (which still falls back to the proxy for
-              // the derived row's placement/actor). No link → no tint.
+              // reads ONLY the exact linked id. No link → no tint.
               return renderActivityItem(item, itemKey, animClass, isGrouped, gitUserName, editingId, editText, editTextareaRef, setEditingId, setEditText, onEdit, setConfirmDelete, onDeleteFile ? setConfirmDeleteFile : null, onFilePreview, onFileDownload, taskLookup, attentionReasonId);
               })}
             </div>
@@ -771,20 +741,6 @@ function renderActivityItem(
     const fromTrimmed = item.from.length > trimLen ? item.from.slice(0, trimLen) + '…' : item.from;
     const toTrimmed = item.to.length > trimLen ? item.to.slice(0, trimLen) + '…' : item.to;
     const needsTooltip = item.from.length > trimLen || item.to.length > trimLen;
-    // Needs-attention flag change (round 2): the row that records the
-    // flag flip (clear ↔ flagged) renders slightly yellow-tinted — a
-    // subtle amber wash + hairline, same token family as the bell glyph,
-    // so the reason's neighbourhood reads as attention-related at a
-    // glance. Static colours only (no animation): reduced-motion safe by
-    // construction, and all text keeps the feed's readable ink.
-    const isAttentionChange = item.field === 'attention';
-    // Owner ruling (p2udqv44 follow-up): the amber mark belongs to the
-    // REASON COMMENT only. The derived "changed attention" row is an ordinary
-    // activity row — boxing it in warning tint made two amber things compete
-    // in the same feed, which read as "the wrong message is highlighted".
-    // Kept as a named constant so the row's shape stays one edit away if the
-    // owner ever wants a mark back.
-    const attentionRowStyle: React.CSSProperties = {};
     const verdict = verifyEntryVerdict(item);
     if (verdict) {
       // Verdict-carrying transition: agent-message rhythm (header + card) so it
@@ -824,19 +780,10 @@ function renderActivityItem(
     return (
       <div
         key={itemKey}
-        className={isAttentionChange ? `activity-attention${animClass ? ` ${animClass}` : ''}` : (animClass || undefined)}
-        data-activity={isAttentionChange ? 'attention-change' : undefined}
-        title={
-          isAttentionChange
-            ? typeof attentionReasonId === 'string' && attentionReasonId.length > 0
-              ? 'Needs attention — the reason is the amber comment in this feed'
-              : 'Needs attention — flagged without a linked reason comment'
-            : undefined
-        }
+        className={animClass || undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 6,
           padding: '2px 0',
-          ...attentionRowStyle,
         }}
       >
         <span style={{ fontSize: 11, color: 'var(--t-accent)', fontWeight: 600, flexShrink: 0, minWidth: 18, paddingTop: 1 }}>✎</span>

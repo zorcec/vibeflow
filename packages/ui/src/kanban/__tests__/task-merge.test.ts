@@ -373,12 +373,13 @@ describe("commentListSignature — live reason-comment detection (0752d55c, roun
   });
 });
 
-describe("watcher frame round-trip — attention flag keeps field metadata", () => {
-  it("diffs a set-attention file write to an attention change (clear → flagged)", () => {
+describe("watcher frame round-trip — attention flag carries no change row", () => {
+  it("merges a set-attention file write with no attention diff entry (nfmnf5bn9iu5jvarymp8lo8b)", () => {
     // The file watcher broadcasts the whole task record (source cli) after a
     // `tasks --edit --set-attention --comment` write. The board merges the
-    // frame, then diffs against the stored task — the entry that reaches the
-    // feed must name the attention field, or the tint never applies.
+    // frame, then diffs against the stored task — the flag flip must yield
+    // NO entry: the reason comment is the only feed record. Fails on the
+    // pre-fix code, which pushed `{ field: "attention", ... }` here.
     const prev = baseTask({ needsAttention: false });
     const frame = {
       id: "t1",
@@ -397,9 +398,6 @@ describe("watcher frame round-trip — attention flag keeps field metadata", () 
     expect(commentListSignature(frame)).not.toBe(
       commentListSignature({ comments: [] }),
     );
-    const changes = diffTaskFields(prev, mapped);
-    expect(changes).toEqual([
-      { field: "attention", from: "clear", to: "flagged" },
-    ]);
+    expect(diffTaskFields(prev, mapped)).toEqual([]);
   });
 });

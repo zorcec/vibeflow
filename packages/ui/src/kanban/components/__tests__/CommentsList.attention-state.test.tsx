@@ -1,27 +1,19 @@
 // @vitest-environment jsdom
 /**
- * Attention state derived from the CURRENT task state (ticket 0752d55c,
- * cold-load gap; never-guess rule ticket p2udqv44cd5zqv1tiqir6ifn).
+ * No attention change row (ticket nfmnf5bn9iu5jvarymp8lo8b; derived-row
+ * era ticket 0752d55c, never-guess rule ticket p2udqv44cd5zqv1tiqir6ifn).
  *
- * Owner-eyeballed: on a task flagged BEFORE the board opened, the detail
- * Activity tab showed the reason comment PLAIN and NO amber attention
- * change row — the f802e4f diff-event path only creates the row on LIVE
- * transitions while the panel is open. Whenever `needsAttention` is true
- * the feed now derives ONE amber attention row from the flag itself
- * (clear → flagged).
+ * Owner order: flagging activity is not needed — the amber reason comment
+ * is the only feed record of a flag. The feed renders NO derived
+ * "changed attention" row on cold load, NO live-transition row on a flag
+ * flip, and drops STORED `{ field: "attention" }` entries from legacy
+ * records. The reason-comment tint pins below are unchanged: the linked
+ * comment still tints amber, and with no link nothing tints (never a
+ * proxy guess).
  *
- * The owner's second report ("I expect only the message set via the
- * attention flag highlighted — now it is random") retired the
- * latest-comment proxy this file used to pin: the derived row is placed
- * and attributed from the stored `attentionReasonId` link only, and a
- * link-less record falls back to the task's OWN update time and owner —
- * never to whichever comment happens to be newest.
- *
- * Non-vacuity: the cold-load row test fails on the pre-fix code (no
- * `needsAttention` prop existed, so no attention row renders without a
- * live diff); the never-guess tests fail while the proxy is in place
- * (the row then carries the newest comment's timestamp and author); the
- * tint tests fail where every card keeps the plain style.
+ * Non-vacuity: the absence tests fail on the pre-fix code (which derived
+ * one row from the flag and rendered every stored `attention` entry);
+ * the tint tests fail where every card keeps the plain style.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "@testing-library/react";
@@ -78,27 +70,19 @@ function renderFeed(args: {
   );
 }
 
-describe("derived attention state row", () => {
-  it("renders one amber attention row on cold load (flag on, no live diff)", () => {
+describe("no attention change row", () => {
+  it("renders no attention row on cold load (flag on, no live diff)", () => {
     const { container } = renderFeed({
       comments: [comment({ id: "c-reason" })],
       needsAttention: true,
     });
-    const rows = container.querySelectorAll(
-      '[data-activity="attention-change"]',
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.textContent).toContain("attention");
-    expect(rows[0]?.textContent).toContain("clear");
-    expect(rows[0]?.textContent).toContain("flagged");
-    const rowStyle = rows[0]?.getAttribute("style") ?? "";
-    // Owner ruling: the row is an ordinary activity row — no amber wash or
-    // hairline. Only the linked reason comment is marked (pinned below).
-    expect(rowStyle).not.toContain("t-warning");
-    expect(rowStyle).not.toContain("background");
+    expect(
+      container.querySelectorAll('[data-activity="attention-change"]'),
+    ).toHaveLength(0);
+    expect(container.textContent).not.toContain("attention");
   });
 
-  it("adds no second row when the live transition row is already present", () => {
+  it("drops a stored live-transition row instead of rendering it", () => {
     const { container } = renderFeed({
       comments: [comment({ id: "c-reason" })],
       changes: [
@@ -113,7 +97,7 @@ describe("derived attention state row", () => {
     });
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("renders no attention row when the flag is off", () => {
@@ -163,9 +147,8 @@ describe("reason comment tint", () => {
   });
 
   it("tints nothing when the link is absent — no proxy guess (ryqew9bv7ae6b2j6eankkxkb, p2udqv44cd5zqv1tiqir6ifn)", () => {
-    // Owner rule: no link → no tint. The retired latest-comment proxy used
-    // to paint the newest plain comment (the reported bug); the amber now
-    // lives only on the flag row until a linked reason exists.
+    // Owner rule: no link → no tint. No attention row either: the flag
+    // reads only as the bell until a linked reason exists.
     const { container } = renderFeed({
       comments: [
         comment({ id: "c-old", text: "Earlier note.", createdAt: "2026-10-16T09:00:00.000Z" }),
@@ -176,14 +159,14 @@ describe("reason comment tint", () => {
     expect(container.querySelector('[data-attention="reason"]')).toBeNull();
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
-  it("places the flag row at the task's own update time, not at the newest comment (p2udqv44cd5zqv1tiqir6ifn)", () => {
-    // "Now it is random": the proxy sorted the derived row at the newest
-    // comment, so the amber row read as attached to whichever message
-    // arrived last. A link-less record now sorts at the task's update
-    // time — the flag write — and the fresh comment keeps its own slot.
+  it("leaves the newest comment in its own slot with no flag row beside it (p2udqv44cd5zqv1tiqir6ifn)", () => {
+    // The retired proxy sorted a derived row at the newest comment, so the
+    // amber row read as attached to whichever message arrived last. Now
+    // there is no row at all: the fresh comment keeps its own slot and the
+    // feed names no attention field.
     const updatedAt = "2026-10-16T09:30:00.000Z";
     const newestCommentAt = "2026-10-16T11:00:00.000Z";
     const { container } = renderFeed({
@@ -193,13 +176,14 @@ describe("reason comment tint", () => {
       needsAttention: true,
       taskUpdatedAt: updatedAt,
     });
-    const row = container.querySelector('[data-activity="attention-change"]');
-    expect(row).not.toBeNull();
-    expect(row?.textContent).toContain(formatDate(updatedAt));
-    expect(row?.textContent).not.toContain(formatDate(newestCommentAt));
+    expect(
+      container.querySelector('[data-activity="attention-change"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain(formatDate(newestCommentAt));
+    expect(container.textContent).not.toContain("attention");
   });
 
-  it("attributes the flag row to the task owner, not to the newest comment's author (p2udqv44cd5zqv1tiqir6ifn)", () => {
+  it("names no attention actor anywhere without the row (p2udqv44cd5zqv1tiqir6ifn)", () => {
     const { container } = renderFeed({
       comments: [
         comment({ id: "c-new", author: "Ada", text: "Newest note.", createdAt: "2026-10-16T11:00:00.000Z" }),
@@ -208,9 +192,10 @@ describe("reason comment tint", () => {
       taskUpdatedAt: "2026-10-16T09:30:00.000Z",
       taskAuthorName: "Owner",
     });
-    const row = container.querySelector('[data-activity="attention-change"]');
-    expect(row?.textContent).toContain("Owner");
-    expect(row?.textContent).not.toContain("Ada");
+    expect(
+      container.querySelector('[data-activity="attention-change"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("attention");
   });
 
   it("tints nothing when the linked comment is gone (no invented reason)", () => {
@@ -222,11 +207,10 @@ describe("reason comment tint", () => {
       attentionReasonId: "c-vanished",
     });
     expect(container.querySelector('[data-attention="reason"]')).toBeNull();
-    // The flag-only row still renders: the flag is real, only the reason
-    // comment is gone.
+    // No fallback row either: the flag is real but only the bell shows it.
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("tints exactly the reason comment amber when flagged", () => {
@@ -279,11 +263,11 @@ describe("reason comment tint", () => {
     expect(container.querySelector('[data-attention="reason"]')).toBeNull();
   });
 
-  it("shows the flag row even when no comment qualifies as the reason", () => {
+  it("shows no flag row when no comment qualifies as the reason", () => {
     const { container } = renderFeed({ comments: [], needsAttention: true });
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(container.querySelector('[data-attention="reason"]')).toBeNull();
   });
 });

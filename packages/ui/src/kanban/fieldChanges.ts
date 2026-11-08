@@ -49,11 +49,6 @@ export function verifyLabel(v: unknown): string {
   return "none";
 }
 
-/** Feed label for the `needsAttention` flag (ticket 0752d55c). */
-export function attentionLabel(v: unknown): string {
-  return v === true ? "flagged" : "clear";
-}
-
 /** Canonical comparable string for a tag set (order-insensitive). */
 export function tagSetKey(tags: unknown): string {
   return normalizeTagList(tags).join(",");
@@ -207,11 +202,11 @@ export function diffTaskFields(
   if (verNext !== verPrev) {
     out.push({ field: "verify", from: verPrev, to: verNext });
   }
-  const attPrev = attentionLabel(prev.needsAttention);
-  const attNext = attentionLabel(next.needsAttention);
-  if (attNext !== attPrev) {
-    out.push({ field: "attention", from: attPrev, to: attNext });
-  }
+  // No `attention` entry by decision (ticket nfmnf5bn9iu5jvarymp8lo8b):
+  // a flag flip reads ONLY as the amber reason comment in the feed — the
+  // derived "changed attention" row was removed as noise. The renderer
+  // additionally drops stored `attention` rows so legacy records resurface
+  // nothing; see CommentsList.
   const statusChanged =
     text((prev as { status?: unknown }).status) !==
     text((next as { status?: unknown }).status);

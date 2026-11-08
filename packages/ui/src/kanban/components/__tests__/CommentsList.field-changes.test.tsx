@@ -47,23 +47,11 @@ function change(overrides: Partial<LocalChange> = {}): LocalChange {
 }
 
 describe("minimal field entries", () => {
-  it("renders an attention change with flagged/clear pills", () => {
+  it("drops a stored attention change — no row, no marker (nfmnf5bn9iu5jvarymp8lo8b)", () => {
+    // Legacy records carry `{ field: "attention" }` entries; the feed
+    // must not render them. Fails on the pre-fix code, which rendered the
+    // row with `data-activity="attention-change"`.
     const { container } = renderFeed([
-      change({
-        field: "attention",
-        from: "clear",
-        to: "flagged",
-        timestamp: "2026-10-16T10:00:02.000Z",
-      }),
-    ]);
-    expect(container.textContent).toContain("attention");
-    expect(container.textContent).toContain("clear");
-    expect(container.textContent).toContain("flagged");
-    expect(container.textContent).toContain("→");
-  });
-
-  it("tints the attention change row amber while other change rows stay plain (round 2)", () => {
-    const { container, unmount } = renderFeed([
       change({
         field: "attention",
         from: "clear",
@@ -77,26 +65,12 @@ describe("minimal field entries", () => {
         timestamp: "2026-10-16T10:00:03.000Z",
       }),
     ]);
-    const attentionRow = container.querySelector(
-      '[data-activity="attention-change"]',
-    );
-    expect(attentionRow).not.toBeNull();
-    expect(attentionRow?.textContent).toContain("attention");
-    // Subtle amber wash + hairline (token-driven, readable ink kept).
-    // jsdom never computes color-mix, so pin the serialized inline style
-    // (background IS computed, but assert both the same way for symmetry).
-    const rowStyle = attentionRow?.getAttribute("style") ?? "";
-    expect(rowStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 9%, transparent)",
-    );
-    expect(rowStyle).toContain(
-      "color-mix(in srgb, var(--t-warning) 30%, transparent)",
-    );
-    // Exactly one tinted row: the status change stays plain.
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
-    ).toHaveLength(1);
-    unmount();
+    ).toHaveLength(0);
+    expect(container.textContent).not.toContain("attention");
+    // The neighbouring status change still renders.
+    expect(container.textContent).toContain("in-progress");
   });
   it("renders a description edit as a name-only row (no value pills)", () => {
     const { container } = renderFeed([change({ field: "description" })]);
