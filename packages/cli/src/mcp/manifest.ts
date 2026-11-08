@@ -189,6 +189,10 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "pins a project root from the command line; an MCP server is spawned per project, so the project is the server's own context, not a per-call tool input",
     "verify --filter":
       "style_diff filter used only by `vibeflow verify style_diff`; verify_task exposes only id/url/timeoutMs/dryRun",
+    "verify --pixels":
+      "pixel evidence (baseline/after selector-region PNGs + PIXEL_DELTA line) captured only by `vibeflow verify --pixels`; verify_task exposes only id/url/timeoutMs/dryRun",
+    "verify --min-pixel-delta":
+      "threshold demanding a visible pixel change, only meaningful with --pixels; verify_task exposes only id/url/timeoutMs/dryRun",
     // Pre-hook bypass (Stage 2, ADR-0006): a LOCAL invocation modifier —
     // it skips the pre-gate loudly (HOOK_BYPASSED notice + local audit
     // record), never changes what the operation writes. The operation layer

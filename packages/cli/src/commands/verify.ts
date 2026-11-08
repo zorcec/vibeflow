@@ -10,6 +10,15 @@ import { decryptAuthState, type EncryptedAuthState } from "../core/auth.js";
 import { computeDiff, summarizeDiff } from "../core/diff.js";
 import type { DomSnapshot, DiffResult } from "../core/diff.js";
 import {
+  computePixelDelta,
+  formatPixelDelta,
+  pixelDemandMet,
+  PIXEL_AFTER_FILE,
+  PIXEL_BASELINE_FILE,
+  type PixelDelta,
+  type PixelSizes,
+} from "../core/pixel-diff.js";
+import {
   parseDomSnapshot,
   parsePageBaseline,
   BaselineValidationError,
@@ -445,6 +454,13 @@ export interface VerifyResult {
    */
   baselineBuild: ServedBuildFingerprint | null;
   /**
+   * Pixel evidence (`verify --pixels` only; absent otherwise): the max
+   * per-channel delta between the baseline and after selector-region
+   * captures. Evidence only, like `servedBuild` — except a positive
+   * `--min-pixel-delta` demand, which fails `ok` when unmet.
+   */
+  pixelDelta?: PixelDelta;
+  /**
    * baseline vs. measured build. "mismatch" means the evidence spans a rebuild
    * and the diff below compares two different builds.
    */
@@ -550,7 +566,13 @@ async function loadPlaywright(): Promise<typeof import("playwright")> {
 export async function verifyTask(
   projectDir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string; signal?: AbortSignal } = {},
+  opts: {
+    json?: boolean;
+    url?: string;
+    signal?: AbortSignal;
+    pixels?: boolean;
+    minPixelDelta?: number;
+  } = {},
 ): Promise<VerifyResult> {
   const absProjectDir = resolve(projectDir);
 
@@ -898,6 +920,27 @@ export async function verifyTask(
       baselineBuild,
     );
 
+    // ── 13b. Pixel evidence (`--pixels` only) ─────────────────────────
+    // The selector-region capture for THIS run. The baseline it diffs
+    // against lives in the files dir from the first `--pixels` run
+    // (storeEvidence never deletes it) — a single run has nothing past to
+    // compare with, so it bootstraps the baseline instead of diffing.
+    let pixelDelta: PixelDelta | undefined;
+    let pixelSizes: PixelSizes | undefined;
+    let pixelBootstrapped = false;
+    if (opts.pixels) {
+      const shot = await capturePixelShot(page, selector);
+      const stored = await storePixelEvidence(
+        absProjectDir,
+        taskId,
+        shot,
+        evidenceFiles,
+      );
+      pixelDelta = stored.delta;
+      pixelSizes = stored.sizes;
+      pixelBootstrapped = stored.bootstrapped;
+    }
+
     // ── 14. Back-fill page-wide baselines + generate page diff ──────────
     if (pageBaseline && pageBaseline.elements) {
       const allStylesPath = getFilePath(
@@ -1004,6 +1047,14 @@ export async function verifyTask(
       pageTruncated,
       servedBuild,
       baselineBuild,
+      opts.pixels
+        ? {
+            delta: pixelDelta,
+            sizes: pixelSizes,
+            bootstrapped: pixelBootstrapped,
+            minDelta: opts.minPixelDelta ?? 0,
+          }
+        : undefined,
     );
   } finally {
     await context?.close();
@@ -1269,6 +1320,11 @@ async function storeEvidence(
   try {
     const existing = readdirSync(filesDir);
     for (const f of existing) {
+      // The pixel baseline spans runs: the first `--pixels` run stores it
+      // and later runs diff against it, so cleanup must never delete it
+      // (only the per-run after capture is rewritten). Applies whether or
+      // not this run passed `--pixels`.
+      if (f === PIXEL_BASELINE_FILE) continue;
       if (f.startsWith("verify-") || f === "baseline.json") {
         unlinkSync(join(filesDir, f));
       }
@@ -1420,6 +1476,100 @@ async function storeEvidence(
   return { files, pageTruncated };
 }
 
+// ── Pixel evidence (`verify --pixels`) ─────────────────────────────────────
+/**
+ * Capture the task selector region as PNG bytes: the element crop when the
+ * selector resolves, else the viewport. Deterministic by requirement —
+ * animations disabled and caret hidden — so equal code produces equal bytes
+ * and any nonzero delta is real paint. (Trade-off: a pure-motion change with
+ * an identical rest frame reads as delta 0 — single frames cannot prove
+ * motion, and random animation phases would make every number meaningless.)
+ * Undefined only when both captures fail (non-fatal: the run keeps its
+other
+ * evidence and reports the miss).
+ */
+async function capturePixelShot(
+  page: import("playwright").Page,
+  selector: string,
+): Promise<Buffer | undefined> {
+  const still = {
+    animations: "disabled" as const,
+    caret: "hide" as const,
+    timeout: 15_000,
+  };
+  try {
+    return await page.locator(selector).first().screenshot(still);
+  } catch {
+    /* element crop failed — fall through to the viewport */
+  }
+  try {
+    return await page.screenshot({ fullPage: false, ...still });
+  } catch (err) {
+    warnEvidenceCapture(PIXEL_AFTER_FILE, err);
+    return undefined;
+  }
+}
+
+/**
+ * Store the `--pixels` captures and diff them.
+ *
+ * First `--pixels` run bootstraps: the shot is stored as BOTH
+ * `verify-baseline-pixels.png` and `verify-after-pixels.png` (delta 0/0).
+ * Later runs overwrite only the after file and diff it against the kept
+ * baseline; size mismatch is REPORTED (`sameSize: false`), never diffed.
+ *
+ * Raw PNG bytes, deliberately NOT run through the WebP image matrix: the
+ * two captures must stay byte-comparable PNGs that `decodePng` reads with
+ * no wasm, and the required filenames keep their true `.png` extension (a
+ * transcode would rename them to `.webp`). Both files are system evidence.
+ */
+async function storePixelEvidence(
+  projectDir: string,
+  taskId: string,
+  shot: Buffer | undefined,
+  files: string[],
+): Promise<{ delta?: PixelDelta; sizes?: PixelSizes; bootstrapped: boolean }> {
+  if (!shot) return { bootstrapped: false };
+  const baselinePath = getFilePath(projectDir, taskId, PIXEL_BASELINE_FILE);
+  let baselineBytes: Buffer | null = null;
+  if (baselinePath) {
+    try {
+      baselineBytes = readFileSync(baselinePath);
+    } catch {
+      baselineBytes = null;
+    }
+  }
+  if (!baselineBytes) {
+    saveFile(projectDir, taskId, PIXEL_BASELINE_FILE, shot, { system: true });
+    saveFile(projectDir, taskId, PIXEL_AFTER_FILE, shot, { system: true });
+    files.push(join(getFilesDir(projectDir, taskId), PIXEL_BASELINE_FILE));
+    files.push(join(getFilesDir(projectDir, taskId), PIXEL_AFTER_FILE));
+    return { delta: { max: 0, pct: 0, sameSize: true }, bootstrapped: true };
+  }
+  saveFile(projectDir, taskId, PIXEL_AFTER_FILE, shot, { system: true });
+  files.push(join(getFilesDir(projectDir, taskId), PIXEL_BASELINE_FILE));
+  files.push(join(getFilesDir(projectDir, taskId), PIXEL_AFTER_FILE));
+  try {
+    // Reused, not reinvented: the dependency-free 8-bit PNG decoder the
+    // evidence pipeline already ships (`server/imageNodeCodecs.ts` — no
+    // new heavy deps). Playwright writes 8-bit RGBA PNGs, which it reads.
+    const { decodePng } = await import("../server/imageNodeCodecs.js");
+    const a = decodePng(new Uint8Array(baselineBytes));
+    const b = decodePng(new Uint8Array(shot));
+    return {
+      delta: computePixelDelta(a, b),
+      sizes: {
+        baseline: { width: a.width, height: a.height },
+        after: { width: b.width, height: b.height },
+      },
+      bootstrapped: false,
+    };
+  } catch (err) {
+    warnEvidenceCapture(PIXEL_AFTER_FILE, err);
+    return { bootstrapped: false };
+  }
+}
+
 // ── Result builder ────────────────────────────────────────────────────────
 function buildResult(
   taskId: string,
@@ -1433,9 +1583,33 @@ function buildResult(
   captureTruncated = false,
   servedBuild?: ServedBuildFingerprint,
   baselineBuild?: ServedBuildFingerprint | null,
+  pixel?: {
+    delta?: PixelDelta;
+    sizes?: PixelSizes;
+    bootstrapped?: boolean;
+    minDelta?: number;
+  },
 ): VerifyResult {
-  const ok = diff.selectorResolves && diff.newConsoleErrors.length === 0;
-  const verdict = overrideVerdict ?? summarizeDiff(diff, selector);
+  // A positive `--min-pixel-delta` demand fails `ok` when unmet. The
+  // default 0 reports only and never fails on its own (pixelDemandMet).
+  const demandMet = pixelDemandMet(pixel?.delta, pixel?.minDelta ?? 0);
+  const ok =
+    diff.selectorResolves &&
+    diff.newConsoleErrors.length === 0 &&
+    demandMet;
+  let verdict = overrideVerdict ?? summarizeDiff(diff, selector);
+  if (pixel) {
+    if (!pixel.delta) {
+      verdict += " Pixel evidence: capture failed (see warnings above).";
+    } else if (pixel.bootstrapped) {
+      verdict += ` Pixel evidence: ${formatPixelDelta(pixel.delta)} — baseline captured this run; re-run after the change to measure.`;
+    } else {
+      verdict += ` Pixel evidence: ${formatPixelDelta(pixel.delta, pixel.sizes)}.`;
+    }
+    if (!demandMet) {
+      verdict += ` Demanded at least ${pixel.minDelta}/255 of visible change: NOT met.`;
+    }
+  }
 
   const measured = servedBuild ?? {
     hash: UNKNOWN_BUILD,
@@ -1469,6 +1643,9 @@ function buildResult(
       baselineBuild ?? null,
       measured,
     ),
+    // Absent when `--pixels` was not passed (or the capture failed) — the
+    // `--json` contract carries exactly {max, pct, sameSize} when present.
+    ...(pixel?.delta === undefined ? {} : { pixelDelta: pixel.delta }),
   };
 }
 
@@ -1476,7 +1653,15 @@ function buildResult(
 export async function runVerify(
   dir: string,
   taskId: string,
-  opts: { json?: boolean; url?: string; timeoutMs?: number; hookBypass?: boolean; hookScope?: HookScope },
+  opts: {
+    json?: boolean;
+    url?: string;
+    timeoutMs?: number;
+    hookBypass?: boolean;
+    hookScope?: HookScope;
+    pixels?: boolean;
+    minPixelDelta?: number;
+  },
 ): Promise<void> {
   const projectDir = resolve(dir);
 
@@ -1503,6 +1688,15 @@ export async function runVerify(
       timeoutMs: opts.timeoutMs ?? 60_000,
       dryRun: false as const,
       ...(opts.url === undefined ? {} : { url: opts.url }),
+    },
+    // CLI-only engine args the MCP wire does not carry (`--pixels`,
+    // `--min-pixel-delta`): the drift gate classifies them in the manifest
+    // as intentionally unexposed, and the operation merges them here.
+    {
+      engineOpts: {
+        pixels: opts.pixels ?? false,
+        minPixelDelta: opts.minPixelDelta ?? 0,
+      },
     },
   );
 
@@ -1687,6 +1881,19 @@ export function printResult(result: VerifyResult): void {
         "  ⚠ Target element not found — the fix may have renamed/removed it.",
       ),
     );
+  }
+
+  // Pixel evidence (`verify --pixels` only): the one greppable line. The
+  // sized mismatch detail rides the verdict above; this line is the contract.
+  if (result.pixelDelta) {
+    console.log(`  ${formatPixelDelta(result.pixelDelta)}`);
+    if (!result.pixelDelta.sameSize) {
+      console.log(
+        chalk.yellow(
+          "  ⚠ Pixel captures differ in size — layout shifted; not diffed.",
+        ),
+      );
+    }
   }
 
   // WHICH build this evidence measured, next to the evidence paths: a green

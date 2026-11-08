@@ -216,6 +216,8 @@ const SYSTEM_FILE_NAMES = new Set([
   "verify-screenshot.webp", // current: capture-time matrix output
   "verify-element.html",
   "verify-page-diff.json",
+  "verify-baseline-pixels.png", // --pixels: first-run baseline capture
+  "verify-after-pixels.png", // --pixels: this run's selector-region capture
 ]);
 
 function migrateLegacyLinkedRefs(

@@ -117,7 +117,12 @@ function withVerifySemaphore<T>(fn: () => Promise<T>): Promise<T> {
 export type VerifyEngineFn = (
   projectDir: string,
   taskId: string,
-  opts: { url?: string; signal?: AbortSignal },
+  opts: {
+    url?: string;
+    signal?: AbortSignal;
+    pixels?: boolean;
+    minPixelDelta?: number;
+  },
 ) => Promise<VerifyResult>;
 
 /** What the system-comment write needs, minus the module identity. */
@@ -130,6 +135,13 @@ export type VerifyCommentFn = (
 export interface VerifyTaskPorts {
   /** Runs the engine. Defaults to the real `verifyTask` (dynamic import, like the barrel before). */
   runEngine?: VerifyEngineFn;
+  /**
+   * CLI-only engine args the MCP wire does not carry (`verify --pixels`,
+   * `--min-pixel-delta`). The CLI entry passes them here; the MCP tool has
+   * no such inputs, so the schema stays untouched. Absent means engine
+   * defaults (pixel evidence off, threshold 0).
+   */
+  engineOpts?: { pixels?: boolean; minPixelDelta?: number };
   /** Writes the system comment. Defaults to the real `addVerifySystemComment`. */
   writeComment?: VerifyCommentFn;
   /** Resolves id-or-prefix. Defaults to the port store's shared unique-prefix rule. */
@@ -251,6 +263,12 @@ export async function verifyTaskOp(
       const result = await runEngine(ctx.projectDir, taskId, {
         url: input.url,
         signal: ac.signal,
+        // CLI-only pixel args (verify --pixels / --min-pixel-delta): merged
+        // from ports, never from the MCP input — the wire has no such fields.
+        ...(ports.engineOpts?.pixels === true ? { pixels: true as const } : {}),
+        ...(ports.engineOpts?.minPixelDelta !== undefined
+          ? { minPixelDelta: ports.engineOpts.minPixelDelta }
+          : {}),
       });
       await writeComment(ctx.projectDir, taskId, result);
       // After-hook (Stage 1, ADR-0006): engine ran AND its system comment

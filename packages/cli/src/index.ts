@@ -733,6 +733,32 @@ function parseVerifyTimeout(
   return ms;
 }
 
+/**
+ * Parses `vibeflow verify --min-pixel-delta <n>`. A whole number of 255ths
+ * inside 0-255; anything else is refused with the same E_USAGE envelope +
+ * suggestion every other bad flag value uses, before any work starts.
+ * `undefined` means "already refused".
+ */
+function parseMinPixelDelta(
+  value: string | undefined,
+  json = false,
+): number | undefined {
+  if (value === undefined) return 0;
+  const n = Number(value.trim());
+  if (!Number.isInteger(n) || n < 0 || n > 255) {
+    outputEnvelope({
+      ok: false,
+      code: "E_USAGE",
+      message: `Invalid --min-pixel-delta: "${value}"`,
+      suggestion: `--min-pixel-delta is a whole number between 0 and 255 (example: vibeflow verify <task-id> --pixels --min-pixel-delta 40)`,
+      json,
+    });
+    process.exitCode = ExitCode.USAGE;
+    return undefined;
+  }
+  return n;
+}
+
 /** Validates --user filter value; logs error and sets exitCode if invalid. Returns true if valid. */
 function validateUserFilter<T extends { author?: string | null }>(
   userFilter: string,
@@ -7578,6 +7604,14 @@ program
     "--timeout <ms>",
     `Bound this verification run in whole milliseconds (${VERIFY_TIMEOUT_MIN_MS}-${VERIFY_TIMEOUT_MAX_MS}; default ${VERIFY_TIMEOUT_DEFAULT_MS})`,
   )
+  .option(
+    "--pixels",
+    "Capture the task selector region as baseline/after PNG evidence and diff it (PIXEL_DELTA line + pixelDelta JSON)",
+  )
+  .option(
+    "--min-pixel-delta <n>",
+    "Demand at least n/255 of visible pixel change (0-255, default 0 = report only, never fails on its own)",
+  )
   .action(
     toolAction(
       "verify",
@@ -7590,6 +7624,8 @@ program
           filter?: string;
           timeout?: string;
           verify?: boolean;
+          pixels?: boolean;
+          minPixelDelta?: string;
         },
       ) => {
         capture("command_run", { surface: "cli", command: "verify" });
@@ -7598,6 +7634,13 @@ program
       // a usage error, not a verification failure.
       const timeoutMs = parseVerifyTimeout(opts.timeout, opts.json);
       if (timeoutMs === undefined) {
+        await flushTelemetry();
+        return;
+      }
+      // Refused up front like --timeout: a demand that is not a number in
+      // 0-255 is a usage error, not a verification failure.
+      const minPixelDelta = parseMinPixelDelta(opts.minPixelDelta, opts.json);
+      if (minPixelDelta === undefined) {
         await flushTelemetry();
         return;
       }
@@ -7637,6 +7680,7 @@ program
       await runVerify(".", head, {
         ...opts,
         timeoutMs,
+        minPixelDelta,
         ...(isHookBypass(opts) ? { hookBypass: true as const } : {}),
         hookScope: handle.scope,
       });
