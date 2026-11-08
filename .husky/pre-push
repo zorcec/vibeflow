@@ -8,9 +8,14 @@ set -e
 unset GIT_DIR GIT_WORK_TREE
 
 # ── Vibeflow pre-push gate ─────────────────────────────────────────────────────
-# Runs the CLI package's full test suite before a push reaches the remote.
+# Runs only the suites the pushed paths can break (affected-only, child
+# 6fc455a3; ADR-0004 — this hook is the gate, there is no remote CI).
+# The path→suite map lives in scripts/affected-suites.mjs —
+# an unmapped path, a shallow/unavailable base, or a force push runs
+# EVERYTHING (fail closed), and a docs-only push runs nothing.
 #
-# Expected cost: unit ~13s, e2e ~43s, integration ~1s, playwright ~26s (~83s).
+# Expected cost when everything is selected: unit ~13s, e2e ~43s,
+# integration ~1s, playwright ~26s (~83s).
 #
 # Unit and integration are treated as deterministic: first failure halts the
 # hook and blocks the push. They are never retried.
@@ -28,12 +33,40 @@ unset GIT_DIR GIT_WORK_TREE
 # Escape hatches (each prints a visible notice when used):
 #   VIBEFLOW_SKIP_PREPUSH=1  skip every suite
 #   VIBEFLOW_SKIP_BROWSER=1  skip Playwright only
+# No other env skip exists: the selector is never bypassed by environment.
+#
+# Debug (prints the chosen suites for the push range without running them):
+#   VIBEFLOW_PREPUSH_DRY_RUN=1 git push --dry-run
+#   node scripts/affected-suites.mjs --dry-run --range <base>..<head>
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CLI_DIR="$ROOT/packages/cli"
 
 # Check every ref's outgoing commits before any optional suite skips.
 node "$ROOT/scripts/check-git-identity.mjs" --pre-push "${1:-origin}"
+
+# ── Affected-only selection ────────────────────────────────────────────────────
+# Read the push range from stdin FIRST (a later `pnpm` must never inherit a
+# half-consumed stdin), then ask the selector which suites those paths break.
+# Empty/unreadable input, an unavailable base, or a force push selects ALL
+# (fail closed — the selector decides, never this shell).
+PUSH_INFO="$(cat)"
+SELECTED_SUITES="$(printf '%s' "$PUSH_INFO" | node "$ROOT/scripts/affected-suites.mjs" --print --remote "${1:-origin}")"
+
+if [ "${VIBEFLOW_PREPUSH_DRY_RUN:-}" = "1" ]; then
+  echo "pre-push dry-run — selected suites for this push range: $SELECTED_SUITES"
+  echo "(nothing ran; remove VIBEFLOW_PREPUSH_DRY_RUN=1 to run the gate for real.)"
+  exit 0
+fi
+
+wants_suite() {
+  case " $SELECTED_SUITES " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+echo "pre-push — selected suites for this push range: $SELECTED_SUITES"
 
 if [ ! -d "$CLI_DIR" ]; then
   echo "✗ pre-push: cannot find $CLI_DIR (expected repo root: $ROOT)"
@@ -70,6 +103,7 @@ if [ "${VIBEFLOW_SKIP_PREPUSH:-}" = "1" ]; then
 fi
 
 # ── Unit tests (hard) ──────────────────────────────────────────────────────────
+if wants_suite "unit"; then
 echo ""
 echo "▶ unit — pnpm run test"
 if pnpm run test; then
@@ -80,8 +114,14 @@ else
   echo "✗ Unit tests failed — blocking push."
   exit 1
 fi
+else
+  echo ""
+  echo "– unit — not selected for this push range (unaffected)."
+  UNIT="SKIPPED (unaffected)"
+fi
 
 # ── E2E tests (retry once) ───────────────────────────────────────────────────
+if wants_suite "e2e"; then
 echo ""
 echo "▶ e2e — pnpm run test:e2e (attempt 1/2)"
 if pnpm run test:e2e; then
@@ -101,8 +141,14 @@ else
     exit 1
   fi
 fi
+else
+  echo ""
+  echo "– e2e — not selected for this push range (unaffected)."
+  E2E="SKIPPED (unaffected)"
+fi
 
 # ── Integration tests (hard) ───────────────────────────────────────────────────
+if wants_suite "integration"; then
 echo ""
 echo "▶ integration — pnpm run test:integration"
 if pnpm run test:integration; then
@@ -113,9 +159,18 @@ else
   echo "✗ Integration tests failed — blocking push."
   exit 1
 fi
+else
+  echo ""
+  echo "– integration — not selected for this push range (unaffected)."
+  INTEGRATION="SKIPPED (unaffected)"
+fi
 
 # ── Playwright (retry once) ────────────────────────────────────────────────────
-if [ "${VIBEFLOW_SKIP_BROWSER:-}" = "1" ]; then
+if ! wants_suite "playwright"; then
+  echo ""
+  echo "– playwright — not selected for this push range (unaffected)."
+  BROWSER="SKIPPED (unaffected)"
+elif [ "${VIBEFLOW_SKIP_BROWSER:-}" = "1" ]; then
   echo ""
   echo "⚠ VIBEFLOW_SKIP_BROWSER=1 — skipping the Playwright suite (unit, e2e and integration still ran)."
   BROWSER="SKIPPED"
