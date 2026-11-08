@@ -8,6 +8,11 @@ export default defineConfig({
     // must happen in the main process before workers exist. See the file.
     globalSetup: ["./tests/setup/global-hermetic-home.ts"],
     setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    // Flaky-bucket reporter (child f3b5058e): alongside default output,
+    // failures in `@flaky`-marked specs print as FLAKY (not failing the
+    // gate) and append to the flake log. Reporting only — never alters
+    // results or exit codes.
+    reporters: ["default", "./tests/helpers/flaky-bucket.ts"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
     testTimeout: 20000,

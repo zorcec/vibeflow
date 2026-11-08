@@ -11,6 +11,8 @@ export default defineConfig({
       // The setup keeps installed Playwright browsers visible (see file).
       "./tests/e2e/setup/hermetic-home.ts",
     ],
+    // Flaky-bucket reporter (child f3b5058e) — reporting only, see vitest.config.ts.
+    reporters: ["default", "./tests/helpers/flaky-bucket.ts"],
     testTimeout: 15_000,
     hookTimeout: 30_000,
     // Run test files in parallel — each file uses unique ports so there are no conflicts.

@@ -12,6 +12,8 @@ export default defineConfig({
     // vitest.config.ts. The integration flow reaches the mode resolver.
     globalSetup: ["./tests/setup/global-hermetic-home.ts"],
     setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    // Flaky-bucket reporter (child f3b5058e) — reporting only, see vitest.config.ts.
+    reporters: ["default", "./tests/helpers/flaky-bucket.ts"],
     pool: "threads",
     poolOptions: { threads: { maxThreads: 8, minThreads: 2 } },
     testTimeout: 20000,
