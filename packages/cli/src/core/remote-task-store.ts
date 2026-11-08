@@ -84,6 +84,7 @@ import {
   inspectLocalTaskRecord,
   type TaskReadFinding,
 } from "./task-record-read.js";
+import { projectCommentText } from "./comment-projection.js";
 
 /**
  * A remote read refused. Carries the operation-facing code so the operation
@@ -280,7 +281,12 @@ export function toLocalTask(row: SaasTask): Task | null {
     ? row.comments.map((c) => ({
         id: c.id,
         author: (c.author === "user" || c.author === "agent" ? c.author : "agent") as TaskComment["author"],
-        text: c.body,
+        // One projection (ticket 20c68ebb6db1ff68): the hosted row spells
+        // the prose `body`, a contract row spells it `text` — either way
+        // it lands in local `text`. The declared `body` stays the final
+        // authority only so the required type holds when a row carries
+        // neither spelling (no invented prose, no hard-coded fallback).
+        text: projectCommentText(c) ?? c.body,
         createdAt: c.createdAt,
       }))
     : undefined;
@@ -402,17 +408,23 @@ function saasRowToRecordCandidate(row: SaasTask): Record<string, unknown> {
   if (typeof row.updatedAt === "string") candidate.updated = row.updatedAt;
   if (Array.isArray(row.links)) candidate.links = row.links;
   if (Array.isArray(row.comments)) {
-    candidate.comments = row.comments.map((c) => ({
-      ...(typeof c.id === "string" ? { id: c.id } : {}),
-      // Same coercion the display mapper applies: a server comment
-      // without an author label still renders (as `agent`), so it
-      // validates as one too — quarantine is for malformed records,
-      // not for the server's default attribution.
-      author:
-        typeof c.author === "string" && c.author.length > 0 ? c.author : "agent",
-      ...(typeof c.body === "string" ? { text: c.body } : {}),
-      ...(typeof c.createdAt === "string" ? { createdAt: c.createdAt } : {}),
-    }));
+    // One projection (ticket 20c68ebb6db1ff68): `body` and `text`
+    // spellings both land in record `text`; a row carrying neither keeps
+    // the key absent (never invented, never "undefined").
+    candidate.comments = row.comments.map((c) => {
+      const text = projectCommentText(c);
+      return {
+        ...(typeof c.id === "string" ? { id: c.id } : {}),
+        // Same coercion the display mapper applies: a server comment
+        // without an author label still renders (as `agent`), so it
+        // validates as one too — quarantine is for malformed records,
+        // not for the server's default attribution.
+        author:
+          typeof c.author === "string" && c.author.length > 0 ? c.author : "agent",
+        ...(text !== undefined ? { text } : {}),
+        ...(typeof c.createdAt === "string" ? { createdAt: c.createdAt } : {}),
+      };
+    });
   }
   return candidate;
 }
@@ -557,14 +569,19 @@ export function getSaasWarning(task: Task): string | undefined {
   return typeof warning === "string" ? warning : undefined;
 }
 
-/** One v0 comment row onto the local comment shape (server stamps identity). */
+/**
+ * One v0 comment row onto the local comment shape (server stamps identity).
+ * One projection (ticket 20c68ebb6db1ff68): `body` and `text` spellings
+ * both land in local `text`; the declared `body` stays the final authority
+ * only so the required type holds when a row carries neither spelling.
+ */
 function toLocalComment(row: SaasComment): TaskComment {
   return {
     id: row.id,
     author: (row.author === "user" || row.author === "agent"
       ? row.author
       : "agent") as TaskComment["author"],
-    text: row.body,
+    text: projectCommentText(row) ?? row.body,
     createdAt: row.createdAt,
   };
 }

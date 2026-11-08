@@ -13,6 +13,7 @@ import {
   SAAS_UPLOAD_TIMEOUT_MS,
 } from "./request.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
+import { projectCommentText } from "../core/comment-projection.js";
 import type { AgentClaimRequestType } from "@vibeflow-tools/api-core";
 
 export type SaasResult<T> =
@@ -99,9 +100,12 @@ export interface SaasComment {
 }
 
 /**
- * Map one v0 contract Comment ({ id, author, text }) onto the CLI-internal
- * SaasComment. Rows without contract text are dropped (null) — a comment
- * with no text cannot render, and the list read stays best-effort.
+ * Map one comment row onto the CLI-internal SaasComment. Accepts both the
+ * v0 contract spelling ({ id, author, text }) and the hosted stored
+ * spelling ({ id, author, body }) — one projection (ticket 20c68ebb6db1ff68),
+ * so a hosted `body` row is no longer dropped. Rows with neither spelling
+ * are dropped (null): a comment with no prose cannot render, nothing is
+ * invented, and the list read stays best-effort.
  */
 export function toSaasComment(
   row: Record<string, unknown>,
@@ -110,11 +114,12 @@ export function toSaasComment(
   if (typeof row.id !== "string" || typeof row.createdAt !== "string") {
     return null;
   }
-  if (typeof row.text !== "string") return null;
+  const text = projectCommentText(row);
+  if (text === undefined) return null;
   return {
     id: row.id,
     taskId,
-    body: row.text,
+    body: text,
     authorId: typeof row.authorId === "string" ? row.authorId : "",
     ...(typeof row.author === "string" ? { author: row.author } : {}),
     createdAt: row.createdAt,
