@@ -1,5 +1,42 @@
 # @vibeflow-tools/ui
 
+## 0.5.4
+
+### Patch Changes
+
+- b6ebe82: Needs-attention bell breathes a glow instead of flickering. The `attention-breathe` animation moved from the `.attention-indicator` wrapper (which dimmed the whole bell to 0.45 opacity) to the bell svg itself: the amber drop-shadow swells to ~5px/0.5 alpha and fades over a slow ~3s ease-in-out cycle while the glyph stays fully opaque. Static under `prefers-reduced-motion`.
+- eb30dfe: Needs-attention: the bell breath is now visible and the amber tint is link-exact only.
+
+  - **Breath.** The `attention-breathe` glow was technically animating (the
+    computed `filter` varied) but painted a ~5% channel delta around an 11px
+    glyph, so owners reported "the breathing animation is still not there" for
+    three rounds. The peak now stacks a tight full-alpha amber ring, a wide
+    halo and a hotter glyph (`brightness(1.35)` — luminance only, no hue shift),
+    measured at 57% of the bell region changing / 48 max channel delta instead
+    of 23% / 13. Reduced motion keeps the bell static but now leaves a visible
+    amber glow (`filter: none` made the flag indistinguishable from a plain
+    glyph).
+  - **Highlight.** The derived attention row used to guess its reason from the
+    newest surviving comment, so the amber flag row (and, before the tint fix,
+    the amber card) read as attached to whichever message arrived last — the
+    owner's "now it is random". Placement and attribution now come from the
+    stored `attentionReasonId` alone; a record with no link is sorted at the
+    task's own update time and attributed to the task owner, and tints nothing.
+
+  Pinned in the browser on both surfaces: the CLI board Playwright spec
+  (`kanban-attention-icon.test.ts`) and the hosted e2e spec
+  (`needs-attention.spec.ts`) screenshot the bell at the breath's peak and
+  trough and require a real painted difference, then assert exactly one amber
+  comment — the linked agent message — with newer plain notes untinted and a
+  cleared link tinting nothing.
+
+- 4d878c0: Cold-load needs-attention parity. A task flagged BEFORE the board opened showed a plain reason comment and no attention row — the diff-event path only records the row on live transitions. The Activity tab now derives ONE amber attention row from the current `needsAttention` state at render (a live transition row still wins, never two rows) and marks the reason comment the flag is linked to with the same amber wash, in card detail and navigated-child contexts.
+- ca5c55f: Kanban board and list view forward `onDetach` into their unlink surfaces. `KanbanBoard` accepts an optional `onDetach` and passes it through the column into each card's inline children tree, so the tree's Unlink button calls back with the child id instead of never rendering. `KanbanListView` accepts the same prop and shows a hover Unlink action on rows that still carry a parent link (search/filter orphans). Both props are optional — existing consumers render byte-identically without them.
+- 002b237: Kanban children expand/collapse works on every surface and nested subtrees gain per-node collapse. `TaskCard` falls back to card-local expansion state when no user id is present (static demo, logged-out preview), so the ⤷ chip visibly expands and collapses instead of dead-clicking through the empty-id silent no-op; the compact-view child chip now toggles the persisted expansion (row click still opens the task) instead of only opening it. The CLI board defaults `CURRENT_USER_ID` to `local-viewer` when the server injects none, keeping the chip and unread dot live on the website demo that mounts the same App. `RecursiveChildrenTree` renders a per-node ▾/▸ toggle on every row with children (default expanded, so card expand still reveals the full subtree); collapsing a node hides its nested subtree and depth-limit marker while siblings stay untouched. Flat relation-group mode renders no toggles.
+- f802e4f: Local kanban needs-attention round 2 parity. The bell pulse (`attention-breathe`) is now pinned in the CLI-served stylesheet (mirror of the shared UI rule), and an external `tasks --edit --set-attention --comment` write surfaces live in an open detail panel: the flag diff records the amber-tinted `attention` change row and the panel refetches comments so the reason comment lands next to it without a reload.
+- 763a3db: Needs-attention flag on tasks. `tasks --edit <id> --set-attention --comment "<reason>"` flags a task (amber "Needs attention" badge on the card, child rows and detail header); `--set-attention` without `--comment` is refused with `E_USAGE` since the comment carries the reason. `--clear-attention` clears the flag with no comment. MCP `update_task` gains matching `setAttention` / `clearAttention` inputs with the same comment requirement and refusal codes. The flag change reads in the activity feed as an `attention` change row (clear to flagged) next to the reason comment. The field flows end to end: task type, record schema, online PATCH body, remote-task-store round-trip, kanban merge, and field diff.
+- 60c46fc: Fix: the Unlink button in the child-row detail tree collapses to zero width at rest — it previously stayed laid out at ~54px behind `opacity: 0`, permanently stealing row space. It now contracts (with `min-width: 0`) and reveals on hover and on keyboard focus, matching the CopyIdButton reveal contract.
+
 ## 0.5.3
 
 ### Patch Changes

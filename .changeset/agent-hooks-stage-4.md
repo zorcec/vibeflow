@@ -1,5 +1,0 @@
----
-"@vibeflow-tools/cli": minor
----
-
-Agent hooks Stage 4: TypeScript hook execution (`.hook.ts`/`.hook.mts`, opt-in). A hook may now be `pre/after-<event>.hook.ts` (or `.hook.mts`) — same deterministic filename contract as `.hook.mjs` (no auto-detection), same project>global>defaults precedence with replace-not-merge and no-fallback conflict rules (two or more executables at one level is `HOOK_CONFIG_CONFLICT`). The packaged loader type-strips on import: erasable syntax only (no JSX, no tsconfig paths, no transpilation), `import type` from `@vibeflow-tools/cli/hooks` is erased before resolution. Node >= 22 is not a capability guarantee, so the runner probes the actual runtime (`process.features.typescript`): unsupported runtimes refuse loudly with the phase policy unchanged (after `HOOK_TS_UNSUPPORTED` fail-open, pre `HOOK_PRE_TS_UNSUPPORTED` fail-closed). Trust hashes the TypeScript source file — edits re-prompt; the hash still covers the entry file only, not its imports. Adds a verbatim `docs/hooks-examples/after/after-task.update.hook.ts` example plus editor guidance. No envelope, wire, or result-schema changes.
