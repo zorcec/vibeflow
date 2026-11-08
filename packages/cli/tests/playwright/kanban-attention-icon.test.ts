@@ -336,31 +336,105 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
     await page.click("#dp-close");
   });
 
-  it("bell glow breathes on the svg while the glyph stays opaque (e54b341e)", async () => {
-    // Minimalistic breathing glow: the amber drop-shadow on the bell svg
-    // swells and fades over the ~3s cycle while the glyph itself never
-    // dims (regression guard against re-introducing the wrapper opacity
-    // fade). Samples computed filter/opacity at several timestamps — the
-    // filter must vary across the cycle, the opacity must stay > 0.9.
-    const sel = `article.task-card[data-task-id="${rootTaskId}"] [data-attention-state="flagged"] svg`;
+  it("card bell glow visibly breathes — the breath PAINTS, not just computes (p2udqv44cd5zqv1tiqir6ifn)", async () => {
+    // Owner report (three rounds): "breathing animation on the bell … still
+    // not there". The rule resolved and the computed filter varied, but the
+    // 0→5px/0.5-alpha shadow painted a ~6% channel delta on an 11px glyph —
+    // invisible. So this pin does not trust the computed style: it samples
+    // the breath over a full cycle, screenshots the bell region at the
+    // cycle's peak and trough, and requires a REAL painted difference.
+    // Red on the old keyframes (measured: ~23% of the region, delta 15/255).
+    const sel = `article.task-card[data-task-id="${rootTaskId}"] button[data-attention-press="true"] > [data-attention-state="flagged"] svg`;
     await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
-    const samples: Array<{ filter: string; opacity: string }> = [];
-    for (let i = 0; i < 7; i++) {
-      samples.push(
-        await page.$eval(sel, (el) => ({
-          filter: getComputedStyle(el).filter,
-          opacity: getComputedStyle(el).opacity,
-        })),
-      );
-      await page.waitForTimeout(500);
+    // The expanded card also carries child-row bells; the title-row bell is
+    // the first one in the card's own row.
+    const bell = page.locator(sel).first();
+    await bell.scrollIntoViewIfNeeded();
+    // Numeric breath score out of the computed filter: widest drop-shadow
+    // blur times the brightness multiplier (the peak carries both).
+    const scoreOf = () =>
+      bell.evaluate((el) => {
+        const f = getComputedStyle(el).filter;
+        const blurs = [...f.matchAll(/([\d.]+)px\)/g)].map((m) =>
+          parseFloat(m[1]),
+        );
+        const bright = /brightness\(([\d.]+)\)/.exec(f);
+        return Math.max(0, ...blurs) * (bright ? parseFloat(bright[1]) : 1);
+      });
+    const scores: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      scores.push(await scoreOf());
+      await page.waitForTimeout(80);
     }
-    for (const sample of samples) {
-      expect(parseFloat(sample.opacity)).toBeGreaterThan(0.9);
-    }
-    expect(new Set(samples.map((s) => s.filter)).size).toBeGreaterThan(1);
+    const lo = Math.min(...scores);
+    const hi = Math.max(...scores);
+    // The breath is a real cycle, not a constant: peak at least 4x trough.
+    expect(hi).toBeGreaterThan(lo * 4);
+
+    const box = await bell.boundingBox();
+    expect(box, "bell svg has a layout box").not.toBeNull();
+    const pad = 12;
+    const clip = {
+      x: Math.max(0, box!.x - pad),
+      y: Math.max(0, box!.y - pad),
+      width: box!.width + pad * 2,
+      height: box!.height + pad * 2,
+    };
+    /** Hold until the computed score crosses `pred`, then shoot the region. */
+    const shootAt = async (pred: (score: number) => boolean): Promise<Buffer> => {
+      for (let i = 0; i < 120; i++) {
+        if (pred(await scoreOf())) return page.screenshot({ clip });
+        await page.waitForTimeout(40);
+      }
+      throw new Error("breath cycle never reached the requested extreme");
+    };
+    const peakPng = await shootAt((s) => s >= hi * 0.97);
+    const troughPng = await shootAt((s) => s <= lo + 0.05);
+    const delta = await page.evaluate(
+      async ([a, b]) => {
+        const load = (b64: string) =>
+          new Promise<HTMLImageElement>((res) => {
+            const img = new Image();
+            img.onload = () => res(img);
+            img.src = "data:image/png;base64," + b64;
+          });
+        const [ia, ib] = await Promise.all([load(a), load(b)]);
+        const canvas = new OffscreenCanvas(ia.width, ia.height);
+        const cx = canvas.getContext("2d")!;
+        cx.drawImage(ia, 0, 0);
+        const da = cx.getImageData(0, 0, ia.width, ia.height).data;
+        cx.clearRect(0, 0, ia.width, ia.height);
+        cx.drawImage(ib, 0, 0);
+        const db = cx.getImageData(0, 0, ib.width, ib.height).data;
+        let changed = 0;
+        let max = 0;
+        for (let i = 0; i < da.length; i += 4) {
+          const d = Math.max(
+            Math.abs(da[i] - db[i]),
+            Math.abs(da[i + 1] - db[i + 1]),
+            Math.abs(da[i + 2] - db[i + 2]),
+          );
+          if (d > 2) changed++;
+          if (d > max) max = d;
+        }
+        return {
+          changedPct: (100 * changed) / (da.length / 4),
+          maxChannelDelta: max,
+        };
+      },
+      [peakPng.toString("base64"), troughPng.toString("base64")],
+    );
+    // Thresholds sit well above the old invisible breath (23% / 15) and
+    // well below the current one (measured 57% / 48 at 1x).
+    expect(delta.maxChannelDelta).toBeGreaterThanOrEqual(30);
+    expect(delta.changedPct).toBeGreaterThanOrEqual(35);
+    // The glyph itself never dims (no opacity flicker): the trough is the
+    // dim side of the GLOW only, never a faded bell.
+    const opacity = await bell.evaluate((el) => getComputedStyle(el).opacity);
+    expect(parseFloat(opacity)).toBe(1);
   });
 
-  it("reduced motion parks the bell static: no animation, no glow", async () => {
+  it("reduced motion parks the bell static but keeps a visible amber glow", async () => {
     const sel = `article.task-card[data-task-id="${rootTaskId}"] [data-attention-state="flagged"] svg`;
     await page.waitForSelector(sel, { state: "visible", timeout: 8_000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -371,8 +445,13 @@ describe("needs-attention renders as an icon on every surface (no pill)", () => 
         opacity: getComputedStyle(el).opacity,
       }));
       expect(probe.animation).toBe("none");
-      expect(probe.filter).toBe("none");
+      // No motion, but the flag must still read: a static amber glow.
+      // `filter: none` left the bell looking like any other glyph.
+      expect(probe.filter).toContain("drop-shadow");
       expect(probe.opacity).toBe("1");
+      // Two probes a moment apart: the static glow never changes.
+      const again = await page.$eval(sel, (el) => getComputedStyle(el).filter);
+      expect(again).toBe(probe.filter);
     } finally {
       await page.emulateMedia({ reducedMotion: "no-override" });
     }

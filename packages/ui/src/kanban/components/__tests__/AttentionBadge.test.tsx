@@ -109,12 +109,21 @@ describe("AttentionBadge", () => {
     // radius/alpha rise and fall while the glyph stays fully opaque. The
     // keyframes must not animate opacity at all.
     expect(keyframes?.[0]).not.toMatch(/opacity/);
+    // p2udqv44cd5zqv1tiqir6ifn (owner: "still not there" after three
+    // rounds): the previous 0→5px/0.5-alpha shadow measured a ~6% channel
+    // delta on an 11px glyph. The peak now stacks a tight full-alpha ring
+    // and a wide halo, and the trough keeps a visible amber resting glow
+    // instead of alpha 0.
     expect(keyframes?.[0]).toContain(
-      "drop-shadow(0 0 5px rgba(245, 158, 11, 0.5))",
+      "drop-shadow(0 0 3px rgba(245, 158, 11, 0.95))",
     );
     expect(keyframes?.[0]).toContain(
-      "drop-shadow(0 0 0 rgba(245, 158, 11, 0))",
+      "drop-shadow(0 0 9px rgba(245, 158, 11, 0.6))",
     );
+    expect(keyframes?.[0]).toContain(
+      "drop-shadow(0 0 1px rgba(245, 158, 11, 0.35))",
+    );
+    expect(keyframes?.[0]).not.toContain("drop-shadow(0 0 0 rgba");
     // The animation is declared on the svg, not the wrapper: one shared
     // rule covers the card, the child row and the detail header (all
     // three render AttentionBadge).
@@ -123,12 +132,17 @@ describe("AttentionBadge", () => {
     expect(rule?.[0]).toMatch(/3s ease-in-out infinite/);
     const wrapperRule = css.match(/\.attention-indicator \{[\s\S]*?\}/);
     expect(wrapperRule?.[0]).not.toContain("animation");
+    // Reduced motion: no motion, but the flag still reads as a static
+    // amber glow — `filter: none` left the bell indistinguishable from a
+    // plain glyph for every reduce-motion viewer.
     const reduced = css.match(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.attention-indicator svg[\s\S]*?\}/,
     );
     expect(reduced?.[0]).toContain("animation: none");
     expect(reduced?.[0]).toContain("opacity: 1");
-    expect(reduced?.[0]).toContain("filter: none");
+    expect(reduced?.[0]).toContain(
+      "filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.55))",
+    );
   });
 
   it("sizes the glyph to the neighbouring slot (11 card, 10 tree row)", () => {

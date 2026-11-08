@@ -1,30 +1,36 @@
 // @vitest-environment jsdom
 /**
  * Attention state derived from the CURRENT task state (ticket 0752d55c,
- * cold-load gap).
+ * cold-load gap; never-guess rule ticket p2udqv44cd5zqv1tiqir6ifn).
  *
  * Owner-eyeballed: on a task flagged BEFORE the board opened, the detail
  * Activity tab showed the reason comment PLAIN and NO amber attention
  * change row — the f802e4f diff-event path only creates the row on LIVE
  * transitions while the panel is open. Whenever `needsAttention` is true
  * the feed now derives ONE amber attention row from the flag itself
- * (clear → flagged), and the reason comment (the latest surviving user
- * comment — the same proxy `attentionClaimAlert` reads) earns the same
- * amber wash. A live transition row already in `localChanges` wins: no
- * second row.
+ * (clear → flagged).
+ *
+ * The owner's second report ("I expect only the message set via the
+ * attention flag highlighted — now it is random") retired the
+ * latest-comment proxy this file used to pin: the derived row is placed
+ * and attributed from the stored `attentionReasonId` link only, and a
+ * link-less record falls back to the task's OWN update time and owner —
+ * never to whichever comment happens to be newest.
  *
  * Non-vacuity: the cold-load row test fails on the pre-fix code (no
  * `needsAttention` prop existed, so no attention row renders without a
- * live diff); the tint tests fail where every card keeps the plain style.
+ * live diff); the never-guess tests fail while the proxy is in place
+ * (the row then carries the newest comment's timestamp and author); the
+ * tint tests fail where every card keeps the plain style.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import {
   CommentsList,
-  attentionReasonComment,
   type LocalChange,
 } from "../shared/CommentsList";
+import { formatDate } from "../../utils";
 import type { Comment } from "../../types";
 
 function comment(overrides: Partial<Comment> = {}): Comment {
@@ -53,6 +59,8 @@ function renderFeed(args: {
   changes?: LocalChange[];
   needsAttention?: boolean;
   attentionReasonId?: string | null;
+  taskUpdatedAt?: string;
+  taskAuthorName?: string;
 }) {
   return render(
     <CommentsList
@@ -60,6 +68,8 @@ function renderFeed(args: {
       localChanges={args.changes ?? []}
       needsAttention={args.needsAttention}
       attentionReasonId={args.attentionReasonId}
+      taskUpdatedAt={args.taskUpdatedAt}
+      taskAuthorName={args.taskAuthorName}
       loading={false}
       error={null}
       onEdit={vi.fn().mockResolvedValue(undefined)}
@@ -67,44 +77,6 @@ function renderFeed(args: {
     />,
   );
 }
-
-describe("attentionReasonComment proxy", () => {
-  it("returns null for an empty or missing list", () => {
-    expect(attentionReasonComment([])).toBeNull();
-    expect(attentionReasonComment(null)).toBeNull();
-    expect(attentionReasonComment(undefined)).toBeNull();
-  });
-
-  it("picks the latest surviving user comment", () => {
-    const older = comment({ id: "c-old", createdAt: "2026-10-16T09:00:00.000Z" });
-    const newer = comment({ id: "c-new", createdAt: "2026-10-16T11:00:00.000Z" });
-    expect(attentionReasonComment([newer, older])?.id).toBe("c-new");
-    expect(attentionReasonComment([older, newer])?.id).toBe("c-new");
-  });
-
-  it("skips system, deleted, and blank comments", () => {
-    const reason = comment({ id: "c-reason", createdAt: "2026-10-16T09:00:00.000Z" });
-    const system = comment({
-      id: "c-sys",
-      type: "system",
-      text: "**Cannot verify:** no harness here",
-      createdAt: "2026-10-16T12:00:00.000Z",
-    });
-    const deleted = comment({
-      id: "c-del",
-      deleted: true,
-      createdAt: "2026-10-16T13:00:00.000Z",
-    });
-    const blank = comment({
-      id: "c-blank",
-      text: "   ",
-      createdAt: "2026-10-16T14:00:00.000Z",
-    });
-    expect(attentionReasonComment([reason, system, deleted, blank])?.id).toBe(
-      "c-reason",
-    );
-  });
-});
 
 describe("derived attention state row", () => {
   it("renders one amber attention row on cold load (flag on, no live diff)", () => {
@@ -192,11 +164,10 @@ describe("reason comment tint", () => {
     }
   });
 
-  it("tints nothing when the link is absent — the proxy never paints (ryqew9bv7ae6b2j6eankkxkb)", () => {
-    // Owner rule: no link → no tint, even though the latest-comment proxy
-    // still resolves a reason for the derived row below. The proxy tinted
-    // the newest plain comment (the reported bug); now the amber lives
-    // only on the flag row until a linked reason exists.
+  it("tints nothing when the link is absent — no proxy guess (ryqew9bv7ae6b2j6eankkxkb, p2udqv44cd5zqv1tiqir6ifn)", () => {
+    // Owner rule: no link → no tint. The retired latest-comment proxy used
+    // to paint the newest plain comment (the reported bug); the amber now
+    // lives only on the flag row until a linked reason exists.
     const { container } = renderFeed({
       comments: [
         comment({ id: "c-old", text: "Earlier note.", createdAt: "2026-10-16T09:00:00.000Z" }),
@@ -208,6 +179,40 @@ describe("reason comment tint", () => {
     expect(
       container.querySelectorAll('[data-activity="attention-change"]'),
     ).toHaveLength(1);
+  });
+
+  it("places the flag row at the task's own update time, not at the newest comment (p2udqv44cd5zqv1tiqir6ifn)", () => {
+    // "Now it is random": the proxy sorted the derived row at the newest
+    // comment, so the amber row read as attached to whichever message
+    // arrived last. A link-less record now sorts at the task's update
+    // time — the flag write — and the fresh comment keeps its own slot.
+    const updatedAt = "2026-10-16T09:30:00.000Z";
+    const newestCommentAt = "2026-10-16T11:00:00.000Z";
+    const { container } = renderFeed({
+      comments: [
+        comment({ id: "c-new", text: "Newest note.", createdAt: newestCommentAt }),
+      ],
+      needsAttention: true,
+      taskUpdatedAt: updatedAt,
+    });
+    const row = container.querySelector('[data-activity="attention-change"]');
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain(formatDate(updatedAt));
+    expect(row?.textContent).not.toContain(formatDate(newestCommentAt));
+  });
+
+  it("attributes the flag row to the task owner, not to the newest comment's author (p2udqv44cd5zqv1tiqir6ifn)", () => {
+    const { container } = renderFeed({
+      comments: [
+        comment({ id: "c-new", author: "Ada", text: "Newest note.", createdAt: "2026-10-16T11:00:00.000Z" }),
+      ],
+      needsAttention: true,
+      taskUpdatedAt: "2026-10-16T09:30:00.000Z",
+      taskAuthorName: "Owner",
+    });
+    const row = container.querySelector('[data-activity="attention-change"]');
+    expect(row?.textContent).toContain("Owner");
+    expect(row?.textContent).not.toContain("Ada");
   });
 
   it("tints nothing when the linked comment is gone (no invented reason)", () => {
@@ -256,6 +261,16 @@ describe("reason comment tint", () => {
     expect(
       plain?.querySelector('div[style*="--t-input"]'),
     ).not.toBeNull();
+    // Tint on/off must not mix the `border` shorthand with `borderLeft`
+    // (ticket p2udqv44cd5zqv1tiqir6ifn): a plain ↔ tinted flip then removes
+    // one side of the pair, which React warns about and can render as a
+    // stale amber edge on a message whose flag already cleared. Both cards
+    // carry the same left longhand, so only its VALUE changes.
+    const plainCardStyle =
+      plain?.querySelector('div[style*="--t-input"]')?.getAttribute("style") ?? "";
+    expect(plainCardStyle).toContain("border-left: 1px solid var(--t-border)");
+    expect(plainCardStyle).not.toMatch(/(^|;)\s*border:/);
+    expect(cardStyle).not.toMatch(/(^|;)\s*border:/);
   });
 
   it("tints nothing when the flag is off", () => {
@@ -272,5 +287,42 @@ describe("reason comment tint", () => {
       container.querySelectorAll('[data-activity="attention-change"]'),
     ).toHaveLength(1);
     expect(container.querySelector('[data-attention="reason"]')).toBeNull();
+  });
+});
+
+describe("attention tint style is re-render safe (p2udqv44cd5zqv1tiqir6ifn)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("never mixes the border shorthand with borderLeft when the link comes and goes", () => {
+    // The tint follows the link, and the link leaves the task on
+    // --clear-attention / a v0 PATCH. A style object that answered with the
+    // `border` shorthand when plain and `border` + `borderLeft` when tinted
+    // makes React remove one side of the pair on the way back, which logs
+    // "Removing a style property during rerender (borderLeft) when a
+    // conflicting property is set (border)" in the browser console and can
+    // leave a stale amber edge on a message whose flag already cleared.
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    });
+    const feed = (attentionReasonId: string | null) => (
+      <CommentsList
+        comments={[
+          comment({ id: "c-reason", text: "Blocked: awaiting tokens." }),
+          comment({ id: "c-plain", text: "A plain note." }),
+        ]}
+        localChanges={[]}
+        needsAttention
+        attentionReasonId={attentionReasonId}
+        loading={false}
+        error={null}
+        onEdit={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const { rerender } = render(feed("c-reason"));
+    rerender(feed(null));
+    rerender(feed("c-plain"));
+    expect(errors.filter((m) => m.includes("conflicting property"))).toEqual([]);
   });
 });

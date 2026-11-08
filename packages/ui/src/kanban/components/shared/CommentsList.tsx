@@ -206,36 +206,6 @@ export interface LocalChange {
   verified?: boolean;
 }
 
-/**
- * The comment carrying a task's needs-attention reason (ticket 0752d55c,
- * cold-load gap). Setting the flag REQUIRES a same-call `--comment`
- * (CLI) / `comment` (MCP), so the latest surviving user comment is the
- * reason — the same proxy `attentionClaimAlert`
- * (`cli/src/core/attention.ts`) reads, minus the truncation: the feed
- * needs the row to tint, not the excerpt. System comments (verify notes,
- * file traces) never carry it, deleted rows are history — both skipped.
- * Null when nothing qualifies; callers fall back to the flag-only row,
- * never an invented reason.
- */
-export function attentionReasonComment(
-  comments: readonly Comment[] | undefined | null,
-): Comment | null {
-  if (!Array.isArray(comments) || comments.length === 0) return null;
-  const latest = [...comments]
-    .filter(
-      (c) =>
-        c.deleted !== true &&
-        (c.type ?? "comment") === "comment" &&
-        typeof c.text === "string" &&
-        c.text.trim().length > 0,
-    )
-    .sort((a, b) =>
-      a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
-    )
-    .at(-1);
-  return latest ?? null;
-}
-
 /** What a verify entry in the activity feed records (80df86ed). */
 export type VerifyEntryVerdict = 'pass' | 'fail' | 'cannot';
 
@@ -378,22 +348,21 @@ interface Props {
    * Current flag state (ticket 0752d55c, cold-load gap). Change rows are
    * in-session only: a flag set BEFORE the board opened never produced a
    * diff, so the feed would render nothing attention-specific. When true
-   * the feed derives ONE state row from the flag itself (clear → flagged,
-   * sorted at the reason comment so it reads as one unit); a live
-   * transition row already in `localChanges` wins and no second row is
-   * added. The reason comment (see `attentionReasonComment`) earns the
-   * same amber wash as the row.
+   * the feed derives ONE state row from the flag itself (clear → flagged);
+   * a live transition row already in `localChanges` wins and no second row
+   * is added.
    */
   needsAttention?: boolean;
   /**
    * Id of the comment carrying the attention reason (ticket 0752d55c,
    * reason-link fix): the task record stores the created reason comment's
-   * id when the flag is set. The feed tints that exact comment and ONLY
-   * that comment (ticket ryqew9bv7ae6b2j6eankkxkb) — when the field is
-   * absent (older records that predate the link) nothing tints and the
-   * amber lives only on the derived attention change row. The
-   * `attentionReasonComment` proxy below still places that row; it never
-   * paints a comment.
+   * id when the flag is set. This field is the ONLY source of the amber
+   * tint and of the derived row's neighbourhood (ticket
+   * p2udqv44cd5zqv1tiqir6ifn: "only the message set via the attention flag
+   * is highlighted" — an earlier latest-comment proxy made the highlight
+   * look random). Absent link = older record: nothing tints, and the
+   * derived row is placed at the task's own update time instead of at a
+   * guessed comment.
    */
   attentionReasonId?: string | null;
   loading: boolean;
@@ -427,31 +396,22 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
   const prevLoadingRef = React.useRef(loading);
 
   // The reason comment when the flag is set (ticket 0752d55c, cold-load
-  // gap + reason-link fix): prefer the exact `attentionReasonId` the
-  // set-attention write stored — the derived row sorts with the true
-  // reason even when newer plain comments arrived after it. Only when
-  // the field is absent (older records that predate the link) fall back
-  // to the latest-normal-comment proxy the claim alert reads. Used ONLY
-  // for the derived row's placement/actor — never for the amber tint
-  // (ticket ryqew9bv7ae6b2j6eankkxkb: the tint reads the exact linked id
-  // straight from the prop, so a proxy guess can never paint a plain
-  // comment yellow). Null unless the flag is on — an unflagged task
-  // never tints a comment. A linked id whose comment is gone
-  // (deleted/history) resolves to null — no invented reason — while the
-  // flag-only row still renders.
+  // gap + reason-link fix): the exact `attentionReasonId` the set-attention
+  // write stored, so the derived row sorts with the true reason even when
+  // newer plain comments arrived after it. Link-only by decision (ticket
+  // p2udqv44cd5zqv1tiqir6ifn): a record that predates the link has NO
+  // reason comment, and the feed never guesses one from the newest note —
+  // that guess made the amber row (and, before the tint fix, the amber
+  // card) look attached to a random message. Null unless the flag is on —
+  // an unflagged task never tints a comment — and a linked id whose
+  // comment is deleted resolves to null while the flag-only row still
+  // renders.
   const reasonComment = React.useMemo(() => {
     if (needsAttention !== true) return null;
-    if (
-      typeof attentionReasonId === 'string' &&
-      attentionReasonId.length > 0
-    ) {
-      return (
-        comments.find(
-          (c) => c.id === attentionReasonId && c.deleted !== true,
-        ) ?? null
-      );
+    if (typeof attentionReasonId !== 'string' || attentionReasonId.length === 0) {
+      return null;
     }
-    return attentionReasonComment(comments);
+    return comments.find((c) => c.id === attentionReasonId && c.deleted !== true) ?? null;
   }, [needsAttention, attentionReasonId, comments]);
 
   // Build unified chronological activity stream: lifecycle events + comments + files + local changes
@@ -471,9 +431,11 @@ export function CommentsList({ comments, files = [], localChanges = [], needsAtt
     // State-derived attention row (ticket 0752d55c, cold-load gap): change
     // rows are in-session only, so a flag set before the board opened never
     // produced a diff and the feed rendered nothing attention-specific.
-    // Derive ONE row from the current flag state, sorted at the reason
-    // comment (same write in the common case) so row and reason read as
-    // one unit. A live transition row already in `localChanges` wins —
+    // Derive ONE row from the current flag state, sorted at the linked
+    // reason comment when there is one (same write in the common case) so
+    // row and reason read as one unit; a link-less record sorts at the
+    // task's own update time — the feed never places the row at a guessed
+    // comment. A live transition row already in `localChanges` wins —
     // the flag flip it recorded IS this state, so no second row is added.
     if (
       needsAttention === true &&
@@ -865,7 +827,13 @@ function renderActivityItem(
         key={itemKey}
         className={isAttentionChange ? `activity-attention${animClass ? ` ${animClass}` : ''}` : (animClass || undefined)}
         data-activity={isAttentionChange ? 'attention-change' : undefined}
-        title={isAttentionChange ? 'Needs attention — the reason is the attention comment in this feed' : undefined}
+        title={
+          isAttentionChange
+            ? typeof attentionReasonId === 'string' && attentionReasonId.length > 0
+              ? 'Needs attention — the reason is the amber comment in this feed'
+              : 'Needs attention — flagged without a linked reason comment'
+            : undefined
+        }
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 6,
           padding: '2px 0',
@@ -1072,9 +1040,16 @@ function renderActivityItem(
         <MarkdownPreview
           markdown={c.text}
           taskLookup={taskLookup}
+          // No `border` shorthand next to `borderLeft` (ticket
+          // p2udqv44cd5zqv1tiqir6ifn): the tint arrives and leaves with the
+          // link, and a render that dropped the shorthand while the
+          // longhand was set made React warn and could leave a stale amber
+          // edge on a message whose flag was already cleared. Both branches
+          // therefore carry the SAME property set (three longhands), so a
+          // plain ↔ tinted switch only changes values.
           style={isAttentionReason
-            ? { background: 'color-mix(in srgb, var(--t-warning) 4%, var(--t-input))', border: '1px solid var(--t-border)', borderLeft: '3px solid var(--t-warning)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }
-            : { background: 'var(--t-input)', border: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
+            ? { background: 'color-mix(in srgb, var(--t-warning) 4%, var(--t-input))', borderTop: '1px solid var(--t-border)', borderRight: '1px solid var(--t-border)', borderBottom: '1px solid var(--t-border)', borderLeft: '3px solid var(--t-warning)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }
+            : { background: 'var(--t-input)', borderTop: '1px solid var(--t-border)', borderRight: '1px solid var(--t-border)', borderBottom: '1px solid var(--t-border)', borderLeft: '1px solid var(--t-border)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--t-text-sub)', lineHeight: 1.6 }}
         />
       )}
     </div>
