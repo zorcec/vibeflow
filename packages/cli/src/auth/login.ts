@@ -1844,7 +1844,15 @@ export async function login(projectDir?: string): Promise<void> {
 
   // Step 2: Poll for verification
   const deadline = Date.now() + expiresIn * 1000;
-  const POLL_INTERVAL = 3000;
+  // Test seam (speed ticket 77b18431): device-poll cadence. Production
+  // stays at the 3 s server-friendly cadence; unit tests pin it near-zero
+  // so each device-flow test does not burn one full interval. The poll
+  // COUNT per test is unchanged — the mocked first response still decides
+  // the outcome on the same poll number (see login.test.ts, which pins
+  // this to 20 ms). Precedent: VIBEFLOW_NO_BROWSER above in this file.
+  const pollIntervalRaw = process.env.VIBEFLOW_DEVICE_POLL_INTERVAL_MS;
+  const pollIntervalParsed = pollIntervalRaw === undefined ? NaN : Number(pollIntervalRaw);
+  const POLL_INTERVAL = Number.isNaN(pollIntervalParsed) ? 3000 : Math.max(0, pollIntervalParsed);
 
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL);
