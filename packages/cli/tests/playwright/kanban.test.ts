@@ -2702,13 +2702,11 @@ describe("Kanban board", () => {
     }
     expect(taskIds).toHaveLength(22);
 
-    // Wait for done tasks to appear via WebSocket
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll('[data-column-id="done"] [data-task-id]')
-          .length > 0,
-      { timeout: 15_000 },
-    );
+    // Wait for THIS batch via WebSocket by exact id (ticket a5b492d8): the
+    // newest done task renders at the top of the done lane (most-recent
+    // first), so it always renders despite the 20-card cap. A bare `> 0`
+    // count would be satisfied by any earlier done card and never wait.
+    await waitForTaskOnBoard(page, taskIds[taskIds.length - 1]);
 
     // Done column should show at most 20 task cards
     const doneCards = await page
@@ -2756,11 +2754,15 @@ describe("Kanban board", () => {
     }
     expect(taskIds.length).toBe(TASK_COUNT);
 
-    // Wait for tasks to appear via WebSocket (no reload needed)
-    await page.waitForFunction(
-      () => document.querySelectorAll("[data-task-id]").length > 0,
-      { timeout: 10_000 },
-    );
+    // Wait for THIS batch to flow API → WebSocket → board (ticket a5b492d8):
+    // a bare `length > 0` count is already satisfied by cards from earlier
+    // tests in this shared-board file, so it never waited for anything, and
+    // the 200 round-trips alone take ~12.5s of the file-default 15s budget.
+    // First and last ids prove the batch landed end-to-end (both live in
+    // uncapped lanes — todo and backlog — so they always render; the done
+    // lane's 20-card cap means a full-count wait would be wrong).
+    await waitForTaskOnBoard(page, taskIds[0]);
+    await waitForTaskOnBoard(page, taskIds[taskIds.length - 1]);
 
     // All columns should be present
     for (const col of ["todo", "in-progress", "review", "backlog"]) {
@@ -2774,65 +2776,52 @@ describe("Kanban board", () => {
       .count();
     expect(doneCards).toBeLessThanOrEqual(20);
 
-    // Clean up all created tasks
-    await Promise.all(
-      taskIds.map((id) => fetch(`${API}/${id}`, { method: "DELETE" })),
-    );
-  });
+    // Clean up in small batches: 100 parallel DELETEs fire 100 WebSocket
+    // broadcasts (one full-board re-render each), and the storm bleeds into
+    // the NEXT test's timing. Paced batches keep the board converged.
+    for (let i = 0; i < taskIds.length; i += 10) {
+      await Promise.all(
+        taskIds.slice(i, i + 10).map((id) => fetch(`${API}/${id}`, { method: "DELETE" })),
+      );
+    }
+  }, 60_000);
 
   // ── New tasks appear at bottom of column ───────────────────────────────────
   it("new tasks appear at the bottom of the column (oldest-first ordering)", async () => {
     // Create 3 tasks sequentially to ensure distinct createdAt timestamps
     // (no artificial delays needed — API processes each in <10ms)
-    const task1Res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Oldest task",
-        description: "first",
-        selector: "/",
-        status: "todo",
-      }),
-    });
-    expect(((await task1Res.json()) as { success: boolean }).success).toBe(
-      true,
-    );
+    // The waits below target THESE tasks by id (ticket a5b492d8): the todo
+    // column already holds cards from earlier tests in this shared-board
+    // file, so a bare `>= 3` count was already satisfied before any of the
+    // three arrived — under load the order was read before WebSocket
+    // delivery and the indices came back -1.
+    const post = async (title: string, description: string) => {
+      const res = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description,
+          selector: "/",
+          status: "todo",
+        }),
+      });
+      const data = (await res.json()) as {
+        success: boolean;
+        task?: { id: string };
+      };
+      expect(data.success).toBe(true);
+      expect(data.task?.id).toBeTruthy();
+      return data.task!.id;
+    };
+    const oldestId = await post("Oldest task", "first");
+    await post("Middle task", "second");
+    const newestId = await post("Newest task", "third");
 
-    const task2Res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Middle task",
-        description: "second",
-        selector: "/",
-        status: "todo",
-      }),
-    });
-    expect(((await task2Res.json()) as { success: boolean }).success).toBe(
-      true,
-    );
-
-    const task3Res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "Newest task",
-        description: "third",
-        selector: "/",
-        status: "todo",
-      }),
-    });
-    expect(((await task3Res.json()) as { success: boolean }).success).toBe(
-      true,
-    );
-
-    // Wait for all 3 tasks to appear in the todo column via WebSocket
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll('[data-column-id="todo"] [data-task-id]')
-          .length >= 3,
-      { timeout: 8_000 },
-    );
+    // Wait for THESE tasks to arrive via WebSocket (exact-id match, not a
+    // count that earlier tests in this file already satisfy).
+    await waitForTaskOnBoard(page, oldestId);
+    await waitForTaskOnBoard(page, newestId);
 
     // Get the order of tasks in the todo column
     const taskOrder = await page.evaluate(() => {
