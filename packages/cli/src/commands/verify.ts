@@ -1497,6 +1497,24 @@ async function capturePixelShot(
     caret: "hide" as const,
     timeout: 15_000,
   };
+  // Determinism prefix (ticket a5b492d8). `animations: "disabled"` freezes
+  // animation/transition STATE, but it cannot wait for work that has not
+  // painted yet: the storage injection above re-renders the app (theme,
+  // collapsed sidebar) and the webfont can still be loading, both AFTER
+  // `networkidle`. On a loaded box the crop then caught the fallback font
+  // and the diff read 24/255 on an "unchanged" page — reproduced twice,
+  // never on a quiet box. Equal code must mean equal pixels, so settle the
+  // page first: fonts resolved, then two frames for the re-render to land.
+  try {
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
+  } catch {
+    /* page gone or fonts API unavailable — capture anyway, the diff reports it */
+  }
   try {
     return await page.locator(selector).first().screenshot(still);
   } catch {
