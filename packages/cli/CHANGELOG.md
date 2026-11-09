@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.27.1
+
+### Patch Changes
+
+- da6f964: `verify --pixels` now settles the page before capturing: it waits for `document.fonts.ready` and two animation frames after the storage injection. `animations: "disabled"` freezes animation state but cannot wait for a webfont or the post-injection re-render, so under CPU load an "unchanged" page could diff 24/255 against itself and fail any `--min-pixel-delta` demand. Equal code now means equal pixels.
+
 ## 0.27.0
 
 ### Minor Changes
