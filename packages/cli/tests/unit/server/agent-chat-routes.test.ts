@@ -24,12 +24,15 @@ import {
 class StubStdin extends EventEmitter {
   written: string[] = [];
   destroyed = false;
+  /** Wired by StubChild: closing stdin lets the stub exit like real pi. */
+  onEnd: (() => void) | null = null;
   write(chunk: string): boolean {
     this.written.push(chunk);
     return true;
   }
   end(): void {
     this.destroyed = true;
+    this.onEnd?.();
   }
 }
 class StubStdout extends EventEmitter {
@@ -38,10 +41,26 @@ class StubStdout extends EventEmitter {
   }
 }
 class StubChild extends EventEmitter {
-  stdin = new StubStdin();
+  stdin: StubStdin;
   stdout = new StubStdout();
   stderr = new EventEmitter();
+  constructor() {
+    super();
+    this.stdin = new StubStdin();
+    // Orderly-shutdown parity: the real pi child exits (asynchronously)
+    // once its stdin closes. The old stub never emitted "exit", so
+    // Session.close()'s 5 s SIGKILL-escalation timer fired on EVERY test
+    // teardown (~5 s per session-creating test, ~35 s of test time in this
+    // file — speed ticket 77b18431). No assertion changes: tests observe
+    // HTTP behavior, broadcasts, and stdin writes, never close latency.
+    this.stdin.onEnd = () => this.emitExitSoon();
+  }
+  /** Async like a real process exit — never re-entrant with close(). */
+  private emitExitSoon(): void {
+    setImmediate(() => this.emit("exit", 0, null));
+  }
   kill(): boolean {
+    this.emitExitSoon();
     return true;
   }
   emitRecord(record: PiWireRecord): void {

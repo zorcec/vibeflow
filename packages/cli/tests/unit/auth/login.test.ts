@@ -319,6 +319,13 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
   let projectDir: string;
 
   beforeEach(() => {
+    // Speed ticket 77b18431: the device flow polls every 3 s in production
+    // (VIBEFLOW_DEVICE_POLL_INTERVAL_MS, default 3000 in src/auth/login.ts)
+    // and every test below answers on its first poll, so each test would
+    // otherwise burn one full interval (~13 x 3 s in this file). Pinning
+    // the cadence near-zero changes no outcome: the poll COUNT per test is
+    // identical, only the wait between polls shrinks.
+    process.env.VIBEFLOW_DEVICE_POLL_INTERVAL_MS = "20";
     vi.mocked(resolveProjectAuth).mockReset();
     vi.mocked(settingsModule.readGlobalSettings).mockReset();
     vi.mocked(settingsModule.writeGlobalSettings).mockReset();
@@ -335,6 +342,7 @@ describe("fetchAndSelectWorkspace (via login flow)", () => {
   });
 
   afterEach(() => {
+    delete process.env.VIBEFLOW_DEVICE_POLL_INTERVAL_MS;
     vi.unstubAllGlobals();
   });
 

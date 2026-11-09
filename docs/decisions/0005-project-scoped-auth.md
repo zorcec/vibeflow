@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-25
 - Governed: `packages/cli/src/auth/`
-- Reviewed: 2026-10-25
+- Reviewed: 2026-11-09
 - Decided by: owner (ticket a93bfdc8c858ed0aa5cc60aa56e328)
 
 ## Background
