@@ -1507,6 +1507,19 @@ async function capturePixelShot(
   // page first: fonts resolved, then two frames for the re-render to land.
   try {
     await page.evaluate(async () => {
+      // A webfont that has not STARTED loading is invisible to
+      // document.fonts.ready (it only waits for faces already in flight):
+      // the storage injection's re-render can lay text out with the fallback
+      // face and only then request Inter. Force every declared face to load
+      // before asking for readiness, so the first capture of a cold browser
+      // cannot record fallback glyphs and then diff ~24/255 against every
+      // later run that has Inter painted.
+      const faces = Array.from(
+        document.fonts as unknown as FontFace[],
+      );
+      await Promise.all(
+        faces.map((face) => face.load().catch(() => undefined)),
+      );
       await document.fonts.ready;
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -1515,6 +1528,40 @@ async function capturePixelShot(
   } catch {
     /* page gone or fonts API unavailable — capture anyway, the diff reports it */
   }
+  // Self-consistency gate (ticket a5b492d8, second pass). Settling cannot
+  // PROVE the page is done — under heavy load a repaint can still land
+  // between "settled" and the screenshot, which is how an unchanged board
+  // read 24/255 during the v0.27.1 release gate (both retries, while three
+  // other suites hammered the box). So do not trust a single frame: capture,
+  // let one frame go by, capture again, and keep comparing until two
+  // consecutive captures agree (bounded — never an unbounded loop). A frame
+  // that is still changing is not evidence of anything; only a stable frame
+  // is. The extra screenshot costs ~50 ms and only occurs when the page is
+  // genuinely still painting.
+  let shot: Buffer | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      shot = await page.locator(selector).first().screenshot(still);
+    } catch {
+      shot = undefined;
+      break;
+    }
+    try {
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+      const next = await page.locator(selector).first().screenshot(still);
+      if (next.equals(shot)) return shot;
+      shot = next;
+    } catch {
+      /* cannot re-capture — fall through and use what we have */
+      return shot;
+    }
+  }
+  if (shot) return shot;
   try {
     return await page.locator(selector).first().screenshot(still);
   } catch {
