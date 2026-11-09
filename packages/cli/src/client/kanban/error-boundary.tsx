@@ -1,4 +1,5 @@
 import React from "react";
+import { KANBAN_FONT_STACK } from "@vibeflow-tools/ui/kanban";
 import { reportKanbanError } from "./error-report.js";
 
 /**
@@ -57,7 +58,7 @@ export class KanbanErrorBoundary extends React.Component<
           padding: 24,
           background: "var(--t-bg, #0f172a)",
           color: "var(--t-text, #e2e8f0)",
-          fontFamily: "Inter, system-ui, sans-serif",
+          fontFamily: KANBAN_FONT_STACK,
           textAlign: "center",
         }}
       >

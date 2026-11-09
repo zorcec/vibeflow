@@ -35,6 +35,7 @@ import {
   resolveMobileOverrideAfterResize,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
+import { KANBAN_FONT_STACK } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
@@ -88,7 +89,7 @@ function OnlineModeOverlay({ onClose }: { onClose?: () => void }) {
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
-        fontFamily: "Inter, system-ui, -apple-system, sans-serif",
+        fontFamily: KANBAN_FONT_STACK,
       }}
     >
       <div

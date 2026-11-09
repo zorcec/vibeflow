@@ -159,6 +159,7 @@ sh(
 sh(`node ${resolve(cliRoot, "scripts", "gen-kanban-css.mjs")}`, stagingEnv);
 sh(`node ${resolve(cliRoot, "scripts", "gen-hook-defaults.mjs")}`, stagingEnv);
 sh(`node ${resolve(cliRoot, "scripts", "gen-codec-assets.mjs")}`, stagingEnv);
+sh(`node ${resolve(cliRoot, "scripts", "gen-font-assets.mjs")}`, stagingEnv);
 sh(`node ${resolve(cliRoot, "scripts", "embed-swagger-ui.mjs")}`, stagingEnv);
 sh(
   `node ${resolve(monorepoRoot, "packages", "api-core", "scripts", "gen-api-artifacts.mjs")}`,

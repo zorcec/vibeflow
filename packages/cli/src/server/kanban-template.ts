@@ -210,7 +210,6 @@ function getReactShell(opts: KanbanOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vibeflow — Board</title>
   <link rel="icon" href="${FAVICON_DATA_URI}" type="image/svg+xml">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>${KANBAN_CSS}</style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col" style="background:var(--t-bg);">
@@ -243,7 +242,6 @@ function getReactDevShell(opts: KanbanOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vibeflow — Board (dev)</title>
   <link rel="icon" href="${FAVICON_DATA_URI}" type="image/svg+xml">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>${KANBAN_CSS}</style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col" style="background:var(--t-bg);">

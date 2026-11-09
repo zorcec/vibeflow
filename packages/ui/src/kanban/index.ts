@@ -215,6 +215,16 @@ export type {
   TreeReorderPlan,
 } from "./task-links";
 
+// Font contract (ticket rrqdvoqkj5) — one stack + vendored files for every surface
+/** Single source of truth for the kanban font stack (parity-tested). */
+export {
+  KANBAN_FONT_FAMILY,
+  KANBAN_FONT_STACK,
+  KANBAN_FONT_ROUTE,
+  KANBAN_FONT_FILES,
+} from "./fonts";
+export type { KanbanFontFile } from "./fonts";
+
 // Theme registry + resolver + persistence (shared by every kanban consumer)
 export {
   THEME_REGISTRY,

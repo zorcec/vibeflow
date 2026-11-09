@@ -112,6 +112,7 @@ import {
   wasmAssetPath,
   type WasmAssetName,
 } from "./imageNodeCodecs.js";
+import { registerFontRoute } from "./kanbanFonts.js";
 import type { ServeOptions, Task } from "../core/types.js";
 import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
@@ -2092,6 +2093,8 @@ async function serveApiOnly(
     dev: options.dev,
   });
   registerCodecRoute(app);
+  // Vendored Inter for the board's @font-face block (ticket rrqdvoqkj5).
+  registerFontRoute(app);
   // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
   // Registered for online AND offline — the board is served in both.
   registerClientErrorRoute(app);
@@ -2414,6 +2417,8 @@ li{margin:8px 0}</style></head>
     dev: options.dev,
   });
   registerCodecRoute(app);
+  // Vendored Inter for the board's @font-face block (ticket rrqdvoqkj5).
+  registerFontRoute(app);
   registerInjectPage(app, serveUrls);
   // Ticket 5087f5e3: browser error forwarding (flag-gated, 204 when off).
   registerClientErrorRoute(app);

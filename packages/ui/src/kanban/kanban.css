@@ -8,6 +8,52 @@
    :root block would out-cascade the [data-theme] blocks and freeze every theme
    to its dark values. Component CSS below references the tokens via var(). */
 
+/* ── Vendored Inter (ticket rrqdvoqkj5) ──
+   The woff2 files live in ./fonts/ (SIL OFL, see OFL.txt) — the ONLY Inter
+   source for every kanban surface. Absolute same-origin URLs so this block
+   survives verbatim through BOTH pipelines that consume this file: the CLI
+   inlines the built CSS into served HTML (the CLI serves these bytes at
+   /__vibeflow__/fonts, see KANBAN_FONT_ROUTE) and the hosted app resolves
+   them at the identical path from its public/ dir. Never point this at a
+   CDN: a board must not depend on a third-party fetch to render its font.
+   The stack string must stay identical to KANBAN_FONT_STACK in fonts.ts
+   (the parity test enforces it). */
+@font-face {
+ font-family: "Inter";
+ font-style: normal;
+ font-weight: 300;
+ font-display: swap;
+ src: url("/__vibeflow__/fonts/inter-300.woff2") format("woff2");
+}
+@font-face {
+ font-family: "Inter";
+ font-style: normal;
+ font-weight: 400;
+ font-display: swap;
+ src: url("/__vibeflow__/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+ font-family: "Inter";
+ font-style: normal;
+ font-weight: 500;
+ font-display: swap;
+ src: url("/__vibeflow__/fonts/inter-500.woff2") format("woff2");
+}
+@font-face {
+ font-family: "Inter";
+ font-style: normal;
+ font-weight: 600;
+ font-display: swap;
+ src: url("/__vibeflow__/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+ font-family: "Inter";
+ font-style: normal;
+ font-weight: 700;
+ font-display: swap;
+ src: url("/__vibeflow__/fonts/inter-700.woff2") format("woff2");
+}
+
 /* ── Global fonts + scrollbar ── */
 html,
 body {
@@ -16,7 +62,7 @@ body {
  padding: 0;
 }
 body {
- font-family: "Inter", sans-serif;
+ font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
  background: var(--t-bg);
  color: var(--t-text);
 }
