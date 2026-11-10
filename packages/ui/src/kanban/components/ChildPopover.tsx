@@ -1,12 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import type { Task } from "../types";
 import { getChildren, computePopoverPosition } from "../task-links";
 import { ChildRow } from "./ChildRow";
-import {
-  requestRelationsScroll,
-  relationsScrollEvent,
-} from "./detail-panel-scroll";
 
 interface ChildPopoverProps {
   task: Task;
@@ -53,19 +49,17 @@ export default function ChildPopover({
   if (children.length === 0) return null;
   if (!anchorRect) return null;
 
-  const visible = children.slice(0, CHILD_POPOVER_MAX_VISIBLE);
-  const remaining = children.length - CHILD_POPOVER_MAX_VISIBLE;
-
-  // Estimate what actually renders: at most CHILD_POPOVER_MAX_VISIBLE rows plus the
-  // header (and the "+N more" line when truncated), capped by the
-  // stylesheet's max-height: 50vh on .child-popover. Estimating from the
-  // full child count flips the popover above the chip on a phantom height
-  // and pins it to the viewport top, far from the anchor.
+  // EVERY child renders; there is no truncation and no "+N more" affordance
+  // (owner decision 2026-11-10). A big family is handled by the list's own
+  // max-height + scroll, so nothing is ever silently hidden behind a button.
   const EST_ROW_H = 28;
-  const EST_MORE_H = 22;
+  const VISIBLE_ROWS = 30; // the list's height budget, in whole rows
+  // Same budget as the stylesheet's `max-height: calc(100vh - 24px)` — the
+  // estimator must describe what actually renders, or the popover flips/hides
+  // on a phantom height (ticket a0919c04).
   const EST_H = Math.min(
-    30 + visible.length * EST_ROW_H + (remaining > 0 ? EST_MORE_H : 0),
-    window.innerHeight * 0.5,
+    30 + Math.min(children.length, VISIBLE_ROWS) * EST_ROW_H,
+    window.innerHeight - 24,
   );
 
   const pos = computePopoverPosition(
@@ -75,15 +69,73 @@ export default function ChildPopover({
     window.innerWidth,
   );
 
+  // Height that ends exactly on a row boundary, MEASURED rather than derived
+  // from constants: the assumptions (28px rows, 30px header) are estimates and
+  // a 4px error still sliced the last row in half — which is what the owner
+  // reported as "cut off" (ticket a0919c04). One layout pass, then snapped.
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [snappedMaxHeight, setSnappedMaxHeight] = useState<number | null>(null);
+  // Measure ONCE, from the un-snapped box. Re-running this after applying the
+  // snap would measure the already-shrunk popover and walk the height down
+  // every pass (observed: 768px -> 168px).
+  useLayoutEffect(() => {
+    if (snappedMaxHeight !== null) return;
+    const el = popoverRef.current;
+    if (!el) return;
+    const list = el.querySelector<HTMLElement>(".child-popover-list");
+    const firstRow = list?.querySelector<HTMLElement>(
+      "[data-role='child-row-wrap']",
+    );
+    if (!list || !firstRow) return;
+    const rowH = firstRow.getBoundingClientRect().height;
+    if (!(rowH > 0)) return;
+    // Chrome measured from the NATURAL box (the first layout pass sets no
+    // maxHeight): header + affordance + padding + borders, exactly.
+    const chrome =
+      el.getBoundingClientRect().height - list.getBoundingClientRect().height;
+    const available = pos.maxHeight - chrome;
+    if (available <= 0) return;
+    // Snap to the MEASURED bottom of the last row that fits. Arithmetic on an
+    // assumed row pitch left a sub-pixel sliver of the next row at the edge,
+    // which is precisely the "cut off" the owner reported.
+    const listTop = list.getBoundingClientRect().top;
+    let cut = 0;
+    for (const row of Array.from(
+      list.querySelectorAll<HTMLElement>("[data-role='child-row-wrap']"),
+    )) {
+      const box = row.getBoundingClientRect();
+      const bottom = box.bottom - listTop;
+      if (bottom > available + 0.5) break;
+      cut = bottom;
+    }
+    if (cut <= 0) return;
+    setSnappedMaxHeight(chrome + cut);
+    // NO dependency array on purpose: the popover is portalled, so the first
+    // layout pass can run before the node is attached. With deps, the effect
+    // never re-ran and the snap silently never applied (the height stayed at
+    // the un-snapped fallback). The `snappedMaxHeight !== null` guard at the
+    // top stops it from looping.
+  });
+
   const popover = (
     <div
       className="child-popover"
+      ref={popoverRef}
       data-role="child-popover"
       style={{
         position: "fixed",
         top: pos.top,
         left: pos.left,
         width: pos.width,
+        // The positioner owns the height: only it knows how much room the
+        // chosen side has, and a popover that covered its own chip would
+        // swallow the hover that opened it (ticket a0919c04).
+        //
+        // SNAPPED to whole rows: a budget of 768px over 772px of content left
+        // the 28th row sliced in half at the popover edge, which reads as "the
+        // children are cut off" even though the row is scrollable into view.
+        // Showing one row fewer is honest; showing half a row is not.
+        maxHeight: snappedMaxHeight ?? pos.maxHeight,
       }}
       onMouseDown={(e) => e.stopPropagation()}
       onDragStart={(e) => e.stopPropagation()}
@@ -92,7 +144,7 @@ export default function ChildPopover({
         {children.length} child{children.length === 1 ? "" : "ren"}
       </div>
       <div className="child-popover-list">
-        {visible.map((child) => (
+        {children.map((child) => (
           <ChildRow
             key={child.id}
             child={child}
@@ -103,24 +155,6 @@ export default function ChildPopover({
           />
         ))}
       </div>
-      {remaining > 0 && (
-        <button
-          type="button"
-          className="child-popover-more"
-          data-role="child-popover-more"
-          aria-label={`Show ${remaining} more children in task details`}
-          onClick={(e) => {
-            e.stopPropagation();
-            // Same open path as every row — the PARENT task in details —
-            // then land the fresh panel on the full children list below.
-            onOpenTask(task, "details");
-            requestRelationsScroll(task.id);
-            document.dispatchEvent(relationsScrollEvent(task.id));
-          }}
-        >
-          +{remaining} more
-        </button>
-      )}
     </div>
   );
 

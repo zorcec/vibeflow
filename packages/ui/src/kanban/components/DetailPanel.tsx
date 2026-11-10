@@ -24,10 +24,6 @@ import { TaskDetailsTab } from "./shared/TaskDetailsTab";
 import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
-import {
-  SCROLL_RELATIONS_EVENT,
-  consumeRelationsScroll,
-} from "./detail-panel-scroll";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 import { AttentionBadge } from "../../AttentionBadge";
 
@@ -571,21 +567,6 @@ export function DetailPanel({
     });
   }, []);
 
-  // "+N more" popover affordance (already-open arrival): the panel is open
-  // on this task, so the open effect below will not rerun for the same id —
-  // the event scrolls now. Otherwise the pending flag carries the intent
-  // until the open effect consumes it.
-  React.useEffect(() => {
-    function onScrollRelations(e: Event) {
-      const id = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
-      if (!id || !open || id !== task?.id) return;
-      scrollDetailsToBottom();
-    }
-    document.addEventListener(SCROLL_RELATIONS_EVENT, onScrollRelations);
-    return () =>
-      document.removeEventListener(SCROLL_RELATIONS_EVENT, onScrollRelations);
-  }, [open, task?.id, scrollDetailsToBottom]);
-
   React.useEffect(() => {
     if (!open) return;
     setActiveTab(tab);
@@ -630,11 +611,6 @@ export function DetailPanel({
       // previews (ticket d4c533f9) — the old badge+files double load
       // issued the files fetch twice for the same end state.
       void loadPanelData(task.id);
-      // "+N more" popover affordance (closed-panel arrival): the click
-      // opened this task through the normal path and armed the intent —
-      // land the fresh panel on the full children list at the bottom of
-      // the details pane (the relations section has no cap).
-      if (consumeRelationsScroll(task.id)) scrollDetailsToBottom();
     }
 
     // Focus the title — but never by taking focus away from a control the user

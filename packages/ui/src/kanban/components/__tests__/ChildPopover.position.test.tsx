@@ -51,6 +51,16 @@ function anchor(top: number, left: number): DOMRect {
   } as DOMRect;
 }
 
+/** Inline max-height — jsdom reports zero rects, so the box is read from the
+ *  style the component sets (same approach as popoverTop). */
+function popoverMaxHeight(): number {
+  const pop = document.querySelector(
+    "body > [data-role='child-popover']",
+  ) as HTMLElement | null;
+  if (!pop) throw new Error("child popover did not render");
+  return parseFloat(pop.style.maxHeight);
+}
+
 function popoverTop(): string {
   const pop = document.querySelector(
     "body > [data-role='child-popover']",
@@ -73,11 +83,16 @@ describe("ChildPopover anchoring", () => {
       />,
     );
     try {
-      // Rendered rows are capped at 30 + header + "+N more" (~892px),
-      // clamped to 50vh (400px at 800px viewport): 551 + 400 > 792, so the
-      // popover flips just above the chip — 523 - 400 - 6 = 117 — adjacent
-      // to the anchor, never pinned to the viewport top.
-      expect(popoverTop()).toBe("117px");
+      // The height budget is now the VIEWPORT (ticket a0919c04), not 50vh, so
+      // the exact px moved. The owner's ruling is what must hold: the popover
+      // hangs ADJACENT above the chip (6px gap) and is never pinned to the
+      // viewport top. Assert the property, not a constant derived from a
+      // formula that has since changed.
+      const top = parseFloat(popoverTop());
+      const chipTop = 523;
+      expect(chipTop - (top + popoverMaxHeight())).toBeCloseTo(6, 0);
+      expect(top).toBeGreaterThan(24);
+      expect(top).toBeGreaterThanOrEqual(0);
     } finally {
       unmount();
       document.body.innerHTML = "";
@@ -116,10 +131,12 @@ describe("ChildPopover anchoring", () => {
       />,
     );
     try {
-      // Below does not fit the clamped 30-row estimate (821 + 491.5 > 975
-      // at 983px viewport height), so flip: 793 - 491.5 - 6 = 295.5 —
-      // adjacent above the chip, not pinned to the viewport top.
-      expect(popoverTop()).toBe("295.5px");
+      // Same property as above: flipped, adjacent, not pinned (the px came
+      // from the old half-viewport estimate and no longer describes reality).
+      const top = parseFloat(popoverTop());
+      const chipTop = 793;
+      expect(chipTop - (top + popoverMaxHeight())).toBeCloseTo(6, 0);
+      expect(top).toBeGreaterThan(24);
     } finally {
       unmount();
       document.body.innerHTML = "";

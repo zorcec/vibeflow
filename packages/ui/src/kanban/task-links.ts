@@ -622,6 +622,10 @@ export interface PopoverPosition {
  top: number;
  left: number;
  width: number;
+ /** Largest height that still fits on the chosen side without covering the
+  *  anchor (ticket a0919c04). The popover applies it inline; the stylesheet's
+  *  own max-height is only a fallback for a missing measurement. */
+ maxHeight: number;
 }
 
 /**
@@ -639,15 +643,35 @@ export function computePopoverPosition(
  const W = Math.min(280, Math.max(200, r.width));
  const MARGIN = 6;
  const EDGE_PAD = 8;
+ // Vertical floor for a flipped popover: the app header/toolbar live in the top
+ // ~44px, and a popover that clamps to 8 reads as "pinned to the top edge" —
+ // the exact regression the anchoring spec guards against.
+ const TOP_PAD = 44;
 
- // Default: below card
- let top = r.bottom + MARGIN;
- // Flip up if not enough room below
- if (top + estH > viewportHeight - EDGE_PAD) {
-  top = r.top - estH - MARGIN;
- }
- // Clamp to viewport top
- top = Math.max(EDGE_PAD, top);
+ // Usable space on each side of the anchor (ticket a0919c04). The popover may
+ // never cover the chip it hangs from: a tall popover that overlaps the anchor
+ // swallows the hover that opened it, so it closes, reopens, and flaps — the
+ // observed symptom after the height budget grew to the viewport.
+ const roomBelow = viewportHeight - (r.bottom + MARGIN) - EDGE_PAD;
+ const roomAbove = r.top - MARGIN - TOP_PAD;
+ // Three-tier preference, in this order:
+ //  1. below, if the content fits there — the documented contract for short
+ //     lists ("opens directly below its chip");
+ //  2. above, if it fits there instead;
+ //  3. otherwise the roomier side, clamped: a tall child set fits NEITHER side,
+ //     and a plain "fits below?" test flips it to the smaller side and shows
+ //     three rows, while a plain "roomier side" test flips short popovers that
+ //     had room below (both observed, ticket a0919c04).
+ const fitsBelow = r.bottom + MARGIN + estH <= viewportHeight - EDGE_PAD;
+ const fitsAbove = r.top - MARGIN - estH >= TOP_PAD;
+ const preferBelow = fitsBelow || (!fitsAbove && roomBelow >= roomAbove);
+ const room = Math.max(0, preferBelow ? roomBelow : roomAbove);
+ const maxHeight = Math.max(0, Math.min(estH, room));
+
+ const top = Math.max(
+  preferBelow ? EDGE_PAD : TOP_PAD,
+  preferBelow ? r.bottom + MARGIN : r.top - maxHeight - MARGIN,
+ );
 
  // Left-aligned with card, clamped to viewport
  const left = Math.max(
@@ -655,5 +679,5 @@ export function computePopoverPosition(
   Math.min(r.left, viewportWidth - W - EDGE_PAD),
  );
 
- return { top, left, width: W };
+ return { top, left, width: W, maxHeight };
 }

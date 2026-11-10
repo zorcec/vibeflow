@@ -46,7 +46,10 @@ function renderedRowCount(): number {
 }
 
 describe("ChildPopover cap", () => {
-  it("renders 30 rows when 42 children exist", () => {
+  it("renders ALL 42 rows — no truncation, no affordance", () => {
+    // Owner decision 2026-11-10: the "+N more" button is gone. Every child is
+    // rendered; a big family scrolls inside the list instead of hiding rows
+    // behind a control the user has to notice.
     const allTasks = [makeTask(PARENT_ID, "Parent"), ...makeChildren(42)];
     const { unmount } = render(
       <ChildPopover
@@ -57,19 +60,12 @@ describe("ChildPopover cap", () => {
       />,
     );
     try {
-      expect(CHILD_POPOVER_MAX_VISIBLE).toBe(30);
-      expect(renderedRowCount()).toBe(30);
-      // Header still names the full family; the truncation affordance the remainder.
+      expect(renderedRowCount()).toBe(42);
       expect(
-        document.querySelector(
-          "body > [data-role='child-popover'] .child-popover-header",
-        ),
-      ).toHaveTextContent("42 children");
-      const more = document.querySelector(
-        "body > [data-role='child-popover'] [data-role='child-popover-more']",
-      );
-      expect(more?.tagName).toBe("BUTTON");
-      expect(more).toHaveTextContent("+12 more");
+        document.querySelector("[data-role='child-popover-more']"),
+        "no truncation affordance exists any more",
+      ).toBeNull();
+      expect(document.body.textContent).not.toMatch(/\+\d+ more/);
     } finally {
       unmount();
       document.body.innerHTML = "";
