@@ -1,8 +1,26 @@
 /* ══════════════════════════════════════════════
-   CLI Kanban CSS — imports shared styles from @vibeflow/ui.
-   Single source of truth: packages/ui/src/kanban/kanban.css
-   Only add CLI-specific overrides below the import.
+   CLI Kanban CSS — the Tailwind v4 entrance for the CLI board.
+   Shared styles live in @vibeflow/ui (packages/ui/src/kanban/kanban.css
+   + themes.css); scripts/gen-kanban-css.mjs inlines them above this
+   file's overrides when it builds the compiler input, so only add
+   CLI-specific overrides below the @theme block.
    ══════════════════════════════════════════════ */
+@import "tailwindcss" source(none);
+/* Explicit content sources (design-system P1): the compiler input is
+   assembled in os.tmpdir(), where v4 automatic content detection sees
+   nothing, so every class source is registered here. Paths are relative
+   to THIS file; gen-kanban-css.mjs rewrites them as absolute paths in
+   the temp input. Keep in sync with the old tailwind.config.cjs globs
+   plus the served shell (kanban-template.ts carries h-screen). */
+@source "./";
+@source "../../server/kanban-template.ts";
+@source "../../../../../packages/ui/src/kanban";
+/* Replaces tailwind.config.cjs `theme.extend.fontFamily.sans`: feeds
+   v4 Preflight (`--default-font-family`) so the html base stack stays
+   Inter-first, byte-identical to the v3 output. */
+@theme {
+ --font-sans: Inter, system-ui, sans-serif;
+}
 @import "../../../../../packages/ui/src/kanban/kanban.css";
 
 /* ── Theme picker (CLI kanban Settings > Theme tab only) ──

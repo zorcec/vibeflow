@@ -3,8 +3,16 @@
  * Generates src/server/kanban-css.gen.ts from the Tailwind CSS input.
  * Run automatically via the "prebuild" npm script.
  *
- * Single source of truth: src/client/kanban/kanban.css
- * Uses tailwindcss CLI to scan TSX files for class names and emit production CSS.
+ * Single source of truth: src/client/kanban/kanban.css (the v4 entrance:
+ * `@import "tailwindcss"`, explicit `@source` lines, `@theme` tokens)
+ * plus the shared UI styles it inlines (themes.css + kanban.css).
+ *
+ * Tailwind v4 pipeline (design-system P1): the input is assembled in
+ * os.tmpdir(), where v4 automatic content detection sees nothing, so the
+ * entry's relative `@source` lines are rewritten here as absolute paths
+ * and automatic detection stays off (`source(none)` on the import).
+ * Invoke with the v4 CLI (`@tailwindcss/cli`); tailwind.config.cjs is
+ * gone (CSS-first config lives in the entry file).
  */
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, writeFileSync as wf } from "node:fs";
@@ -16,14 +24,16 @@ import { resolveDistDir } from "./lib/dist-dir.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const inputCss = resolve(root, "src/client/kanban/kanban.css");
+const cliKanbanDir = resolve(root, "src/client/kanban");
 // Staged builds (VIBEFLOW_DIST_DIR, ticket 328b5420) write here instead of
 // the live dist/; the atomic-sync step carries the artifact across.
 const outputCss = resolve(resolveDistDir(root), "client/kanban.css");
 const outputTs = resolve(root, "src/server/kanban-css.gen.ts");
 
-// Build the Tailwind input as: themes.css (semantic tokens + data-theme
-// switching) + the shared UI kanban.css + any CLI-specific overrides.
-// We inline the UI kanban.css because src/client/kanban/kanban.css is an
+// Build the Tailwind input as: v4 preamble (import + absolute @sources)
+// + themes.css (semantic tokens + data-theme switching) + the shared UI
+// kanban.css + the CLI entry's own overrides (@theme block + components).
+// We inline the UI files because src/client/kanban/kanban.css is an
 // @import stub whose relative path Tailwind's CLI cannot resolve from a
 // temp file outside src/client/kanban/ — concatenating the stub verbatim
 // silently dropped ALL component styles from the generated output.
@@ -35,18 +45,33 @@ const tmpInput = resolve(
 );
 const themesContent = readFileSync(themesCss, "utf-8");
 const uiKanbanContent = readFileSync(uiKanbanCss, "utf-8");
-const cliKanbanContent = readFileSync(inputCss, "utf-8")
+const cliKanbanContent = readFileSync(inputCss, "utf-8");
+// Explicit sources, resolved against the entry file so the temp input in
+// os.tmpdir() registers the real class origins (v4 auto-detection sees
+// nothing from tmpdir). The entry keeps these same paths relative to
+// itself, so compiling the entry directly and via this script agree.
+const sourcePaths = [
+ ...cliKanbanContent.matchAll(/^\s*@source\s+"([^"]+)"\s*;/gm),
+].map((m) => resolve(cliKanbanDir, m[1]));
+const cliBody = cliKanbanContent
  .split("\n")
- .filter((line) => !line.trim().startsWith("@import"))
+ .filter((line) => !/^\s*@(import|source)\b/.test(line))
  .join("\n");
 wf(
  tmpInput,
- themesContent + "\n" + uiKanbanContent + "\n" + cliKanbanContent,
+ `@import "tailwindcss" source(none);\n` +
+  sourcePaths.map((p) => `@source "${p}";`).join("\n") +
+  "\n" +
+  themesContent +
+  "\n" +
+  uiKanbanContent +
+  "\n" +
+  cliBody,
  "utf-8",
 );
 
 execSync(
- `npx tailwindcss -c tailwind.config.cjs -i "${tmpInput}" -o "${outputCss}" --minify`,
+ `npx @tailwindcss/cli -i "${tmpInput}" -o "${outputCss}" --minify`,
  { cwd: root, stdio: "inherit" },
 );
 

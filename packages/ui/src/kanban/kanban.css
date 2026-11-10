@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* NOTE (design-system P1): this shared stylesheet carries NO Tailwind
+   entrance. Each consumer owns its Tailwind version: the CLI board
+   compiles with v4 from packages/cli/src/client/kanban/kanban.css
+   (`@import "tailwindcss"` there). Do not re-add @tailwind/@import
+   lines here — a second entrance would fork the utility output. */
 
 /* THEME TOKENS — the single source of truth is themes.css (semantic --t-*
    tier + per-theme --p-* primitives). It is prepended before this file in the

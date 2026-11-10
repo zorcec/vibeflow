@@ -2,12 +2,9 @@ packages:
   - "packages/*"
 
 allowBuilds:
+  '@parcel/watcher': true
   '@scarf/scarf': false
   esbuild: true
-
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
 
 # pnpm reads overrides from this file, not from the "pnpm" field in
 # package.json.
