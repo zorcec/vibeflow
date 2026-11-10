@@ -73,10 +73,11 @@ describe("ChildPopover anchoring", () => {
       />,
     );
     try {
-      // Rendered rows are capped at 6 + header + "…and N more" (~220px),
-      // which fits below the chip: 523 + 22 + 6 = 551 (551 + 220 < 792).
-      // The old full-count estimate (870px) pinned it to top: 8px.
-      expect(popoverTop()).toBe("551px");
+      // Rendered rows are capped at 30 + header + "+N more" (~892px),
+      // clamped to 50vh (400px at 800px viewport): 551 + 400 > 792, so the
+      // popover flips just above the chip — 523 - 400 - 6 = 117 — adjacent
+      // to the anchor, never pinned to the viewport top.
+      expect(popoverTop()).toBe("117px");
     } finally {
       unmount();
       document.body.innerHTML = "";
@@ -115,9 +116,10 @@ describe("ChildPopover anchoring", () => {
       />,
     );
     try {
-      // Below does not fit (821 + 220 > 975), so flip: 793 - 220 - 6 = 567
-      // — adjacent above the chip, not pinned to the viewport top.
-      expect(popoverTop()).toBe("567px");
+      // Below does not fit the clamped 30-row estimate (821 + 491.5 > 975
+      // at 983px viewport height), so flip: 793 - 491.5 - 6 = 295.5 —
+      // adjacent above the chip, not pinned to the viewport top.
+      expect(popoverTop()).toBe("295.5px");
     } finally {
       unmount();
       document.body.innerHTML = "";

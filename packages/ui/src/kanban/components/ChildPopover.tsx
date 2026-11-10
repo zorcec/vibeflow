@@ -15,7 +15,10 @@ interface ChildPopoverProps {
   anchorRect?: DOMRect | null;
 }
 
-const MAX_VISIBLE = 6;
+/** How many child rows the hover popover renders before truncating with a
+ *  "+N more" affordance. Raised from 6 so mid-size families read at a glance;
+ *  the popover still clamps to 50vh and the row list scrolls internally. */
+export const CHILD_POPOVER_MAX_VISIBLE = 30;
 
 export default function ChildPopover({
   task,
@@ -46,11 +49,11 @@ export default function ChildPopover({
   if (children.length === 0) return null;
   if (!anchorRect) return null;
 
-  const visible = children.slice(0, MAX_VISIBLE);
-  const remaining = children.length - MAX_VISIBLE;
+  const visible = children.slice(0, CHILD_POPOVER_MAX_VISIBLE);
+  const remaining = children.length - CHILD_POPOVER_MAX_VISIBLE;
 
-  // Estimate what actually renders: at most MAX_VISIBLE rows plus the
-  // header (and the "…and N more" line when truncated), capped by the
+  // Estimate what actually renders: at most CHILD_POPOVER_MAX_VISIBLE rows plus the
+  // header (and the "+N more" line when truncated), capped by the
   // stylesheet's max-height: 50vh on .child-popover. Estimating from the
   // full child count flips the popover above the chip on a phantom height
   // and pins it to the viewport top, far from the anchor.
