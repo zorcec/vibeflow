@@ -24,6 +24,10 @@ import { TaskDetailsTab } from "./shared/TaskDetailsTab";
 import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
+import {
+  SCROLL_RELATIONS_EVENT,
+  consumeRelationsScroll,
+} from "./detail-panel-scroll";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
 import { AttentionBadge } from "../../AttentionBadge";
 
@@ -553,6 +557,35 @@ export function DetailPanel({
       document.removeEventListener("keydown", handleEsc, { capture: true });
   }, [open]);
 
+  // Scroll the details pane to its bottom (rAF: layout lands after mount).
+  // The relations section — the full, uncapped children list — sits at the
+  // bottom of the pane, so this is the "+N more" landing: every child
+  // reachable with a short scroll upward.
+  const scrollDetailsToBottom = React.useCallback(() => {
+    const pane = panelRef.current?.querySelector(
+      "#dp-details-pane",
+    ) as HTMLElement | null;
+    if (!pane) return;
+    requestAnimationFrame(() => {
+      pane.scrollTop = pane.scrollHeight;
+    });
+  }, []);
+
+  // "+N more" popover affordance (already-open arrival): the panel is open
+  // on this task, so the open effect below will not rerun for the same id —
+  // the event scrolls now. Otherwise the pending flag carries the intent
+  // until the open effect consumes it.
+  React.useEffect(() => {
+    function onScrollRelations(e: Event) {
+      const id = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (!id || !open || id !== task?.id) return;
+      scrollDetailsToBottom();
+    }
+    document.addEventListener(SCROLL_RELATIONS_EVENT, onScrollRelations);
+    return () =>
+      document.removeEventListener(SCROLL_RELATIONS_EVENT, onScrollRelations);
+  }, [open, task?.id, scrollDetailsToBottom]);
+
   React.useEffect(() => {
     if (!open) return;
     setActiveTab(tab);
@@ -597,6 +630,11 @@ export function DetailPanel({
       // previews (ticket d4c533f9) — the old badge+files double load
       // issued the files fetch twice for the same end state.
       void loadPanelData(task.id);
+      // "+N more" popover affordance (closed-panel arrival): the click
+      // opened this task through the normal path and armed the intent —
+      // land the fresh panel on the full children list at the bottom of
+      // the details pane (the relations section has no cap).
+      if (consumeRelationsScroll(task.id)) scrollDetailsToBottom();
     }
 
     // Focus the title — but never by taking focus away from a control the user

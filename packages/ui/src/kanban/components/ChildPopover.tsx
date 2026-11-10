@@ -3,6 +3,10 @@ import ReactDOM from "react-dom";
 import type { Task } from "../types";
 import { getChildren, computePopoverPosition } from "../task-links";
 import { ChildRow } from "./ChildRow";
+import {
+  requestRelationsScroll,
+  relationsScrollEvent,
+} from "./detail-panel-scroll";
 
 interface ChildPopoverProps {
   task: Task;
@@ -100,7 +104,22 @@ export default function ChildPopover({
         ))}
       </div>
       {remaining > 0 && (
-        <div className="child-popover-more">…and {remaining} more</div>
+        <button
+          type="button"
+          className="child-popover-more"
+          data-role="child-popover-more"
+          aria-label={`Show ${remaining} more children in task details`}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Same open path as every row — the PARENT task in details —
+            // then land the fresh panel on the full children list below.
+            onOpenTask(task, "details");
+            requestRelationsScroll(task.id);
+            document.dispatchEvent(relationsScrollEvent(task.id));
+          }}
+        >
+          +{remaining} more
+        </button>
       )}
     </div>
   );

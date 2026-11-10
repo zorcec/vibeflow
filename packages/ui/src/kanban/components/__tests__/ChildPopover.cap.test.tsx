@@ -59,17 +59,17 @@ describe("ChildPopover cap", () => {
     try {
       expect(CHILD_POPOVER_MAX_VISIBLE).toBe(30);
       expect(renderedRowCount()).toBe(30);
-      // Header still names the full family; the truncation line the remainder.
+      // Header still names the full family; the truncation affordance the remainder.
       expect(
         document.querySelector(
           "body > [data-role='child-popover'] .child-popover-header",
         ),
       ).toHaveTextContent("42 children");
-      expect(
-        document.querySelector(
-          "body > [data-role='child-popover'] .child-popover-more",
-        ),
-      ).toHaveTextContent("…and 12 more");
+      const more = document.querySelector(
+        "body > [data-role='child-popover'] [data-role='child-popover-more']",
+      );
+      expect(more?.tagName).toBe("BUTTON");
+      expect(more).toHaveTextContent("+12 more");
     } finally {
       unmount();
       document.body.innerHTML = "";
