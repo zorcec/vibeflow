@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
 /**
- * Six-theme axe sweep (design-system P5.2) — zero axe violations for every
- * story, in ALL themes. The theme list is driven by THEMES from the theme
+ * Six-theme axe sweep over the COMPONENTS the stories use (design-system P5.2)
+ * — zero axe violations in ALL themes.
+ *
+ * Scope correction (2026-11-11): this file imports components directly and
+ * mirrors their args, so it proves the components are accessible per theme; it
+ * does NOT render the stories, and therefore cannot catch a story that adds
+ * broken markup (measured: an `<img>` without alt injected into a story left
+ * this sweep green). Story-level accessibility is guarded by
+ * `expectNoA11yViolations` inside each story's `play` (see `stories/a11y.ts`).
+ *
+ * Honest original claim, for the record:
+ * zero axe violations for every story, in ALL themes. The theme list is driven by THEMES from the theme
  * registry (never hardcoded here), so adding a theme automatically extends
  * the sweep. Each entry mirrors its story's args; the manifest test beside
  * this file guarantees the story list stays in sync.

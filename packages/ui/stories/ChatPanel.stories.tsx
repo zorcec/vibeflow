@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { ChatPanel } from "../src/ChatPanel";
+import { expectNoA11yViolations } from "./a11y";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 
 const meta: Meta<typeof ChatPanel> = {
@@ -53,6 +54,7 @@ export const Streaming: Story = {
         streamingText: "Switching to dracula…",
     },
     play: async ({ canvasElement }) => {
+        await expectNoA11yViolations(canvasElement);
         const canvas = within(canvasElement);
         await expect(
             canvas.getByTestId("chat-streaming"),

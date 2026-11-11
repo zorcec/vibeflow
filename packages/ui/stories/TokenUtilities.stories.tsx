@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
+import { expectNoA11yViolations } from "./a11y";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 
 /**
@@ -31,6 +32,7 @@ type Story = StoryObj<typeof meta>;
 // dark:  #020c1b / #e2e8f0 · light: #f8fafc / #0f172a.
 export const TokenColours: Story = {
     play: async ({ canvasElement }) => {
+        await expectNoA11yViolations(canvasElement);
         const canvas = within(canvasElement);
         const swatch = canvas.getByTestId("token-swatch");
         const root = document.documentElement;
