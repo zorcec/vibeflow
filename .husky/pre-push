@@ -43,15 +43,24 @@ unset GIT_DIR GIT_WORK_TREE
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CLI_DIR="$ROOT/packages/cli"
 
-# Check every ref's outgoing commits before any optional suite skips.
-node "$ROOT/scripts/check-git-identity.mjs" --pre-push "${1:-origin}"
+# Read the push range from stdin FIRST and only once: stdin is a single pipe,
+# so the identity check and the selector below share this capture — whoever
+# read it first would otherwise drain it for the other (an empty selection
+# input fail-closes to ALL, so a drained stdin silently ran every suite).
+# A later `pnpm` must also never inherit a half-consumed stdin.
+PUSH_INFO="$(cat)"
+
+# Check every ref's outgoing commits before any optional suite skips. The hook
+# sets `set -e` but not `pipefail`, so the piped identity gate is guarded
+# with `if !` — a bare pipe would swallow its failure and weaken the gate.
+if ! printf '%s' "$PUSH_INFO" | node "$ROOT/scripts/check-git-identity.mjs" --pre-push "${1:-origin}"; then
+  exit 1
+fi
 
 # ── Affected-only selection ────────────────────────────────────────────────────
-# Read the push range from stdin FIRST (a later `pnpm` must never inherit a
-# half-consumed stdin), then ask the selector which suites those paths break.
-# Empty/unreadable input, an unavailable base, or a force push selects ALL
-# (fail closed — the selector decides, never this shell).
-PUSH_INFO="$(cat)"
+# Ask the selector which suites the captured paths break. Empty/unreadable
+# input, an unavailable base, or a force push selects ALL (fail closed — the
+# selector decides, never this shell).
 SELECTED_SUITES="$(printf '%s' "$PUSH_INFO" | node "$ROOT/scripts/affected-suites.mjs" --print --remote "${1:-origin}")"
 
 if [ "${VIBEFLOW_PREPUSH_DRY_RUN:-}" = "1" ]; then
