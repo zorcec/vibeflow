@@ -189,4 +189,30 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "DisabledTrigger", covers: "disabled trigger renders no tooltip and no described-by" },
     ],
   },
+  {
+    component: "Select",
+    storyFile: "stories/primitives/select.stories.tsx",
+    title: "Design System/Select",
+    stories: [
+      { name: "Default", covers: "opens on click; combobox/listbox roles; 4 options" },
+      { name: "Seeded", covers: "selected value renders in the trigger" },
+      { name: "Keyboard", covers: "ArrowDown opens, ArrowDown highlights, Enter commits (browser)" },
+      { name: "EscapeKeepsValue", covers: "Escape closes without changing the value" },
+      { name: "Disabled", covers: "disabled trigger never opens" },
+      { name: "EmptyOptions", covers: "empty list renders no options" },
+      { name: "LongList", covers: "40 options, axe clean" },
+    ],
+  },
+  {
+    component: "Tabs",
+    storyFile: "stories/primitives/tabs.stories.tsx",
+    title: "Design System/Tabs",
+    stories: [
+      { name: "Automatic", covers: "ArrowRight activates in automatic mode (browser)" },
+      { name: "Manual", covers: "ArrowRight moves focus only; Enter commits" },
+      { name: "Vertical", covers: "ArrowDown navigates a vertical tablist" },
+      { name: "ClickSwitching", covers: "click switches panels; axe clean" },
+      { name: "DisabledTab", covers: "a disabled tab cannot activate" },
+    ],
+  },
 ];

@@ -16,3 +16,7 @@ export { Popover } from "./popover";
 export type { PopoverProps, PopoverSide, PopoverAlign } from "./popover";
 export { Tooltip } from "./tooltip";
 export type { TooltipProps, TooltipSide } from "./tooltip";
+export { Select } from "./select";
+export type { SelectProps, SelectOption } from "./select";
+export { Tabs } from "./tabs";
+export type { TabsProps, TabDefinition, TabsActivationMode, TabsOrientation } from "./tabs";
