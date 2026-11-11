@@ -5,7 +5,8 @@
  *
  * Single source of truth: src/client/kanban/kanban.css (the v4 entrance:
  * `@import "tailwindcss"`, explicit `@source` lines, `@theme` tokens)
- * plus the shared UI styles it inlines (themes.css + kanban.css).
+ * plus the shared UI styles it inlines (themes.css + primitives/theme.css
+ * + kanban.css).
  *
  * Tailwind v4 pipeline (design-system P1): the input is assembled in
  * os.tmpdir(), where v4 automatic content detection sees nothing, so the
@@ -39,11 +40,19 @@ const outputTs = resolve(root, "src/server/kanban-css.gen.ts");
 // silently dropped ALL component styles from the generated output.
 const themesCss = resolve(root, "../../packages/ui/src/kanban/themes.css");
 const uiKanbanCss = resolve(root, "../../packages/ui/src/kanban/kanban.css");
+// Design-system P4: token→utility map, inlined after themes.css so the
+// @theme utilities register in this compilation (the entry's relative
+// @import is stripped with the other @import lines below).
+const primitivesThemeCss = resolve(
+ root,
+ "../../packages/ui/src/primitives/theme.css",
+);
 const tmpInput = resolve(
  tmpdir(),
  `kanban-combined-${randomBytes(8).toString("hex")}.css`,
 );
 const themesContent = readFileSync(themesCss, "utf-8");
+const primitivesThemeContent = readFileSync(primitivesThemeCss, "utf-8");
 const uiKanbanContent = readFileSync(uiKanbanCss, "utf-8");
 const cliKanbanContent = readFileSync(inputCss, "utf-8");
 // Explicit sources, resolved against the entry file so the temp input in
@@ -63,6 +72,8 @@ wf(
   sourcePaths.map((p) => `@source "${p}";`).join("\n") +
   "\n" +
   themesContent +
+  "\n" +
+  primitivesThemeContent +
   "\n" +
   uiKanbanContent +
   "\n" +

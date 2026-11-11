@@ -14,7 +14,7 @@
    plus the served shell (kanban-template.ts carries h-screen). */
 @source "./";
 @source "../../server/kanban-template.ts";
-@source "../../../../../packages/ui/src/kanban";
+@source "../../../../../packages/ui/src";
 /* Replaces tailwind.config.cjs `theme.extend.fontFamily.sans`: feeds
    v4 Preflight (`--default-font-family`) so the html base stack stays
    Inter-first, byte-identical to the v3 output. */
@@ -22,6 +22,9 @@
  --font-sans: Inter, system-ui, sans-serif;
 }
 @import "../../../../../packages/ui/src/kanban/kanban.css";
+/* Design-system P4: token→utility map. Imported AFTER the Tailwind entry
+   above so its @theme utilities register in this compilation. */
+@import "../../../../../packages/ui/src/primitives/theme.css";
 
 /* ── Theme picker (CLI kanban Settings > Theme tab only) ──
    Lives here, not in packages/ui, so only the CLI kanban picks it up.
