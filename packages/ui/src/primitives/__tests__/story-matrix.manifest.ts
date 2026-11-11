@@ -148,4 +148,17 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "FocusVisible", covers: "keyboard focus resolves a visible ring" },
     ],
   },
+  {
+    component: "Dialog",
+    storyFile: "stories/primitives/dialog.stories.tsx",
+    title: "Design System/Dialog",
+    stories: [
+      { name: "Closed", covers: "closed renders no dialog node" },
+      { name: "Open", covers: "trigger opens it; aria-modal, focus inside, axe clean" },
+      { name: "LongContent", covers: "long body scrolls inside the popup, measured" },
+      { name: "Footerless", covers: "no footer renders no action row" },
+      { name: "ContainerHost", covers: "portals into the given container (overlay shadow-root contract)" },
+      { name: "CloseBehaviours", covers: "Escape closes; backdrop click closes" },
+    ],
+  },
 ];

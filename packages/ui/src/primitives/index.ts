@@ -10,3 +10,5 @@ export { Input } from "./input";
 export type { InputProps, InputState } from "./input";
 export { Textarea } from "./textarea";
 export type { TextareaProps, TextareaState, TextareaResize } from "./textarea";
+export { Dialog } from "./dialog";
+export type { DialogProps } from "./dialog";

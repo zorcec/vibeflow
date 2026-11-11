@@ -26,7 +26,7 @@ import { ChatPanel } from "../../ChatPanel";
 import { KanbanCard } from "../../KanbanCard";
 import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../../types";
 import { VibeflowIcon } from "../../VibeflowIcon";
-import { Button, Badge, Input, Textarea } from "../../index";
+import { Button, Badge, Input, Textarea, Dialog } from "../../index";
 
 afterEach(cleanup);
 
@@ -129,6 +129,7 @@ const SWEEP: readonly { story: string; renderStory: () => React.ReactElement }[]
   { story: "Input/Disabled", renderStory: () => <Input aria-label="Field" disabled /> },
   { story: "Textarea/Default", renderStory: () => <Textarea aria-label="Notes" /> },
   { story: "Textarea/Error", renderStory: () => <Textarea aria-label="Notes" error="Required" /> },
+  { story: "Dialog/Open", renderStory: () => <Dialog open onOpenChange={noop} title="Rename board" description="Visible to every member.">Body</Dialog> },
 ];
 
 describe("a11y six-theme sweep", () => {

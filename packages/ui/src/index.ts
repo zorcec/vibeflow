@@ -99,3 +99,4 @@ export {
   type TextareaState,
   type TextareaResize,
 } from "./primitives/textarea";
+export { Dialog, type DialogProps } from "./primitives/dialog";
