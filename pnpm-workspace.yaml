@@ -8,6 +8,17 @@ allowBuilds:
 
 # pnpm reads overrides from this file, not from the "pnpm" field in
 # package.json.
+minimumReleaseAgeExclude:
+  - "@storybook/addon-a11y@10.6.7"
+  - "@storybook/addon-docs@10.6.7"
+  - "@storybook/addon-themes@10.6.7"
+  - "@storybook/addon-vitest@10.6.7"
+  - "@storybook/builder-vite@10.6.7"
+  - "@storybook/react-dom-shim@10.6.7"
+  - "@storybook/react-vite@10.6.7"
+  - "@storybook/react@10.6.7"
+  - storybook@10.6.7
+
 overrides:
   # Retired 2026-10 (ticket 26891800): the caret-scoped floors for fast-uri,
   # minimatch@9>brace-expansion, undici, brace-expansion@5, ip-address, hono
