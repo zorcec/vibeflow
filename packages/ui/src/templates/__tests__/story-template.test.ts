@@ -59,7 +59,11 @@ describe("template story", () => {
     expect(STORY_SOURCE).toContain('from "./TemplateWidget"');
     expect(SCAFFOLD_SOURCE).toContain('from "../src"');
     expect(SCAFFOLD_SOURCE).not.toContain('from "../src/components/');
-    expect(SCAFFOLD_SOURCE).toContain('} from "./components/');
+    // The entry import path is computed from the KIND (primitives live under
+    // src/primitives/, components under src/components/), so assert the real
+    // contract — a computed module path built from componentDir/fileBase — not
+    // one hardcoded literal that a kind-aware scaffold no longer emits.
+    expect(SCAFFOLD_SOURCE).toContain("from \"./${path.basename(componentDir[1])}/${fileBase}\"");
   });
 
   it("imports stories/a11y + ThemeDecorator via the paths the scaffold rewrites", () => {

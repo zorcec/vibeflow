@@ -38,11 +38,23 @@ function exportBlock(source: string, name: string): string {
 
 describe("story matrix", () => {
   it("registers every story file on disk — nothing ships unregistered", () => {
-    const onDisk = readdirSync(STORIES_DIR)
-      .filter((f) => f.endsWith(".stories.tsx"))
+    // RECURSIVE: primitives keep their stories in stories/primitives/, so a
+    // flat readdir would silently stop guarding them (it did — the matrix
+    // reported every story registered while two lived one directory deeper).
+    const readStories = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) return readStories(full);
+        return entry.name.endsWith(".stories.tsx")
+          ? [full.slice(STORIES_DIR.length + 1)]
+          : [];
+      });
+    const onDisk = readStories(STORIES_DIR)
       .sort();
+    // Compare relative-to-stories/ paths on BOTH sides: a basename comparison
+    // cannot tell stories/button.stories.tsx from stories/primitives/button.stories.tsx.
     const inManifest = STORY_MATRIX.map((e) =>
-      path.basename(e.storyFile),
+      e.storyFile.replace(/^stories\//, ""),
     ).sort();
     expect(onDisk).toEqual(inManifest);
   });

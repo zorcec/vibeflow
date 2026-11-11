@@ -36,7 +36,29 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = path.resolve(HERE, "..");
 const TEMPLATE_NAME = "TemplateWidget";
 
-const name = process.argv[2];
+/**
+ * Two accepted forms, so the ticket's documented command works:
+ *   node scripts/scaffold-component.mjs InfoBadge
+ *   node scripts/scaffold-component.mjs --name InfoBadge [--kind primitive]
+ *
+ * `--kind primitive` puts the files where primitives live (lowercase filename
+ * under src/primitives/, story under stories/primitives/), because that is the
+ * layout the ticket and the story matrix use; the default keeps the generic
+ * components/ layout.
+ */
+const argv = process.argv.slice(2);
+function flag(flagName) {
+  const i = argv.indexOf(`--${flagName}`);
+  return i === -1 ? undefined : argv[i + 1];
+}
+const name = flag("name") ?? argv.find((a) => !a.startsWith("--"));
+const kind = flag("kind") ?? "component";
+if (kind !== "primitive" && kind !== "component") {
+  console.error(
+    `scaffold-component: refusing — unknown --kind "${kind}" (expected "primitive" or "component").`,
+  );
+  process.exit(1);
+}
 
 function refuse(message) {
   console.error(`scaffold-component: refusing — ${message}`);
@@ -54,14 +76,17 @@ if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
   );
 }
 
-const componentFile = path.join(UI_ROOT, "src", "components", `${name}.tsx`);
-const storyFile = path.join(UI_ROOT, "stories", `${name}.stories.tsx`);
+const fileBase = kind === "primitive" ? name.toLowerCase() : name;
+const componentDir = kind === "primitive" ? ["src", "primitives"] : ["src", "components"];
+const storyDir = kind === "primitive" ? ["stories", "primitives"] : ["stories"];
+const storyRel = [...storyDir, `${fileBase}.stories.tsx`].join("/");
+const componentFile = path.join(UI_ROOT, ...componentDir, `${fileBase}.tsx`);
+const storyFile = path.join(UI_ROOT, ...storyDir, `${fileBase}.stories.tsx`);
 const testFile = path.join(
   UI_ROOT,
-  "src",
-  "components",
+  ...componentDir,
   "__tests__",
-  `${name}.test.tsx`,
+  `${fileBase}.test.tsx`,
 );
 const manifestFile = path.join(
   UI_ROOT,
@@ -81,18 +106,32 @@ for (const file of [componentFile, storyFile, testFile]) {
 }
 const manifestSource = readFileSync(manifestFile, "utf8");
 const entrySource = readFileSync(entryFile, "utf8");
-if (entrySource.includes(`components/${name}`)) {
+if (entrySource.includes(`${path.basename(componentDir[1])}/${fileBase}`)) {
   refuse(
     `"${name}" is already exported from src/index.ts — pick another name or edit the existing entry.`,
   );
 }
 if (
   manifestSource.includes(`component: "${name}"`) ||
-  manifestSource.includes(`stories/${name}.stories.tsx`)
+  manifestSource.includes(storyRel)
 ) {
   refuse(
     `"${name}" is already registered in story-matrix.manifest.ts — pick another name or edit the existing entry.`,
   );
+}
+
+/**
+ * Rewrite a generated file's relative imports for the directory it actually
+ * landed in. The template is written for the flat `stories/` layout; a
+ * primitive's story sits in `stories/primitives/`, one level deeper, so every
+ * `from "../x"` must gain a `../`.
+ */
+function fixStoryDepth(source, depthDelta) {
+  if (depthDelta === 0) return source;
+  return source
+    .replace(/from "\.\.\/src"/g, 'from "../../src"')
+    .replace(/from "\.\/a11y"/g, 'from "../a11y"')
+    .replace(/from "\.\.\/\.storybook\//g, 'from "../../.storybook/');
 }
 
 function readTemplate(relativePath) {
@@ -119,7 +158,10 @@ const componentSource = stripTemplateNotes(
   rename(readTemplate(`${TEMPLATE_NAME}.tsx`)),
 );
 const testSource = stripTemplateNotes(
-  rename(readTemplate(path.join("__tests__", `${TEMPLATE_NAME}.test.tsx`))),
+  // The test imports the component by its FILE name: primitives use the
+  // lowercased file, components keep the PascalCase one.
+  rename(readTemplate(path.join("__tests__", `${TEMPLATE_NAME}.test.tsx`)))
+    .replaceAll(`from "../${name}"`, `from "../${fileBase}"`),
 );
 const storySource = stripTemplateNotes(
   rename(readTemplate(`${TEMPLATE_NAME}.stories.tsx`)
@@ -127,7 +169,10 @@ const storySource = stripTemplateNotes(
       `from "./${TEMPLATE_NAME}"`,
       `from "../src"`,
     )
-    .replaceAll(`from "../../stories/a11y"`, `from "./a11y"`)
+    .replaceAll(
+      `from "../../stories/a11y"`,
+      kind === "primitive" ? `from "../a11y"` : `from "./a11y"`,
+    )
     .replaceAll(
       `from "../../.storybook/ThemeDecorator"`,
       `from "../.storybook/ThemeDecorator"`,
@@ -138,7 +183,7 @@ const storySource = stripTemplateNotes(
 const manifestEntry =
   `  {\n` +
   `    component: "${name}",\n` +
-  `    storyFile: "stories/${name}.stories.tsx",\n` +
+  `    storyFile: "${storyRel}",\n` +
   `    title: "Design System/${name}",\n` +
   `    stories: [\n` +
   `      { name: "Quiet", covers: 'tone="quiet" default render + action interaction' },\n` +
@@ -161,12 +206,12 @@ const manifestNext =
 const entryNext =
   `${entrySource.trimEnd()}\n\n// Design-system component (scaffolded ${name}) — kept in the entry so\n` +
   `// stories import it via the package entry, never a …/src/… file path.\n` +
-  `export { ${name} } from "./components/${name}";\n`;
+  `export { ${name} } from "./${path.basename(componentDir[1])}/${fileBase}";\n`;
 
 mkdirSync(path.dirname(componentFile), { recursive: true });
 mkdirSync(path.dirname(testFile), { recursive: true });
 writeFileSync(componentFile, componentSource);
-writeFileSync(storyFile, storySource);
+writeFileSync(storyFile, fixStoryDepth(storySource, kind === "primitive" ? 1 : 0));
 writeFileSync(testFile, testSource);
 writeFileSync(manifestFile, manifestNext);
 writeFileSync(entryFile, entryNext);

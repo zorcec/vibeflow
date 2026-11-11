@@ -26,6 +26,7 @@ import { ChatPanel } from "../../ChatPanel";
 import { KanbanCard } from "../../KanbanCard";
 import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../../types";
 import { VibeflowIcon } from "../../VibeflowIcon";
+import { Button, Badge } from "../../index";
 
 afterEach(cleanup);
 
@@ -114,6 +115,15 @@ const SWEEP: readonly { story: string; renderStory: () => React.ReactElement }[]
   { story: "TokenUtilities/TokenColours", renderStory: tokenSwatch },
   { story: "VibeflowIcon/Default", renderStory: () => <VibeflowIcon size={32} /> },
   { story: "VibeflowIcon/Large", renderStory: () => <VibeflowIcon size={64} /> },
+  { story: "Button/PrimaryMd", renderStory: () => <Button variant="primary" size="md" onClick={noop}>Save</Button> },
+  { story: "Button/SecondaryMd", renderStory: () => <Button variant="secondary" size="md" onClick={noop}>Save</Button> },
+  { story: "Button/GhostMd", renderStory: () => <Button variant="ghost" size="md" onClick={noop}>Save</Button> },
+  { story: "Button/DangerMd", renderStory: () => <Button variant="danger" size="md" onClick={noop}>Save</Button> },
+  { story: "Button/Loading", renderStory: () => <Button variant="primary" size="md" loading onClick={noop}>Save</Button> },
+  { story: "Badge/DefaultMd", renderStory: () => <Badge variant="default" size="md">Todo</Badge> },
+  { story: "Badge/DangerMd", renderStory: () => <Badge variant="danger" size="md">Blocked</Badge> },
+  { story: "Badge/StatusTones", renderStory: () => <Badge tone="status-todo">todo</Badge> },
+  { story: "Badge/WithDot", renderStory: () => <Badge variant="secondary" dot>Live</Badge> },
 ];
 
 describe("a11y six-theme sweep", () => {

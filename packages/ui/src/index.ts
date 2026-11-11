@@ -74,3 +74,21 @@ export type {
 
 // Kanban app components (shared between CLI and web)
 export * from "./kanban";
+
+
+// Design-system primitives — exported from the entry so stories and the web
+// migration import through the package, never a …/src/… file path.
+export {
+  Button,
+  type ButtonProps,
+  type ButtonVariant,
+  type ButtonSize,
+} from "./primitives/button";
+export {
+  Badge,
+  BADGE_TONES,
+  type BadgeProps,
+  type BadgeVariant,
+  type BadgeSize,
+  type BadgeTone,
+} from "./primitives/badge";
