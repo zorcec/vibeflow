@@ -26,7 +26,7 @@ import { ChatPanel } from "../../ChatPanel";
 import { KanbanCard } from "../../KanbanCard";
 import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../../types";
 import { VibeflowIcon } from "../../VibeflowIcon";
-import { Button, Badge } from "../../index";
+import { Button, Badge, Input, Textarea } from "../../index";
 
 afterEach(cleanup);
 
@@ -124,6 +124,11 @@ const SWEEP: readonly { story: string; renderStory: () => React.ReactElement }[]
   { story: "Badge/DangerMd", renderStory: () => <Badge variant="danger" size="md">Blocked</Badge> },
   { story: "Badge/StatusTones", renderStory: () => <Badge tone="status-todo">todo</Badge> },
   { story: "Badge/WithDot", renderStory: () => <Badge variant="secondary" dot>Live</Badge> },
+  { story: "Input/Default", renderStory: () => <Input aria-label="Field" /> },
+  { story: "Input/Error", renderStory: () => <Input aria-label="Field" error="Required" /> },
+  { story: "Input/Disabled", renderStory: () => <Input aria-label="Field" disabled /> },
+  { story: "Textarea/Default", renderStory: () => <Textarea aria-label="Notes" /> },
+  { story: "Textarea/Error", renderStory: () => <Textarea aria-label="Notes" error="Required" /> },
 ];
 
 describe("a11y six-theme sweep", () => {

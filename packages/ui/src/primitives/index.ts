@@ -6,3 +6,7 @@ export { Button } from "./button";
 export type { ButtonProps, ButtonVariant, ButtonSize } from "./button";
 export { Badge, BADGE_TONES } from "./badge";
 export type { BadgeProps, BadgeVariant, BadgeSize, BadgeTone } from "./badge";
+export { Input } from "./input";
+export type { InputProps, InputState } from "./input";
+export { Textarea } from "./textarea";
+export type { TextareaProps, TextareaState, TextareaResize } from "./textarea";

@@ -92,3 +92,10 @@ export {
   type BadgeSize,
   type BadgeTone,
 } from "./primitives/badge";
+export { Input, type InputProps, type InputState } from "./primitives/input";
+export {
+  Textarea,
+  type TextareaProps,
+  type TextareaState,
+  type TextareaResize,
+} from "./primitives/textarea";
