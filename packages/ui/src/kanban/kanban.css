@@ -73,6 +73,30 @@ body {
  overflow: hidden;
 }
 
+/* ── Dynamic viewport (real-device mobile fix) ──
+   `100vh` / `height: 100%` on the root resolve against the LARGE viewport:
+   with the URL bar visible the layout is taller than what is actually on
+   screen, so the bottom of the app — including the detail panel's Add
+   Task / Cancel footer — hides behind the browser chrome with no way to
+   scroll to it (`overflow: hidden` everywhere). Desktop device emulation
+   never shows the dynamic toolbar, which is why the bug only reproduces
+   on a real phone. `100dvh` tracks the visible height instead (Chrome
+   108+, Safari 15.4+, Firefox 110+); the `100vh` line stays as the
+   fallback for older browsers. `body.h-screen` out-specifies the
+   Tailwind `h-screen` utility on <body> (0,1,1 > 0,1,0). */
+html {
+ height: 100vh;
+ height: 100dvh;
+}
+body.h-screen {
+ height: 100vh;
+ height: 100dvh;
+}
+#root {
+ max-height: 100vh;
+ max-height: 100dvh;
+}
+
 * {
  scrollbar-width: thin;
  scrollbar-color: var(--t-border-faint) transparent;
@@ -1163,6 +1187,7 @@ body.proto-resizing-panel {
  display: flex;
  flex-direction: column;
  max-height: calc(100vh - 24px);
+ max-height: calc(100dvh - 24px);
  overflow: hidden;
 }
 .child-popover-list {
@@ -1178,6 +1203,7 @@ body.proto-resizing-panel {
  overscroll-behavior: contain;
  min-height: 0;
  max-height: min(calc(100vh - 130px), 840px);
+ max-height: min(calc(100dvh - 130px), 840px);
 }
 .child-popover-list > [data-role="child-row-wrap"] {
  height: 28px;
@@ -2187,5 +2213,24 @@ body.proto-resizing-panel {
   #kanban-list-view {
     padding: 12px 8px !important;
     min-width: 0;
+  }
+  /* ── Add-task footer stays on screen (real-device mobile fix) ──
+     The panel container's 360px floor is wider than small phones, so it
+     used to force a horizontal overflow that could push the footer
+     buttons out of view; dropping the floor lets the panel fit the
+     viewport exactly. The footer wraps instead of clipping (the pending
+     paste/screenshot badges share the row in create mode), grows to a
+     36px touch target, and clears the home indicator via the safe-area
+     inset (needs `viewport-fit=cover` in the shell meta, see
+     kanban-template.ts). */
+  #detail-panel-container {
+    min-width: 0;
+  }
+  .dp-footer {
+    flex-wrap: wrap;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .dp-footer button {
+    min-height: 36px;
   }
 }
