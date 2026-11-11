@@ -100,3 +100,5 @@ export {
   type TextareaResize,
 } from "./primitives/textarea";
 export { Dialog, type DialogProps } from "./primitives/dialog";
+export { Popover, type PopoverProps, type PopoverSide, type PopoverAlign } from "./primitives/popover";
+export { Tooltip, type TooltipProps, type TooltipSide } from "./primitives/tooltip";

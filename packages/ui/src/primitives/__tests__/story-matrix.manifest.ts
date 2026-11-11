@@ -161,4 +161,32 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "CloseBehaviours", covers: "Escape closes; backdrop click closes" },
     ],
   },
+  {
+    component: "Popover",
+    storyFile: "stories/primitives/popover.stories.tsx",
+    title: "Design System/Popover",
+    stories: [
+      { name: "Bottom", covers: "opens bottom; axe clean" },
+      { name: "Top", covers: "opens top (or flips) with a resolved side" },
+      { name: "RightAlignedEnd", covers: "right side with end alignment" },
+      { name: "Left", covers: "left side" },
+      { name: "LongContent", covers: "long content renders outside the canvas" },
+      { name: "ViewportEdge", covers: "corner trigger stays inside the viewport, measured" },
+      { name: "ClosesOnEscape", covers: "Escape closes the popover" },
+    ],
+  },
+  {
+    component: "Tooltip",
+    storyFile: "stories/primitives/tooltip.stories.tsx",
+    title: "Design System/Tooltip",
+    stories: [
+      { name: "Top", covers: "keyboard focus shows the hint; axe clean" },
+      { name: "Bottom", covers: "bottom side" },
+      { name: "Right", covers: "right side" },
+      { name: "Left", covers: "left side" },
+      { name: "LongContent", covers: "long hint wraps and stays visible" },
+      { name: "Hover", covers: "hover shows the hint" },
+      { name: "DisabledTrigger", covers: "disabled trigger renders no tooltip and no described-by" },
+    ],
+  },
 ];

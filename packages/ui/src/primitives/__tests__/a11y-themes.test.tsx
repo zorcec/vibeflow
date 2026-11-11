@@ -26,7 +26,7 @@ import { ChatPanel } from "../../ChatPanel";
 import { KanbanCard } from "../../KanbanCard";
 import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../../types";
 import { VibeflowIcon } from "../../VibeflowIcon";
-import { Button, Badge, Input, Textarea, Dialog } from "../../index";
+import { Button, Badge, Input, Textarea, Dialog, Tooltip, Popover } from "../../index";
 
 afterEach(cleanup);
 
@@ -130,6 +130,8 @@ const SWEEP: readonly { story: string; renderStory: () => React.ReactElement }[]
   { story: "Textarea/Default", renderStory: () => <Textarea aria-label="Notes" /> },
   { story: "Textarea/Error", renderStory: () => <Textarea aria-label="Notes" error="Required" /> },
   { story: "Dialog/Open", renderStory: () => <Dialog open onOpenChange={noop} title="Rename board" description="Visible to every member.">Body</Dialog> },
+  { story: "Tooltip/Closed", renderStory: () => <Tooltip content="Hint"><button type="button">Save</button></Tooltip> },
+  { story: "Popover/Closed", renderStory: () => <Popover open={false} onOpenChange={noop} trigger={<button type="button">Open</button>}>Body</Popover> },
 ];
 
 describe("a11y six-theme sweep", () => {

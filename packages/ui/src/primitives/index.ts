@@ -12,3 +12,7 @@ export { Textarea } from "./textarea";
 export type { TextareaProps, TextareaState, TextareaResize } from "./textarea";
 export { Dialog } from "./dialog";
 export type { DialogProps } from "./dialog";
+export { Popover } from "./popover";
+export type { PopoverProps, PopoverSide, PopoverAlign } from "./popover";
+export { Tooltip } from "./tooltip";
+export type { TooltipProps, TooltipSide } from "./tooltip";
