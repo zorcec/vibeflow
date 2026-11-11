@@ -1,0 +1,19 @@
+/* ══════════════════════════════════════════════════════════════
+   STORYBOOK TAILWIND ENTRANCE (design-system P5.x) — the Tailwind v4
+   compilation input for the Storybook build. `source(none)` disables
+   automatic content detection (like the CLI board entrance, whose
+   compiler input is assembled in os.tmpdir()); every class source is
+   registered explicitly below. Paths are relative to THIS file:
+   `../src` covers packages/ui/src/** (the token→utility consumers),
+   `../stories` covers the stories that use token utilities directly.
+
+   primitives/theme.css MUST stay AFTER the tailwindcss import — that
+   file's own consumer contract: its @theme entries only register in
+   the same compilation, so the bg-bg / text-text / shadow-card
+   utilities are generated. Compiled by @tailwindcss/vite, wired in
+   .storybook/main.ts (viteFinal). Verified by stories/TokenUtilities.
+   ══════════════════════════════════════════════════════════════ */
+@import "tailwindcss" source(none);
+@source "../src";
+@source "../stories";
+@import "../src/primitives/theme.css";
