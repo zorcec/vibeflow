@@ -18,7 +18,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build",
+    "test:stories": "vitest run --config vitest.stories.config.ts"
   },
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
@@ -36,6 +39,7 @@
     "@storybook/addon-docs": "^9.1.21",
     "@storybook/addon-themes": "^9.1.21",
     "@storybook/addon-vitest": "^9.1.21",
+    "@storybook/react": "^9.1.21",
     "@storybook/react-vite": "^9.1.21",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
