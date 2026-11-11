@@ -4,4 +4,4 @@
 // Both the Shadow DOM bundle (via this module) and the showcase HTML (via <link>)
 // reference the same CSS files, so they are always 1-1 in design.
 // ─────────────────────────────────────────────────────────────────────────────
-export { OVERLAY_CSS, HOST_PAGE_CSS } from "../overlay-css.gen.js";
+export { OVERLAY_CSS, OVERLAY_UTIL_CSS, HOST_PAGE_CSS } from "../overlay-css.gen.js";
