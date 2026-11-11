@@ -37,6 +37,11 @@ import {
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { KANBAN_FONT_STACK } from "@vibeflow-tools/ui/kanban";
 import { api } from "./api.js";
+import {
+  parseKanbanDeepLink,
+  panelHistoryKey,
+  taskPanelUrl,
+} from "./deep-link.js";
 import { captureAndStoreBaseline } from "../shared/baseline-capture.js";
 import { WhatsNewModal } from "./WhatsNewModal.js";
 import { ThemeSwitcher, themeSwitcherTab } from "./components/ThemeSwitcher.js";
@@ -394,6 +399,17 @@ function BoardApp() {
   const wsRetryRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRetryAttemptRef = React.useRef<number>(0);
   const consumedHashTaskRef = React.useRef<string | null>(null);
+  // Last path-based deep link (`<task-id>:<tab>`) the panel was synced
+  // from or to. Guards the URL-open effect below so routine task-list
+  // updates never yank the tab out from under an already-open panel;
+  // browser navigation (popstate/hashchange) resets it to null.
+  const consumedPathRef = React.useRef<string | null>(null);
+  // Current panel tab for the URL-open effect (it closes over the first
+  // render through `tasks`, so state would read stale without the ref).
+  const panelTabRef = React.useRef<PanelState["tab"]>("details");
+  React.useEffect(() => {
+    panelTabRef.current = panelState.tab;
+  }, [panelState.tab]);
   // Navigation history for task-ref jumping (supports browser back + UI back button).
   const [navHistory, setNavHistory] = React.useState<Task[]>([]);
   const suppressHistoryPushRef = React.useRef(false);
@@ -497,11 +513,52 @@ function BoardApp() {
     // first auto-open the flag is set, so later runs stay closed.
   }, [isLoading, tasks.length, settingsOpen]);
 
-  // Allow #task-<id> deep-links from markdown references in comments/descriptions.
+  // Deep links into a task: path-based `/kanban/<task-id>[/<tab>]`
+  // (canonical, shareable — `/activity` opens the Activity tab, `/files`
+  // the Files tab, `/details` or no suffix the Details tab) plus the
+  // legacy `#task-<id>` hash from markdown references in
+  // comments/descriptions. The path wins when both name a task.
   // Only full 30-char hex task IDs are supported (short 8-char prefixes removed).
   // Navigation history is maintained for the back button.
   React.useEffect(() => {
-    function openTaskFromHash() {
+    function applyTaskTarget(task: Task, tab: PanelState["tab"]) {
+      // Push current task to nav history (unless we're going back)
+      if (suppressHistoryPushRef.current) {
+        setPanelState((prev) => ({ ...prev, open: true, task, tab }));
+      } else {
+        setPanelState((prev) => {
+          if (prev.task && prev.task.id !== task.id) {
+            setNavHistory((h) => [...h, prev.task!]);
+          }
+          return { ...prev, open: true, task, tab };
+        });
+      }
+      suppressHistoryPushRef.current = false;
+    }
+
+    function openTaskFromUrl() {
+      // Canonical path link first: /kanban/<id>[/<tab>].
+      const deep = parseKanbanDeepLink(window.location.pathname);
+      if (deep) {
+        const key = panelHistoryKey(deep.taskId, deep.tab);
+        if (consumedPathRef.current === key) return;
+        const task = tasks.find((t) => t.id.toLowerCase() === deep.taskId);
+        if (!task) return;
+        // An already-open task owns its tab — in-panel tab switches write
+        // the URL through the sync effect below. Only browser navigation
+        // (which resets the consumed marker) may retarget its tab.
+        if (
+          consumedPathRef.current !== null &&
+          panelTaskIdRef.current?.toLowerCase() === deep.taskId &&
+          panelTabRef.current !== deep.tab
+        )
+          return;
+        consumedPathRef.current = key;
+        consumedHashTaskRef.current = null;
+        applyTaskTarget(task, deep.tab);
+        return;
+      }
+      // Legacy hash link (no path target on this page).
       const m = window.location.hash.match(/^#task-([a-f0-9]{30})$/i);
       if (!m) {
         consumedHashTaskRef.current = null;
@@ -512,36 +569,62 @@ function BoardApp() {
       const task = tasks.find((t) => t.id.toLowerCase() === refId);
       if (!task) return;
       consumedHashTaskRef.current = refId;
-
-      // Push current task to nav history (unless we're going back)
-      if (suppressHistoryPushRef.current) {
-        setPanelState((prev) => ({
-          ...prev,
-          open: true,
-          task,
-          tab: "details",
-        }));
-      } else {
-        setPanelState((prev) => {
-          if (prev.task && prev.task.id !== task.id) {
-            setNavHistory((h) => [...h, prev.task!]);
-          }
-          return { ...prev, open: true, task, tab: "details" };
-        });
-      }
-      suppressHistoryPushRef.current = false;
+      applyTaskTarget(task, "details");
     }
 
-    openTaskFromHash();
-    const onHashChange = () => {
+    openTaskFromUrl();
+    const onUrlChange = () => {
+      // Browser back/forward is a new navigation intent: a plain board URL
+      // closes the panel, a task URL opens it.
+      consumedPathRef.current = null;
       consumedHashTaskRef.current = null;
-      openTaskFromHash();
+      if (
+        !parseKanbanDeepLink(window.location.pathname) &&
+        !window.location.hash
+      ) {
+        setPanelState((prev) => (prev.open ? { ...prev, open: false } : prev));
+        return;
+      }
+      openTaskFromUrl();
     };
-    window.addEventListener("hashchange", onHashChange);
+    window.addEventListener("popstate", onUrlChange);
+    window.addEventListener("hashchange", onUrlChange);
     return () => {
-      window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("popstate", onUrlChange);
+      window.removeEventListener("hashchange", onUrlChange);
     };
   }, [tasks]);
+
+  // Keep the address bar in sync with the open panel so a task URL is
+  // shareable and a reload reopens the same task + tab. replaceState, not
+  // pushState: opening cards never added history entries before (the hash
+  // was read-only), so browser Back still leaves the board as it used to.
+  React.useEffect(() => {
+    if (panelState.open && panelState.task) {
+      const want = taskPanelUrl(panelState.task.id, panelState.tab);
+      if (window.location.pathname !== want) {
+        consumedPathRef.current = panelHistoryKey(
+          panelState.task.id,
+          panelState.tab,
+        );
+        window.history.replaceState(null, "", want);
+      }
+      return;
+    }
+    // Panel closed: canonical board URL — but never clobber a deep link
+    // that has not been consumed yet (initial load before tasks arrive).
+    if (
+      parseKanbanDeepLink(window.location.pathname) &&
+      !consumedPathRef.current
+    )
+      return;
+    if (
+      window.location.pathname !== "/kanban" &&
+      window.location.pathname !== "/kanban/"
+    ) {
+      window.history.replaceState(null, "", "/kanban");
+    }
+  }, [panelState.open, panelState.task?.id, panelState.tab]);
 
   // Keyboard shortcuts
   // Sync open panel task with live task updates (e.g. tag additions, status changes)
@@ -1478,6 +1561,7 @@ function BoardApp() {
     // Direct panel opens (clicking a card) reset navigation history since
     // the user is starting a new navigation context.
     setNavHistory([]);
+    consumedPathRef.current = task ? panelHistoryKey(task.id, tab) : null;
     setPanelState({ open: true, task, tab, addColumnId });
     // Opening a card marks it read for the current user (persistent read state),
     // mirroring `tasks --get`. The server broadcasts the updated task back.
@@ -1596,6 +1680,7 @@ function BoardApp() {
   // Tab-targeted navigation (round 2): the attention bell forwards
   // `"comments"` through onOpenTask so the panel opens on the reason.
   function navigateToTask(nextTask: Task, tab: PanelState["tab"] = "details") {
+    consumedPathRef.current = panelHistoryKey(nextTask.id, tab);
     setPanelState((prev) => {
       if (prev.task && prev.task.id !== nextTask.id) {
         setNavHistory((h) => [...h, prev.task!]);
@@ -1610,12 +1695,14 @@ function BoardApp() {
       if (prev.length === 0) return prev;
       const prevTask = prev[prev.length - 1];
       const newHistory = prev.slice(0, -1);
-      // Set the hash to the full 30-char task ID, suppress history push
-      // to avoid creating a duplicate entry in the nav stack.
+      // Point the address bar at the previous task (path form) and suppress
+      // history push to avoid a duplicate entry in the nav stack.
+      // replaceState keeps browser Back leaving the board as before.
       suppressHistoryPushRef.current = true;
       consumedHashTaskRef.current = null;
-      window.location.hash = `#task-${prevTask.id}`;
-      // Also directly update panel state in case hashchange isn't triggered immediately
+      consumedPathRef.current = panelHistoryKey(prevTask.id, "details");
+      window.history.replaceState(null, "", taskPanelUrl(prevTask.id));
+      // Also directly update panel state in case events aren't immediate.
       setPanelState((p) => ({
         ...p,
         open: true,
@@ -1921,6 +2008,15 @@ function BoardApp() {
               fileVersion={fileVersion}
               allTasks={tasks}
               onOpenTask={navigateToTask}
+              onTabChange={(tab) => {
+                if (panelState.task) {
+                  consumedPathRef.current = panelHistoryKey(
+                    panelState.task.id,
+                    tab,
+                  );
+                }
+                setPanelState((p) => ({ ...p, tab }));
+              }}
               createBranch={appSettings.createBranch}
             />
           </div>

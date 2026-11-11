@@ -1569,6 +1569,12 @@ export function watchKanbanBundleForReload(
 
 /**
  * Registers /kanban (the board) — serves the inlined single-file shell.
+ *
+ * The board is a single-page app, so the path-based task deep links
+ * (`/kanban/<task-id>[/<tab>]`, e.g. `/kanban/<id>/activity`) serve the
+ * exact same HTML: the client bundle parses the pathname on load and
+ * opens the task on the requested tab. Unknown ids/slugs still render
+ * the board normally — the client falls back when nothing matches.
  * The response carries `no-store`: the bundle is inlined at process
  * start, and a cached copy would outlive a restart.
  * (The /overview aggregates page, ticket 717d6335, was removed by owner
@@ -1592,7 +1598,9 @@ function registerKanbanRoute(
   const adminEmail = process.env.VIBEFLOW_ADMIN_EMAIL ?? "";
   const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
 
-  app.get(["/kanban"], async (_req, res) => {
+  app.get(
+    ["/kanban", "/kanban/:taskId", "/kanban/:taskId/:tab"],
+    async (_req, res) => {
     // The client bundle is inlined into this HTML at process start — a cached
     // copy would outlive a board restart and keep serving the old JavaScript.
     res.set("Cache-Control", "no-store");
