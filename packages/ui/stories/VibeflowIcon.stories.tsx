@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
 import { expectNoA11yViolations } from "./a11y";
-import { VibeflowIcon } from "../src/VibeflowIcon";
+import { VibeflowIcon } from "../src";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 
 const meta: Meta<typeof VibeflowIcon> = {

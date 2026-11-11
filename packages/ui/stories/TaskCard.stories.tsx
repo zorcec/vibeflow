@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
-import { KanbanCard } from "../src/KanbanCard";
-import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../src/types";
+import { KanbanCard } from "../src";
+import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../src";
 import { expectNoA11yViolations } from "./a11y";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 

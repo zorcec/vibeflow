@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
-import { ChatPanel } from "../src/ChatPanel";
+import { ChatPanel } from "../src";
 import { expectNoA11yViolations } from "./a11y";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 

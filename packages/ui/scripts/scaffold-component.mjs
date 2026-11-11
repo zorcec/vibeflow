@@ -11,12 +11,16 @@
  *   3. packages/ui/src/components/__tests__/<Name>.test.tsx
  *   4. a STORY_MATRIX entry in
  *      packages/ui/src/primitives/__tests__/story-matrix.manifest.ts
+ * plus an export of the component from the package entry
+ * (packages/ui/src/index.ts) so stories import it via `from "../src"`
+ * per the no-deep-imports guard (P9).
  *
  * Source of truth is the template (packages/ui/src/templates/):
  * the component and test copy verbatim apart from the `TemplateWidget`
  * rename; the story additionally needs three import-path rewrites because
  * it moves from src/templates/ to stories/:
- *   - `from "./TemplateWidget"`            -> `from "../src/components/<Name>"`
+ *   - `from "./TemplateWidget"`            -> `from "../src"` (package entry,
+ *      per the no-deep-imports guard — never a `…/src/…` file path)
  *   - `from "../../stories/a11y"`          -> `from "./a11y"`
  *   - `from "../../.storybook/ThemeDecorator"` -> `from "../.storybook/ThemeDecorator"`
  *
@@ -66,6 +70,7 @@ const manifestFile = path.join(
   "__tests__",
   "story-matrix.manifest.ts",
 );
+const entryFile = path.join(UI_ROOT, "src", "index.ts");
 
 for (const file of [componentFile, storyFile, testFile]) {
   if (existsSync(file)) {
@@ -75,6 +80,12 @@ for (const file of [componentFile, storyFile, testFile]) {
   }
 }
 const manifestSource = readFileSync(manifestFile, "utf8");
+const entrySource = readFileSync(entryFile, "utf8");
+if (entrySource.includes(`components/${name}`)) {
+  refuse(
+    `"${name}" is already exported from src/index.ts — pick another name or edit the existing entry.`,
+  );
+}
 if (
   manifestSource.includes(`component: "${name}"`) ||
   manifestSource.includes(`stories/${name}.stories.tsx`)
@@ -114,7 +125,7 @@ const storySource = stripTemplateNotes(
   rename(readTemplate(`${TEMPLATE_NAME}.stories.tsx`)
     .replaceAll(
       `from "./${TEMPLATE_NAME}"`,
-      `from "../src/components/${name}"`,
+      `from "../src"`,
     )
     .replaceAll(`from "../../stories/a11y"`, `from "./a11y"`)
     .replaceAll(
@@ -144,13 +155,22 @@ if (closeIndex === -1) {
 const manifestNext =
   `${manifestSource.slice(0, closeIndex + 1)}${manifestEntry}${manifestSource.slice(closeIndex + 1)}`;
 
+// Package entry: stories import the component via `from "../src"`, so the
+// scaffold registers it here (P9 no-deep-imports guard). Appended last —
+// index.ts is legacy-tree order, not alphabetical, so position is neutral.
+const entryNext =
+  `${entrySource.trimEnd()}\n\n// Design-system component (scaffolded ${name}) — kept in the entry so\n` +
+  `// stories import it via the package entry, never a …/src/… file path.\n` +
+  `export { ${name} } from "./components/${name}";\n`;
+
 mkdirSync(path.dirname(componentFile), { recursive: true });
 mkdirSync(path.dirname(testFile), { recursive: true });
 writeFileSync(componentFile, componentSource);
 writeFileSync(storyFile, storySource);
 writeFileSync(testFile, testSource);
 writeFileSync(manifestFile, manifestNext);
+writeFileSync(entryFile, entryNext);
 
-for (const file of [componentFile, storyFile, testFile, manifestFile]) {
+for (const file of [componentFile, storyFile, testFile, manifestFile, entryFile]) {
   console.log(`created: ${path.relative(UI_ROOT, file)}`);
 }

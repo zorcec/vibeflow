@@ -55,9 +55,11 @@ describe("template story", () => {
     }
   });
 
-  it("imports the component as a sibling (the scaffold rewrites the path)", () => {
+  it("imports the component via the package entry (never a …/src/… path)", () => {
     expect(STORY_SOURCE).toContain('from "./TemplateWidget"');
-    expect(SCAFFOLD_SOURCE).toContain('from "../src/components/');
+    expect(SCAFFOLD_SOURCE).toContain('from "../src"');
+    expect(SCAFFOLD_SOURCE).not.toContain('from "../src/components/');
+    expect(SCAFFOLD_SOURCE).toContain('} from "./components/');
   });
 
   it("imports stories/a11y + ThemeDecorator via the paths the scaffold rewrites", () => {
