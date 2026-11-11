@@ -5,12 +5,16 @@ import { expectNoA11yViolations } from "../../stories/a11y";
 import { themeDecorator } from "../../.storybook/ThemeDecorator";
 
 /**
- * Template stories (design-system P8) — inert here (Storybook only serves
- * `stories/*.stories.tsx`, so this file never runs as a story), but real:
- * typechecked by `tsc`, and the scaffold copies it verbatim apart from the
- * `TemplateWidget` rename and the three import-path rewrites noted in the
- * scaffold script.
+ * Quiet renders the default tone; Loud renders the accent tone. Each play
+ * runs story-level axe, then clicks the action and asserts the payload.
  */
+/* template-note:start
+ * This file is the P8 scaffold template — inert here (Storybook only serves
+ * `stories/*.stories.tsx`, so it never runs as a story) and excluded from
+ * `tsc` (see tsconfig). The scaffold copies it apart from the
+ * `TemplateWidget` rename and the three import-path rewrites noted in the
+ * scaffold script. This block is stripped from scaffolded copies.
+template-note:end */
 const meta: Meta<typeof TemplateWidget> = {
   title: "Design System/TemplateWidget",
   component: TemplateWidget,

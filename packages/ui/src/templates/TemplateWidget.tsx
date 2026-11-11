@@ -1,12 +1,15 @@
 import { cn, cva, type VariantProps } from "../primitives";
 
 /**
- * Template widget (design-system P8) — the smallest correct component.
- * Every scaffolded component starts as a copy of this file with
- * `TemplateWidget` renamed, so fixes here propagate to all future
- * components. Real code, not a sketch: typechecked by `tsc --noEmit` and
- * exercised by the test beside it.
+ * TemplateWidget — typed props, `cva` tones, `cn` merge, token-only classes.
  */
+/* template-note:start
+ * This file is the P8 scaffold template: every scaffolded component starts
+ * as a copy of src/templates/TemplateWidget.tsx with `TemplateWidget`
+ * renamed, so fixes here propagate to all future components. Real code,
+ * not a sketch: typechecked by `tsc --noEmit` and exercised by the test
+ * beside it. This block is stripped from scaffolded copies.
+template-note:end */
 const widgetStyles = cva(
   "inline-flex items-center rounded-md border px-3 py-1 text-sm font-medium",
   {

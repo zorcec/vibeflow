@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 /**
- * Template widget test (design-system P8) — runs in the unit suite so the
+ * Renders every tone, asserts the resolved token classes, fires the action
+ * and asserts the payload.
+ */
+/* template-note:start
+ * This file is the P8 scaffold template — it runs in the unit suite so the
  * template cannot rot: if `TemplateWidget.tsx` drifts, this fails. The
  * scaffold copies it beside each new component, where it doubles as the
  * coverage the scoped 90% gate requires over `src/components/**`.
- */
+ * This block is stripped from scaffolded copies.
+template-note:end */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
