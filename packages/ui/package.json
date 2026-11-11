@@ -21,7 +21,9 @@
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
-    "test:stories": "vitest run --config vitest.stories.config.ts"
+    "test:stories": "vitest run --config vitest.stories.config.ts",
+    "coverage": "vitest run --coverage",
+    "coverage:variants": "vitest run --config vitest.variants.config.ts --coverage"
   },
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
