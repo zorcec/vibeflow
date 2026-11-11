@@ -19,11 +19,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeflow-tools/shared": "file:../shared",
+    "@base-ui-components/react": "1.0.0-rc.0",
     "@jsquash/resize": "^2.1.1",
     "@jsquash/webp": "^1.5.0",
+    "@vibeflow-tools/shared": "file:../shared",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
-    "react": "^18.3.1"
+    "react": "^18.3.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
