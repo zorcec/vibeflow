@@ -96,9 +96,31 @@ const HOSTILE_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"
     --vibeflow-text-primary: magenta;
     --vibeflow-border-strong: lime;
   }
-  /* Vector 3 — transforms/transitions and generated content. */
-  * { transition: none !important; transform: scale(2) !important; }
+  /* Vector 3 — transitions and generated content.
+     NOTE: a transform: scale(2) !important rule on * is deliberately NOT here.
+     Measured (ticket P7.3): it is the only hostile vector that makes the pixel
+     comparison fail, and it fails by GEOMETRY, not repaint — the probe's clip
+     region came back uniform white because the host page scaled the overlay's
+     own container, which is an element the host document owns. A shadow
+     boundary cannot prevent a host from transforming a box it contains, and
+     claiming it could would be false. The all: unset rule (also a layout
+     vector) is kept and passes. The transform is covered by the third test,
+     asserts the overlay's INTERNAL computed styles are unchanged under it. */
+  * { transition: none !important; }
   *::before, *::after { content: "X" !important; }
+</style>
+</head><body>${BODY_MARKUP}</body></html>`;
+
+/**
+ * The geometric vector on its own: the host page scales everything it contains,
+ * including the overlay's container. This page backs the third test, which
+ * asserts the guarantee that actually exists — the overlay's internal computed
+ * styles are unchanged (only the host's transform differs).
+ */
+const HOSTILE_GEOMETRY_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Hostile host (geometry)</title>
+<style>
+  * { all: unset; }
+  * { transform: scale(2) !important; }
 </style>
 </head><body>${BODY_MARKUP}</body></html>`;
 
@@ -244,6 +266,7 @@ describe("Overlay hostile-host-CSS zero-visual-change guard (P7.3)", () => {
     mkdirSync(hostileDir);
     writeFileSync(join(neutralDir, "index.html"), NEUTRAL_HTML);
     writeFileSync(join(hostileDir, "index.html"), HOSTILE_HTML);
+    writeFileSync(join(hostileDir, "geometry.html"), HOSTILE_GEOMETRY_HTML);
     neutralInstance = await serve(neutralDir, {
       port: NEUTRAL_PORT,
       open: false,
@@ -318,6 +341,29 @@ describe("Overlay hostile-host-CSS zero-visual-change guard (P7.3)", () => {
       expect(await triggerStyle(page, "color")).toBe("rgb(37, 99, 235)");
       // The probe header is a <div> with overlay `display: flex`: a pierced
       // boundary would collapse it to the hostile `div { display: block }`.
+      expect(await probeHeaderDisplay(page)).toBe("flex");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("a host-level transform repositions the overlay without repainting it", async () => {
+    // The guarantee has an edge, and this test names it instead of pretending
+    // it does not exist: a host page can scale the box it contains (measured —
+    // that vector is the only one that breaks a pixel-identical assertion), but
+    // it cannot change a single computed value inside the shadow root.
+    const page = await context.newPage();
+    try {
+      await page.goto(`http://localhost:${HOSTILE_PORT}/geometry.html`, {
+        waitUntil: "networkidle",
+      });
+      await waitForOverlay(page);
+      await injectProbe(page);
+      expect(await triggerStyle(page, "background-color")).toBe(
+        "rgb(5, 13, 26)",
+      );
+      expect(await triggerStyle(page, "border-radius")).toBe("50%");
+      expect(await triggerStyle(page, "color")).toBe("rgb(37, 99, 235)");
       expect(await probeHeaderDisplay(page)).toBe("flex");
     } finally {
       await page.close();
