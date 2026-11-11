@@ -15,7 +15,8 @@ unset GIT_DIR GIT_WORK_TREE
 # EVERYTHING (fail closed), and a docs-only push runs nothing.
 #
 # Expected cost when everything is selected: unit ~13s, e2e ~43s,
-# integration ~1s, playwright ~26s (~83s).
+# integration ~1s, playwright ~26s, ui ~20s (unit ~16s + stories ~4s)
+# (~103s).
 #
 # Unit and integration are treated as deterministic: first failure halts the
 # hook and blocks the push. They are never retried.
@@ -79,6 +80,7 @@ UNIT="not run"
 E2E="not run"
 INTEGRATION="not run"
 BROWSER="not run"
+UI="not run"
 
 print_summary() {
   echo ""
@@ -87,16 +89,18 @@ print_summary() {
   printf '  %-12s %s\n' "e2e" "$E2E"
   printf '  %-12s %s\n' "integration" "$INTEGRATION"
   printf '  %-12s %s\n' "playwright" "$BROWSER"
+  printf '  %-12s %s\n' "ui" "$UI"
   echo "─────────────────────────────────────────────────────"
 }
 
 # ── Skip everything ────────────────────────────────────────────────────────────
 if [ "${VIBEFLOW_SKIP_PREPUSH:-}" = "1" ]; then
-  echo "⚠ VIBEFLOW_SKIP_PREPUSH=1 — skipping ALL pre-push checks (unit, e2e, integration, playwright)."
+  echo "⚠ VIBEFLOW_SKIP_PREPUSH=1 — skipping ALL pre-push checks (unit, e2e, integration, playwright, ui)."
   UNIT="SKIPPED"
   E2E="SKIPPED"
   INTEGRATION="SKIPPED"
   BROWSER="SKIPPED"
+  UI="SKIPPED"
   print_summary
   echo "⚠ Push allowed WITHOUT any test verification."
   exit 0
@@ -201,6 +205,29 @@ else
       exit 1
     fi
   fi
+fi
+
+# ── UI design-system tests (hard) ────────────────────────────────────────────
+# Deterministic like unit (jsdom unit suite + headless-chromium story tests
+# via the Storybook vitest addon): first failure halts the hook and blocks
+# the push. Never retried — no known port race in this lane. The six-theme
+# axe sweep lives INSIDE the unit suite (a11y-themes.test.tsx, ~2.5s), so it
+# already runs here; the v8 coverage gate stays out (see `coverage` script).
+if wants_suite "ui"; then
+echo ""
+echo "▶ ui — pnpm --filter @vibeflow-tools/ui run test + test:stories"
+if pnpm --filter @vibeflow-tools/ui run test && pnpm --filter @vibeflow-tools/ui run test:stories; then
+  UI="PASS"
+else
+  UI="FAIL"
+  print_summary
+  echo "✗ UI tests failed — blocking push."
+  exit 1
+fi
+else
+  echo ""
+  echo "– ui — not selected for this push range (unaffected)."
+  UI="SKIPPED (unaffected)"
 fi
 
 print_summary
