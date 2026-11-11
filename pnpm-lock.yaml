@@ -314,6 +314,12 @@ importers:
       '@vitest/browser':
         specifier: 3.2.7
         version: 3.2.7(playwright@1.62.1)(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))(vitest@3.2.7)
+      '@vitest/coverage-v8':
+        specifier: 3.2.7
+        version: 3.2.7(@vitest/browser@3.2.7)(supports-color@7.2.0)(vitest@3.2.7)
+      axe-core:
+        specifier: 4.14.0
+        version: 4.14.0
       jsdom:
         specifier: ^29.0.0
         version: 29.1.1(@noble/hashes@1.8.0)
@@ -6835,6 +6841,27 @@ snapshots:
       - msw
       - utf-8-validate
       - vite
+
+  '@vitest/coverage-v8@3.2.7(@vitest/browser@3.2.7)(supports-color@7.2.0)(vitest@3.2.7)':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@bcoe/v8-coverage': 1.0.2
+      ast-v8-to-istanbul: 0.3.12
+      debug: 4.4.3(supports-color@7.2.0)
+      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-report: 3.0.1
+      istanbul-lib-source-maps: 5.0.6(supports-color@7.2.0)
+      istanbul-reports: 3.2.0
+      magic-string: 0.30.21
+      magicast: 0.3.5
+      std-env: 3.10.0
+      test-exclude: 7.0.2
+      tinyrainbow: 2.0.0
+      vitest: 3.2.7(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(lightningcss@1.33.0)(supports-color@7.2.0)(yaml@2.9.1)
+    optionalDependencies:
+      '@vitest/browser': 3.2.7(playwright@1.62.1)(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))(vitest@3.2.7)
+    transitivePeerDependencies:
+      - supports-color
 
   '@vitest/coverage-v8@3.2.7(supports-color@7.2.0)(vitest@3.2.7(@types/node@22.20.1)(jiti@1.21.7)(jsdom@29.1.1(@noble/hashes@1.8.0))(supports-color@7.2.0)(yaml@2.9.1))':
     dependencies:
