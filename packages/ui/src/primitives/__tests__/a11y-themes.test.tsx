@@ -123,7 +123,10 @@ describe("a11y six-theme sweep", () => {
           // here keeps component violations (roles, names, contrast where
           // computable) at zero without letting components excuse page setup.
           const results = await axe.run(container, {
-            disableRules: ["document-title", "html-has-lang"],
+            rules: {
+              "document-title": { enabled: false },
+              "html-has-lang": { enabled: false },
+            },
           });
           const summary = results.violations.map(
             (v) => `${v.id} (${v.impact}): ${v.nodes.length} node(s)`,
