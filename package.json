@@ -24,7 +24,7 @@
     "test:ui": "pnpm --filter @vibeflow-tools/ui run test",
     "test:stories": "pnpm --filter @vibeflow-tools/ui run test:stories",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
-    "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
+    "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\" \"packages/ui/stories/**/*.{ts,tsx}\"",
     "lint:ai": "eslint --config eslint.config.ai-warn.mjs \"packages/*/src/**/*.{ts,tsx}\" \"packages/*/tests/**/*.{ts,tsx}\"",
     "lint:knip": "knip --no-exit-code",
     "lint": "pnpm run lint:symbols && pnpm -r run lint",

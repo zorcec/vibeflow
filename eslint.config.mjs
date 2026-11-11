@@ -3,6 +3,7 @@
 // imports/locals, and `tsc` cannot exclude imported files, so a file-scoped
 // linter is required to run the rule everywhere except the excluded path below.
 import tseslint from "typescript-eslint";
+import { designSystem } from "./eslint.local-rules.mjs";
 
 export default [
   {
@@ -46,6 +47,41 @@ export default [
           ignoreRestSiblings: true,
         },
       ],
+    },
+  },
+  // ── Design-system guards (P9) ─────────────────────────────────────────
+  // SCOPE DECISION (P9, same shape as the coverage gate in
+  // packages/ui/vitest.config.ts): the four `ds-local/*` rules cover the
+  // design-system surface — what the rebuild actually writes — not the
+  // legacy tree (src root, src/kanban) this effort exists to delete. The
+  // legacy components use inline styles and deep cross-imports everywhere
+  // (measured: StatusBadge-style `style={{…}}` colour literals,
+  // `../src/…` story imports before P9 fixed the design-system ones); a
+  // repo-wide rule would be red on day one and get disabled. P16/P17 widen
+  // this `files` list once the legacy tree is gone — that widening is part
+  // of P17's exit criteria, not an afterthought.
+  {
+    files: [
+      "packages/ui/src/primitives/**/*.{ts,tsx}",
+      "packages/ui/src/components/**/*.{ts,tsx}",
+      "packages/ui/src/templates/**/*.{ts,tsx}",
+      "packages/ui/stories/**/*.{ts,tsx}",
+    ],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+      },
+    },
+    plugins: {
+      "ds-local": designSystem,
+    },
+    rules: {
+      "ds-local/no-raw-colours": "error",
+      "ds-local/no-arbitrary-tailwind": "error",
+      "ds-local/no-deep-imports": "error",
+      "ds-local/one-component-per-file": "error",
     },
   },
 ];
