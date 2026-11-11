@@ -92,6 +92,11 @@ async function probeStyles(page: Page, padClass: string): Promise<ProbeStyles> {
     if (!probe) {
       probe = document.createElement("div");
       probe.setAttribute("data-testid", "primitive-probe");
+      // Opaque backdrop: element screenshots crop the viewport, so host-page
+      // paint behind the transparent boxes would confound the pixel
+      // comparison. With the backdrop, chip and plain are byte-identical
+      // unless the subset paints the chip.
+      probe.setAttribute("style", "background-color: #111111");
       probe.innerHTML =
         `<div data-part="pad" class="${cls}"></div>` +
         `<div data-part="row" class="flex gap-2"><span>a</span><span>b</span></div>` +
