@@ -510,7 +510,18 @@ export function DetailPanel({
       if ((e.target as Element)?.closest?.('[data-role="type-picker-menu"]')) return;
       // Allow clicks inside any modal overlay (FilePreviewModal, SettingsModal, etc.)
       // They render outside the panel DOM but should not close the panel.
-      if ((e.target as Element)?.closest?.(".modal-backdrop")) return;
+      //
+      // `.modal-backdrop` is the OLD hand-rolled class; P14.1 moved every modal
+      // onto the Dialog primitive, which renders `[data-role="dialog-backdrop"]`
+      // and a `role="dialog"` popup. Keeping only the old selector silently made
+      // every click inside a modal "outside" — 9 Playwright tests caught it.
+      if (
+        (e.target as Element)?.closest?.(
+          '.modal-backdrop, [data-role="dialog-backdrop"], [role="dialog"]',
+        )
+      ) {
+        return;
+      }
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         // If a "send comment?" modal is already shown, don't trigger another one
         if (showCommentSendConfirmRef.current) return;

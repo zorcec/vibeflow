@@ -110,6 +110,12 @@ export function ModalBase({
       container={container}
       footer={footer}
       closeOnOutsideClick={closeOnOutsideClick}
+      // The legacy class contract is load-bearing twice over: kanban.css styles
+      // `.modal-box`/`.modal-backdrop`, and the CLI browser suite clicks
+      // `.modal-box`. Dropping them in P14.1 silently unstyled every modal and
+      // broke 7 Playwright tests.
+      className="modal-box"
+      backdropClassName="modal-backdrop"
       style={{ width: width ?? 'min(420px, 95vw)', maxHeight, ...boxStyle }}
       bodyClassName={bodyClassName}
       bodyStyle={bodyStyle}

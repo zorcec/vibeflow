@@ -42,6 +42,8 @@ export interface DialogProps {
   headerActions?: ReactNode;
   /** Inline style for the popup (width / max-height overrides). */
   style?: CSSProperties;
+  /** Extra classes for the backdrop (composites that keep a legacy class contract). */
+  backdropClassName?: string;
   /** Extra classes for the scrollable body, for layouts that manage their own flow. */
   bodyClassName?: string;
   /** Inline style for the scrollable body. */
@@ -64,6 +66,7 @@ export function Dialog({
   style,
   bodyClassName,
   bodyStyle,
+  backdropClassName,
 }: DialogProps) {
   return (
     <BaseDialog.Root
@@ -75,7 +78,7 @@ export function Dialog({
       <BaseDialog.Portal container={container ?? undefined}>
         <BaseDialog.Backdrop
           data-role="dialog-backdrop"
-          className="fixed inset-0 bg-overlay-scrim"
+          className={cn("fixed inset-0 z-40 bg-overlay-scrim", backdropClassName)}
         />
         <BaseDialog.Popup
           // Base UI marks the background inert but does NOT emit aria-modal
@@ -86,7 +89,7 @@ export function Dialog({
           data-role="dialog-popup"
           style={style}
           className={cn(
-            "fixed top-1/2 left-1/2 flex max-h-dvh w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-bg-raised p-5 shadow-card",
+            "fixed top-1/2 left-1/2 z-50 flex max-h-dvh w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-bg-raised p-5 shadow-card",
             className,
           )}
         >
