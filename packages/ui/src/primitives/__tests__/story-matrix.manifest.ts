@@ -44,6 +44,16 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "ModalBase",
+    storyFile: "stories/kanban/modal.stories.tsx",
+    title: "Design System/Kanban/Modal",
+    stories: [
+      { name: "Base", covers: "dialog role + accessible name + aria-modal, axe clean" },
+      { name: "Confirm", covers: "destructive action reports through onConfirm" },
+      { name: "EscapeCancels", covers: "Escape closes through onCancel, not confirm" },
+    ],
+  },
+  {
     component: "KanbanHeader",
     storyFile: "stories/kanban/header.stories.tsx",
     title: "Design System/Kanban/Header",

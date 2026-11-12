@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Dialog as BaseDialog } from "@base-ui-components/react/dialog";
 import { cn } from "../primitives";
 
@@ -34,6 +34,18 @@ export interface DialogProps {
   closeOnOutsideClick?: boolean;
   /** Extra classes for the popup surface. */
   className?: string;
+  /** Element id for the popup — callers that deep-link or query a modal keep their hook. */
+  id?: string;
+  /** Optional icon rendered inline before the title. */
+  icon?: ReactNode;
+  /** Extra controls on the right of the title row (e.g. a close button). */
+  headerActions?: ReactNode;
+  /** Inline style for the popup (width / max-height overrides). */
+  style?: CSSProperties;
+  /** Extra classes for the scrollable body, for layouts that manage their own flow. */
+  bodyClassName?: string;
+  /** Inline style for the scrollable body. */
+  bodyStyle?: CSSProperties;
 }
 
 export function Dialog({
@@ -46,6 +58,12 @@ export function Dialog({
   footer,
   closeOnOutsideClick = true,
   className,
+  id,
+  icon,
+  headerActions,
+  style,
+  bodyClassName,
+  bodyStyle,
 }: DialogProps) {
   return (
     <BaseDialog.Root
@@ -64,15 +82,25 @@ export function Dialog({
           // (measured 2026-11-11: the popup's attributes were role=dialog +
           // aria-labelledby only). The requirement is explicit, so state it.
           aria-modal="true"
+          id={id}
           data-role="dialog-popup"
+          style={style}
           className={cn(
             "fixed top-1/2 left-1/2 flex max-h-dvh w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-bg-raised p-5 shadow-card",
             className,
           )}
         >
-          <BaseDialog.Title className="text-base font-semibold text-text">
-            {title}
-          </BaseDialog.Title>
+          <div className="flex items-center gap-2.5">
+            {icon ? <span className="flex shrink-0 items-center">{icon}</span> : null}
+            <BaseDialog.Title className="flex-1 text-base font-semibold text-text">
+              {title}
+            </BaseDialog.Title>
+            {headerActions ? (
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                {headerActions}
+              </div>
+            ) : null}
+          </div>
           {description ? (
             <BaseDialog.Description className="text-sm text-text-muted">
               {description}
@@ -82,7 +110,11 @@ export function Dialog({
               cannot take keyboard focus strands keyboard users on long content. */}
           <div
             tabIndex={0}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain text-sm text-text"
+            style={bodyStyle}
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto overscroll-contain text-sm text-text",
+              bodyClassName,
+            )}
           >
             {children}
           </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { ModalBase } from './ModalBase';
+import { Button } from '../../primitives';
 
 interface Props {
   open: boolean;
@@ -37,18 +38,22 @@ export function ConfirmModal({ open, message, title = 'Confirm', confirmLabel = 
       onKeyDown={handleKeyDown}
       footer={
         <>
-          <button
+          <Button
             id="confirm-modal-cancel"
+            variant="secondary"
+            size="sm"
             onClick={onCancel}
             disabled={loading}
-            style={{ padding: '7px 16px', borderRadius: 8, background: 'var(--t-hover)', border: '1px solid var(--t-border)', color: 'var(--t-text-muted)', fontSize: 13, cursor: 'pointer', transition: 'background 0.15s' }}
-          >{cancelLabel}</button>
-          <button
+            style={{ padding: '7px 16px', borderRadius: 8, background: 'var(--t-hover)', border: '1px solid var(--t-border)', color: 'var(--t-text-muted)', fontSize: 13 }}
+          >{cancelLabel}</Button>
+          <Button
             id="confirm-modal-confirm"
+            variant="danger"
+            size="sm"
             onClick={onConfirm}
             disabled={loading}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: 'var(--t-danger-strong)', border: 'none', color: 'var(--t-white)', fontSize: 13, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1, transition: 'background 0.15s' }}
-          >{loading && <Loader2 aria-hidden="true" size={14} style={{ animation: 'spin 0.7s linear infinite' }} />}{loading ? 'Deleting…' : confirmLabel}</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: 'var(--t-danger-strong)', border: 'none', color: 'var(--t-white)', fontSize: 13, fontWeight: 600, opacity: loading ? 0.6 : 1 }}
+          >{loading && <Loader2 aria-hidden="true" size={14} style={{ animation: 'spin 0.7s linear infinite' }} />}{loading ? 'Deleting…' : confirmLabel}</Button>
         </>
       }
     >
