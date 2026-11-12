@@ -228,7 +228,9 @@ echo "▶ ui — bundle budget + pnpm --filter @vibeflow-tools/ui run test + tes
 # The budget check is cheap (stat + one regex) and lives here on purpose: the
 # expensive design-system gates (storybook build, overlay pixel guard,
 # coverage) are in `pnpm gate:ui` — see docs/ui/design-system-gates.md.
-if pnpm run check:bundle-budget && pnpm --filter @vibeflow-tools/ui run test && pnpm --filter @vibeflow-tools/ui run test:stories; then
+# Called by path: the hook has cd'd into packages/cli, where the root script
+# name does not resolve ("Missing script: check:bundle-budget" — measured).
+if node "$ROOT/packages/cli/scripts/check-bundle-budget.mjs" && pnpm --filter @vibeflow-tools/ui run test && pnpm --filter @vibeflow-tools/ui run test:stories; then
   UI="PASS"
 else
   UI="FAIL"
