@@ -215,6 +215,11 @@ interface Props {
   open: boolean;
   task: Task | null;
   tab: Tab;
+  /**
+   * Portal target for the markdown editors' `#` mention dropdown. The overlay
+   * passes its shadow root so the dropdown keeps the overlay's tokens (P7).
+   */
+  container?: HTMLElement | null;
   addColumnId?: TaskStatus;
   gitUserName?: string;
   githubUrl?: string | null;
@@ -287,6 +292,7 @@ export function DetailPanel({
   open,
   task,
   tab,
+  container,
   addColumnId = "todo",
   gitUserName = "You",
   githubUrl,
@@ -1825,6 +1831,7 @@ export function DetailPanel({
                 isAdd={isAdd}
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
+                container={container}
               />
               {descError && (
                 <div
@@ -1962,6 +1969,7 @@ export function DetailPanel({
                 baseRows={2}
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
+                container={container}
               />
             </div>
             <CommentsList

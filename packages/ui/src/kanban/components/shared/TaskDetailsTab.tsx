@@ -23,6 +23,8 @@ import { AttributionName } from "./AttributionBadge";
 
 interface Props {
   task: Task | null;
+  /** Portal target for the description editor's `#` dropdown (P7 contract). */
+  container?: HTMLElement | null;
   description: string;
   setDescription: (v: string) => void;
   showDescPreview: boolean;
@@ -87,7 +89,7 @@ export function TaskDetailsTab({
   onDescriptionSelection,
   mentionTasks,
   taskLookup,
-}: Props) {
+  container,}: Props) {
   const taskFiles = task?.files ?? [];
   const fileList: Array<{
     name: string;
@@ -130,6 +132,7 @@ export function TaskDetailsTab({
           onChange={setDescription}
           mentionTasks={mentionTasks}
           taskLookup={taskLookup}
+          container={container}
           onBlur={onDescriptionBlur}
           showPreview={showDescPreview}
           setShowPreview={setShowDescPreview}

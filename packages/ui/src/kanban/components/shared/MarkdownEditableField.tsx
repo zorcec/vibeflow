@@ -271,6 +271,12 @@ interface Props {
   previewMaxRows?: number;
   baseRows?: number;
   maxRows?: number;
+  /**
+   * Portal target for the `#` mention dropdown. Defaults to `document.body`;
+   * a surface inside a shadow root (the overlay) must pass its root, or the
+   * dropdown renders outside the root and loses the tokens (P7 contract).
+   */
+  container?: HTMLElement | null;
   autoFocus?: boolean;
   textareaRef?: React.MutableRefObject<HTMLTextAreaElement | null>;
   onKeyDown?: (e: React.KeyboardEvent) => void;
@@ -319,6 +325,7 @@ export function MarkdownEditableField({
   previewMaxRows,
   baseRows = 5,
   maxRows = 12,
+  container,
   autoFocus = false,
   textareaRef,
   onKeyDown,
@@ -592,7 +599,7 @@ export function MarkdownEditableField({
             </button>
           ))}
         </div>,
-        document.body
+        container ?? document.body
       )}
       {remoteSelections && remoteSelections.length > 0 && textareaEl && (
         <RemoteCursorOverlay

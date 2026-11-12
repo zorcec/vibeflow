@@ -13,6 +13,8 @@ interface Props {
   commentSubmitting: boolean;
   onSubmit: () => void;
   baseRows?: number;
+  /** Portal target for the `#` mention dropdown (shadow-root contract). */
+  container?: HTMLElement | null;
   /** Task index for `#` mentions — threaded to the editor so its legacy
       `GET /api/tasks` mount fetch never fires (web app has no such route). */
   mentionTasks?: Array<{ id: string; title: string }>;
@@ -22,7 +24,7 @@ interface Props {
 
 export function CommentsInputArea({
   commentInput, setCommentInput, commentSubmitting, onSubmit, baseRows = 4,
-  mentionTasks, taskLookup,
+  mentionTasks, taskLookup, container,
 }: Props) {
   return (
     <div id="dp-comment-input-area">
@@ -30,6 +32,7 @@ export function CommentsInputArea({
         value={commentInput}
         onChange={setCommentInput}
         mentionTasks={mentionTasks}
+        container={container}
         taskLookup={taskLookup}
         showPreview={false}
         setShowPreview={() => {}}
