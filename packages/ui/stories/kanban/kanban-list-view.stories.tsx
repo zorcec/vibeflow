@@ -70,6 +70,7 @@ export const Mobile: Story = {
 export const CollapseGroup: Story = {
   args: base,
   play: async ({ canvasElement }) => {
+    await expectNoA11yViolations(canvasElement);
     const canvas = within(canvasElement);
     const toggle = canvas.getByRole("button", { name: /Collapse todo/i });
     await userEvent.click(toggle);
