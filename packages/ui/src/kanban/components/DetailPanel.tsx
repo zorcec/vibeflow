@@ -1,4 +1,5 @@
 import React from "react";
+import { Button, Input } from "../../primitives";
 import { X, Upload, Maximize2, Minimize2 } from "lucide-react";
 import {
   TASK_DESCRIPTION_MAX,
@@ -1388,7 +1389,7 @@ export function DetailPanel({
                 if (!isAdd && task) onPatch(task.id, { type: newType });
               }}
             />
-            <input
+            <Input
               id="dp-title"
               ref={titleInputRef}
               className="dp-input"
@@ -1493,6 +1494,9 @@ export function DetailPanel({
             </button>
             <button
               id="dp-close"
+              // axe `button-name` (critical): the close control is icon-only
+              // with no label of its own. Found by the P14.3 story sweep.
+              aria-label="Close detail panel"
               onClick={handleCloseRequest}
               style={{
                 width: 26,
@@ -1700,14 +1704,18 @@ export function DetailPanel({
         {/* Tabs (hidden in add mode) */}
         {!isAdd && (
           <div className="dp-tabs" id="dp-tabs-row">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "details" ? " active" : ""}`}
               id="dp-tab-details"
               onClick={() => setActiveTab("details")}
             >
               Details
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "comments" ? " active" : ""}`}
               id="dp-tab-activity"
               onClick={() => setActiveTab("comments")}
@@ -1721,8 +1729,10 @@ export function DetailPanel({
                   ({commentCount})
                 </span>
               )}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "files" ? " active" : ""}`}
               id="dp-tab-files"
               onClick={() => setActiveTab("files")}
@@ -1736,7 +1746,7 @@ export function DetailPanel({
                   ({fileCount})
                 </span>
               )}
-            </button>
+            </Button>
           </div>
         )}
 

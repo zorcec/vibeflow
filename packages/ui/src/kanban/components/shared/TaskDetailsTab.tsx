@@ -311,6 +311,10 @@ export function TaskDetailsTab({
         <div className="dp-meta-label">Priority</div>
         <select
           id="dp-priority"
+          // axe `select-name` (critical): the visible "Priority" text is a
+          // sibling div, not a label association, so the control had NO
+          // accessible name. Found by the P14.3 story sweep.
+          aria-label="Priority"
           className="dp-input"
           value={priority}
           onChange={(e) => {

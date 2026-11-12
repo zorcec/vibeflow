@@ -44,6 +44,16 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "DetailPanel",
+    storyFile: "stories/kanban/detail-panel.stories.tsx",
+    title: "Design System/Kanban/DetailPanel",
+    stories: [
+      { name: "Default", covers: "three named tabs, axe clean (fixed select/close names)" },
+      { name: "TabSwitching", covers: "clicking Activity moves the active class token" },
+      { name: "TitleField", covers: "the title field is a real input with the task title" },
+    ],
+  },
+  {
     component: "SettingsModal",
     storyFile: "stories/kanban/settings-modal.stories.tsx",
     title: "Design System/Kanban/SettingsModal",
