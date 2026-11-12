@@ -5,6 +5,7 @@ import { groupTasksByRoot } from "../task-links";
 import { compareDoneOrder } from "../utils";
 import { filterTasksByQuery } from "../search";
 import { LiveActivityBadge } from "./TaskCard";
+import { Button } from "../../primitives";
 import { TASK_TYPE_ICONS } from "../../task-types";
 
 const STATUS_COLORS: Record<
@@ -275,7 +276,9 @@ export function KanbanListView({
                     setDragTaskId(null);
                   }}
                 >
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     title={collapsed[status] ? "Expand" : "Collapse"}
                     aria-label={`${collapsed[status] ? "Expand" : "Collapse"} ${status}`}
@@ -303,7 +306,7 @@ export function KanbanListView({
                     }}
                   >
                     {collapsed[status] ? "+" : "−"}
-                  </button>
+                  </Button>
                   <span
                     style={{
                       fontSize: 11,
@@ -322,7 +325,9 @@ export function KanbanListView({
                   <span style={{ fontSize: 11, color: "var(--t-text-body)" }}>
                     {group.length}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     title={`Add task to ${status}`}
                     onClick={(e) => {
@@ -346,7 +351,7 @@ export function KanbanListView({
                     }}
                   >
                     +
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Task rows */}
@@ -565,7 +570,9 @@ function ListRow({
       )}
 
       {/* Comment count */}
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         title={commentCount > 0 ? `${commentCount} comment(s)` : "Add comment"}
         style={{
           display: "flex",
@@ -587,11 +594,13 @@ function ListRow({
       >
         <MessageCircle className="w-3 h-3" />
         {commentCount > 0 && <span>{commentCount}</span>}
-      </button>
+      </Button>
 
       {/* File count — only rendered when files exist; takes no space otherwise */}
       {fileCount > 0 && (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           title={`${fileCount} file(s)`}
           style={{
             display: "flex",
@@ -612,7 +621,7 @@ function ListRow({
         >
           <Paperclip className="w-3 h-3" />
           <span>{fileCount}</span>
-        </button>
+        </Button>
       )}
 
       {/* Unlink from parent — only rows that still carry a parent link
@@ -620,7 +629,9 @@ function ListRow({
           and only when the host wires onDetach. Direct call, same contract
           as the card inline tree (ticket ppydm810). */}
       {onDetach && (task.links ?? []).some((l) => l?.type === "parent") && (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           title="Unlink from parent"
           aria-label={`Unlink task ${task.title} from parent`}
@@ -646,7 +657,7 @@ function ListRow({
           }}
         >
           Unlink
-        </button>
+        </Button>
       )}
 
       {/* Live activity badge */}

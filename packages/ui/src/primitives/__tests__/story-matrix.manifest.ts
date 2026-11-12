@@ -44,6 +44,17 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "KanbanListView",
+    storyFile: "stories/kanban/kanban-list-view.stories.tsx",
+    title: "Design System/Kanban/ListView",
+    stories: [
+      { name: "Default", covers: "rows across statuses render, axe clean" },
+      { name: "Mobile", covers: "mobile status select is labelled and token-styled" },
+      { name: "CollapseGroup", covers: "the collapse toggle flips the group" },
+      { name: "Empty", covers: "no rows render for an empty list" },
+    ],
+  },
+  {
     component: "ChildRow",
     storyFile: "stories/kanban/child-row.stories.tsx",
     title: "Design System/Kanban/ChildRow",
