@@ -39,7 +39,9 @@
     "vibeflow": "node packages/cli/scripts/dev-parallel.mjs",
     "prepare": "husky",
     "release:check-deps": "node scripts/check-publishable-deps.mjs",
-    "release:cli": "node scripts/release-cli.mjs"
+    "release:cli": "node scripts/release-cli.mjs",
+    "gate:ui": "node scripts/gate-ui.mjs",
+    "check:bundle-budget": "node packages/cli/scripts/check-bundle-budget.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

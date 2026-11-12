@@ -224,8 +224,11 @@ fi
 # already runs here; the v8 coverage gate stays out (see `coverage` script).
 if wants_suite "ui"; then
 echo ""
-echo "▶ ui — pnpm --filter @vibeflow-tools/ui run test + test:stories"
-if pnpm --filter @vibeflow-tools/ui run test && pnpm --filter @vibeflow-tools/ui run test:stories; then
+echo "▶ ui — bundle budget + pnpm --filter @vibeflow-tools/ui run test + test:stories"
+# The budget check is cheap (stat + one regex) and lives here on purpose: the
+# expensive design-system gates (storybook build, overlay pixel guard,
+# coverage) are in `pnpm gate:ui` — see docs/ui/design-system-gates.md.
+if pnpm run check:bundle-budget && pnpm --filter @vibeflow-tools/ui run test && pnpm --filter @vibeflow-tools/ui run test:stories; then
   UI="PASS"
 else
   UI="FAIL"

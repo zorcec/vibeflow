@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "Bundle budget for the CLI board + overlay artefacts (P17).",
+    "Measured on 2026-11-12 on the ui-design-system branch; `deltaBytes` is the",
+    "explicit allowance: 2% of the measured size, rounded up to 512 bytes.",
+    "2% because the Tailwind v4 pipeline emits stable CSS but JS grows with the",
+    "primitives (Base UI pulls its own runtime); anything larger is a real",
+    "regression and must be reviewed, not silently absorbed."
+  ],
+  "measuredAt": "2026-11-12",
+  "allowancePercent": 2,
+  "artifacts": {
+    "packages/cli/dist/client/kanban.css": {
+      "bytes": 73693,
+      "budget": 75717,
+      "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts)"
+    },
+    "packages/cli/dist/client/kanban-browser.js": {
+      "bytes": 1051433,
+      "budget": 1073023,
+      "why": "board client bundle"
+    },
+    "packages/cli/dist/client/overlay-browser.js": {
+      "bytes": 1617251,
+      "budget": 1650780,
+      "why": "overlay client bundle (includes the shadow-root chat + annotation UI)"
+    },
+    "packages/cli/src/client/overlay-css.gen.ts": {
+      "bytes": 69868,
+      "budget": 71265,
+      "why": "OVERLAY_CSS + OVERLAY_UTIL_CSS sources (P7.2 subset is part of this)"
+    }
+  },
+  "overlayUtilitySubset": {
+    "bytes": 15626,
+    "budget": 15939,
+    "why": "P7.2 measured 4,910 B for the first subset; the constants are the ONLY styling inside the shadow root, so this number budgets the primitives added since (Select, Tabs, Input, Dialog, Popover, Tooltip) \u2014 a second design system inside the shadow root would be the regression"
+  }
+}
