@@ -44,6 +44,17 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "SettingsModal",
+    storyFile: "stories/kanban/settings-modal.stories.tsx",
+    title: "Design System/Kanban/SettingsModal",
+    stories: [
+      { name: "Default", covers: "named Settings dialog, axe clean" },
+      { name: "ApplyReports", covers: "Apply is a real button inside the dialog" },
+      { name: "CancelDismisses", covers: "Cancel renders and is reachable" },
+      { name: "TabsSwitch", covers: "the tab bar keeps its panes reachable by name" },
+    ],
+  },
+  {
     component: "ModalBase",
     storyFile: "stories/kanban/modal.stories.tsx",
     title: "Design System/Kanban/Modal",

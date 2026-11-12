@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { useState } from "react";
 import { ConfirmModal, ModalBase } from "../../src";
 import { expectNoA11yViolations } from "../a11y";
@@ -104,9 +104,11 @@ export const EscapeCancels: Story = {
   play: async () => {
     const dialog = await within(document.body).findByRole("dialog");
     await userEvent.keyboard("{Escape}");
-    await expect(
-      within(document.body).queryByRole("dialog"),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(document.body).queryByRole("dialog"),
+      ).not.toBeInTheDocument(),
+    );
     await expect(
       within(document.body).getByRole("status"),
     ).toHaveTextContent("cancelled");
