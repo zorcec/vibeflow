@@ -44,6 +44,17 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "TaskCard",
+    storyFile: "stories/kanban/task-card.stories.tsx",
+    title: "Design System/Kanban/TaskCard",
+    stories: [
+      { name: "Default", covers: "card-title + copy-id hooks, axe clean in every theme" },
+      { name: "Compact", covers: "compact layout keeps the title hook" },
+      { name: "WithAdvanceControl", covers: "onAdvanceTask renders the advance control with data-next-status" },
+      { name: "WithoutAdvanceControl", covers: "absent callback renders no advance control (ListView contract)" },
+    ],
+  },
+  {
     component: "ChatPanel",
     storyFile: "stories/ChatPanel.stories.tsx",
     title: "Design System/ChatPanel",
