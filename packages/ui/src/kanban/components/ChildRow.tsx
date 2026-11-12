@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "../../primitives";
 import type { Task } from "../types";
 import { getStatusColor, shortId } from "../task-links";
 import { TREE_INDENT_PX } from "./tree-constants";
@@ -179,7 +180,9 @@ export function ChildRow({
             }
         >
             {collapsible && (
-                <button
+                <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     data-role="tree-node-toggle"
                     data-task-id={child?.id}
@@ -191,7 +194,7 @@ export function ChildRow({
                         onToggleCollapsed?.();
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
+                    onKeyDown={(e: React.KeyboardEvent<HTMLButtonElement>) => {
                         if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             e.stopPropagation();
@@ -212,7 +215,7 @@ export function ChildRow({
                     }}
                 >
                     {collapsed ? "\u25B8" : "\u25BE"}
-                </button>
+                </Button>
             )}
             <div
                 className={`child-link-row child-link-row--${variant}${isOrphan ? " child-row--orphan" : ""}`}

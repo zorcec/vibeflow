@@ -241,3 +241,4 @@ export {
   applyInitialTheme,
 } from "./theme";
 export type { Theme, ThemeDefinition, ThemeBase } from "./theme";
+export { default as RelationsSection } from "./components/RelationsSection";

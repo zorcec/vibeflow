@@ -44,6 +44,25 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "ChildRow",
+    storyFile: "stories/kanban/child-row.stories.tsx",
+    title: "Design System/Kanban/ChildRow",
+    stories: [
+      { name: "Inline", covers: "row renders with its data-role hook" },
+      { name: "Collapsible", covers: "toggle keeps aria-expanded and is clickable" },
+      { name: "WithUnlink", covers: "unlink renders only with an onRemove callback and is labelled" },
+    ],
+  },
+  {
+    component: "RelationsSection",
+    storyFile: "stories/kanban/relations-section.stories.tsx",
+    title: "Design System/Kanban/RelationsSection",
+    stories: [
+      { name: "WithChildren", covers: "child row renders inside the relation group, axe clean" },
+      { name: "Empty", covers: "renders with no relations, axe clean" },
+    ],
+  },
+  {
     component: "DetailPanel",
     storyFile: "stories/kanban/detail-panel.stories.tsx",
     title: "Design System/Kanban/DetailPanel",
