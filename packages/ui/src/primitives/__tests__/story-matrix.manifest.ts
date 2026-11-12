@@ -44,6 +44,26 @@ export interface StoryMatrixEntry {
 
 export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
+    component: "KanbanHeader",
+    storyFile: "stories/kanban/header.stories.tsx",
+    title: "Design System/Kanban/Header",
+    stories: [
+      { name: "Default", covers: "labelled search textbox accepts typing, axe clean" },
+      { name: "MobileMenuTrigger", covers: "menu trigger keeps its aria hooks" },
+      { name: "WithBackLinkAndActions", covers: "back link + extra action layout" },
+    ],
+  },
+  {
+    component: "FilterBar",
+    storyFile: "stories/kanban/filter-bar.stories.tsx",
+    title: "Design System/Kanban/FilterBar",
+    stories: [
+      { name: "Default", covers: "status chips and tag/user filters render, axe clean" },
+      { name: "StatusFilterClick", covers: "clicking Review reports status=review to onFilter" },
+      { name: "Narrow", covers: "list view renders the bar at a mobile viewport" },
+    ],
+  },
+  {
     component: "TaskCard",
     storyFile: "stories/kanban/task-card.stories.tsx",
     title: "Design System/Kanban/TaskCard",

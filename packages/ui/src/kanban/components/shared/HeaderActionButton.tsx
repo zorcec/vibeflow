@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '../../../primitives';
 
 interface HeaderActionButtonProps {
   id?: string;
@@ -9,6 +10,15 @@ interface HeaderActionButtonProps {
   variant?: 'neutral' | 'accent';
 }
 
+/**
+ * Header action button (P13.2) — renders through the Button primitive.
+ *
+ * The `kb-action-btn` class stays on the element: it is the unlayered
+ * kanban.css rule that supplies the control's border/background/text colours
+ * (unlayered CSS outranks the @layer utilities tier), so the visuals are
+ * byte-identical to the pre-primitive button while the primitive contributes
+ * its type="button" default, focus ring and class merging.
+ */
 export function HeaderActionButton({
   id,
   title,
@@ -17,20 +27,17 @@ export function HeaderActionButton({
   icon,
   variant = 'neutral',
 }: HeaderActionButtonProps) {
-  const baseClass = 'h-7 inline-flex items-center justify-center rounded-lg transition-colors';
-  const neutralClass = 'kb-action-btn';
-  const accentClass = 'kb-action-btn kb-action-btn--accent';
-
   return (
-    <button
+    <Button
       id={id}
       onClick={onClick}
       title={title}
-      className={`${baseClass} ${variant === 'accent' ? accentClass : neutralClass} ${label ? 'gap-1.5 px-3 text-xs font-medium' : 'w-7'}`}
-      type="button"
+      variant="ghost"
+      size="sm"
+      className={`h-7 rounded-lg ${variant === 'accent' ? 'kb-action-btn kb-action-btn--accent' : 'kb-action-btn'} ${label ? 'gap-1.5 px-3' : 'w-7'}`}
     >
       {icon}
       {label && <span>{label}</span>}
-    </button>
+    </Button>
   );
 }

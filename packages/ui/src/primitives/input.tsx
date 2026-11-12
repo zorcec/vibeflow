@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react";
+import { forwardRef, type InputHTMLAttributes } from "react";
 import { cn, cva } from "../primitives";
 
 /**
@@ -38,7 +38,12 @@ export interface InputProps
   className?: string;
 }
 
-export function Input({
+/**
+ * Ref forwarding (P13.2): callers that keep a `RefObject` for focus
+ * management — the kanban board search field — must reach the real
+ * `<input>`; without it React drops the ref and `focus()` silently no-ops.
+ */
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({
   type = "text",
   error,
   className,
@@ -46,7 +51,7 @@ export function Input({
   "aria-describedby": ariaDescribedBy,
   "aria-invalid": ariaInvalid,
   ...rest
-}: InputProps) {
+}, ref) {
   const errorId = error && id ? `${id}-error` : undefined;
   const invalid = error ? true : ariaInvalid;
   const describedBy =
@@ -54,6 +59,7 @@ export function Input({
 
   const input = (
     <input
+      ref={ref}
       id={id}
       type={type}
       className={cn(inputStyles({ state: error ? "error" : "default" }), className)}
@@ -79,4 +85,4 @@ export function Input({
       </p>
     </div>
   );
-}
+});

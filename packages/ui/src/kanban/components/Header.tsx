@@ -1,6 +1,7 @@
 import React from "react";
 import { Search, Settings, X, ChevronRight, Menu } from "lucide-react";
 import { VibeflowIcon } from "../../VibeflowIcon";
+import { Button, Input } from "../../primitives";
 import { HeaderActionButton } from "./shared/HeaderActionButton";
 import { getTagColors } from "../tag-colors";
 
@@ -106,7 +107,7 @@ export function Header({
   const hasContent = searchQuery || activeFilterTags.length > 0;
 
   return (
-    <header className="kb-header px-5 py-3 flex items-center gap-3 border-b kb-header-border flex-shrink-0">
+    <header className="kb-header px-5 py-3 flex items-center gap-3 border-b border-border flex-shrink-0">
       {/* Project identity */}
       <div className="kb-header-identity flex items-center gap-3 flex-shrink-0">
         {backHref && (
@@ -114,7 +115,7 @@ export function Header({
             <a
               id="header-back-link"
               href={backHref}
-              className="text-xs kb-nav-link transition-colors no-underline"
+              className="text-xs text-text-muted hover:text-text transition-colors no-underline"
               style={{ textDecoration: "none", fontWeight: 500 }}
             >
               {backLabel ?? "Back"}
@@ -165,22 +166,18 @@ export function Header({
           <div className="flex items-center gap-2">
             <h1
               id="header-project-name"
-              className="text-sm font-semibold kb-title leading-tight"
+              className="text-sm font-semibold text-text leading-tight"
             >
               {displayProjectName}
             </h1>
           </div>
-          <p
-            className="text-[10px] font-mono mt-0.5"
-            style={{ color: "var(--t-text-faint)" }}
-          >
+          <p className="text-[10px] font-mono mt-0.5 text-text-faint">
             {taskSummary}
             {isLoading && (
               <span
                 id="header-loading-indicator"
-                className="inline-block ml-1.5 w-1 h-1 rounded-full"
+                className="inline-block ml-1.5 w-1 h-1 rounded-full bg-status-progress"
                 style={{
-                  background: "var(--t-status-progress)",
                   animation: "pulse-live 1.4s ease-in-out infinite",
                   verticalAlign: "middle",
                 }}
@@ -199,8 +196,7 @@ export function Header({
             onClick={() => inputRef.current?.focus()}
           >
             <Search
-              className="w-3.5 h-3.5 flex-shrink-0 mr-0.5"
-              style={{ color: "var(--t-text-faint)" }}
+              className="w-3.5 h-3.5 flex-shrink-0 mr-0.5 text-text-faint"
             />
 
             {/* Active tag chips */}
@@ -246,8 +242,11 @@ export function Header({
               );
             })}
 
-            {/* Text input */}
-            <input
+            {/* Text input — Input primitive (P13.2). `p-0` neutralises the
+                primitive's px-3/py-1.5 so the chip row keeps its exact
+                geometry; `kb-search-input` keeps the token colours (the
+                unlayered kanban.css rule outranks the utility tier). */}
+            <Input
               ref={inputRef}
               id="global-search"
               aria-label="Search tasks"
@@ -260,7 +259,7 @@ export function Header({
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="flex-1 min-w-[100px] bg-transparent border-none outline-none text-xs kb-search-input"
+              className="flex-1 min-w-[100px] bg-transparent border-none p-0 outline-none text-xs kb-search-input"
               autoComplete="off"
               spellCheck={false}
             />
@@ -399,8 +398,10 @@ export function Header({
             icon={<Settings className="w-3.5 h-3.5" />}
           />
         </div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           className="kb-mobile-menu-trigger"
           aria-label="Open board menu"
           aria-expanded={mobileMenuOpen}
@@ -408,7 +409,7 @@ export function Header({
           onClick={() => setMobileMenuOpen((open) => !open)}
         >
           <Menu className="w-4 h-4" />
-        </button>
+        </Button>
 
       </div>
 
