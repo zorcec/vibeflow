@@ -1,3 +1,4 @@
+import React from "react";
 import { useEffect, useRef, type TextareaHTMLAttributes } from "react";
 import { cn, cva } from "../primitives";
 

@@ -1,3 +1,4 @@
+import React from "react";
 import { forwardRef, type InputHTMLAttributes } from "react";
 import { cn, cva } from "../primitives";
 

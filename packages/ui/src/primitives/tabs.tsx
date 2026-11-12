@@ -1,3 +1,4 @@
+import React from "react";
 import { useRef, type ReactNode } from "react";
 import { Tabs as BaseTabs } from "@base-ui-components/react/tabs";
 import { cn } from "../primitives";

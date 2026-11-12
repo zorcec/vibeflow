@@ -1,3 +1,4 @@
+import React from "react";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui-components/react/popover";
 import { cn } from "../primitives";

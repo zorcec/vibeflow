@@ -1,3 +1,4 @@
+import React from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn, cva, type VariantProps } from "../primitives";
 
