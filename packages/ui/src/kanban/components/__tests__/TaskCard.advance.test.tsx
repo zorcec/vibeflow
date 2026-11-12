@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { readFileSync } from "node:fs";
@@ -162,39 +162,84 @@ const cssPath = resolve(
   "../../kanban.css",
 );
 
-describe("advance control stylesheet contract", () => {
-  const css = readFileSync(cssPath, "utf-8");
+/**
+ * PORTED (P13.1): the contract below no longer regexes `kanban.css` as
+ * file text. The shipped stylesheet is injected into the rendered
+ * document; the box assertions read the RENDERED button through
+ * `getComputedStyle`, and the reveal-gate / focus-ring assertions read
+ * parsed `CSSStyleRule`s out of the live CSSOM (jsdom cannot activate
+ * `:hover`/`:focus-visible` on an element, so those two states are
+ * asserted on the browser-parsed rule rather than as source text — a
+ * rule the CSS parser rejects can no longer satisfy them).
+ */
+beforeAll(() => {
+  const style = document.createElement("style");
+  style.textContent = readFileSync(cssPath, "utf-8");
+  document.head.appendChild(style);
+});
 
+/** Every parsed style rule, with whether it sits inside a hover-gated media block. */
+function styleRules(): Array<{ rule: CSSStyleRule; hoverGated: boolean }> {
+  const out: Array<{ rule: CSSStyleRule; hoverGated: boolean }> = [];
+  const walk = (rules: CSSRuleList, hoverGated: boolean) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSStyleRule) out.push({ rule, hoverGated });
+      else if (rule instanceof CSSMediaRule) {
+        walk(
+          rule.cssRules,
+          hoverGated || /hover:\s*hover/.test(rule.conditionText),
+        );
+      } else if (rule instanceof CSSSupportsRule) {
+        walk(rule.cssRules, hoverGated);
+      }
+    }
+  };
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules, false);
+  return out;
+}
+
+function selectorList(rule: CSSStyleRule): string[] {
+  return rule.selectorText.split(",").map((s) => s.trim());
+}
+
+describe("advance control box + reveal contract (302e9cab)", () => {
   it("reserves its box at rest (opacity-only reveal, never display/visibility)", () => {
-    const match = css.match(/\.task-card-advance\s*\{([^}]*)\}/);
-    expect(match, ".task-card-advance rule must exist").toBeTruthy();
-    const block = match![1];
-    expect(block).toMatch(/opacity:\s*0/);
-    expect(block).toMatch(/min-width:\s*22px/);
-    expect(block).toMatch(/min-height:\s*22px/);
-    expect(block).not.toMatch(/display:\s*none/);
-    expect(block).not.toMatch(/visibility/);
+    renderCard(makeTask(), "todo", { onAdvanceTask: vi.fn() });
+    const btn = screen.getByRole("button", { name: "Move to In Progress" });
+    const cs = getComputedStyle(btn);
+    expect(cs.opacity).toBe("0");
+    expect(cs.minWidth).toBe("22px");
+    expect(cs.minHeight).toBe("22px");
+    // Never display/visibility: the box must stay in flow at rest.
+    expect(cs.display).not.toBe("none");
+    expect(cs.visibility).not.toBe("hidden");
   });
 
   it("reveals on card hover only for hover-capable pointers (never on touch)", () => {
     // The reveal selector must live inside a hover media gate — a bare
     // `.task-card:hover .task-card-advance` rule would sticky-reveal on
     // first tap on touch devices.
-    const gated = css.match(
-      /@media\s*\(hover:\s*hover\)[^{]*\{[^}]*\.task-card:hover\s+\.task-card-advance[^}]*\}/,
+    const reveals = styleRules().filter(({ rule }) =>
+      selectorList(rule).includes(".task-card:hover .task-card-advance"),
+    );
+    const gated = reveals.find(
+      ({ rule, hoverGated }) =>
+        hoverGated && rule.style.getPropertyValue("opacity") === "1",
     );
     expect(
       gated,
       "card-hover reveal must sit inside @media (hover: hover)",
     ).toBeTruthy();
     // …and no UNGATED card-hover reveal may exist alongside it.
-    const ungated = css
-      .replace(/@media[^{]*\{([^{}]*\{[^}]*\}[^}]*)*\}/g, "")
-      .match(/\.task-card:hover\s+\.task-card-advance/);
-    expect(ungated, "no ungated card-hover reveal allowed").toBeNull();
+    const ungated = reveals.filter(({ hoverGated }) => !hoverGated);
+    expect(ungated, "no ungated card-hover reveal allowed").toEqual([]);
   });
 
   it("stays keyboard-reachable via its own focus ring", () => {
-    expect(css).toMatch(/\.task-card-advance:focus-visible\s*\{[^}]*opacity:\s*1/);
+    const focusRule = styleRules().find(({ rule }) =>
+      selectorList(rule).includes(".task-card-advance:focus-visible"),
+    );
+    expect(focusRule, ".task-card-advance:focus-visible rule must exist").toBeTruthy();
+    expect(focusRule!.rule.style.getPropertyValue("opacity")).toBe("1");
   });
 });

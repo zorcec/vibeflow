@@ -263,12 +263,6 @@ body {
 .child-toggle-chip[aria-expanded="true"] .child-toggle-chevron {
  transform: rotate(180deg);
 }
-.drag-over {
- outline: 2px dashed rgba(59, 130, 246, 0.5);
- outline-offset: -3px;
- border-radius: 10px;
- background: rgba(59, 130, 246, 0.04);
-}
 
 /* ── File compact hover actions ── */
 .file-compact-actions {
@@ -1682,31 +1676,6 @@ body.proto-resizing-panel {
  display: flex;
  flex-direction: column;
  gap: 0;
-}
-
-/* ── Card children toggle row (collapsed state) ── */
-.card-children-toggle {
- display: flex;
- align-items: center;
- gap: 6px;
- margin-top: 10px;
- padding: 4px 8px;
- border: none;
- background: transparent;
- color: var(--t-text-muted);
- font-size: 11px;
- cursor: pointer;
- border-radius: 6px;
- transition: background 0.1s;
- width: 100%;
- text-align: left;
-}
-.card-children-toggle:hover {
- background: var(--t-hover);
-}
-.card-children-toggle-label {
- flex: 1;
- min-width: 0;
 }
 
 /* ── Card children zone (inside the article) ── */
