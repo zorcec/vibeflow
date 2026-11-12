@@ -44,15 +44,24 @@ export interface ButtonProps
   loading?: boolean;
   /** Native disabled state. Combined with `loading` — either blocks activation. */
   disabled?: boolean;
-  /** Button content — also the accessible name when text. */
-  children: ReactNode;
+  /**
+   * Button content — also the accessible name when text. Optional because a
+   * caller may render an aria-labelled, visually empty hit area (a backdrop,
+   * an icon sheet); requiring children forced those callers back to `<button>`.
+   */
+  children?: ReactNode;
   /** Native button type. Defaults to `"button"` so bare buttons never submit forms. */
   type?: ButtonHTMLAttributes<HTMLButtonElement>["type"];
   /** Extra classes, merged last via `cn`. */
   className?: string;
 }
 
-export function Button({
+/**
+ * Ref forwarding (P17b.2): callers keep a `RefObject` on real controls — the
+ * dashboard's mobile menu button focuses itself on open. Without `forwardRef`
+ * React drops the ref and the focus call silently no-ops.
+ */
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button({
   variant,
   size,
   loading = false,
@@ -62,10 +71,12 @@ export function Button({
   className,
   onClick,
   ...rest
-}: ButtonProps) {
+}, ref) {
   const blocked = disabled || loading;
   return (
     <button
+      ref={ref}
+
       type={type}
       className={cn(buttonStyles({ variant, size }), className)}
       disabled={blocked}
@@ -86,4 +97,4 @@ export function Button({
       {children}
     </button>
   );
-}
+});

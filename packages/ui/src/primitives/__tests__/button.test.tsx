@@ -5,6 +5,7 @@
  * loading block the handler, keyboard Enter/Space activate, the
  * focus-visible ring differs from the resting style.
  */
+import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -176,5 +177,27 @@ describe("Button", () => {
     expect(screen.getByRole("button").className).toContain(
       "extra-class",
     );
+  });
+});
+
+describe("Button ref forwarding (P17b.2)", () => {
+  it("exposes the real <button> node through a ref", () => {
+    // The dashboard keeps a RefObject to focus its mobile menu button on open.
+    // Without forwardRef React drops the ref and focus() silently no-ops —
+    // which is exactly the failure this asserts against.
+    const ref = React.createRef<HTMLButtonElement>();
+    render(<Button ref={ref}>Menu</Button>);
+    expect(ref.current).toBeInstanceOf(HTMLButtonElement);
+    expect(ref.current?.tagName).toBe("BUTTON");
+
+    ref.current?.focus();
+    expect(document.activeElement).toBe(ref.current);
+  });
+
+  it("renders an aria-labelled button with no children", () => {
+    render(<Button aria-label="Close navigation menu" />);
+    const button = screen.getByRole("button", { name: "Close navigation menu" });
+    expect(button).toBeInTheDocument();
+    expect(button.textContent).toBe("");
   });
 });
