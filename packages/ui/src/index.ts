@@ -2,8 +2,6 @@
 export { VibeflowIcon } from "./VibeflowIcon";
 
 // Shared kanban components
-export { KanbanBoard } from "./KanbanBoard";
-export { KanbanCard } from "./KanbanCard";
 export { TaskDetailPanel } from "./TaskDetailPanel";
 export type {
   TaskComment,

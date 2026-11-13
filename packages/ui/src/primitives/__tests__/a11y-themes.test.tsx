@@ -23,8 +23,8 @@ import "@testing-library/jest-dom";
 import axe from "axe-core";
 import { THEMES } from "../../kanban/theme-registry";
 import { ChatPanel } from "../../ChatPanel";
-import { KanbanCard } from "../../KanbanCard";
-import type { KanbanColumn, KanbanHandlers, KanbanTask } from "../../types";
+import { KanbanTaskCard as TaskCard } from "../../kanban";
+import type { Task, TaskStatus } from "../../kanban/types";
 import { VibeflowIcon } from "../../VibeflowIcon";
 import { Button, Badge, Input, Textarea, Dialog, Tooltip, Popover } from "../../index";
 
@@ -71,32 +71,37 @@ function chatStreaming(): React.ReactElement {
   );
 }
 
-const task: KanbanTask = {
+const task: Task = {
   id: "task-1",
   title: "Wire the six-theme decorator",
-  description: "Proof story for the KanbanCard skeleton.",
-  status: "in_progress",
-  type: "feature",
+  description: "Proof story for the TaskCard skeleton.",
+  status: "in-progress" as TaskStatus,
+  type: "Task",
   priority: "High",
   commentCount: 3,
   fileCount: 1,
+  links: [],
 };
 
-const col: KanbanColumn = {
-  id: "doing",
+const col = {
+  id: "in-progress" as TaskStatus,
   label: "In Progress",
-  color: "#2563eb",
+  color: "var(--t-status-progress)",
+  accent: "var(--t-status-progress)",
 };
 
-const handlers: KanbanHandlers = {
-  onCreate: noop,
-  onUpdate: noop,
-  onDelete: noop,
-  onCardClick: noop,
-};
-
+/** The shared card (P13.1) — the legacy KanbanCard was retired in P16. */
 function taskCard(): React.ReactElement {
-  return <KanbanCard task={task} col={col} handlers={handlers} />;
+  return (
+    <TaskCard
+      task={task}
+      col={col}
+      allTasks={[task]}
+      onOpen={noop}
+      onOpenTask={noop}
+      onDragStart={noop}
+    />
+  );
 }
 
 function tokenSwatch(): React.ReactElement {
