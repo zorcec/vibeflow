@@ -130,6 +130,9 @@ export {
 } from "./first-run";
 export type { OnboardedStorage, FirstRunState } from "./first-run";
 export { ConfirmModal } from "./components/ConfirmModal";
+// Exported so it can be storied and consumed by the hosted board: it was a
+// public-looking affordance with no public entry point.
+export { CopyIdButton } from "./components/CopyIdButton";
 export {
   DeleteConfirmDialog,
   type DeleteChildrenMode,

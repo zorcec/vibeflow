@@ -207,6 +207,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "DangerMd", covers: 'variant="danger" size="md" render + axe' },
       { name: "StatusTones", covers: "every status tone resolves the canonical --t-chip-* token, measured in two themes" },
       { name: "WithDot", covers: "leading dot marker renders and stays decorative (aria-hidden)" },
+      { name: "Attention", covers: "the attention tone renders with its own hue" },
     ],
   },
   {
@@ -238,6 +239,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "Readonly", covers: "readonly keeps the value but blocks typing" },
       { name: "Error", covers: "error sets aria-invalid and a resolvable aria-describedby" },
       { name: "FocusVisible", covers: "keyboard focus resolves a visible ring" },
+      { name: "ResizeNone", covers: "resize=none applies resize-none" },
+      { name: "ResizeVertical", covers: "resize=vertical applies resize-y" },
     ],
   },
   {
@@ -316,6 +319,257 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "AvatarWithImage", covers: "injected image renderer (next/image seam)" },
       { name: "VerifiedBadge", covers: "tri-state verified flag" },
       { name: "AwayVeil", covers: "inactivity veil is not a hit target" },
+    ],
+  },
+  {
+    component: "ActivityCounter",
+    storyFile: "stories/collab/activity-counter.stories.tsx",
+    title: "Design System/Collab/ActivityCounter",
+    stories: [
+      { name: "NoActivity", covers: "renders and is axe-clean in all six themes" },
+      { name: "UnseenActivity", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "ActivityFeedPanel",
+    storyFile: "stories/collab/activity-feed-panel.stories.tsx",
+    title: "Design System/Collab/ActivityFeedPanel",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "InactivityVeil",
+    storyFile: "stories/collab/inactivity-veil.stories.tsx",
+    title: "Design System/Collab/InactivityVeil",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "MembersOverviewPanel",
+    storyFile: "stories/collab/members-overview-panel.stories.tsx",
+    title: "Design System/Collab/MembersOverviewPanel",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "VerifiedEmailBadge",
+    storyFile: "stories/collab/verified-email-badge.stories.tsx",
+    title: "Design System/Collab/VerifiedEmailBadge",
+    stories: [
+      { name: "Verified", covers: "renders and is axe-clean in all six themes" },
+      { name: "Unverified", covers: "renders and is axe-clean in all six themes" },
+      { name: "Unknown", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "AttentionBadge",
+    storyFile: "stories/kanban/attention-badge.stories.tsx",
+    title: "Design System/Kanban/AttentionBadge",
+    stories: [
+      { name: "Flagged", covers: "renders and is axe-clean in all six themes" },
+      { name: "NotFlagged", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "ConfirmModal",
+    storyFile: "stories/kanban/confirm-modal.stories.tsx",
+    title: "Design System/Kanban/ConfirmModal",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Loading", covers: "renders and is axe-clean in all six themes" },
+      { name: "WithError", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "CopyIdButton",
+    storyFile: "stories/kanban/copy-id-button.stories.tsx",
+    title: "Design System/Kanban/CopyIdButton",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Revealed", covers: "renders and is axe-clean in all six themes" },
+      { name: "Collapsed", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "DeleteConfirmDialog",
+    storyFile: "stories/kanban/delete-confirm-dialog.stories.tsx",
+    title: "Design System/Kanban/DeleteConfirmDialog",
+    stories: [
+      { name: "NoChildren", covers: "renders and is axe-clean in all six themes" },
+      { name: "WithChildren", covers: "renders and is axe-clean in all six themes" },
+      { name: "Failed", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "FilePreviewModal",
+    storyFile: "stories/kanban/file-preview-modal.stories.tsx",
+    title: "Design System/Kanban/FilePreviewModal",
+    stories: [
+      { name: "Image", covers: "renders and is axe-clean in all six themes" },
+      { name: "Unsupported", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "KanbanBoard",
+    storyFile: "stories/kanban/kanban-board.stories.tsx",
+    title: "Design System/Kanban/KanbanBoard",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "PriorityBadge",
+    storyFile: "stories/kanban/priority-badge.stories.tsx",
+    title: "Design System/Kanban/PriorityBadge",
+    stories: [
+      { name: "Critical", covers: "renders and is axe-clean in all six themes" },
+      { name: "High", covers: "renders and is axe-clean in all six themes" },
+      { name: "Medium", covers: "renders and is axe-clean in all six themes" },
+      { name: "Low", covers: "renders and is axe-clean in all six themes" },
+      { name: "Unknown", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "RecursiveChildrenTree",
+    storyFile: "stories/kanban/recursive-children-tree.stories.tsx",
+    title: "Design System/Kanban/RecursiveChildrenTree",
+    stories: [
+      { name: "TwoLevels", covers: "renders and is axe-clean in all six themes" },
+      { name: "NoChildren", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "StatusBadge",
+    storyFile: "stories/kanban/status-badge.stories.tsx",
+    title: "Design System/Kanban/StatusBadge",
+    stories: [
+      { name: "Backlog", covers: "renders and is axe-clean in all six themes" },
+      { name: "Todo", covers: "renders and is axe-clean in all six themes" },
+      { name: "InProgress", covers: "renders and is axe-clean in all six themes" },
+      { name: "Review", covers: "renders and is axe-clean in all six themes" },
+      { name: "Done", covers: "renders and is axe-clean in all six themes" },
+      { name: "Cancelled", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TaskDetailPanel",
+    storyFile: "stories/kanban/task-detail-panel.stories.tsx",
+    title: "Design System/Kanban/TaskDetailPanel",
+    stories: [
+      { name: "Open", covers: "renders and is axe-clean in all six themes" },
+      { name: "Closed", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TypeBadge",
+    storyFile: "stories/kanban/type-badge.stories.tsx",
+    title: "Design System/Kanban/TypeBadge",
+    stories: [
+      { name: "Task", covers: "renders and is axe-clean in all six themes" },
+      { name: "Bug", covers: "renders and is axe-clean in all six themes" },
+      { name: "Research", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TypePicker",
+    storyFile: "stories/kanban/type-picker.stories.tsx",
+    title: "Design System/Kanban/TypePicker",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Disabled", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "AutoExpandTextarea",
+    storyFile: "stories/shared/auto-expand-textarea.stories.tsx",
+    title: "Design System/Shared/AutoExpandTextarea",
+    stories: [
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "MultiLine", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "CommentsInputArea",
+    storyFile: "stories/shared/comments-input-area.stories.tsx",
+    title: "Design System/Shared/CommentsInputArea",
+    stories: [
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "WithDraft", covers: "renders and is axe-clean in all six themes" },
+      { name: "Submitting", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "CommentsList",
+    storyFile: "stories/shared/comments-list.stories.tsx",
+    title: "Design System/Shared/CommentsList",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "WithSystemEntries", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "FilesList",
+    storyFile: "stories/shared/files-list.stories.tsx",
+    title: "Design System/Shared/FilesList",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Loading", covers: "renders and is axe-clean in all six themes" },
+      { name: "Failed", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "MarkdownEditableField",
+    storyFile: "stories/shared/markdown-editable-field.stories.tsx",
+    title: "Design System/Shared/MarkdownEditableField",
+    stories: [
+      { name: "Write", covers: "renders and is axe-clean in all six themes" },
+      { name: "Preview", covers: "renders and is axe-clean in all six themes" },
+      { name: "PreviewEmpty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "MarkdownPreview",
+    storyFile: "stories/shared/markdown-preview.stories.tsx",
+    title: "Design System/Shared/MarkdownPreview",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "WithTaskReference", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TagInput",
+    storyFile: "stories/shared/tag-input.stories.tsx",
+    title: "Design System/Shared/TagInput",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Disabled", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TagPills",
+    storyFile: "stories/shared/tag-pills.stories.tsx",
+    title: "Design System/Shared/TagPills",
+    stories: [
+      { name: "ReadOnly", covers: "renders and is axe-clean in all six themes" },
+      { name: "Removable", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+    ],
+  },
+  {
+    component: "TaskDetailsTab",
+    storyFile: "stories/shared/task-details-tab.stories.tsx",
+    title: "Design System/Shared/TaskDetailsTab",
+    stories: [
+      { name: "Default", covers: "renders and is axe-clean in all six themes" },
     ],
   },
 ];

@@ -94,6 +94,9 @@ export function TagInput({ tags, allTags, onChange, disabled }: Props) {
           <input
             ref={inputRef}
             type="text"
+            /* A placeholder is not a label: axe reports this input as
+               unlabelled, and a screen reader announces an empty text box. */
+            aria-label="Add tags"
             value={input}
             placeholder={tags.length ? '' : 'Add tags…'}
             onChange={(e) => { setInput(e.target.value); setOpen(true); }}

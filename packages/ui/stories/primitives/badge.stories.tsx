@@ -140,3 +140,15 @@ export const WithDot: Story = {
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
   },
 };
+
+/**
+ * The `attention` tone exists for AttentionBadge's hue and had no story of its
+ * own — the coverage guard caught it, not a reviewer.
+ */
+export const Attention: Story = {
+  args: { tone: "attention", children: "Needs attention" },
+  play: async ({ canvasElement }) => {
+    await expectNoA11yViolations(canvasElement);
+    expect(canvasElement).toHaveTextContent("Needs attention");
+  },
+};

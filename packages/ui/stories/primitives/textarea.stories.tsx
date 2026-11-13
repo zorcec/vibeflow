@@ -118,3 +118,20 @@ export const FocusVisible: Story = {
     await expect(parseFloat(cs.outlineWidth)).toBeGreaterThan(0);
   },
 };
+export const ResizeNone: Story = {
+  args: { resize: "none", "aria-label": "Fixed" },
+  play: async ({ canvasElement }) => {
+    await expectNoA11yViolations(canvasElement);
+    const field = canvasElement.querySelector("textarea")!;
+    // The utility must actually be applied: a missing class is invisible.
+    expect(field.className).toMatch(/\bresize-none\b/);
+  },
+};
+
+export const ResizeVertical: Story = {
+  args: { resize: "vertical", "aria-label": "Vertical resize" },
+  play: async ({ canvasElement }) => {
+    await expectNoA11yViolations(canvasElement);
+    expect(canvasElement.querySelector("textarea")!.className).toMatch(/\bresize-y\b/);
+  },
+};
