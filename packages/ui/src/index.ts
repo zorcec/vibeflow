@@ -110,3 +110,6 @@ export {
   type TabsActivationMode,
   type TabsOrientation,
 } from "./primitives/tabs";
+
+// Collaboration primitives (P17d.1) — data-free, framework-free.
+export * from "./collab";

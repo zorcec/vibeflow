@@ -307,4 +307,15 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "DisabledTab", covers: "a disabled tab cannot activate" },
     ],
   },
+  {
+    component: "Collab",
+    storyFile: "stories/collab/collab.stories.tsx",
+    title: "Design System/Collab",
+    stories: [
+      { name: "AvatarInitials", covers: "initials fallback, hashed colour" },
+      { name: "AvatarWithImage", covers: "injected image renderer (next/image seam)" },
+      { name: "VerifiedBadge", covers: "tri-state verified flag" },
+      { name: "AwayVeil", covers: "inactivity veil is not a hit target" },
+    ],
+  },
 ];
