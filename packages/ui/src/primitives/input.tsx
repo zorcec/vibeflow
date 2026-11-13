@@ -1,5 +1,5 @@
 import React from "react";
-import { forwardRef, type InputHTMLAttributes } from "react";
+import { forwardRef, useId, type InputHTMLAttributes } from "react";
 import { cn, cva } from "../primitives";
 
 /**
@@ -53,7 +53,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({
   "aria-invalid": ariaInvalid,
   ...rest
 }, ref) {
-  const errorId = error && id ? `${id}-error` : undefined;
+  // A caller that supplies `error` but no `id` still needs an association: the
+  // old `error && id` guard silently rendered an unowned message, so the
+  // documented contract ("supplying `error` points `aria-describedby` at the
+  // rendered message") was false for every caller without an id.
+  const generatedId = useId();
+  const fieldId = id ?? (error ? generatedId : undefined);
+  const errorId = error ? `${fieldId}-error` : undefined;
   const invalid = error ? true : ariaInvalid;
   const describedBy =
     [ariaDescribedBy, errorId].filter(Boolean).join(" ") || undefined;
@@ -61,7 +67,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({
   const input = (
     <input
       ref={ref}
-      id={id}
+      id={fieldId}
       type={type}
       className={cn(inputStyles({ state: error ? "error" : "default" }), className)}
       aria-invalid={invalid || undefined}

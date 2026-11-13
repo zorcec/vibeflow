@@ -74,6 +74,14 @@ describe("Textarea (P10.2)", () => {
     expect(screen.getByLabelText("probe").className).toMatch(/\bresize-y\b/);
   });
 
+  it("associates the error even when the caller supplies no id", () => {
+    render(<Textarea aria-label="probe" error="Required" />);
+    const el = screen.getByLabelText("probe");
+    const describedBy = el.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent("Required");
+  });
+
   it("uses token utilities only", () => {
     render(<Textarea aria-label="probe" error="boom" />);
     const cls = screen.getByLabelText("probe").className;

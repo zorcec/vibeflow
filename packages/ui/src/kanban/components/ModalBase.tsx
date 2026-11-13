@@ -72,12 +72,30 @@ export function ModalBase({
   // The guard ref keeps a single Escape from closing twice when Base UI DOES
   // handle it.
   const escapeHandledRef = React.useRef(false);
+  // The guard is consumed by whichever handler runs SECOND, but the flag can
+  // only be set by the first if both directions set it. Previously only the
+  // window listener set it — yet Base UI's popup handler fires first for a
+  // real keypress, so the ordering it guarded against was the rare one and
+  // Escape called onClose() twice. Clearing on the next tick keeps the guard
+  // scoped to the keypress rather than to the modal's lifetime.
+  const clearEscapeGuard = React.useCallback(() => {
+    setTimeout(() => {
+      escapeHandledRef.current = false;
+    }, 0);
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        // Base UI's popup handler may have closed this already (it runs first
+        // for a real keypress, because the event bubbles popup → window).
+        if (escapeHandledRef.current) {
+          clearEscapeGuard();
+          return;
+        }
         escapeHandledRef.current = true;
+        clearEscapeGuard();
         onClose();
         return;
       }
@@ -88,19 +106,18 @@ export function ModalBase({
       window.removeEventListener('keydown', onKey);
       escapeHandledRef.current = false;
     };
-  }, [open, onClose, onKeyDown]);
+  }, [open, onClose, onKeyDown, clearEscapeGuard]);
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         if (next) return;
-        // Our window listener already closed this one (Escape): do not call
-        // onClose twice for a single keypress.
-        if (escapeHandledRef.current) {
-          escapeHandledRef.current = false;
-          return;
-        }
+        // Whichever handler runs first claims the keypress; the other one
+        // must not close again.
+        if (escapeHandledRef.current) return;
+        escapeHandledRef.current = true;
+        clearEscapeGuard();
         onClose();
       }}
       title={title ?? ''}

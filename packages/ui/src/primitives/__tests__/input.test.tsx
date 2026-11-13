@@ -60,6 +60,17 @@ describe("Input (P10.2)", () => {
     );
   });
 
+  it("associates the error even when the caller supplies no id", () => {
+    // Regression: `error && id` meant the documented contract was false for
+    // every caller without an id — the message rendered but pointed at nothing.
+    render(<Input aria-label="probe" error="Required" />);
+    const el = screen.getByLabelText("probe");
+    const describedBy = el.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent("Required");
+    expect(el).toHaveAttribute("aria-invalid", "true");
+  });
+
   it("renders only the input when there is no error (no surprise wrapper)", () => {
     const { container } = render(<Input aria-label="probe" />);
     expect(container.querySelector("div")).toBeNull();

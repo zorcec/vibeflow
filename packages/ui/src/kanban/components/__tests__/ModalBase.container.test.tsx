@@ -67,3 +67,25 @@ describe("ModalBase container (P14.1)", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
+
+describe("ModalBase Escape (deep review)", () => {
+  it("calls onClose once when Escape reaches both the popup and window", async () => {
+    // Regression: Base UI's popup handler runs FIRST for a real keypress
+    // (the event bubbles popup → window), so the old guard was consumed in
+    // the opposite order and onClose ran twice for one key.
+    const onClose = vi.fn();
+    render(
+      <ModalBase open onClose={onClose} title="Escape twice">
+        <p>body</p>
+      </ModalBase>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    // Base UI's own path: a keydown on the focused element inside the popup.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    // Our window listener sees the same keypress.
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

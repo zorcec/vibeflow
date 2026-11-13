@@ -1,5 +1,5 @@
 import React from "react";
-import { useEffect, useRef, type TextareaHTMLAttributes } from "react";
+import { useEffect, useId, useRef, type TextareaHTMLAttributes } from "react";
 import { cn, cva } from "../primitives";
 
 /**
@@ -61,7 +61,11 @@ export function Textarea({
   ...rest
 }: TextareaProps) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  const errorId = error && id ? `${id}-error` : undefined;
+  // Same contract as Input: an `error` without a caller-supplied `id` must
+  // still produce a real association instead of an unowned <p>.
+  const generatedId = useId();
+  const fieldId = id ?? (error ? generatedId : undefined);
+  const errorId = error ? `${fieldId}-error` : undefined;
   const invalid = error ? true : ariaInvalid;
   const describedBy =
     [ariaDescribedBy, errorId].filter(Boolean).join(" ") || undefined;
@@ -80,7 +84,7 @@ export function Textarea({
   const textarea = (
     <textarea
       ref={ref}
-      id={id}
+      id={fieldId}
       rows={rows}
       value={value}
       className={cn(

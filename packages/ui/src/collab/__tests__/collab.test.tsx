@@ -5,6 +5,7 @@ import { VerifiedEmailBadge } from "../VerifiedEmailBadge";
 import { UserAvatar } from "../UserAvatar";
 import { InactivityVeil } from "../InactivityVeil";
 import { timeAgo } from "../timeAgo";
+import { ActivityCounter } from "../ActivityFeed";
 
 /**
  * P17d.1 — these three components moved into the public package because they
@@ -72,5 +73,44 @@ describe("timeAgo", () => {
     const now = Date.now();
     expect(timeAgo(new Date(now - 5 * 60_000))).toBe("5m ago");
     expect(timeAgo(new Date(now - 3 * 3_600_000))).toBe("3h ago");
+  });
+});
+
+describe("ActivityCounter", () => {
+  const baseTask = {
+    id: "t1",
+    title: "A task",
+    status: "todo",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } as never;
+
+  it("counts activity-log events, not only status changes", () => {
+    // Regression: `buildEvents` was called without `activityLog` and the memo
+    // omitted it from its deps, so comments/updates/attachments — events the
+    // feed panel itself shows — never moved the badge.
+    render(
+      <ActivityCounter
+        tasks={[baseTask]}
+        currentUser="me"
+        lastCheckAt={new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()}
+        onClick={() => {}}
+        activityLog={[
+          {
+            id: "a1",
+            taskId: "t1",
+            taskTitle: "A task",
+            user: "someone",
+            time: new Date(Date.now() - 60_000).toISOString(),
+            action: "commented",
+          },
+        ]}
+      />,
+    );
+    const badge = document.querySelector('[data-role="activity-unseen"]');
+    // Asserting the badge, not the button's text: "1 active" also contains a
+    // "1" and made an earlier version of this test pass while the bug was
+    // still present.
+    expect(badge?.textContent).toBe("1");
   });
 });

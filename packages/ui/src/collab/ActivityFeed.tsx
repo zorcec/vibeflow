@@ -345,9 +345,12 @@ export function ActivityCounter({ tasks, currentUser, lastCheckAt, onClick, stat
     // Count tasks with activity since the user last opened the feed.
     // Fall back to last 7 days if they've never opened it.
     const cutoff = lastCheckAt ? new Date(lastCheckAt).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const events = buildEvents(tasks, statusChangeLog);
+    // `activityLog` belongs here too: comments, field updates and attachments
+    // are events the panel shows, so omitting them made the badge under-count
+    // (and the memo never re-ran when the log changed).
+    const events = buildEvents(tasks, statusChangeLog, activityLog);
     return events.filter(ev => new Date(ev.time).getTime() > cutoff).length;
-  }, [tasks, currentUser, lastCheckAt, statusChangeLog]);
+  }, [tasks, lastCheckAt, statusChangeLog, activityLog]);
 
   return (
     <button
@@ -374,6 +377,7 @@ export function ActivityCounter({ tasks, currentUser, lastCheckAt, onClick, stat
       <span>{activeUsers.length} active</span>
       {unseenCount > 0 && (
         <span
+          data-role="activity-unseen"
           style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             minWidth: 16, height: 16, padding: "0 4px", borderRadius: 100,
