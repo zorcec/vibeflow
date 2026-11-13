@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
@@ -158,6 +159,62 @@ describe("Tooltip trigger composition (P11.2)", () => {
       fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
       fireEvent.pointerLeave(trigger, { pointerType: "mouse" });
       vi.advanceTimersByTime(600);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+describe("Tooltip timer hygiene (P11.2)", () => {
+  it("clears the pending hover timer on unmount", () => {
+    // Regression: the timer lived in a render-scoped `let`, so unmount left it
+    // armed — it fired after teardown and called setState on an unmounted
+    // component. With a ref + effect cleanup there is nothing left to fire.
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(
+        <Tooltip content="Hint" delay={500}>
+          <button type="button">Save</button>
+        </Tooltip>,
+      );
+      fireEvent.pointerEnter(screen.getByRole("button"), { pointerType: "mouse" });
+      expect(vi.getTimerCount()).toBe(1);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reopen after the pointer left when a re-render orphaned the timer", () => {
+    // Regression: a re-render between pointerenter and pointerleave created a
+    // fresh closure whose `hoverTimer` is undefined, so leave cleared nothing
+    // and the orphaned timer opened the tooltip after the pointer was gone.
+    vi.useFakeTimers();
+    try {
+      function Harness() {
+        const [, bump] = useState(0);
+        return (
+          <div>
+            <button type="button" onClick={() => bump((n) => n + 1)}>
+              rerender
+            </button>
+            <Tooltip content="Hint" delay={500}>
+              <button type="button">Save</button>
+            </Tooltip>
+          </div>
+        );
+      }
+      render(<Harness />);
+      const save = screen.getByRole("button", { name: "Save" });
+      fireEvent.pointerEnter(save, { pointerType: "mouse" });
+      fireEvent.click(screen.getByRole("button", { name: "rerender" }));
+      fireEvent.pointerLeave(save, { pointerType: "mouse" });
+      // act so the stale timer's setState flushes — otherwise the orphaned
+      // open would be invisible and the regression would pass by accident.
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
       expect(screen.queryByRole("tooltip")).toBeNull();
     } finally {
       vi.useRealTimers();

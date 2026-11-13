@@ -167,6 +167,66 @@ describe("Tabs edge paths (P12)", () => {
     expect(onValueChange).not.toHaveBeenCalled();
   });
 
+  it("arrow navigation keeps advancing focus past the first neighbour", () => {
+    // Regression: origin was the committed `value`, so in manual mode every
+    // ArrowRight recomputed the same neighbour and focus never moved on.
+    const { onValueChange } = renderTabs({ activationMode: "manual" });
+    const list = screen.getByRole("tablist");
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Files" }));
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("arrow navigation skips disabled tabs on every press", () => {
+    const { onValueChange } = renderTabs({
+      activationMode: "manual",
+      value: "a",
+      tabs: [
+        { id: "a", label: "A", panel: <p>1</p> },
+        { id: "b", label: "B", panel: <p>2</p>, disabled: true },
+        { id: "c", label: "C", panel: <p>3</p> },
+        { id: "d", label: "D", panel: <p>4</p> },
+      ],
+    });
+    const list = screen.getByRole("tablist");
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "C" }));
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "D" }));
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("ignores arrow/Home/End keys when every tab is disabled", () => {
+    // Regression: `% 0` yields NaN, `enabled[NaN]` is undefined and moveTo
+    // dereferences `target.tab.id` — a TypeError instead of a no-op. jsdom
+    // reports exceptions thrown in event listeners to `window` rather than
+    // rethrowing through fireEvent, so listen for them explicitly.
+    const onValueChange = vi.fn();
+    render(
+      <Tabs
+        value="only"
+        onValueChange={onValueChange}
+        aria-label="Sections"
+        tabs={[{ id: "only", label: "Only", panel: <p>1</p>, disabled: true }]}
+      />,
+    );
+    const listenerErrors: unknown[] = [];
+    const capture = (event: ErrorEvent) => listenerErrors.push(event.error ?? event.message);
+    window.addEventListener("error", capture);
+    try {
+      const list = screen.getByRole("tablist");
+      fireEvent.keyDown(list, { key: "ArrowRight" });
+      fireEvent.keyDown(list, { key: "ArrowLeft" });
+      fireEvent.keyDown(list, { key: "Home" });
+      fireEvent.keyDown(list, { key: "End" });
+    } finally {
+      window.removeEventListener("error", capture);
+    }
+    expect(listenerErrors).toEqual([]);
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
+
   it("an unknown key is ignored", () => {
     const onValueChange = vi.fn();
     render(

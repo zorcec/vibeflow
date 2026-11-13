@@ -3,7 +3,9 @@ import {
   Children,
   cloneElement,
   isValidElement,
+  useEffect,
   useId,
+  useRef,
   useState,
   type ReactElement,
   type ReactNode,
@@ -58,6 +60,17 @@ export function Tooltip({
 }: TooltipProps) {
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
+  /** Pending hover-open timer. A ref, not a render-scoped `let`: a re-render
+   *  would orphan the old closure's timer, which then opens the tooltip after
+   *  the pointer left — and nothing would ever clear it on unmount. */
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Read the ref at unmount time, not at mount: the timer only exists
+    // after a pointerenter.
+    return () => {
+      if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+    };
+  }, []);
 
   if (disabled) return <>{children}</>;
   // Validate BEFORE Children.only: that helper throws React's own generic
@@ -77,13 +90,21 @@ export function Tooltip({
     onBlur?: (e: unknown) => void;
   };
 
-  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearHoverTimer = () => {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
   const openSoon = () => {
-    clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => setOpen(true), delay);
+    clearHoverTimer();
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = null;
+      setOpen(true);
+    }, delay);
   };
   const closeNow = () => {
-    clearTimeout(hoverTimer);
+    clearHoverTimer();
     setOpen(false);
   };
 
@@ -100,7 +121,7 @@ export function Tooltip({
     onFocus: (e: unknown) => {
       childProps.onFocus?.(e);
       // Keyboard users get the hint immediately — no artificial delay.
-      clearTimeout(hoverTimer);
+      clearHoverTimer();
       setOpen(true);
     },
     onBlur: (e: unknown) => {

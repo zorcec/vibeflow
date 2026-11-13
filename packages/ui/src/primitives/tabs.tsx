@@ -93,50 +93,67 @@ export function Tabs({
           // ArrowRight/ArrowDown in the browser (measured 2026-11-11: the
           // panel never changed), so navigation is implemented here where it
           // can also be tested.
-          const currentIndex = tabs.findIndex((tab) => tab.id === value);
           const enabled = tabs
             .map((tab, index) => ({ tab, index }))
             .filter((entry) => !entry.tab.disabled);
-          const posInEnabled = enabled.findIndex((entry) => entry.index === currentIndex);
+          // Every tab disabled: nowhere to go — and `% 0` would be NaN,
+          // making `enabled[NaN]` undefined and moveTo dereference
+          // `target.tab.id` on undefined.
+          if (enabled.length === 0) return;
+
+          // Origin is the tab focus is ON, not the committed `value`: in
+          // manual mode (and before the parent re-renders) `value` never
+          // moves, so measuring from it would recompute the same neighbour
+          // on every press and focus would never advance.
+          const activeEl = document.activeElement as HTMLElement | null;
+          const focused = activeEl?.getAttribute("data-tab-value");
+          const currentIndex = tabs.findIndex(
+            (tab) => tab.id === (focused ?? pendingRef.current ?? value),
+          );
+
           const step = (delta: number) => {
-            const nextPos =
-              (posInEnabled + delta + enabled.length) % enabled.length;
-            return enabled[nextPos];
+            let index = currentIndex;
+            for (let visited = 0; visited < tabs.length; visited += 1) {
+              index = (index + delta + tabs.length) % tabs.length;
+              if (!tabs[index].disabled) return tabs[index];
+            }
+            return undefined; // unreachable: enabled.length > 0
           };
 
-          const moveTo = (target: { tab: TabDefinition; index: number }) => {
+          const moveTo = (target: TabDefinition) => {
             event.preventDefault();
             const el = event.currentTarget.querySelector<HTMLElement>(
-              `[data-tab-value="${target.tab.id}"]`,
+              `[data-tab-value="${target.id}"]`,
             );
             el?.focus();
             if (!manual) {
-              onValueChange(target.tab.id);
+              onValueChange(target.id);
             } else {
-              pendingRef.current = target.tab.id;
+              pendingRef.current = target.id;
             }
           };
 
+          const forward = step(1);
+          const backward = step(-1);
           switch (event.key) {
             case "ArrowRight":
             case "ArrowDown":
-              moveTo(step(1));
+              if (forward) moveTo(forward);
               return;
             case "ArrowLeft":
             case "ArrowUp":
-              moveTo(step(-1));
+              if (backward) moveTo(backward);
               return;
             case "Home":
-              moveTo(enabled[0]);
+              moveTo(enabled[0].tab);
               return;
             case "End":
-              moveTo(enabled[enabled.length - 1]);
+              moveTo(enabled[enabled.length - 1].tab);
               return;
             case "Enter":
             case " ": {
               if (!manual) return;
-              const active = document.activeElement as HTMLElement | null;
-              const target = pendingRef.current ?? active?.getAttribute("data-tab-value");
+              const target = pendingRef.current ?? focused;
               if (!target || target === value) return;
               event.preventDefault();
               pendingRef.current = null;
