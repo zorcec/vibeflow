@@ -53,6 +53,52 @@ export interface DetailRelationsGroups {
  * - children: derived via getChildren (no link index)
  * - parentLinks/blocksLinks/relatesLinks: explicit links with original indices.
  */
+/**
+ * Total order for relation rows and children — the ONE rule, so two runs of
+ * identical code can never swap two equivalent rows (ticket f6d074ac).
+ *
+ * Manual order first (`sortKey`, what a drag sets), then title, then id. The
+ * id tiebreak makes the order TOTAL: without it two same-titled, keyless
+ * siblings compare 0 and fall back to array/Map order, which is insertion
+ * order — i.e. the random link ids the visual harness could not pin.
+ *
+ * Deliberately NOT `compareTaskOrder`: that one falls back to timestamps,
+ * which change between runs and are not a stable display order for relations.
+ */
+export function compareRelationOrder(
+ a: { sortKey?: string | null; title?: string | null; id?: string | null },
+ b: { sortKey?: string | null; title?: string | null; id?: string | null },
+): number {
+ const ak = a.sortKey ?? "";
+ const bk = b.sortKey ?? "";
+ if (ak !== bk) {
+  // Keyed rows keep the user's manual order; unkeyed rows sort after them.
+  if (ak && bk) return ak < bk ? -1 : 1;
+  return ak ? -1 : 1;
+ }
+ const at = a.title ?? "";
+ const bt = b.title ?? "";
+ if (at !== bt) return at.localeCompare(bt);
+ return (a.id ?? "").localeCompare(b.id ?? "");
+}
+
+/** Relation row comparator: stable on the target, falling back to the link id
+ *  when the target task is missing (a dangling link still has to sort). */
+function compareRelationRow(a: DetailRelationRow, b: DetailRelationRow): number {
+ return compareRelationOrder(
+  {
+   sortKey: a.target?.sortKey ?? null,
+   title: a.target?.title ?? null,
+   id: a.target?.id ?? a.link.taskId,
+  },
+  {
+   sortKey: b.target?.sortKey ?? null,
+   title: b.target?.title ?? null,
+   id: b.target?.id ?? b.link.taskId,
+  },
+ );
+}
+
 export function groupDetailRelations(
  task: Task,
  allTasks: Task[],
@@ -78,7 +124,16 @@ export function groupDetailRelations(
   else relatesLinks.push(row);
  });
 
- return { children, parentLinks, blocksLinks, relatesLinks };
+ // Sort every group on the total order above. The flat groups used to keep
+ // whatever order the links array happened to hold (insertion order = random
+ // ids in the harness seed); children used to keep the order they were found
+ // in `allTasks`.
+ return {
+  children: [...children].sort(compareRelationOrder),
+  parentLinks: [...parentLinks].sort(compareRelationRow),
+  blocksLinks: [...blocksLinks].sort(compareRelationRow),
+  relatesLinks: [...relatesLinks].sort(compareRelationRow),
+ };
 }
 
 /** Return the parent task, or undefined. */

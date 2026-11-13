@@ -6,6 +6,7 @@ import {
   getLeafDescendants,
   getParent,
   groupDetailRelations,
+  compareRelationOrder,
   groupTasksByRoot,
   countChildrenByColumn,
   resolveRootTask,
@@ -478,5 +479,98 @@ describe("countChildrenByColumn (f2bef66a header child counts)", () => {
     ] as unknown as Task[];
     // orphan's root is absent → standalone fallback card, never nested.
     expect(counted(tasks)).toEqual({});
+  });
+});
+
+// ── Deterministic relation order (ticket f6d074ac) ─────────────────────────
+//
+// The visual harness could not hold three detail surfaces at zero drift
+// because relation rows came out in link-array order (random ids in the seed).
+// The order is now a TOTAL order: sortKey, then title, then id. These tests
+// feed the same logical board in different orders and require identical
+// output — the property that makes the screenshots reproducible.
+describe("groupDetailRelations — deterministic ordering", () => {
+  const t = (id: string, title: string, extra: Partial<Task> = {}): Task =>
+    ({ id, title, status: "todo", ...extra }) as Task;
+
+  // Three relations of the same type, one pair deliberately sharing a title.
+  const rows = [
+    t("t_zzz", "Zebra"),
+    t("t_aaa", "Alpha"),
+    t("t_bbb", "Alpha"), // same title as t_aaa → id tiebreak decides
+  ];
+
+  const withLinks = (order: number[]): Task => {
+    const base = t("t_hub", "Hub");
+    base.links = order.map((i) => ({ taskId: rows[i].id, type: "relates" }));
+    return base;
+  };
+
+  const ids = (task: Task, all: Task[]) =>
+    groupDetailRelations(task, all).relatesLinks.map((r) => r.target?.id);
+
+  it("gives one order regardless of the order the links arrive in", () => {
+    const all = [t("t_hub", "Hub"), ...rows];
+    const orders = [
+      [0, 1, 2],
+      [2, 1, 0],
+      [1, 0, 2],
+      [2, 0, 1],
+      [0, 2, 1],
+      [1, 2, 0],
+    ];
+    const results = orders.map((o) => ids(withLinks(o), all));
+    for (const r of results) expect(r).toEqual(results[0]);
+    // And the order is the documented one: title, then id.
+    expect(results[0]).toEqual(["t_aaa", "t_bbb", "t_zzz"]);
+  });
+
+  it("gives one order regardless of the order tasks arrive in", () => {
+    const task = withLinks([0, 1, 2]);
+    const a = ids(task, [task, ...rows]);
+    const b = ids(task, [task, ...[...rows].reverse()]);
+    const c = ids(task, [task, rows[1], rows[2], rows[0]]);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+  });
+
+  it("keeps manual sortKey order ahead of the title order", () => {
+    const keyed = [
+      t("t_2", "Zebra", { sortKey: "b" }),
+      t("t_1", "Alpha", { sortKey: "a" }),
+    ];
+    const hub = t("t_hub", "Hub");
+    hub.links = [
+      { taskId: "t_2", type: "relates" },
+      { taskId: "t_1", type: "relates" },
+    ];
+    const got = groupDetailRelations(hub, [hub, ...keyed]).relatesLinks.map(
+      (r) => r.target?.id,
+    );
+    expect(got).toEqual(["t_1", "t_2"]);
+  });
+
+  it("sorts dangling links instead of keeping them wherever they landed", () => {
+    const hub = t("t_hub", "Hub");
+    hub.links = [
+      { taskId: "t_missing_b", type: "relates" },
+      { taskId: "t_missing_a", type: "relates" },
+    ];
+    const got = groupDetailRelations(hub, [hub]).relatesLinks.map((r) => r.link.taskId);
+    expect(got).toEqual(["t_missing_a", "t_missing_b"]);
+  });
+
+  it("is a total order: equal keys still compare by id", () => {
+    expect(compareRelationOrder({ title: "Same", id: "b" }, { title: "Same", id: "a" })).toBeGreaterThan(0);
+    expect(compareRelationOrder({ title: "Same", id: "a" }, { title: "Same", id: "a" })).toBe(0);
+  });
+
+  it("sorts children on the same total order", () => {
+    const parent = t("t_p", "Parent");
+    const c1 = t("c_b", "Beta", { links: [{ taskId: "t_p", type: "parent" }] });
+    const c2 = t("c_a", "Beta", { links: [{ taskId: "t_p", type: "parent" }] });
+    const c3 = t("c_c", "Alpha", { links: [{ taskId: "t_p", type: "parent" }] });
+    const got = groupDetailRelations(parent, [parent, c1, c2, c3]).children.map((c) => c.id);
+    expect(got).toEqual(["c_c", "c_a", "c_b"]);
   });
 });
