@@ -71,6 +71,13 @@ export function Select({
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  /**
+   * The listbox element itself, not its id. `document.getElementById` cannot
+   * see a popup portalled into a shadow root (the overlay's host), so the
+   * outside-click check failed there and the commit click was treated as
+   * outside — closing the list instead of selecting the option.
+   */
+  const listboxRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
 
   const enabled = options.filter((option) => !option.disabled);
@@ -94,13 +101,19 @@ export function Select({
     const onDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (triggerRef.current?.contains(target)) return;
-      const listbox = document.getElementById(listboxId);
-      if (listbox?.contains(target)) return;
+      // `composedPath()` and not `contains()`: a pointerdown inside a shadow
+      // root is retargeted for listeners outside it, so `event.target` arrives
+      // as the shadow HOST and containment against the listbox is false. The
+      // path carries the real nodes, which is the only thing that works for
+      // the overlay's portalled popup.
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (listboxRef.current && path.includes(listboxRef.current)) return;
+      if (listboxRef.current?.contains(target)) return;
       setOpen(false);
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
-  }, [open, listboxId]);
+  }, [open]);
 
   const commit = (option: SelectOption | null) => {
     if (!option || option.disabled) return;
@@ -167,6 +180,7 @@ export function Select({
 
   const popup = open ? (
     <div
+      ref={listboxRef}
       id={listboxId}
       role="listbox"
       aria-label={ariaLabel}

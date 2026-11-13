@@ -113,16 +113,6 @@ function serve(dir) {
   });
 }
 
-function build() {
-  if (noBuild) return;
-  console.log("[story-visual] building storybook …");
-  const { execFileSync } = require("node:child_process");
-  execFileSync("npx", ["storybook", "build", "--quiet"], {
-    cwd: root,
-    stdio: "inherit",
-  });
-}
-
 async function main() {
   if (!noBuild) {
     const { execFileSync } = await import("node:child_process");
@@ -160,6 +150,7 @@ async function main() {
   const changed = [];
   const fallbackShots = [];
   const unstableShots = [];
+  let unstableFailure = false;
   let rasterBound = 0;
   let worstRaster = 0;
   const added = [];
@@ -315,6 +306,11 @@ async function main() {
   server.close();
 
   if (unstableShots.length) {
+    // A shot that never settles cannot be trusted: its baseline is whatever
+    // frame happened to be captured, so comparing against it is meaningless.
+    // Printing and continuing was the bug — the gate went green while those
+    // shots proved nothing.
+    unstableFailure = true;
     console.log(
       `[story-visual] ${unstableShots.length} shot(s) never produced two identical frames:`,
     );
@@ -344,6 +340,13 @@ async function main() {
   );
   for (const n of changed.slice(0, 20)) console.log(`  changed: ${n}`);
   for (const n of added.slice(0, 20)) console.log(`  added:   ${n}`);
+  if (unstableFailure) {
+    console.log(
+      "[story-visual] FAILED: unstable captures make the comparison meaningless. " +
+        "Fix the story's timing (or the wait strategy) — do not re-baseline them.",
+    );
+    return 1;
+  }
   if (changed.length || added.length) {
     console.log(
       `[story-visual] actuals saved under tests/visual/__actual__/. If the change is intended, re-run with --update in the same commit.`,

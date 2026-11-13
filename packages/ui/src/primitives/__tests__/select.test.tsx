@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor as viWaitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
@@ -163,6 +163,30 @@ describe("Select (P12)", () => {
     await userEvent.click(screen.getByRole("combobox"));
     const listbox = await screen.findByRole("listbox");
     expect(host.contains(listbox)).toBe(true);
+    host.remove();
+  });
+
+  it("keeps the portalled listbox open when the pointer goes down on an option", async () => {
+    // Regression: the outside-click guard looked the listbox up with
+    // `document.getElementById`, which cannot see a portal (a shadow root in
+    // the overlay). A pointerdown on an option was therefore read as an
+    // outside click and the list closed before the selection landed.
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = host.attachShadow({ mode: "open" });
+    const mount = document.createElement("div");
+    root.appendChild(mount);
+
+    renderSelect({ container: mount });
+    await userEvent.click(screen.getByRole("combobox"));
+    await viWaitFor(() => expect(mount.querySelector('[role="listbox"]')).not.toBeNull());
+
+    const option = mount.querySelector<HTMLElement>('[role="option"]')!;
+    expect(option).not.toBeNull();
+    fireEvent.pointerDown(option);
+
+    // Still open: the pointer went down inside the popup.
+    expect(mount.querySelector('[role="listbox"]')).not.toBeNull();
     host.remove();
   });
 
