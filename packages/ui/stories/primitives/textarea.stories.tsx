@@ -10,7 +10,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * missing label and the story proves the association the ticket requires.
  */
 const meta: Meta<typeof Textarea> = {
-  title: "Design System/Textarea",
+  title: "Design System/Primitives/Textarea",
   component: Textarea,
   decorators: [themeDecorator],
   render: (args) => (

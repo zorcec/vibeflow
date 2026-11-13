@@ -13,7 +13,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * perfectly fine unstyled badge).
  */
 const meta: Meta<typeof Badge> = {
-  title: "Design System/Badge",
+  title: "Design System/Primitives/Badge",
   component: Badge,
   decorators: [themeDecorator],
   args: { children: "Badge" },

@@ -20,7 +20,7 @@ function TokenSwatch() {
 }
 
 const meta: Meta<typeof TokenSwatch> = {
-    title: "Design System/TokenUtilities",
+    title: "Design System/Foundations/TokenUtilities",
     component: TokenSwatch,
     decorators: [themeDecorator],
 };

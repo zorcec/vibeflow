@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
-// Not re-exported from the package root yet, so the story imports the module
-// directly (stories are not subject to the app-side deep-import rule).
-import { CopyIdButton } from "../../src/kanban/components/CopyIdButton";
+import { CopyIdButton } from "../../src";
 import { expectNoA11yViolations } from "../a11y";
 import { themeDecorator } from "../../.storybook/ThemeDecorator";
 

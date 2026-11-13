@@ -14,7 +14,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * mechanics Base UI's listbox relies on (measured).
  */
 const meta: Meta<typeof Select> = {
-  title: "Design System/Select",
+  title: "Design System/Primitives/Select",
   component: Select,
   decorators: [themeDecorator],
 };

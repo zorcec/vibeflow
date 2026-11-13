@@ -11,7 +11,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * story-level axe, then drives one user-visible behaviour and asserts it.
  */
 const meta: Meta<typeof Button> = {
-  title: "Design System/Button",
+  title: "Design System/Primitives/Button",
   component: Button,
   decorators: [themeDecorator],
   args: {

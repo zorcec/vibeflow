@@ -12,7 +12,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * far more often than a wrong border colour.
  */
 const meta: Meta<typeof Input> = {
-  title: "Design System/Input",
+  title: "Design System/Primitives/Input",
   component: Input,
   decorators: [themeDecorator],
   render: (args) => (

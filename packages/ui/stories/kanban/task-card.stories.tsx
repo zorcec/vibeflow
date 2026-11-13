@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { KanbanTaskCard as TaskCard } from "../../src";
 import type { Column, Task } from "../../src";
 import { expectNoA11yViolations } from "../a11y";
@@ -100,5 +100,21 @@ export const WithoutAdvanceControl: Story = {
   render: () => renderCard(),
   play: async ({ canvasElement }) => {
     expect(canvasElement.querySelector('[data-role="advance-task"]')).toBeNull();
+  },
+};
+
+/**
+ * Loading state. This lived in a second, top-level `TaskCard` story whose
+ * title duplicated "Design System/Kanban/TaskCard" — two entries for one
+ * component is exactly the confusion the organisation pass was for.
+ */
+export const Skeleton: Story = {
+  render: () => renderCard({ onOpen: fn() }),
+  play: async ({ canvasElement }) => {
+    // No optional chrome at all: the title hook the hosted board binds must
+    // still be there, and the card must stay accessible.
+    await expectNoA11yViolations(canvasElement);
+    expect(canvasElement.querySelector('[data-role="card-title"]')).not.toBeNull();
+    expect(within(canvasElement).getByText(task().title)).toBeVisible();
   },
 };

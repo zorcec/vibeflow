@@ -133,29 +133,22 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "Compact", covers: "compact layout keeps the title hook" },
       { name: "WithAdvanceControl", covers: "onAdvanceTask renders the advance control with data-next-status" },
       { name: "WithoutAdvanceControl", covers: "absent callback renders no advance control (ListView contract)" },
+      { name: "Skeleton", covers: "a card with no optional chrome still opens on title click" },
     ],
   },
   {
     component: "ChatPanel",
     storyFile: "stories/ChatPanel.stories.tsx",
-    title: "Design System/ChatPanel",
+    title: "Design System/Collab/ChatPanel",
     stories: [
       { name: "Ready", covers: 'status="ready" with messages + send interaction' },
       { name: "Streaming", covers: 'streamingText set (streaming state)' },
     ],
   },
-  {
-    component: "KanbanTaskCard",
-    storyFile: "stories/TaskCard.stories.tsx",
-    title: "Design System/TaskCard",
-    stories: [
-      { name: "Skeleton", covers: "task title render + card-click interaction" },
-    ],
-  },
-  {
+    {
     component: "TokenSwatch",
     storyFile: "stories/TokenUtilities.stories.tsx",
-    title: "Design System/TokenUtilities",
+    title: "Design System/Foundations/TokenUtilities",
     stories: [
       { name: "TokenColours", covers: "bg-bg/text-text token utilities resolve per theme" },
     ],
@@ -163,7 +156,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "VibeflowIcon",
     storyFile: "stories/VibeflowIcon.stories.tsx",
-    title: "Design System/VibeflowIcon",
+    title: "Design System/Foundations/VibeflowIcon",
     stories: [
       { name: "Default", covers: "size=32 default render" },
       { name: "Large", covers: "size=64 large render" },
@@ -172,7 +165,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Button",
     storyFile: "stories/primitives/button.stories.tsx",
-    title: "Design System/Button",
+    title: "Design System/Primitives/Button",
     stories: [
       { name: "PrimarySm", covers: 'variant="primary" size="sm" render + click interaction' },
       { name: "PrimaryMd", covers: 'variant="primary" size="md" render + click interaction' },
@@ -195,7 +188,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Badge",
     storyFile: "stories/primitives/badge.stories.tsx",
-    title: "Design System/Badge",
+    title: "Design System/Primitives/Badge",
     stories: [
       { name: "DefaultSm", covers: 'variant="default" size="sm" render + axe' },
       { name: "DefaultMd", covers: 'variant="default" size="md" render + axe' },
@@ -213,7 +206,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Input",
     storyFile: "stories/primitives/input.stories.tsx",
-    title: "Design System/Input",
+    title: "Design System/Primitives/Input",
     stories: [
       { name: "Default", covers: "text type, typing fires onChange" },
       { name: "Email", covers: "email type forwarded" },
@@ -229,7 +222,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Textarea",
     storyFile: "stories/primitives/textarea.stories.tsx",
-    title: "Design System/Textarea",
+    title: "Design System/Primitives/Textarea",
     stories: [
       { name: "Default", covers: "default rows, typing fires onChange" },
       { name: "Rows", covers: "rows prop forwarded" },
@@ -246,7 +239,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Dialog",
     storyFile: "stories/primitives/dialog.stories.tsx",
-    title: "Design System/Dialog",
+    title: "Design System/Primitives/Dialog",
     stories: [
       { name: "Closed", covers: "closed renders no dialog node" },
       { name: "Open", covers: "trigger opens it; aria-modal, focus inside, axe clean" },
@@ -259,7 +252,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Popover",
     storyFile: "stories/primitives/popover.stories.tsx",
-    title: "Design System/Popover",
+    title: "Design System/Primitives/Popover",
     stories: [
       { name: "Bottom", covers: "opens bottom; axe clean" },
       { name: "Top", covers: "opens top (or flips) with a resolved side" },
@@ -273,7 +266,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Tooltip",
     storyFile: "stories/primitives/tooltip.stories.tsx",
-    title: "Design System/Tooltip",
+    title: "Design System/Primitives/Tooltip",
     stories: [
       { name: "Top", covers: "keyboard focus shows the hint; axe clean" },
       { name: "Bottom", covers: "bottom side" },
@@ -287,7 +280,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Select",
     storyFile: "stories/primitives/select.stories.tsx",
-    title: "Design System/Select",
+    title: "Design System/Primitives/Select",
     stories: [
       { name: "Default", covers: "opens on click; combobox/listbox roles; 4 options" },
       { name: "Seeded", covers: "selected value renders in the trigger" },
@@ -301,7 +294,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
   {
     component: "Tabs",
     storyFile: "stories/primitives/tabs.stories.tsx",
-    title: "Design System/Tabs",
+    title: "Design System/Primitives/Tabs",
     stories: [
       { name: "Automatic", covers: "ArrowRight activates in automatic mode (browser)" },
       { name: "Manual", covers: "ArrowRight moves focus only; Enter commits" },

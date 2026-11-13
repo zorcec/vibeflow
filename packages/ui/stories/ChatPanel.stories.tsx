@@ -5,7 +5,7 @@ import { expectNoA11yViolations } from "./a11y";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 
 const meta: Meta<typeof ChatPanel> = {
-    title: "Design System/ChatPanel",
+    title: "Design System/Collab/ChatPanel",
     component: ChatPanel,
     decorators: [themeDecorator],
     args: {

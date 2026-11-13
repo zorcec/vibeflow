@@ -9,7 +9,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * case (no tooltip at all, because a disabled control cannot be focused).
  */
 const meta: Meta<typeof Tooltip> = {
-  title: "Design System/Tooltip",
+  title: "Design System/Primitives/Tooltip",
   component: Tooltip,
   decorators: [themeDecorator],
 };

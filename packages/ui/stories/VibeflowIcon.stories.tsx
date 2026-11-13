@@ -5,7 +5,7 @@ import { VibeflowIcon } from "../src";
 import { themeDecorator } from "../.storybook/ThemeDecorator";
 
 const meta: Meta<typeof VibeflowIcon> = {
-    title: "Design System/VibeflowIcon",
+    title: "Design System/Foundations/VibeflowIcon",
     component: VibeflowIcon,
     decorators: [themeDecorator],
     argTypes: {

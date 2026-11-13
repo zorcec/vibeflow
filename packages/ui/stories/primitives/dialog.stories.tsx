@@ -13,7 +13,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * `open: true`, so the play function also proves focus lands inside on open.
  */
 const meta: Meta<typeof Dialog> = {
-  title: "Design System/Dialog",
+  title: "Design System/Primitives/Dialog",
   component: Dialog,
   decorators: [themeDecorator],
 };

@@ -14,7 +14,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * it, including the automatic-vs-manual distinction this component adds.
  */
 const meta: Meta<typeof Tabs> = {
-  title: "Design System/Tabs",
+  title: "Design System/Primitives/Tabs",
   component: Tabs,
   decorators: [themeDecorator],
 };

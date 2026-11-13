@@ -11,7 +11,7 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * spilling outside the viewport.
  */
 const meta: Meta<typeof Popover> = {
-  title: "Design System/Popover",
+  title: "Design System/Primitives/Popover",
   component: Popover,
   decorators: [themeDecorator],
 };
