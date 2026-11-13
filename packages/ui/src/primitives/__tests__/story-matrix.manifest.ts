@@ -145,7 +145,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     ],
   },
   {
-    component: "KanbanCard",
+    component: "KanbanTaskCard",
     storyFile: "stories/TaskCard.stories.tsx",
     title: "Design System/TaskCard",
     stories: [
