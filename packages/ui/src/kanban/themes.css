@@ -229,6 +229,15 @@
 
 /* ── Light ── */
 [data-theme="light"] {
+  /* Badge ink (2026-11-14): small status-badge text needs more contrast than
+     the signal tone used for fills/dots/borders. Only the combinations that
+     measured below 4.5:1 against their own 10% tint get an override; every
+     other theme+status falls back to --t-status-* (see StatusBadge.tsx).
+     Values from solving ink-on-mix(ink, surface, 10%) >= 4.55. */
+  --t-status-todo-ink: #aa4e09;
+  --t-status-done-ink: #14793a;
+  --t-status-backlog-ink: #5c6b80;
+
   --p-bg: #f8fafc;
   --p-surface: #f1f5f9;
   --p-card: #ffffff;
@@ -393,6 +402,15 @@
 
 /* ── Rosé Pine Dawn (light) ── */
 [data-theme="rose-pine-dawn"] {
+  /* See the light theme's badge-ink note. Rose-pine-dawn needs five: its
+     signal tones are chosen for paper fills, and at badge size on their own
+     10% tint they measured 3.66-4.46:1. */
+  --t-status-done-ink: #3c676f;
+  --t-status-backlog-ink: #615e77;
+  --t-status-progress-ink: #276881;
+  --t-status-review-ink: #6a5a7d;
+  --t-status-todo-ink: #83581d;
+
   --t-bg: #f2e9e1;
   --t-surface: #faf4ed;
   --t-card: #fffaf3;

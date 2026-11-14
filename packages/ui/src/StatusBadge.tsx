@@ -29,7 +29,11 @@ interface Props {
 
 export function StatusBadge({ status, style }: Props) {
   const s = STATUS_TOKENS[status] ?? STATUS_TOKENS.todo!;
-  const tone = `var(${s.token})`;
+  // `*-ink` is an OPTIONAL per-theme override: small badge text needs a darker
+  // ink than the same signal used for fills/dots/borders, and only five
+  // theme+status combinations actually need it. Falling back to the token keeps
+  // one source of truth instead of a parallel palette.
+  const tone = `var(${s.token}-ink, var(${s.token}))`;
   return (
     <span
       style={{
@@ -43,7 +47,7 @@ export function StatusBadge({ status, style }: Props) {
         borderRadius: 4,
         // A tint of the SAME token, so the pair always moves together: the
         // literal rgba() pairs could drift from the text colour by hand.
-        background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+        background: `color-mix(in srgb, ${tone} 10%, transparent)`,
         color: tone,
         border: `1px solid color-mix(in srgb, ${tone} 32%, transparent)`,
         textTransform: "uppercase",
