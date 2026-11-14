@@ -5,9 +5,10 @@
     "explicit allowance: 2% of the measured size, rounded up to 512 bytes.",
     "2% because the Tailwind v4 pipeline emits stable CSS but JS grows with the",
     "primitives (Base UI pulls its own runtime); anything larger is a real",
-    "regression and must be reviewed, not silently absorbed."
+    "regression and must be reviewed, not silently absorbed.",
+    "Re-measured 2026-11-14 for React 19 (ADR-0019). The upgrade is a deliberate one-off cost, not drift: board +59,932 B (+5.7%) and overlay +305,691 B (+18.9%). Both bundles inline React's PRODUCTION build (NODE_ENV is defined to \"production\" at build time; no process.env.NODE_ENV survives), so this is React 19's larger runtime, not a dev build or a second copy (checked: one react internals marker in the board, @types path strings are not runtimes). The overlay's absolute cost is the one to watch: it ships inside every annotated page, so a follow-up should try to reclaim it before it grows again."
   ],
-  "measuredAt": "2026-11-12",
+  "measuredAt": "2026-11-14",
   "allowancePercent": 2,
   "artifacts": {
     "packages/cli/dist/client/kanban.css": {
@@ -16,14 +17,14 @@
       "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts)"
     },
     "packages/cli/dist/client/kanban-browser.js": {
-      "bytes": 1051433,
-      "budget": 1073023,
-      "why": "board client bundle"
+      "bytes": 1132955,
+      "budget": 1155614,
+      "why": "board client bundle (React 19, ADR-0019)"
     },
     "packages/cli/dist/client/overlay-browser.js": {
-      "bytes": 1617251,
-      "budget": 1650780,
-      "why": "overlay client bundle (includes the shadow-root chat + annotation UI)"
+      "bytes": 1956471,
+      "budget": 1995599,
+      "why": "overlay client bundle (includes the shadow-root chat + annotation UI; React 19, ADR-0019)"
     },
     "packages/cli/src/client/overlay-css.gen.ts": {
       "bytes": 69868,
