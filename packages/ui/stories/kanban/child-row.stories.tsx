@@ -54,7 +54,13 @@ export const Collapsible: Story = {
     expect(toggle).not.toBeNull();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(toggle as Element);
+    // Controlled: the handler is a no-op here, so the state must not move.
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // Blur before the capture. The click leaves the toggle focused, and the
+    // focus ring made this baseline differ by 99.99% of its pixels in one
+    // theme between two runs of identical code — a state race, not a visual
+    // change, and exactly what a fixed-viewport capture must not depend on.
+    (toggle as HTMLElement).blur();
   },
 };
 
