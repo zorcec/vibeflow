@@ -1,15 +1,25 @@
 import React from "react";
 
-const STATUS_STYLES: Record<string, { bg: string; color: string; border: string; label: string }> = {
+/**
+ * Status colours come from the per-theme `--t-status-*` tokens, never literals.
+ *
+ * WHY (measured 2026-11-14): this table used to hardcode dark-theme pastels
+ * (`#fcd34d`, `#6ee7b7`, `#93c5fd`, `#c4b5fd`). On the light themes they landed
+ * on near-white surfaces at 1.10–1.49:1 — invisible text, ten distinct failing
+ * colour pairs caught by `scripts/a11y-sweep.mjs`. The tokens already flip per
+ * theme (`light` gives #b45309 where `dark` gives #f59e0b), so a theme-aware
+ * badge is a token reference rather than four hex literals.
+ */
+const STATUS_TOKENS: Record<string, { token: string; label: string }> = {
   // SaaS statuses
-  todo:        { bg: "rgba(245,158,11,0.14)",  color: "#fcd34d", border: "rgba(245,158,11,0.3)",  label: "Todo" },
-  in_progress: { bg: "rgba(59,130,246,0.14)",  color: "#93c5fd", border: "rgba(59,130,246,0.3)",  label: "In Progress" },
-  done:        { bg: "rgba(34,197,94,0.12)",   color: "#6ee7b7", border: "rgba(34,197,94,0.28)",  label: "Done" },
-  cancelled:   { bg: "rgba(148,163,184,0.1)",  color: "#94a3b8", border: "rgba(148,163,184,0.2)", label: "Cancelled" },
+  todo: { token: "--t-status-todo", label: "Todo" },
+  in_progress: { token: "--t-status-progress", label: "In Progress" },
+  done: { token: "--t-status-done", label: "Done" },
+  cancelled: { token: "--t-status-backlog", label: "Cancelled" },
   // CLI statuses
-  backlog:       { bg: "rgba(71,85,105,0.14)",  color: "#94a3b8", border: "rgba(71,85,105,0.28)",  label: "Backlog" },
-  "in-progress": { bg: "rgba(59,130,246,0.14)",  color: "#93c5fd", border: "rgba(59,130,246,0.3)",  label: "In Progress" },
-  review:        { bg: "rgba(168,85,247,0.14)",  color: "#c4b5fd", border: "rgba(168,85,247,0.3)",  label: "Review" },
+  backlog: { token: "--t-status-backlog", label: "Backlog" },
+  "in-progress": { token: "--t-status-progress", label: "In Progress" },
+  review: { token: "--t-status-review", label: "Review" },
 };
 
 interface Props {
@@ -18,7 +28,8 @@ interface Props {
 }
 
 export function StatusBadge({ status, style }: Props) {
-  const s = STATUS_STYLES[status] ?? STATUS_STYLES.todo;
+  const s = STATUS_TOKENS[status] ?? STATUS_TOKENS.todo!;
+  const tone = `var(${s.token})`;
   return (
     <span
       style={{
@@ -30,9 +41,11 @@ export function StatusBadge({ status, style }: Props) {
         letterSpacing: "0.03em",
         padding: "2px 7px",
         borderRadius: 4,
-        background: s.bg,
-        color: s.color,
-        border: `1px solid ${s.border}`,
+        // A tint of the SAME token, so the pair always moves together: the
+        // literal rgba() pairs could drift from the text colour by hand.
+        background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+        color: tone,
+        border: `1px solid color-mix(in srgb, ${tone} 32%, transparent)`,
         textTransform: "uppercase",
         ...style,
       }}
