@@ -233,8 +233,10 @@
      the signal tone used for fills/dots/borders. Only the combinations that
      measured below 4.5:1 against their own 10% tint get an override; every
      other theme+status falls back to --t-status-* (see StatusBadge.tsx).
-     Values from solving ink-on-mix(ink, surface, 10%) >= 4.55. */
-  --t-status-todo-ink: #aa4e09;
+     Values from solving ink-on-mix(ink, surface, 10%) >= 4.55 AND plain
+     ink-on-surface >= 4.55, because these tokens also colour detail-panel status
+     buttons that sit on a tinted surface rather than the badge's own tint. */
+  --t-status-todo-ink: #904208;
   --t-status-done-ink: #14793a;
   --t-status-backlog-ink: #5c6b80;
 

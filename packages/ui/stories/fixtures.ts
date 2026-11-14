@@ -74,5 +74,8 @@ export const ALL_STATUSES = ["backlog", "todo", "in-progress", "review", "done"]
 export const STATUS_CONFIGS = ALL_STATUSES.map((id, i) => ({
   id,
   label: id === "in-progress" ? "In Progress" : id.charAt(0).toUpperCase() + id.slice(1),
-  color: ["#94a3b8", "#fcd34d", "#93c5fd", "#c4b5fd", "#6ee7b7"][i]!,
+  /* Theme TOKENS, not the dark-theme hexes these used to be: as literals they
+     rendered the dark palette in every theme, which is 12 failing contrast pairs
+     at 1.10-1.55:1 in the storybook the team browses. */
+  color: `var(--t-status-${["backlog", "todo", "progress", "review", "done"][i]}-ink, var(--t-status-${["backlog", "todo", "progress", "review", "done"][i]}))`,
 }));
