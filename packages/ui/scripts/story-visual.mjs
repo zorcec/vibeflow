@@ -74,13 +74,35 @@ const MIME = {
  * three shots differed by ~100% between two runs of identical code, in different
  * themes each time — the attribute was set, the colours were not.
  */
-function expectedBackground(themeId) {
-  const css = fs.readFileSync(path.join(root, "src/kanban/themes.css"), "utf8");
-  const block = new RegExp(`\\[data-theme="${themeId}"\\][^\\{]*\\{([\\s\\S]*?)\\n\\}`);
-  const m = block.exec(css);
-  // The default theme lives in `:root`, not in a [data-theme] block.
-  const scope = m ? m[1] : /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
-  return /--t-bg:\s*([^;]+);/.exec(scope)?.[1]?.trim() ?? null;
+/**
+ * Calibrate what each theme's `--t-bg` RESOLVES to, in the browser.
+ *
+ * The previous attempt parsed themes.css and gave up (null) for dark, light and
+ * hc-dark, so the guard silently no-opped for half the themes — a guard that
+ * lies. Reading the value from a live page needs no knowledge of how the CSS is
+ * assembled, and cannot drift from it.
+ */
+async function calibrateThemeBackgrounds(page, port, themeList) {
+  const map = new Map();
+  for (const theme of themeList) {
+    await page.goto(`http://127.0.0.1:${port}/iframe.html?viewMode=story`, {
+      waitUntil: "load",
+    });
+    await page.waitForFunction(
+      () => Array.from(document.styleSheets).every((s) => s.cssRules !== null),
+      undefined,
+      { timeout: 15_000 },
+    );
+    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme.id);
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
+    const value = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--t-bg").trim(),
+    );
+    map.set(theme.id, value);
+  }
+  return map;
 }
 
 function themes() {
@@ -147,6 +169,12 @@ async function main() {
   fs.mkdirSync(actualDir, { recursive: true });
 
   const themeList = themes();
+  // Measured 2026-11-14: without a resolved-value check, 5 of 1116 shots were
+  // captured with the DEFAULT theme while the loop believed otherwise
+  // (hc-dark, dracula, gruvbox-dark and light all reported --t-bg #020c1b,
+  // the dark default) — the decorator re-applies the toolbar theme after mount
+  // and overwrites the attribute we set. The calibration below is the expected
+  // value per theme; the check runs immediately before the pixels are taken.
   const storyIds = stories();
   const { server, port } = await serve(staticDir);
 
@@ -163,6 +191,11 @@ async function main() {
     ],
   });
   const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  const expectedBg = await calibrateThemeBackgrounds(page, port, themeList);
+  console.log(
+    "[story-visual] calibrated theme backgrounds:",
+    [...expectedBg.entries()].map(([k, v]) => `${k}=${v}`).join(" "),
+  );
 
   const changed = [];
   const fallbackShots = [];
@@ -208,17 +241,17 @@ async function main() {
         theme.id,
         { timeout: 15_000 },
       );
-      // The attribute is not the theme. Wait until the token RESOLVES to the
-      // value that theme block declares, otherwise a slow stylesheet paints the
-      // story in default colours and the baseline records the wrong theme.
-      const expectedBg = expectedBackground(theme.id);
-      if (expectedBg) {
+      // The attribute is not the theme: wait until `--t-bg` RESOLVES to the
+      // calibrated value for this theme, else the story paints in the default
+      // tokens and the baseline records the wrong theme.
+      const wantBg = expectedBg.get(theme.id);
+      if (wantBg) {
         await page.waitForFunction(
           (want) =>
             getComputedStyle(document.documentElement)
               .getPropertyValue("--t-bg")
               .trim() === want,
-          expectedBg,
+          wantBg,
           { timeout: 15_000 },
         );
       }
@@ -288,6 +321,26 @@ async function main() {
       // exists). Requiring two identical frames makes stability a property of
       // the capture rather than a hope about timing, and it costs one extra
       // screenshot (~2 ms of the ~1.2 s per shot).
+      // Re-assert the theme AT CAPTURE TIME. The mount-time set is not enough:
+      // the addon/decorator re-applies its own theme after the story mounts,
+      // which is why the wrong --t-bg was observable at compare time.
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const now = await page.evaluate(
+          (t) => {
+            document.documentElement.setAttribute("data-theme", t);
+            return getComputedStyle(document.documentElement)
+              .getPropertyValue("--t-bg")
+              .trim();
+          },
+          theme.id,
+        );
+        if (!wantBg || now === wantBg) break;
+        await page.waitForTimeout(60);
+      }
+      await page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+
       const grab = () =>
         page.screenshot({ animations: "disabled", caret: "hide", fullPage: false });
       let shot = await grab();
@@ -322,7 +375,21 @@ async function main() {
       fs.writeFileSync(actualPath, shot);
       const diff = diffImages(decodePng(baselinePath), decodePng(actualPath));
       if (diff.sizeMismatch || diff.ratio > RASTER_BOUND) {
-        changed.push(`${name} (${diff.ratio.toFixed(5)})`);
+        // Record the STATE a mismatch depended on, not just the ratio. Without
+        // this, "changed: x (0.99997)" is unactionable: it reads the same
+        // whether the theme failed to apply, the story failed to render, or a
+        // clip moved.
+        const diag = await page.evaluate(() => ({
+          bg: getComputedStyle(document.documentElement).getPropertyValue("--t-bg").trim(),
+          body: getComputedStyle(document.body).backgroundColor,
+          kids: document.querySelector("#storybook-root")?.childElementCount ?? -1,
+          text: (document.querySelector("#storybook-root")?.textContent ?? "").trim().slice(0, 30),
+        }));
+        changed.push(
+          `${name} (${diff.ratio.toFixed(5)})` +
+            `${diff.sizeMismatch ? " SIZE-MISMATCH" : ""}` +
+            ` [--t-bg=${diag.bg} body=${diag.body} rootKids=${diag.kids} text="${diag.text}"]`,
+        );
       } else if (diff.ratio > 0) {
         rasterBound += 1;
         worstRaster = Math.max(worstRaster, diff.ratio);
