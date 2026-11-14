@@ -12,9 +12,9 @@
   "allowancePercent": 2,
   "artifacts": {
     "packages/cli/dist/client/kanban.css": {
-      "bytes": 73693,
-      "budget": 75717,
-      "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts)"
+      "bytes": 75759,
+      "budget": 77312,
+      "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts); +42 B from the badge ink tokens (--t-status-*-ink, 2026-11-14)"
     },
     "packages/cli/dist/client/kanban-browser.js": {
       "bytes": 1132955,
