@@ -28,7 +28,13 @@ export const Image: Story = {
     // dialog was unrendered.
     await expectNoA11yViolations(document.body);
     expect(document.body).toHaveTextContent("screenshot.png");
-    expect(document.body.querySelector("img")).not.toBeNull();
+    const img = document.body.querySelector("img") as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+    // Decode before the shot: a data-URI image is in the DOM the instant it
+    // mounts, so a capture can catch it unpainted and the baseline then
+    // contradicts the next run (measured: 26-51% of pixels differing between
+    // two runs of identical code).
+    await img!.decode();
   },
 };
 

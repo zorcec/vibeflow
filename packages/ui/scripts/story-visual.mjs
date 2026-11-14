@@ -66,6 +66,23 @@ const MIME = {
   ".map": "application/json",
 };
 
+/**
+ * The `--t-bg` a theme block declares, so a capture can PROVE the theme applied.
+ *
+ * Setting `data-theme` only labels the document; if that theme's stylesheet has
+ * not been parsed yet, the story paints in default tokens. Measured 2026-11-14:
+ * three shots differed by ~100% between two runs of identical code, in different
+ * themes each time — the attribute was set, the colours were not.
+ */
+function expectedBackground(themeId) {
+  const css = fs.readFileSync(path.join(root, "src/kanban/themes.css"), "utf8");
+  const block = new RegExp(`\\[data-theme="${themeId}"\\][^\\{]*\\{([\\s\\S]*?)\\n\\}`);
+  const m = block.exec(css);
+  // The default theme lives in `:root`, not in a [data-theme] block.
+  const scope = m ? m[1] : /:root\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+  return /--t-bg:\s*([^;]+);/.exec(scope)?.[1]?.trim() ?? null;
+}
+
 function themes() {
   const src = fs.readFileSync(path.join(root, "src/kanban/theme-registry.ts"), "utf8");
   // Each registry entry is `{ id: "hc-dark", name: "High contrast", ... }`.
@@ -191,6 +208,20 @@ async function main() {
         theme.id,
         { timeout: 15_000 },
       );
+      // The attribute is not the theme. Wait until the token RESOLVES to the
+      // value that theme block declares, otherwise a slow stylesheet paints the
+      // story in default colours and the baseline records the wrong theme.
+      const expectedBg = expectedBackground(theme.id);
+      if (expectedBg) {
+        await page.waitForFunction(
+          (want) =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--t-bg")
+              .trim() === want,
+          expectedBg,
+          { timeout: 15_000 },
+        );
+      }
       // One frame after theming so the attribute change is painted, not queued.
       await page.evaluate(
         () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
