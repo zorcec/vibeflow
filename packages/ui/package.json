@@ -21,11 +21,12 @@
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
-    "test:stories": "vitest run --config vitest.stories.config.ts",
+    "test:stories": "A11Y_FULL=1 vitest run --config vitest.stories.config.ts",
     "coverage": "vitest run --coverage",
     "coverage:variants": "vitest run --config vitest.variants.config.ts --coverage",
     "test:visual": "node scripts/story-visual.mjs",
-    "visual:update": "node scripts/story-visual.mjs --update"
+    "visual:update": "node scripts/story-visual.mjs --update",
+    "test:a11y": "node scripts/a11y-sweep.mjs"
   },
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",

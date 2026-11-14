@@ -319,8 +319,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/collab/activity-counter.stories.tsx",
     title: "Design System/Collab/ActivityCounter",
     stories: [
-      { name: "NoActivity", covers: "renders and is axe-clean in all six themes" },
-      { name: "UnseenActivity", covers: "renders and is axe-clean in all six themes" },
+      { name: "NoActivity", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "UnseenActivity", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -328,8 +328,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/collab/activity-feed-panel.stories.tsx",
     title: "Design System/Collab/ActivityFeedPanel",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -337,7 +337,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/collab/inactivity-veil.stories.tsx",
     title: "Design System/Collab/InactivityVeil",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -345,8 +345,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/collab/members-overview-panel.stories.tsx",
     title: "Design System/Collab/MembersOverviewPanel",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -354,9 +354,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/collab/verified-email-badge.stories.tsx",
     title: "Design System/Collab/VerifiedEmailBadge",
     stories: [
-      { name: "Verified", covers: "renders and is axe-clean in all six themes" },
-      { name: "Unverified", covers: "renders and is axe-clean in all six themes" },
-      { name: "Unknown", covers: "renders and is axe-clean in all six themes" },
+      { name: "Verified", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Unverified", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Unknown", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -364,8 +364,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/attention-badge.stories.tsx",
     title: "Design System/Kanban/AttentionBadge",
     stories: [
-      { name: "Flagged", covers: "renders and is axe-clean in all six themes" },
-      { name: "NotFlagged", covers: "renders and is axe-clean in all six themes" },
+      { name: "Flagged", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "NotFlagged", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -373,9 +373,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/confirm-modal.stories.tsx",
     title: "Design System/Kanban/ConfirmModal",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Loading", covers: "renders and is axe-clean in all six themes" },
-      { name: "WithError", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Loading", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "WithError", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -383,9 +383,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/copy-id-button.stories.tsx",
     title: "Design System/Kanban/CopyIdButton",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Revealed", covers: "renders and is axe-clean in all six themes" },
-      { name: "Collapsed", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Revealed", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Collapsed", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -393,9 +393,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/delete-confirm-dialog.stories.tsx",
     title: "Design System/Kanban/DeleteConfirmDialog",
     stories: [
-      { name: "NoChildren", covers: "renders and is axe-clean in all six themes" },
-      { name: "WithChildren", covers: "renders and is axe-clean in all six themes" },
-      { name: "Failed", covers: "renders and is axe-clean in all six themes" },
+      { name: "NoChildren", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "WithChildren", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Failed", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -403,8 +403,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/file-preview-modal.stories.tsx",
     title: "Design System/Kanban/FilePreviewModal",
     stories: [
-      { name: "Image", covers: "renders and is axe-clean in all six themes" },
-      { name: "Unsupported", covers: "renders and is axe-clean in all six themes" },
+      { name: "Image", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Unsupported", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -412,8 +412,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/kanban-board.stories.tsx",
     title: "Design System/Kanban/KanbanBoard",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -421,11 +421,11 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/priority-badge.stories.tsx",
     title: "Design System/Kanban/PriorityBadge",
     stories: [
-      { name: "Critical", covers: "renders and is axe-clean in all six themes" },
-      { name: "High", covers: "renders and is axe-clean in all six themes" },
-      { name: "Medium", covers: "renders and is axe-clean in all six themes" },
-      { name: "Low", covers: "renders and is axe-clean in all six themes" },
-      { name: "Unknown", covers: "renders and is axe-clean in all six themes" },
+      { name: "Critical", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "High", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Medium", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Low", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Unknown", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -433,8 +433,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/recursive-children-tree.stories.tsx",
     title: "Design System/Kanban/RecursiveChildrenTree",
     stories: [
-      { name: "TwoLevels", covers: "renders and is axe-clean in all six themes" },
-      { name: "NoChildren", covers: "renders and is axe-clean in all six themes" },
+      { name: "TwoLevels", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "NoChildren", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -442,12 +442,12 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/status-badge.stories.tsx",
     title: "Design System/Kanban/StatusBadge",
     stories: [
-      { name: "Backlog", covers: "renders and is axe-clean in all six themes" },
-      { name: "Todo", covers: "renders and is axe-clean in all six themes" },
-      { name: "InProgress", covers: "renders and is axe-clean in all six themes" },
-      { name: "Review", covers: "renders and is axe-clean in all six themes" },
-      { name: "Done", covers: "renders and is axe-clean in all six themes" },
-      { name: "Cancelled", covers: "renders and is axe-clean in all six themes" },
+      { name: "Backlog", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Todo", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "InProgress", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Review", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Done", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Cancelled", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -455,8 +455,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/task-detail-panel.stories.tsx",
     title: "Design System/Kanban/TaskDetailPanel",
     stories: [
-      { name: "Open", covers: "renders and is axe-clean in all six themes" },
-      { name: "Closed", covers: "renders and is axe-clean in all six themes" },
+      { name: "Open", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Closed", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -464,9 +464,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/type-badge.stories.tsx",
     title: "Design System/Kanban/TypeBadge",
     stories: [
-      { name: "Task", covers: "renders and is axe-clean in all six themes" },
-      { name: "Bug", covers: "renders and is axe-clean in all six themes" },
-      { name: "Research", covers: "renders and is axe-clean in all six themes" },
+      { name: "Task", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Bug", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Research", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -474,8 +474,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/kanban/type-picker.stories.tsx",
     title: "Design System/Kanban/TypePicker",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Disabled", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Disabled", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -483,8 +483,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/auto-expand-textarea.stories.tsx",
     title: "Design System/Shared/AutoExpandTextarea",
     stories: [
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
-      { name: "MultiLine", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "MultiLine", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -492,9 +492,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/comments-input-area.stories.tsx",
     title: "Design System/Shared/CommentsInputArea",
     stories: [
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
-      { name: "WithDraft", covers: "renders and is axe-clean in all six themes" },
-      { name: "Submitting", covers: "renders and is axe-clean in all six themes" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "WithDraft", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Submitting", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -502,9 +502,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/comments-list.stories.tsx",
     title: "Design System/Shared/CommentsList",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "WithSystemEntries", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "WithSystemEntries", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -512,10 +512,10 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/files-list.stories.tsx",
     title: "Design System/Shared/FilesList",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Loading", covers: "renders and is axe-clean in all six themes" },
-      { name: "Failed", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Loading", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Failed", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -523,9 +523,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/markdown-editable-field.stories.tsx",
     title: "Design System/Shared/MarkdownEditableField",
     stories: [
-      { name: "Write", covers: "renders and is axe-clean in all six themes" },
-      { name: "Preview", covers: "renders and is axe-clean in all six themes" },
-      { name: "PreviewEmpty", covers: "renders and is axe-clean in all six themes" },
+      { name: "Write", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Preview", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "PreviewEmpty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -533,9 +533,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/markdown-preview.stories.tsx",
     title: "Design System/Shared/MarkdownPreview",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
-      { name: "WithTaskReference", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "WithTaskReference", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -543,8 +543,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/tag-input.stories.tsx",
     title: "Design System/Shared/TagInput",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
-      { name: "Disabled", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Disabled", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -552,9 +552,9 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/tag-pills.stories.tsx",
     title: "Design System/Shared/TagPills",
     stories: [
-      { name: "ReadOnly", covers: "renders and is axe-clean in all six themes" },
-      { name: "Removable", covers: "renders and is axe-clean in all six themes" },
-      { name: "Empty", covers: "renders and is axe-clean in all six themes" },
+      { name: "ReadOnly", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Removable", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
+      { name: "Empty", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
   {
@@ -562,7 +562,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     storyFile: "stories/shared/task-details-tab.stories.tsx",
     title: "Design System/Shared/TaskDetailsTab",
     stories: [
-      { name: "Default", covers: "renders and is axe-clean in all six themes" },
+      { name: "Default", covers: "renders; structural axe clean (contrast is swept by scripts/a11y-sweep.mjs)" },
     ],
   },
 ];
