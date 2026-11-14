@@ -61,7 +61,11 @@ export function Popover({
       {/* `render` keeps the caller's element as THE trigger — wrapping it in a
           Base UI button would produce a button inside a button. */}
       <BasePopover.Trigger
-        render={Children.only(trigger) as ReactElement}
+        // Base UI types `render` as ReactElement<Record<string, unknown>>, while
+        // `Children.only` returns the caller's element type. Naming the target
+        // type keeps this compiling under React 18 AND 19 (a @ts-expect-error
+        // would be "unused" on 18 and required on 19).
+        render={Children.only(trigger) as ReactElement<Record<string, unknown>>}
         data-role="popover-trigger"
       />
       <BasePopover.Portal container={container ?? undefined}>

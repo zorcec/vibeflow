@@ -706,7 +706,14 @@ function renderActivityItem(
   gitUserName: string,
   editingId: string | null,
   editText: string,
-  editTextareaRef: React.RefObject<HTMLTextAreaElement>,
+  // React 19: `useRef<T>(null)` is `RefObject<T | null>`, so a ref typed
+  // `RefObject<T>` no longer accepts it. Both forms are meaningful here — the
+  // consumer only reads `.current` and guards null.
+  // React 19 types `useRef<T>(null)` as RefObject<T | null>; React 18 as
+  // RefObject<T>. Accepting the 19 form and casting at the attachment site is
+  // the only shape that compiles under both, and a ref is structurally the
+  // same either way.
+  editTextareaRef: React.RefObject<HTMLTextAreaElement | null>,
   setEditingId: (id: string | null) => void,
   setEditText: (t: string) => void,
   onEdit: (comment: Comment, newText: string) => Promise<void>,
@@ -965,7 +972,9 @@ function renderActivityItem(
       {isEditing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <AutoExpandTextarea
-            ref={editTextareaRef}
+            // The prop accepts the React 19 `| null` form; React 18's
+            // LegacyRef<T> does not, so bridge it here (runtime-identical).
+            ref={editTextareaRef as unknown as React.Ref<HTMLTextAreaElement>}
             value={editText}
             onChange={setEditText}
             baseRows={4}
