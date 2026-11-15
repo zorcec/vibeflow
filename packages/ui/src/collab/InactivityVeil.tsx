@@ -99,7 +99,13 @@ export function InactivityVeil() {
       </div>
       <p
         style={{
-          color: "var(--p-text)",
+          /* The scrim below is a FIXED dark colour, so the ink must be fixed
+             too. Inheriting the theme's ink put near-black text on a near-black
+             scrim in the light themes — measured 1.34:1 (light) and 1.45:1
+             (rose-pine-dawn), i.e. the message was unreadable. White and
+             #cbd5e1 both clear 4.5:1 on every composited scrim we measured
+             (13.3:1 and 9.0:1 worst case). */
+          color: "#ffffff",
           fontSize: 16,
           fontWeight: 600,
           margin: "0 0 6px",
@@ -108,7 +114,10 @@ export function InactivityVeil() {
       >
         You&apos;ve been away
       </p>
-      <p style={{ color: "var(--p-text-m)", fontSize: 13, margin: 0 }}>
+      {/* Fixed, not `var(--p-text-m)`: on the fixed scrim this rendered at
+          1.75:1 (light) and 2.68:1 (rose-pine-dawn). #cbd5e1 measures 8.97:1
+          and 9.32:1 on the two composited scrims. */}
+      <p style={{ color: "#cbd5e1", fontSize: 13, margin: 0 }}>
         Click anywhere to continue — the board refreshes underneath
       </p>
     </div>
