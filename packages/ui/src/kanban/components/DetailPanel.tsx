@@ -674,7 +674,15 @@ export function DetailPanel({
       input.focus({ preventScroll: true });
     }, 50);
     return () => clearTimeout(focusTimer);
-  }, [open, task?.id, tab]);
+    // `tab` is deliberately NOT a dependency. Switching tabs re-ran this timer,
+    // and because the panel's own comment box is *excluded* from the
+    // don't-steal-focus guard below (it is the panel's default focus), clicking
+    // "Activity" focused the TITLE 50 ms later — taking focus away from the
+    // comment box the user had just arrived at. Measured on a real spec: typing
+    // "Link to #alpha" into the comment box left `value === "L"`, because the
+    // other 13 keystrokes went to the title input. Focusing the title is an
+    // OPEN-time concern (open + which task), never a tab-switch one.
+  }, [open, task?.id]);
 
   // Load content when switching tabs
   React.useEffect(() => {

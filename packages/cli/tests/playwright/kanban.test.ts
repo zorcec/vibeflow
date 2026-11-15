@@ -217,6 +217,22 @@ describe("Kanban board", () => {
       // pin the dark scheme for the colour-sensitive assertions in this file.
       colorScheme: "dark",
     });
+    // First-run tour: a board with zero tasks auto-opens the settings modal
+    // (owner feature, covered by first-run.test.ts unit tests and
+    // changelog.test.ts end-to-end). This file creates its tasks AFTER the page
+    // has loaded, so the board it sees is empty and the modal opens on top of
+    // everything — a full-viewport backdrop that silently swallowed clicks
+    // (measured: `elementFromPoint` at the Activity tab returned
+    // `div.modal-backdrop`, so `page.click("#dp-tab-activity")` never became
+    // actionable and the spec timed out). Seed the flag so this file tests the
+    // board, not the tour.
+    await context.addInitScript(() => {
+      try {
+        window.localStorage.setItem("vibeflow.kanban.onboarded", "1");
+      } catch {
+        /* storage unavailable: the tour will open and the specs below will say so */
+      }
+    });
     page = await context.newPage();
     // Allow-list entries are NAMED MAPS with a reason, never blanket ignores.
     // (Ticket 17d42681's temporary `removedFileImage404` entry lived here
@@ -3673,12 +3689,7 @@ describe("Task reference navigation", () => {
     expect(previewText ?? "").toContain(`#${taskBId.slice(0, 8)}`);
   });
 
-  // QUARANTINED 2026-11-15, ticket cad7588f: the feature works (A→B navigation,
-  // back stack and URL sync are all verified) but this spec's later chain races.
-  // Skipped explicitly so main could land; see the ticket for the diagnosis and
-  // the definition of done. Deliberately NOT tagged @flaky — the repo's reporter
-  // says a tag on a genuinely broken spec launders real regressions.
-  it.skip("supports multiple jump levels (A → B → A via task ref in B description)", async () => {
+  it("supports multiple jump levels (A → B → A via task ref in B description)", async () => {
     // Add a back-reference in Task B to Task A
     await fetch(`${refApi}/${taskBId}`, {
       method: "PATCH",
