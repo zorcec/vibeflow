@@ -207,7 +207,13 @@ function getReactShell(opts: KanbanOptions): string {
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover: iPhone notch/home-indicator safe-area insets apply.
+       interactive-widget=resizes-content: the on-screen keyboard shrinks the
+       layout viewport (Android Chrome 108+) instead of covering it, so the
+       detail panel's Add Task / Cancel footer stays visible above the
+       keyboard. Desktop device emulation shows neither the dynamic toolbar
+       nor the OS keyboard, which is why this only reproduced on real phones. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Vibeflow — Board</title>
   <link rel="icon" href="${FAVICON_DATA_URI}" type="image/svg+xml">
   <style>${KANBAN_CSS}</style>
@@ -239,7 +245,8 @@ function getReactDevShell(opts: KanbanOptions): string {
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Same mobile-viewport contract as the production shell above. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Vibeflow — Board (dev)</title>
   <link rel="icon" href="${FAVICON_DATA_URI}" type="image/svg+xml">
   <style>${KANBAN_CSS}</style>

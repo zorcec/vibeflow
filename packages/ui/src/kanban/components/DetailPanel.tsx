@@ -261,6 +261,8 @@ interface Props {
    * the attention bell (round 2) forwards `"comments"` through it.
    */
   onOpenTask?: (task: Task, tab?: "details" | "comments" | "files") => void;
+  /** Fires when the user switches tabs inside the panel (deep-link URL sync). */
+  onTabChange?: (tab: "details" | "comments" | "files") => void;
   externalLocalChanges?: LocalChange[];
   /** Label shown in the back button tooltip (the previous task title). */
   navBackLabel?: string;
@@ -312,6 +314,7 @@ export function DetailPanel({
   presence = [],
   onGoBack,
   onOpenTask,
+  onTabChange,
   navBackLabel,
   commentVersion,
   fileVersion,
@@ -372,6 +375,12 @@ export function DetailPanel({
 
   // Local form state
   const [activeTab, setActiveTab] = React.useState<Tab>(tab);
+  /** User-initiated tab switch: update local state and notify the host
+   *  (the board mirrors it into the address bar for deep-linking). */
+  function handleTabChange(next: Tab) {
+    setActiveTab(next);
+    onTabChange?.(next);
+  }
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   // Live-doc display value and change router: bypass the local `description`
@@ -1726,7 +1735,7 @@ export function DetailPanel({
               size="sm"
               className={`dp-tab${activeTab === "details" ? " active" : ""}`}
               id="dp-tab-details"
-              onClick={() => setActiveTab("details")}
+              onClick={() => handleTabChange("details")}
             >
               Details
             </Button>
@@ -1735,7 +1744,7 @@ export function DetailPanel({
               size="sm"
               className={`dp-tab${activeTab === "comments" ? " active" : ""}`}
               id="dp-tab-activity"
-              onClick={() => setActiveTab("comments")}
+              onClick={() => handleTabChange("comments")}
             >
               Activity{" "}
               {commentCount > 0 && (
@@ -1752,7 +1761,7 @@ export function DetailPanel({
               size="sm"
               className={`dp-tab${activeTab === "files" ? " active" : ""}`}
               id="dp-tab-files"
-              onClick={() => setActiveTab("files")}
+              onClick={() => handleTabChange("files")}
             >
               Files{" "}
               {fileCount > 0 && (
